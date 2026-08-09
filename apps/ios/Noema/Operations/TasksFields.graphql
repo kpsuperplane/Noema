@@ -254,7 +254,7 @@ fragment TasksCommandTaskFields on TaskDetail {
   currentRun { ...TasksCurrentRunFields }
 }
 
-fragment TasksEventFields on WorkEvent {
+fragment TasksEventFields on TasksEvent {
   cursor
   eventId
   kind

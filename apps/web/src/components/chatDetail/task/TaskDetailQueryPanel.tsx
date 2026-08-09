@@ -1,14 +1,14 @@
 import * as React from "react";
 import { useQuery, useSubscription } from "@apollo/client/react";
 import {
-  WorkTaskDetailDocument,
-  WorkTaskEventsDocument,
-  type WorkTaskDetailQuery
+  TasksTaskDetailDocument,
+  TasksTaskEventsDocument,
+  type TasksTaskDetailQuery
 } from "@/generated/graphql";
-import { TaskActions } from "@/components/work/TaskActions";
+import { TaskActions } from "@/components/tasks/TaskActions";
 import { PendingHumanInterventions } from "@/components/actions/PendingGovernedActions";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
-import { useAllWorkProjects } from "@/components/work/useAllWorkProjects";
+import { useTaskProjects } from "@/components/tasks/useTaskProjects";
 import { useTaskEventCursor } from "./taskEventCursor";
 import { TaskDetailPanel } from "./TaskDetailPanel";
 import { taskStatusFromProjection } from "./TaskStatusBadge";
@@ -23,25 +23,25 @@ import type {
   TaskSubmission
 } from "./taskTypes";
 
-type WorkDetail = NonNullable<WorkTaskDetailQuery["task"]>;
+type TasksDetail = NonNullable<TasksTaskDetailQuery["task"]>;
 
 export function TaskDetailQueryPanel({
   taskId,
-  showWorkLink = true,
+  showTasksLink = true,
   onOpenDetail,
   onTaskTitleChange
 }: {
   taskId: string;
-  showWorkLink?: boolean;
+  showTasksLink?: boolean;
   onOpenDetail: (target: ChatDetailTarget) => void;
   onTaskTitleChange?: (title: string) => void;
 }) {
-  const result = useQuery(WorkTaskDetailDocument, {
+  const result = useQuery(TasksTaskDetailDocument, {
     variables: { taskId },
     fetchPolicy: "cache-and-network",
     notifyOnNetworkStatusChange: true
   });
-  const projects = useAllWorkProjects();
+  const projects = useTaskProjects();
   const queriedTask = result.data?.task ?? null;
   const task = queriedTask?.taskId === taskId ? queriedTask : null;
   const [cursor, recordCursor] = useTaskEventCursor(taskId);
@@ -49,7 +49,7 @@ export function TaskDetailQueryPanel({
     if (task?.title) onTaskTitleChange?.(task.title);
   }, [onTaskTitleChange, task?.title]);
 
-  useSubscription(WorkTaskEventsDocument, {
+  useSubscription(TasksTaskEventsDocument, {
     variables: { taskId, after: cursor },
     skip: task ? terminalBehavior(task.stage.behavior) : false,
     onData: ({ data }) => {
@@ -60,7 +60,7 @@ export function TaskDetailQueryPanel({
     }
   });
 
-  const detail = React.useMemo(() => task ? mapWorkTaskDetail(task) : null, [task]);
+  const detail = React.useMemo(() => task ? mapTaskDetail(task) : null, [task]);
   const taskControls = task?.validActions.filter((action) => action !== "ANSWER" && action !== "RETRY") ?? [];
   const renderPanel = (_actions?: React.ReactNode, controls?: React.ReactNode) => (
     <>
@@ -71,7 +71,7 @@ export function TaskDetailQueryPanel({
         loading={result.loading}
         onOpenDetail={onOpenDetail}
         controls={controls}
-        showWorkLink={showWorkLink}
+        showTasksLink={showTasksLink}
         taskId={taskId}
       />
     </>
@@ -93,7 +93,7 @@ export function TaskDetailQueryPanel({
   return renderPanel();
 }
 
-function mapWorkTaskDetail(task: WorkDetail): TaskDetail {
+function mapTaskDetail(task: TasksDetail): TaskDetail {
   const runs = task.runs.map(mapRun);
   const submissions = task.submissions.map(mapSubmission);
   const reviews = task.reviews.map(mapReview);
@@ -120,13 +120,13 @@ function mapWorkTaskDetail(task: WorkDetail): TaskDetail {
       };
     });
 
-  const reviewedCriteria = new Map<string, WorkDetail["reviews"][number]["criteria"][number]>();
+  const reviewedCriteria = new Map<string, TasksDetail["reviews"][number]["criteria"][number]>();
   for (const review of task.reviews) {
     for (const criterion of review.criteria) {
       if (!reviewedCriteria.has(criterion.criterionId)) reviewedCriteria.set(criterion.criterionId, criterion);
     }
   }
-  const submittedCriteria = new Map<string, WorkDetail["submissions"][number]["criteria"][number]>();
+  const submittedCriteria = new Map<string, TasksDetail["submissions"][number]["criteria"][number]>();
   for (const submission of task.submissions) {
     for (const criterion of submission.criteria) {
       if (!submittedCriteria.has(criterion.criterionId)) submittedCriteria.set(criterion.criterionId, criterion);
@@ -180,7 +180,7 @@ function mapWorkTaskDetail(task: WorkDetail): TaskDetail {
   };
 }
 
-function mapRun(run: WorkDetail["runs"][number]): TaskRun {
+function mapRun(run: TasksDetail["runs"][number]): TaskRun {
   return {
     id: run.runId,
     instanceName: run.instanceName,
@@ -209,7 +209,7 @@ function mapRun(run: WorkDetail["runs"][number]): TaskRun {
 }
 
 function mapSubmission(
-  submission: WorkDetail["submissions"][number]
+  submission: TasksDetail["submissions"][number]
 ): TaskSubmission {
   return {
     id: submission.submissionId,
@@ -232,7 +232,7 @@ function mapSubmission(
   };
 }
 
-function mapReview(review: WorkDetail["reviews"][number]): TaskReview {
+function mapReview(review: TasksDetail["reviews"][number]): TaskReview {
   return {
     id: review.reviewId,
     reviewerRunId: review.reviewerRunId,
@@ -248,7 +248,7 @@ function mapReview(review: WorkDetail["reviews"][number]): TaskReview {
   };
 }
 
-function sourceLabel(task: WorkDetail): string | null {
+function sourceLabel(task: TasksDetail): string | null {
   if (task.project) return task.project.name;
   if (task.source.conversationId) return "Conversation";
   return null;
@@ -260,6 +260,6 @@ function criterionVerdict(value: string): "pass" | "fail" | "uncertain" {
   return "uncertain";
 }
 
-function terminalBehavior(value: WorkDetail["stage"]["behavior"]): boolean {
+function terminalBehavior(value: TasksDetail["stage"]["behavior"]): boolean {
   return value === "TERMINAL_SUCCESS" || value === "TERMINAL_CANCELLED";
 }

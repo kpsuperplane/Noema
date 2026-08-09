@@ -1,5 +1,5 @@
 import { gql } from "@apollo/client";
-import { WorkGateFields, WorkTaskCardFields } from "./workFragments";
+import { TasksGateFields, TasksTaskCardFields } from "./tasksFragments";
 
 export const ResolveGovernedActionDocument = gql`
   mutation ResolveGovernedAction($input: ResolveGovernedActionInput!) {
@@ -39,10 +39,10 @@ export const PendingHumanInterventionsDocument = gql`
         summary
         validActions
         gate {
-          ...WorkGateFields
+          ...TasksGateFields
         }
         task {
-          ...WorkTaskCardFields
+          ...TasksTaskCardFields
         }
       }
       ... on GovernedAction {
@@ -171,8 +171,8 @@ export const PendingHumanInterventionsDocument = gql`
       }
     }
   }
-  ${WorkGateFields}
-  ${WorkTaskCardFields}
+  ${TasksGateFields}
+  ${TasksTaskCardFields}
 `;
 
 export const StartMcpAuthenticationDocument = gql`

@@ -32,7 +32,7 @@ nonisolated public struct TasksDetailQuery: GraphQLQuery {
       TasksDetailQuery.Data.self
     ] }
 
-    /// Return one owner-authorized Work task detail.
+    /// Return one owner-authorized Tasks task detail.
     public var task: Task { __data["task"] }
 
     /// Task

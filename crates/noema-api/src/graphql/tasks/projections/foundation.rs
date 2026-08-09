@@ -106,14 +106,14 @@ graphql_object_from! { "Immutable task execution contract." => pub struct Graphq
     "Frozen effective working directory." => effective_cwd: Option<String> = value.effective_cwd,
 } }
 
-graphql_object! { "One workflow-driven active board column and its authoritative count." => pub struct GraphqlWorkStageColumn("WorkStageColumn") {
+graphql_object! { "One workflow-driven active board column and its authoritative count." => pub struct GraphqlTaskStageColumn("TaskStageColumn") {
     "Stage metadata used to render the column." => stage: GraphqlWorkflowStage,
     "Number of active tasks in this stage and project scope." => task_count: i64,
 } }
-graphql_object! { "Transactionally coherent board bootstrap projection." => pub struct GraphqlWorkOverview("WorkOverview") {
+graphql_object! { "Transactionally coherent board bootstrap projection." => pub struct GraphqlTaskOverview("TasksOverview") {
     "Authorized workspace metadata." => workspace: GraphqlWorkspace,
     "Default workflow and all ordered stages." => workflow: GraphqlWorkflow,
-    "Board-visible columns in workflow order." => board_columns: Vec<GraphqlWorkStageColumn>,
+    "Board-visible columns in workflow order." => board_columns: Vec<GraphqlTaskStageColumn>,
     "Bounded recent active task cards." => recent_tasks: GraphqlTaskConnection,
     "Active cards requiring human attention." => needs_you_count: i64,
 } }

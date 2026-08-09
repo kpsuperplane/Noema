@@ -32,11 +32,11 @@ connection!(
     "Ordered project edges."
 );
 connection!(
-    GraphqlWorkEventEdge,
-    GraphqlWorkEventConnection,
-    GraphqlWorkEvent,
-    "WorkEventEdge",
-    "WorkEventConnection",
+    GraphqlTaskEventEdge,
+    GraphqlTaskEventConnection,
+    GraphqlTaskEvent,
+    "TasksEventEdge",
+    "TasksEventConnection",
     "Opaque event cursor.",
     "Ordered event edges."
 );

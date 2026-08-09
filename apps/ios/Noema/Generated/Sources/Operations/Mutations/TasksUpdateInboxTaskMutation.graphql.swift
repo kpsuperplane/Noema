@@ -32,7 +32,7 @@ nonisolated public struct TasksUpdateInboxTaskMutation: GraphQLMutation {
       TasksUpdateInboxTaskMutation.Data.self
     ] }
 
-    /// Edit Inbox capture fields through the semantic Work command service.
+    /// Edit Inbox capture fields through the semantic Tasks command service.
     public var updateInboxTask: UpdateInboxTask { __data["updateInboxTask"] }
 
     /// UpdateInboxTask

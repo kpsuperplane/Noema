@@ -4,7 +4,7 @@
 import ApolloAPI
 
 public extension Objects {
-  /// Configured ACP Work executor safe to show in Settings.
+  /// Configured ACP Tasks executor safe to show in Settings.
   nonisolated static let AcpAgent = ApolloAPI.Object(
     typename: "AcpAgent",
     implementedInterfaces: [],

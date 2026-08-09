@@ -48,7 +48,7 @@ export function renderableTranscriptEntries(
   agentStatus: ConversationAgentStatus,
   collapseConsecutiveToolCalls = false
 ): RenderTranscriptEntry[] {
-  const visibleEntries = attachWorkNotificationTasks(
+  const visibleEntries = attachTaskNotificationTasks(
     latestA2UISurfaces(entries).filter((entry) => entry.type !== "activity" || entry.item.activity_kind !== "hosted_web_search")
   );
   const renderedEntries = collapseConsecutiveToolCalls
@@ -70,12 +70,12 @@ function latestA2UISurfaces(entries: TranscriptEntry[]): TranscriptEntry[] {
   );
 }
 
-function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntry[] {
+function attachTaskNotificationTasks(entries: TranscriptEntry[]): TranscriptEntry[] {
   const references = new Map<string, Extract<TranscriptEntry, { type: "task" }>>();
   const messageIndexes = new Map<string, number>();
 
   entries.forEach((entry, index) => {
-    const notificationId = workNotificationId(entry);
+    const notificationId = taskNotificationId(entry);
     if (!notificationId) return;
     if (entry.type === "task" && metadataString(entry.metadata, "notification_kind") !== "task_created") {
       references.set(notificationId, entry);
@@ -87,7 +87,7 @@ function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntr
     }
   });
   const notificationEntries = entries.flatMap((entry, index) => {
-    const notificationId = workNotificationId(entry);
+    const notificationId = taskNotificationId(entry);
     if (
       entry.type === "task" &&
       notificationId &&
@@ -121,7 +121,7 @@ function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntr
   }, []);
 }
 
-function workNotificationId(entry: TranscriptEntry): string | undefined {
+function taskNotificationId(entry: TranscriptEntry): string | undefined {
   return entry.type === "assistant" || entry.type === "task"
     ? metadataString(entry.metadata, "notification_id")
     : undefined;

@@ -9,18 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as WorkRouteImport } from './routes/work'
+import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as WorkIndexRouteImport } from './routes/work/index'
+import { Route as TasksIndexRouteImport } from './routes/tasks/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as MemoryIndexRouteImport } from './routes/memory/index'
+import { Route as TasksTaskIdRouteImport } from './routes/tasks/$taskId'
 import { Route as SettingsModelsRouteImport } from './routes/settings/models'
 import { Route as SettingsMemoryRouteImport } from './routes/settings/memory'
 import { Route as SettingsAgentsRouteImport } from './routes/settings/agents'
 import { Route as MemorySplatRouteImport } from './routes/memory/$'
-import { Route as WorkTasksTaskIdRouteImport } from './routes/work/tasks/$taskId'
 import { Route as SettingsToolsWebRouteImport } from './routes/settings/tools/web'
 import { Route as SettingsToolsMcpsRouteImport } from './routes/settings/tools/mcps'
 import { Route as SettingsToolsApisRouteImport } from './routes/settings/tools/apis'
@@ -32,9 +32,9 @@ import { Route as SettingsSafetyPrivacyRouteImport } from './routes/settings/saf
 import { Route as SettingsToolsMcpsConnectionIdRouteImport } from './routes/settings/tools/mcps_.$connectionId'
 import { Route as SettingsToolsApisConnectionIdRouteImport } from './routes/settings/tools/apis_.$connectionId'
 
-const WorkRoute = WorkRouteImport.update({
-  id: '/work',
-  path: '/work',
+const TasksRoute = TasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -52,10 +52,10 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const WorkIndexRoute = WorkIndexRouteImport.update({
+const TasksIndexRoute = TasksIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => WorkRoute,
+  getParentRoute: () => TasksRoute,
 } as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/',
@@ -66,6 +66,11 @@ const MemoryIndexRoute = MemoryIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => MemoryRoute,
+} as any)
+const TasksTaskIdRoute = TasksTaskIdRouteImport.update({
+  id: '/$taskId',
+  path: '/$taskId',
+  getParentRoute: () => TasksRoute,
 } as any)
 const SettingsModelsRoute = SettingsModelsRouteImport.update({
   id: '/models',
@@ -86,11 +91,6 @@ const MemorySplatRoute = MemorySplatRouteImport.update({
   id: '/$',
   path: '/$',
   getParentRoute: () => MemoryRoute,
-} as any)
-const WorkTasksTaskIdRoute = WorkTasksTaskIdRouteImport.update({
-  id: '/tasks/$taskId',
-  path: '/tasks/$taskId',
-  getParentRoute: () => WorkRoute,
 } as any)
 const SettingsToolsWebRoute = SettingsToolsWebRouteImport.update({
   id: '/tools/web',
@@ -150,14 +150,15 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/memory': typeof MemoryRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
-  '/work': typeof WorkRouteWithChildren
+  '/tasks': typeof TasksRouteWithChildren
   '/memory/$': typeof MemorySplatRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/models': typeof SettingsModelsRoute
+  '/tasks/$taskId': typeof TasksTaskIdRoute
   '/memory/': typeof MemoryIndexRoute
   '/settings/': typeof SettingsIndexRoute
-  '/work/': typeof WorkIndexRoute
+  '/tasks/': typeof TasksIndexRoute
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/clients': typeof SettingsSystemClientsRoute
@@ -166,7 +167,6 @@ export interface FileRoutesByFullPath {
   '/settings/tools/apis': typeof SettingsToolsApisRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
-  '/work/tasks/$taskId': typeof WorkTasksTaskIdRoute
   '/settings/tools/apis/$connectionId': typeof SettingsToolsApisConnectionIdRoute
   '/settings/tools/mcps/$connectionId': typeof SettingsToolsMcpsConnectionIdRoute
 }
@@ -176,9 +176,10 @@ export interface FileRoutesByTo {
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/models': typeof SettingsModelsRoute
+  '/tasks/$taskId': typeof TasksTaskIdRoute
   '/memory': typeof MemoryIndexRoute
   '/settings': typeof SettingsIndexRoute
-  '/work': typeof WorkIndexRoute
+  '/tasks': typeof TasksIndexRoute
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/clients': typeof SettingsSystemClientsRoute
@@ -187,7 +188,6 @@ export interface FileRoutesByTo {
   '/settings/tools/apis': typeof SettingsToolsApisRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
-  '/work/tasks/$taskId': typeof WorkTasksTaskIdRoute
   '/settings/tools/apis/$connectionId': typeof SettingsToolsApisConnectionIdRoute
   '/settings/tools/mcps/$connectionId': typeof SettingsToolsMcpsConnectionIdRoute
 }
@@ -196,14 +196,15 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/memory': typeof MemoryRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
-  '/work': typeof WorkRouteWithChildren
+  '/tasks': typeof TasksRouteWithChildren
   '/memory/$': typeof MemorySplatRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/models': typeof SettingsModelsRoute
+  '/tasks/$taskId': typeof TasksTaskIdRoute
   '/memory/': typeof MemoryIndexRoute
   '/settings/': typeof SettingsIndexRoute
-  '/work/': typeof WorkIndexRoute
+  '/tasks/': typeof TasksIndexRoute
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/clients': typeof SettingsSystemClientsRoute
@@ -212,7 +213,6 @@ export interface FileRoutesById {
   '/settings/tools/apis': typeof SettingsToolsApisRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
-  '/work/tasks/$taskId': typeof WorkTasksTaskIdRoute
   '/settings/tools/apis_/$connectionId': typeof SettingsToolsApisConnectionIdRoute
   '/settings/tools/mcps_/$connectionId': typeof SettingsToolsMcpsConnectionIdRoute
 }
@@ -222,14 +222,15 @@ export interface FileRouteTypes {
     | '/'
     | '/memory'
     | '/settings'
-    | '/work'
+    | '/tasks'
     | '/memory/$'
     | '/settings/agents'
     | '/settings/memory'
     | '/settings/models'
+    | '/tasks/$taskId'
     | '/memory/'
     | '/settings/'
-    | '/work/'
+    | '/tasks/'
     | '/settings/safety/privacy'
     | '/settings/safety/usage'
     | '/settings/system/clients'
@@ -238,7 +239,6 @@ export interface FileRouteTypes {
     | '/settings/tools/apis'
     | '/settings/tools/mcps'
     | '/settings/tools/web'
-    | '/work/tasks/$taskId'
     | '/settings/tools/apis/$connectionId'
     | '/settings/tools/mcps/$connectionId'
   fileRoutesByTo: FileRoutesByTo
@@ -248,9 +248,10 @@ export interface FileRouteTypes {
     | '/settings/agents'
     | '/settings/memory'
     | '/settings/models'
+    | '/tasks/$taskId'
     | '/memory'
     | '/settings'
-    | '/work'
+    | '/tasks'
     | '/settings/safety/privacy'
     | '/settings/safety/usage'
     | '/settings/system/clients'
@@ -259,7 +260,6 @@ export interface FileRouteTypes {
     | '/settings/tools/apis'
     | '/settings/tools/mcps'
     | '/settings/tools/web'
-    | '/work/tasks/$taskId'
     | '/settings/tools/apis/$connectionId'
     | '/settings/tools/mcps/$connectionId'
   id:
@@ -267,14 +267,15 @@ export interface FileRouteTypes {
     | '/'
     | '/memory'
     | '/settings'
-    | '/work'
+    | '/tasks'
     | '/memory/$'
     | '/settings/agents'
     | '/settings/memory'
     | '/settings/models'
+    | '/tasks/$taskId'
     | '/memory/'
     | '/settings/'
-    | '/work/'
+    | '/tasks/'
     | '/settings/safety/privacy'
     | '/settings/safety/usage'
     | '/settings/system/clients'
@@ -283,7 +284,6 @@ export interface FileRouteTypes {
     | '/settings/tools/apis'
     | '/settings/tools/mcps'
     | '/settings/tools/web'
-    | '/work/tasks/$taskId'
     | '/settings/tools/apis_/$connectionId'
     | '/settings/tools/mcps_/$connectionId'
   fileRoutesById: FileRoutesById
@@ -292,16 +292,16 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   MemoryRoute: typeof MemoryRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
-  WorkRoute: typeof WorkRouteWithChildren
+  TasksRoute: typeof TasksRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/work': {
-      id: '/work'
-      path: '/work'
-      fullPath: '/work'
-      preLoaderRoute: typeof WorkRouteImport
+    '/tasks': {
+      id: '/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof TasksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -325,12 +325,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/work/': {
-      id: '/work/'
+    '/tasks/': {
+      id: '/tasks/'
       path: '/'
-      fullPath: '/work/'
-      preLoaderRoute: typeof WorkIndexRouteImport
-      parentRoute: typeof WorkRoute
+      fullPath: '/tasks/'
+      preLoaderRoute: typeof TasksIndexRouteImport
+      parentRoute: typeof TasksRoute
     }
     '/settings/': {
       id: '/settings/'
@@ -345,6 +345,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/memory/'
       preLoaderRoute: typeof MemoryIndexRouteImport
       parentRoute: typeof MemoryRoute
+    }
+    '/tasks/$taskId': {
+      id: '/tasks/$taskId'
+      path: '/$taskId'
+      fullPath: '/tasks/$taskId'
+      preLoaderRoute: typeof TasksTaskIdRouteImport
+      parentRoute: typeof TasksRoute
     }
     '/settings/models': {
       id: '/settings/models'
@@ -373,13 +380,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/memory/$'
       preLoaderRoute: typeof MemorySplatRouteImport
       parentRoute: typeof MemoryRoute
-    }
-    '/work/tasks/$taskId': {
-      id: '/work/tasks/$taskId'
-      path: '/tasks/$taskId'
-      fullPath: '/work/tasks/$taskId'
-      preLoaderRoute: typeof WorkTasksTaskIdRouteImport
-      parentRoute: typeof WorkRoute
     }
     '/settings/tools/web': {
       id: '/settings/tools/web'
@@ -505,23 +505,23 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
   SettingsRouteChildren,
 )
 
-interface WorkRouteChildren {
-  WorkIndexRoute: typeof WorkIndexRoute
-  WorkTasksTaskIdRoute: typeof WorkTasksTaskIdRoute
+interface TasksRouteChildren {
+  TasksTaskIdRoute: typeof TasksTaskIdRoute
+  TasksIndexRoute: typeof TasksIndexRoute
 }
 
-const WorkRouteChildren: WorkRouteChildren = {
-  WorkIndexRoute: WorkIndexRoute,
-  WorkTasksTaskIdRoute: WorkTasksTaskIdRoute,
+const TasksRouteChildren: TasksRouteChildren = {
+  TasksTaskIdRoute: TasksTaskIdRoute,
+  TasksIndexRoute: TasksIndexRoute,
 }
 
-const WorkRouteWithChildren = WorkRoute._addFileChildren(WorkRouteChildren)
+const TasksRouteWithChildren = TasksRoute._addFileChildren(TasksRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   MemoryRoute: MemoryRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
-  WorkRoute: WorkRouteWithChildren,
+  TasksRoute: TasksRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

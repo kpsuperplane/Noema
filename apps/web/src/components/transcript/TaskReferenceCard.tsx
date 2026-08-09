@@ -1,8 +1,8 @@
 import { useQuery, useSubscription } from "@apollo/client/react";
 import {
-  WorkTaskReferenceDocument,
-  WorkTaskEventsDocument,
-  type WorkTaskReferenceQuery
+  TasksTaskReferenceDocument,
+  TasksTaskEventsDocument,
+  type TasksTaskReferenceQuery
 } from "@/generated/graphql";
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
@@ -20,7 +20,7 @@ export function TaskReferenceCard({
   taskId: string;
   onOpenDetail?: (target: Extract<ChatDetailTarget, { type: "task" }>) => void;
 }) {
-  const result = useQuery(WorkTaskReferenceDocument, {
+  const result = useQuery(TasksTaskReferenceDocument, {
     variables: { taskId },
     fetchPolicy: "cache-and-network",
     notifyOnNetworkStatusChange: true
@@ -28,7 +28,7 @@ export function TaskReferenceCard({
   const [cursor, recordCursor] = useTaskEventCursor(taskId);
   const queriedTask = result.data?.task ?? null;
   const task = queriedTask?.taskId === taskId ? queriedTask : null;
-  useSubscription(WorkTaskEventsDocument, {
+  useSubscription(TasksTaskEventsDocument, {
     variables: { taskId, after: cursor },
     skip: !task,
     onData: ({ data }) => {
@@ -74,7 +74,7 @@ export function TaskReferenceCard({
   );
 }
 
-type TaskReference = NonNullable<WorkTaskReferenceQuery["task"]>;
+type TaskReference = NonNullable<TasksTaskReferenceQuery["task"]>;
 
 function taskChipProgress(task: TaskReference | null): string {
   if (!task) return "Unavailable";

@@ -73,7 +73,11 @@ describe("settings routes", () => {
     );
   });
 
-  test("routes memory to top-level memory", () => {
+  test("routes primary product paths", () => {
+    assert.deepEqual(routeFromPathname("/tasks"), { kind: "tasks" });
+    assert.deepEqual(routeFromPathname("/tasks/task:one"), { kind: "tasks" });
+    assert.equal(pathForRoute({ kind: "tasks" }), "/tasks");
+    assert.deepEqual(routeFromPathname("/work"), { kind: "chat" });
     assert.deepEqual(routeFromPathname("/memory"), { kind: "memory" });
     assert.deepEqual(routeFromPathname("/memory/technical/noema"), { kind: "memory" });
     assert.equal(pathForRoute({ kind: "memory" }), "/memory");

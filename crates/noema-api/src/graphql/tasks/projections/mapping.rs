@@ -230,18 +230,18 @@ pub(crate) fn task_connection(
 /// Map a Store event connection to GraphQL.
 pub(crate) fn event_connection(
     value: WorkEventConnection,
-) -> async_graphql::Result<GraphqlWorkEventConnection> {
-    Ok(GraphqlWorkEventConnection {
+) -> async_graphql::Result<GraphqlTaskEventConnection> {
+    Ok(GraphqlTaskEventConnection {
         edges: value
             .edges
             .into_iter()
             .map(|edge| -> async_graphql::Result<_> {
                 let cursor = edge.cursor.encode();
-                let node = GraphqlWorkEvent::try_from(edge.node).map_err(|_| unavailable())?;
+                let node = GraphqlTaskEvent::try_from(edge.node).map_err(|_| unavailable())?;
                 if node.cursor != cursor {
                     return Err(unavailable());
                 }
-                Ok(GraphqlWorkEventEdge { cursor, node })
+                Ok(GraphqlTaskEventEdge { cursor, node })
             })
             .collect::<async_graphql::Result<_>>()?,
         page_info: value.page_info.into(),
@@ -279,7 +279,7 @@ pub(crate) fn run_item_connection(value: WorkRunItemConnection) -> GraphqlTaskRu
 
 pub(crate) fn overview_from_store(
     value: WorkOverview,
-) -> async_graphql::Result<GraphqlWorkOverview> {
+) -> async_graphql::Result<GraphqlTaskOverview> {
     let workflow = GraphqlWorkflow::from_parts(
         value.default_workflow.workflow,
         value.default_workflow.stages.clone(),
@@ -288,13 +288,13 @@ pub(crate) fn overview_from_store(
         .board_stage_counts
         .into_iter()
         .map(|count| -> async_graphql::Result<_> {
-            Ok(GraphqlWorkStageColumn {
+            Ok(GraphqlTaskStageColumn {
                 stage: count.stage.into(),
                 task_count: exact_u64(count.task_count)?,
             })
         })
         .collect::<async_graphql::Result<_>>()?;
-    Ok(GraphqlWorkOverview {
+    Ok(GraphqlTaskOverview {
         workspace: value.workspace.into(),
         workflow,
         board_columns,

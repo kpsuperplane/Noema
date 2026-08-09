@@ -191,7 +191,7 @@ graphql_enum_from!(AcpAgentAuthStatus => GraphqlAcpAgentAuthStatus {
     Failed => Failed,
 });
 
-/// Configured ACP Work executor safe to show in Settings.
+/// Configured ACP task executor safe to show in Settings.
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "AcpAgent")]
 pub struct GraphqlAcpAgent {

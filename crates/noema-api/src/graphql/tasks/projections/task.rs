@@ -125,7 +125,7 @@ graphql_object! { "Full task detail projection." => pub struct GraphqlTaskDetail
     "Server-authorized actions." => valid_actions: Vec<GraphqlValidTaskAction>,
 } }
 
-graphql_object! { "Durable Work ledger event projection." => pub struct GraphqlWorkEvent("WorkEvent") {
+graphql_object! { "Saved Tasks event." => pub struct GraphqlTaskEvent("TasksEvent") {
     "Opaque global event cursor." => cursor: String,
     "Event identity." => event_id: String,
     "Closed dotted event kind." => kind: String,
@@ -140,7 +140,7 @@ graphql_object! { "Durable Work ledger event projection." => pub struct GraphqlW
     "Bounded safe JSON payload." => payload: Json<serde_json::Value>,
 } }
 
-impl TryFrom<noema_tasks::WorkEventRecord> for GraphqlWorkEvent {
+impl TryFrom<noema_tasks::WorkEventRecord> for GraphqlTaskEvent {
     type Error = noema_store::WorkCursorError;
 
     fn try_from(value: noema_tasks::WorkEventRecord) -> Result<Self, Self::Error> {

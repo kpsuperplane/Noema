@@ -1,6 +1,6 @@
-# Work Contract
+# Tasks Contract
 
-This document records the current durable contract for Noema Work. It replaces
+This document records the current durable contract for Noema Tasks. It replaces
 the completed design program and multi-agent implementation packets that
 originally built the subsystem. Git history owns those execution details; new
 work should follow the current code and this contract rather than reconstructing
@@ -8,8 +8,8 @@ the old horizontal program.
 
 ## Product boundary
 
-Work is Noema's durable system for capturing, organizing, executing, reviewing,
-and completing tasks. Chat is the simplest entry point, while `/work` provides a
+Tasks is Noema's durable system for capturing, organizing, executing, reviewing,
+and completing tasks. Chat is the simplest entry point, while `/tasks` provides a
 denser management surface. Both operate on the same task and semantic command
 model.
 
@@ -17,13 +17,13 @@ The current product has:
 
 - one seeded Personal workspace and one seeded Personal workflow;
 - optional projects that organize tasks without changing their execution;
-- one canonical task object shared by chat, runtime, API, and UI;
+- one task record shared by chat, runtime, API, and UI;
 - planner, executor, and reviewer runs supervised by the runtime;
 - explicit human gates for clarification, approval, and recovery;
 - immutable execution contracts, submissions, and reviews;
 - a monotonic event ledger for audit and client invalidation.
 
-Work is a general personal-task system. Repository scanning, branches,
+Tasks is a general personal-task system. Repository scanning, branches,
 worktrees, terminals, commits, and pull requests are adapter concerns rather
 than core task concepts.
 
@@ -119,9 +119,9 @@ execution; the configured overlap policy continues to govern cron slots only.
 
 Due processing revision-fences the Task or recurrence and commits occurrence
 history, recurrence advancement, Task creation/Queue authorization, audit, and
-invalidation in one idempotent transaction. The Work runtime owns one dynamic
+invalidation in one idempotent transaction. The Tasks runtime owns one dynamic
 deadline for the earliest Task or recurrence and recomputes it on startup and
-Work invalidations; adapter schedules and additional polling loops are not
+Tasks invalidations; adapter schedules and additional polling loops are not
 schedule authority.
 
 The Tasks surface orders active work as Needs you, Running, Scheduled, Up next,
@@ -135,7 +135,7 @@ Task history.
 
 ## Commands and transactions
 
-Public mutations use semantic Work commands: capture, update Inbox, queue,
+Public mutations use semantic Tasks commands: capture, update Inbox, queue,
 schedule/reschedule/unschedule/run-now, recurrence update/lifecycle/run-now,
 answer, retry, cancel, reopen, delegate, and project
 create/update/archive/reopen. Do not expose a generic `set_stage` operation.
@@ -201,7 +201,7 @@ SQLite is canonical and is opened only by the Noema server. Schema changes
 append forward-only store migrations so persisted application rows survive
 upgrades; applied migrations are immutable.
 
-Work persists concrete workspace, project, workflow, stage, task, contract,
+Tasks persists concrete workspace, project, workflow, stage, task, contract,
 criterion, gate, run, run-item, submission, review, command-receipt, event, and
 notification records. Foreign keys and unique indexes enforce identity and
 lineage where SQLite can express them; command transactions enforce the
@@ -265,7 +265,7 @@ governed by the capability system and exact approval state.
 Task progress and task-originated notices appear in the primary conversation as
 agent-authored updates alongside a durable task attachment. The attachment is
 stored as a `task_reference` conversation item containing only the task id;
-GraphQL clients hydrate the current task projection and subscribe to Work events
+GraphQL clients hydrate the current task projection and subscribe to Tasks events
 so the card stays live. Detailed run transcripts remain attached to the task
 and should not flood the main chat. A successful completion notice also attaches
 every artifact from the accepted submission as a durable artifact reference.
@@ -273,16 +273,16 @@ every artifact from the accepted submission as a durable artifact reference.
 ## API and UI
 
 GraphQL exposes bounded workspace, project, task-list, task-detail, transcript,
-and overview reads; semantic mutations; and a cursor-based Work event
+and overview reads; semantic mutations; and a cursor-based Tasks event
 subscription. Inputs map to domain commands, and resolver projections derive
-attention and valid actions from canonical store facts.
+attention and valid actions from stored facts.
 
 Clients must use generated GraphQL types and server-owned valid actions. Do not
 mirror stage-transition rules in TypeScript. After reconnect, clients refetch
 canonical reads and use the event cursor only to invalidate or advance them.
 
 The primary chat shows compact task markers and human decisions when action is
-needed. Tasks names the `/work` product surface containing one task-first
+needed. Tasks is the `/tasks` product surface. It contains one task-first
 operational queue, project organization, and task detail. The queue leads with
 decisions that need the human, groups active
 work by the existing Active, Dispatch, and Intake stage behaviors, then ends
@@ -345,14 +345,14 @@ hidden until their mutation is implemented.
 The current implementation is organized by responsibility:
 
 - `crates/noema-workspaces` owns workspace and project domain records;
-- `crates/noema-tasks` owns Work task, workflow, command, planning, gate, run,
+- `crates/noema-tasks` owns Tasks task, workflow, command, planning, gate, run,
   event, contract, submission, and review vocabulary;
-- Work modules in `crates/noema-store` own SQLite commands, reads, leases,
+- Tasks modules in `crates/noema-store` own SQLite commands, reads, leases,
   reconciliation, events, and notifications;
-- Work modules in `crates/noema-runtime` own supervised task execution and
+- Tasks modules in `crates/noema-runtime` own supervised task execution and
   runtime tools;
 - task modules in `crates/noema-api` own GraphQL projections and resolvers;
-- `apps/web` owns chat and `/work` presentation using generated contracts.
+- `apps/web` owns chat and `/tasks` presentation using generated contracts.
 
 These are responsibility boundaries, not a mandate to split feature work
 horizontally. New behavior should be implemented as one small vertical slice,

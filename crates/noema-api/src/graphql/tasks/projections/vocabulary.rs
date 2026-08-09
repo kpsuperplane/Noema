@@ -1,4 +1,4 @@
-//! Exhaustive GraphQL enums for closed Work-domain vocabularies.
+//! Exhaustive GraphQL enums for closed task-domain vocabularies.
 
 use async_graphql::Enum;
 

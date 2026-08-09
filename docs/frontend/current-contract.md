@@ -4,14 +4,14 @@ This document records the frontend boundaries that are not obvious from the
 implementation. Route and GraphQL details remain code-generated authorities:
 
 - `apps/web/src/app/routes.ts` owns route parsing and canonical paths;
-- `apps/web/src/app/routes/` owns TanStack Router composition;
-- `apps/web/src/graphql/operations.ts` owns authored web operations;
+- `apps/web/src/routes/` owns TanStack Router composition;
+- `apps/web/src/graphql/tasksOperations.ts` owns authored Tasks operations;
 - `graphql/schema.graphql` is the generated API schema;
 - `apps/web/src/generated/graphql.ts` is generated and must not be hand-edited.
 
 ## Product surfaces
 
-The primary destinations are Chat (`/`), Work (`/work`), Memory (`/memory`),
+The primary destinations are Chat (`/`), Tasks (`/tasks`), Memory (`/memory`),
 and Settings. The current settings roots are:
 
 - `/settings/agents`
@@ -31,14 +31,14 @@ add disabled navigation merely to reserve future information architecture.
 
 ## State authorities
 
-- SQLite owns durable conversations, transcript items, Work, provider and tool
+- SQLite owns durable conversations, transcript items, tasks, provider and tool
   metadata, policies, approvals, and client state.
 - Native Markdown under `memory/human/` owns durable human memory; SQLite FTS is
   a rebuildable search projection.
 - GraphQL queries provide scoped read models, mutations execute explicit
   commands, and subscriptions carry live changes.
 - Daemon and WebSocket state is coordination state, not a second durable
-  transcript or Work authority.
+  transcript or task authority.
 - Browser code never receives credential material. Provider-auth redirects and
   callbacks remain server-governed flows.
 

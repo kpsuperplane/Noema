@@ -38,7 +38,7 @@ import {
   breadcrumbForRoute,
   shellMenuLevelForRoute,
   shellPrimaryItems,
-  workMenuLevelForProjects,
+  tasksMenuLevelForProjects,
   type ShellBreadcrumb,
   type ShellMenuItem
 } from "./shellNavigation";
@@ -53,8 +53,8 @@ import {
   LOCAL_AGENT_AVATAR_ID,
   type IdentityAvatarActivity
 } from "@/components/IdentityAvatar";
-import { useAllWorkProjects } from "@/components/work/useAllWorkProjects";
-import { WorkSidebar } from "@/components/work/WorkSidebar";
+import { useTaskProjects } from "@/components/tasks/useTaskProjects";
+import { TasksSidebar } from "@/components/tasks/TasksSidebar";
 import type { PwaRuntimeSnapshot } from "@/pwa/runtime";
 
 export type ShellAttention = {
@@ -343,26 +343,26 @@ export function AppShell({
   const memoryTree = memoryTreeResult.data?.memoryTree ?? null;
   const memoryOpen = route.kind === "memory";
   const settingsOpen = route.kind === "settings";
-  const workOpen = route.kind === "work";
-  const workProjectsResult = useAllWorkProjects({ skip: !workOpen });
+  const tasksOpen = route.kind === "tasks";
+  const tasksProjectsResult = useTaskProjects({ skip: !tasksOpen });
   const memoryHasSidebar = memoryOpen && memoryTree?.root
     ? memoryTree.pages.some((page) => page.path !== memoryTree.root?.path)
     : false;
-  const workMenuLevel = workOpen
-    ? workMenuLevelForProjects(workProjectsResult.projects, route.projectId)
+  const tasksMenuLevel = tasksOpen
+    ? tasksMenuLevelForProjects(tasksProjectsResult.projects, route.projectId)
     : null;
-  const hasShellSidebar = memoryHasSidebar || settingsOpen || workOpen;
+  const hasShellSidebar = memoryHasSidebar || settingsOpen || tasksOpen;
   const sidebarRef = useMobileMenuRevealHeight(hasShellSidebar, shellRootRef);
   const sidebarLabel = !hasShellSidebar
     ? undefined
     : settingsOpen
       ? "Settings navigation"
-      : workOpen
+      : tasksOpen
         ? "Task folders"
         : "Memory navigation";
   const menuLevel = settingsOpen
     ? shellMenuLevelForRoute(route)
-    : workMenuLevel;
+    : tasksMenuLevel;
   const activeMenuEntry = menuLevel?.items.find(
     (entry) => entry.kind === "item" && entry.item.itemId === menuLevel.activeItemId
   );
@@ -633,13 +633,13 @@ export function AppShell({
         <AnimatePresence initial={false}>
           {hasShellSidebar ? (
             <ShellSidebarRouteContent key="shell-sidebar-route-content">
-              {workMenuLevel ? (
-                <WorkSidebar
-                  menuLevel={workMenuLevel}
-                  projects={workProjectsResult.projects}
+              {tasksMenuLevel ? (
+                <TasksSidebar
+                  menuLevel={tasksMenuLevel}
+                  projects={tasksProjectsResult.projects}
                   onSelectItem={selectShellMenuItem}
                   onUpdated={async () => {
-                    await workProjectsResult.refetch();
+                    await tasksProjectsResult.refetch();
                   }}
                 />
               ) : menuLevel ? (

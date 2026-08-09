@@ -1,5 +1,5 @@
 query TasksOverview($workspaceId: String!, $projectId: String) {
-  workOverview(workspaceId: $workspaceId, projectId: $projectId) {
+  tasksOverview(workspaceId: $workspaceId, projectId: $projectId) {
     workspace { ...TasksWorkspaceFields }
     workflow {
       workflowId
@@ -64,8 +64,8 @@ query TasksTaskRecurrence($recurrenceId: String!, $first: Int = 30) {
   }
 }
 
-query TasksList($input: WorkTasksInput!, $first: Int = 50, $after: String) {
-  workTasks(input: $input, first: $first, after: $after) {
+query TasksList($input: TaskListInput!, $first: Int = 50, $after: String) {
+  tasks(input: $input, first: $first, after: $after) {
     edges {
       cursor
       node { ...TasksTaskSummaryFields }

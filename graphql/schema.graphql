@@ -45,7 +45,7 @@ type A2UISurface {
 }
 
 """
-Configured ACP Work executor safe to show in Settings.
+Configured ACP task executor safe to show in Settings.
 """
 type AcpAgent {
 	agentId: String!
@@ -2416,31 +2416,31 @@ type MutationRoot {
 	"""
 	retryLocalModelRuntime: LocalModelRuntimeStatus!
 	"""
-	Create a project through the semantic Work command service.
+	Create a project through the task command service.
 	"""
 	createProject(input: CreateProjectInput!): ProjectCommandPayload!
 	"""
-	Update a project through the semantic Work command service.
+	Update a project through the task command service.
 	"""
 	updateProject(input: UpdateProjectInput!): ProjectCommandPayload!
 	"""
-	Archive a project through the semantic Work command service.
+	Archive a project through the task command service.
 	"""
 	archiveProject(input: ArchiveProjectInput!): ProjectCommandPayload!
 	"""
-	Reopen a project through the semantic Work command service.
+	Reopen a project through the task command service.
 	"""
 	reopenProject(input: ReopenProjectInput!): ProjectCommandPayload!
 	"""
-	Capture a task in Inbox through the semantic Work command service.
+	Capture a task in Inbox through the task command service.
 	"""
 	captureTask(input: CaptureTaskInput!): TaskCommandPayload!
 	"""
-	Edit Inbox capture fields through the semantic Work command service.
+	Edit Inbox capture fields through the task command service.
 	"""
 	updateInboxTask(input: UpdateInboxTaskInput!): TaskCommandPayload!
 	"""
-	Queue an Inbox task through the semantic Work command service.
+	Queue an Inbox task through the task command service.
 	"""
 	queueTask(input: QueueTaskInput!): TaskCommandPayload!
 	"""
@@ -2504,7 +2504,7 @@ type MutationRoot {
 	"""
 	updateTaskModelPoolEntry(poolEntryId: String!, input: TaskModelPoolEntryInput!): TaskModelPoolEntry!
 	"""
-	Replace user-controlled task safety limits while retaining Work-owned bounds.
+	Replace user-controlled task safety limits while retaining task-owned bounds.
 	"""
 	updateTaskExecutionPolicy(input: TaskExecutionPolicyInput!): TaskExecutionPolicy!
 	"""
@@ -3293,11 +3293,11 @@ type QueryRoot {
 	"""
 	agents: [Agent!]!
 	"""
-	List configured ACP Work executors.
+	List configured ACP task executors.
 	"""
 	acpAgents: [AcpAgent!]!
 	"""
-	Return one owner-authorized Work task detail.
+	Return one owner-authorized task detail.
 	"""
 	task(taskId: String!): TaskDetail!
 	"""
@@ -3313,13 +3313,13 @@ type QueryRoot {
 	"""
 	projects(workspaceId: String!, includeArchived: Boolean, first: Int, after: String): ProjectConnection!
 	"""
-	Return one coherent board bootstrap projection.
+	Return one coherent Tasks overview.
 	"""
-	workOverview(workspaceId: String!, projectId: String): WorkOverview!
+	tasksOverview(workspaceId: String!, projectId: String): TasksOverview!
 	"""
-	List board/list tasks through one bounded batch-hydrated Store query.
+	List tasks through one bounded store query.
 	"""
-	workTasks(input: WorkTasksInput!, first: Int, after: String): TaskConnection!
+	tasks(input: TaskListInput!, first: Int, after: String): TaskConnection!
 	"""
 	Return unresolved gate/review attention cards.
 	"""
@@ -3333,9 +3333,9 @@ type QueryRoot {
 	"""
 	pendingHumanInterventions(conversationId: String, taskId: String, projectId: String, first: Int): [HumanIntervention!]!
 	"""
-	Return the durable Work activity ledger for a scope.
+	Return saved Tasks activity for a scope.
 	"""
-	workActivity(workspaceId: String!, projectId: String, taskId: String, first: Int, after: String): WorkEventConnection!
+	tasksActivity(workspaceId: String!, projectId: String, taskId: String, first: Int, after: String): TasksEventConnection!
 	"""
 	Return Done and Cancelled task history through the terminal scope.
 	"""
@@ -4080,13 +4080,13 @@ type SubscriptionRoot {
 	"""
 	memoryEvents: GraphqlNativeMemoryTree!
 	"""
-	Replay and stream the workspace-scoped durable Work ledger.
+	Replay and stream workspace-scoped Tasks events.
 	"""
-	workEvents(workspaceId: String!, after: String): WorkEvent!
+	tasksEvents(workspaceId: String!, after: String): TasksEvent!
 	"""
-	Stream the task-filtered projection of the same durable Work ledger.
+	Stream the task-filtered view of the same Tasks events.
 	"""
-	taskEvents(taskId: String!, after: String): WorkEvent!
+	taskEvents(taskId: String!, after: String): TasksEvent!
 	"""
 	Wake subscribers when live task-run transcript items are persisted.
 	"""
@@ -4630,6 +4630,40 @@ enum TaskGateState {
 	OPEN
 	RESOLVED
 	SUPERSEDED
+}
+
+"""
+Board/list task filter input.
+"""
+input TaskListInput {
+	"""
+	Workspace scope.
+	"""
+	workspaceId: String!
+	"""
+	Optional project scope.
+	"""
+	projectId: String
+	"""
+	Optional explicit stage identities.
+	"""
+	stageIds: [String!]
+	"""
+	Optional semantic stage behavior filter.
+	"""
+	stageBehaviors: [WorkflowStageBehavior!]
+	"""
+	Case-insensitive title/description search.
+	"""
+	text: String
+	"""
+	Restrict results to unresolved human attention.
+	"""
+	attentionOnly: Boolean! = false
+	"""
+	Active, terminal, or combined scope.
+	"""
+	scope: TaskScope! = ACTIVE
 }
 
 """
@@ -5331,6 +5365,24 @@ input TaskSchedulePreviewInput {
 }
 
 """
+Scope of a task connection.
+"""
+enum TaskScope {
+	"""
+	Nonterminal workflow stages.
+	"""
+	ACTIVE
+	"""
+	Done and cancelled history.
+	"""
+	TERMINAL
+	"""
+	Both active and terminal tasks.
+	"""
+	ALL
+}
+
+"""
 Safe task provenance.
 """
 type TaskSource {
@@ -5338,6 +5390,20 @@ type TaskSource {
 	Source conversation.
 	"""
 	conversationId: String
+}
+
+"""
+One workflow-driven active board column and its authoritative count.
+"""
+type TaskStageColumn {
+	"""
+	Stage metadata used to render the column.
+	"""
+	stage: WorkflowStage!
+	"""
+	Number of active tasks in this stage and project scope.
+	"""
+	taskCount: Int!
 }
 
 """
@@ -5570,6 +5636,114 @@ input TaskValidationCriterionInput {
 	Optional evidence guidance.
 	"""
 	expectedEvidence: String
+}
+
+"""
+Saved Tasks event.
+"""
+type TasksEvent {
+	"""
+	Opaque global event cursor.
+	"""
+	cursor: String!
+	"""
+	Event identity.
+	"""
+	eventId: String!
+	"""
+	Closed dotted event kind.
+	"""
+	kind: String!
+	"""
+	Event timestamp.
+	"""
+	occurredAt: String!
+	"""
+	Workspace linkage.
+	"""
+	workspaceId: String!
+	"""
+	Project linkage.
+	"""
+	projectId: String
+	"""
+	Task linkage.
+	"""
+	taskId: String
+	"""
+	Run linkage.
+	"""
+	runId: String
+	"""
+	Safe audit actor.
+	"""
+	actor: String!
+	"""
+	Causation identity.
+	"""
+	causationId: String
+	"""
+	Correlation identity.
+	"""
+	correlationId: String!
+	"""
+	Bounded safe JSON payload.
+	"""
+	payload: JSON!
+}
+
+"""
+Bounded connection.
+"""
+type TasksEventConnection {
+	"""
+	Ordered event edges.
+	"""
+	edges: [TasksEventEdge!]!
+	"""
+	Pagination metadata.
+	"""
+	pageInfo: PageInfo!
+}
+
+"""
+Connection edge.
+"""
+type TasksEventEdge {
+	"""
+	Opaque event cursor.
+	"""
+	cursor: String!
+	"""
+	Connection node.
+	"""
+	node: TasksEvent!
+}
+
+"""
+Transactionally coherent board bootstrap projection.
+"""
+type TasksOverview {
+	"""
+	Authorized workspace metadata.
+	"""
+	workspace: Workspace!
+	"""
+	Default workflow and all ordered stages.
+	"""
+	workflow: Workflow!
+	"""
+	Board-visible columns in workflow order.
+	"""
+	boardColumns: [TaskStageColumn!]!
+	"""
+	Bounded recent active task cards.
+	"""
+	recentTasks: TaskConnection!
+	"""
+	Active cards requiring human attention.
+	"""
+	needsYouCount: Int!
 }
 
 """
@@ -5972,180 +6146,6 @@ type WebToolSettings {
 	search: WebToolBindingSettings!
 	fetch: WebToolBindingSettings!
 	browse: WebToolBindingSettings!
-}
-
-"""
-Durable Work ledger event projection.
-"""
-type WorkEvent {
-	"""
-	Opaque global event cursor.
-	"""
-	cursor: String!
-	"""
-	Event identity.
-	"""
-	eventId: String!
-	"""
-	Closed dotted event kind.
-	"""
-	kind: String!
-	"""
-	Event timestamp.
-	"""
-	occurredAt: String!
-	"""
-	Workspace linkage.
-	"""
-	workspaceId: String!
-	"""
-	Project linkage.
-	"""
-	projectId: String
-	"""
-	Task linkage.
-	"""
-	taskId: String
-	"""
-	Run linkage.
-	"""
-	runId: String
-	"""
-	Safe audit actor.
-	"""
-	actor: String!
-	"""
-	Causation identity.
-	"""
-	causationId: String
-	"""
-	Correlation identity.
-	"""
-	correlationId: String!
-	"""
-	Bounded safe JSON payload.
-	"""
-	payload: JSON!
-}
-
-"""
-Bounded connection.
-"""
-type WorkEventConnection {
-	"""
-	Ordered event edges.
-	"""
-	edges: [WorkEventEdge!]!
-	"""
-	Pagination metadata.
-	"""
-	pageInfo: PageInfo!
-}
-
-"""
-Connection edge.
-"""
-type WorkEventEdge {
-	"""
-	Opaque event cursor.
-	"""
-	cursor: String!
-	"""
-	Connection node.
-	"""
-	node: WorkEvent!
-}
-
-"""
-Transactionally coherent board bootstrap projection.
-"""
-type WorkOverview {
-	"""
-	Authorized workspace metadata.
-	"""
-	workspace: Workspace!
-	"""
-	Default workflow and all ordered stages.
-	"""
-	workflow: Workflow!
-	"""
-	Board-visible columns in workflow order.
-	"""
-	boardColumns: [WorkStageColumn!]!
-	"""
-	Bounded recent active task cards.
-	"""
-	recentTasks: TaskConnection!
-	"""
-	Active cards requiring human attention.
-	"""
-	needsYouCount: Int!
-}
-
-"""
-One workflow-driven active board column and its authoritative count.
-"""
-type WorkStageColumn {
-	"""
-	Stage metadata used to render the column.
-	"""
-	stage: WorkflowStage!
-	"""
-	Number of active tasks in this stage and project scope.
-	"""
-	taskCount: Int!
-}
-
-"""
-Scope of a Work task connection.
-"""
-enum WorkTaskScope {
-	"""
-	Nonterminal workflow stages.
-	"""
-	ACTIVE
-	"""
-	Done and cancelled history.
-	"""
-	TERMINAL
-	"""
-	Both active and terminal tasks.
-	"""
-	ALL
-}
-
-"""
-Board/list task filter input.
-"""
-input WorkTasksInput {
-	"""
-	Workspace scope.
-	"""
-	workspaceId: String!
-	"""
-	Optional project scope.
-	"""
-	projectId: String
-	"""
-	Optional explicit stage identities.
-	"""
-	stageIds: [String!]
-	"""
-	Optional semantic stage behavior filter.
-	"""
-	stageBehaviors: [WorkflowStageBehavior!]
-	"""
-	Case-insensitive title/description search.
-	"""
-	text: String
-	"""
-	Restrict results to unresolved human attention.
-	"""
-	attentionOnly: Boolean! = false
-	"""
-	Active, terminal, or combined scope.
-	"""
-	scope: WorkTaskScope! = ACTIVE
 }
 
 """

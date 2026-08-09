@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useSubscription } from "@apollo/client/react";
 import * as stylex from "@stylexjs/stylex";
-import { WorkTaskRuntimeEventsDocument } from "@/generated/graphql";
+import { TasksTaskRuntimeEventsDocument } from "@/generated/graphql";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { Transcript } from "@/components/Transcript";
 import type { TranscriptEntry } from "@/shared/types";
@@ -37,7 +37,7 @@ export function TaskTranscript({
     runId: string;
     sequence: number;
   } | null>(null);
-  useSubscription(WorkTaskRuntimeEventsDocument, {
+  useSubscription(TasksTaskRuntimeEventsDocument, {
     variables: { taskId: detail.taskId },
     onData: ({ data }) => {
       const runId = data.data?.taskRuntimeEvents.runId;

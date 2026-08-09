@@ -6,11 +6,11 @@ Git history owns completed milestones.
 ## Active direction
 
 Noema is an always-on, self-hosted personal agent. Chat is the primary surface;
-Work, Memory, integrations, governance, and settings appear when backed state
+Tasks, Memory, integrations, governance, and settings appear when backed state
 and the human's current job require them.
 
 The current foundation is one server with web and desktop shells, server-owned
-SQLite state, native Markdown memory, durable conversations and Work, governed
+SQLite state, native Markdown memory, durable conversations and tasks, governed
 tools and artifacts, hosted and local model providers, and a React/Astryx web
 client plus the native SwiftUI iPhone/iPad client. New work should be a small
 vertical slice or a net-negative reduction.
@@ -33,7 +33,7 @@ vertical slice or a net-negative reduction.
 - Each foreground action request links to its exact saved approval item. Action
   recovery reads this link directly, including when the item is not visible. It
   does not search the visible transcript for a substitute.
-- Work current state is transactional. Work events provide audit and
+- Current task state is transactional. Task events provide audit and
   invalidation, not an independent replay authority.
 - Task recovery uses a resolved pause only when its task generation and
   execution contract match the current task. Older pause history stays stored
@@ -108,7 +108,7 @@ vertical slice or a net-negative reduction.
   configured from browser Settings. Simulator injection does not replace a
   signed physical-device sandbox-delivery check.
 - Product-scope decisions remain open for the dormant adapter scheduler, the
-  long-term set of integration substrates and full-parity clients, Work role
+  long-term set of integration substrates and full-parity clients, task role
   breadth, and secondary vertical systems. Do not infer retirement of a live
   capability from a local simplification task.
 - Provider generation retains native-future `ModelProvider` plus object-safe

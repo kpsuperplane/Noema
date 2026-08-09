@@ -1,4 +1,4 @@
-//! Durable Work event subscriptions.
+//! Durable Tasks event subscriptions.
 //!
 //! Broadcast notifications are wakeups only. Every emitted item is read from
 //! the durable `work_events` ledger, so lag and reconnects recover by scanning
@@ -131,18 +131,18 @@ impl SubscriptionRoot {
         native_memory::memory_events(state, principal).await
     }
 
-    /// Replay and stream the workspace-scoped durable Work ledger.
-    async fn work_events(
+    /// Replay and stream workspace-scoped Tasks events.
+    async fn tasks_events(
         &self,
         ctx: &Context<'_>,
         workspace_id: String,
         after: Option<String>,
-    ) -> Result<impl Stream<Item = Result<GraphqlWorkEvent>>> {
+    ) -> Result<impl Stream<Item = Result<GraphqlTaskEvent>>> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
-        require_work_owner(principal)?;
+        require_task_owner(principal)?;
         let workspace_id =
-            WorkspaceId::new(workspace_id.trim()).map_err(|_| work_unavailable_error())?;
+            WorkspaceId::new(workspace_id.trim()).map_err(|_| task_unavailable_error())?;
         tasks::require_personal_workspace(&workspace_id)?;
         let store = state.store()?.clone();
         store
@@ -152,17 +152,17 @@ impl SubscriptionRoot {
                 first: WorkPageSize::new(1).map_err(tasks::cursor_error)?,
             })
             .await
-            .map_err(tasks::work_error)?;
+            .map_err(tasks::task_error)?;
         let after = decode_after(after.as_deref())?;
         let start_cursor = match after {
             Some(cursor) => Some(cursor),
             None => store
                 .latest_work_event_cursor(&workspace_id)
                 .await
-                .map_err(tasks::work_error)?,
+                .map_err(tasks::task_error)?,
         };
         let receiver = state.subscriptions().subscribe_work(workspace_id.as_str());
-        Ok(work_event_stream(
+        Ok(task_event_stream(
             store,
             receiver,
             workspace_id,
@@ -171,23 +171,23 @@ impl SubscriptionRoot {
         ))
     }
 
-    /// Stream the task-filtered projection of the same durable Work ledger.
+    /// Stream the task-filtered view of the same Tasks events.
     async fn task_events(
         &self,
         ctx: &Context<'_>,
         task_id: String,
         after: Option<String>,
-    ) -> Result<impl Stream<Item = Result<GraphqlWorkEvent>>> {
+    ) -> Result<impl Stream<Item = Result<GraphqlTaskEvent>>> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
         let store = state.store()?.clone();
-        require_work_owner(principal)?;
-        let task_id = TaskId::new(task_id.trim()).map_err(|_| work_unavailable_error())?;
+        require_task_owner(principal)?;
+        let task_id = TaskId::new(task_id.trim()).map_err(|_| task_unavailable_error())?;
         let detail = store
             .get_work_task(&task_id)
             .await
-            .map_err(tasks::work_error)?
-            .ok_or_else(work_unavailable_error)?;
+            .map_err(tasks::task_error)?
+            .ok_or_else(task_unavailable_error)?;
         let workspace_id = detail.workspace.workspace_id;
         tasks::require_personal_workspace(&workspace_id)?;
         let after = decode_after(after.as_deref())?;
@@ -196,10 +196,10 @@ impl SubscriptionRoot {
             None => store
                 .latest_task_work_event_cursor(&workspace_id, &task_id)
                 .await
-                .map_err(tasks::work_error)?,
+                .map_err(tasks::task_error)?,
         };
         let receiver = state.subscriptions().subscribe_work(workspace_id.as_str());
-        Ok(work_event_stream(
+        Ok(task_event_stream(
             store,
             receiver,
             workspace_id,
@@ -216,14 +216,14 @@ impl SubscriptionRoot {
     ) -> Result<impl Stream<Item = Result<GraphqlTaskRuntimeEvent>>> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
-        require_work_owner(principal)?;
-        let task_id = TaskId::new(task_id.trim()).map_err(|_| work_unavailable_error())?;
+        require_task_owner(principal)?;
+        let task_id = TaskId::new(task_id.trim()).map_err(|_| task_unavailable_error())?;
         state
             .store()?
             .get_work_task(&task_id)
             .await
-            .map_err(tasks::work_error)?
-            .ok_or_else(work_unavailable_error)?;
+            .map_err(tasks::task_error)?
+            .ok_or_else(task_unavailable_error)?;
         let mut receiver = state.subscriptions().subscribe_task(task_id.as_str());
         Ok(async_stream::stream! {
             loop {
@@ -249,13 +249,13 @@ fn provider_auth_terminal(status: noema_providers::ProviderAuthAttemptStatus) ->
     )
 }
 
-fn work_event_stream(
+fn task_event_stream(
     store: noema_store::NoemaStore,
     mut receiver: tokio::sync::broadcast::Receiver<noema_runtime::WorkRuntimeEvent>,
     workspace_id: WorkspaceId,
     task_id: Option<TaskId>,
     start_cursor: Option<WorkEventCursor>,
-) -> impl Stream<Item = Result<GraphqlWorkEvent>> {
+) -> impl Stream<Item = Result<GraphqlTaskEvent>> {
     async_stream::stream! {
         // The caller's cursor, or the durable high-water cursor captured before
         // receiver registration, is the replay boundary. Any commit after that
@@ -270,7 +270,7 @@ fn work_event_stream(
                 run_id: None,
                 after: cursor,
                 first: WorkPageSize::new(100).expect("the fixed subscription page size is valid"),
-            }).await.map_err(tasks::work_error) {
+            }).await.map_err(tasks::task_error) {
                 Ok(page) => page,
                 Err(error) => { yield Err(error); break; }
             };
@@ -293,20 +293,20 @@ fn work_event_stream(
     }
 }
 
-fn project_event_edge(edge: &noema_store::WorkEventEdge) -> Result<GraphqlWorkEvent> {
+fn project_event_edge(edge: &noema_store::WorkEventEdge) -> Result<GraphqlTaskEvent> {
     let projected =
-        GraphqlWorkEvent::try_from(edge.node.clone()).map_err(|_| work_unavailable_error())?;
+        GraphqlTaskEvent::try_from(edge.node.clone()).map_err(|_| task_unavailable_error())?;
     if projected.cursor == edge.cursor.encode() {
         Ok(projected)
     } else {
-        Err(work_unavailable_error())
+        Err(task_unavailable_error())
     }
 }
 
 fn project_event_edge_and_advance(
     edge: &noema_store::WorkEventEdge,
     cursor: &mut Option<WorkEventCursor>,
-) -> Result<GraphqlWorkEvent> {
+) -> Result<GraphqlTaskEvent> {
     let projected = project_event_edge(edge)?;
     *cursor = Some(edge.cursor);
     Ok(projected)
@@ -319,17 +319,17 @@ fn decode_after(value: Option<&str>) -> Result<Option<WorkEventCursor>> {
         .map_err(tasks::cursor_error)
 }
 
-fn require_work_owner(principal: &str) -> Result<()> {
+fn require_task_owner(principal: &str) -> Result<()> {
     if principal == "human:local" {
         Ok(())
     } else {
-        Err(work_unavailable_error())
+        Err(task_unavailable_error())
     }
 }
 
-fn work_unavailable_error() -> async_graphql::Error {
-    async_graphql::Error::new("work is unavailable")
-        .extend_with(|_, extensions| extensions.set("code", "work_unavailable"))
+fn task_unavailable_error() -> async_graphql::Error {
+    async_graphql::Error::new("task is unavailable")
+        .extend_with(|_, extensions| extensions.set("code", "task_unavailable"))
 }
 
 #[cfg(test)]

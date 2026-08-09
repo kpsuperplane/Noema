@@ -1,4 +1,4 @@
-//! GraphQL projections for the Work read and command surfaces.
+//! GraphQL projections for the Tasks read and command surfaces.
 //!
 //! The concrete types are grouped by the stable API domains so that the
 //! schema façade stays navigable while all projections remain in one module
@@ -22,7 +22,7 @@ macro_rules! graphql_object {
 }
 
 /// Declare a projection and its domain conversion from one field map.  Most
-/// Work projections are mechanical adapters; keeping the schema field and the
+/// Tasks projections are mechanical adapters; keeping the schema field and the
 /// conversion expression together prevents the two representations drifting.
 macro_rules! graphql_object_from {
     (

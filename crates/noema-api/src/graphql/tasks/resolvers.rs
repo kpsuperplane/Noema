@@ -46,7 +46,7 @@ pub(in crate::graphql) async fn task_execution_policy(
         .map_err(graphql_error)
 }
 
-/// Replace the user-controlled limits while preserving Work-owned policy bounds.
+/// Replace the user-controlled limits while preserving task-owned policy bounds.
 pub(in crate::graphql) async fn update_task_execution_policy(
     state: &GraphqlState,
     principal_subject: &str,
@@ -198,7 +198,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn policy_update_preserves_work_owned_bounds() {
+    async fn policy_update_preserves_task_owned_bounds() {
         let store = crate::test_support::test_store().await;
         let initial = noema_tasks::TaskExecutionPolicy {
             max_provider_continuations: 80,

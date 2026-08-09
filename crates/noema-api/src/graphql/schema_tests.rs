@@ -214,9 +214,9 @@ mod tests {
         include!("schema_tests/subscriptions.rs");
     }
 
-    mod work_graphql {
+    mod tasks_graphql {
         use super::*;
-        include!("schema_tests/work_graphql.rs");
+        include!("schema_tests/tasks_graphql.rs");
     }
 
     mod runtime_debug {

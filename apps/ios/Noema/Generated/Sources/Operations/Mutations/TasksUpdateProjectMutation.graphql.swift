@@ -32,7 +32,7 @@ nonisolated public struct TasksUpdateProjectMutation: GraphQLMutation {
       TasksUpdateProjectMutation.Data.self
     ] }
 
-    /// Update a project through the semantic Work command service.
+    /// Update a project through the semantic Tasks command service.
     public var updateProject: UpdateProject { __data["updateProject"] }
 
     /// UpdateProject

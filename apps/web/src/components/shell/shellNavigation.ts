@@ -19,11 +19,11 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { AppRoute, NonSettingsAppRoute, SettingsSection } from "@/app/routes";
 
-export type ShellMenuLevelId = "settings" | "work";
+export type ShellMenuLevelId = "settings" | "tasks";
 
 export type ShellMenuItemId =
   | "chat"
-  | "work"
+  | "tasks"
   | "memory"
   | "settings"
   | "settings.agents"
@@ -37,9 +37,9 @@ export type ShellMenuItemId =
   | "settings.system.providers"
   | "settings.system.notifications"
   | "settings.system.clients"
-  | "work.workspace.personal"
-  | "work.projects.archived"
-  | `work.project.${string}`;
+  | "tasks.workspace.personal"
+  | "tasks.projects.archived"
+  | `tasks.project.${string}`;
 
 export type ShellMenuItem = {
   itemId: ShellMenuItemId;
@@ -71,7 +71,7 @@ export type ShellMenuLevel = {
   items: ShellMenuEntry[];
 };
 
-export type ShellWorkProject = {
+export type ShellTaskProject = {
   projectId: string;
   name: string;
   archivedAt: string | null;
@@ -183,9 +183,9 @@ export const shellSettingsSections = shellSettingsEntries.flatMap((entry) =>
 
 export function activeL0ItemId(
   route: NonSettingsAppRoute
-): Extract<ShellMenuItemId, "chat" | "work" | "memory"> {
-  if (route.kind === "work") {
-    return "work";
+): Extract<ShellMenuItemId, "chat" | "tasks" | "memory"> {
+  if (route.kind === "tasks") {
+    return "tasks";
   }
   return route.kind === "memory" ? "memory" : "chat";
 }
@@ -198,9 +198,9 @@ export const shellPrimaryItems: ShellMenuItem[] = [
     icon: MessageCircle
   },
   {
-    itemId: "work",
+    itemId: "tasks",
     label: "Tasks",
-    route: { kind: "work" },
+    route: { kind: "tasks" },
     icon: ListTodo
   },
   {
@@ -256,16 +256,16 @@ export function shellMenuLevelForRoute(
   };
 }
 
-export function workMenuLevelForProjects(
-  projects: readonly ShellWorkProject[],
+export function tasksMenuLevelForProjects(
+  projects: readonly ShellTaskProject[],
   projectId?: string
 ): ShellMenuLevel {
   const activeItemId = projectId && projects.some((project) => project.projectId === projectId)
     ? projectItemId(projectId)
-    : "work.workspace.personal";
+    : "tasks.workspace.personal";
 
   return {
-    levelId: "work",
+    levelId: "tasks",
     ariaLabel: "Task folders",
     title: "Tasks",
     activeItemId,
@@ -273,9 +273,9 @@ export function workMenuLevelForProjects(
       {
         kind: "item",
         item: {
-          itemId: "work.workspace.personal",
+          itemId: "tasks.workspace.personal",
           label: "Personal",
-          route: { kind: "work" },
+          route: { kind: "tasks" },
           icon: BriefcaseBusiness
         }
       },
@@ -285,7 +285,7 @@ export function workMenuLevelForProjects(
           item: {
             itemId: projectItemId(project.projectId),
             label: project.name,
-            route: { kind: "work" as const, projectId: project.projectId },
+            route: { kind: "tasks" as const, projectId: project.projectId },
             icon: Folder,
             depth: 1 as const
           }
@@ -293,7 +293,7 @@ export function workMenuLevelForProjects(
         ...(projects.some((project) => project.archivedAt) ? [{
           kind: "item" as const,
           item: {
-            itemId: "work.projects.archived" as const,
+            itemId: "tasks.projects.archived" as const,
             label: "Archived",
             icon: Archive,
             pinned: true
@@ -304,8 +304,8 @@ export function workMenuLevelForProjects(
   };
 }
 
-function projectItemId(projectId: string): `work.project.${string}` {
-  return `work.project.${projectId}`;
+function projectItemId(projectId: string): `tasks.project.${string}` {
+  return `tasks.project.${projectId}`;
 }
 
 export function breadcrumbForRoute(route: AppRoute): ShellBreadcrumb {
@@ -316,7 +316,7 @@ export function breadcrumbForRoute(route: AppRoute): ShellBreadcrumb {
     return { parent: "Settings", current };
   }
 
-  if (route.kind === "work") {
+  if (route.kind === "tasks") {
     return { current: "Tasks" };
   }
   return { current: route.kind === "memory" ? "Memory" : "Chat" };

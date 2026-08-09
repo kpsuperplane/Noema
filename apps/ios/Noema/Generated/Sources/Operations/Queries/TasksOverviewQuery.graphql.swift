@@ -8,7 +8,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
   public static let operationName: String = "TasksOverview"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"query TasksOverview($workspaceId: String!, $projectId: String) { workOverview(workspaceId: $workspaceId, projectId: $projectId) { __typename workspace { __typename ...TasksWorkspaceFields } workflow { __typename workflowId name stages { __typename ...TasksStageFields } } boardColumns { __typename stage { __typename ...TasksStageFields } taskCount } recentTasks { __typename edges { __typename cursor node { __typename ...TasksTaskSummaryFields } } pageInfo { __typename ...TasksPageInfoFields } } needsYouCount } }"#,
+      #"query TasksOverview($workspaceId: String!, $projectId: String) { tasksOverview(workspaceId: $workspaceId, projectId: $projectId) { __typename workspace { __typename ...TasksWorkspaceFields } workflow { __typename workflowId name stages { __typename ...TasksStageFields } } boardColumns { __typename stage { __typename ...TasksStageFields } taskCount } recentTasks { __typename edges { __typename cursor node { __typename ...TasksTaskSummaryFields } } pageInfo { __typename ...TasksPageInfoFields } } needsYouCount } }"#,
       fragments: [TasksCurrentRunFields.self, TasksGateFields.self, TasksPageInfoFields.self, TasksProjectFields.self, TasksReviewSummaryFields.self, TasksStageFields.self, TasksTaskSummaryFields.self, TasksWorkspaceFields.self]
     ))
 
@@ -34,7 +34,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
 
     @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.QueryRoot }
     @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
-      .field("workOverview", WorkOverview.self, arguments: [
+      .field("tasksOverview", TasksOverview.self, arguments: [
         "workspaceId": .variable("workspaceId"),
         "projectId": .variable("projectId")
       ]),
@@ -44,16 +44,16 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
     ] }
 
     /// Return one coherent board bootstrap projection.
-    public var workOverview: WorkOverview { __data["workOverview"] }
+    public var tasksOverview: TasksOverview { __data["tasksOverview"] }
 
-    /// WorkOverview
+    /// TasksOverview
     ///
-    /// Parent Type: `WorkOverview`
-    nonisolated public struct WorkOverview: NoemaAPI.SelectionSet {
+    /// Parent Type: `TasksOverview`
+    nonisolated public struct TasksOverview: NoemaAPI.SelectionSet {
       @_spi(Unsafe) public let __data: DataDict
       @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
 
-      @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.WorkOverview }
+      @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TasksOverview }
       @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
         .field("__typename", String.self),
         .field("workspace", Workspace.self),
@@ -63,7 +63,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
         .field("needsYouCount", Int.self),
       ] }
       @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-        TasksOverviewQuery.Data.WorkOverview.self
+        TasksOverviewQuery.Data.TasksOverview.self
       ] }
 
       /// Authorized workspace metadata.
@@ -77,7 +77,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
       /// Active cards requiring human attention.
       public var needsYouCount: Int { __data["needsYouCount"] }
 
-      /// WorkOverview.Workspace
+      /// TasksOverview.Workspace
       ///
       /// Parent Type: `Workspace`
       nonisolated public struct Workspace: NoemaAPI.SelectionSet {
@@ -90,7 +90,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
           .fragment(TasksWorkspaceFields.self),
         ] }
         @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-          TasksOverviewQuery.Data.WorkOverview.Workspace.self,
+          TasksOverviewQuery.Data.TasksOverview.Workspace.self,
           TasksWorkspaceFields.self
         ] }
 
@@ -113,7 +113,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
         }
       }
 
-      /// WorkOverview.Workflow
+      /// TasksOverview.Workflow
       ///
       /// Parent Type: `Workflow`
       nonisolated public struct Workflow: NoemaAPI.SelectionSet {
@@ -128,7 +128,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
           .field("stages", [Stage].self),
         ] }
         @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-          TasksOverviewQuery.Data.WorkOverview.Workflow.self
+          TasksOverviewQuery.Data.TasksOverview.Workflow.self
         ] }
 
         /// Opaque workflow identity.
@@ -138,7 +138,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
         /// Stage definitions in display order.
         public var stages: [Stage] { __data["stages"] }
 
-        /// WorkOverview.Workflow.Stage
+        /// TasksOverview.Workflow.Stage
         ///
         /// Parent Type: `WorkflowStage`
         nonisolated public struct Stage: NoemaAPI.SelectionSet {
@@ -151,7 +151,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
             .fragment(TasksStageFields.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-            TasksOverviewQuery.Data.WorkOverview.Workflow.Stage.self,
+            TasksOverviewQuery.Data.TasksOverview.Workflow.Stage.self,
             TasksStageFields.self
           ] }
 
@@ -177,21 +177,21 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
         }
       }
 
-      /// WorkOverview.BoardColumn
+      /// TasksOverview.BoardColumn
       ///
-      /// Parent Type: `WorkStageColumn`
+      /// Parent Type: `TaskStageColumn`
       nonisolated public struct BoardColumn: NoemaAPI.SelectionSet {
         @_spi(Unsafe) public let __data: DataDict
         @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
 
-        @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.WorkStageColumn }
+        @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TaskStageColumn }
         @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
           .field("__typename", String.self),
           .field("stage", Stage.self),
           .field("taskCount", Int.self),
         ] }
         @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-          TasksOverviewQuery.Data.WorkOverview.BoardColumn.self
+          TasksOverviewQuery.Data.TasksOverview.BoardColumn.self
         ] }
 
         /// Stage metadata used to render the column.
@@ -199,7 +199,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
         /// Number of active tasks in this stage and project scope.
         public var taskCount: Int { __data["taskCount"] }
 
-        /// WorkOverview.BoardColumn.Stage
+        /// TasksOverview.BoardColumn.Stage
         ///
         /// Parent Type: `WorkflowStage`
         nonisolated public struct Stage: NoemaAPI.SelectionSet {
@@ -212,7 +212,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
             .fragment(TasksStageFields.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-            TasksOverviewQuery.Data.WorkOverview.BoardColumn.Stage.self,
+            TasksOverviewQuery.Data.TasksOverview.BoardColumn.Stage.self,
             TasksStageFields.self
           ] }
 
@@ -238,7 +238,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
         }
       }
 
-      /// WorkOverview.RecentTasks
+      /// TasksOverview.RecentTasks
       ///
       /// Parent Type: `TaskConnection`
       nonisolated public struct RecentTasks: NoemaAPI.SelectionSet {
@@ -252,7 +252,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
           .field("pageInfo", PageInfo.self),
         ] }
         @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-          TasksOverviewQuery.Data.WorkOverview.RecentTasks.self
+          TasksOverviewQuery.Data.TasksOverview.RecentTasks.self
         ] }
 
         /// Ordered task edges.
@@ -260,7 +260,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
         /// Pagination metadata.
         public var pageInfo: PageInfo { __data["pageInfo"] }
 
-        /// WorkOverview.RecentTasks.Edge
+        /// TasksOverview.RecentTasks.Edge
         ///
         /// Parent Type: `TaskEdge`
         nonisolated public struct Edge: NoemaAPI.SelectionSet {
@@ -274,7 +274,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
             .field("node", Node.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-            TasksOverviewQuery.Data.WorkOverview.RecentTasks.Edge.self
+            TasksOverviewQuery.Data.TasksOverview.RecentTasks.Edge.self
           ] }
 
           /// Opaque keyset cursor.
@@ -282,7 +282,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
           /// Connection node.
           public var node: Node { __data["node"] }
 
-          /// WorkOverview.RecentTasks.Edge.Node
+          /// TasksOverview.RecentTasks.Edge.Node
           ///
           /// Parent Type: `TaskSummary`
           nonisolated public struct Node: NoemaAPI.SelectionSet {
@@ -295,7 +295,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
               .fragment(TasksTaskSummaryFields.self),
             ] }
             @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-              TasksOverviewQuery.Data.WorkOverview.RecentTasks.Edge.Node.self,
+              TasksOverviewQuery.Data.TasksOverview.RecentTasks.Edge.Node.self,
               TasksTaskSummaryFields.self
             ] }
 
@@ -369,7 +369,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
           }
         }
 
-        /// WorkOverview.RecentTasks.PageInfo
+        /// TasksOverview.RecentTasks.PageInfo
         ///
         /// Parent Type: `PageInfo`
         nonisolated public struct PageInfo: NoemaAPI.SelectionSet {
@@ -382,7 +382,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
             .fragment(TasksPageInfoFields.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-            TasksOverviewQuery.Data.WorkOverview.RecentTasks.PageInfo.self,
+            TasksOverviewQuery.Data.TasksOverview.RecentTasks.PageInfo.self,
             TasksPageInfoFields.self
           ] }
 

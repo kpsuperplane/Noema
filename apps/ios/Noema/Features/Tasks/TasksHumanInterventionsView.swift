@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Work's non-task interventions use the same compact decision order as Chat.
+/// Non-task interventions use the same compact decision order as Chat.
 /// TaskAttention remains attached to its existing task card in the list.
 struct TasksHumanInterventionsView: View {
   @Bindable var model: TasksModel

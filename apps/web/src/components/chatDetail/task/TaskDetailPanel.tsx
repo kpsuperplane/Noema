@@ -13,7 +13,7 @@ import { TaskCriterionStatusPopover } from "./TaskCriteria";
 import { TaskCompletedBody } from "./TaskCompletedBody";
 import { taskStageLabel } from "./TaskOverview";
 import { TaskTranscript } from "./TaskTranscript";
-import { TaskScheduleSummary } from "@/components/work/TaskScheduleSummary";
+import { TaskScheduleSummary } from "@/components/tasks/TaskScheduleSummary";
 
 export function TaskDetailPanel({
   taskId,
@@ -24,7 +24,7 @@ export function TaskDetailPanel({
   controls,
   governedActions,
   onOpenDetail,
-  showWorkLink = false
+  showTasksLink = false
 }: {
   taskId: string;
   detail?: TaskDetail | null;
@@ -32,7 +32,7 @@ export function TaskDetailPanel({
   error?: string | null;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   controls?: React.ReactNode;
-  showWorkLink?: boolean;
+  showTasksLink?: boolean;
   governedActions?: React.ReactNode;
   onOpenDetail: (target: ChatDetailTarget) => void;
 }) {
@@ -78,7 +78,7 @@ export function TaskDetailPanel({
       governedActions={governedActions}
       latestRunItems={latestRunItems}
       controls={controls}
-      showWorkLink={showWorkLink}
+      showTasksLink={showTasksLink}
       taskId={taskId}
     />
   );
@@ -117,7 +117,7 @@ function TaskContextCard({
   governedActions,
   controls,
   latestRunItems,
-  showWorkLink,
+  showTasksLink,
   taskId
 }: {
   taskId: string;
@@ -125,7 +125,7 @@ function TaskContextCard({
   governedActions?: React.ReactNode;
   controls?: React.ReactNode;
   latestRunItems: ReadonlyMap<string, TaskRunItem>;
-  showWorkLink: boolean;
+  showTasksLink: boolean;
 }) {
   const hasValidation = detail.criteria.length > 0;
   return (
@@ -136,7 +136,7 @@ function TaskContextCard({
           detail={detail}
           latestRunItems={latestRunItems}
           controls={controls}
-          showWorkLink={showWorkLink}
+          showTasksLink={showTasksLink}
           taskId={taskId}
         />
         <div {...stylex.props(styles.contextBody)}>
@@ -152,13 +152,13 @@ function TaskSummaryHeader({
   detail,
   latestRunItems,
   controls,
-  showWorkLink,
+  showTasksLink,
   taskId
 }: {
   detail: TaskDetail;
   latestRunItems: ReadonlyMap<string, TaskRunItem>;
   controls?: React.ReactNode;
-  showWorkLink: boolean;
+  showTasksLink: boolean;
   taskId: string;
 }) {
   const run = latestTaskRun(detail);
@@ -180,9 +180,9 @@ function TaskSummaryHeader({
       </span>
       <span {...stylex.props(styles.summaryActions)}>
         {controls ? <span {...stylex.props(styles.summaryControlsHost)}>{controls}</span> : null}
-        {showWorkLink ? (
+        {showTasksLink ? (
           <IconButton
-            href={`/work/tasks/${encodeURIComponent(taskId)}`}
+            href={`/tasks/${encodeURIComponent(taskId)}`}
             icon={<ExternalLink aria-hidden="true" size={15} />}
             label="Open in Tasks"
             size="sm"

@@ -31,7 +31,7 @@ import {
   openExternalUrlForAuth,
   reserveExternalAuthNavigation
 } from "@/graphql/externalUrls";
-import { WorkTaskRuntimeEventsDocument } from "@/graphql/workOperations";
+import { TasksTaskRuntimeEventsDocument } from "@/graphql/tasksOperations";
 import { McpChatSetupCard } from "@/components/mcp/McpChatSetupCard";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { springs } from "@/motion/springs";
@@ -72,7 +72,7 @@ export function usePendingHumanInterventions(scope: Scope = {}) {
     skip: !scope.conversationId,
     onData: () => void result.refetch()
   });
-  useSubscription(WorkTaskRuntimeEventsDocument, {
+  useSubscription(TasksTaskRuntimeEventsDocument, {
     variables: { taskId: scope.taskId ?? "" },
     skip: !scope.taskId,
     onData: () => void result.refetch()
@@ -710,7 +710,7 @@ const styles = stylex.create({
   taskList: {
     padding: "var(--spacing-0)",
     marginBlockEnd: "calc(-1 * var(--human-intervention-card-overlap, var(--spacing-6)))",
-    "--human-intervention-card-shadow": "var(--work-task-card-shadow, var(--shadow-low))"
+    "--human-intervention-card-shadow": "var(--task-card-shadow, var(--shadow-low))"
   },
   copy: {
     minWidth: 0

@@ -112,7 +112,7 @@ enum TasksStageBehavior: String, CaseIterable, Sendable {
     case .humanGate: "Waiting"
     case .terminalSuccess: "Done"
     case .terminalCancelled: "Cancelled"
-    case .unknown: "Work"
+    case .unknown: "Task"
     }
   }
 }

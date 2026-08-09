@@ -150,9 +150,9 @@ nonisolated public enum SchemaMetadata: ApolloAPI.SchemaMetadata {
     "WebToolBindingSettings": NoemaAPI.Objects.WebToolBindingSettings,
     "WebToolProviderOption": NoemaAPI.Objects.WebToolProviderOption,
     "WebToolSettings": NoemaAPI.Objects.WebToolSettings,
-    "WorkEvent": NoemaAPI.Objects.WorkEvent,
-    "WorkOverview": NoemaAPI.Objects.WorkOverview,
-    "WorkStageColumn": NoemaAPI.Objects.WorkStageColumn,
+    "TasksEvent": NoemaAPI.Objects.TasksEvent,
+    "TasksOverview": NoemaAPI.Objects.TasksOverview,
+    "TaskStageColumn": NoemaAPI.Objects.TaskStageColumn,
     "Workflow": NoemaAPI.Objects.Workflow,
     "WorkflowStage": NoemaAPI.Objects.WorkflowStage,
     "Workspace": NoemaAPI.Objects.Workspace

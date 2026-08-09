@@ -120,7 +120,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const routerNavigate = useNavigate();
   const route = React.useMemo(() => {
     const baseRoute = routeFromPathname(location.pathname);
-    if (baseRoute.kind !== "work" || !isRecord(location.search)) {
+    if (baseRoute.kind !== "tasks" || !isRecord(location.search)) {
       return baseRoute;
     }
 
@@ -201,9 +201,9 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     (nextRoute: AppRoute) => {
       const replace = shouldReplaceHistoryEntryForNavigation(route, nextRoute);
       const resetScroll = nextRoute.kind !== "chat";
-      if (nextRoute.kind === "work" && nextRoute.projectId) {
+      if (nextRoute.kind === "tasks" && nextRoute.projectId) {
         return routerNavigate({
-          to: "/work",
+          to: "/tasks",
           search: { project: nextRoute.projectId },
           replace,
           resetScroll

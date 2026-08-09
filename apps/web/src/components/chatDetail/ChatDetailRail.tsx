@@ -24,12 +24,12 @@ export function ChatDetailRail({
   target,
   onClose,
   animateEntrance = true,
-  showWorkLink = true
+  showTasksLink = true
 }: {
   target: ChatDetailTarget;
   onClose: () => void;
   animateEntrance?: boolean;
-  showWorkLink?: boolean;
+  showTasksLink?: boolean;
 }) {
   return (
     <RoutedChatDetailRail
@@ -37,7 +37,7 @@ export function ChatDetailRail({
       animateEntrance={animateEntrance}
       initialTarget={target}
       onClose={onClose}
-      showWorkLink={showWorkLink}
+      showTasksLink={showTasksLink}
     />
   );
 }
@@ -46,12 +46,12 @@ function RoutedChatDetailRail({
   animateEntrance,
   initialTarget,
   onClose,
-  showWorkLink
+  showTasksLink
 }: {
   animateEntrance: boolean;
   initialTarget: ChatDetailTarget;
   onClose: () => void;
-  showWorkLink: boolean;
+  showTasksLink: boolean;
 }) {
   const [history, setHistory] = React.useState<readonly ChatDetailTarget[]>([initialTarget]);
   const target = history.at(-1) ?? initialTarget;
@@ -224,7 +224,7 @@ function RoutedChatDetailRail({
               <TaskDetailQueryPanel
                 onOpenDetail={openDetail}
                 onTaskTitleChange={handleTaskTitleChange}
-                showWorkLink={showWorkLink}
+                showTasksLink={showTasksLink}
                 taskId={taskTargetId}
               />
             </div>

@@ -1,5 +1,5 @@
-subscription TasksWorkEvents($workspaceId: String!, $after: String) {
-  workEvents(workspaceId: $workspaceId, after: $after) {
+subscription TasksEvents($workspaceId: String!, $after: String) {
+  tasksEvents(workspaceId: $workspaceId, after: $after) {
     ...TasksEventFields
   }
 }

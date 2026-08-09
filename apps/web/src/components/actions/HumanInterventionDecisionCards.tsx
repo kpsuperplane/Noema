@@ -18,7 +18,7 @@ import {
 import { useMcpOAuthController } from "@/components/mcp/useMcpOAuthController";
 import { reserveExternalAuthNavigation } from "@/graphql/externalUrls";
 import { mcpOAuthRedirectUri } from "@/graphql/mcpOAuthCallback";
-import { TaskActions } from "@/components/work/TaskActions";
+import { TaskActions } from "@/components/tasks/TaskActions";
 import { HumanInterventionCard } from "./HumanInterventionCard";
 
 type PendingHumanIntervention = PendingHumanInterventionsQuery["pendingHumanInterventions"][number];

@@ -34,7 +34,7 @@ pub(crate) async fn execute_command(
     let committed = service
         .execute_committed(command)
         .await
-        .map_err(work_error)?;
+        .map_err(task_error)?;
     let result = &committed.result;
     if let Some(workspace_id) = result
         .task
@@ -116,7 +116,7 @@ pub(crate) fn project_payload(
 pub(crate) async fn validate_scope_filters(
     store: &noema_store::NoemaStore,
     workspace_id: &WorkspaceId,
-    scope: GraphqlWorkTaskScope,
+    scope: GraphqlTaskScope,
     stage_ids: &[noema_tasks::WorkflowStageId],
     behaviors: &[noema_tasks::WorkflowStageBehavior],
 ) -> Result<()> {
@@ -126,7 +126,7 @@ pub(crate) async fn validate_scope_filters(
         let workflows = store
             .list_work_workflows(workspace_id)
             .await
-            .map_err(work_error)?;
+            .map_err(task_error)?;
         let stages = workflows
             .into_iter()
             .flat_map(|workflow| workflow.stages)
@@ -148,10 +148,10 @@ pub(crate) async fn validate_scope_filters(
     let has_active = selected_behaviors
         .iter()
         .any(|behavior| !behavior.is_terminal());
-    if (scope == GraphqlWorkTaskScope::Active && has_terminal)
-        || (scope == GraphqlWorkTaskScope::Terminal && has_active)
+    if (scope == GraphqlTaskScope::Active && has_terminal)
+        || (scope == GraphqlTaskScope::Terminal && has_active)
     {
-        return Err(work_error(noema_store::StoreError::Work(
+        return Err(task_error(noema_store::StoreError::Work(
             noema_tasks::WorkDomainError::WorkflowMismatch,
         )));
     }
@@ -160,7 +160,7 @@ pub(crate) async fn validate_scope_filters(
             .iter()
             .any(|(_, behavior)| behaviors.contains(behavior));
         if !stage_matches_behavior {
-            return Err(work_error(noema_store::StoreError::Work(
+            return Err(task_error(noema_store::StoreError::Work(
                 noema_tasks::WorkDomainError::WorkflowMismatch,
             )));
         }
@@ -236,7 +236,7 @@ pub(crate) fn parse_workspace_id(value: &str) -> Result<WorkspaceId> {
     WorkspaceId::new(value.trim()).map_err(|_| invalid_input_error("workspaceId"))
 }
 
-/// The first Work release exposes only the seeded Personal workspace. Keep
+/// The initial Tasks API exposes only the seeded Personal workspace. Keep
 /// this gate in the API layer until membership-aware workspace reads exist in
 /// the Store surface; callers still carry an opaque workspace id.
 pub(crate) fn require_personal_workspace(workspace_id: &WorkspaceId) -> Result<()> {
@@ -259,7 +259,7 @@ pub(crate) async fn require_personal_project(
     if store
         .get_work_project(&workspace_id, project_id)
         .await
-        .map_err(work_error)?
+        .map_err(task_error)?
         .is_some()
     {
         Ok(())
@@ -276,7 +276,7 @@ pub(crate) async fn require_personal_task(
     let detail = store
         .get_work_task(task_id)
         .await
-        .map_err(work_error)?
+        .map_err(task_error)?
         .ok_or_else(unavailable)?;
     require_personal_workspace(&detail.workspace.workspace_id)
 }
@@ -290,7 +290,7 @@ pub(crate) fn require_owner(principal_subject: &str) -> Result<()> {
 }
 
 pub(crate) fn unavailable() -> Error {
-    safe_error("work_unavailable", "work is unavailable")
+    safe_error("task_unavailable", "task is unavailable")
 }
 
 pub(crate) fn invalid_input_error(field: &str) -> Error {
@@ -298,15 +298,15 @@ pub(crate) fn invalid_input_error(field: &str) -> Error {
 }
 
 pub(crate) fn cursor_error(_: noema_store::WorkCursorError) -> Error {
-    safe_error("invalid_cursor", "invalid work cursor")
+    safe_error("invalid_cursor", "invalid task cursor")
 }
 
-pub(crate) fn work_error(error: StoreError) -> Error {
+pub(crate) fn task_error(error: StoreError) -> Error {
     match error {
         StoreError::Work(noema_tasks::WorkDomainError::InvalidInput { message, .. })
             if message == "invalid_cursor" =>
         {
-            safe_error("invalid_cursor", "invalid work cursor")
+            safe_error("invalid_cursor", "invalid task cursor")
         }
         StoreError::Work(error) => safe_error(error.code(), safe_message(error.code())),
         StoreError::InvariantViolation { .. } => unavailable(),
@@ -323,7 +323,7 @@ pub(crate) fn safe_message(code: &str) -> &'static str {
     match code {
         "stale_revision" => "the authoritative project or task revision is stale",
         "stale_generation" => "the authoritative task generation is stale",
-        "invalid_transition" => "the requested work action is not valid now",
+        "invalid_transition" => "the requested task action is not valid now",
         "workflow_mismatch" => "the requested workflow filter is inconsistent",
         "project_archived" => "the selected project is archived",
         "contract_required" => "a complete task contract is required",
@@ -335,7 +335,7 @@ pub(crate) fn safe_message(code: &str) -> &'static str {
         "configuration_unavailable" => "task execution configuration is unavailable",
         "run_fenced" => "the run is fenced",
         "idempotency_conflict" => "the idempotency key conflicts with a prior command",
-        "invalid_input" => "the work input is invalid",
-        _ => "work is unavailable",
+        "invalid_input" => "the task input is invalid",
+        _ => "task is unavailable",
     }
 }

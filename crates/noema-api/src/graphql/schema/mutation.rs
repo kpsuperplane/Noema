@@ -286,7 +286,7 @@ impl MutationRoot {
         local_models::retry_local_model_runtime(state).await
     }
 
-    /// Create a project through the semantic Work command service.
+    /// Create a project through the task command service.
     async fn create_project(
         &self,
         ctx: &Context<'_>,
@@ -297,7 +297,7 @@ impl MutationRoot {
         tasks::create_project(state, principal, input).await
     }
 
-    /// Update a project through the semantic Work command service.
+    /// Update a project through the task command service.
     async fn update_project(
         &self,
         ctx: &Context<'_>,
@@ -308,7 +308,7 @@ impl MutationRoot {
         tasks::update_project(state, principal, input).await
     }
 
-    /// Archive a project through the semantic Work command service.
+    /// Archive a project through the task command service.
     async fn archive_project(
         &self,
         ctx: &Context<'_>,
@@ -319,7 +319,7 @@ impl MutationRoot {
         tasks::archive_project(state, principal, input).await
     }
 
-    /// Reopen a project through the semantic Work command service.
+    /// Reopen a project through the task command service.
     async fn reopen_project(
         &self,
         ctx: &Context<'_>,
@@ -330,7 +330,7 @@ impl MutationRoot {
         tasks::reopen_project(state, principal, input).await
     }
 
-    /// Capture a task in Inbox through the semantic Work command service.
+    /// Capture a task in Inbox through the task command service.
     async fn capture_task(
         &self,
         ctx: &Context<'_>,
@@ -341,7 +341,7 @@ impl MutationRoot {
         tasks::capture_task(state, principal, input).await
     }
 
-    /// Edit Inbox capture fields through the semantic Work command service.
+    /// Edit Inbox capture fields through the task command service.
     async fn update_inbox_task(
         &self,
         ctx: &Context<'_>,
@@ -352,7 +352,7 @@ impl MutationRoot {
         tasks::update_inbox_task(state, principal, input).await
     }
 
-    /// Queue an Inbox task through the semantic Work command service.
+    /// Queue an Inbox task through the task command service.
     async fn queue_task(
         &self,
         ctx: &Context<'_>,
@@ -529,7 +529,7 @@ impl MutationRoot {
         tasks::update_task_model_pool_entry(state, principal, pool_entry_id, input).await
     }
 
-    /// Replace user-controlled task safety limits while retaining Work-owned bounds.
+    /// Replace user-controlled task safety limits while retaining task-owned bounds.
     async fn update_task_execution_policy(
         &self,
         ctx: &Context<'_>,

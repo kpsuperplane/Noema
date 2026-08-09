@@ -26,7 +26,7 @@ nonisolated public struct SettingsAcpAgentsQuery: GraphQLQuery {
       SettingsAcpAgentsQuery.Data.self
     ] }
 
-    /// List configured ACP Work executors.
+    /// List configured ACP Tasks executors.
     public var acpAgents: [AcpAgent] { __data["acpAgents"] }
 
     /// AcpAgent

@@ -15,7 +15,7 @@ struct TasksRootView: View {
       if let tasksModel {
         TasksSurface(model: tasksModel)
       } else {
-        NoemaDeckState(title: "Tasks unavailable", message: "Connect this device to load your Work queue.", symbol: "checklist", tone: .warning)
+        NoemaDeckState(title: "Tasks unavailable", message: "Connect this device to load your task queue.", symbol: "checklist", tone: .warning)
           .background(NoemaColor.surface)
       }
     }
@@ -132,7 +132,7 @@ private struct TasksSurface: View {
             TasksDetailRoute(model: model, taskId: selectedTaskId)
           }
         } else {
-          NoemaDeckState(title: "Select a task", message: "Needs You and recent Work stay visible in the task list.", symbol: "checklist")
+          NoemaDeckState(title: "Select a task", message: "Needs You and recent tasks stay visible in the task list.", symbol: "checklist")
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -145,7 +145,7 @@ private struct TasksSurface: View {
     let archivedProjects = model.projects.filter { $0.archivedAt != nil }
     var entries: [NoemaSidebarEntry] = [
       .item(
-        id: "work.workspace.personal",
+        id: "tasks.workspace.personal",
         label: model.workspace?.name ?? "Personal",
         symbol: "briefcase",
         selected: model.selectedProjectId == nil,
@@ -159,7 +159,7 @@ private struct TasksSurface: View {
       entries.append(.group("Projects"))
       entries.append(contentsOf: activeProjects.map { project in
         .item(
-          id: "work.project.\(project.id)",
+          id: "tasks.project.\(project.id)",
           label: project.name,
           symbol: "folder",
           depth: 1,
@@ -175,7 +175,7 @@ private struct TasksSurface: View {
       entries.append(.group("Archived"))
       entries.append(contentsOf: archivedProjects.map { project in
         .item(
-          id: "work.project.archived.\(project.id)",
+          id: "tasks.project.archived.\(project.id)",
           label: project.name,
           symbol: "archivebox",
           depth: 1,
@@ -189,20 +189,20 @@ private struct TasksSurface: View {
 
     entries.append(.group("Project actions"))
     entries.append(.item(
-      id: "work.project.new",
+      id: "tasks.project.new",
       label: "New project",
       symbol: "folder.badge.plus",
       action: { createProjectPresented = true }
     ))
     if let selectedProject = model.projects.first(where: { $0.id == model.selectedProjectId }) {
       entries.append(.item(
-        id: "work.project.edit",
+        id: "tasks.project.edit",
           label: "Edit \(selectedProject.name)",
         symbol: "pencil",
         action: { projectEditor = selectedProject }
       ))
       entries.append(.item(
-        id: "work.project.archive",
+        id: "tasks.project.archive",
         label: selectedProject.archivedAt == nil ? "Archive project" : "Reopen project",
         symbol: selectedProject.archivedAt == nil ? "archivebox" : "arrow.uturn.backward",
         action: { projectEditor = selectedProject }
@@ -297,7 +297,7 @@ struct TasksListDeck: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      TasksWorkToolbar(
+      TasksToolbar(
         model: model,
         capturePresented: $capturePresented,
         createProjectPresented: $createProjectPresented,
@@ -320,7 +320,7 @@ struct TasksListDeck: View {
           } else if !hasVisibleTasks && !model.isRefreshing {
             TasksStateCard(
               message: "No tasks yet",
-              detail: "Capture a request to start a durable Work item.",
+              detail: "Capture a request to start a durable task.",
               symbol: "checklist",
               actionTitle: "Capture task",
               action: { capturePresented = true }

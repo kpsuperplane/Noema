@@ -121,7 +121,7 @@ tables.
 | Verified local model weights | `${NOEMA_HOME}/models/blobs/` |
 | Human-authored docs, imported files, attachments, and durable artifacts | filesystem |
 | Indexes, caches, temporary files, and derived search/vector state | `system/`, including rebuildable memory FTS |
-| Introspection into database-backed state | chat/work drill-ins, advanced inspection, and explicit export tools |
+| Introspection into database-backed state | chat/task drill-ins, advanced inspection, and explicit export tools |
 
 ## Primary objects
 
@@ -234,7 +234,7 @@ Proactivity should be customizable and explainable.
 
 These are target product surfaces. The initial frontend should start with chat as
 the primary experience. Memory, settings, inspection, workspaces, projects,
-tasks, tools, approvals, and audit should reveal incrementally from chat/work
+tasks, tools, approvals, and audit should reveal incrementally from chat/task
 events and become full management surfaces only when backed state and user
 intent require them.
 
@@ -287,7 +287,7 @@ memory
 Use SQLite as Noema's canonical structured store. Use the native Markdown tree
 for durable memory truth and a separate rebuildable SQLite FTS projection for
 search. Use the filesystem for durable object-owned documents and artifacts.
-Use chat/work drill-ins, advanced inspection, and explicit export tools for
+Use chat/task drill-ins, advanced inspection, and explicit export tools for
 introspection into database-backed state.
 
 [Memory Plan Index](memory.md)

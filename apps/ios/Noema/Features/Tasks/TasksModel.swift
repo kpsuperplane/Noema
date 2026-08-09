@@ -66,7 +66,7 @@ final class TasksModel {
     guard !started else { return }
     started = true
     await refresh()
-    subscribeToWork()
+    subscribeToTasks()
   }
 
   /// Re-read the authoritative task snapshots before accepting new live events.
@@ -83,7 +83,7 @@ final class TasksModel {
     runtimeSubscription = nil
     await refresh()
     guard isConnected else { return }
-    subscribeToWork()
+    subscribeToTasks()
     if let taskId = detail?.id {
       subscribeToTask(taskId)
       subscribeToRuntime(taskId)
@@ -104,12 +104,12 @@ final class TasksModel {
       projectId: optional(selectedProjectId),
       first: 50
     )
-    let listInput = WorkTasksInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.active))
+    let listInput = TaskListInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.active))
     let listQuery = TasksListQuery(input: listInput, first: .some(100), after: .none)
     var refreshFailed = false
 
     do {
-      if let overview = try await fetch(overviewQuery).data { applyOverview(overview.workOverview) }
+      if let overview = try await fetch(overviewQuery).data { applyOverview(overview.tasksOverview) }
     } catch {
       refreshFailed = true
       record(error)
@@ -153,9 +153,9 @@ final class TasksModel {
     }
     do {
       if let allTasks = try await fetch(listQuery).data {
-        tasks = allTasks.workTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }
-        tasksEndCursor = allTasks.workTasks.pageInfo.endCursor
-        hasMoreTasks = allTasks.workTasks.pageInfo.hasNextPage && tasksEndCursor != nil
+        tasks = allTasks.tasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }
+        tasksEndCursor = allTasks.tasks.pageInfo.endCursor
+        hasMoreTasks = allTasks.tasks.pageInfo.hasNextPage && tasksEndCursor != nil
         hasLoadedTasks = true
       }
       tasksErrorMessage = nil
@@ -303,12 +303,12 @@ final class TasksModel {
     isLoadingMoreTasks = true
     defer { isLoadingMoreTasks = false }
     do {
-      let input = WorkTasksInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.active))
+      let input = TaskListInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.active))
       let query = TasksListQuery(input: input, first: .some(100), after: .some(cursor))
       guard let result = try await fetch(query).data else { return }
-      appendUnique(result.workTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }, to: &tasks)
-      tasksEndCursor = result.workTasks.pageInfo.endCursor
-      hasMoreTasks = result.workTasks.pageInfo.hasNextPage && tasksEndCursor != nil
+      appendUnique(result.tasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }, to: &tasks)
+      tasksEndCursor = result.tasks.pageInfo.endCursor
+      hasMoreTasks = result.tasks.pageInfo.hasNextPage && tasksEndCursor != nil
       lastError = nil
     } catch { record(error) }
   }
@@ -871,13 +871,13 @@ final class TasksModel {
     }
   }
 
-  private func subscribeToWork() {
+  private func subscribeToTasks() {
     eventSubscription?.cancel()
     eventSubscription = Task { [weak self] in
       guard let self else { return }
       do {
         let stream = try client.subscribe(
-          subscription: TasksWorkEventsSubscription(
+          subscription: TasksEventsSubscription(
             workspaceId: workspaceId,
             after: optional(eventCursor)
           )
@@ -885,7 +885,7 @@ final class TasksModel {
         for try await value in stream {
           guard !Task.isCancelled else { return }
           isConnected = true
-          eventCursor = value.data?.workEvents.cursor ?? eventCursor
+          eventCursor = value.data?.tasksEvents.cursor ?? eventCursor
           await refresh()
         }
       } catch {
@@ -894,7 +894,7 @@ final class TasksModel {
         try? await Task.sleep(for: .seconds(2))
         guard started, !Task.isCancelled else { return }
         await refresh()
-        subscribeToWork()
+        subscribeToTasks()
       }
     }
   }
@@ -941,7 +941,7 @@ final class TasksModel {
     }
   }
 
-  private func applyOverview(_ overview: TasksOverviewQuery.Data.WorkOverview) {
+  private func applyOverview(_ overview: TasksOverviewQuery.Data.TasksOverview) {
     workspace = TasksWorkspaceSnapshot(id: overview.workspace.workspaceId, name: overview.workspace.name, description: overview.workspace.description, isPersonal: overview.workspace.isPersonal)
     columns = overview.boardColumns.map { TasksColumnSnapshot(id: $0.stage.stageId, title: $0.stage.name, behavior: TasksStageBehavior($0.stage.behavior.rawValue), count: $0.taskCount) }
   }

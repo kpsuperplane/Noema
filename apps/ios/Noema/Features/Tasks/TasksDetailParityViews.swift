@@ -24,7 +24,7 @@ struct TasksQueueSheet: View {
       onDismiss: { dismiss() }
     ) {
       VStack(alignment: .leading, spacing: 0) {
-        Text("Work will start from the current Inbox request.")
+        Text("Task execution will start from the current Inbox request.")
           .font(NoemaFont.body)
           .foregroundStyle(NoemaColor.contentSecondary)
           .fixedSize(horizontal: false, vertical: true)

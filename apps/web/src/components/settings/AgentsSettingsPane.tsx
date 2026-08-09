@@ -124,7 +124,7 @@ export function AgentsSettingsPane() {
         <VStack gap={2}>
           <HStack gap={2} justify="between" vAlign="center" wrap="wrap">
             <VStack gap={0.5}>
-              <h2 id="acp-agents-title" {...stylex.props(styles.sectionTitle)}>ACP Work executors</h2>
+              <h2 id="acp-agents-title" {...stylex.props(styles.sectionTitle)}>ACP task executors</h2>
               <p {...stylex.props(styles.mutedText)}>Trusted local commands Noema can launch for Executor runs.</p>
             </VStack>
             <Button type="button" size="sm" variant="secondary" label="Add ACP agent" onClick={() => setEditingAcpAgent("new")} />

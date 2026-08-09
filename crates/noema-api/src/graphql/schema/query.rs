@@ -173,14 +173,14 @@ impl QueryRoot {
         agents::agents(state).await
     }
 
-    /// List configured ACP Work executors.
+    /// List configured ACP task executors.
     async fn acp_agents(&self, ctx: &Context<'_>) -> Result<Vec<GraphqlAcpAgent>> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
         agents::acp_agents(state, principal).await
     }
 
-    /// Return one owner-authorized Work task detail.
+    /// Return one owner-authorized task detail.
     async fn task(&self, ctx: &Context<'_>, task_id: String) -> Result<GraphqlTaskDetail> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
@@ -231,29 +231,29 @@ impl QueryRoot {
         .await
     }
 
-    /// Return one coherent board bootstrap projection.
-    async fn work_overview(
+    /// Return one coherent Tasks overview.
+    async fn tasks_overview(
         &self,
         ctx: &Context<'_>,
         workspace_id: String,
         project_id: Option<String>,
-    ) -> Result<GraphqlWorkOverview> {
+    ) -> Result<GraphqlTaskOverview> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
-        tasks::work_overview(state, principal, workspace_id, project_id).await
+        tasks::tasks_overview(state, principal, workspace_id, project_id).await
     }
 
-    /// List board/list tasks through one bounded batch-hydrated Store query.
-    async fn work_tasks(
+    /// List tasks through one bounded store query.
+    async fn tasks(
         &self,
         ctx: &Context<'_>,
-        input: GraphqlWorkTasksInput,
+        input: GraphqlTaskListInput,
         first: Option<i32>,
         after: Option<String>,
     ) -> Result<GraphqlTaskConnection> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
-        tasks::work_tasks(state, principal, input, first, after).await
+        tasks::task_list(state, principal, input, first, after).await
     }
 
     /// Return unresolved gate/review attention cards.
@@ -312,8 +312,8 @@ impl QueryRoot {
         .await
     }
 
-    /// Return the durable Work activity ledger for a scope.
-    async fn work_activity(
+    /// Return saved Tasks activity for a scope.
+    async fn tasks_activity(
         &self,
         ctx: &Context<'_>,
         workspace_id: String,
@@ -321,10 +321,10 @@ impl QueryRoot {
         task_id: Option<String>,
         first: Option<i32>,
         after: Option<String>,
-    ) -> Result<GraphqlWorkEventConnection> {
+    ) -> Result<GraphqlTaskEventConnection> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
-        tasks::work_activity(
+        tasks::tasks_activity(
             state,
             principal,
             workspace_id,

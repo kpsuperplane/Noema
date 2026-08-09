@@ -6,13 +6,13 @@
 
 nonisolated public struct TasksEventFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksEventFields on WorkEvent { __typename cursor eventId kind occurredAt workspaceId projectId taskId runId actor causationId correlationId payload }"#
+    #"fragment TasksEventFields on TasksEvent { __typename cursor eventId kind occurredAt workspaceId projectId taskId runId actor causationId correlationId payload }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
   @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
 
-  @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.WorkEvent }
+  @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TasksEvent }
   @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
     .field("__typename", String.self),
     .field("cursor", String.self),

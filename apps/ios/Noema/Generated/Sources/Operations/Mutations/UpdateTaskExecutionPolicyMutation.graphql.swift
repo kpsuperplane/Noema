@@ -31,7 +31,7 @@ nonisolated public struct UpdateTaskExecutionPolicyMutation: GraphQLMutation {
       UpdateTaskExecutionPolicyMutation.Data.self
     ] }
 
-    /// Replace user-controlled task safety limits while retaining Work-owned bounds.
+    /// Replace user-controlled task safety limits while retaining Tasks-owned bounds.
     public var updateTaskExecutionPolicy: UpdateTaskExecutionPolicy { __data["updateTaskExecutionPolicy"] }
 
     /// UpdateTaskExecutionPolicy

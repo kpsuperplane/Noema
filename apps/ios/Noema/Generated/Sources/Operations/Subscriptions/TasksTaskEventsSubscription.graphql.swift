@@ -43,17 +43,17 @@ nonisolated public struct TasksTaskEventsSubscription: GraphQLSubscription {
       TasksTaskEventsSubscription.Data.self
     ] }
 
-    /// Stream the task-filtered projection of the same durable Work ledger.
+    /// Stream the task-filtered projection of the same durable Tasks ledger.
     public var taskEvents: TaskEvents { __data["taskEvents"] }
 
     /// TaskEvents
     ///
-    /// Parent Type: `WorkEvent`
+    /// Parent Type: `TasksEvent`
     nonisolated public struct TaskEvents: NoemaAPI.SelectionSet {
       @_spi(Unsafe) public let __data: DataDict
       @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
 
-      @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.WorkEvent }
+      @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TasksEvent }
       @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
         .field("__typename", String.self),
         .fragment(TasksEventFields.self),

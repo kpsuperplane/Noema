@@ -32,7 +32,7 @@ nonisolated public struct TasksQueueTaskMutation: GraphQLMutation {
       TasksQueueTaskMutation.Data.self
     ] }
 
-    /// Queue an Inbox task through the semantic Work command service.
+    /// Queue an Inbox task through the semantic Tasks command service.
     public var queueTask: QueueTask { __data["queueTask"] }
 
     /// QueueTask

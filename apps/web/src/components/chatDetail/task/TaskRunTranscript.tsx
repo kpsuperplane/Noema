@@ -1,6 +1,6 @@
 import { useQuery } from "@apollo/client/react";
 import * as React from "react";
-import { WorkTaskRunItemsDocument, type WorkTaskRunItemsQuery } from "@/generated/graphql";
+import { TasksTaskRunItemsDocument, type TasksTaskRunItemsQuery } from "@/generated/graphql";
 import {
   mapTaskRunItem,
   mergeTaskRunItems,
@@ -9,7 +9,7 @@ import {
 import type { TaskRunItem, TaskRunRole } from "./taskTypes";
 import type { TaskRun } from "./taskTypes";
 
-type RunItemNode = WorkTaskRunItemsQuery["taskRunItems"]["edges"][number]["node"];
+type RunItemNode = TasksTaskRunItemsQuery["taskRunItems"]["edges"][number]["node"];
 const EMPTY_RUN_ITEMS: readonly TaskRunItem[] = [];
 
 export type TaskRunTranscriptSnapshot = {
@@ -85,7 +85,7 @@ function useTaskRunTranscriptData(
 ) {
   const runId = run.id;
   const role = run.role;
-  const { data, error, fetchMore, refetch } = useQuery(WorkTaskRunItemsDocument, {
+  const { data, error, fetchMore, refetch } = useQuery(TasksTaskRunItemsDocument, {
     fetchPolicy: "cache-and-network",
     variables: { runId, first: 50 }
   });

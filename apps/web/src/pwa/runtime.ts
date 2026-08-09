@@ -28,13 +28,13 @@ import {
   UsageSettingsDocument,
   WebFetchSettingsDocument,
   WebToolSettingsDocument,
-  WorkNeedsYouDocument,
-  WorkPanelDocument,
-  WorkProjectsDocument,
-  WorkTaskDetailDocument,
-  WorkTaskEditFieldsDocument,
-  WorkTaskReferenceDocument,
-  WorkTasksDocument
+  TasksNeedsYouDocument,
+  TasksPanelDocument,
+  TasksProjectsDocument,
+  TasksTaskDetailDocument,
+  TasksTaskEditFieldsDocument,
+  TasksTaskReferenceDocument,
+  TasksListDocument
 } from "@/generated/graphql";
 import {
   isInstalledPwa,
@@ -78,13 +78,13 @@ const mutableDocuments: ReadonlyMap<string, DocumentNode> = new Map<string, Docu
   ["UsageSettings", UsageSettingsDocument],
   ["WebFetchSettings", WebFetchSettingsDocument],
   ["WebToolSettings", WebToolSettingsDocument],
-  ["WorkNeedsYou", WorkNeedsYouDocument],
-  ["WorkPanel", WorkPanelDocument],
-  ["WorkProjects", WorkProjectsDocument],
-  ["WorkTaskDetail", WorkTaskDetailDocument],
-  ["WorkTaskEditFields", WorkTaskEditFieldsDocument],
-  ["WorkTaskReference", WorkTaskReferenceDocument],
-  ["WorkTasks", WorkTasksDocument]
+  ["TasksNeedsYou", TasksNeedsYouDocument],
+  ["TasksPanel", TasksPanelDocument],
+  ["TasksProjects", TasksProjectsDocument],
+  ["TasksTaskDetail", TasksTaskDetailDocument],
+  ["TasksTaskEditFields", TasksTaskEditFieldsDocument],
+  ["TasksTaskReference", TasksTaskReferenceDocument],
+  ["TasksList", TasksListDocument]
 ]);
 
 class PwaRuntime {

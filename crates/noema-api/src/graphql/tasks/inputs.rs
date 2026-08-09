@@ -100,10 +100,10 @@ graphql_enum_bridge! { "Runtime behavior of one workflow stage." =>
     }
 }
 
-/// Scope of a Work task connection.
+/// Scope of a task connection.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Enum)]
-#[graphql(name = "WorkTaskScope")]
-pub enum GraphqlWorkTaskScope {
+#[graphql(name = "TaskScope")]
+pub enum GraphqlTaskScope {
     /// Nonterminal workflow stages.
     #[default]
     Active,
@@ -113,12 +113,12 @@ pub enum GraphqlWorkTaskScope {
     All,
 }
 
-impl From<GraphqlWorkTaskScope> for noema_store::WorkTaskScope {
-    fn from(value: GraphqlWorkTaskScope) -> Self {
+impl From<GraphqlTaskScope> for noema_store::WorkTaskScope {
+    fn from(value: GraphqlTaskScope) -> Self {
         match value {
-            GraphqlWorkTaskScope::Active => Self::Active,
-            GraphqlWorkTaskScope::Terminal => Self::Terminal,
-            GraphqlWorkTaskScope::All => Self::All,
+            GraphqlTaskScope::Active => Self::Active,
+            GraphqlTaskScope::Terminal => Self::Terminal,
+            GraphqlTaskScope::All => Self::All,
         }
     }
 }
@@ -142,14 +142,14 @@ graphql_enum_bridge! { "Structured approval decision for an Approval gate." =>
     }
 }
 
-graphql_input! { "Board/list task filter input." => GraphqlWorkTasksInput("WorkTasksInput") {
+graphql_input! { "Board/list task filter input." => GraphqlTaskListInput("TaskListInput") {
     "Workspace scope." => workspace_id: String,
     "Optional project scope." => project_id: Option<String>,
     "Optional explicit stage identities." => stage_ids: Option<Vec<String>>,
     "Optional semantic stage behavior filter." => stage_behaviors: Option<Vec<GraphqlWorkflowStageBehavior>>,
     "Case-insensitive title/description search." => text: Option<String>,
     "Restrict results to unresolved human attention.", #[graphql(default = false)] => attention_only: bool,
-    "Active, terminal, or combined scope.", #[graphql(default)] => scope: GraphqlWorkTaskScope,
+    "Active, terminal, or combined scope.", #[graphql(default)] => scope: GraphqlTaskScope,
 } }
 graphql_input! { "New project input." => GraphqlCreateProjectInput("CreateProjectInput") {
     "Workspace owning the project." => workspace_id: String,
