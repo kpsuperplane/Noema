@@ -25,7 +25,7 @@ The proposal has ten change packages:
 4. Make conversation tool-call state correct.
 5. Make task run items and debug spans final.
 6. Give the task reviewer stored execution evidence.
-7. Use the exact source review without a fallback.
+7. Load only the review that requested a correction.
 8. Complete the reviewed tool-definition replacement path.
 9. Make schema enforcement consistent for every tool source.
 
@@ -233,7 +233,7 @@ Use this language contract in every file that this roadmap changes:
 | Canonical state | Stored state | `StoredTaskState` when a type needs the distinction | The source data in SQLite |
 | Task fence | Current-run check | `TaskRunCheck` | The values that prove a write belongs to the current run |
 | Governed action | Action request | `ActionRequest`, `action_requests` | One saved tool action that Noema must check |
-| Review lineage | Source review | `source_review_id` | The review that requested the next run |
+| Review lineage; `triggering_review_id` | Correction review | `correction_review_id` | The exact review that requested a correction run |
 | Schema lowering | Provider schema conversion | `convert_provider_schema` | Noema adapts a tool schema for a model service |
 | Strict lowering | Exact schema conversion | `convert_schema_exactly` | The converted schema accepts the same inputs |
 | Canonical runtime validation | Final source-schema check | `validate_tool_input` | Noema checks tool input before invocation |
@@ -959,23 +959,28 @@ them from task, run, requirements, and submission links.
 
 ---
 
-## Change 7: Use the exact source review without a substitute
+## Change 7: Load only the review that requested a correction
 
 ### Current problem
 
-The review-input query first uses the run's `source_review_id`. If that value is
-absent, it falls back to the task's latest review.
+When a task review requests changes, Noema queues a correction run. The queue
+code stores that review's ID in the run's current `triggering_review_id` field.
 
-The later check can detect an unrelated review. However, the query still
-selects a review that did not request the run.
+The context query first uses `triggering_review_id`. If that field is empty, the
+query uses the task's `latest_review_id` instead. The latest review can be a
+different review. It is not proof that the review requested this correction
+run.
+
+The current validation confirms that a loaded review belongs to the same task
+and contract. It does not confirm that the loaded review requested this run.
 
 The historical failure did not recur after the audit cutoff. The unsafe path
 still exists.
 
 Current code owners:
 
-- Task review input under `noema-store`.
-- Task-run queue code under `noema-store`.
+- Context loading in `crates/noema-store/src/work_run_context.rs`.
+- Correction-run creation in `crates/noema-store/src/tasks/reviews.rs`.
 
 Audit issue: `WORK-06`.
 
@@ -983,12 +988,12 @@ Audit issue: `WORK-06`.
 
 ```mermaid
 flowchart TD
-    A["Load review input"]
-    B{"Run has source review ID?"}
-    C["Load source review"]
-    D["Load task latest review"]
-    E["Check the source review"]
-    F["Possible unrelated-review error"]
+    A["Load correction-run context"]
+    B{"triggering_review_id is present?"}
+    C["Load the review that requested this run"]
+    D["Load the task's latest review"]
+    E["Check only task and contract links"]
+    F["Give the selected review to the worker"]
 
     A --> B
     B -->|Yes| C --> E
@@ -998,50 +1003,64 @@ flowchart TD
 
 ### Proposed mechanism
 
-Use only the run's explicit source review. A run that requires review input
-must carry the exact review ID when Noema queues the run.
+Use the existing run fields to identify correction runs. A first worker run has
+`review_round = 1`. A correction run has `run_kind = executor` and
+`review_round > 1`.
 
 Use these rules:
 
-1. Task-planner runs have no source review.
-2. First task-worker runs have no source review.
-3. Correction runs require their exact source review.
-4. Reviewer runs require their exact source submission.
-5. A missing required source link becomes one stored-state fault.
+1. Keep setting `triggering_review_id` when a review requests a correction.
+2. A first worker run continues without prior review input.
+3. A correction run must have `triggering_review_id`.
+4. Load only the review named by that field.
+5. Do not use `task.latest_review_id` as a replacement.
+6. If the field is missing or the named review has the wrong task or contract,
+   stop context loading and report one broken saved-state error.
 
 ### After
 
 ```mermaid
 flowchart TD
-    A["Load review input"]
-    B{"This run role requires a source review?"}
-    C["Load exact source review"]
-    D["Continue without review input"]
-    E["Open stored-state recovery path"]
-    F["Check the exact source review"]
+    A["Load worker-run context"]
+    B{"First run or correction run?"}
+    C["Continue without prior review"]
+    D{"triggering_review_id is present?"}
+    E["Load that exact review"]
+    F["Report broken saved state"]
+    G["Give exact correction review to the worker"]
 
     A --> B
-    B -->|No| D
-    B -->|Yes and present| C --> F
-    B -->|Yes and missing| E
+    B -->|First run| C
+    B -->|Correction run| D
+    D -->|Yes| E --> G
+    D -->|No| F
 ```
 
 ### Data change
 
-No schema change should be necessary. `agent_runs` already stores the current
-fields `triggering_review_id` and `triggering_submission_id`.
+No schema change is necessary. `agent_runs` already stores
+`triggering_review_id`, `run_kind`, and `review_round`.
 
 ### Tests
 
-Add one table-driven regression test for every run role. It must prove that a
-correction uses its exact source review, rejects a missing or unrelated source,
-and never reads the task's latest review as a substitute.
+Add one table-driven regression test for this context query. It must prove that:
+
+- A first worker run loads no prior review.
+- A correction run loads its exact `triggering_review_id`.
+- A correction run rejects a missing or unrelated review ID.
+- A different `task.latest_review_id` does not change the correction input.
 
 ### Completion criteria
 
-- No review input uses the task's latest review as source evidence.
-- Every correction run has one exact source review.
-- A missing source review produces one clear recovery state.
+- Correction-run context never uses `task.latest_review_id`.
+- Every correction run loads the review that requested it.
+- A missing correction review produces one clear saved-state error.
+
+### Non-goals
+
+- Do not change how reviewer runs load their triggering submission.
+- Do not change task-review content or decisions.
+- Do not add a new review record or database field.
 
 ---
 
