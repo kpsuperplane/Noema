@@ -43,7 +43,7 @@ nonisolated public struct TasksTaskEventsSubscription: GraphQLSubscription {
       TasksTaskEventsSubscription.Data.self
     ] }
 
-    /// Stream the task-filtered projection of the same durable Tasks ledger.
+    /// Stream the task-filtered view of the same Tasks events.
     public var taskEvents: TaskEvents { __data["taskEvents"] }
 
     /// TaskEvents

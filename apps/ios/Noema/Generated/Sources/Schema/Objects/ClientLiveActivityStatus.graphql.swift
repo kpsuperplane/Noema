@@ -4,9 +4,8 @@
 import ApolloAPI
 
 public extension Objects {
-  /// Saved Tasks event.
-  nonisolated static let TasksEvent = ApolloAPI.Object(
-    typename: "TasksEvent",
+  nonisolated static let ClientLiveActivityStatus = ApolloAPI.Object(
+    typename: "ClientLiveActivityStatus",
     implementedInterfaces: [],
     keyFields: nil
   )

@@ -20,6 +20,7 @@ struct SettingsRootView: View {
       settings: settings,
       appModel: model,
       notifications: model.notifications,
+      liveActivities: model.liveActivities,
       onRevoke: { revocationTarget = $0 },
       onDisconnect: { disconnectPresented = true }
     )
@@ -70,6 +71,7 @@ struct SettingsRootView: View {
       (.localModels, "Local Models", "cpu"),
       (.providers, "Providers", "server.rack"),
       (.notifications, "Notifications", "bell"),
+      (.liveActivities, "Live Activities", "rectangle.inset.filled.and.person.filled"),
       (.clients, "Clients", "iphone")
     ]
     var entries: [NoemaSidebarEntry] = []
@@ -99,6 +101,7 @@ private struct SettingsDetail: View {
   let settings: SettingsModel
   let appModel: NoemaAppModel
   let notifications: NoemaNotificationService
+  let liveActivities: NoemaLiveActivityService
   let onRevoke: (PairedClient) -> Void
   let onDisconnect: () -> Void
 
@@ -115,6 +118,7 @@ private struct SettingsDetail: View {
       case .localModels: LocalModelsSettings(settings: settings)
       case .providers: ProvidersSettings(settings: settings)
       case .notifications: ClientNotificationsSettings(notifications: notifications)
+      case .liveActivities: ClientLiveActivitiesSettings(liveActivities: liveActivities)
       case .clients:
         ClientsSettings(
           settings: settings,

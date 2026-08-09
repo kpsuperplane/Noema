@@ -48,7 +48,7 @@ nonisolated public struct TasksListQuery: GraphQLQuery {
       TasksListQuery.Data.self
     ] }
 
-    /// List board/list tasks through one bounded batch-hydrated Store query.
+    /// List tasks through one bounded store query.
     public var tasks: Tasks { __data["tasks"] }
 
     /// Tasks

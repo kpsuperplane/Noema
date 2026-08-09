@@ -15,7 +15,7 @@ struct NoemaApp: App {
           model.scenePhaseChanged(scenePhase)
         }
         .onOpenURL { url in
-          model.ingestPairingURL(url)
+          model.ingestURL(url)
         }
     }
     .onChange(of: scenePhase) { _, phase in

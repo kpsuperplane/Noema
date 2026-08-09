@@ -32,7 +32,7 @@ nonisolated public struct TasksReopenProjectMutation: GraphQLMutation {
       TasksReopenProjectMutation.Data.self
     ] }
 
-    /// Reopen a project through the semantic Tasks command service.
+    /// Reopen a project through the task command service.
     public var reopenProject: ReopenProject { __data["reopenProject"] }
 
     /// ReopenProject

@@ -50,3 +50,13 @@ app accepts the resulting `noema://pair` URI from VisionKit scanning, a deep
 link, or the pasteboard. Disconnecting removes the local Keychain profile;
 revoking a client from either Settings surface invalidates its HTTP, WebSocket,
 and artifact access on the server.
+
+## Task Live Activities
+
+Noema shows one aggregate Tasks Live Activity for the active task set. The
+server starts, updates, and ends it through direct APNs. The widget extension
+does not share the paired credential or run GraphQL requests.
+
+Enable Push Notifications for `dev.noema.app.ios` before a signed device build.
+Configure the server APNs provider in browser Settings. Live Activity pushes use
+the fixed topic `dev.noema.app.ios.push-type.liveactivity`.

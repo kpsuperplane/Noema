@@ -43,7 +43,7 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
       TasksOverviewQuery.Data.self
     ] }
 
-    /// Return one coherent board bootstrap projection.
+    /// Return one coherent Tasks overview.
     public var tasksOverview: TasksOverview { __data["tasksOverview"] }
 
     /// TasksOverview

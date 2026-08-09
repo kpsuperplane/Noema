@@ -1,0 +1,37 @@
+query ClientLiveActivityStatus {
+  clientLiveActivityStatus {
+    available
+    blocker
+    enabled
+    registered
+    environment
+  }
+}
+
+mutation RegisterClientLiveActivities($input: RegisterClientLiveActivitiesInput!) {
+  registerClientLiveActivities(input: $input) {
+    available
+    blocker
+    enabled
+    registered
+    environment
+  }
+}
+
+mutation RegisterClientLiveActivityUpdate($input: RegisterClientLiveActivityUpdateInput!) {
+  registerClientLiveActivityUpdate(input: $input)
+}
+
+mutation DismissClientLiveActivity($activityId: String!) {
+  dismissClientLiveActivity(activityId: $activityId)
+}
+
+mutation DisableClientLiveActivities {
+  disableClientLiveActivities {
+    available
+    blocker
+    enabled
+    registered
+    environment
+  }
+}

@@ -32,7 +32,7 @@ nonisolated public struct TasksArchiveProjectMutation: GraphQLMutation {
       TasksArchiveProjectMutation.Data.self
     ] }
 
-    /// Archive a project through the semantic Tasks command service.
+    /// Archive a project through the task command service.
     public var archiveProject: ArchiveProject { __data["archiveProject"] }
 
     /// ArchiveProject

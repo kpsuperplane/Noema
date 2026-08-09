@@ -68,7 +68,7 @@ struct ClientRevocationSheet: View {
     Task {
       do {
         let current = try await settings.revoke(client)
-        if current { appModel.disconnect(notificationsAlreadyRemoved: true) }
+        if current { appModel.disconnect(registrationsAlreadyRemoved: true) }
         dismiss()
       } catch {
         errorMessage = error.localizedDescription

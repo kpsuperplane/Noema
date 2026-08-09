@@ -32,7 +32,7 @@ nonisolated public struct TasksCaptureTaskMutation: GraphQLMutation {
       TasksCaptureTaskMutation.Data.self
     ] }
 
-    /// Capture a task in Inbox through the semantic Tasks command service.
+    /// Capture a task in Inbox through the task command service.
     public var captureTask: CaptureTask { __data["captureTask"] }
 
     /// CaptureTask

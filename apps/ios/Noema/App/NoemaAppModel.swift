@@ -19,22 +19,30 @@ final class NoemaAppModel {
   private(set) var isPairing = false
   private(set) var recoveryGeneration = 0
   private(set) var notificationTapGeneration = 0
+  private(set) var pendingTaskID: String?
   private(set) var disconnectError: String?
 
   let profileStore: KeychainProfileStore
   let notifications: NoemaNotificationService
+  let liveActivities: NoemaLiveActivityService
   private let pairingService: PairingService
   private var graphQL: NoemaGraphQLClient?
+  private var registrationCleanupComplete = false
 
   init() {
     let store = KeychainProfileStore()
     let notifications = NoemaNotificationService()
+    let liveActivities = NoemaLiveActivityService()
     self.profileStore = store
     self.notifications = notifications
+    self.liveActivities = liveActivities
     self.pairingService = PairingService(profileStore: store)
     NoemaApplicationDelegate.notifications = notifications
     notifications.onChatTap = { [weak self] in
       self?.openChatFromNotification()
+    }
+    notifications.onTaskTap = { [weak self] taskID in
+      self?.openTaskFromNotification(taskID)
     }
   }
 
@@ -47,13 +55,16 @@ final class NoemaAppModel {
         graphQL = NoemaGraphQLClient(profile: stored)
         state = .paired
         await notifications.configure(profile: stored, client: graphQL?.client)
+        await liveActivities.configure(profile: stored, client: graphQL?.client)
         notifications.markModelReady()
       } else {
         notifications.markModelNotReady()
+        await liveActivities.configure(profile: nil, client: nil)
         state = .unpaired
       }
     } catch {
       notifications.markModelNotReady()
+      await liveActivities.configure(profile: nil, client: nil)
       pairingError = "The saved connection could not be read. Pair this device again."
       state = .unpaired
     }
@@ -86,6 +97,21 @@ final class NoemaAppModel {
     }
   }
 
+  func ingestURL(_ url: URL) {
+    let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    let queryTaskID = components?.queryItems?.first(where: { $0.name == "id" })?.value
+    let pathTaskID = String(url.path.dropFirst()).removingPercentEncoding
+    let taskID = queryTaskID ?? pathTaskID ?? ""
+    if url.scheme?.lowercased() == "noema",
+       url.host?.lowercased() == "task",
+       (1...256).contains(taskID.utf8.count),
+       taskID.hasPrefix("task:") {
+      pendingTaskID = taskID
+      return
+    }
+    ingestPairingURL(url)
+  }
+
   func completePairing(displayName: String) {
     guard let payload = pairingPayload, !isPairing else { return }
     let replacingExistingProfile = profile != nil
@@ -93,10 +119,14 @@ final class NoemaAppModel {
     pairingError = nil
     Task {
       do {
-        if replacingExistingProfile, !(await notifications.disable()) {
-          pairingError = "Reconnect to the current server before pairing a replacement."
-          isPairing = false
-          return
+        if replacingExistingProfile {
+          let notificationsRemoved = await notifications.disable()
+          let activitiesRemoved = await liveActivities.disable()
+          guard notificationsRemoved, activitiesRemoved else {
+            pairingError = "Reconnect to the current server before pairing a replacement."
+            isPairing = false
+            return
+          }
         }
         let stored = try await pairingService.complete(payload: payload, displayName: displayName)
         profile = stored
@@ -104,6 +134,7 @@ final class NoemaAppModel {
         state = .paired
         pairingPayload = nil
         await notifications.configure(profile: stored, client: graphQL?.client)
+        await liveActivities.configure(profile: stored, client: graphQL?.client)
         notifications.markModelReady()
       } catch {
         pairingError = error.localizedDescription
@@ -119,20 +150,39 @@ final class NoemaAppModel {
     pairingError = nil
   }
 
-  func disconnect(notificationsAlreadyRemoved: Bool = false) {
+  func disconnect(registrationsAlreadyRemoved: Bool = false) {
     Task {
       disconnectError = nil
-      if notificationsAlreadyRemoved {
+      let notificationsRemoved: Bool
+      let activitiesRemoved: Bool
+      if registrationsAlreadyRemoved || registrationCleanupComplete {
         notifications.clearLocalRegistration()
-      } else if !(await notifications.disable()) {
-        disconnectError = notifications.errorMessage ?? "Reconnect to this server before unpairing."
+        notificationsRemoved = true
+        await liveActivities.clearLocalActivities()
+        activitiesRemoved = true
+      } else {
+        notificationsRemoved = await notifications.disable()
+        activitiesRemoved = await liveActivities.disable()
+      }
+      if !notificationsRemoved || !activitiesRemoved {
+        disconnectError = notifications.errorMessage
+          ?? liveActivities.errorMessage
+          ?? "Reconnect to this server before unpairing."
+        return
+      }
+      registrationCleanupComplete = true
+      do {
+        try await profileStore.disconnect()
+      } catch {
+        disconnectError = "Noema could not remove the saved connection. Try unpairing again."
         return
       }
       notifications.markModelNotReady()
       await notifications.configure(profile: nil, client: nil)
+      await liveActivities.configure(profile: nil, client: nil)
       graphQL = nil
       profile = nil
-      try? await profileStore.disconnect()
+      registrationCleanupComplete = false
       state = .unpaired
       pairingPayload = nil
       pairingInput = ""
@@ -146,6 +196,7 @@ final class NoemaAppModel {
 
   func scenePhaseChanged(_ phase: ScenePhase) {
     notifications.scenePhaseChanged(phase == .active)
+    liveActivities.scenePhaseChanged(phase == .active)
     guard let graphQL else { return }
     switch phase {
     case .background, .inactive:
@@ -163,5 +214,14 @@ final class NoemaAppModel {
   func openChatFromNotification() {
     notificationTapGeneration &+= 1
     recoveryGeneration &+= 1
+  }
+
+  func openTaskFromNotification(_ taskID: String) {
+    pendingTaskID = taskID
+    recoveryGeneration &+= 1
+  }
+
+  func clearPendingTaskID() {
+    pendingTaskID = nil
   }
 }

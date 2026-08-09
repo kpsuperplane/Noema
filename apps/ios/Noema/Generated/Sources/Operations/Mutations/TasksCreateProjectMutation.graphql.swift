@@ -32,7 +32,7 @@ nonisolated public struct TasksCreateProjectMutation: GraphQLMutation {
       TasksCreateProjectMutation.Data.self
     ] }
 
-    /// Create a project through the semantic Tasks command service.
+    /// Create a project through the task command service.
     public var createProject: CreateProject { __data["createProject"] }
 
     /// CreateProject

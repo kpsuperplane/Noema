@@ -43,7 +43,7 @@ nonisolated public struct TasksEventsSubscription: GraphQLSubscription {
       TasksEventsSubscription.Data.self
     ] }
 
-    /// Replay and stream the workspace-scoped durable Tasks ledger.
+    /// Replay and stream workspace-scoped Tasks events.
     public var tasksEvents: TasksEvents { __data["tasksEvents"] }
 
     /// TasksEvents

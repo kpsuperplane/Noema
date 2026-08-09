@@ -3,7 +3,7 @@
 
 @_spi(Internal) import ApolloAPI
 
-/// Scope of a Tasks task connection.
+/// Scope of a task connection.
 nonisolated public enum TaskScope: String, EnumType {
   /// Nonterminal workflow stages.
   case active = "ACTIVE"

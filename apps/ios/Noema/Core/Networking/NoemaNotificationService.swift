@@ -14,6 +14,12 @@ struct ClientNotificationStatusModel: Equatable, Sendable {
 
 private struct NotificationRoute {
   let eventKey: String
+  let destination: Destination
+
+  enum Destination {
+    case chat
+    case task(String)
+  }
 }
 
 @MainActor
@@ -26,6 +32,7 @@ final class NoemaNotificationService {
   private(set) var errorMessage: String?
 
   var onChatTap: (@MainActor () -> Void)?
+  var onTaskTap: (@MainActor (String) -> Void)?
 
   private var client: ApolloClient?
   private var profile: NoemaProfile?
@@ -40,6 +47,8 @@ final class NoemaNotificationService {
   private var registrationTask: Task<Void, Never>?
   private var presenceGeneration = 0
   private var registrationGeneration = 0
+  private var statusGeneration = 0
+  private var desiredEnabled = false
 
   var chatPromptVisible: Bool {
     status?.available == true
@@ -68,11 +77,13 @@ final class NoemaNotificationService {
   }
 
   func configure(profile: NoemaProfile?, client: ApolloClient?) async {
+    statusGeneration &+= 1
     await cancelRegistration()
     self.profile = profile
     self.client = client
     if profile == nil || client == nil {
       status = nil
+      desiredEnabled = false
       deviceToken = nil
       pendingNotificationUserInfo = nil
       stopPresence()
@@ -83,7 +94,7 @@ final class NoemaNotificationService {
       receiveTap(userInfo: pendingNotificationUserInfo)
     }
     await refreshPermission()
-    await refreshStatus()
+    guard await refreshStatus() else { return }
     registerForEligibleLaunch()
     reconcilePresence()
   }
@@ -101,7 +112,7 @@ final class NoemaNotificationService {
 
   func refresh() async {
     await refreshPermission()
-    await refreshStatus()
+    guard await refreshStatus() else { return }
     registerForEligibleLaunch()
     reconcilePresence()
   }
@@ -116,7 +127,7 @@ final class NoemaNotificationService {
     if active {
       Task {
         await refreshPermission()
-        await refreshStatus()
+        guard await refreshStatus() else { return }
         registerForEligibleLaunch()
         reconcilePresence()
       }
@@ -132,6 +143,8 @@ final class NoemaNotificationService {
 
   func requestAuthorizationAndEnable() async {
     guard canEnable, profile != nil, client != nil else { return }
+    statusGeneration &+= 1
+    desiredEnabled = true
     errorMessage = nil
     isWorking = true
     defer { isWorking = false }
@@ -140,11 +153,13 @@ final class NoemaNotificationService {
     do {
       granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
     } catch {
+      desiredEnabled = false
       errorMessage = "Noema could not request notification permission."
       return
     }
     await refreshPermission()
     guard granted else {
+      desiredEnabled = false
       errorMessage = settingsDetail
       return
     }
@@ -157,6 +172,8 @@ final class NoemaNotificationService {
   func disable() async -> Bool {
     isWorking = true
     defer { isWorking = false }
+    statusGeneration &+= 1
+    desiredEnabled = false
     await cancelRegistration()
     stopPresence()
     guard let client else {
@@ -203,8 +220,8 @@ final class NoemaNotificationService {
   }
 
   func presentationOptions(for userInfo: [AnyHashable: Any]) -> UNNotificationPresentationOptions {
-    guard validatePayload(userInfo) != nil else { return [] }
-    guard isSceneActive, isChatVisible else { return [.banner, .sound] }
+    guard let route = validatePayload(userInfo) else { return [] }
+    guard case .chat = route.destination, isSceneActive, isChatVisible else { return [.banner, .sound] }
     return []
   }
 
@@ -219,8 +236,10 @@ final class NoemaNotificationService {
     deliverPendingRouteIfReady()
   }
 
-  private func refreshStatus() async {
-    guard let client else { return }
+  private func refreshStatus() async -> Bool {
+    guard let client else { return false }
+    statusGeneration &+= 1
+    let generation = statusGeneration
     isLoading = true
     defer { isLoading = false }
     do {
@@ -230,6 +249,7 @@ final class NoemaNotificationService {
       )
       if let message = response.errors?.first?.message { throw NotificationError.server(message) }
       guard let value = response.data?.clientNotificationStatus else { throw NotificationError.emptyResponse }
+      guard generation == statusGeneration else { return false }
       applyStatus(
         available: value.available,
         blocker: value.blocker,
@@ -237,10 +257,13 @@ final class NoemaNotificationService {
         environment: value.environment?.rawValue
       )
       errorMessage = nil
+      return true
     } catch {
+      guard generation == statusGeneration else { return false }
       errorMessage = status == nil
         ? "Notification status could not be loaded."
         : "Notification status could not be refreshed."
+      return true
     }
   }
 
@@ -250,6 +273,7 @@ final class NoemaNotificationService {
 
   private func registerForEligibleLaunch() {
     guard status?.available == true,
+          status?.enabled == true,
           authorizationStatus == .authorized
     else { return }
     UIApplication.shared.registerForRemoteNotifications()
@@ -257,13 +281,15 @@ final class NoemaNotificationService {
   }
 
   private func scheduleRegistration() {
-    guard registrationTask == nil, client != nil, deviceToken != nil,
+    guard registrationTask == nil, client != nil, let token = deviceToken,
+          desiredEnabled,
+          authorizationStatus == .authorized,
           status?.available == true else { return }
     registrationGeneration &+= 1
     let generation = registrationGeneration
     registrationTask = Task { [weak self] in
-      await self?.registerDeviceTokenIfPossible()
-      self?.registrationEnded(generation: generation)
+      await self?.registerDeviceTokenIfPossible(token: token, generation: generation)
+      self?.registrationEnded(generation: generation, token: token)
     }
   }
 
@@ -275,17 +301,17 @@ final class NoemaNotificationService {
     registrationTask = nil
   }
 
-  private func registrationEnded(generation: Int) {
+  private func registrationEnded(generation: Int, token: Data) {
     guard generation == registrationGeneration else { return }
     registrationTask = nil
+    if deviceToken != token { scheduleRegistration() }
   }
 
-  private func registerDeviceTokenIfPossible() async {
-    guard let client, let deviceToken,
-          status?.available == true
+  private func registerDeviceTokenIfPossible(token: Data, generation: Int) async {
+    guard let client, desiredEnabled, status?.available == true
     else { return }
     let input = NoemaAPI.RegisterClientNotificationsInput(
-      deviceToken: deviceToken.base64URLEncoded,
+      deviceToken: token.base64URLEncoded,
       environment: GraphQLEnum(Self.apnsEnvironment)
     )
     do {
@@ -297,6 +323,7 @@ final class NoemaNotificationService {
       guard value.environment?.rawValue == Self.apnsEnvironment.rawValue else {
         throw NotificationError.server("The server expects a different APNs environment.")
       }
+      guard desiredEnabled, generation == registrationGeneration else { return }
       applyStatus(
         available: value.available,
         blocker: value.blocker,
@@ -311,6 +338,7 @@ final class NoemaNotificationService {
   }
 
   private func applyStatus(available: Bool, blocker: String?, enabled: Bool, environment: String?) {
+    desiredEnabled = enabled
     status = ClientNotificationStatusModel(
       available: available,
       blocker: blocker,
@@ -359,9 +387,14 @@ final class NoemaNotificationService {
   }
 
   private func deliverPendingRouteIfReady() {
-    guard isModelReady, pendingRoute != nil else { return }
+    guard isModelReady, let route = pendingRoute else { return }
     pendingRoute = nil
-    onChatTap?()
+    switch route.destination {
+    case .chat:
+      onChatTap?()
+    case let .task(taskID):
+      onTaskTap?(taskID)
+    }
   }
 
   private func validatePayload(_ userInfo: [AnyHashable: Any], requireClient: Bool = true) -> NotificationRoute? {
@@ -374,11 +407,20 @@ final class NoemaNotificationService {
           !eventKey.isEmpty,
           eventKey.utf8.count <= 256,
           let clientId = userInfo["clientId"] as? String,
-          let route = userInfo["route"] as? String,
-          route == "chat"
+          let route = userInfo["route"] as? String
     else { return nil }
     if requireClient, clientId != profile?.clientId { return nil }
-    return NotificationRoute(eventKey: eventKey)
+    switch route {
+    case "chat":
+      return NotificationRoute(eventKey: eventKey, destination: .chat)
+    case "task":
+      guard let taskID = userInfo["taskId"] as? String,
+            (1...256).contains(taskID.utf8.count),
+            taskID.hasPrefix("task:") else { return nil }
+      return NotificationRoute(eventKey: eventKey, destination: .task(taskID))
+    default:
+      return nil
+    }
   }
 
   private static var apnsEnvironment: NoemaAPI.ApnsEnvironment {
