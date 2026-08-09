@@ -1966,15 +1966,18 @@ async fn run_review_case(
         )
         .await
         .expect("submit executor result");
+    let executor_run_for_items = executor_run_id.clone();
     store
         .with_connection(move |connection| {
             connection.execute(
-                "INSERT INTO agent_run_items (item_id, run_id, sequence_index, round_index, kind, status, content_text, payload_json)
-                 VALUES (?1, ?2, (SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM agent_run_items WHERE run_id = ?2), 0, 'assistant_output', 'completed', 'executor transcript should stay out of reviewer context', '{}')",
-                rusqlite::params![
-                    format!("run_item:review-case:executor-transcript:{executor_run_id}"),
-                    executor_run_id,
-                ],
+                r#"INSERT INTO agent_run_items (item_id, run_id, sequence_index, round_index, kind, status, content_text, payload_json)
+                 VALUES ('run_item:review-case:executor-text', ?1, (SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM agent_run_items WHERE run_id = ?1), 0, 'assistant_output', 'completed', 'Authorized account label: Personal', '{"source_id":"source:ordinary:1"}')"#,
+                [executor_run_for_items.as_str()],
+            )?;
+            connection.execute(
+                r#"INSERT INTO agent_run_items (item_id, run_id, sequence_index, round_index, kind, status, correlation_id, content_text, payload_json)
+                 VALUES ('run_item:review-case:executor-result', ?1, (SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM agent_run_items WHERE run_id = ?1), 0, 'tool_result', 'failed', 'call:uncertain:1', 'The external outcome is uncertain.', '{"outcome":"uncertain","receipt_id":"receipt:ordinary:1"}')"#,
+                [executor_run_for_items.as_str()],
             )?;
             Ok(())
         })
@@ -2009,7 +2012,26 @@ async fn run_review_case(
         )
         .await
         .expect("admit reviewer context");
-    assert!(reviewer_context.context.lineage.is_empty());
+    assert_eq!(reviewer_context.context.lineage.len(), 2);
+    assert!(
+        reviewer_context
+            .context
+            .lineage
+            .iter()
+            .all(|item| item.run_id == executor_run_id)
+    );
+    assert_eq!(
+        reviewer_context.context.lineage[0].content_text.as_deref(),
+        Some("Authorized account label: Personal")
+    );
+    assert_eq!(
+        reviewer_context.context.lineage[1].status,
+        AgentRunItemStatus::Failed
+    );
+    assert_eq!(
+        reviewer_context.context.lineage[1].payload["outcome"],
+        "uncertain"
+    );
     assert!(reviewer_context.context.latest_submission.is_some());
     let result = service
         .record_work_run_terminal(
@@ -2029,13 +2051,14 @@ async fn run_review_case(
                     overall_feedback: "All fixture evidence passes.".to_string(),
                     criteria: vec![TaskReviewCriterion {
                         criterion_id: "criterion:review-case".to_string(),
-                        outcome: if verdict == TaskReviewVerdict::NeedsHuman {
-                            CriterionOutcome::Uncertain
-                        } else {
-                            CriterionOutcome::Pass
+                        outcome: match verdict {
+                            TaskReviewVerdict::Approve => CriterionOutcome::Pass,
+                            TaskReviewVerdict::RequestChanges => CriterionOutcome::Fail,
+                            TaskReviewVerdict::NeedsHuman => CriterionOutcome::Uncertain,
                         },
                         evidence_markdown: Some("The submitted evidence is complete.".to_string()),
-                        feedback: None,
+                        feedback: (verdict == TaskReviewVerdict::RequestChanges)
+                            .then(|| "The result must include the required value.".to_string()),
                     }],
                 },
             }),
@@ -2046,24 +2069,28 @@ async fn run_review_case(
         .await
         .expect("submit reviewer result");
     let gate_id = result.gate_id.clone();
-    let notification_kind = if verdict == TaskReviewVerdict::Approve {
-        "task_completed"
+    let payload = if verdict == TaskReviewVerdict::RequestChanges {
+        serde_json::json!({})
     } else {
-        "task_waiting"
+        let notification_kind = if verdict == TaskReviewVerdict::Approve {
+            "task_completed"
+        } else {
+            "task_waiting"
+        };
+        let payload_json: String = store
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT payload_json FROM work_notification_outbox WHERE notification_kind = ?1 ORDER BY notification_id DESC LIMIT 1",
+                        [notification_kind],
+                        |row| row.get(0),
+                    )
+                    .map_err(StoreError::Sqlite)
+            })
+            .await
+            .expect("review notification");
+        serde_json::from_str(&payload_json).expect("notification payload")
     };
-    let payload_json: String = store
-        .with_connection(|connection| {
-            connection
-                .query_row(
-                    "SELECT payload_json FROM work_notification_outbox WHERE notification_kind = ?1 ORDER BY notification_id DESC LIMIT 1",
-                    [notification_kind],
-                    |row| row.get(0),
-                )
-                .map_err(StoreError::Sqlite)
-        })
-        .await
-        .expect("review notification");
-    let payload = serde_json::from_str(&payload_json).expect("notification payload");
     (
         store,
         service,
@@ -2085,6 +2112,156 @@ async fn approved_reviews_complete_tasks_at_every_complexity() {
         );
         assert_eq!(notification["action_needed"], false);
     }
+}
+
+#[tokio::test]
+async fn executor_context_uses_only_the_review_saved_on_a_correction_run() {
+    let (first_store, first_service) = fixture().await;
+    let first_task = first_service
+        .execute(direct_delegated("idem:first-review-input", "first"))
+        .await
+        .expect("delegate first task")
+        .task
+        .expect("first task");
+    let first_claim = first_service
+        .claim_next_work_run("worker:first-review-input", 60, &[])
+        .await
+        .expect("claim first run")
+        .expect("first run");
+    let first_fence = WorkRunFence {
+        run_id: first_claim.run.run_id.clone(),
+        lease_token: first_claim.lease_token,
+        task_generation: first_claim.run.task_generation,
+        contract_id: first_claim.run.contract_id,
+    };
+    first_service
+        .start_work_run(&first_fence, ACTOR, None, "correlation:first-review-input")
+        .await
+        .expect("start first run");
+    first_store
+        .with_connection(move |connection| {
+            connection.execute(
+                "UPDATE tasks SET latest_review_id = 'review:not-for-first-run' WHERE task_id = ?1",
+                [first_task.task_id.as_str()],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("change latest review");
+    let first_context = first_store
+        .get_work_run_execution_context(&first_fence.run_id)
+        .await
+        .expect("first context")
+        .expect("first context row");
+    assert!(first_context.latest_review.is_none());
+
+    let (store, service, task, _, _) =
+        run_review_case(TaskComplexity::Medium, TaskReviewVerdict::RequestChanges).await;
+    let correction = service
+        .claim_next_work_run("worker:correction-review-input", 60, &[])
+        .await
+        .expect("claim correction")
+        .expect("correction run");
+    assert_eq!(correction.run.review_round, 2);
+    assert_eq!(
+        correction.run.triggering_review_id.as_deref(),
+        Some("review:review-case")
+    );
+    let correction_fence = WorkRunFence {
+        run_id: correction.run.run_id.clone(),
+        lease_token: correction.lease_token,
+        task_generation: correction.run.task_generation,
+        contract_id: correction.run.contract_id,
+    };
+    service
+        .start_work_run(
+            &correction_fence,
+            ACTOR,
+            None,
+            "correlation:correction-review-input",
+        )
+        .await
+        .expect("start correction");
+    let correction_run_id = correction_fence.run_id.clone();
+    let task_id = task.task_id.clone();
+    store
+        .with_connection(move |connection| {
+            connection.execute(
+                "UPDATE tasks SET latest_review_id = 'review:not-the-trigger' WHERE task_id = ?1",
+                [task_id.as_str()],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("replace latest review pointer");
+    let exact = store
+        .get_work_run_execution_context(&correction_run_id)
+        .await
+        .expect("correction context")
+        .expect("correction context row");
+    assert_eq!(
+        exact
+            .latest_review
+            .as_ref()
+            .map(|review| review.review_id.as_str()),
+        Some("review:review-case")
+    );
+
+    store
+        .with_connection({
+            let correction_run_id = correction_run_id.clone();
+            move |connection| {
+                connection.execute(
+                    "UPDATE agent_runs SET triggering_review_id = NULL WHERE run_id = ?1",
+                    [correction_run_id],
+                )?;
+                Ok(())
+            }
+        })
+        .await
+        .expect("remove trigger");
+    let missing = store
+        .get_work_run_execution_context(&correction_run_id)
+        .await
+        .expect_err("missing correction review must fail");
+    assert!(matches!(
+        missing,
+        StoreError::InvariantViolation { message }
+            if message.contains("has no triggering review")
+    ));
+
+    let other_task = service
+        .execute(capture("idem:unrelated-review-task", "Other task"))
+        .await
+        .expect("capture other task")
+        .task
+        .expect("other task");
+    store
+        .with_connection({
+            let correction_run_id = correction_run_id.clone();
+            move |connection| {
+                connection.execute(
+                    "UPDATE agent_runs SET triggering_review_id = 'review:review-case' WHERE run_id = ?1",
+                    [correction_run_id],
+                )?;
+                connection.execute(
+                    "UPDATE task_reviews SET task_id = ?1 WHERE review_id = 'review:review-case'",
+                    [other_task.task_id.as_str()],
+                )?;
+                Ok(())
+            }
+        })
+        .await
+        .expect("make review unrelated");
+    let unrelated = store
+        .get_work_run_execution_context(&correction_run_id)
+        .await
+        .expect_err("unrelated correction review must fail");
+    assert!(matches!(
+        unrelated,
+        StoreError::InvariantViolation { message }
+            if message.contains("foreign review")
+    ));
 }
 
 #[tokio::test]

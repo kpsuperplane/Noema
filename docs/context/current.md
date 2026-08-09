@@ -47,6 +47,12 @@ vertical slice or a net-negative reduction.
   spans. A saved final tool result decides its matching call state. Other active
   items use the run result. An interrupted run uses `failed` for child items
   because that item vocabulary has no `interrupted` value.
+- A reviewer context includes all final saved items from the executor run named
+  by the exact submission. It keeps saved IDs, statuses, content, and payloads.
+  It fails instead of dropping evidence when the checkpoint is too large.
+- A first executor run gets no prior review. A correction executor must load
+  the exact saved `triggering_review_id`. It does not use the task's latest
+  review pointer as a replacement.
 - Every capability binding owns a source input check. The shared capability
   router runs that check after it resolves the exact binding and before it
   calls the invoker. Immediate and reviewed calls use the same check.

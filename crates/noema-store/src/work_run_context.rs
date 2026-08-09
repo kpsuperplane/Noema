@@ -3,9 +3,10 @@
 use std::collections::HashSet;
 
 use noema_tasks::{
-    AgentRunItemRecord, AgentRunRecord, ProjectContextSnapshot, RunKind, RunStatus,
-    TaskExecutionContract, TaskGateRecord, TaskMessageKind, TaskMessageRecord, TaskRecord,
-    TaskReviewRecord, TaskSubmissionRecord, WorkspaceContextSnapshot,
+    AgentRunItemRecord, AgentRunItemStatus, AgentRunRecord, ProjectContextSnapshot, RunKind,
+    RunStatus, TaskExecutionContract, TaskGateRecord, TaskMessageKind, TaskMessageRecord,
+    TaskRecord, TaskReviewRecord, TaskReviewVerdict, TaskSubmissionRecord,
+    WorkspaceContextSnapshot,
 };
 use noema_workspaces::{ProjectRecord, WorkspaceRecord};
 use rusqlite::{Row, Transaction, params};
@@ -126,10 +127,34 @@ pub(super) fn load_work_run_execution_context_tx(
     let relevant_gates = load_relevant_gates(transaction, &task, &run, active_gate.as_ref())?;
     let messages = load_relevant_messages(transaction, &task, &run, &relevant_gates)?;
 
-    let submission_id = run
-        .triggering_submission_id
-        .as_deref()
-        .or(task.latest_submission_id.as_deref());
+    let review_id = review_id_for_run(&run, &task)?;
+    let latest_review = review_id
+        .map(|id| load_review(transaction, id))
+        .transpose()?;
+    if let Some(review) = latest_review.as_ref() {
+        ensure_review_bounds(review)?;
+    }
+    let submission_id = if run.run_kind == RunKind::Reviewer {
+        Some(run.triggering_submission_id.as_deref().ok_or_else(|| {
+            StoreError::InvariantViolation {
+                message: format!("reviewer run {} has no triggering submission", run.run_id),
+            }
+        })?)
+    } else if run.run_kind == RunKind::Executor && run.review_round > 1 {
+        Some(
+            latest_review
+                .as_ref()
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!("correction run {} has no review", run.run_id),
+                })?
+                .reviewed_submission_id
+                .as_str(),
+        )
+    } else {
+        run.triggering_submission_id
+            .as_deref()
+            .or(task.latest_submission_id.as_deref())
+    };
     let latest_submission = submission_id
         .map(|id| load_submission(transaction, id))
         .transpose()?;
@@ -137,24 +162,24 @@ pub(super) fn load_work_run_execution_context_tx(
         ensure_submission_bounds(submission)?;
     }
     validate_submission_link(&run, &task, contract.as_ref(), latest_submission.as_ref())?;
+    validate_review_link(
+        &run,
+        &task,
+        contract.as_ref(),
+        latest_submission.as_ref(),
+        latest_review.as_ref(),
+    )?;
 
-    let review_id = run
-        .triggering_review_id
-        .as_deref()
-        .or(task.latest_review_id.as_deref());
-    let latest_review = review_id
-        .map(|id| load_review(transaction, id))
-        .transpose()?;
-    if let Some(review) = latest_review.as_ref() {
-        ensure_review_bounds(review)?;
-    }
-    validate_review_link(&run, &task, contract.as_ref(), latest_review.as_ref())?;
-
-    // Reviewers receive the immutable contract and latest submission below;
-    // executor transcript items are neither authoritative evidence nor needed
-    // to perform the review, so keep them out of the reviewer checkpoint.
     let lineage = if run.run_kind == RunKind::Reviewer {
-        Vec::new()
+        load_submitted_run_items(
+            transaction,
+            &run,
+            latest_submission
+                .as_ref()
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!("reviewer run {} has no submission", run.run_id),
+                })?,
+        )?
     } else {
         load_lineage_items(transaction, &run)?
     };
@@ -173,6 +198,27 @@ pub(super) fn load_work_run_execution_context_tx(
         latest_review,
         lineage,
     }))
+}
+
+fn review_id_for_run<'a>(
+    run: &'a AgentRunRecord,
+    task: &'a TaskRecord,
+) -> Result<Option<&'a str>, StoreError> {
+    if run.run_kind != RunKind::Executor {
+        return Ok(run
+            .triggering_review_id
+            .as_deref()
+            .or(task.latest_review_id.as_deref()));
+    }
+    if run.review_round <= 1 {
+        return Ok(None);
+    }
+    run.triggering_review_id
+        .as_deref()
+        .map(Some)
+        .ok_or_else(|| StoreError::InvariantViolation {
+            message: format!("correction run {} has no triggering review", run.run_id),
+        })
 }
 
 fn validate_run_task_fence(run: &AgentRunRecord, task: &TaskRecord) -> Result<(), StoreError> {
@@ -385,6 +431,7 @@ fn validate_review_link(
     run: &AgentRunRecord,
     task: &TaskRecord,
     contract: Option<&TaskExecutionContract>,
+    submission: Option<&TaskSubmissionRecord>,
     review: Option<&TaskReviewRecord>,
 ) -> Result<(), StoreError> {
     let Some(review) = review else { return Ok(()) };
@@ -396,7 +443,65 @@ fn validate_review_link(
             message: format!("run {} loaded a foreign review", run.run_id),
         });
     }
+    if run.run_kind == RunKind::Executor
+        && (run.review_round <= 1
+            || run.triggering_review_id.as_deref() != Some(review.review_id.as_str())
+            || review.overall_verdict != TaskReviewVerdict::RequestChanges
+            || submission
+                .is_none_or(|submission| submission.submission_id != review.reviewed_submission_id))
+    {
+        return Err(StoreError::InvariantViolation {
+            message: format!("correction run {} loaded an unrelated review", run.run_id),
+        });
+    }
     Ok(())
+}
+
+fn load_submitted_run_items(
+    transaction: &Transaction<'_>,
+    reviewer_run: &AgentRunRecord,
+    submission: &TaskSubmissionRecord,
+) -> Result<Vec<AgentRunItemRecord>, StoreError> {
+    let executor_run = load_run_tx(transaction, &submission.executor_run_id)?.ok_or_else(|| {
+        StoreError::InvariantViolation {
+            message: format!(
+                "submission {} references a missing executor run",
+                submission.submission_id
+            ),
+        }
+    })?;
+    if executor_run.run_kind != RunKind::Executor
+        || executor_run.status != RunStatus::Completed
+        || executor_run.task_id != reviewer_run.task_id
+        || executor_run.task_generation != reviewer_run.task_generation
+        || executor_run.contract_id != reviewer_run.contract_id
+        || executor_run.review_round != submission.review_round
+    {
+        return Err(StoreError::InvariantViolation {
+            message: format!(
+                "submission {} crosses its executor run fence",
+                submission.submission_id
+            ),
+        });
+    }
+    let mut statement = transaction.prepare("SELECT item_id, run_id, sequence_index, round_index, kind, status, correlation_id, parent_item_id, content_text, payload_json, created_at, updated_at FROM agent_run_items WHERE run_id = ?1 AND kind <> 'context_checkpoint' ORDER BY sequence_index, item_id")?;
+    let items = statement
+        .query_map([executor_run.run_id.as_str()], decode_run_item)?
+        .collect::<Result<Vec<_>, _>>()?;
+    if items.iter().any(|item| {
+        matches!(
+            item.status,
+            AgentRunItemStatus::Pending | AgentRunItemStatus::Running
+        )
+    }) {
+        return Err(StoreError::InvariantViolation {
+            message: format!(
+                "executor run {} still has active review evidence",
+                executor_run.run_id
+            ),
+        });
+    }
+    Ok(items)
 }
 
 fn load_lineage_items(

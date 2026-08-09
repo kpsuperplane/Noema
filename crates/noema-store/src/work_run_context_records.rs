@@ -47,12 +47,11 @@ pub struct WorkRunExecutionContext {
     /// Submission evidence relevant to this run, normally the submission under
     /// review or the task's latest immutable submission.
     pub latest_submission: Option<TaskSubmissionRecord>,
-    /// Review evidence relevant to this run, normally the review that triggered
-    /// a continuation or the task's latest immutable review.
+    /// Review evidence relevant to this run. A correction executor gets only
+    /// its saved triggering review.
     pub latest_review: Option<TaskReviewRecord>,
-    /// Recent transcript material from this run and its bounded parent lineage,
-    /// ordered from oldest run/item to newest. Reviewer contexts intentionally
-    /// leave this empty because their submission projection is authoritative.
+    /// Saved run records for this role. Executors get bounded parent lineage.
+    /// Reviewers get all final records from the exact submitted executor run.
     pub lineage: Vec<AgentRunItemRecord>,
 }
 
