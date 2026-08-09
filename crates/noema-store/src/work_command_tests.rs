@@ -232,6 +232,66 @@ async fn event_count(store: &NoemaStore) -> i64 {
 }
 
 #[tokio::test]
+async fn reconciliation_uses_only_the_current_resolved_gate() {
+    let (store, service) = fixture().await;
+    let task = task!(
+        service,
+        direct_delegated("idem:current-gate", "current-gate"),
+        "direct task"
+    );
+    let task_id = task.task_id.to_string();
+    let contract_id = task
+        .current_contract_id
+        .expect("current contract")
+        .to_string();
+    store
+        .with_connection(move |connection| {
+            connection.execute(
+                "UPDATE tasks SET generation = 2, latest_run_id = NULL WHERE task_id = ?1",
+                [&task_id],
+            )?;
+            connection.execute(
+                "UPDATE task_execution_contracts SET task_generation = 2 WHERE contract_id = ?1",
+                [&contract_id],
+            )?;
+            for (name, generation, contract, run_kind, resolved_at) in [
+                ("old", 1, Some(contract_id.as_str()), "planner", "2026-01-01T00:00:01Z"),
+                ("current", 2, Some(contract_id.as_str()), "executor", "2026-01-01T00:00:02Z"),
+                ("replaced", 2, None, "reviewer", "2026-01-01T00:00:03Z"),
+            ] {
+                let gate_id = format!("gate:{name}");
+                let message_id = format!("task_message:{name}");
+                connection.execute(
+                    "INSERT INTO task_gates (gate_id, task_id, task_generation, contract_id, gate_kind, gate_state, recovery_reason, retry_run_kind, prompt_markdown, opened_by_actor_id) VALUES (?1, ?2, ?3, ?4, 'recovery', 'open', 'configuration_unavailable', ?5, 'Retry current work', ?6)",
+                    rusqlite::params![gate_id, task_id, generation, contract, run_kind, ACTOR],
+                )?;
+                connection.execute(
+                    "INSERT INTO task_messages (message_id, task_id, task_generation, contract_id, gate_id, message_kind, body_markdown, author_actor_id) VALUES (?1, ?2, ?3, ?4, ?5, 'retry_note', 'Retry', ?6)",
+                    rusqlite::params![message_id, task_id, generation, contract, gate_id, ACTOR],
+                )?;
+                connection.execute(
+                    "UPDATE task_gates SET gate_state = 'resolved', resolved_by_actor_id = ?2, resolution_message_id = ?3, resolved_at = ?4 WHERE gate_id = ?1",
+                    rusqlite::params![gate_id, ACTOR, message_id, resolved_at],
+                )?;
+            }
+            Ok(())
+        })
+        .await
+        .expect("resolved gate history");
+
+    let envelope = store
+        .load_work_reconciliation_snapshot(&task.task_id)
+        .await
+        .expect("load snapshot")
+        .expect("task snapshot");
+    let action = crate::plan_work_reconciliation(&envelope).expect("valid recovery step");
+    assert_eq!(
+        crate::action_run_kind(&action),
+        Some(noema_tasks::RunKind::Executor)
+    );
+}
+
+#[tokio::test]
 async fn event_pagination_rejects_malformed_rows_in_both_directions() {
     let (store, service) = fixture().await;
     service

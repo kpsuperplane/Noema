@@ -32,6 +32,9 @@ vertical slice or a net-negative reduction.
   does not search the visible transcript for a substitute.
 - Work current state is transactional. Work events provide audit and
   invalidation, not an independent replay authority.
+- Task recovery uses a resolved pause only when its task generation and
+  execution contract match the current task. Older pause history stays stored
+  but cannot start a current run.
 - Hosted providers, local llama.cpp, Apple Foundation Models, MCP, and native
   HTTP adapters retain distinct security and transport ownership. Prefer
   consolidating duplicate readers and writers over inventing a universal layer.

@@ -164,12 +164,21 @@ fn load_resolved_gate_resume_kind(
     transaction: &Transaction<'_>,
     facts: &LoadedWorkTask,
 ) -> Result<Option<RunKind>, StoreError> {
+    let contract_id = facts
+        .current_contract
+        .as_ref()
+        .map(|contract| contract.contract_id.as_str());
     let gate_id = transaction
         .query_row(
             "SELECT gate_id FROM task_gates
-             WHERE task_id = ?1 AND task_generation = ?2 AND gate_state = 'resolved'
+             WHERE task_id = ?1 AND task_generation = ?2 AND contract_id IS ?3
+               AND gate_state = 'resolved'
              ORDER BY resolved_at DESC, gate_id DESC LIMIT 1",
-            params![facts.task.task_id.as_str(), facts.task.generation],
+            params![
+                facts.task.task_id.as_str(),
+                facts.task.generation,
+                contract_id
+            ],
             |row| row.get::<_, String>(0),
         )
         .optional()?;
@@ -178,14 +187,10 @@ fn load_resolved_gate_resume_kind(
     };
     let gate_id = noema_tasks::TaskGateId::new(gate_id).map_err(StoreError::Work)?;
     let gate = load_gate(transaction, &gate_id)?;
-    let contract_id = facts
-        .current_contract
-        .as_ref()
-        .map(|contract| &contract.contract_id);
     if gate.state != TaskGateState::Resolved
         || gate.task_id != facts.task.task_id
         || gate.task_generation != facts.task.generation
-        || gate.contract_id.as_ref() != contract_id
+        || gate.contract_id.as_ref().map(|id| id.as_str()) != contract_id
     {
         return Err(invariant("resolved gate crosses the current task fence"));
     }
