@@ -20,18 +20,23 @@ struct NoemaTasksLiveActivityWidget: Widget {
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
           ActivityIdentity(appearance: .island)
+            .fixedSize()
         }
+        .contentMargins(.leading, 16)
         DynamicIslandExpandedRegion(.trailing) {
           ElapsedTime(state: context.state, appearance: .island)
+            .frame(maxWidth: 64, alignment: .trailing)
         }
-        DynamicIslandExpandedRegion(.center) {
-          ActivityTitle(state: context.state, appearance: .island)
-        }
+        .contentMargins(.trailing, 16)
         DynamicIslandExpandedRegion(.bottom) {
-          ActivityFooter(state: context.state, appearance: .island)
+          VStack(alignment: .leading, spacing: 10) {
+            ActivityTitle(state: context.state, appearance: .island)
+            ActivityFooter(state: context.state, appearance: .island)
+          }
         }
+        .contentMargins([.leading, .trailing, .bottom], 16)
       } compactLeading: {
-        NoemaAgentMark(size: 20)
+        NoemaAgentMark(size: 18)
           .accessibilityLabel("Noema")
       } compactTrailing: {
         CompactTrailingStatus(state: context.state)
@@ -40,6 +45,8 @@ struct NoemaTasksLiveActivityWidget: Widget {
           .accessibilityLabel(context.state.statusLabel)
       }
       .keylineTint(PhaseStyle(state: context.state).color(for: .island))
+      .contentMargins(.leading, 4, for: .compactLeading)
+      .contentMargins(.trailing, 4, for: .compactTrailing)
       .widgetURL(taskURL(for: context.state))
     }
   }
@@ -164,6 +171,9 @@ private struct CompactTrailingStatus: View {
         .font(.caption2.monospacedDigit().weight(.semibold))
         .foregroundStyle(NoemaActivityPalette.islandPrimary)
         .lineLimit(1)
+        .minimumScaleFactor(0.75)
+        .frame(width: 44, alignment: .trailing)
+        .clipped()
         .accessibilityLabel("Elapsed time")
         .accessibilityValue(Text(Date(timeIntervalSince1970: startedAtEpoch), style: .timer))
     }
