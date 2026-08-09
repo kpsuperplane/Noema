@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use crate::{
     NoemaStore, StoreError,
-    conversations::load_conversation_item_tx,
+    conversations::load_conversation_item,
     ids::allocate_id,
     sqlite::{deserialize_json, serialize_json},
 };
@@ -595,7 +595,7 @@ fn append_item_tx(
 ) -> Result<ConversationItemRecord, StoreError> {
     let sequence: i64 = tx.query_row("SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM conversation_items WHERE conversation_id = ?1", [&item.conversation_id], |row| row.get(0))?;
     tx.execute("INSERT INTO conversation_items (item_id, conversation_id, turn_id, parent_item_id, sequence_index, kind, status, author_actor_id, content_text, payload_json, metadata_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)", params![item_id, item.conversation_id, item.turn_id, item.parent_item_id, sequence, item.kind.as_str(), item.status.as_str(), item.author.actor_id.to_string(), item.content_text, serialize_json(&item.payload_json)?, serialize_json(&item.metadata)?])?;
-    load_conversation_item_tx(tx, &item_id)?
+    load_conversation_item(tx, &item_id)?
         .ok_or_else(|| conflict("interaction item disappeared before commit"))
 }
 

@@ -15,6 +15,12 @@ pub(super) enum LocalToolKind {
     Gateway,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ActionRequestReference {
+    pub(super) action_id: String,
+    pub(super) revision: u64,
+}
+
 /// One normalized result envelope for every runtime-owned capability.
 #[derive(Debug, Clone)]
 pub(super) struct LocalToolResult {
@@ -29,7 +35,7 @@ pub(super) struct LocalToolResult {
     /// Canonical structured result delivered to the model.
     pub(super) payload: Value,
     pub(super) requires_provider_continuation: bool,
-    pub(super) blocked_action_id: Option<String>,
+    pub(super) blocked_action_request: Option<ActionRequestReference>,
     pub(super) blocked_authentication_id: Option<String>,
     pub(super) blocked_outcome_uncertain: bool,
     pub(super) pending_interaction_id: Option<String>,
@@ -55,7 +61,7 @@ impl LocalToolResult {
             side_effect: false,
             payload,
             requires_provider_continuation,
-            blocked_action_id: None,
+            blocked_action_request: None,
             blocked_authentication_id: None,
             blocked_outcome_uncertain: false,
             pending_interaction_id: None,
@@ -63,8 +69,11 @@ impl LocalToolResult {
         }
     }
 
-    pub(super) fn with_blocked_action(mut self, action_id: String) -> Self {
-        self.blocked_action_id = Some(action_id);
+    pub(super) fn with_blocked_action_request(mut self, action_id: String, revision: u64) -> Self {
+        self.blocked_action_request = Some(ActionRequestReference {
+            action_id,
+            revision,
+        });
         self
     }
 
@@ -89,7 +98,7 @@ impl LocalToolResult {
     }
 
     pub(super) const fn is_blocked(&self) -> bool {
-        self.blocked_action_id.is_some()
+        self.blocked_action_request.is_some()
             || self.blocked_authentication_id.is_some()
             || self.blocked_outcome_uncertain
     }
@@ -141,11 +150,12 @@ pub(super) fn agent_identity_after_local_tools(
 }
 
 pub(super) fn local_tool_result_action_item(result: &LocalToolResult) -> GenerateActionItem {
-    if let Some(action_id) = result.blocked_action_id.as_ref() {
+    if let Some(request) = result.blocked_action_request.as_ref() {
         return GenerateActionItem::ApprovalRequest {
-            id: Some(action_id.clone()),
+            id: Some(request.action_id.clone()),
             method: result.name.clone(),
             payload: json!({
+                "revision": request.revision,
                 "call_id": result.call_id,
                 "provider_call_id": result.provider_call_id,
                 "provider_name": result.provider_name,

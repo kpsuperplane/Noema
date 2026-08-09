@@ -111,6 +111,10 @@ fn local_tool_test_provider() -> noema_providers::ProviderHandle {
 
 async fn test_actor() -> RuntimeActor {
     let store = crate::test_support::test_store().await;
+    test_actor_with_store(&store).await
+}
+
+async fn test_actor_with_store(store: &noema_store::NoemaStore) -> RuntimeActor {
     RuntimeActor::new(
         "codex".to_string(),
         HashMap::from([("codex".to_string(), local_tool_test_provider())]),

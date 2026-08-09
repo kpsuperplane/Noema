@@ -17,7 +17,7 @@ use ring::digest::{SHA256, digest};
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 
-use crate::{NoemaStore, conversations::load_conversation_item_tx, ids::allocate_id};
+use crate::{NoemaStore, conversations::load_conversation_item, ids::allocate_id};
 use crate::{
     StoreError,
     work_events::{
@@ -314,7 +314,7 @@ fn insert_notification_item_tx(
         "INSERT INTO conversation_items (item_id, conversation_id, turn_id, sequence_index, kind, status, author_actor_id, content_text, payload_json, metadata_json) VALUES (?1, ?2, ?3, ?4, 'task_reference', 'completed', 'actor:store:notification', NULL, ?5, ?6) ON CONFLICT(item_id) DO NOTHING",
         params![item_id, conversation_id, source_turn_id, next_sequence, item_payload.to_string(), metadata.to_string()],
     )?;
-    let item = load_conversation_item_tx(transaction, &item_id)?.ok_or_else(|| {
+    let item = load_conversation_item(transaction, &item_id)?.ok_or_else(|| {
         StoreError::InvariantViolation {
             message: "notification conversation item disappeared".to_string(),
         }

@@ -3,9 +3,11 @@
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 
+use noema_conversations::{ConversationItemKind, ConversationItemRecord};
+
 use crate::{
     NoemaStore, StoreError, WorkRunFence, authorization_context::MAX_AUTHORIZATION_CONTEXT_BYTES,
-    governed_action_approvals::mark_origin_run_waiting_tx,
+    conversations::load_conversation_item, governed_action_approvals::mark_origin_run_waiting_tx,
     governed_action_fencing::require_origin_execution_live_tx, ids::allocate_id,
     work_row::sha256_hex,
 };
@@ -167,6 +169,8 @@ pub struct GovernedActionRecord {
     pub conversation_id: Option<String>,
     /// Foreground turn origin.
     pub turn_id: Option<String>,
+    /// Exact saved approval item for a foreground action request.
+    pub approval_item_id: Option<String>,
     /// Background task origin.
     pub task_id: Option<String>,
     /// Background run origin.
@@ -495,6 +499,71 @@ impl NoemaStore {
                     message: "new governed action could not be reloaded".to_string(),
                 }
             })
+        })
+        .await
+    }
+
+    /// Link one foreground action request to its exact saved approval item.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the action version, item, or origin does not match.
+    pub async fn link_action_request_item(
+        &self,
+        action_id: &str,
+        revision: u64,
+        item_id: &str,
+    ) -> Result<GovernedActionRecord, StoreError> {
+        self.with_immediate_transaction_retry(|transaction| {
+            let action = action_from_tx(transaction, action_id, revision)?
+                .ok_or_else(|| action_conflict("action request was not found"))?;
+            if action.state != GovernedActionState::AwaitingApproval {
+                return Err(action_conflict("action request is not waiting for approval"));
+            }
+            let item = load_conversation_item(transaction, item_id)?
+                .ok_or_else(|| action_conflict("approval item was not found"))?;
+            validate_action_request_item(&action, &item, Some(revision))?;
+            if let Some(linked_item_id) = action.approval_item_id.as_deref() {
+                if linked_item_id == item_id {
+                    return Ok(action);
+                }
+                return Err(action_conflict("action request has a different approval item"));
+            }
+            let changed = transaction.execute(
+                "UPDATE governed_actions SET approval_item_id = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE action_id = ?1 AND revision = ?2 AND state = 'awaiting_approval' AND approval_item_id IS NULL",
+                params![action_id, revision, item_id],
+            )?;
+            if changed != 1 {
+                return Err(action_conflict("action request approval item link is stale"));
+            }
+            action_from_tx(transaction, action_id, revision)?.ok_or_else(|| {
+                action_conflict("linked action request could not be reloaded")
+            })
+        })
+        .await
+    }
+
+    /// Load the exact saved approval item for one foreground action request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the saved link or item does not match the action.
+    pub async fn get_action_request_source(
+        &self,
+        action_id: &str,
+        revision: u64,
+    ) -> Result<Option<ConversationItemRecord>, StoreError> {
+        self.with_connection(|connection| {
+            let Some(action) = action_from_tx(connection, action_id, revision)? else {
+                return Ok(None);
+            };
+            let Some(item_id) = action.approval_item_id.as_deref() else {
+                return Ok(None);
+            };
+            let item = load_conversation_item(connection, item_id)?
+                .ok_or_else(|| action_conflict("linked action request approval item is missing"))?;
+            validate_action_request_item(&action, &item, None)?;
+            Ok(Some(item))
         })
         .await
     }
@@ -961,7 +1030,7 @@ pub(crate) fn action_from_tx(
                    review_route, read_only, idempotent, destructive, open_world,
                    arguments_json, arguments_sha256, input_schema_json,
                    authorization_context_json, safe_summary, state, output_json, failure_code,
-                   authentication_pending
+                   authentication_pending, approval_item_id
             FROM governed_actions
             WHERE action_id = ?1 AND revision = ?2
             "#,
@@ -992,6 +1061,7 @@ pub(crate) fn action_from_tx(
                     row.get::<_, Option<String>>(21)?,
                     row.get::<_, Option<String>>(22)?,
                     row.get::<_, bool>(23)?,
+                    row.get::<_, Option<String>>(24)?,
                 ))
             },
         )
@@ -1005,6 +1075,7 @@ pub(crate) fn action_from_tx(
             owner_human_id: raw.2,
             conversation_id: raw.3,
             turn_id: raw.4,
+            approval_item_id: raw.24,
             task_id: raw.5,
             run_id: raw.6,
             requesting_agent_id: raw.7,
@@ -1042,6 +1113,34 @@ pub(crate) fn action_from_tx(
         })
     })
     .transpose()
+}
+
+fn validate_action_request_item(
+    action: &GovernedActionRecord,
+    item: &ConversationItemRecord,
+    expected_payload_revision: Option<u64>,
+) -> Result<(), StoreError> {
+    if action.task_id.is_some()
+        || item.kind != ConversationItemKind::ApprovalRequest
+        || Some(&item.conversation_id) != action.conversation_id.as_ref()
+        || item.turn_id.as_ref() != action.turn_id.as_ref()
+        || item
+            .payload_json
+            .pointer("/metadata/action/id")
+            .and_then(Value::as_str)
+            != Some(action.action_id.as_str())
+        || expected_payload_revision.is_some_and(|revision| {
+            item.payload_json
+                .pointer("/metadata/action/payload/revision")
+                .and_then(Value::as_u64)
+                != Some(revision)
+        })
+    {
+        return Err(action_conflict(
+            "approval item does not match the exact action request",
+        ));
+    }
+    Ok(())
 }
 
 fn assessment_from_tx(

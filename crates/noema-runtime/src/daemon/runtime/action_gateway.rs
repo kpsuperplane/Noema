@@ -327,7 +327,7 @@ pub(super) fn awaiting_approval_result(
         }),
         false,
     )
-    .with_blocked_action(action.action_id.clone())
+    .with_blocked_action_request(action.action_id.clone(), action.revision)
 }
 
 pub(super) fn action_store_failure_result(call: &LocalToolCall) -> LocalToolResult {

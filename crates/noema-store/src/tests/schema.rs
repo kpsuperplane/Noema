@@ -206,6 +206,77 @@ async fn v32_upgrade_persists_system_provider_accounts_and_matches_fresh_schema(
 }
 
 #[tokio::test]
+async fn v34_upgrade_links_saved_action_request_items_and_matches_fresh_schema() {
+    let upgrade_home = TempDir::new().expect("v34 root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    let mut connection = Connection::open(&upgrade_config.path).expect("v34 database");
+    store_migrations()
+        .to_version(&mut connection, 34)
+        .expect("construct v34 schema");
+    connection
+        .execute_batch(
+            r#"
+            INSERT INTO conversations (
+              conversation_id, owner_object_type, owner_object_id, provider
+            ) VALUES ('conversation:action-source', 'human', 'human:local', 'codex');
+            INSERT INTO conversation_turns (turn_id, conversation_id, status)
+            VALUES ('turn:action-source', 'conversation:action-source', 'waiting_for_tool');
+            INSERT INTO conversation_items (
+              item_id, conversation_id, turn_id, sequence_index, kind, status,
+              author_actor_id, payload_json, deleted_at
+            ) VALUES (
+              'item:action-source', 'conversation:action-source', 'turn:action-source', 1,
+              'approval_request', 'completed', 'agent:primary',
+              '{"metadata":{"action":{"id":"action:source","payload":{"provider_call_id":"call:ordinary"}}}}',
+              strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            );
+            INSERT INTO governed_actions (
+              action_id, revision, owner_human_id, conversation_id, turn_id,
+              requesting_agent_id, capability_name, operation_token, review_route,
+              read_only, idempotent, destructive, open_world, arguments_json,
+              arguments_sha256, input_schema_json, authorization_context_json,
+              safe_summary, state
+            ) VALUES (
+              'action:source', 1, 'human:local', 'conversation:action-source',
+              'turn:action-source', 'agent:primary', 'fixture.write', 'token:source',
+              'human_review', 0, 0, 0, 1, '{}',
+              'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+              '{"type":"object"}', '{}', 'Fixture action', 'awaiting_approval'
+            );
+            "#,
+        )
+        .expect("v34 action source");
+    drop(connection);
+
+    let store = NoemaStore::open(&upgrade_config)
+        .await
+        .expect("upgrade v34");
+    let source = store
+        .get_action_request_source("action:source", 1)
+        .await
+        .expect("load hidden source")
+        .expect("saved source");
+    assert_eq!(source.item_id, "item:action-source");
+    assert_eq!(
+        source
+            .payload_json
+            .pointer("/metadata/action/payload/provider_call_id"),
+        Some(&serde_json::json!("call:ordinary"))
+    );
+    drop(store);
+
+    let fresh_home = TempDir::new().expect("fresh root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(NoemaStore::open(&fresh_config).await.expect("fresh schema"));
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
+    );
+}
+
+#[tokio::test]
 async fn clients_migration_upgrades_an_existing_v25_database() {
     let home = TempDir::new().expect("client migration root");
     let config = store_config(home.path());

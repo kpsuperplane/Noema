@@ -27,6 +27,9 @@ vertical slice or a net-negative reduction.
   SQLite FTS is rebuildable. Documented iconless-page reads remain supported.
 - Durable chat is reconstructed from conversation items. Live daemon and
   subscription state is coordination state only.
+- Each foreground action request links to its exact saved approval item. Action
+  recovery reads this link directly, including when the item is not visible. It
+  does not search the visible transcript for a substitute.
 - Work current state is transactional. Work events provide audit and
   invalidation, not an independent replay authority.
 - Hosted providers, local llama.cpp, Apple Foundation Models, MCP, and native

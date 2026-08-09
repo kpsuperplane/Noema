@@ -45,6 +45,7 @@ impl RuntimeActor {
             item_tx,
         )
         .await
+        .map(|_| ())
     }
 
     pub(super) async fn persist_progress_audit_started(
@@ -69,6 +70,7 @@ impl RuntimeActor {
             item_tx,
         )
         .await
+        .map(|_| ())
     }
 
     pub(super) async fn persist_progress_audit_completed(
@@ -95,6 +97,7 @@ impl RuntimeActor {
             item_tx,
         )
         .await
+        .map(|_| ())
     }
 
     pub(super) async fn persist_agent_initiated_provider_response(

@@ -245,7 +245,31 @@ impl RuntimeActor {
         turn: &ProviderActionTurn,
         action: ProviderActionOutput,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<ConversationItemRecord, RuntimeError> {
+        let action_request = if action.kind == ConversationItemKind::ApprovalRequest {
+            let action_id = action
+                .payload
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| {
+                    RuntimeError::Protocol("approval item has no action request id".to_string())
+                })?;
+            let revision = action
+                .payload
+                .pointer("/payload/revision")
+                .and_then(serde_json::Value::as_u64)
+                .ok_or_else(|| {
+                    RuntimeError::Protocol(
+                        "approval item has no action request revision".to_string(),
+                    )
+                })?;
+            Some((action_id.to_string(), revision))
+        } else {
+            None
+        };
+        let stable_item_id = action_request
+            .as_ref()
+            .map(|(action_id, revision)| format!("item:action_request:{action_id}:{revision}"));
         let activity_id = format!(
             "{}:{}:{}:{}",
             action.action_kind, turn.conversation_id, turn.turn_index, action.index
@@ -277,21 +301,31 @@ impl RuntimeActor {
             "source": "provider_action",
             "provider": turn.provider.clone(),
         });
-        let record = self
-            .store
-            .append_conversation_item(NewConversationItem {
-                conversation_id: turn.conversation_id.clone(),
-                turn_id: Some(turn.turn_id.clone()),
-                parent_item_id: Some(turn.user_item_id.clone()),
-                kind: action.kind,
-                status: action.status,
-                author: ActorRef::new("agent:primary")
-                    .expect("static primary agent id must be valid"),
-                content_text,
-                payload_json: payload_json.clone(),
-                metadata: metadata.clone(),
-            })
-            .await?;
+        let new_item = NewConversationItem {
+            conversation_id: turn.conversation_id.clone(),
+            turn_id: Some(turn.turn_id.clone()),
+            parent_item_id: Some(turn.user_item_id.clone()),
+            kind: action.kind,
+            status: action.status,
+            author: ActorRef::new("agent:primary")
+                .expect("static primary agent id must be valid"),
+            content_text,
+            payload_json: payload_json.clone(),
+            metadata: metadata.clone(),
+        };
+        let (record, inserted) = if let Some(item_id) = stable_item_id {
+            self.store
+                .append_conversation_item_with_id_if_absent(item_id, new_item)
+                .await?
+        } else {
+            (self.store.append_conversation_item(new_item).await?, true)
+        };
+
+        if let Some((action_id, revision)) = action_request {
+            self.store
+                .link_action_request_item(&action_id, revision, &record.item_id)
+                .await?;
+        }
 
         let transcript_item = TurnTranscriptItem::Activity {
             id: activity_id,
@@ -301,8 +335,10 @@ impl RuntimeActor {
             summary,
             metadata: payload_json["metadata"].clone(),
         };
-        send_conversation_item(item_tx, record, metadata, transcript_item);
-        Ok(())
+        if inserted {
+            send_conversation_item(item_tx, record.clone(), metadata, transcript_item);
+        }
+        Ok(record)
     }
 
 }

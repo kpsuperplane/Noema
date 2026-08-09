@@ -7,7 +7,7 @@ use noema_capabilities::{
     ReviewedCapabilityAuthorization,
 };
 use noema_conversations::{
-    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, ReplayMode,
+    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
 };
 use noema_providers::{WebBrowseBackendHandle, WebBrowseOwner};
 use noema_store::{
@@ -493,22 +493,19 @@ impl RuntimeActor {
         };
         let request = self
             .store
-            .list_conversation_items(conversation_id, ReplayMode::Visible)
+            .get_action_request_source(&action.action_id, action.revision)
             .await?
-            .into_iter()
-            .find_map(|item| approval_request_context(item, &action.action_id));
+            .and_then(action_request_context);
         let Some(request) = request else {
             crate::daemon::log_system_error(
                 &self.system_errors,
                 crate::daemon::SYSTEM_ERROR_RUNTIME_INVARIANT,
-                "governed action continuation origin is unavailable",
+                "action request continuation source is unavailable",
                 Some(serde_json::json!({
                     "action_id": action.action_id,
                     "conversation_id": conversation_id,
                 })),
-                RuntimeError::Protocol(
-                    "governed action approval request is unavailable".to_string(),
-                ),
+                RuntimeError::Protocol("action request approval item is unavailable".to_string()),
             );
             return Ok(());
         };
@@ -664,13 +661,10 @@ struct ApprovalRequestContext {
     name: String,
 }
 
-fn approval_request_context(
+fn action_request_context(
     item: noema_conversations::ConversationItemRecord,
-    action_id: &str,
 ) -> Option<ApprovalRequestContext> {
-    if item.kind != ConversationItemKind::ApprovalRequest
-        || item.payload_json.pointer("/metadata/action/id")?.as_str()? != action_id
-    {
+    if item.kind != ConversationItemKind::ApprovalRequest {
         return None;
     }
     let payload = item.payload_json.pointer("/metadata/action/payload")?;

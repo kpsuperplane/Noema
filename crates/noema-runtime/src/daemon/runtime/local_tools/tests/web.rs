@@ -131,12 +131,14 @@ async fn browser_approval_persists_page_and_target_review_context() {
         )
         .await;
 
+    let action_id = &result
+        .blocked_action_request
+        .as_ref()
+        .expect("blocked action request")
+        .action_id;
     let action = actor
         .store
-        .get_governed_action(
-            result.blocked_action_id.as_deref().expect("blocked action"),
-            1,
-        )
+        .get_governed_action(action_id, 1)
         .await
         .expect("read action")
         .expect("action");
@@ -377,18 +379,4 @@ async fn web_tool_result_payloads_preserve_fallback_metadata() {
         assert_eq!(payload["fallback_reason"], reason);
         assert_eq!(payload["error"], error);
     }
-}
-
-async fn test_actor_with_store(store: &noema_store::NoemaStore) -> RuntimeActor {
-    RuntimeActor::new(
-        "codex".to_string(),
-        HashMap::from([(
-            "codex".to_string(),
-            local_tool_test_provider(),
-        )]),
-        store.clone(),
-        crate::test_support::system_error_logger(),
-    )
-    .await
-    .expect("actor")
 }

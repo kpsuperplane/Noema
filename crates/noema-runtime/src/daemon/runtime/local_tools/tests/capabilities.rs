@@ -134,7 +134,8 @@ async fn unconfigured_reviewer_blocks_external_write_before_invocation() {
 
     assert!(!result.success);
     assert_eq!(result.payload["status"], "awaiting_approval");
-    let action_id = result.blocked_action_id.expect("blocked action id");
+    let request = result.blocked_action_request.expect("blocked action request");
+    let action_id = request.action_id;
     let action = actor
         .store
         .get_governed_action(&action_id, 1)
@@ -357,7 +358,8 @@ async fn approved_foreground_action_resumes_with_its_stored_result() {
             &call,
         )
         .await;
-    let action_id = result.blocked_action_id.clone().expect("blocked action id");
+    let action_request = result.blocked_action_request.clone().expect("action request");
+    let action_id = action_request.action_id;
     actor
         .persist_provider_action_item(
             &action_turn,
@@ -387,17 +389,55 @@ async fn approved_foreground_action_resumes_with_its_stored_result() {
             .iter()
             .all(|item| { item.kind != ConversationItemKind::ToolResult })
     );
-
-    let resolved = actor
-        .resolve_governed_action(
+    let action = actor
+        .store
+        .get_governed_action(&action_id, action_request.revision)
+        .await
+        .expect("linked action request")
+        .expect("action request");
+    let approval_item_id = action.approval_item_id.expect("exact approval item link");
+    assert!(
+        actor
+            .store
+            .link_action_request_item(&action_id, action_request.revision + 1, &approval_item_id)
+            .await
+            .is_err()
+    );
+    actor
+        .store
+        .decide_governed_action(
             &action_id,
-            1,
+            action_request.revision,
             "human:local",
             noema_store::GovernedActionDecision::Approve,
         )
         .await
         .expect("approve action");
+    actor
+        .store
+        .claim_governed_action_execution(&action_id, action_request.revision, None)
+        .await
+        .expect("claim action");
+    let resolved = actor
+        .store
+        .finish_governed_action_execution(
+            &action_id,
+            action_request.revision,
+            noema_store::GovernedExecutionOutcome::Succeeded,
+            Some(&json!({"content": "saved page"})),
+            None,
+        )
+        .await
+        .expect("finish action before restart");
     assert_eq!(resolved.state, noema_store::GovernedActionState::Succeeded);
+
+    let store = actor.store.clone();
+    drop(actor);
+    let mut actor = test_actor_with_store(&store).await;
+    actor
+        .recover_governed_action_origins()
+        .await
+        .expect("recover completed action");
 
     let resumed_items = actor
         .store
@@ -429,14 +469,9 @@ async fn approved_foreground_action_resumes_with_its_stored_result() {
         vec!["summarized page"]
     );
     actor
-        .resolve_governed_action(
-            &action_id,
-            1,
-            "human:local",
-            noema_store::GovernedActionDecision::Approve,
-        )
+        .recover_governed_action_origins()
         .await
-        .expect("idempotent terminal resolution");
+        .expect("repeat completed action recovery");
     let replayed_items = actor
         .store
         .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)

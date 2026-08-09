@@ -319,6 +319,7 @@ mod tests {
             owner_human_id: "human:local".to_string(),
             conversation_id: None,
             turn_id: None,
+            approval_item_id: None,
             task_id: None,
             run_id: None,
             requesting_agent_id: "agent:primary".to_string(),

@@ -204,7 +204,7 @@ mod tests {
             side_effect: false,
             payload: serde_json::json!({"error": "capability outcome is uncertain"}),
             requires_provider_continuation: false,
-            blocked_action_id: None,
+            blocked_action_request: None,
             blocked_authentication_id: None,
             blocked_outcome_uncertain: true,
             pending_interaction_id: None,

@@ -109,6 +109,7 @@ fn action_reviewer_request(model_id: &str) -> Result<GenerateRequest, String> {
         owner_human_id: "human:local".to_string(),
         conversation_id: Some("conversation:evaluation".to_string()),
         turn_id: Some("turn:evaluation".to_string()),
+        approval_item_id: None,
         task_id: None,
         run_id: None,
         requesting_agent_id: "agent:primary".to_string(),

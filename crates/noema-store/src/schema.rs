@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 34;
+pub const STORE_SCHEMA_VERSION: usize = 35;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1178,8 +1178,33 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(WEB_BROWSE_PROVIDER_AND_OBSERVATIONS_SQL),
         M::up(SYSTEM_PROVIDER_ACCOUNTS_SQL),
         M::up(APNS_NOTIFICATIONS_SQL),
+        M::up(ACTION_REQUEST_SOURCE_SQL),
     ])
 }
+
+/// Link each foreground action request to its exact saved approval item.
+const ACTION_REQUEST_SOURCE_SQL: &str = r#"
+ALTER TABLE governed_actions
+ADD COLUMN approval_item_id TEXT
+  REFERENCES conversation_items(item_id) ON DELETE RESTRICT;
+
+UPDATE governed_actions
+SET approval_item_id = (
+  SELECT items.item_id
+  FROM conversation_items items
+  WHERE items.conversation_id = governed_actions.conversation_id
+    AND items.turn_id = governed_actions.turn_id
+    AND items.kind = 'approval_request'
+    AND json_extract(items.payload_json, '$.metadata.action.id') = governed_actions.action_id
+  ORDER BY items.sequence_index ASC
+  LIMIT 1
+)
+WHERE conversation_id IS NOT NULL AND task_id IS NULL;
+
+CREATE UNIQUE INDEX governed_actions_approval_item
+ON governed_actions(approval_item_id)
+WHERE approval_item_id IS NOT NULL;
+"#;
 
 /// Repair v30 databases migrated before manual occurrences changed history ordering.
 const TASK_RECURRENCE_HISTORY_INDEX_REPAIR_SQL: &str = r#"

@@ -64,7 +64,7 @@ async fn uncertain_foreground_action_fails_with_a_durable_non_retry_notice() {
         side_effect: false,
         payload: json!({"error": "capability outcome is uncertain"}),
         requires_provider_continuation: false,
-        blocked_action_id: None,
+        blocked_action_request: None,
         blocked_authentication_id: None,
         blocked_outcome_uncertain: true,
         pending_interaction_id: None,
