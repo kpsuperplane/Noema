@@ -158,6 +158,7 @@ struct ChatComposer: View {
       .foregroundStyle(NoemaColor.white)
       .tint(NoemaColor.white)
       .lineLimit(1...5)
+      .fixedSize(horizontal: false, vertical: true)
       .textFieldStyle(.plain)
       .focused($inputFocused)
       .disabled(!isEditable)
@@ -184,7 +185,7 @@ struct ChatComposer: View {
     .padding(.vertical, 5)
     .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
     .shadow(color: NoemaColor.pine700.opacity(0.10), radius: 12, y: 5)
-    .frame(width: preferredWidth)
+    .frame(idealWidth: preferredWidth, maxWidth: preferredWidth)
     .offset(y: inputFocused ? 0 : restingBottomOffset)
     .padding(.bottom, inputFocused ? NoemaSpacing.sm : 0)
     .onChange(of: inputFocused) { _, focused in
