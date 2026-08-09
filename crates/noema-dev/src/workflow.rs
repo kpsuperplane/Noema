@@ -14,6 +14,9 @@ use crate::{cargo_exe, strip_cargo_run_env};
 const GIB: u64 = 1024 * 1024 * 1024;
 const CACHE_CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const CACHE_CHECK_SENTINEL: &str = ".noema-cache-budget-checked";
+const CARGO_CACHE_TAG: &[u8] = b"Signature: 8a477f597d28d172789f06886806bc55\n\
+# This file is a cache directory tag created by cargo.\n\
+# For information about cache directory tags see https://bford.info/cachedir/\n";
 const DEV_CACHE: CacheTarget = CacheTarget::new("development server", "noema-dev", 30 * GIB);
 const VALIDATION_CACHE: CacheTarget =
     CacheTarget::new("Rust validation", "noema-validation", 20 * GIB);
@@ -107,6 +110,10 @@ async fn enforce_cache_budget(repo_root: &Path, target: CacheTarget) -> Result<(
     if !cache_target_is_safe(repo_root, &target_path) {
         return Err(WorkflowError::UnsafeCacheTarget { path: target_path });
     }
+    prepare_cache_target(&target_path).map_err(|source| WorkflowError::PrepareCache {
+        label: target.label,
+        source,
+    })?;
     if cache_check_is_current(&target_path) {
         return Ok(());
     }
@@ -126,18 +133,27 @@ async fn enforce_cache_budget(repo_root: &Path, target: CacheTarget) -> Result<(
             target.max_bytes / GIB
         );
         clean_cache(repo_root, &target_path).await?;
+        prepare_cache_target(&target_path).map_err(|source| WorkflowError::PrepareCache {
+            label: target.label,
+            source,
+        })?;
     }
 
-    fs::create_dir_all(&target_path).map_err(|source| WorkflowError::PrepareCache {
-        label: target.label,
-        source,
-    })?;
     fs::write(target_path.join(CACHE_CHECK_SENTINEL), b"").map_err(|source| {
         WorkflowError::PrepareCache {
             label: target.label,
             source,
         }
     })
+}
+
+fn prepare_cache_target(target_path: &Path) -> Result<(), io::Error> {
+    fs::create_dir_all(target_path)?;
+    let tag_path = target_path.join("CACHEDIR.TAG");
+    if !fs::read(&tag_path).is_ok_and(|contents| contents == CARGO_CACHE_TAG) {
+        fs::write(tag_path, CARGO_CACHE_TAG)?;
+    }
+    Ok(())
 }
 
 fn cache_check_is_current(target_path: &Path) -> bool {
@@ -261,5 +277,32 @@ mod tests {
     fn cleans_only_after_cache_exceeds_its_byte_budget() {
         assert!(!should_clean_cache(20, 20));
         assert!(should_clean_cache(21, 20));
+    }
+
+    #[test]
+    fn prepares_cache_with_cargo_ownership_tag() {
+        let temporary = tempfile::tempdir().unwrap();
+        let directory = temporary.path().join("cache");
+
+        prepare_cache_target(&directory).unwrap();
+
+        assert_eq!(
+            fs::read(directory.join("CACHEDIR.TAG")).unwrap(),
+            CARGO_CACHE_TAG
+        );
+    }
+
+    #[test]
+    fn repairs_invalid_cargo_ownership_tag() {
+        let temporary = tempfile::tempdir().unwrap();
+        let directory = temporary.path();
+        fs::write(directory.join("CACHEDIR.TAG"), b"invalid").unwrap();
+
+        prepare_cache_target(directory).unwrap();
+
+        assert_eq!(
+            fs::read(directory.join("CACHEDIR.TAG")).unwrap(),
+            CARGO_CACHE_TAG
+        );
     }
 }
