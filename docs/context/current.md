@@ -86,6 +86,9 @@ vertical slice or a net-negative reduction.
   notification projection. Web Push and direct APNs have separate delivery
   queues; APNs registrations are bearer-client-bound, while the provider `.p8`
   authority lives only in the protected Noema-home credential file.
+- One server-driven Tasks Live Activity represents the current active task set.
+  SQLite owns its client registration, aggregate projection, and durable APNs
+  start, update, alert, and end deliveries. The widget has no bearer credential.
 - Frontend route and interaction truth is summarized in
   [../frontend/current-contract.md](../frontend/current-contract.md). UI changes
   follow [../frontend/product-design.md](../frontend/product-design.md).
@@ -107,6 +110,8 @@ vertical slice or a net-negative reduction.
   `dev.noema.app.ios`, regenerated signing profiles, and an APNs `.p8` provider
   configured from browser Settings. Simulator injection does not replace a
   signed physical-device sandbox-delivery check.
+- Production Tasks Live Activities also require the widget App ID
+  `dev.noema.app.ios.liveactivity` in the app's regenerated signing profiles.
 - Product-scope decisions remain open for the dormant adapter scheduler, the
   long-term set of integration substrates and full-parity clients, task role
   breadth, and secondary vertical systems. Do not infer retirement of a live

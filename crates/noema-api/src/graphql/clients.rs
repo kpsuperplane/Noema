@@ -53,12 +53,18 @@ pub(super) async fn revoke_client(
     principal: &RequestPrincipal,
     client_id: String,
 ) -> Result<GraphqlClient> {
-    let client = state
-        .store()?
-        .revoke_client(principal.subject_id(), client_id.trim())
-        .await
-        .map_err(graphql_error)?
-        .ok_or_else(|| async_graphql::Error::new("client is unavailable"))?;
+    let client = if let Some(notifications) = state.notifications() {
+        notifications
+            .revoke_client(principal.subject_id(), client_id.trim())
+            .await
+    } else {
+        state
+            .store()?
+            .revoke_client(principal.subject_id(), client_id.trim())
+            .await
+    }
+    .map_err(graphql_error)?
+    .ok_or_else(|| async_graphql::Error::new("client is unavailable"))?;
     Ok(GraphqlClient::from_record(client, principal))
 }
 

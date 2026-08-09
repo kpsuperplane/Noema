@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 35;
+pub const STORE_SCHEMA_VERSION: usize = 36;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1179,6 +1179,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(SYSTEM_PROVIDER_ACCOUNTS_SQL),
         M::up(APNS_NOTIFICATIONS_SQL),
         M::up(ACTION_REQUEST_SOURCE_SQL),
+        M::up(LIVE_ACTIVITIES_SQL),
     ])
 }
 
@@ -1204,6 +1205,96 @@ WHERE conversation_id IS NOT NULL AND task_id IS NULL;
 CREATE UNIQUE INDEX governed_actions_approval_item
 ON governed_actions(approval_item_id)
 WHERE approval_item_id IS NOT NULL;
+"#;
+
+/// Durable native Tasks Live Activity registrations, projections, and APNs
+/// delivery attempts.  The client registration row also acts as the explicit
+/// disabled tombstone; an absent row means the client has never configured a
+/// push-to-start token and therefore retains the default enabled preference.
+const LIVE_ACTIVITIES_SQL: &str = r#"
+ALTER TABLE notification_projection_state
+ADD COLUMN task_notification_sequence INTEGER NOT NULL DEFAULT 0
+  CHECK (task_notification_sequence >= 0);
+UPDATE notification_projection_state
+SET task_notification_sequence = COALESCE(
+  (SELECT MAX(event_sequence) FROM work_notification_outbox),
+  0
+)
+WHERE state_id = 1;
+
+ALTER TABLE apns_deliveries
+ADD COLUMN route TEXT NOT NULL DEFAULT 'chat'
+  CHECK (route IN ('chat', 'task'));
+ALTER TABLE apns_deliveries
+ADD COLUMN task_id TEXT
+  CHECK ((route = 'chat' AND task_id IS NULL)
+      OR (route = 'task' AND task_id GLOB 'task:*' AND length(task_id) BETWEEN 6 AND 256));
+
+CREATE TABLE client_live_activity_registrations (
+  client_id TEXT PRIMARY KEY NOT NULL,
+  push_to_start_token BLOB
+    CHECK (push_to_start_token IS NULL OR length(push_to_start_token) BETWEEN 1 AND 1024),
+  environment TEXT
+    CHECK (environment IS NULL OR environment IN ('development', 'production')),
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK ((push_to_start_token IS NULL) = (environment IS NULL)),
+  CHECK (enabled = 1 OR push_to_start_token IS NULL),
+  FOREIGN KEY (client_id) REFERENCES clients(client_id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX client_live_activity_push_token
+ON client_live_activity_registrations(environment, push_to_start_token)
+WHERE push_to_start_token IS NOT NULL;
+
+CREATE TABLE client_task_activities (
+  client_id TEXT PRIMARY KEY NOT NULL,
+  activity_id TEXT CHECK (activity_id IS NULL OR (activity_id GLOB 'live_activity:*' AND length(activity_id) <= 256)),
+  task_session_id TEXT NOT NULL CHECK (task_session_id GLOB 'task_activity:*' AND length(task_session_id) <= 256),
+  lifecycle TEXT NOT NULL CHECK (lifecycle IN ('starting', 'active', 'ending', 'dismissed')),
+  update_token BLOB CHECK (update_token IS NULL OR length(update_token) BETWEEN 1 AND 1024),
+  latest_projection_json TEXT NOT NULL DEFAULT '{}'
+    CHECK (json_valid(latest_projection_json) AND length(CAST(latest_projection_json AS BLOB)) <= 4096),
+  latest_projection_signature TEXT NOT NULL DEFAULT ''
+    CHECK (latest_projection_signature = '' OR (length(latest_projection_signature) = 64 AND latest_projection_signature = lower(latest_projection_signature))),
+  focused_task_id TEXT,
+  session_started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  suppressed INTEGER NOT NULL DEFAULT 0 CHECK (suppressed IN (0, 1)),
+  dismissed_at TEXT,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK (update_token IS NULL OR activity_id IS NOT NULL),
+  FOREIGN KEY (client_id) REFERENCES clients(client_id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX client_task_activity_id
+ON client_task_activities(activity_id)
+WHERE activity_id IS NOT NULL;
+CREATE UNIQUE INDEX client_task_activity_update_token
+ON client_task_activities(update_token)
+WHERE update_token IS NOT NULL;
+
+CREATE TABLE live_activity_deliveries (
+  client_id TEXT NOT NULL,
+  delivery_key TEXT NOT NULL CHECK (trim(delivery_key) <> '' AND length(delivery_key) <= 256),
+  activity_id TEXT,
+  token BLOB NOT NULL CHECK (length(token) BETWEEN 1 AND 1024),
+  environment TEXT NOT NULL CHECK (environment IN ('development', 'production')),
+  event TEXT NOT NULL CHECK (event IN ('start', 'update', 'end')),
+  payload_json TEXT NOT NULL
+    CHECK (json_valid(payload_json) AND length(CAST(payload_json AS BLOB)) <= 4096),
+  urgency TEXT NOT NULL CHECK (urgency IN ('normal', 'high')),
+  ttl_seconds INTEGER NOT NULL CHECK (ttl_seconds BETWEEN 0 AND 604800),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'delivered', 'suppressed', 'failed')),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count BETWEEN 0 AND 4),
+  available_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  last_error_code TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (client_id, delivery_key)
+);
+
+CREATE INDEX live_activity_deliveries_due
+ON live_activity_deliveries(status, available_at, client_id, delivery_key)
+WHERE status = 'pending';
 "#;
 
 /// Repair v30 databases migrated before manual occurrences changed history ordering.

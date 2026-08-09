@@ -1,23 +1,15 @@
-//! Shared notification projection state, paired-client registrations, and APNs delivery state.
-
-use std::collections::HashSet;
-
-use rusqlite::{OptionalExtension, params};
-
+#![allow(missing_docs)]
 use super::{NoemaStore, StoreError};
+use rusqlite::{OptionalExtension, params};
+use std::{collections::HashSet, fmt::Write as _};
 
-/// Apple Push Notification service destination environment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ApnsEnvironment {
-    /// Apple development gateway.
     Development,
-    /// Apple production gateway.
     Production,
 }
-
 impl ApnsEnvironment {
     #[must_use]
-    /// Return the canonical persisted environment value.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Development => "development",
@@ -25,7 +17,7 @@ impl ApnsEnvironment {
         }
     }
 
-    fn parse(value: String) -> Result<Self, StoreError> {
+    pub(super) fn parse(value: String) -> Result<Self, StoreError> {
         match value.as_str() {
             "development" => Ok(Self::Development),
             "production" => Ok(Self::Production),
@@ -36,18 +28,12 @@ impl ApnsEnvironment {
         }
     }
 }
-
-/// A paired client's governed APNs registration.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ClientNotificationRecord {
-    /// Paired client identifier owning this registration.
     pub client_id: String,
-    /// Opaque APNs token bytes.
     pub device_token: Vec<u8>,
-    /// APNs gateway environment for the token.
     pub environment: ApnsEnvironment,
 }
-
 impl std::fmt::Debug for ClientNotificationRecord {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -58,26 +44,18 @@ impl std::fmt::Debug for ClientNotificationRecord {
             .finish()
     }
 }
-
-/// A claimed APNs delivery and its bound registration.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ClaimedApnsDelivery {
-    /// Registration bound when the delivery was claimed.
     pub client: ClientNotificationRecord,
-    /// Stable notification event key.
     pub event_key: String,
-    /// Notification title.
     pub title: String,
-    /// Bounded notification preview.
     pub body: String,
-    /// Delivery urgency.
     pub urgency: String,
-    /// Event lifetime in seconds.
     pub ttl_seconds: u32,
-    /// Original queue timestamp used for absolute expiry.
     pub created_at: String,
+    pub route: String,
+    pub task_id: Option<String>,
 }
-
 impl std::fmt::Debug for ClaimedApnsDelivery {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -89,10 +67,11 @@ impl std::fmt::Debug for ClaimedApnsDelivery {
             .field("urgency", &self.urgency)
             .field("ttl_seconds", &self.ttl_seconds)
             .field("created_at", &self.created_at)
+            .field("route", &self.route)
+            .field("task_id", &self.task_id)
             .finish()
     }
 }
-
 impl NoemaStore {
     #[doc = "Atomically fan one projected event out to eligible Web Push and APNs destinations.\n\n# Errors\nReturns a store error when validation or the shared transaction fails."]
     #[allow(
@@ -111,12 +90,81 @@ impl NoemaStore {
         visible_clients: &HashSet<String>,
         apns_enabled: bool,
     ) -> Result<(), StoreError> {
+        self.queue_notification_fanout_with_route(
+            owner_human_id,
+            event_key,
+            title,
+            body,
+            urgency,
+            ttl_seconds,
+            visible_web,
+            visible_clients,
+            apns_enabled,
+            "chat",
+            None,
+        )
+        .await
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "task alert fan-out owns both transports"
+    )]
+    pub async fn queue_task_notification_fanout(
+        &self,
+        owner_human_id: &str,
+        event_key: &str,
+        title: &str,
+        body: &str,
+        urgency: &str,
+        ttl_seconds: u32,
+        task_id: &str,
+        visible_web: &HashSet<String>,
+        visible_clients: &HashSet<String>,
+        apns_enabled: bool,
+    ) -> Result<(), StoreError> {
+        if !task_id.starts_with("task:") || task_id.len() > 256 || task_id.trim() != task_id {
+            return Err(invalid("invalid task notification identity"));
+        }
+        self.queue_notification_fanout_with_route(
+            owner_human_id,
+            event_key,
+            title,
+            body,
+            urgency,
+            ttl_seconds,
+            visible_web,
+            visible_clients,
+            apns_enabled,
+            "task",
+            Some(task_id),
+        )
+        .await
+    }
+
+    async fn queue_notification_fanout_with_route(
+        &self,
+        owner_human_id: &str,
+        event_key: &str,
+        title: &str,
+        body: &str,
+        urgency: &str,
+        ttl_seconds: u32,
+        visible_web: &HashSet<String>,
+        visible_clients: &HashSet<String>,
+        apns_enabled: bool,
+        route: &str,
+        task_id: Option<&str>,
+    ) -> Result<(), StoreError> {
         if owner_human_id.trim().is_empty()
             || event_key.trim().is_empty()
             || title.trim().is_empty()
             || body.len() > 2048
             || !matches!(urgency, "normal" | "high")
             || ttl_seconds > 604_800
+            || !matches!(route, "chat" | "task")
+            || (route == "chat" && task_id.is_some())
+            || (route == "task" && task_id.is_none())
         {
             return Err(invalid("invalid notification fan-out"));
         }
@@ -138,12 +186,12 @@ impl NoemaStore {
                 transaction.execute(
                     r#"INSERT INTO web_push_deliveries
                        (subscription_id, event_key, title, body, navigate_path, urgency, ttl_seconds, status, available_at)
-                       VALUES (?1, ?2, ?3, ?4, '/', ?5, ?6, ?7, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 second'))
+                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 second'))
                        ON CONFLICT(subscription_id, event_key) DO UPDATE SET
                          title = CASE WHEN status = 'pending' THEN excluded.title ELSE title END,
                          body = CASE WHEN status = 'pending' THEN excluded.body ELSE body END,
                          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"#,
-                    params![subscription_id, event_key, title, body, urgency, i64::from(ttl_seconds), status],
+                    params![subscription_id, event_key, title, body, task_id.map_or_else(|| "/".to_string(), |task_id| format!("/tasks/{}", encode_path_segment(task_id))), urgency, i64::from(ttl_seconds), status],
                 )?;
             }
             if apns_enabled {
@@ -155,22 +203,24 @@ impl NoemaStore {
                     .collect::<Result<Vec<_>, _>>()?;
                 drop(statement);
                 for client_id in client_ids {
-                    let status = if visible_clients.contains(&client_id) {
+                    let status = if route == "chat" && visible_clients.contains(&client_id) {
                         "suppressed"
                     } else {
                         "pending"
                     };
                     transaction.execute(
                         r#"INSERT INTO apns_deliveries
-                           (client_id, event_key, title, body, urgency, ttl_seconds, status, available_at)
-                           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 second'))
+                           (client_id, event_key, title, body, urgency, ttl_seconds, status, available_at, route, task_id)
+                           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 second'), ?8, ?9)
                            ON CONFLICT(client_id, event_key) DO UPDATE SET
                              title = CASE WHEN status = 'pending' THEN excluded.title ELSE title END,
                              body = CASE WHEN status = 'pending' THEN excluded.body ELSE body END,
                              urgency = CASE WHEN status = 'pending' THEN excluded.urgency ELSE urgency END,
                              ttl_seconds = CASE WHEN status = 'pending' THEN excluded.ttl_seconds ELSE ttl_seconds END,
+                             route = CASE WHEN status = 'pending' THEN excluded.route ELSE route END,
+                             task_id = CASE WHEN status = 'pending' THEN excluded.task_id ELSE task_id END,
                              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"#,
-                        params![client_id, event_key, title, body, urgency, i64::from(ttl_seconds), status],
+                        params![client_id, event_key, title, body, urgency, i64::from(ttl_seconds), status, route, task_id],
                     )?;
                 }
             }
@@ -253,6 +303,10 @@ impl NoemaStore {
     pub async fn claim_due_apns_delivery(&self) -> Result<Option<ClaimedApnsDelivery>, StoreError> {
         self.with_connection(|conn| {
             let transaction = conn.transaction()?;
+            transaction.execute(
+                "UPDATE apns_deliveries SET status = 'failed', last_error_code = 'registration_unavailable', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE status = 'pending' AND NOT EXISTS (SELECT 1 FROM client_notification_registrations r JOIN clients c USING (client_id) WHERE r.client_id = apns_deliveries.client_id AND c.revoked_at IS NULL)",
+                [],
+            )?;
             let key = transaction
                 .query_row(
                     "SELECT client_id, event_key FROM apns_deliveries WHERE status = 'pending' AND available_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ORDER BY available_at, client_id, event_key LIMIT 1",
@@ -269,7 +323,8 @@ impl NoemaStore {
             )?;
             let delivery = transaction.query_row(
                 r#"SELECT r.client_id, r.device_token, r.environment,
-                          d.event_key, d.title, d.body, d.urgency, d.ttl_seconds, d.created_at
+                          d.event_key, d.title, d.body, d.urgency, d.ttl_seconds, d.created_at,
+                          d.route, d.task_id
                    FROM apns_deliveries d
                    JOIN client_notification_registrations r USING (client_id)
                    JOIN clients c USING (client_id)
@@ -289,6 +344,8 @@ impl NoemaStore {
                         urgency: row.get(6)?,
                         ttl_seconds: row.get::<_, u32>(7)?,
                         created_at: row.get(8)?,
+                        route: row.get(9)?,
+                        task_id: row.get(10)?,
                     })
                 },
             )?;
@@ -308,15 +365,20 @@ impl NoemaStore {
         error_code: Option<&str>,
     ) -> Result<(), StoreError> {
         self.with_connection(|conn| {
+            let transaction = conn.transaction()?;
             match disposition {
                 "invalid_token" => {
-                    conn.execute(
+                    transaction.execute(
+                        "UPDATE apns_deliveries SET status = 'failed', last_error_code = 'invalid_device_token', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND event_key = ?2 AND status = 'pending' AND EXISTS (SELECT 1 FROM client_notification_registrations WHERE client_id = ?1 AND device_token = ?3)",
+                        params![client_id, event_key, expected_device_token],
+                    )?;
+                    transaction.execute(
                         "DELETE FROM client_notification_registrations WHERE client_id = ?1 AND device_token = ?2",
                         params![client_id, expected_device_token],
                     )?;
                 }
                 "retry" => {
-                    let attempt: u32 = conn.query_row(
+                    let attempt: u32 = transaction.query_row(
                         "SELECT attempt_count FROM apns_deliveries WHERE client_id = ?1 AND event_key = ?2",
                         params![client_id, event_key],
                         |row| row.get(0),
@@ -327,19 +389,20 @@ impl NoemaStore {
                         _ => 1800,
                     };
                     let status = if attempt >= 4 { "failed" } else { "pending" };
-                    conn.execute(
+                    transaction.execute(
                         "UPDATE apns_deliveries SET status = ?4, available_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || ?5 || ' seconds'), last_error_code = ?6, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND event_key = ?2 AND status = 'pending' AND EXISTS (SELECT 1 FROM client_notification_registrations WHERE client_id = ?1 AND device_token = ?3)",
                         params![client_id, event_key, expected_device_token, status, delay, error_code],
                     )?;
                 }
                 "delivered" | "suppressed" | "failed" => {
-                    conn.execute(
+                    transaction.execute(
                         "UPDATE apns_deliveries SET status = ?4, last_error_code = ?5, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND event_key = ?2 AND status = 'pending' AND EXISTS (SELECT 1 FROM client_notification_registrations WHERE client_id = ?1 AND device_token = ?3)",
                         params![client_id, event_key, expected_device_token, disposition, error_code],
                     )?;
                 }
                 _ => return Err(invalid("invalid APNs delivery disposition")),
             }
+            transaction.commit()?;
             Ok(())
         })
         .await
@@ -386,13 +449,23 @@ fn invalid(message: &str) -> StoreError {
     }
 }
 
+fn encode_path_segment(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    encoded
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::test_store;
-
+    use crate::{NewWebPushSubscription, tests::test_store};
     const LOCAL_HUMAN_ID: &str = "human:local";
-
     #[tokio::test]
     async fn registration_transfer_removes_old_owner_and_redacts_tokens() {
         let store = test_store().await;
@@ -466,8 +539,24 @@ mod tests {
                 .device_token,
             [4, 5, 6]
         );
+        store
+            .finish_apns_delivery(
+                "client:two",
+                "chat-turn:before-token-rotation",
+                &[4, 5, 6],
+                "invalid_token",
+                Some("invalid_device_token"),
+            )
+            .await
+            .expect("finish current invalid token");
+        assert!(
+            store
+                .client_notification_registration("client:two")
+                .await
+                .expect("read invalidated registration")
+                .is_none()
+        );
     }
-
     #[tokio::test]
     async fn configured_fanout_inserts_apns_rows_with_transport_visibility() {
         let store = test_store().await;
@@ -502,10 +591,79 @@ mod tests {
                 )
                 .map_err(StoreError::Sqlite)
             })
-            .await
-            .expect("read APNs row");
+        .await
+        .expect("read APNs row");
         assert_eq!(row, ("suppressed".to_string(), "high".to_string(), 3600));
-
+        store
+            .queue_task_notification_fanout(
+                LOCAL_HUMAN_ID,
+                "task-alert:one",
+                "Task waiting",
+                "Review task",
+                "high",
+                3600,
+                "task:one",
+                &HashSet::new(),
+                &HashSet::from(["client:one".to_string()]),
+                true,
+            )
+            .await
+            .expect("queue task alert");
+        let task_row = store
+            .with_connection(|conn| {
+                conn.query_row(
+                    "SELECT status, route, task_id FROM apns_deliveries WHERE client_id = 'client:one' AND event_key = 'task-alert:one'",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+                )
+                .map_err(StoreError::Sqlite)
+            })
+            .await
+            .expect("read task APNs row");
+        assert_eq!(
+            task_row,
+            (
+                "pending".to_string(),
+                "task".to_string(),
+                "task:one".to_string()
+            )
+        );
+        store
+            .register_web_push_subscription(NewWebPushSubscription {
+                owner_human_id: LOCAL_HUMAN_ID.to_string(),
+                endpoint: "https://push.example.test/task".to_string(),
+                p256dh: "p".repeat(40),
+                auth_secret: "a".repeat(16),
+            })
+            .await
+            .expect("register browser subscription");
+        store
+            .queue_task_notification_fanout(
+                LOCAL_HUMAN_ID,
+                "task-alert:path",
+                "Task waiting",
+                "Review task",
+                "high",
+                3600,
+                "task:one/two",
+                &HashSet::new(),
+                &HashSet::new(),
+                false,
+            )
+            .await
+            .expect("queue encoded task alert");
+        let navigate_path = store
+            .with_connection(|conn| {
+                conn.query_row(
+                    "SELECT navigate_path FROM web_push_deliveries WHERE event_key = 'task-alert:path'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .map_err(StoreError::Sqlite)
+            })
+            .await
+            .expect("read encoded task path");
+        assert_eq!(navigate_path, "/tasks/task%3Aone%2Ftwo");
         store
             .queue_notification_fanout(
                 LOCAL_HUMAN_ID,

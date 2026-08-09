@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 use web_push_native::jwt_simple::algorithms::{ECDSAP256PublicKeyLike, ES256KeyPair};
 
 pub(crate) const APNS_TOPIC: &str = "dev.noema.app.ios";
+pub(crate) const LIVE_ACTIVITY_TOPIC: &str = "dev.noema.app.ios.push-type.liveactivity";
+pub(crate) const LIVE_ACTIVITY_ATTRIBUTES_TYPE: &str = "NoemaTasksActivityAttributes";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
 #[graphql(name = "ApnsEnvironment")]
@@ -67,6 +69,16 @@ pub(crate) struct GraphqlClientNotificationStatus {
 }
 
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "ClientLiveActivityStatus")]
+pub(crate) struct GraphqlClientLiveActivityStatus {
+    pub available: bool,
+    pub blocker: Option<String>,
+    pub enabled: bool,
+    pub registered: bool,
+    pub environment: Option<GraphqlApnsEnvironment>,
+}
+
+#[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "ClientNotificationPresenceEvent")]
 pub(crate) struct GraphqlClientNotificationPresenceEvent {
     pub client_id: String,
@@ -87,6 +99,20 @@ pub(crate) struct GraphqlConfigureApnsProviderInput {
 pub(crate) struct GraphqlRegisterClientNotificationsInput {
     pub device_token: String,
     pub environment: GraphqlApnsEnvironment,
+}
+
+#[derive(Clone, InputObject)]
+#[graphql(name = "RegisterClientLiveActivitiesInput")]
+pub(crate) struct GraphqlRegisterClientLiveActivitiesInput {
+    pub push_to_start_token: String,
+    pub environment: GraphqlApnsEnvironment,
+}
+
+#[derive(Clone, InputObject)]
+#[graphql(name = "RegisterClientLiveActivityUpdateInput")]
+pub(crate) struct GraphqlRegisterClientLiveActivityUpdateInput {
+    pub activity_id: String,
+    pub update_token: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -128,6 +154,19 @@ pub(crate) fn client_status(
         blocker: (!credential.configured).then(|| "APNs provider is not configured".to_string()),
         enabled: registration.is_some(),
         environment: registration.map(|record| record.environment.into()),
+    }
+}
+
+pub(crate) fn live_activity_status(
+    credential: &ApnsCredential,
+    registration: Option<&noema_store::ClientLiveActivityRegistration>,
+) -> GraphqlClientLiveActivityStatus {
+    GraphqlClientLiveActivityStatus {
+        available: credential.configured,
+        blocker: (!credential.configured).then(|| "APNs provider is not configured".to_string()),
+        enabled: registration.is_none_or(|record| record.enabled),
+        registered: registration.is_some_and(|record| record.push_to_start_token.is_some()),
+        environment: registration.and_then(|record| record.environment.map(Into::into)),
     }
 }
 

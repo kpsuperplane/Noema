@@ -7,17 +7,35 @@ use std::{
     time::Duration,
 };
 
+use super::{
+    apns::{
+        APNS_TOPIC, ApnsCredential, ApnsSendError, GraphqlApnsProviderStatus,
+        GraphqlClientLiveActivityStatus, GraphqlClientNotificationPresenceEvent,
+        GraphqlClientNotificationStatus, GraphqlConfigureApnsProviderInput,
+        GraphqlRegisterClientLiveActivitiesInput, GraphqlRegisterClientLiveActivityUpdateInput,
+        GraphqlRegisterClientNotificationsInput, LIVE_ACTIVITY_ATTRIBUTES_TYPE,
+        LIVE_ACTIVITY_TOPIC, client_status, delivery_disposition_apns, hex_digest, is_pkcs8_pem,
+        live_activity_status, now_timestamp, positive_revision, read_apns_credential,
+        validate_apns_credential, validate_apns_identifier, write_apns_credential,
+    },
+    errors::graphql_error,
+    human_interventions::{self, GraphqlHumanIntervention},
+    runtime_state::GraphqlState,
+};
 use async_graphql::{InputObject, Result, SimpleObject};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures_util::Stream;
 use noema_capabilities::web::url_policy::{is_public_ip, validate_public_url};
 use noema_conversations::{ConversationItemKind, ReplayMode};
 use noema_home::NoemaPaths;
-use noema_runtime::ConversationRuntimeEvent;
+use noema_runtime::{ConversationRuntimeEvent, WorkRuntimeEvent};
 use noema_store::{
-    ApnsEnvironment, ClaimedApnsDelivery, ClaimedWebPushDelivery, NewWebPushSubscription,
-    NoemaStore,
+    ApnsEnvironment, ClaimedApnsDelivery, ClaimedLiveActivityDelivery, ClaimedWebPushDelivery,
+    ClientLiveActivityRegistration, LiveActivityEvent, LiveActivityTarget, NewLiveActivityDelivery,
+    NewWebPushSubscription, NoemaStore, WorkPageSize, WorkTaskCursor, WorkTaskQuery, WorkTaskScope,
 };
+use noema_tasks::{RunKind, RunStatus, TaskId, WorkflowStageBehavior};
+use noema_workspaces::WorkspaceId;
 use reqwest::{Client, redirect::Policy};
 use ring::digest;
 use tokio::sync::Notify;
@@ -30,21 +48,6 @@ use web_push_native::{
     },
     p256::{PublicKey, elliptic_curve::sec1::ToEncodedPoint},
 };
-
-use super::{
-    apns::{
-        APNS_TOPIC, ApnsCredential, ApnsSendError, GraphqlApnsProviderStatus,
-        GraphqlClientNotificationPresenceEvent, GraphqlClientNotificationStatus,
-        GraphqlConfigureApnsProviderInput, GraphqlRegisterClientNotificationsInput, client_status,
-        delivery_disposition_apns, hex_digest, is_pkcs8_pem, now_timestamp, positive_revision,
-        read_apns_credential, validate_apns_credential, validate_apns_identifier,
-        write_apns_credential,
-    },
-    errors::graphql_error,
-    human_interventions::{self, GraphqlHumanIntervention},
-    runtime_state::GraphqlState,
-};
-
 const LOCAL_HUMAN_ID: &str = "human:local";
 const MAX_PREVIEW_BYTES: usize = 600;
 
@@ -57,7 +60,6 @@ pub struct GraphqlWebPushStatus {
     pub application_server_key: Option<String>,
     pub subscription_id: Option<String>,
 }
-
 impl GraphqlWebPushStatus {
     pub(super) fn unavailable() -> Self {
         Self {
@@ -68,7 +70,6 @@ impl GraphqlWebPushStatus {
         }
     }
 }
-
 /// Exact browser subscription material returned by `PushSubscription.toJSON()`.
 #[derive(Clone, Debug, InputObject)]
 #[graphql(name = "RegisterWebPushSubscriptionInput")]
@@ -77,7 +78,6 @@ pub struct GraphqlRegisterWebPushSubscriptionInput {
     pub p256dh: String,
     pub auth: String,
 }
-
 /// Presence acknowledgement; the stream lifetime is the visibility lease.
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "WebPushPresenceEvent")]
@@ -85,13 +85,11 @@ pub struct GraphqlWebPushPresenceEvent {
     pub subscription_id: String,
     pub ready: bool,
 }
-
 /// Installation-scoped notification projection, presence, and delivery service.
 #[derive(Clone)]
 pub struct NotificationCoordinator {
     inner: Arc<WebPushInner>,
 }
-
 struct WebPushInner {
     store: NoemaStore,
     paths: NoemaPaths,
@@ -100,17 +98,16 @@ struct WebPushInner {
     visible: Mutex<HashMap<String, usize>>,
     client_visible: Mutex<HashMap<String, usize>>,
     apns_mutation: tokio::sync::Mutex<()>,
+    live_activity_mutation: tokio::sync::Mutex<()>,
     apns_client: Client,
     apns_jwt: Mutex<Option<(u64, String, std::time::Instant)>>,
     wake: Notify,
 }
-
 impl std::fmt::Debug for NotificationCoordinator {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("NotificationCoordinator")
     }
 }
-
 impl NotificationCoordinator {
     #[doc = "Build the shared notification coordinator with its protected-file authority.\n\n# Errors\nReturns a bounded error when origin, identity, or HTTP client initialization fails."]
     pub async fn new_with_paths(
@@ -147,6 +144,7 @@ impl NotificationCoordinator {
                 visible: Mutex::new(HashMap::new()),
                 client_visible: Mutex::new(HashMap::new()),
                 apns_mutation: tokio::sync::Mutex::new(()),
+                live_activity_mutation: tokio::sync::Mutex::new(()),
                 apns_client,
                 apns_jwt: Mutex::new(None),
                 wake: Notify::new(),
@@ -311,6 +309,11 @@ impl NotificationCoordinator {
             .fail_pending_apns_deliveries("provider_unconfigured")
             .await
             .map_err(graphql_error)?;
+        self.inner
+            .store
+            .fail_pending_live_activity_deliveries("provider_unconfigured")
+            .await
+            .map_err(graphql_error)?;
         Ok(next.into())
     }
 
@@ -359,6 +362,151 @@ impl NotificationCoordinator {
         self.client_notification_status(client_id).await
     }
 
+    pub(super) async fn client_live_activity_status(
+        &self,
+        client_id: &str,
+    ) -> Result<GraphqlClientLiveActivityStatus> {
+        let credential = read_apns_credential(&self.inner.paths).map_err(graphql_error)?;
+        let registration = self
+            .inner
+            .store
+            .client_live_activity_registration(client_id)
+            .await
+            .map_err(graphql_error)?;
+        Ok(live_activity_status(&credential, registration.as_ref()))
+    }
+
+    pub(super) async fn register_client_live_activities(
+        &self,
+        client_id: &str,
+        input: GraphqlRegisterClientLiveActivitiesInput,
+    ) -> Result<GraphqlClientLiveActivityStatus> {
+        let _guard = self.inner.live_activity_mutation.lock().await;
+        let token = decode_live_token(&input.push_to_start_token)?;
+        self.inner
+            .store
+            .register_client_live_activities(client_id, &token, input.environment.into())
+            .await
+            .map_err(graphql_error)?;
+        self.reconcile_live_activities_for_client(client_id).await;
+        self.client_live_activity_status(client_id).await
+    }
+
+    pub(super) async fn register_client_live_activity_update(
+        &self,
+        client_id: &str,
+        input: GraphqlRegisterClientLiveActivityUpdateInput,
+    ) -> Result<bool> {
+        let _guard = self.inner.live_activity_mutation.lock().await;
+        let token = decode_live_token(&input.update_token)?;
+        let changed = self
+            .inner
+            .store
+            .register_client_live_activity_update(client_id, &input.activity_id, &token)
+            .await
+            .map_err(graphql_error)?;
+        if changed {
+            self.reconcile_live_activities_for_client(client_id).await;
+        }
+        Ok(changed)
+    }
+
+    pub(super) async fn dismiss_client_live_activity(
+        &self,
+        client_id: &str,
+        activity_id: &str,
+    ) -> Result<bool> {
+        let _guard = self.inner.live_activity_mutation.lock().await;
+        let activity = self
+            .inner
+            .store
+            .client_task_activity(client_id)
+            .await
+            .map_err(graphql_error)?;
+        let changed = self
+            .inner
+            .store
+            .dismiss_client_live_activity(client_id, activity_id, true)
+            .await
+            .map_err(graphql_error)?;
+        if changed {
+            if let Some(activity) = activity
+                && let Ok(Some(registration)) = self
+                    .inner
+                    .store
+                    .client_live_activity_registration(client_id)
+                    .await
+            {
+                self.queue_live_end_for_registration(&registration, &activity)
+                    .await;
+            }
+            self.inner.wake.notify_one();
+        }
+        Ok(changed)
+    }
+
+    pub(super) async fn disable_client_live_activities(
+        &self,
+        client_id: &str,
+    ) -> Result<GraphqlClientLiveActivityStatus> {
+        let _guard = self.inner.live_activity_mutation.lock().await;
+        let registration = self
+            .inner
+            .store
+            .client_live_activity_registration(client_id)
+            .await
+            .map_err(graphql_error)?;
+        let activity = self
+            .inner
+            .store
+            .client_task_activity(client_id)
+            .await
+            .map_err(graphql_error)?;
+        if let (Some(registration), Some(activity)) = (registration.as_ref(), activity.as_ref()) {
+            self.queue_live_end_for_registration(registration, activity)
+                .await;
+        }
+        self.inner
+            .store
+            .disable_client_live_activities(client_id)
+            .await
+            .map_err(graphql_error)?;
+        self.client_live_activity_status(client_id).await
+    }
+
+    pub(super) async fn revoke_client(
+        &self,
+        owner_human_id: &str,
+        client_id: &str,
+    ) -> std::result::Result<Option<noema_store::ClientRecord>, noema_store::StoreError> {
+        let _guard = self.inner.live_activity_mutation.lock().await;
+        let Ok(Some(registration)) = self
+            .inner
+            .store
+            .client_live_activity_registration(client_id)
+            .await
+        else {
+            return self
+                .inner
+                .store
+                .revoke_client(owner_human_id, client_id)
+                .await;
+        };
+        let Ok(Some(activity)) = self.inner.store.client_task_activity(client_id).await else {
+            return self
+                .inner
+                .store
+                .revoke_client(owner_human_id, client_id)
+                .await;
+        };
+        self.queue_live_end_for_registration(&registration, &activity)
+            .await;
+        self.inner
+            .store
+            .revoke_client(owner_human_id, client_id)
+            .await
+    }
+
     pub(super) async fn client_presence(
         &self,
         client_id: String,
@@ -382,15 +530,16 @@ impl NotificationCoordinator {
             std::future::pending::<()>().await;
         })
     }
-
     /// Project and deliver notification events until the runtime stream closes.
     pub async fn run(
         self,
         state: GraphqlState,
         mut events: tokio::sync::broadcast::Receiver<ConversationRuntimeEvent>,
+        mut work_events: tokio::sync::broadcast::Receiver<WorkRuntimeEvent>,
     ) {
         let _ = self.reconcile_primary_chat(&state).await;
         let _ = self.reconcile_interventions(&state).await;
+        self.reconcile_live_activities().await;
         loop {
             tokio::select! {
                 event = events.recv() => match event {
@@ -401,15 +550,26 @@ impl NotificationCoordinator {
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 },
+                event = work_events.recv() => match event {
+                    Ok(WorkRuntimeEvent::Committed { workspace_id, .. })
+                        if workspace_id == "workspace:personal" => {
+                            self.reconcile_live_activities().await;
+                        }
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        self.reconcile_live_activities().await;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                },
                 () = self.inner.wake.notified() => {},
                 () = tokio::time::sleep(Duration::from_secs(30)) => {},
             }
             let _ = self.reconcile_primary_chat(&state).await;
             let _ = self.reconcile_interventions(&state).await;
+            self.reconcile_live_activities().await;
             self.drain_due().await;
         }
     }
-
     async fn handle_event(&self, state: &GraphqlState, event: ConversationRuntimeEvent) {
         match event {
             ConversationRuntimeEvent::HumanInterventionsChanged { .. } => {
@@ -420,7 +580,6 @@ impl NotificationCoordinator {
             }
         }
     }
-
     async fn reconcile_primary_chat(&self, state: &GraphqlState) -> Result<()> {
         let conversation = self
             .inner
@@ -474,7 +633,6 @@ impl NotificationCoordinator {
         self.inner.wake.notify_one();
         Ok(())
     }
-
     async fn reconcile_interventions(&self, state: &GraphqlState) -> Result<()> {
         let conversation_id = self
             .inner
@@ -532,7 +690,6 @@ impl NotificationCoordinator {
         self.inner.wake.notify_one();
         Ok(())
     }
-
     async fn queue_notification(
         &self,
         event_key: &str,
@@ -564,10 +721,38 @@ impl NotificationCoordinator {
         self.inner.wake.notify_one();
         Ok(())
     }
-
     async fn drain_due(&self) {
+        while let Ok(Some(delivery)) = self.inner.store.claim_due_live_activity_delivery().await {
+            let _guard = self.inner.live_activity_mutation.lock().await;
+            if delivery.event != LiveActivityEvent::End
+                && !self.live_delivery_is_current(&delivery).await
+            {
+                let _ = self
+                    .inner
+                    .store
+                    .finish_live_activity_delivery(&delivery, "suppressed", Some("stale_start"))
+                    .await;
+                continue;
+            }
+            let (revision, result) = self.send_live_activity(delivery.clone()).await;
+            let transport_error = matches!(&result, Err(ApnsSendError::Transport(_)));
+            let (mut disposition, code) = delivery_disposition_apns(result);
+            if delivery.event == LiveActivityEvent::Start && transport_error {
+                disposition = "failed";
+            }
+            if let Some(code) = code
+                && matches!(disposition, "failed" | "retry")
+            {
+                let _ = self.record_apns_error(code, revision).await;
+            }
+            let _ = self
+                .inner
+                .store
+                .finish_live_activity_delivery(&delivery, disposition, code)
+                .await;
+        }
         while let Ok(Some(delivery)) = self.inner.store.claim_due_apns_delivery().await {
-            if self.is_client_visible(&delivery.client.client_id) {
+            if delivery.route == "chat" && self.is_client_visible(&delivery.client.client_id) {
                 let _ = self
                     .inner
                     .store
@@ -581,12 +766,12 @@ impl NotificationCoordinator {
                     .await;
                 continue;
             }
-            let (disposition, code) =
-                delivery_disposition_apns(self.send_apns(delivery.clone()).await);
+            let (revision, result) = self.send_apns(delivery.clone()).await;
+            let (disposition, code) = delivery_disposition_apns(result);
             if let Some(code) = code
                 && matches!(disposition, "failed" | "retry")
             {
-                let _ = self.record_apns_error(code).await;
+                let _ = self.record_apns_error(code, revision).await;
             }
             let _ = self
                 .inner
@@ -627,7 +812,6 @@ impl NotificationCoordinator {
                 .await;
         }
     }
-
     async fn send(
         &self,
         delivery: ClaimedWebPushDelivery,
@@ -677,44 +861,156 @@ impl NotificationCoordinator {
             .map(|response| response.status())
             .map_err(|_| "push transport failed".to_string())
     }
-
     fn visible_subscriptions(&self) -> HashSet<String> {
         self.inner.visible.lock().map_or_else(
             |_| HashSet::new(),
             |visible| visible.keys().cloned().collect(),
         )
     }
-
     fn is_visible(&self, subscription_id: &str) -> bool {
         self.inner
             .visible
             .lock()
             .is_ok_and(|visible| visible.contains_key(subscription_id))
     }
-
     fn visible_clients(&self) -> HashSet<String> {
         self.inner.client_visible.lock().map_or_else(
             |_| HashSet::new(),
             |visible| visible.keys().cloned().collect(),
         )
     }
-
     fn is_client_visible(&self, client_id: &str) -> bool {
         self.inner
             .client_visible
             .lock()
             .is_ok_and(|visible| visible.contains_key(client_id))
     }
-
+    async fn live_delivery_is_current(&self, delivery: &ClaimedLiveActivityDelivery) -> bool {
+        let Some(activity_id) = delivery.activity_id.as_deref() else {
+            return false;
+        };
+        let Ok(Some(activity)) = self
+            .inner
+            .store
+            .client_task_activity(&delivery.client_id)
+            .await
+        else {
+            return false;
+        };
+        if activity.activity_id.as_deref() != Some(activity_id) || activity.suppressed {
+            return false;
+        }
+        let Ok(Some(registration)) = self
+            .inner
+            .store
+            .client_live_activity_registration(&delivery.client_id)
+            .await
+        else {
+            return false;
+        };
+        registration.enabled
+            && registration.environment == Some(delivery.environment)
+            && match delivery.event {
+                LiveActivityEvent::Start => {
+                    activity.lifecycle == "starting"
+                        && registration.push_to_start_token.as_deref()
+                            == Some(delivery.token.as_slice())
+                }
+                LiveActivityEvent::Update => {
+                    activity.lifecycle == "active"
+                        && activity.update_token.as_deref() == Some(delivery.token.as_slice())
+                }
+                LiveActivityEvent::End => true,
+            }
+    }
     async fn send_apns(
         &self,
         delivery: ClaimedApnsDelivery,
-    ) -> std::result::Result<reqwest::StatusCode, ApnsSendError> {
-        let credential = read_apns_credential(&self.inner.paths)
-            .map_err(|_| ApnsSendError::Transport("provider_unavailable"))?;
+    ) -> (
+        Option<u64>,
+        std::result::Result<reqwest::StatusCode, ApnsSendError>,
+    ) {
+        let credential = match read_apns_credential(&self.inner.paths) {
+            Ok(credential) => credential,
+            Err(_) => return (None, Err(ApnsSendError::Transport("provider_unavailable"))),
+        };
+        let revision = Some(credential.revision);
         if !credential.configured {
-            return Err(ApnsSendError::Provider("provider_unconfigured"));
+            return (
+                revision,
+                Err(ApnsSendError::Provider("provider_unconfigured")),
+            );
         }
+        let mut payload = serde_json::json!({
+            "aps": {
+                "alert": {"title": delivery.title, "body": delivery.body},
+                "sound": "default"
+            },
+            "route": delivery.route,
+            "version": 1,
+            "eventKey": delivery.event_key,
+            "clientId": delivery.client.client_id,
+        });
+        if let Some(task_id) = delivery.task_id {
+            payload["taskId"] = serde_json::Value::String(task_id);
+        }
+        let token = match self.apns_jwt(&credential) {
+            Ok(token) => token,
+            Err(error) => return (revision, Err(error)),
+        };
+        let result = self
+            .send_apns_request(
+                delivery.client.environment,
+                &delivery.client.device_token,
+                APNS_TOPIC,
+                "alert",
+                &delivery.urgency,
+                delivery.ttl_seconds,
+                &delivery.created_at,
+                &token,
+                &payload,
+            )
+            .await;
+        (revision, result)
+    }
+    async fn send_live_activity(
+        &self,
+        delivery: ClaimedLiveActivityDelivery,
+    ) -> (
+        Option<u64>,
+        std::result::Result<reqwest::StatusCode, ApnsSendError>,
+    ) {
+        let credential = match read_apns_credential(&self.inner.paths) {
+            Ok(credential) => credential,
+            Err(_) => return (None, Err(ApnsSendError::Transport("provider_unavailable"))),
+        };
+        let revision = Some(credential.revision);
+        if !credential.configured {
+            return (
+                revision,
+                Err(ApnsSendError::Provider("provider_unconfigured")),
+            );
+        }
+        let token = match self.apns_jwt(&credential) {
+            Ok(token) => token,
+            Err(error) => return (revision, Err(error)),
+        };
+        let result = self
+            .send_apns_request(
+                delivery.environment,
+                &delivery.token,
+                LIVE_ACTIVITY_TOPIC,
+                "liveactivity",
+                &delivery.urgency,
+                delivery.ttl_seconds,
+                &delivery.created_at,
+                &token,
+                &delivery.payload,
+            )
+            .await;
+        (revision, result)
+    }
+    fn apns_jwt(&self, credential: &ApnsCredential) -> std::result::Result<String, ApnsSendError> {
         let team_id = credential
             .team_id
             .as_deref()
@@ -723,63 +1019,62 @@ impl NotificationCoordinator {
             .key_id
             .as_deref()
             .ok_or(ApnsSendError::Provider("provider_metadata_invalid"))?;
-        let private_key = credential
-            .private_key_pem
-            .as_deref()
-            .ok_or(ApnsSendError::Provider("provider_key_unavailable"))?;
-        let token = if let Ok(cache) = self.inner.apns_jwt.lock()
+        if let Ok(cache) = self.inner.apns_jwt.lock()
             && let Some((revision, token, expires_at)) = cache.as_ref()
             && *revision == credential.revision
             && *expires_at > std::time::Instant::now()
         {
-            token.clone()
-        } else {
-            let key_pair = ES256KeyPair::from_pem(private_key)
-                .map_err(|_| ApnsSendError::Provider("provider_key_invalid"))?
-                .with_key_id(key_id);
-            let mut claims =
-                Claims::create(Duration::from_secs(55 * 60).into()).with_issuer(team_id);
-            claims.expires_at = None;
-            claims.invalid_before = None;
-            let token = key_pair
-                .sign(claims)
-                .map_err(|_| ApnsSendError::Provider("provider_token_failed"))?;
-            if let Ok(mut cache) = self.inner.apns_jwt.lock() {
-                *cache = Some((
-                    credential.revision,
-                    token.clone(),
-                    std::time::Instant::now() + Duration::from_secs(45 * 60),
-                ));
-            }
-            token
-        };
-        let token_hex = delivery
-            .client
-            .device_token
+            return Ok(token.clone());
+        }
+        let private_key = credential
+            .private_key_pem
+            .as_deref()
+            .ok_or(ApnsSendError::Provider("provider_key_unavailable"))?;
+        let key_pair = ES256KeyPair::from_pem(private_key)
+            .map_err(|_| ApnsSendError::Provider("provider_key_invalid"))?
+            .with_key_id(key_id);
+        let mut claims = Claims::create(Duration::from_secs(55 * 60).into()).with_issuer(team_id);
+        claims.expires_at = None;
+        claims.invalid_before = None;
+        let token = key_pair
+            .sign(claims)
+            .map_err(|_| ApnsSendError::Provider("provider_token_failed"))?;
+        if let Ok(mut cache) = self.inner.apns_jwt.lock() {
+            *cache = Some((
+                credential.revision,
+                token.clone(),
+                std::time::Instant::now() + Duration::from_secs(45 * 60),
+            ));
+        }
+        Ok(token)
+    }
+    async fn send_apns_request(
+        &self,
+        environment: ApnsEnvironment,
+        device_token: &[u8],
+        topic: &str,
+        push_type: &str,
+        urgency: &str,
+        ttl_seconds: u32,
+        created_at: &str,
+        jwt: &str,
+        payload: &serde_json::Value,
+    ) -> std::result::Result<reqwest::StatusCode, ApnsSendError> {
+        let token_hex = device_token
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        let host = match delivery.client.environment {
+        let host = match environment {
             ApnsEnvironment::Development => "api.sandbox.push.apple.com",
             ApnsEnvironment::Production => "api.push.apple.com",
         };
-        let payload = serde_json::json!({
-            "aps": {
-                "alert": {"title": delivery.title, "body": delivery.body},
-                "sound": "default"
-            },
-            "route": "chat",
-            "version": 1,
-            "eventKey": delivery.event_key,
-            "clientId": delivery.client.client_id,
-        });
-        let expiration = if delivery.ttl_seconds == 0 {
+        let expiration = if ttl_seconds == 0 {
             "0".to_string()
         } else {
-            let created_at = chrono::DateTime::parse_from_rfc3339(&delivery.created_at)
+            let created_at = chrono::DateTime::parse_from_rfc3339(created_at)
                 .map_err(|_| ApnsSendError::Provider("invalid_delivery_time"))?
                 .timestamp();
-            let expiration = created_at.saturating_add(i64::from(delivery.ttl_seconds));
+            let expiration = created_at.saturating_add(i64::from(ttl_seconds));
             if expiration <= chrono::Utc::now().timestamp() {
                 return Err(ApnsSendError::Provider("delivery_expired"));
             }
@@ -789,19 +1084,12 @@ impl NotificationCoordinator {
             .inner
             .apns_client
             .post(format!("https://{host}/3/device/{token_hex}"))
-            .header("authorization", format!("bearer {token}"))
-            .header("apns-topic", APNS_TOPIC)
-            .header("apns-push-type", "alert")
-            .header(
-                "apns-priority",
-                if delivery.urgency == "high" {
-                    "10"
-                } else {
-                    "5"
-                },
-            )
+            .header("authorization", format!("bearer {jwt}"))
+            .header("apns-topic", topic)
+            .header("apns-push-type", push_type)
+            .header("apns-priority", if urgency == "high" { "10" } else { "5" })
             .header("apns-expiration", expiration)
-            .json(&payload)
+            .json(payload)
             .send()
             .await
             .map_err(|_| ApnsSendError::Transport("transport_unavailable"))?;
@@ -821,29 +1109,649 @@ impl NotificationCoordinator {
                         .get("reason")
                         .and_then(serde_json::Value::as_str)
                         .map(str::to_owned)
-                });
-            if reason.as_deref().is_some_and(|reason| {
-                matches!(
-                    reason,
-                    "BadDeviceToken" | "DeviceTokenNotForTopic" | "Unregistered"
-                )
-            }) {
+                })
+                .unwrap_or_default();
+            if matches!(
+                reason.as_str(),
+                "BadDeviceToken" | "DeviceTokenNotForTopic" | "Unregistered"
+            ) {
                 return Err(ApnsSendError::InvalidToken);
             }
         }
         Ok(status)
     }
-
-    async fn record_apns_error(&self, code: &str) -> Result<(), noema_store::StoreError> {
+    async fn record_apns_error(
+        &self,
+        code: &str,
+        revision: Option<u64>,
+    ) -> Result<(), noema_store::StoreError> {
+        let Some(revision) = revision else {
+            return Ok(());
+        };
         let _guard = self.inner.apns_mutation.lock().await;
         let mut credential = read_apns_credential(&self.inner.paths)
             .map_err(|error| noema_store::StoreError::InvariantViolation { message: error })?;
+        if credential.revision != revision {
+            return Ok(());
+        }
         credential.last_error_code = Some(code.chars().take(128).collect());
         credential.last_error_at = Some(now_timestamp());
         credential.updated_at = credential.last_error_at.clone();
         write_apns_credential(&self.inner.paths, &credential)
             .map_err(|error| noema_store::StoreError::InvariantViolation { message: error })
     }
+    async fn reconcile_live_activities_for_client(&self, client_id: &str) {
+        let Some(targets) = self.live_activity_targets().await else {
+            return;
+        };
+        let Some(target) = targets
+            .into_iter()
+            .find(|target| target.registration.client_id == client_id)
+        else {
+            return;
+        };
+        let projection = live_projection(&self.inner.store).await.ok().flatten();
+        self.apply_live_target(target, projection).await;
+    }
+    async fn reconcile_live_activities(&self) {
+        let Some(targets) = self.live_activity_targets().await else {
+            return;
+        };
+        let projection = live_projection(&self.inner.store).await.ok().flatten();
+        for target in targets {
+            self.apply_live_target(target, projection.clone()).await;
+        }
+        self.reconcile_task_alerts().await;
+    }
+    async fn live_activity_targets(&self) -> Option<Vec<LiveActivityTarget>> {
+        read_apns_credential(&self.inner.paths)
+            .ok()
+            .filter(|credential| credential.configured)?;
+        self.inner.store.live_activity_targets().await.ok()
+    }
+    async fn apply_live_target(
+        &self,
+        mut target: LiveActivityTarget,
+        projection: Option<LiveProjection>,
+    ) {
+        let Some(projection) = projection else {
+            let Some(activity) = target.activity.as_ref() else {
+                return;
+            };
+            let Some(_environment) = target.registration.environment else {
+                return;
+            };
+            let end_projection = self
+                .terminal_projection(activity)
+                .await
+                .or_else(|| activity_projection(activity));
+            if let Some(token) = activity.update_token.as_ref()
+                && let Some(projection) = end_projection.as_ref()
+                && self
+                    .queue_live_end_projection(&target.registration, activity, token, projection)
+                    .await
+            {
+                let _ = self
+                    .inner
+                    .store
+                    .mark_client_task_activity_ending(
+                        &target.registration.client_id,
+                        activity.activity_id.as_deref(),
+                    )
+                    .await;
+            } else if activity.lifecycle == "starting"
+                && let Some(activity_id) = activity.activity_id.as_deref()
+            {
+                let _ = self
+                    .inner
+                    .store
+                    .dismiss_client_live_activity(
+                        &target.registration.client_id,
+                        activity_id,
+                        false,
+                    )
+                    .await;
+            } else if activity.lifecycle == "dismissed" {
+                let _ = self
+                    .inner
+                    .store
+                    .clear_client_task_activity_dismissal(&target.registration.client_id)
+                    .await;
+            }
+            return;
+        };
+        loop {
+            let Some(activity) = target.activity.as_ref() else {
+                return;
+            };
+            if !matches!(activity.lifecycle.as_str(), "starting" | "active") {
+                if activity.lifecycle == "ending" {
+                    return;
+                }
+                if activity.lifecycle == "dismissed" && activity.latest_projection_signature != "" {
+                    return;
+                }
+                let client_id = target.registration.client_id.clone();
+                if self
+                    .inner
+                    .store
+                    .ensure_client_task_activity_session(&client_id)
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+                let Ok(targets) = self.inner.store.live_activity_targets().await else {
+                    return;
+                };
+                let Some(next_target) = targets
+                    .into_iter()
+                    .find(|candidate| candidate.registration.client_id == client_id)
+                else {
+                    return;
+                };
+                target = next_target;
+                continue;
+            }
+            let _ = self
+                .inner
+                .store
+                .update_client_task_activity_projection(
+                    &target.registration.client_id,
+                    &projection.content,
+                    &projection.signature,
+                    Some(&projection.focus_task_id),
+                )
+                .await;
+            if let Some(token) = activity.update_token.as_ref()
+                && activity.lifecycle == "active"
+            {
+                self.queue_live_delivery(
+                    &target.registration,
+                    activity,
+                    token,
+                    LiveActivityEvent::Update,
+                    format!("live:update:{}", projection.signature),
+                    &projection,
+                    None,
+                    "normal",
+                    3600,
+                )
+                .await;
+            } else if let Some(token) = target.registration.push_to_start_token.as_ref()
+                && activity.lifecycle == "starting"
+            {
+                self.queue_live_delivery(
+                    &target.registration,
+                    activity,
+                    token,
+                    LiveActivityEvent::Start,
+                    format!("live:start:{}", activity.task_session_id),
+                    &projection,
+                    None,
+                    "high",
+                    3600,
+                )
+                .await;
+            }
+            return;
+        }
+    }
+    async fn reconcile_task_alerts(&self) {
+        let Ok(mut checkpoint) = self.inner.store.notification_task_checkpoint().await else {
+            return;
+        };
+        let Ok(targets) = self.inner.store.live_activity_targets().await else {
+            return;
+        };
+        let fallback_projection = live_projection(&self.inner.store).await.ok().flatten();
+        loop {
+            let Ok(alerts) = self
+                .inner
+                .store
+                .list_task_notification_alerts(checkpoint, 100)
+                .await
+            else {
+                return;
+            };
+            if alerts.is_empty() {
+                break;
+            }
+            for alert in &alerts {
+                let task_id = alert
+                    .payload
+                    .get("task_id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("task:unknown");
+                let title = if alert.notification_kind == "task_recovery" {
+                    "Task recovery needed"
+                } else {
+                    "Task waiting"
+                };
+                let body = if let Some(title) = alert
+                    .payload
+                    .get("title")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    title.to_string()
+                } else {
+                    match TaskId::new(task_id.to_string()) {
+                        Ok(task_id) => self
+                            .inner
+                            .store
+                            .get_work_task(&task_id)
+                            .await
+                            .ok()
+                            .flatten()
+                            .map_or_else(|| task_id.to_string(), |task| task.task.title),
+                        Err(_) => task_id.to_string(),
+                    }
+                };
+                if self
+                    .inner
+                    .store
+                    .queue_task_notification_fanout(
+                        LOCAL_HUMAN_ID,
+                        &format!("task-alert:{}", alert.notification_id),
+                        title,
+                        &body,
+                        "high",
+                        86_400,
+                        task_id,
+                        &self.visible_subscriptions(),
+                        &HashSet::new(),
+                        true,
+                    )
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+                for target in &targets {
+                    let Some(activity) = target.activity.as_ref() else {
+                        continue;
+                    };
+                    let (event, token) = if let Some(token) = activity.update_token.as_ref()
+                        && activity.lifecycle == "active"
+                    {
+                        (LiveActivityEvent::Update, token.clone())
+                    } else {
+                        continue;
+                    };
+                    let Some(projection) =
+                        activity_projection(activity).or_else(|| fallback_projection.clone())
+                    else {
+                        continue;
+                    };
+                    self.queue_live_delivery(
+                        &target.registration,
+                        activity,
+                        &token,
+                        event,
+                        format!("live:alert:{}", alert.notification_id),
+                        &projection,
+                        Some((title, &body, task_id)),
+                        "high",
+                        86_400,
+                    )
+                    .await;
+                }
+                checkpoint = alert.event_sequence;
+            }
+            let _ = self
+                .inner
+                .store
+                .advance_notification_task_checkpoint(checkpoint)
+                .await;
+            if alerts.len() < 100 {
+                break;
+            }
+        }
+    }
+    async fn queue_live_end_for_registration(
+        &self,
+        registration: &ClientLiveActivityRegistration,
+        activity: &noema_store::ClientTaskActivityRecord,
+    ) {
+        let Some(token) = activity.update_token.as_ref() else {
+            return;
+        };
+        let projection = LiveProjection {
+            content: activity.latest_projection.clone(),
+            signature: activity.latest_projection_signature.clone(),
+            focus_task_id: activity
+                .focused_task_id
+                .clone()
+                .unwrap_or_else(|| "task:unknown".to_string()),
+        };
+        self.queue_live_end_projection(registration, activity, token, &projection)
+            .await;
+    }
+    async fn queue_live_end_projection(
+        &self,
+        registration: &ClientLiveActivityRegistration,
+        activity: &noema_store::ClientTaskActivityRecord,
+        token: &[u8],
+        projection: &LiveProjection,
+    ) -> bool {
+        self.queue_live_delivery(
+            registration,
+            activity,
+            token,
+            LiveActivityEvent::End,
+            format!("live:end:{}", activity.task_session_id),
+            projection,
+            None,
+            "high",
+            600,
+        )
+        .await
+    }
+    async fn queue_live_delivery(
+        &self,
+        registration: &ClientLiveActivityRegistration,
+        activity: &noema_store::ClientTaskActivityRecord,
+        token: &[u8],
+        event: LiveActivityEvent,
+        delivery_key: String,
+        projection: &LiveProjection,
+        alert: Option<(&str, &str, &str)>,
+        urgency: &str,
+        ttl_seconds: u32,
+    ) -> bool {
+        let Some(environment) = registration.environment else {
+            return false;
+        };
+        let payload = live_activity_payload(
+            event,
+            &registration.client_id,
+            activity.activity_id.as_deref(),
+            &self.inner.public_origin,
+            projection,
+            alert,
+        );
+        self.inner
+            .store
+            .queue_live_activity_delivery(NewLiveActivityDelivery {
+                client_id: registration.client_id.clone(),
+                delivery_key,
+                activity_id: activity.activity_id.clone(),
+                token: token.to_vec(),
+                environment,
+                event,
+                payload,
+                urgency: urgency.to_string(),
+                ttl_seconds,
+            })
+            .await
+            .is_ok()
+    }
+
+    async fn terminal_projection(
+        &self,
+        activity: &noema_store::ClientTaskActivityRecord,
+    ) -> Option<LiveProjection> {
+        let task_id = TaskId::new(activity.focused_task_id.clone()?).ok()?;
+        let detail = self.inner.store.get_work_task(&task_id).await.ok()??;
+        let phase = match detail.stage.system_behavior {
+            WorkflowStageBehavior::TerminalSuccess => "completed",
+            WorkflowStageBehavior::TerminalCancelled => "cancelled",
+            _ => return None,
+        };
+        Some(LiveProjection::terminal(
+            task_id.as_str(),
+            &detail.task.title,
+            detail.project.as_ref().map(|project| project.name.as_str()),
+            phase,
+            parse_epoch(&detail.task.updated_at)
+                .unwrap_or_else(|| chrono::Utc::now().timestamp() as f64),
+        ))
+    }
+}
+
+#[derive(Clone)]
+struct LiveProjection {
+    content: serde_json::Value,
+    signature: String,
+    focus_task_id: String,
+}
+
+impl LiveProjection {
+    fn terminal(
+        task_id: &str,
+        title: &str,
+        project_name: Option<&str>,
+        phase: &str,
+        updated_at: f64,
+    ) -> Self {
+        let content = serde_json::json!({
+            "focusTaskId": task_id,
+            "focusTitle": title,
+            "projectName": project_name,
+            "phase": phase,
+            "statusLabel": if phase == "completed" { "Completed" } else { "Cancelled" },
+            "activeTaskCount": 0,
+            "startedAtEpoch": serde_json::Value::Null,
+            "updatedAtEpoch": updated_at,
+        });
+        Self {
+            signature: hex_digest(
+                digest::digest(&digest::SHA256, content.to_string().as_bytes()).as_ref(),
+            ),
+            content,
+            focus_task_id: task_id.to_string(),
+        }
+    }
+}
+
+fn activity_projection(activity: &noema_store::ClientTaskActivityRecord) -> Option<LiveProjection> {
+    let focus_task_id = activity
+        .latest_projection
+        .get("focusTaskId")
+        .and_then(serde_json::Value::as_str)?
+        .to_string();
+    (!activity.latest_projection_signature.is_empty()).then(|| LiveProjection {
+        content: activity.latest_projection.clone(),
+        signature: activity.latest_projection_signature.clone(),
+        focus_task_id,
+    })
+}
+
+async fn live_projection(
+    store: &NoemaStore,
+) -> std::result::Result<Option<LiveProjection>, noema_store::StoreError> {
+    let workspace_id = WorkspaceId::new("workspace:personal").map_err(|_| {
+        noema_store::StoreError::InvariantViolation {
+            message: "personal workspace identity is invalid".to_string(),
+        }
+    })?;
+    let mut after = None;
+    let mut tasks = Vec::new();
+    loop {
+        let page = store
+            .list_work_tasks(WorkTaskQuery {
+                workspace_id: workspace_id.clone(),
+                project_id: None,
+                stage_ids: Vec::new(),
+                stage_behaviors: vec![
+                    WorkflowStageBehavior::Active,
+                    WorkflowStageBehavior::HumanGate,
+                ],
+                text: None,
+                attention_only: false,
+                scope: WorkTaskScope::Active,
+                first: WorkPageSize::new(100).map_err(|_| {
+                    noema_store::StoreError::InvariantViolation {
+                        message: "Live Activity page size is invalid".to_string(),
+                    }
+                })?,
+                after,
+            })
+            .await?;
+        tasks.extend(page.edges.into_iter().map(|edge| edge.node));
+        if !page.page_info.has_next_page {
+            break;
+        }
+        let Some(cursor) = page.page_info.end_cursor else {
+            break;
+        };
+        after = Some(WorkTaskCursor::decode(&cursor).map_err(|_| {
+            noema_store::StoreError::InvariantViolation {
+                message: "Live Activity task cursor is invalid".to_string(),
+            }
+        })?);
+    }
+    if tasks.is_empty() {
+        return Ok(None);
+    }
+    tasks.sort_by(|left, right| {
+        live_focus_rank(left.current_run.as_ref())
+            .cmp(&live_focus_rank(right.current_run.as_ref()))
+            .then_with(|| {
+                let left_updated = left
+                    .current_run
+                    .as_ref()
+                    .map_or(left.task.updated_at.as_str(), |run| {
+                        std::cmp::max(left.task.updated_at.as_str(), run.updated_at.as_str())
+                    });
+                let right_updated = right
+                    .current_run
+                    .as_ref()
+                    .map_or(right.task.updated_at.as_str(), |run| {
+                        std::cmp::max(right.task.updated_at.as_str(), run.updated_at.as_str())
+                    });
+                right_updated.cmp(left_updated)
+            })
+            .then_with(|| left.task.task_id.as_str().cmp(right.task.task_id.as_str()))
+    });
+    let focus = &tasks[0];
+    let human_gate = focus.stage.system_behavior == WorkflowStageBehavior::HumanGate;
+    let phase = if human_gate {
+        "reviewing"
+    } else {
+        focus
+            .current_run
+            .as_ref()
+            .map(|run| match run.run_kind {
+                RunKind::Planner => "planning",
+                RunKind::Executor => "working",
+                RunKind::Reviewer => "reviewing",
+            })
+            .unwrap_or("inProgress")
+    };
+    let status_label = if human_gate {
+        "Waiting"
+    } else {
+        focus
+            .current_run
+            .as_ref()
+            .map(|run| match run.status {
+                RunStatus::Running => "Running",
+                RunStatus::Leased => "Starting",
+                RunStatus::Queued => "Queued",
+                RunStatus::WaitingForApproval => "Waiting",
+                RunStatus::Completed => "Completed",
+                RunStatus::Interrupted => "Interrupted",
+                RunStatus::Failed => "Needs attention",
+                RunStatus::Cancelled => "Cancelled",
+            })
+            .unwrap_or("In progress")
+    };
+    let started_at = focus
+        .current_run
+        .as_ref()
+        .and_then(|run| run.started_at.as_deref())
+        .and_then(parse_epoch);
+    let updated_at = parse_epoch(&focus.task.updated_at)
+        .unwrap_or_else(|| chrono::Utc::now().timestamp() as f64);
+    let content = serde_json::json!({
+        "focusTaskId": focus.task.task_id.as_str(),
+        "focusTitle": focus.task.title,
+        "projectName": focus.project.as_ref().map(|project| project.name.clone()),
+        "phase": phase,
+        "statusLabel": status_label,
+        "activeTaskCount": tasks.len(),
+        "startedAtEpoch": started_at,
+        "updatedAtEpoch": updated_at,
+    });
+    let signature =
+        hex_digest(digest::digest(&digest::SHA256, content.to_string().as_bytes()).as_ref());
+    Ok(Some(LiveProjection {
+        content,
+        signature,
+        focus_task_id: focus.task.task_id.to_string(),
+    }))
+}
+
+fn live_focus_rank(run: Option<&noema_tasks::AgentRunRecord>) -> u8 {
+    match run.map(|run| run.status) {
+        Some(RunStatus::Running) => 0,
+        Some(RunStatus::Leased) => 1,
+        Some(RunStatus::Queued) => 2,
+        _ => 3,
+    }
+}
+
+fn parse_epoch(value: &str) -> Option<f64> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|value| value.timestamp_millis() as f64 / 1000.0)
+}
+
+fn live_activity_payload(
+    event: LiveActivityEvent,
+    client_id: &str,
+    activity_id: Option<&str>,
+    server_origin: &str,
+    projection: &LiveProjection,
+    alert: Option<(&str, &str, &str)>,
+) -> serde_json::Value {
+    let mut aps = serde_json::Map::new();
+    aps.insert(
+        "timestamp".to_string(),
+        projection.content["updatedAtEpoch"].clone(),
+    );
+    aps.insert(
+        "event".to_string(),
+        serde_json::Value::String(event.as_str().to_string()),
+    );
+    if event == LiveActivityEvent::Start {
+        aps.insert(
+            "attributes-type".to_string(),
+            serde_json::Value::String(LIVE_ACTIVITY_ATTRIBUTES_TYPE.to_string()),
+        );
+        aps.insert(
+            "attributes".to_string(),
+            serde_json::json!({
+                "activityId": activity_id.unwrap_or("live_activity:pending"),
+                "clientId": client_id,
+                "serverOrigin": server_origin,
+            }),
+        );
+    }
+    aps.insert("content-state".to_string(), projection.content.clone());
+    if let Some((title, body, _task_id)) = alert {
+        aps.insert(
+            "alert".to_string(),
+            serde_json::json!({"title": title, "body": body}),
+        );
+    }
+    serde_json::json!({
+        "aps": aps,
+        "route": "task",
+        "taskId": alert.map_or_else(|| projection.focus_task_id.clone(), |(_, _, task_id)| task_id.to_string()),
+        "version": 1,
+    })
+}
+
+fn decode_live_token(value: &str) -> Result<Vec<u8>> {
+    let token = URL_SAFE_NO_PAD
+        .decode(value.as_bytes())
+        .map_err(|_| async_graphql::Error::new("Live Activity token is invalid"))?;
+    if token.is_empty() || token.len() > 1024 {
+        return Err(async_graphql::Error::new("Live Activity token is invalid"));
+    }
+    Ok(token)
 }
 
 struct VisibilityLease {
@@ -1071,13 +1979,12 @@ async fn checked_client(url: &Url) -> std::result::Result<Client, String> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use noema_conversations::{
         ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
     };
     use reqwest::StatusCode;
     use serde_json::json;
-
-    use super::*;
 
     fn assistant_item(phase: &str) -> ConversationItemRecord {
         ConversationItemRecord {
@@ -1093,7 +2000,6 @@ mod tests {
             metadata: json!({"phase": phase}),
         }
     }
-
     #[tokio::test]
     async fn generated_vapid_identity_uses_an_uncompressed_public_key() {
         let root = tempfile::tempdir().expect("home");
@@ -1104,7 +2010,6 @@ mod tests {
         )
         .await
         .expect("initialize Web Push");
-
         let status = coordinator
             .status(LOCAL_HUMAN_ID, None)
             .await
@@ -1119,7 +2024,6 @@ mod tests {
         assert_eq!(public_key.len(), 65);
         assert_eq!(public_key[0], 4);
     }
-
     #[test]
     fn only_final_primary_chat_text_becomes_a_notification() {
         assert_eq!(
@@ -1135,7 +2039,6 @@ mod tests {
         );
         assert!(preview(&"x".repeat(MAX_PREVIEW_BYTES + 1)).len() <= MAX_PREVIEW_BYTES);
     }
-
     #[test]
     fn declarative_payload_keeps_required_fallback_fields() {
         let value: serde_json::Value = serde_json::from_slice(
@@ -1147,7 +2050,43 @@ mod tests {
         assert_eq!(value["notification"]["navigate"], "https://noema.example/");
         assert_eq!(value["notification"]["body"], "Ready");
     }
-
+    #[test]
+    fn live_activity_payload_keeps_activitykit_fields_and_task_alert_route() {
+        let projection = LiveProjection {
+            content: json!({
+                "focusTaskId": "task:focus",
+                "focusTitle": "Focus",
+                "projectName": "Personal",
+                "phase": "working",
+                "statusLabel": "Running",
+                "activeTaskCount": 2,
+                "startedAtEpoch": 1.0,
+                "updatedAtEpoch": 2.0,
+            }),
+            signature: "a".repeat(64),
+            focus_task_id: "task:focus".to_string(),
+        };
+        let payload = live_activity_payload(
+            LiveActivityEvent::Start,
+            "client:one",
+            Some("live_activity:one"),
+            "https://noema.example",
+            &projection,
+            Some(("Task waiting", "Review Focus", "task:one")),
+        );
+        assert_eq!(
+            LIVE_ACTIVITY_TOPIC,
+            "dev.noema.app.ios.push-type.liveactivity"
+        );
+        assert_eq!(payload["route"], "task");
+        assert_eq!(payload["taskId"], "task:one");
+        assert_eq!(payload["aps"]["alert"]["body"], "Review Focus");
+        assert_eq!(
+            payload["aps"]["attributes-type"],
+            LIVE_ACTIVITY_ATTRIBUTES_TYPE
+        );
+        assert_eq!(payload["aps"]["content-state"]["activeTaskCount"], 2);
+    }
     #[test]
     fn delivery_statuses_have_bounded_retry_and_expiry_classes() {
         assert_eq!(

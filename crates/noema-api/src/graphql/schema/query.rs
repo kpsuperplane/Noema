@@ -30,6 +30,21 @@ impl QueryRoot {
             .await
     }
 
+    async fn client_live_activity_status(
+        &self,
+        ctx: &Context<'_>,
+    ) -> Result<GraphqlClientLiveActivityStatus> {
+        let principal = crate::graphql::request_principal(ctx)?;
+        let client_id = principal
+            .client_id()
+            .ok_or_else(|| async_graphql::Error::new("paired client authentication required"))?;
+        ctx.data_unchecked::<GraphqlState>()
+            .notifications()
+            .ok_or_else(|| async_graphql::Error::new("notifications are unavailable"))?
+            .client_live_activity_status(client_id)
+            .await
+    }
+
     /// Return installed-web notification capability and this browser's registration.
     async fn web_push_status(
         &self,

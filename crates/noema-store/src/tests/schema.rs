@@ -96,7 +96,6 @@ async fn fresh_migrations_are_exact_idempotent_and_enforce_foreign_keys() {
         .await
         .expect("inspect idempotent reopen");
 }
-
 #[tokio::test]
 async fn v31_upgrade_and_fresh_schema_converge_on_web_browse_contract() {
     let upgrade_home = TempDir::new().expect("v31 root");
@@ -114,7 +113,6 @@ async fn v31_upgrade_and_fresh_schema_converge_on_web_browse_contract() {
         )
         .expect("v31 observation");
     drop(connection);
-
     drop(
         NoemaStore::open(&upgrade_config)
             .await
@@ -376,6 +374,75 @@ async fn notification_migration_upgrades_v33_projection_state_and_registrations(
         })
         .await
         .expect("inspect Web Push schema");
+}
+
+#[tokio::test]
+async fn live_activity_migration_upgrades_v35_and_converges_with_fresh_schema() {
+    let upgrade_home = TempDir::new().expect("v35 migration root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    let mut connection = Connection::open(&upgrade_config.path).expect("v35 database");
+    store_migrations()
+        .to_version(&mut connection, 35)
+        .expect("construct v35 schema");
+    connection
+        .execute(
+            "INSERT INTO work_events (event_id, event_kind, workspace_id, actor_id, correlation_id) VALUES ('event:v36-seed', 'task.waiting', 'workspace:personal', 'actor:system', 'correlation:v36')",
+            [],
+        )
+        .expect("seed work event");
+    connection
+        .execute(
+            "INSERT INTO work_notification_outbox (notification_id, event_sequence, destination_kind, destination_id, notification_kind, payload_json) VALUES ('notification:v36-seed', 1, 'human_primary_conversation', 'human:local', 'task_waiting', '{\"task_id\":\"task:v36\"}')",
+            [],
+        )
+        .expect("seed task notification");
+    drop(connection);
+
+    let upgraded = NoemaStore::open(&upgrade_config)
+        .await
+        .expect("upgrade v35 database");
+    upgraded
+        .with_connection(|connection| {
+            assert_eq!(
+                connection.query_row(
+                    "SELECT task_notification_sequence FROM notification_projection_state WHERE state_id = 1",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?,
+                1
+            );
+            assert!(schema_object_exists(
+                connection,
+                "table",
+                "client_live_activity_registrations"
+            )?);
+            let route_columns = connection
+                .prepare("PRAGMA table_info(apns_deliveries)")?
+                .query_map([], |row| row.get::<_, String>(1))?
+                .collect::<Result<Vec<_>, _>>()?;
+            assert!(route_columns.iter().any(|column| column == "route"));
+            assert!(route_columns.iter().any(|column| column == "task_id"));
+            assert_eq!(
+                connection.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?,
+                STORE_SCHEMA_VERSION
+            );
+            Ok(())
+        })
+        .await
+        .expect("inspect upgraded v36 schema");
+    drop(upgraded);
+    let fresh_home = TempDir::new().expect("fresh v36 root");
+    let fresh_config = store_config(fresh_home.path());
+    let fresh = NoemaStore::open(&fresh_config)
+        .await
+        .expect("create fresh v36 schema");
+    drop(fresh);
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
+    );
 }
 
 #[tokio::test]

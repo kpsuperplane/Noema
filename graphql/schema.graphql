@@ -970,6 +970,14 @@ type Client {
 	isCurrent: Boolean!
 }
 
+type ClientLiveActivityStatus {
+	available: Boolean!
+	blocker: String
+	enabled: Boolean!
+	registered: Boolean!
+	environment: ApnsEnvironment
+}
+
 type ClientNotificationPresenceEvent {
 	clientId: String!
 	ready: Boolean!
@@ -2323,6 +2331,10 @@ type MutationRoot {
 	removeApnsProvider(expectedRevision: Int!): ApnsProviderStatus!
 	registerClientNotifications(input: RegisterClientNotificationsInput!): ClientNotificationStatus!
 	disableClientNotifications: ClientNotificationStatus!
+	registerClientLiveActivities(input: RegisterClientLiveActivitiesInput!): ClientLiveActivityStatus!
+	registerClientLiveActivityUpdate(input: RegisterClientLiveActivityUpdateInput!): Boolean!
+	dismissClientLiveActivity(activityId: String!): Boolean!
+	disableClientLiveActivities: ClientLiveActivityStatus!
 	"""
 	Register or refresh this browser's notification subscription.
 	"""
@@ -3228,6 +3240,7 @@ type QueryRoot {
 	Return the paired client's native notification registration state.
 	"""
 	clientNotificationStatus: ClientNotificationStatus!
+	clientLiveActivityStatus: ClientLiveActivityStatus!
 	"""
 	Return installed-web notification capability and this browser's registration.
 	"""
@@ -3511,6 +3524,16 @@ Source of a recurring occurrence.
 enum RecurrenceOccurrenceTrigger {
 	SCHEDULED
 	MANUAL
+}
+
+input RegisterClientLiveActivitiesInput {
+	pushToStartToken: String!
+	environment: ApnsEnvironment!
+}
+
+input RegisterClientLiveActivityUpdateInput {
+	activityId: String!
+	updateToken: String!
 }
 
 input RegisterClientNotificationsInput {

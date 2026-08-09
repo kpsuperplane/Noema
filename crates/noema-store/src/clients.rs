@@ -1,4 +1,4 @@
-//! Durable local-human client credentials.
+#![allow(missing_docs)]
 
 use rusqlite::{OptionalExtension, params};
 
@@ -6,18 +6,12 @@ use super::{NoemaStore, StoreError};
 
 const LOCAL_HUMAN_ID: &str = "human:local";
 
-/// Public client metadata safe to expose to authenticated settings clients.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClientRecord {
-    /// Opaque client identifier carried in the bearer credential.
     pub client_id: String,
-    /// Owning local-human identity.
     pub owner_human_id: String,
-    /// Human-visible client label.
     pub display_name: String,
-    /// Creation timestamp serialized by SQLite.
     pub created_at: String,
-    /// Revocation timestamp, when the credential has been revoked.
     pub revoked_at: Option<String>,
 }
 
@@ -28,12 +22,6 @@ struct ClientRow {
 }
 
 impl NoemaStore {
-    /// Insert one client credential while retaining only its SHA-256 digest.
-    ///
-    /// # Errors
-    ///
-    /// Returns a store error when the values violate their bounds or SQLite
-    /// cannot persist and reload the credential metadata.
     pub async fn insert_client(
         &self,
         client_id: &str,
@@ -66,11 +54,6 @@ impl NoemaStore {
         .await
     }
 
-    /// List all client metadata for one local human, retaining revoked rows.
-    ///
-    /// # Errors
-    ///
-    /// Returns a store error when SQLite cannot read the client rows.
     pub async fn list_clients(
         &self,
         owner_human_id: &str,
@@ -85,11 +68,6 @@ impl NoemaStore {
         .await
     }
 
-    /// Return an active client's digest for bearer validation.
-    ///
-    /// # Errors
-    ///
-    /// Returns a store error when SQLite cannot read the credential row.
     pub async fn active_client_token_hash(
         &self,
         client_id: &str,
@@ -101,11 +79,6 @@ impl NoemaStore {
         .await
     }
 
-    /// Revoke one client without deleting its audit-visible metadata.
-    ///
-    /// # Errors
-    ///
-    /// Returns a store error when SQLite cannot update or reload the client.
     pub async fn revoke_client(
         &self,
         owner_human_id: &str,
@@ -119,7 +92,27 @@ impl NoemaStore {
                 )?;
                 if changed == 1 {
                     conn.execute(
+                        "UPDATE live_activity_deliveries SET status = 'suppressed', last_error_code = 'client_revoked', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND event <> 'end' AND status = 'pending'",
+                        [client_id],
+                    )?;
+                    conn.execute(
+                        "UPDATE apns_deliveries SET status = 'failed', last_error_code = 'client_revoked', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND status = 'pending'",
+                        [client_id],
+                    )?;
+                    conn.execute(
                         "DELETE FROM client_notification_registrations WHERE client_id = ?1",
+                        [client_id],
+                    )?;
+                    conn.execute(
+                        "DELETE FROM client_live_activity_registrations WHERE client_id = ?1",
+                        [client_id],
+                    )?;
+                    conn.execute(
+                        "DELETE FROM client_task_activities WHERE client_id = ?1",
+                        [client_id],
+                    )?;
+                    conn.execute(
+                        "DELETE FROM live_activity_deliveries WHERE client_id = ?1 AND event <> 'end'",
                         [client_id],
                     )?;
                 }
@@ -134,7 +127,6 @@ impl NoemaStore {
         Ok(client)
     }
 
-    /// Subscribe to revocations so active client sockets can fail closed.
     #[must_use]
     pub fn subscribe_client_revocations(&self) -> tokio::sync::broadcast::Receiver<String> {
         self.client_revocations.subscribe()

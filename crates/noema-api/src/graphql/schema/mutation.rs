@@ -51,6 +51,49 @@ impl MutationRoot {
         notifications.disable_client_notifications(&client_id).await
     }
 
+    async fn register_client_live_activities(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlRegisterClientLiveActivitiesInput,
+    ) -> Result<GraphqlClientLiveActivityStatus> {
+        let (notifications, client_id) = paired_notifications(ctx)?;
+        notifications
+            .register_client_live_activities(&client_id, input)
+            .await
+    }
+
+    async fn register_client_live_activity_update(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlRegisterClientLiveActivityUpdateInput,
+    ) -> Result<bool> {
+        let (notifications, client_id) = paired_notifications(ctx)?;
+        notifications
+            .register_client_live_activity_update(&client_id, input)
+            .await
+    }
+
+    async fn dismiss_client_live_activity(
+        &self,
+        ctx: &Context<'_>,
+        activity_id: String,
+    ) -> Result<bool> {
+        let (notifications, client_id) = paired_notifications(ctx)?;
+        notifications
+            .dismiss_client_live_activity(&client_id, &activity_id)
+            .await
+    }
+
+    async fn disable_client_live_activities(
+        &self,
+        ctx: &Context<'_>,
+    ) -> Result<GraphqlClientLiveActivityStatus> {
+        let (notifications, client_id) = paired_notifications(ctx)?;
+        notifications
+            .disable_client_live_activities(&client_id)
+            .await
+    }
+
     /// Register or refresh this browser's notification subscription.
     async fn register_web_push_subscription(
         &self,

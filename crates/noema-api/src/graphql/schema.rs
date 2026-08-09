@@ -28,9 +28,10 @@ use super::{
         GraphqlSaveAgentModelPreferenceInput, GraphqlTestAcpAgentInput, GraphqlUpdateAcpAgentInput,
     },
     apns::{
-        GraphqlApnsProviderStatus, GraphqlClientNotificationPresenceEvent,
-        GraphqlClientNotificationStatus, GraphqlConfigureApnsProviderInput,
-        GraphqlRegisterClientNotificationsInput,
+        GraphqlApnsProviderStatus, GraphqlClientLiveActivityStatus,
+        GraphqlClientNotificationPresenceEvent, GraphqlClientNotificationStatus,
+        GraphqlConfigureApnsProviderInput, GraphqlRegisterClientLiveActivitiesInput,
+        GraphqlRegisterClientLiveActivityUpdateInput, GraphqlRegisterClientNotificationsInput,
     },
     artifacts::{self, GraphqlCreateConversationExternalArtifactInput},
     capability_integrations::{

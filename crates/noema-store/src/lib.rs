@@ -18,6 +18,7 @@ mod governed_action_fencing;
 mod governed_actions;
 mod human_passkeys;
 mod ids;
+mod live_activity;
 mod local_model_activation;
 mod local_model_lifecycle;
 #[cfg(test)]
@@ -96,6 +97,10 @@ pub use governed_actions::{
     ExecutionReviewRoute, GovernedActionAssessmentRecord, GovernedActionRecord,
     GovernedActionState, GovernedAssessmentStatus, GovernedAuthorization, GovernedExecutionOutcome,
     GovernedRisk, NewGovernedAction, NewGovernedActionAssessment, StoredToolBehavior,
+};
+pub use live_activity::{
+    ClaimedLiveActivityDelivery, ClientLiveActivityRegistration, ClientTaskActivityRecord,
+    LiveActivityEvent, LiveActivityTarget, NewLiveActivityDelivery, TaskNotificationAlert,
 };
 pub use mcp_auth_requests::{
     CapabilityAuthenticationRequestRecord, CapabilityAuthenticationRequestState,
