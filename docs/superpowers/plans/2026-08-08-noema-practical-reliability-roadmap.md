@@ -27,7 +27,7 @@ The proposal has ten change packages:
 6. Give the task reviewer stored execution evidence.
 7. Load only the review that requested a correction.
 8. Complete the reviewed tool-definition replacement path.
-9. Make schema enforcement consistent for every tool source.
+9. Check every tool call before execution.
 
 ## 2. Current product baseline
 
@@ -139,7 +139,7 @@ flowchart LR
     S["Final stored state<br/>Changes 4 and 5"]
     R["Exact review evidence<br/>Changes 6 and 7"]
     C["Definition adoption<br/>Change 8"]
-    V["Shared schema check<br/>Change 9"]
+    V["Final input check<br/>Change 9"]
 
     L --> A
     L --> V
@@ -234,8 +234,8 @@ Use this language contract in every file that this roadmap changes:
 | Task fence | Current-run check | `TaskRunCheck` | The values that prove a write belongs to the current run |
 | Governed action | Action request | `ActionRequest`, `action_requests` | One saved tool action that Noema must check |
 | Review lineage; `triggering_review_id` | Correction review | `correction_review_id` | The exact review that requested a correction run |
-| Schema lowering | Provider schema conversion | `convert_provider_schema` | Noema adapts a tool schema for a model service |
-| Strict lowering | Exact schema conversion | `convert_schema_exactly` | The converted schema accepts the same inputs |
+| Schema lowering | Provider schema conversion | `convert_provider_schema` | Noema makes a copy of a source schema for one model service |
+| Strict lowering | Full provider conversion | `convert_schema_fully` | The conversion does not remove or weaken a source rule |
 | Canonical runtime validation | Final source-schema check | `validate_tool_input` | Noema checks tool input before invocation |
 
 Other words remain unchanged until a reader-path test proves a problem. Use the
@@ -1154,145 +1154,374 @@ definition or migration. Create a new definition identity for each correction.
 
 ---
 
-## Change 9: Make schema enforcement consistent for every tool source
+## Change 9: Check every tool call before execution
 
 ### Current problem
 
-Noema presents tools from several sources to model services. Each tool has one
-source input schema.
+Noema sends tool definitions to model services. A model service returns the
+tool name and its input. Noema can then use the tool immediately, or it can use
+the tool after review.
 
-Model-service interfaces accept a smaller schema language. The shared
-conversion must translate each source schema into that language.
+Each tool has source input rules. Noema also makes a provider copy of these
+rules because each model-service interface accepts different schema features.
+These are two different contracts:
 
-All 22 active tools from one current source use schema forms that exact
-conversion rejects. The task runner recorded 12,342 repeated partial-mode
-errors after the audit cutoff.
+- The source rules state which input Noema can execute.
+- The provider copy helps the model service produce valid input.
 
-The affected source proves the defect. It does not define the system boundary.
-Any present or future tool source can use the same schema forms.
+The current design can treat a full provider copy as proof that the provider
+will enforce the rules. This conclusion is not safe. A provider can accept a
+schema field and then ignore it, route the request to a model that does not
+support it, or reject it only after the request starts.
+
+The shared capability router also does not run a complete source-rule check
+before it calls the selected invoker. Some source handlers check their input,
+but that leaves different protection on different execution paths.
+
+All 22 active tools from one current source also use schema forms that the
+provider conversion cannot preserve. The task runner recorded 12,342 repeated
+reduced-conversion errors after the audit cutoff. This log problem is real, but
+it is not the main safety boundary.
+
+In this change, a tool binding is the in-memory record that joins a visible
+tool definition to its exact execution code and source rules. An invoker is
+the small code object that calls that execution code.
 
 Current code owners:
 
-- Model-service schema conversion under the model-service package.
-- Tool-schema collection under the model-service package.
-- Conversion diagnostics under the model-service package.
-- Source tool schemas under `noema-capabilities`.
+- `crates/noema-capabilities/src/router.rs` resolves a tool and calls its
+  invoker.
+- `crates/noema-capabilities/src/tool.rs` stores the source schema. It now
+  checks only that the schema root is an object.
+- `crates/noema-providers/src/response_support/tool_names.rs` converts source
+  schemas for a provider request.
+- `crates/noema-providers/src/adapters/openrouter.rs` states that OpenRouter
+  gives strict schema enforcement for every model. The function ignores the
+  selected model.
+- Each tool source owns the meaning of the rules that it publishes.
 
 Audit issues: `INT-02` and `STATE-06`.
+
+### History and compatibility constraint
+
+Repository history shows why Noema must not join provider conversion and
+provider enforcement into one fact:
+
+1. Commit `5af016db` added strict provider schemas. It defined `Strict` as a
+   provider guarantee.
+2. Commit `332c9e3f` added OpenRouter and gave every OpenRouter model this
+   strict guarantee.
+3. Commits `4f22643f` and `19e34607` reduced an incompatible OpenRouter schema
+   and required support for request parameters on the Responses interface.
+4. Commit `e459c5d8` removed one broad structured-output claim because the
+   provider could use best-effort behavior. It kept the strict tool-input
+   claim.
+5. Commit `3270a622` moved OpenRouter to Chat Completions. This removed the
+   request parameter guard, but it kept the strict tool-input claim.
+6. Commit `71270f3a` stopped repeated tool compilation. It reduced repeat work,
+   but it did not prove provider enforcement or add a final input check.
+
+Current OpenRouter documentation confirms the compatibility risk:
+
+- [Provider routing](https://openrouter.ai/docs/guides/routing/provider-selection)
+  says that OpenRouter can route one model across providers. The default value
+  of `require_parameters` is false. A provider can ignore an unknown request
+  parameter unless the request sets this value to true.
+- The same routing document says that strict tool use on supported Claude
+  models needs a specific beta header. Without the header, OpenRouter removes
+  the `strict` field.
+- [Auto Exacto](https://openrouter.ai/docs/guides/routing/auto-exacto) checks
+  tool calls after providers return them. OpenRouter uses this result to rank
+  provider quality. This check does not stop Noema from receiving invalid tool
+  input. It also uses JSON Schema Draft 7 and does not enforce features from
+  later schema versions.
+
+The pinned MCP protocol has a different compatibility risk. Noema uses
+`rmcp` 2.0.0, and its protocol tests use MCP `2025-06-18`. The official
+[MCP tool specification](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)
+calls `inputSchema` a JSON Schema object, but it does not select a JSON Schema
+version. [SEP-2106](https://modelcontextprotocol.io/seps) proposes JSON Schema
+2020-12 for MCP tool schemas, but the proposal is still a draft. Noema must not
+treat that draft as the current protocol contract.
+
+The replacement must preserve provider-specific request behavior. It must not
+assume that all providers, models, interfaces, and provider routes have the
+same schema support.
 
 ### Before
 
 ```mermaid
 flowchart TD
-    A["Tool schema from any source"]
-    B["Shared model-service schema conversion"]
-    C{"Model service supports every schema form?"}
-    D["Use exact model-service input rules"]
-    E["Use partial rules during each build"]
-    F["Write the same diagnostic many times"]
-    G["Invoke tool with uneven guarantees"]
+    A["Source input rules"]
+    B["Convert rules for one provider request"]
+    C{"Did conversion keep all rules?"}
+    D["Full provider copy"]
+    E["Reduced provider copy"]
+    F["Assume strict provider enforcement"]
+    G["Use best-effort provider output"]
+    H["Model service returns tool input"]
+    I["Call the selected invoker"]
 
     A --> B --> C
-    C -->|Yes| D --> G
-    C -->|No| E --> F --> G
+    C -->|Yes| D --> F --> H
+    C -->|No| E --> G --> H
+    H --> I
 ```
+
+This design has two faults:
+
+- A full copy does not prove that the provider enforces it.
+- No shared final check protects every invoker.
 
 ### Proposed mechanism
 
-Make schema enforcement a property of the built tool definition. Do not make
-it a property of one source or integration.
+Keep three facts separate.
 
-Use one pipeline for every tool source:
+#### Fact 1: Source input rules
 
-1. Load the source tool schema.
-2. Calculate its stable schema hash.
-3. Convert it for the selected model-service interface.
-4. Mark the converted schema as `exact` or `partial`.
-5. Keep the source schema for the final input check.
-6. Record one diagnostic for each unique conversion result.
+The source input rules decide whether Noema can execute a tool call. Add one
+small `ToolInputCheck` interface to `CapabilityBinding`. Each binding source
+must supply this check when it builds a binding. This interface has three
+current production users with different input contracts:
 
-An `exact` result means the model-service schema preserves the accepted source
-set. The model service can reject invalid arguments before its response ends.
+- Built-in tools must reuse the same typed input parser that the invoker uses.
+- API adapters must reuse the compiled operation arguments. These arguments
+  already contain the required fields, input types, and allowed values.
+- MCP tools must compile a checker from the discovered MCP input schema. The
+  pinned MCP protocol does not select one JSON Schema version. If the schema
+  has a recognized `$schema` value, use the matching validator. If it has no
+  `$schema` value, accept only a small set of schema rules that have the same
+  meaning in the supported JSON Schema versions. Reject an unknown rule during
+  catalog build. Do not ignore it during execution.
 
-A `partial` result means the model service cannot express the complete schema.
-Noema must still check the generated arguments against the source schema before
-any tool invocation.
+Do not use the provider copy for this check.
 
-Never add a source-specific schema rewrite. Improve the shared conversion when
-a source schema has an equivalent model-service representation.
+Run this check in `CapabilityRegistryRouter::dispatch_resolved`. Run it after
+Noema resolves the exact binding and before `invoke_target`. This position
+protects both existing routes:
 
-Keep partial mode when no equivalent exists. The mode must remain visible in
-inspection and diagnostics.
+- Immediate dispatch.
+- Dispatch after model or human review.
+
+If the input is invalid, return `CapabilityError::InvalidArguments`. Apply the
+binding's current persistence policy to the safe failure. Do not call the
+invoker.
+
+Do not assume that every source uses one JSON Schema version. If a source
+cannot check every rule that it publishes, do one of these actions before
+release:
+
+- Add the smallest source-owned check for the schema features that the source
+  now publishes.
+- Limit the published rules to the features that the source can check.
+
+Do not claim complete source-rule enforcement for that source until one of
+these actions is complete. First, inventory every active MCP schema and list
+its `$schema` value and keywords. Do not disable a current tool to finish this
+change. Stop the source slice and request a product decision if complete
+validation would remove a current capability.
+
+```mermaid
+flowchart LR
+    A["Built-in typed input parser"]
+    B["Compiled API operation arguments"]
+    C["MCP schema with a known version or safe common rules"]
+    D["ToolInputCheck on the exact binding"]
+    E["Capability router"]
+
+    A --> D
+    B --> D
+    C --> D
+    D --> E
+```
+
+#### Fact 2: Provider conversion result
+
+The provider conversion result states only whether Noema kept the source rules
+in the copy that it sent with one request:
+
+- `Full`: The conversion did not remove or weaken a source rule.
+- `Reduced`: The provider copy cannot express one or more source rules.
+
+The current `lower_strict_schema` function already reports success or an error.
+Use this result. Do not add a second conversion framework.
+
+The strict conversion also changes how it represents optional fields. It makes
+them required and permits a `null` value. The current MCP invoker removes some
+optional `null` values immediately before the remote call. At that point, a
+model or human review has already seen the provider-form input.
+
+Move this representation change to the provider output boundary. Extend the
+current tool-name map so that it also retains the source schema and the
+conversion result for the request. When the provider returns a tool call:
+
+1. Map the provider tool name back to the Noema tool name.
+2. Change optional `null` fields from the strict provider form back to omitted
+   fields in the source form. Apply this change at all object levels.
+3. Do not repair any other invalid value.
+4. Create `GenerateToolCall` with the source-form input.
+
+This conversion must occur before policy, storage, model review, or human
+review. Thus, an action request stores the exact source-form input that Noema
+will check and execute. Remove the later MCP-only cleanup after all provider
+paths produce source-form input.
+
+The result belongs to the provider request. It is not a permanent property of
+the tool or connector. A different provider, model, interface, or conversion
+version can produce a different result.
+
+A full result does not permit Noema to skip the final source-rule check.
+
+#### Fact 3: Provider enforcement
+
+Provider enforcement states what one exact provider path promises to check:
+
+- `Verified strict`: Noema has current evidence for the exact provider, model,
+  interface, and route.
+- `Best effort`: The provider accepts a schema, but Noema cannot prove strict
+  enforcement for the exact path.
+- `Unsupported`: The path cannot accept a tool-input schema.
+
+For this change, set OpenRouter to `BestEffort` in both current capability
+reports. Send `strict: false` on its current Chat Completions tool definitions.
+This applies to named models and to `openrouter/auto`. Noema does not now have
+the endpoint constraint and live proof that a strict guarantee requires.
+
+A later change can enable strict mode for one exact OpenRouter provider, model,
+interface, and route. That change must constrain endpoint routing and prove
+invalid-input rejection on the live endpoint. Change 9 must not build this
+future qualification system.
+
+The local final check remains required even when provider enforcement is
+verified strict. Provider enforcement improves generation quality. It is not
+Noema's execution authority.
+
+#### Conversion diagnostics
+
+Keep the current strict-fallback diagnostic for a provider that claims strict
+enforcement but cannot accept one source rule. Do not add a database record, a
+schema hash, or a new diagnostic manager in this change.
+
+Changing OpenRouter to `BestEffort` removes the false strict-conversion attempt
+that caused the 12,342 repeated errors. After this correction, measure the
+remaining fallback count. Add diagnostic suppression only if a current strict
+provider still repeats the same error.
 
 ### After
 
 ```mermaid
 flowchart TD
-    A["Any source tool schema"]
-    B["Shared build step"]
-    C{"Exact model-service representation exists?"}
-    D["Mark converted schema exact"]
-    E["Mark converted schema partial"]
-    F["Final source-schema input check"]
-    G["Invoke the current tool source"]
-    H["One diagnostic per schema and target hash"]
+    A["Source input rules"]
+    B["Convert for the selected provider path"]
+    C["Full or reduced provider copy"]
+    D["Verified strict, best effort, or unsupported"]
+    E["Send provider request"]
+    F["Model service returns provider-form input"]
+    G["Change it back to source form"]
+    H["Policy or exact action review"]
+    I["Resolve the exact tool binding"]
+    J{"Final source-rule check passes?"}
+    K["Call the selected invoker"]
+    L["Return invalid_arguments"]
 
-    A --> B --> C
-    C -->|Yes| D --> F
-    C -->|No| E --> F
-    E --> H
-    F --> G
+    A --> B --> C --> E
+    D --> E
+    E --> F --> G --> H --> I --> J
+    A --> G
+    A --> J
+    J -->|Yes| K
+    J -->|No| L
 ```
 
-### Why this mechanism is universal
+The provider conversion and provider enforcement can improve the returned
+input. The final source-rule check decides whether execution can start.
 
-The mechanism depends on only three existing facts:
+### Why this mechanism works for every tool source
 
-- A source tool schema.
-- A model-service schema target.
-- The generated arguments.
+The shared rule is small: no invoker receives input that its exact source
+binding rejects.
 
-It does not know about any service, tool name, or domain object. The same result
-applies to every tool source.
+The rule does not require one service abstraction or one schema language. A
+tool source keeps its current rules and current protocol. The capability router
+only asks the resolved binding to check the input before invocation.
+
+This split avoids two compatibility failures:
+
+- Noema does not weaken a source contract to fit one provider dialect.
+- Noema does not advertise provider guarantees that depend on an unknown model
+  or route.
 
 ### Data change
 
-No database schema change should be necessary. Use the tool identity, source
-schema hash, model-service target, and conversion version as the diagnostic
-identity.
+No database schema change is required. Do not add the conversion result, the
+provider enforcement level, or a diagnostic identity to a saved connector
+definition.
 
-If built connector definitions already store enough identity, derive the mode
-without a new saved field.
+### Implementation order
+
+1. Correct the two OpenRouter capability reports and their request tests.
+2. Move the optional-`null` return conversion from the MCP invoker to the
+   shared provider output boundary. Confirm that review receives source-form
+   input.
+3. Add `ToolInputCheck` to `CapabilityBinding`. Call it in
+   `dispatch_resolved` before `invoke_target`.
+4. Reuse the built-in typed parsers and compiled API operation arguments.
+5. Inventory active MCP schemas. Support a declared schema version or the safe
+   common rules. Compile and attach the MCP checker.
+6. Run the source inventory and final dispatch tests. Release only when every
+   active binding has a complete check.
+
+Do not release a state in which some bindings have a check and other bindings
+silently use an allow-all check.
 
 ### Tests
 
-1. Convert all active tool schemas through one table-driven test.
-2. Include tools from at least two materially different sources in the exact
-   and partial conversion cases.
-3. Run the final source-schema check in partial mode and reject an extra
-   argument before connector invocation.
-4. Deduplicate an unchanged partial diagnostic, create one after a real input
-   change, and preserve ordinary schema identifiers.
+1. In one table-driven router test, send valid and invalid input through the
+   immediate and reviewed dispatch routes. Confirm that invalid input returns
+   `InvalidArguments` and that the invoker receives no call.
+2. Test one full conversion and one reduced conversion. Confirm that both
+   results still pass through the final source-rule check. For the full case,
+   confirm that nested optional `null` fields return to omitted source fields
+   before the action request is made.
+3. Test the OpenRouter capability and request paths. Confirm that a named model
+   and `openrouter/auto` use best-effort enforcement and send `strict: false`.
+4. Build the 22 currently affected schemas in one table-driven test. Confirm
+   that OpenRouter does not record a strict-fallback error for them. Include
+   one current strict-provider case that still records a real conversion
+   failure.
+5. Test three MCP schemas: one with a supported `$schema` value, one without a
+   `$schema` value that uses only safe common rules, and one with an unknown
+   rule. Confirm that the unknown rule stops catalog publication and never
+   becomes an allow-all check.
 
-The 22 currently affected tools remain a required test set. They do not receive
-a separate production path.
+Use the current source-owned schema tests to prove the rules for each active
+tool source. Do not repeat those rule tests at the router layer.
 
 ### Completion criteria
 
-- Every active tool reports one explicit enforcement mode.
-- Every tool uses the source-schema check before invocation.
-- Exact conversions use exact model-service input rules.
-- Repeated builds do not flood the error log.
-- No connector contains a private schema-enforcement exception.
+- No invoker receives input that fails its source-owned rules.
+- The immediate and reviewed routes use the same final check.
+- Policy and review receive source-form input, not strict provider-form input.
+- A provider failure or false support claim cannot weaken the final check.
+- Full conversion and verified strict enforcement remain separate facts.
+- OpenRouter has no broad strict claim for all models or for
+  `openrouter/auto`.
+- The known 12,342-error OpenRouter path no longer writes a strict-fallback
+  error.
 - Existing validation cases for every active tool source continue to pass.
 
 ### Non-goals
 
-- Do not weaken the source-schema input check.
-- Do not change connector or model-service protocols.
-- Do not make all source schemas artificially closed.
-- Do not hide a new or changed partial conversion.
-- Do not add connector-specific schema conversions.
+- Do not add a rule for one service, object type, or operation name.
+- Do not force all tool sources to use one JSON Schema version.
+- Do not treat draft MCP schema guidance as a released protocol rule.
+- Do not combine provider protocols or remove provider-specific behavior.
+- Do not change a meaningful input value while input returns to source form.
+- Do not save provider conversion results in connector records.
+- Do not build a general compatibility framework.
+- Do not add diagnostic suppression without a remaining measured repeat.
+- Do not build OpenRouter route qualification in this change.
+- Do not skip the final check for a provider that claims strict enforcement.
 
 ---
 
@@ -1311,6 +1540,7 @@ sequenceDiagram
     participant Task
     participant Policy as Connection and tool policy
     participant ActionReview as Action reviewer
+    participant InputCheck as Final input check
     participant SourceA as Tool source A
     participant SourceB as Tool source B
     participant SourceC as Tool source C
@@ -1318,17 +1548,20 @@ sequenceDiagram
 
     Human->>Task: Request one result across three tool sources
     Task->>Policy: Propose bounded read for source A
-    Policy->>SourceA: Dispatch immediately
+    Policy->>InputCheck: Dispatch immediately
+    InputCheck->>SourceA: Send valid input
     SourceA-->>Task: Return confirmed result
     Task->>Policy: Propose reviewed call for source B
     Policy->>ActionReview: Store and review exact action
-    ActionReview->>SourceB: Dispatch reviewed arguments
+    ActionReview->>InputCheck: Dispatch reviewed arguments
+    InputCheck->>SourceB: Send valid input
     SourceB-->>Task: Return confirmed result
     Task->>Policy: Propose ambiguous call for source C
     Policy->>ActionReview: Store exact action
     ActionReview-->>Human: Request one-time approval
     Human->>ActionReview: Approve the exact action revision
-    ActionReview->>SourceC: Dispatch reviewed arguments
+    ActionReview->>InputCheck: Dispatch reviewed arguments
+    InputCheck->>SourceC: Send valid input
     SourceC-->>Task: Return final result
     Task->>TaskReview: Submit result with stored evidence
     TaskReview-->>Task: Approve criteria
@@ -1365,7 +1598,7 @@ These are limits, not targets. Production and test values are net changed lines.
 | 6 | 25 to 100 | 30 to 120 | 3 |
 | 7 | 5 to 30 | 20 to 60 | 1 |
 | 8 | 0 to 80 | 20 to 80 | 2 |
-| 9 | 50 to 180 | 50 to 180 | 4 |
+| 9 | 100 to 300 | 80 to 280 | 5 |
 
 Before each implementation slice, set the exact base revision. Measure the
 patch with `bun run scripts/report-rust-size.ts --base <ref>` and the matching
@@ -1398,8 +1631,9 @@ Run focused commands through `cargo validate` during each change.
 
 ### 7.4 Live validation
 
-After Change 9, run the complete 50-case validation list once and build every
-active tool schema.
+After Change 9, run the complete 50-case validation list once. Build every
+active tool schema, and send invalid input through both dispatch routes. No
+invalid input can reach an invoker.
 
 Do not use live high-risk writes for this proposal.
 
@@ -1413,7 +1647,7 @@ Do not use live high-risk writes for this proposal.
 | Stored status | 4 and 5 | Stored status matches completed work | Revert final-state update code |
 | Review evidence | 6 and 7 | Review uses exact stored execution records | Remove the reviewer-input query extension |
 | Definition adoption | 8 | The final waiting validation case passes | Restore the prior active definition |
-| Shared schema check | 9 | All active tool sources use one schema pipeline | Revert the shared conversion change |
+| Final input check | 9 | Review and execution use checked source-form input | Revert the source-form conversion, final check, and provider-claim corrections together |
 
 ## 9. Later work
 
@@ -1454,6 +1688,7 @@ flowchart TD
     A["Exact reviewed action request"]
     M["Model review"]
     G["One-time approval when required"]
+    S["Final source-rule check"]
     C["Current tool source"]
     O["Stored final outcome"]
     E["Stored final run items and saved references"]
@@ -1461,13 +1696,15 @@ flowchart TD
     D["Confirmed delivery or recovery pause"]
 
     H --> T --> R --> P --> X
-    X -->|Execute immediately| I --> C
+    X -->|Execute immediately| I --> S
     X -->|Review| A
     A -->|Model route| M
     A -->|Human route| G
-    M -->|Cleared| C
+    M -->|Cleared| S
     M -->|Ask human| G
-    G --> C
+    G --> S
+    S -->|Valid input| C
+    S -->|Invalid input| D
     C --> O --> E --> V --> D
     G -.->|Human decision when required| H
     O -.->|Uncertain result| D
