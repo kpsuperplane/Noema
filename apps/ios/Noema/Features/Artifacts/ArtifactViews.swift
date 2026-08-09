@@ -132,9 +132,8 @@ final class ArtifactModel {
     }
     state = .loading
     do {
-      let response = try await client.fetch(
-        query: NoemaAPI.ArtifactVersionDetailQuery(artifactVersionId: versionID),
-        cachePolicy: .networkFirst
+      let response = try await client.fetchNetworkFirst(
+        query: NoemaAPI.ArtifactVersionDetailQuery(artifactVersionId: versionID)
       )
       if let message = response.errors?.first?.message {
         throw ArtifactError.server(message)

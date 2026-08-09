@@ -126,3 +126,19 @@ final class NoemaGraphQLClient: @unchecked Sendable {
     return components?.url ?? origin
   }
 }
+
+extension ApolloClient {
+  /// Apollo 2.3.0 skips its network-first cache fallback when a successful HTTP response has no body.
+  func fetchNetworkFirst<Query: GraphQLQuery>(
+    query: Query
+  ) async throws -> GraphQLResponse<Query> where Query.ResponseFormat == SingleResponseFormat {
+    do {
+      return try await fetch(query: query, cachePolicy: .networkFirst)
+    } catch ApolloClient.Error.noResults {
+      if let cached = try await fetch(query: query, cachePolicy: .cacheOnly) {
+        return cached
+      }
+      throw ApolloClient.Error.noResults
+    }
+  }
+}

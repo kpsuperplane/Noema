@@ -1169,7 +1169,7 @@ final class TasksModel {
   }
 
   private func fetch<Query: GraphQLQuery>(_ query: Query) async throws -> GraphQLResponse<Query> where Query.ResponseFormat == SingleResponseFormat {
-    let response = try await client.fetch(query: query, cachePolicy: .networkFirst)
+    let response = try await client.fetchNetworkFirst(query: query)
     isConnected = response.source == .server
     if let message = response.errors?.first?.message { throw TasksGraphQLError.server(message) }
     guard response.data != nil else { throw ApolloClient.Error.noResults }

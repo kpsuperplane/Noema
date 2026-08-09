@@ -147,7 +147,7 @@ final class ChatModel {
     }
     phase = .loading
     do {
-      let response = try await client.fetch(query: NoemaAPI.ChatBootQuery(), cachePolicy: .networkFirst)
+      let response = try await client.fetchNetworkFirst(query: NoemaAPI.ChatBootQuery())
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
       guard let boot = response.data else { throw ChatModelError.emptyResponse }
       primaryAgentDisplayName = boot.localStatus.primaryAgentDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -496,10 +496,7 @@ final class ChatModel {
   private func loadPrimaryConversation(
     client: ApolloClient
   ) async throws -> (conversationId: String, provider: String) {
-    let queryResponse = try await client.fetch(
-      query: NoemaAPI.PrimaryConversationQuery(),
-      cachePolicy: .networkFirst
-    )
+    let queryResponse = try await client.fetchNetworkFirst(query: NoemaAPI.PrimaryConversationQuery())
     if let message = queryResponse.errors?.first?.message { throw ChatModelError.server(message) }
     if let conversation = queryResponse.data?.primaryConversation {
       return (conversation.conversationId, conversation.provider)
@@ -519,9 +516,8 @@ final class ChatModel {
     guard let conversationID else { return }
     do {
       let input = NoemaAPI.ConversationTranscriptPageInput(conversationId: conversationID, cursor: .none, limit: 80)
-      let response = try await client.fetch(
-        query: NoemaAPI.ConversationTranscriptPageQuery(input: input),
-        cachePolicy: .networkFirst
+      let response = try await client.fetchNetworkFirst(
+        query: NoemaAPI.ConversationTranscriptPageQuery(input: input)
       )
       guard let page = response.data?.conversationTranscriptPage else { return }
       messages.removeAll(keepingCapacity: true)

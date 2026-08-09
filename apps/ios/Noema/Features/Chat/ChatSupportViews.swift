@@ -69,10 +69,7 @@ struct TaskReferenceChip: View {
   private func loadTask() async {
     guard let client else { return }
     do {
-      let response = try await client.fetch(
-        query: TasksDetailQuery(taskId: taskID),
-        cachePolicy: .networkFirst
-      )
+      let response = try await client.fetchNetworkFirst(query: TasksDetailQuery(taskId: taskID))
       let task = response.data?.task.fragments.tasksCommandTaskFields
       title = task?.title ?? "Task unavailable"
       if task == nil {
