@@ -1,8 +1,9 @@
 # Noema Plain-Code and Reliability Roadmap
 
-- **Status:** Proposal
-- **Mode:** Plan only
+- **Status:** Implemented
+- **Mode:** Implementation and verification
 - **Date:** 2026-08-08
+- **Completed:** 2026-08-09
 - **Primary evidence:** [Current-build UX audit](../../audits/2026-08-08-current-build-ux-survivors.md)
 - **Live validation:** [Personal agent 50-case ledger](../../validation/personal-agent-50-case-ledger.md)
 - **Safety rules:** [Current action checks and approvals](../../harness/action-governance.md)
@@ -34,10 +35,12 @@ The proposal has ten change packages:
 The current system is not an early prototype. Most common personal-agent work
 already completes.
 
-The current evidence shows:
+The evidence at implementation completion shows:
 
-- 49 of 50 live validation cases pass.
-- The final case waits for one operation in a reviewed replacement definition.
+- All 50 live validation cases pass.
+- The final case ended with reviewer approval after the human told Noema not to
+  create the date-only event.
+- The active reviewed connection contains the required date-only operation.
 - Nine recent action requests succeeded.
 - Recent external writes return provider receipts and support read-back.
 - Current tool sources support cross-system tasks.
@@ -1712,6 +1715,70 @@ active tool schema, and send invalid input through both dispatch routes. No
 invalid input can reach an invoker.
 
 Do not use live high-risk writes for this proposal.
+
+### 7.5 Implementation result
+
+All ten changes are complete. The implementation uses the current task,
+action-request, connector, capability, and provider owners. It does not add a
+new universal permission system or a service-specific production rule.
+
+| Change | Result | Main evidence |
+| ---: | --- | --- |
+| 0 | Complete | `docs/development/terms.md` defines the eight approved terms. `AGENTS.md` requires ASD-STE100 for user-facing text. |
+| 1 | Complete | Schema version 34 links each action request to its exact saved approval item. Restart recovery uses this link and creates one result and one follow-up. |
+| 2 | Complete | Recovery selects a resolved pause only when task generation and execution contract match the current task. |
+| 3 | Complete | Saved evidence shows that the two expired claims had no scheduled renewal and retained an open provider or browser phase. Late or failed renewal now records planned time, start time, delay, database time, time before expiry, cancellation state, and active phase. The claim duration did not change. |
+| 4 | Complete | One store transaction finishes the exact chat tool call and saves its final result. The same result can repeat without a duplicate. Different repeated data fails. |
+| 5 | Complete | One final task-run transaction finishes active child items and open debug spans for complete, failed, cancelled, and interrupted runs. |
+| 6 | Complete | A reviewer receives all final saved items from the exact submitted executor run. IDs, states, content, and payload remain present. Oversized evidence fails instead of disappearing. |
+| 7 | Complete | A first executor gets no prior review. A correction executor loads only its exact correction review and rejects a missing or unrelated review. |
+| 8 | Complete | The active connection uses reviewed definition `7798cc0febdb06039c429f6c98f189353ad1ba389e355b504515004df7e2a9b4` and exposes all 12 operations. The task and reviewer records make the live ledger 50 of 50. |
+| 9 | Complete | Every binding has a source input check. Immediate and reviewed dispatch use the same router check. OpenRouter request JSON stays stable. Provider output returns to source form before policy and review. Invalid task terminal input remains blocked before invocation and still enters the existing one-repair path. |
+
+The final correction for Change 9 preserves two rules at the same time. Invalid
+task terminal input does not reach the invoker. The router result uses the
+existing `invalid_terminal_contract` code so that the task can request one
+corrected report. A second invalid report ends in recovery.
+
+#### Test risk matrix
+
+The patch adds 12 Rust test declarations and removes one. The net increase is
+11 tests. Each group covers a different failure boundary.
+
+| Risk | Why one focused test group is necessary | Redundancy control |
+| --- | --- | --- |
+| Saved approval source and migration | A restart must find the exact saved item after it leaves the visible view. | The test checks the store upgrade and one end-to-end restart path only. |
+| Current task recovery | An old pause must not start a current run. | One table covers the five saved-version cases. |
+| Final source input check | Invalid input must stop before immediate or reviewed invocation. | The router test checks both routes in one table. Source owners keep their existing rule tests. |
+| Provider schema conversion | OpenRouter wire JSON and returned source form must stay stable across full and reduced conversion. | The tests check only the provider boundary and do not repeat tool-source rules. |
+| MCP schema version | An unknown schema rule must fail closed instead of producing an allow-all check. | One table covers declared, safely inferred, and unknown rules. |
+| Claim-renewal evidence | A late renewal record must contain the timing and active phase needed for diagnosis. | The test checks the event builder. Existing worker tests keep claim and cancellation coverage. |
+| Final saved states | Final calls, results, task items, and debug spans must agree after repeat processing. | One chat table and one task-run table own the two different stores. |
+| Reviewer evidence and correction input | Evidence must not cross run, task version, contract, submission, or review links. | The store tests own link selection. One renderer test owns the saved JSON form. |
+
+#### Validation evidence
+
+- All focused acceptance tests selected and passed.
+- `noema-capabilities`: 40 of 40 unit tests passed.
+- `noema-capabilities-mcp`: 18 of 18 unit tests passed.
+- `noema-providers` with adapter features: 191 of 192 unit tests passed. The
+  failing embedded-browser URL assertion also fails outside this roadmap and
+  its source file is unchanged.
+- `noema-store`: 145 of 146 unit tests passed. The failing model-selection
+  expectation also failed before the final audit and its source file is
+  unchanged.
+- The full runtime suite first found one roadmap regression in task terminal
+  repair. Commit `75d914fc` fixes it, and both terminal-repair tests pass. Two
+  interaction tests also fail on `origin/main`. One terminal-socket timing test
+  passed when run alone.
+- `cargo fmt --all --check` passed.
+- `cargo check-workspace`, `cargo gate-lint`, and `cargo gate-test` stop at the
+  existing desktop build configuration. The active Linux Tauri allowlist
+  rejects the enabled `macos-private-api` feature. This roadmap does not change
+  that configuration and does not bypass the check.
+- The Rust size report against `origin/main` is +1,014 production lines, +874
+  test lines, and +11 test declarations. These values are within the combined
+  roadmap limits of 1,140 production lines and 880 test lines.
 
 ## 8. Release boundaries
 

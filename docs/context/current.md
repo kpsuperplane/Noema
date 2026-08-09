@@ -56,6 +56,9 @@ vertical slice or a net-negative reduction.
 - Every capability binding owns a source input check. The shared capability
   router runs that check after it resolves the exact binding and before it
   calls the invoker. Immediate and reviewed calls use the same check.
+- Invalid task terminal input stops before invocation. It returns the existing
+  invalid-terminal result so that the task can request one corrected report. A
+  second invalid report ends in recovery.
 - Provider schema settings describe request construction only. A strict request
   does not authorize returned input. OpenRouter keeps its current strict request
   behavior, and every returned call still passes through the source input check.
@@ -72,6 +75,10 @@ vertical slice or a net-negative reduction.
   the running service executes an immutable compiled registry refreshed by
   managed definition changes. The body-free SQLite projection is disposable.
   Current manifests use strict schema version 8.
+- The active reviewed Calendar definition has all 12 current operations,
+  including date-only event creation. The 50-case live validation ledger has 50
+  passing cases. Case 12 made no external change because the human told Noema
+  to leave the date-only event uncreated.
 - Browser auth is local-human WebAuthn; paired clients use independently
   revocable bearer credentials. Installed PWA behavior follows
   [../frontend/pwa.md](../frontend/pwa.md).
@@ -87,6 +94,14 @@ vertical slice or a net-negative reduction.
   architecture, refactoring, workflow, testing-policy, or harness work.
 
 ## Open loops
+
+- The Linux workspace gates stop before code validation because the active
+  Tauri allowlist rejects the enabled `macos-private-api` feature. The roadmap
+  did not change or bypass this desktop configuration.
+- Four unit-test failures remain outside the roadmap: two interaction-resume
+  tests repeat a provider call ID, one embedded-browser test disagrees with the
+  current fragment-URL rule, and one store test expects a different default
+  reasoning effort. The interaction failures also occur on `origin/main`.
 
 - Production iOS notifications require Push Notifications enabled for
   `dev.noema.app.ios`, regenerated signing profiles, and an APNs `.p8` provider
