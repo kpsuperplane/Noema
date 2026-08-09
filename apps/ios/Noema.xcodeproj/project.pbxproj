@@ -10,6 +10,7 @@
 		50B1DE10301DAC5000F6B337 /* Apollo in Frameworks */ = {isa = PBXBuildFile; productRef = F10000000000000000000001 /* Apollo */; };
 		50B1DE11301DAC5000F6B337 /* ApolloAPI in Frameworks */ = {isa = PBXBuildFile; productRef = F10000000000000000000002 /* ApolloAPI */; };
 		50B1DE12301DAC5000F6B337 /* ApolloWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = F10000000000000000000003 /* ApolloWebSocket */; };
+		50B1DE15301DAC5000F6B337 /* ApolloSQLite in Frameworks */ = {isa = PBXBuildFile; productRef = F10000000000000000000009 /* ApolloSQLite */; };
 		50B1DE13301DAC5000F6B337 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = F10000000000000000000004 /* MarkdownUI */; };
 		50B1DE14301DAC5000F6B337 /* NoemaAPI in Frameworks */ = {isa = PBXBuildFile; productRef = F10000000000000000000008 /* NoemaAPI */; };
 		A20000000000000000000001 /* NoemaLiveActivity.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* NoemaLiveActivity.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -82,6 +83,7 @@
 			files = (
 				50B1DE14301DAC5000F6B337 /* NoemaAPI in Frameworks */,
 				50B1DE13301DAC5000F6B337 /* MarkdownUI in Frameworks */,
+				50B1DE15301DAC5000F6B337 /* ApolloSQLite in Frameworks */,
 				50B1DE12301DAC5000F6B337 /* ApolloWebSocket in Frameworks */,
 				50B1DE11301DAC5000F6B337 /* ApolloAPI in Frameworks */,
 				50B1DE10301DAC5000F6B337 /* Apollo in Frameworks */,
@@ -159,6 +161,7 @@
 				F10000000000000000000001 /* Apollo */,
 				F10000000000000000000002 /* ApolloAPI */,
 				F10000000000000000000003 /* ApolloWebSocket */,
+				F10000000000000000000009 /* ApolloSQLite */,
 				F10000000000000000000004 /* MarkdownUI */,
 				F10000000000000000000008 /* NoemaAPI */,
 			);
@@ -474,6 +477,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F10000000000000000000005 /* XCRemoteSwiftPackageReference "apollo-ios" */;
 			productName = ApolloWebSocket;
+		};
+		F10000000000000000000009 /* ApolloSQLite */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F10000000000000000000005 /* XCRemoteSwiftPackageReference "apollo-ios" */;
+			productName = ApolloSQLite;
 		};
 		F10000000000000000000004 /* MarkdownUI */ = {
 			isa = XCSwiftPackageProductDependency;

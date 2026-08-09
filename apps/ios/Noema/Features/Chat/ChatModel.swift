@@ -156,7 +156,7 @@ final class ChatModel {
         await onboarding?.start()
         return
       }
-      let primary = try await ensureConversation(client: client)
+      let primary = try await loadPrimaryConversation(client: client)
       conversationID = primary.conversationId
       providerName = primary.provider
       await loadLatest(client: client)
@@ -493,11 +493,26 @@ final class ChatModel {
     }
   }
 
-  private func ensureConversation(client: ApolloClient) async throws -> NoemaAPI.EnsurePrimaryConversationMutation.Data.EnsurePrimaryConversation {
+  private func loadPrimaryConversation(
+    client: ApolloClient
+  ) async throws -> (conversationId: String, provider: String) {
+    let queryResponse = try await client.fetch(
+      query: NoemaAPI.PrimaryConversationQuery(),
+      cachePolicy: .networkFirst
+    )
+    if let message = queryResponse.errors?.first?.message { throw ChatModelError.server(message) }
+    if let conversation = queryResponse.data?.primaryConversation {
+      return (conversation.conversationId, conversation.provider)
+    }
+    guard queryResponse.source == .server else { throw ChatModelError.emptyResponse }
     let response = try await client.perform(mutation: NoemaAPI.EnsurePrimaryConversationMutation())
     if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
     guard let conversation = response.data?.ensurePrimaryConversation else { throw ChatModelError.emptyResponse }
-    return conversation
+    _ = try? await client.fetch(
+      query: NoemaAPI.PrimaryConversationQuery(),
+      cachePolicy: .networkOnly
+    )
+    return (conversation.conversationId, conversation.provider)
   }
 
   private func loadLatest(client: ApolloClient) async {

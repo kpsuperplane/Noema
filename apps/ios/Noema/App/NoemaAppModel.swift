@@ -51,6 +51,7 @@ final class NoemaAppModel {
   func bootstrap() async {
     do {
       if let stored = try await profileStore.read() {
+        NoemaGraphQLClient.discardStaleCaches(keeping: stored)
         profile = stored
         graphQL = NoemaGraphQLClient(profile: stored)
         state = .paired
@@ -58,6 +59,7 @@ final class NoemaAppModel {
         await liveActivities.configure(profile: stored, client: graphQL?.client)
         notifications.markModelReady()
       } else {
+        NoemaGraphQLClient.discardStaleCaches(keeping: nil)
         notifications.markModelNotReady()
         await liveActivities.configure(profile: nil, client: nil)
         state = .unpaired
@@ -128,7 +130,9 @@ final class NoemaAppModel {
             return
           }
         }
+        let previousGraphQL = graphQL
         let stored = try await pairingService.complete(payload: payload, displayName: displayName)
+        try? await previousGraphQL?.clearCache()
         profile = stored
         graphQL = NoemaGraphQLClient(profile: stored)
         state = .paired
@@ -171,6 +175,12 @@ final class NoemaAppModel {
         return
       }
       registrationCleanupComplete = true
+      do {
+        try await graphQL?.clearCache()
+      } catch {
+        disconnectError = "Noema could not remove the offline cache. Try unpairing again."
+        return
+      }
       do {
         try await profileStore.disconnect()
       } catch {

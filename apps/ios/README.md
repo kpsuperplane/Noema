@@ -40,10 +40,11 @@ xcodebuild \
 ```
 
 The app stores one active origin, client identifier, and bearer credential in
-Keychain using `WhenUnlockedThisDeviceOnly`. Apollo keeps normalized data in
-memory only. Mutations are disabled while disconnected, subscriptions pause in
-the background, and foreground recovery refetches durable transcript and Tasks
-event cursors before accepting later live events.
+Keychain using `WhenUnlockedThisDeviceOnly`. Apollo stores normalized reads in
+a protected per-client SQLite cache that is excluded from backup. Mutations are
+disabled while disconnected. Subscriptions pause in the background, and
+foreground recovery refetches durable transcript and Tasks event cursors before
+accepting later live events.
 
 Pair from Settings → System → Clients in the authenticated web app. The native
 app accepts the resulting `noema://pair` URI from VisionKit scanning, a deep

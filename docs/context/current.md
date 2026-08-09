@@ -82,6 +82,9 @@ vertical slice or a net-negative reduction.
 - Browser auth is local-human WebAuthn; paired clients use independently
   revocable bearer credentials. Installed PWA behavior follows
   [../frontend/pwa.md](../frontend/pwa.md).
+- The iOS client stores normalized GraphQL reads in a protected per-client
+  SQLite cache. It clears the active cache during unpair and never queues
+  offline writes.
 - Final primary-chat replies and new Needs You interventions share one durable
   notification projection. Web Push and direct APNs have separate delivery
   queues; APNs registrations are bearer-client-bound, while the provider `.p8`
