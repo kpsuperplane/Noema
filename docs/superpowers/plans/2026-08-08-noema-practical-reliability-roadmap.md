@@ -1169,10 +1169,17 @@ These are two different contracts:
 - The source rules state which input Noema can execute.
 - The provider copy helps the model service produce valid input.
 
-The current design can treat a full provider copy as proof that the provider
-will enforce the rules. This conclusion is not safe. A provider can accept a
-schema field and then ignore it, route the request to a model that does not
-support it, or reject it only after the request starts.
+The current `SchemaEnforcement::Strict` name makes two different statements
+look like one statement:
+
+- Noema asks the provider to use strict schema handling.
+- The provider always returns input that follows the schema.
+
+The first statement describes a request. The second statement is a runtime
+guarantee. Noema can control the request, but it cannot prove the runtime
+guarantee for a provider that can select another endpoint. A provider can
+accept the `strict` field and then remove it, ignore it, or route the request
+to an endpoint that does not support it.
 
 The shared capability router also does not run a complete source-rule check
 before it calls the selected invoker. Some source handlers check their input,
@@ -1195,9 +1202,9 @@ Current code owners:
   checks only that the schema root is an object.
 - `crates/noema-providers/src/response_support/tool_names.rs` converts source
   schemas for a provider request.
-- `crates/noema-providers/src/adapters/openrouter.rs` states that OpenRouter
-  gives strict schema enforcement for every model. The function ignores the
-  selected model.
+- `crates/noema-providers/src/adapters/openrouter.rs` asks OpenRouter for strict
+  schemas for every model. The capability name incorrectly describes this
+  request as a provider guarantee. The function ignores the selected model.
 - Each tool source owns the meaning of the rules that it publishes.
 
 Audit issues: `INT-02` and `STATE-06`.
@@ -1211,13 +1218,15 @@ provider enforcement into one fact:
    provider guarantee.
 2. Commit `332c9e3f` added OpenRouter and gave every OpenRouter model this
    strict guarantee.
-3. Commits `4f22643f` and `19e34607` reduced an incompatible OpenRouter schema
-   and required support for request parameters on the Responses interface.
+3. Commit `4f22643f` reduced the structured response schema for the OpenRouter
+   Responses interface. Commit `19e34607` then added
+   `provider.require_parameters: true` for that interface.
 4. Commit `e459c5d8` removed one broad structured-output claim because the
    provider could use best-effort behavior. It kept the strict tool-input
    claim.
 5. Commit `3270a622` moved OpenRouter to Chat Completions. This removed the
-   request parameter guard, but it kept the strict tool-input claim.
+   `provider.require_parameters` guard with the old request type. It kept
+   `strict: true` for tool schemas and kept the broad capability claim.
 6. Commit `71270f3a` stopped repeated tool compilation. It reduced repeat work,
    but it did not prove provider enforcement or add a final input check.
 
@@ -1243,6 +1252,12 @@ calls `inputSchema` a JSON Schema object, but it does not select a JSON Schema
 version. [SEP-2106](https://modelcontextprotocol.io/seps) proposes JSON Schema
 2020-12 for MCP tool schemas, but the proposal is still a draft. Noema must not
 treat that draft as the current protocol contract.
+
+This history gives Change 9 one important compatibility rule: do not turn off
+`strict: true` only because Noema cannot trust it as a safety check. The field
+can still improve output on a compatible endpoint. Keep the current provider
+request behavior in the first implementation slice. Add the local check that
+Noema controls.
 
 The replacement must preserve provider-specific request behavior. It must not
 assume that all providers, models, interfaces, and provider routes have the
@@ -1335,7 +1350,7 @@ flowchart LR
     D --> E
 ```
 
-#### Fact 2: Provider conversion result
+#### Fact 2: Provider request mode and conversion result
 
 The provider conversion result states only whether Noema kept the source rules
 in the copy that it sent with one request:
@@ -1345,6 +1360,32 @@ in the copy that it sent with one request:
 
 The current `lower_strict_schema` function already reports success or an error.
 Use this result. Do not add a second conversion framework.
+
+Rename `SchemaEnforcement` to `ProviderSchemaRequest`. Use values whose names
+describe what Noema sends:
+
+- `DoNotSend`: The interface cannot accept a tool schema.
+- `Send`: Send a schema without the strict request field.
+- `RequestStrictWhenPossible`: Make a full provider copy and send
+  `strict: true` when the conversion succeeds. Send the current reduced copy
+  with `strict: false` when the conversion fails.
+
+These names do not claim that returned input is valid. They only select the
+existing request construction. Keep this type request-scoped. Do not save it
+on a connector or a tool definition.
+
+Also rename `ProviderSchemaCapabilities` to
+`ProviderSchemaRequestCapabilities`. Rename
+`ProviderToolCapabilities.strict_schema` to
+`request_strict_schema_when_possible`. Both current capability reports then
+describe request construction. Neither report claims that provider output is
+valid. Keep one derivation path between the two reports. Do not add a second
+OpenRouter rule.
+
+OpenRouter stays `RequestStrictWhenPossible` in this change. A schema that can
+use the current full conversion continues to send `strict: true`. A schema that
+cannot use it continues to send the reduced copy with `strict: false`. This
+keeps the current wire behavior for named models and for `openrouter/auto`.
 
 The strict conversion also changes how it represents optional fields. It makes
 them required and permits a `null` value. The current MCP invoker removes some
@@ -1372,40 +1413,39 @@ version can produce a different result.
 
 A full result does not permit Noema to skip the final source-rule check.
 
-#### Fact 3: Provider enforcement
+#### Fact 3: Provider output is untrusted input
 
-Provider enforcement states what one exact provider path promises to check:
+Do not add a provider-trust level in this change. No current execution decision
+needs it. The shared final check applies to output from every provider. It also
+applies when a provider accepted `strict: true`.
 
-- `Verified strict`: Noema has current evidence for the exact provider, model,
-  interface, and route.
-- `Best effort`: The provider accepts a schema, but Noema cannot prove strict
-  enforcement for the exact path.
-- `Unsupported`: The path cannot accept a tool-input schema.
+For OpenRouter, this rule covers all current routes:
 
-For this change, set OpenRouter to `BestEffort` in both current capability
-reports. Send `strict: false` on its current Chat Completions tool definitions.
-This applies to named models and to `openrouter/auto`. Noema does not now have
-the endpoint constraint and live proof that a strict guarantee requires.
+- OpenRouter can select one of several provider endpoints.
+- `require_parameters` is false unless the request sets it.
+- OpenRouter can remove `strict` for a route that does not support it.
+- OpenRouter measures schema failures after provider output returns.
 
-A later change can enable strict mode for one exact OpenRouter provider, model,
-interface, and route. That change must constrain endpoint routing and prove
-invalid-input rejection on the live endpoint. Change 9 must not build this
-future qualification system.
+These facts can help provider routing and output quality. They do not authorize
+a Noema tool call.
 
-The local final check remains required even when provider enforcement is
-verified strict. Provider enforcement improves generation quality. It is not
-Noema's execution authority.
+Do not add `provider.require_parameters: true`, an Anthropic beta header, a
+provider allow-list, or a route qualification system in Change 9. Each option
+changes which live endpoints can serve a request. Test each option as a
+separate provider-compatibility change.
 
 #### Conversion diagnostics
 
-Keep the current strict-fallback diagnostic for a provider that claims strict
-enforcement but cannot accept one source rule. Do not add a database record, a
-schema hash, or a new diagnostic manager in this change.
+Keep the current full-conversion fallback diagnostic. Change its text so that
+it reports a request conversion failure, not a provider guarantee failure. Do
+not add a database record, a schema hash, or a new diagnostic manager in this
+change.
 
-Changing OpenRouter to `BestEffort` removes the false strict-conversion attempt
-that caused the 12,342 repeated errors. After this correction, measure the
-remaining fallback count. Add diagnostic suppression only if a current strict
-provider still repeats the same error.
+The 12,342 repeated messages remain a measured observability problem. Do not
+hide them by turning off `strict`. After the final check is in place, measure
+the count by provider, request mode, source, and conversion error. Use that
+evidence for one later diagnostic change if the current compile-once behavior
+does not give a sufficient bound.
 
 ### After
 
@@ -1414,9 +1454,9 @@ flowchart TD
     A["Source input rules"]
     B["Convert for the selected provider path"]
     C["Full or reduced provider copy"]
-    D["Verified strict, best effort, or unsupported"]
+    D["Provider request mode"]
     E["Send provider request"]
-    F["Model service returns provider-form input"]
+    F["Provider returns untrusted input"]
     G["Change it back to source form"]
     H["Policy or exact action review"]
     I["Resolve the exact tool binding"]
@@ -1433,8 +1473,9 @@ flowchart TD
     J -->|No| L
 ```
 
-The provider conversion and provider enforcement can improve the returned
-input. The final source-rule check decides whether execution can start.
+The provider request and provider conversion can improve the returned input.
+They do not prove that it is valid. The final source-rule check decides whether
+execution can start.
 
 ### Why this mechanism works for every tool source
 
@@ -1445,30 +1486,35 @@ The rule does not require one service abstraction or one schema language. A
 tool source keeps its current rules and current protocol. The capability router
 only asks the resolved binding to check the input before invocation.
 
-This split avoids two compatibility failures:
+This split avoids three compatibility failures:
 
 - Noema does not weaken a source contract to fit one provider dialect.
-- Noema does not advertise provider guarantees that depend on an unknown model
-  or route.
+- Noema does not call a provider request setting a runtime guarantee.
+- Noema does not turn off a useful provider request setting to repair a local
+  safety boundary.
 
 ### Data change
 
 No database schema change is required. Do not add the conversion result, the
-provider enforcement level, or a diagnostic identity to a saved connector
-definition.
+provider request mode, a provider-trust level, or a diagnostic identity to a
+saved connector definition.
 
 ### Implementation order
 
-1. Correct the two OpenRouter capability reports and their request tests.
-2. Move the optional-`null` return conversion from the MCP invoker to the
+1. Add characterization tests for the current OpenRouter request. Record the
+   exact tool definitions for a named model and for `openrouter/auto`.
+2. Rename the current request selector and the two current capability fields.
+   Use the names in Fact 2. Preserve the request JSON in the characterization
+   tests.
+3. Move the optional-`null` return conversion from the MCP invoker to the
    shared provider output boundary. Confirm that review receives source-form
    input.
-3. Add `ToolInputCheck` to `CapabilityBinding`. Call it in
+4. Add `ToolInputCheck` to `CapabilityBinding`. Call it in
    `dispatch_resolved` before `invoke_target`.
-4. Reuse the built-in typed parsers and compiled API operation arguments.
-5. Inventory active MCP schemas. Support a declared schema version or the safe
+5. Reuse the built-in typed parsers and compiled API operation arguments.
+6. Inventory active MCP schemas. Support a declared schema version or the safe
    common rules. Compile and attach the MCP checker.
-6. Run the source inventory and final dispatch tests. Release only when every
+7. Run the source inventory and final dispatch tests. Release only when every
    active binding has a complete check.
 
 Do not release a state in which some bindings have a check and other bindings
@@ -1483,12 +1529,14 @@ silently use an allow-all check.
    results still pass through the final source-rule check. For the full case,
    confirm that nested optional `null` fields return to omitted source fields
    before the action request is made.
-3. Test the OpenRouter capability and request paths. Confirm that a named model
-   and `openrouter/auto` use best-effort enforcement and send `strict: false`.
+3. Test the OpenRouter request path before and after the request-mode rename.
+   Confirm that a named model and `openrouter/auto` keep the same request JSON.
+   Include one full conversion that sends `strict: true` and one reduced
+   conversion that sends `strict: false`.
 4. Build the 22 currently affected schemas in one table-driven test. Confirm
-   that OpenRouter does not record a strict-fallback error for them. Include
-   one current strict-provider case that still records a real conversion
-   failure.
+   that each conversion result is explicit and that every returned call still
+   reaches the final source-rule check. Do not assert that OpenRouter enforces
+   the provider copy.
 5. Test three MCP schemas: one with a supported `$schema` value, one without a
    `$schema` value that uses only safe common rules, and one with an unknown
    rule. Confirm that the unknown rule stops catalog publication and never
@@ -1503,11 +1551,12 @@ tool source. Do not repeat those rule tests at the router layer.
 - The immediate and reviewed routes use the same final check.
 - Policy and review receive source-form input, not strict provider-form input.
 - A provider failure or false support claim cannot weaken the final check.
-- Full conversion and verified strict enforcement remain separate facts.
-- OpenRouter has no broad strict claim for all models or for
-  `openrouter/auto`.
-- The known 12,342-error OpenRouter path no longer writes a strict-fallback
-  error.
+- A full provider conversion does not bypass the final check.
+- Code and diagnostics describe `strict` as a request, not as an OpenRouter
+  runtime guarantee.
+- OpenRouter request JSON does not change in this change.
+- The known 12,342-message path remains visible and has a named later
+  measurement step. Change 9 does not hide it by weakening provider requests.
 - Existing validation cases for every active tool source continue to pass.
 
 ### Non-goals
@@ -1520,8 +1569,10 @@ tool source. Do not repeat those rule tests at the router layer.
 - Do not save provider conversion results in connector records.
 - Do not build a general compatibility framework.
 - Do not add diagnostic suppression without a remaining measured repeat.
+- Do not turn off the current OpenRouter strict request.
+- Do not add OpenRouter routing constraints or beta headers.
 - Do not build OpenRouter route qualification in this change.
-- Do not skip the final check for a provider that claims strict enforcement.
+- Do not skip the final check because a provider accepted a strict request.
 
 ---
 
