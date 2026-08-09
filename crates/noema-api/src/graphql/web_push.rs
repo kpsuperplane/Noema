@@ -1533,6 +1533,7 @@ impl LiveProjection {
             "activeTaskCount": 0,
             "startedAtEpoch": serde_json::Value::Null,
             "updatedAtEpoch": updated_at,
+            "requiresAttention": false,
         });
         Self {
             signature: hex_digest(
@@ -1662,6 +1663,13 @@ async fn live_projection(
         .as_ref()
         .and_then(|run| run.started_at.as_deref())
         .and_then(parse_epoch);
+    let requires_attention = human_gate
+        || focus.current_run.as_ref().is_some_and(|run| {
+            matches!(
+                run.status,
+                RunStatus::WaitingForApproval | RunStatus::Interrupted | RunStatus::Failed
+            )
+        });
     let updated_at = parse_epoch(&focus.task.updated_at)
         .unwrap_or_else(|| chrono::Utc::now().timestamp() as f64);
     let content = serde_json::json!({
@@ -1673,6 +1681,7 @@ async fn live_projection(
         "activeTaskCount": tasks.len(),
         "startedAtEpoch": started_at,
         "updatedAtEpoch": updated_at,
+        "requiresAttention": requires_attention,
     });
     let signature =
         hex_digest(digest::digest(&digest::SHA256, content.to_string().as_bytes()).as_ref());
@@ -2062,6 +2071,7 @@ mod tests {
                 "activeTaskCount": 2,
                 "startedAtEpoch": 1.0,
                 "updatedAtEpoch": 2.0,
+                "requiresAttention": true,
             }),
             signature: "a".repeat(64),
             focus_task_id: "task:focus".to_string(),
@@ -2086,6 +2096,7 @@ mod tests {
             LIVE_ACTIVITY_ATTRIBUTES_TYPE
         );
         assert_eq!(payload["aps"]["content-state"]["activeTaskCount"], 2);
+        assert_eq!(payload["aps"]["content-state"]["requiresAttention"], true);
     }
     #[test]
     fn delivery_statuses_have_bounded_retry_and_expiry_classes() {

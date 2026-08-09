@@ -24,6 +24,7 @@ public struct NoemaTasksActivityAttributes: ActivityAttributes, Codable, Hashabl
     public let activeTaskCount: Int
     public let startedAtEpoch: Double?
     public let updatedAtEpoch: Double
+    public let requiresAttention: Bool?
 
     public init(
       focusTaskId: String,
@@ -33,7 +34,8 @@ public struct NoemaTasksActivityAttributes: ActivityAttributes, Codable, Hashabl
       statusLabel: String,
       activeTaskCount: Int,
       startedAtEpoch: Double?,
-      updatedAtEpoch: Double
+      updatedAtEpoch: Double,
+      requiresAttention: Bool? = nil
     ) {
       self.focusTaskId = focusTaskId
       self.focusTitle = focusTitle
@@ -43,6 +45,7 @@ public struct NoemaTasksActivityAttributes: ActivityAttributes, Codable, Hashabl
       self.activeTaskCount = activeTaskCount
       self.startedAtEpoch = startedAtEpoch
       self.updatedAtEpoch = updatedAtEpoch
+      self.requiresAttention = requiresAttention
     }
   }
 

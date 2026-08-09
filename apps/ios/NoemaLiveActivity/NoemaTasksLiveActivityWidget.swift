@@ -15,45 +15,31 @@ struct NoemaTasksLiveActivityWidget: Widget {
       NoemaTasksLockScreenView(state: context.state)
         .widgetURL(taskURL(for: context.state))
         .activityBackgroundTint(NoemaActivityPalette.paper)
-        .activitySystemActionForegroundColor(NoemaActivityPalette.pine)
+        .activitySystemActionForegroundColor(NoemaActivityPalette.lockPine)
     } dynamicIsland: { context in
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
-          NoemaActivityMark()
-        }
-        DynamicIslandExpandedRegion(.center) {
-          VStack(alignment: .leading, spacing: 2) {
-            Text("Noema Tasks")
-              .font(.caption.weight(.semibold))
-              .foregroundStyle(NoemaActivityPalette.ink)
-            Text(context.state.focusTitle)
-              .font(.caption2)
-              .lineLimit(1)
-          }
+          ActivityIdentity(appearance: .island)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          ActivityCount(state: context.state, expanded: true)
+          ElapsedTime(state: context.state, appearance: .island)
+        }
+        DynamicIslandExpandedRegion(.center) {
+          ActivityTitle(state: context.state, appearance: .island)
         }
         DynamicIslandExpandedRegion(.bottom) {
-          HStack(spacing: 8) {
-            PhaseDot(phase: context.state.phase)
-            Text(context.state.statusLabel)
-              .font(.caption)
-              .foregroundStyle(NoemaActivityPalette.inkSecondary)
-            Spacer()
-            Text(context.state.projectName ?? "Personal")
-              .font(.caption2)
-              .foregroundStyle(NoemaActivityPalette.inkSecondary)
-              .lineLimit(1)
-          }
+          ActivityFooter(state: context.state, appearance: .island)
         }
       } compactLeading: {
-        NoemaActivityMark()
+        NoemaAgentMark(size: 20)
+          .accessibilityLabel("Noema")
       } compactTrailing: {
-        ActivityCount(state: context.state, expanded: false)
+        CompactTrailingStatus(state: context.state)
       } minimal: {
-        NoemaActivityMark()
+        PhaseGlyph(state: context.state, appearance: .island)
+          .accessibilityLabel(context.state.statusLabel)
       }
+      .keylineTint(PhaseStyle(state: context.state).color(for: .island))
       .widgetURL(taskURL(for: context.state))
     }
   }
@@ -67,94 +53,229 @@ struct NoemaTasksLiveActivityWidget: Widget {
   }
 }
 
-private struct ActivityCount: View {
-  let state: NoemaTasksActivityAttributes.ContentState
-  let expanded: Bool
-
-  var body: some View {
-    if state.phase == .completed || state.phase == .cancelled {
-      Image(systemName: state.phase == .completed ? "checkmark" : "xmark")
-        .font(expanded ? .title3.weight(.semibold) : .caption2.weight(.semibold))
-        .foregroundStyle(state.phase == .completed ? NoemaActivityPalette.pine : NoemaActivityPalette.clay)
-        .accessibilityLabel(state.statusLabel)
-    } else {
-      Text("\(state.activeTaskCount)")
-        .font(expanded ? .title3.weight(.semibold) : .caption2.weight(.semibold))
-        .foregroundStyle(NoemaActivityPalette.pine)
-        .accessibilityLabel("\(state.activeTaskCount) active tasks")
-    }
-  }
-}
-
 private struct NoemaTasksLockScreenView: View {
   let state: NoemaTasksActivityAttributes.ContentState
 
   var body: some View {
-    HStack(spacing: 12) {
-      NoemaActivityMark()
-      VStack(alignment: .leading, spacing: 3) {
-        HStack(spacing: 6) {
-          Text("Noema Tasks")
-            .font(.caption.weight(.semibold))
-          PhaseDot(phase: state.phase)
-          Text(state.statusLabel)
-            .font(.caption2)
-            .foregroundStyle(NoemaActivityPalette.inkSecondary)
-        }
-        Text(state.focusTitle)
-          .font(.headline.weight(.semibold))
-          .foregroundStyle(NoemaActivityPalette.ink)
-          .lineLimit(2)
-        HStack(spacing: 6) {
-          Text(state.projectName ?? "Personal")
-          if state.activeTaskCount > 1 {
-            Text("·")
-            Text("\(state.activeTaskCount) active")
-          }
-        }
-        .font(.caption2)
-        .foregroundStyle(NoemaActivityPalette.inkSecondary)
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .center, spacing: 8) {
+        ActivityIdentity(appearance: .lockScreen)
+        Spacer(minLength: 12)
+        ElapsedTime(state: state, appearance: .lockScreen)
       }
-      Spacer(minLength: 0)
+      ActivityTitle(state: state, appearance: .lockScreen)
+      ActivityFooter(state: state, appearance: .lockScreen)
     }
-    .padding(.horizontal, 16)
+    .padding(.horizontal, 14)
     .padding(.vertical, 12)
   }
 }
 
-private struct NoemaActivityMark: View {
+private struct ActivityIdentity: View {
+  let appearance: ActivityAppearance
+
   var body: some View {
-    NoemaAgentMark(size: 28)
-      .accessibilityLabel("Noema Tasks")
+    HStack(spacing: 7) {
+      NoemaAgentMark(size: appearance == .island ? 20 : 22)
+        .accessibilityHidden(true)
+      Text("Noema")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(appearance.primary)
+    }
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("Noema")
+  }
+}
+
+private struct ActivityTitle: View {
+  let state: NoemaTasksActivityAttributes.ContentState
+  let appearance: ActivityAppearance
+
+  var body: some View {
+    Text(state.focusTitle)
+      .font(appearance == .island ? .subheadline.weight(.semibold) : .headline.weight(.semibold))
+      .foregroundStyle(appearance.primary)
+      .lineLimit(2)
+      .multilineTextAlignment(.leading)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .accessibilityLabel("Task: \(state.focusTitle)")
+  }
+}
+
+private struct ActivityFooter: View {
+  let state: NoemaTasksActivityAttributes.ContentState
+  let appearance: ActivityAppearance
+
+  var body: some View {
+    HStack(spacing: 7) {
+      PhaseDot(state: state, appearance: appearance)
+      Text(state.statusLabel)
+        .font(.caption.weight(.medium))
+        .foregroundStyle(appearance.secondary)
+        .lineLimit(1)
+      Spacer(minLength: 12)
+      Text("\(state.activeTaskCount) active")
+        .font(.caption)
+        .monospacedDigit()
+        .foregroundStyle(appearance.secondary)
+        .lineLimit(1)
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("\(state.statusLabel), \(state.activeTaskCount) active tasks")
+  }
+}
+
+private struct ElapsedTime: View {
+  let state: NoemaTasksActivityAttributes.ContentState
+  let appearance: ActivityAppearance
+
+  var body: some View {
+    Group {
+      if state.phase == .completed {
+        Text("Done")
+      } else if state.phase == .cancelled {
+        Text("Ended")
+      } else if let startedAtEpoch = state.startedAtEpoch {
+        Text(Date(timeIntervalSince1970: startedAtEpoch), style: .timer)
+      } else {
+        Text("Starting")
+      }
+    }
+    .font(.caption.monospacedDigit().weight(.medium))
+    .foregroundStyle(appearance.secondary)
+    .lineLimit(1)
+  }
+}
+
+private struct CompactTrailingStatus: View {
+  let state: NoemaTasksActivityAttributes.ContentState
+
+  var body: some View {
+    if state.requiresAttention == true {
+      Image(systemName: "exclamationmark")
+        .font(.caption.weight(.bold))
+        .foregroundStyle(NoemaActivityPalette.islandClay)
+        .accessibilityLabel("Needs attention")
+    } else if state.phase == .completed || state.phase == .cancelled || state.startedAtEpoch == nil {
+      PhaseGlyph(state: state, appearance: .island)
+        .accessibilityLabel(state.statusLabel)
+    } else if let startedAtEpoch = state.startedAtEpoch {
+      Text(Date(timeIntervalSince1970: startedAtEpoch), style: .timer)
+        .font(.caption2.monospacedDigit().weight(.semibold))
+        .foregroundStyle(NoemaActivityPalette.islandPrimary)
+        .lineLimit(1)
+        .accessibilityLabel("Elapsed time")
+        .accessibilityValue(Text(Date(timeIntervalSince1970: startedAtEpoch), style: .timer))
+    }
   }
 }
 
 private struct PhaseDot: View {
-  let phase: NoemaTasksActivityAttributes.ContentState.Phase
+  let state: NoemaTasksActivityAttributes.ContentState
+  let appearance: ActivityAppearance
 
   var body: some View {
     Circle()
-      .fill(color)
+      .fill(PhaseStyle(state: state).color(for: appearance))
       .frame(width: 7, height: 7)
       .accessibilityHidden(true)
   }
+}
 
-  private var color: Color {
-    switch phase {
-    case .completed: NoemaActivityPalette.pine
-    case .cancelled: NoemaActivityPalette.clay
-    case .reviewing: NoemaActivityPalette.blue
-    case .planning, .working, .inProgress: NoemaActivityPalette.pine.opacity(0.72)
+private struct PhaseGlyph: View {
+  let state: NoemaTasksActivityAttributes.ContentState
+  let appearance: ActivityAppearance
+
+  var body: some View {
+    Image(systemName: PhaseStyle(state: state).symbol)
+      .font(.caption2.weight(.bold))
+      .foregroundStyle(PhaseStyle(state: state).color(for: appearance))
+  }
+}
+
+private struct PhaseStyle {
+  let state: NoemaTasksActivityAttributes.ContentState
+
+  var symbol: String {
+    if state.requiresAttention == true { return "exclamationmark" }
+    switch state.phase {
+    case .inProgress: return "sparkles"
+    case .planning: return "list.bullet.clipboard"
+    case .working: return "gearshape.2"
+    case .reviewing: return "checkmark.bubble"
+    case .completed: return "checkmark"
+    case .cancelled: return "xmark"
     }
+  }
+
+  func color(for appearance: ActivityAppearance) -> Color {
+    if state.requiresAttention == true {
+      return appearance == .island ? NoemaActivityPalette.islandClay : NoemaActivityPalette.lockClay
+    }
+    if state.phase == .cancelled {
+      return appearance == .island ? NoemaActivityPalette.islandClay : NoemaActivityPalette.lockClay
+    }
+    if state.phase == .reviewing {
+      return appearance == .island ? NoemaActivityPalette.islandBlue : NoemaActivityPalette.lockBlue
+    }
+    return appearance == .island ? NoemaActivityPalette.islandPine : NoemaActivityPalette.lockPine
+  }
+}
+
+private enum ActivityAppearance {
+  case lockScreen
+  case island
+
+  var primary: Color {
+    self == .island ? NoemaActivityPalette.islandPrimary : NoemaActivityPalette.lockPrimary
+  }
+
+  var secondary: Color {
+    self == .island ? NoemaActivityPalette.islandSecondary : NoemaActivityPalette.lockSecondary
   }
 }
 
 private enum NoemaActivityPalette {
   static let paper = Color(red: 0.988, green: 0.980, blue: 0.961)
-  static let white = Color.white
-  static let ink = Color(red: 0.09, green: 0.086, blue: 0.059)
-  static let inkSecondary = Color(red: 0.369, green: 0.353, blue: 0.294)
-  static let pine = Color(red: 0.122, green: 0.478, blue: 0.341)
-  static let clay = Color(red: 0.737, green: 0.306, blue: 0.169)
-  static let blue = Color(red: 0.114, green: 0.290, blue: 0.376)
+  static let lockPrimary = Color(red: 0.090, green: 0.086, blue: 0.059)
+  static let lockSecondary = Color(red: 0.369, green: 0.353, blue: 0.294)
+  static let lockPine = Color(red: 0.090, green: 0.376, blue: 0.275)
+  static let lockClay = Color(red: 0.604, green: 0.243, blue: 0.133)
+  static let lockBlue = Color(red: 0.114, green: 0.290, blue: 0.376)
+  static let islandPrimary = Color.white
+  static let islandSecondary = Color(red: 0.722, green: 0.710, blue: 0.678)
+  static let islandPine = Color(red: 0.388, green: 0.867, blue: 0.667)
+  static let islandClay = Color(red: 1.000, green: 0.608, blue: 0.486)
+  static let islandBlue = Color(red: 0.471, green: 0.784, blue: 0.933)
 }
+
+#if DEBUG
+private let previewAttributes = NoemaTasksActivityAttributes(
+  activityId: "live_activity:preview",
+  clientId: "client:preview",
+  serverOrigin: "https://noema.example"
+)
+
+private let previewState = NoemaTasksActivityAttributes.ContentState(
+  focusTaskId: "task:preview",
+  focusTitle: "Research the history of the Paradise area",
+  projectName: "Personal",
+  phase: .working,
+  statusLabel: "Working",
+  activeTaskCount: 2,
+  startedAtEpoch: Date.now.addingTimeInterval(-754).timeIntervalSince1970,
+  updatedAtEpoch: Date.now.timeIntervalSince1970
+)
+
+#Preview("Lock Screen", as: .content, using: previewAttributes) {
+  NoemaTasksLiveActivityWidget()
+} contentStates: {
+  previewState
+}
+
+#Preview("Dynamic Island", as: .dynamicIsland(.expanded), using: previewAttributes) {
+  NoemaTasksLiveActivityWidget()
+} contentStates: {
+  previewState
+}
+#endif
