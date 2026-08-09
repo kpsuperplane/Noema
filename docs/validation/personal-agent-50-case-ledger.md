@@ -23,7 +23,7 @@ ordinary-information evidence. Private source content is not copied here.
 | 9 | Add preparation time before important meetings | PASS | `turn:18c9c606fd122ae61e19` | Created a linked preparation block at 12:00–12:30 UTC; event `3ho7o40spmhkn7os5626ltedp8`; no conflict. |
 | 10 | Create a tentative hold from an email discussion | PASS | `turn:18c9e455a5c65a5711db6`; `task:18c9e45c00e3783411e6f`; `submission:18c9e4daf93f54cf12ca8` | Reviewer-approved run exhaustively inspected the July 10–August 8 Gmail window and found no qualifying human future-meeting proposal. It resolved and checked the primary Calendar, documented that the active mutation cannot set a genuine tentative status, and correctly made no write. |
 | 11 | Create a Notion follow-up list from response-needed email | PASS | `turn:18c9e390b59f45bb10692`; `task:18c9e3954e0e4b9c10711`; `submission:18c9e3c42679e57610c46` | Reviewer-approved run inspected 24 messages across 23 threads, found no qualifying human response request, and created verified Notion page `3b6b5138-8d91-81ec-91b3-f8b4902f64b9` with the required structured empty state and uncertainty. |
-| 12 | Add confirmed email deadlines to Calendar | RUNNING | `turn:18c9e3cdb7f067f710d71`; `task:18c9e3d224296e4a10dd6`; gate `gate:18c9e40b0665c0c0114f3` | Gmail review found one confirmed future date-only obligation and no duplicate. The task correctly refused to invent a time; it awaits approval/adoption of pending Calendar definition `af0738bf748899fe0e642bf16155ee5b5f3fae030b18343da7de7dbd0ac122c8`, which adds true all-day creation. No event has been created. |
+| 12 | Add confirmed email deadlines to Calendar | PASS | `turn:18c9e3cdb7f067f710d71`; `task:18c9e3d224296e4a10dd6`; `submission:18c9f8b748fb3d82651`; `review:18c9f8bc119d9ffc6dd` | Gmail review found one confirmed future date-only obligation and no duplicate. The reviewed definition with true all-day creation is active. The human then said, “Do not enable it; leave the milestone uncreated.” The correction run followed this instruction, created no event, and received reviewer approval. |
 | 13 | Save an email-thread summary in Notion | PASS | `turn:18c9e3997ccfed1f1077b`; `task:18c9e39dab936c341080d`; `submission:18c9e3cc296ffdd910d3e` | Reviewer-approved run chronologically summarized the longest available validation-window thread (two messages), separated facts and inference, and verified idempotent Notion page `3b6b5138-8d91-8120-8135-ef793e75af7e` with all required sections. |
 | 14 | Log receipts and renewals in Notion | PASS | `turn:18c9e3e4314c3e5e10fea`; `task:18c9e3eb378604d3110e0`; `submission:18c9e40f7705c04e11571` | Reviewer-approved run inspected all ten Aug 1–8 messages across nine threads, found no qualifying receipt or renewal, and verified Notion page `3b6b5138-8d91-81f5-9a1e-e9a05d760328` with an explicit empty log, review queue, exclusions, and currency policy. |
 | 15 | Track packages or reservations and calendar dates | PASS | `turn:18c9e3f9f7b5138f112b1`; `task:18c9e3ff140e77bd11350`; `submission:18c9e44b8edf20e111c93` | Reviewer-approved read-only run searched the full window and focused delivery/travel/booking terms, inspected six false positives, and found no active future calendar-worthy confirmation. It resolved and inspected the primary Calendar but made no write. |
@@ -110,7 +110,12 @@ ordinary-information evidence. Private source content is not copied here.
   `af0738bf748899fe0e642bf16155ee5b5f3fae030b18343da7de7dbd0ac122c8`.
   The inspected diff adds only `create_all_day_event`, using inclusive
   `start.date`, exclusive `end.date`, no timezone/dateTime fields, no custom
-  reminders, and the existing bounded receipt; human approval remains required.
+  reminders, and the existing bounded receipt. The managed review path produced
+  reviewed definition
+  `7798cc0febdb06039c429f6c98f189353ad1ba389e355b504515004df7e2a9b4`.
+  The active connection uses this definition and lists all 12 operations. The
+  task did not use the new write operation because the human told Noema to leave
+  the milestone uncreated.
 - Reviewed Gmail definition `86af21d95aee7c802eda3fab256148ccba08272ae20a036b2b2ab35e61b77678`
   uses typed empty arrays, bounded message headers/body text, and an 18-message
   page within the 32 KiB worst-case response contract.

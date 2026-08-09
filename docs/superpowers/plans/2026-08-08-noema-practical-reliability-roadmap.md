@@ -1148,6 +1148,28 @@ definition or migration. Create a new definition identity for each correction.
 - All 50 validation cases pass.
 - The active connection resolves one current definition.
 
+### Execution result
+
+The saved system state already satisfies the replacement part of this change.
+The pending definition
+`af0738bf748899fe0e642bf16155ee5b5f3fae030b18343da7de7dbd0ac122c8`
+adds only `create_all_day_event`. It uses an inclusive start date, an exclusive
+end date, no time fields, no custom reminders, and the existing bounded result
+conversion. The managed review path produced reviewed definition
+`7798cc0febdb06039c429f6c98f189353ad1ba389e355b504515004df7e2a9b4`.
+
+The active connection uses the reviewed definition. It has all 12 operations.
+The active definition kept the same authentication scopes. The connection kept
+its credential, grant, and policy revision records. The current GraphQL view
+resolves one active reviewed definition for the connection.
+
+The final validation task is also complete. After the definition became active,
+the human told Noema: “Do not enable it; leave the milestone uncreated.” Noema
+did not create the event. The correction result received reviewer approval.
+This human instruction replaces the planned effect test. Noema must not create
+an unwanted external effect only to satisfy an old validation step. The live
+ledger now records all 50 cases as `PASS`.
+
 ### Non-goals
 
 - Do not delete rejected-definition history during startup.
