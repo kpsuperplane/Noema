@@ -1728,6 +1728,13 @@ fn live_activity_payload(
                 "serverOrigin": server_origin,
             }),
         );
+        aps.insert(
+            "alert".to_string(),
+            serde_json::json!({
+                "title": "Noema Tasks",
+                "body": projection.content["focusTitle"].clone(),
+            }),
+        );
     }
     aps.insert("content-state".to_string(), projection.content.clone());
     if let Some((title, body, _task_id)) = alert {
@@ -2066,8 +2073,16 @@ mod tests {
             signature: "a".repeat(64),
             focus_task_id: "task:focus".to_string(),
         };
-        let payload = live_activity_payload(
+        let start_payload = live_activity_payload(
             LiveActivityEvent::Start,
+            "client:one",
+            Some("live_activity:one"),
+            "https://noema.example",
+            &projection,
+            None,
+        );
+        let alert_payload = live_activity_payload(
+            LiveActivityEvent::Update,
             "client:one",
             Some("live_activity:one"),
             "https://noema.example",
@@ -2078,14 +2093,17 @@ mod tests {
             LIVE_ACTIVITY_TOPIC,
             "dev.noema.app.ios.push-type.liveactivity"
         );
-        assert_eq!(payload["route"], "task");
-        assert_eq!(payload["taskId"], "task:one");
-        assert_eq!(payload["aps"]["alert"]["body"], "Review Focus");
+        assert_eq!(start_payload["route"], "task");
+        assert_eq!(start_payload["taskId"], "task:focus");
+        assert_eq!(start_payload["aps"]["alert"]["title"], "Noema Tasks");
+        assert_eq!(start_payload["aps"]["alert"]["body"], "Focus");
         assert_eq!(
-            payload["aps"]["attributes-type"],
+            start_payload["aps"]["attributes-type"],
             LIVE_ACTIVITY_ATTRIBUTES_TYPE
         );
-        assert_eq!(payload["aps"]["content-state"]["activeTaskCount"], 2);
+        assert_eq!(start_payload["aps"]["content-state"]["activeTaskCount"], 2);
+        assert_eq!(alert_payload["taskId"], "task:one");
+        assert_eq!(alert_payload["aps"]["alert"]["body"], "Review Focus");
     }
     #[test]
     fn delivery_statuses_have_bounded_retry_and_expiry_classes() {
