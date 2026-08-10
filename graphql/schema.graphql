@@ -83,6 +83,14 @@ enum AcpAgentHealthStatus {
 }
 
 """
+Human-visible data disclosure for the exact action request.
+"""
+type ActionRequestDisclosure {
+	recipient: String!
+	contentSummary: String!
+}
+
+"""
 Human-visible identity for the exact action destination.
 """
 type ActionRequestTarget {
@@ -1390,6 +1398,8 @@ type GovernedAction {
 	behavior: ToolBehavior
 	safeSummary: String!
 	target: ActionRequestTarget
+	disclosure: ActionRequestDisclosure
+	consequence: String!
 	destination: JSON
 	arguments: JSON!
 	assessment: GovernedActionAssessment

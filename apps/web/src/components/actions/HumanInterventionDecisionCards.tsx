@@ -138,7 +138,7 @@ export function GovernedActionCard({
           <BrowserInteractionDetails preview={browserPreview} capabilityName={action.capabilityName} />
         ) : (
           <VStack gap={2}>
-            <span {...stylex.props(styles.consequence)}>{actionRequestConsequence(action)}</span>
+            <span {...stylex.props(styles.consequence)}>{action.consequence}</span>
             <details {...stylex.props(styles.details)}>
               <summary>Review details</summary>
               <VStack gap={2} className={stylex.props(styles.reviewDetails).className}>
@@ -148,6 +148,9 @@ export function GovernedActionCard({
                   ) : null}
                   {action.target?.connectionLabel ? (
                     <MetadataListItem label="Account">{action.target.connectionLabel}</MetadataListItem>
+                  ) : null}
+                  {action.disclosure ? (
+                    <MetadataListItem label="Shared content">{action.disclosure.contentSummary}</MetadataListItem>
                   ) : null}
                   <MetadataListItem label="Effect">{actionBehaviorEvidence(action)}</MetadataListItem>
                 </MetadataList>
@@ -169,14 +172,6 @@ function actionRequestTitle(action: PendingGovernedAction) {
   if (action.behavior?.readOnly) return `Share request data with ${target}?`;
   if (action.behavior?.destructive) return `Allow a destructive change in ${target}?`;
   return `Allow this change in ${target}?`;
-}
-
-function actionRequestConsequence(action: PendingGovernedAction) {
-  const target = actionTargetName(action);
-  if (action.behavior?.readOnly) return `${target} receives the request data shown in Review details.`;
-  if (action.behavior?.destructive) return `This can remove or overwrite data in ${target}.`;
-  if (action.behavior?.openWorld) return `This changes data outside Noema in ${target}.`;
-  return `This changes data in ${target}.`;
 }
 
 function actionTargetName(action: PendingGovernedAction) {
