@@ -273,6 +273,9 @@ Noema owns scheduled execution and relays each accepted result through the
 primary conversation. Planners and Executors must not treat those runtime
 behaviors as contract deliverables or ask for another delivery channel. They
 use an external destination only when the authenticated human request names it.
+An insufficient research result does not open a clarification gate. The
+Executor uses its proportionate research budget, then submits the supported
+result with any shortfall. Review can request another bounded research pass.
 
 ## API and UI
 

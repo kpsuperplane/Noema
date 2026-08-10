@@ -12,7 +12,7 @@ use noema_tasks::{RunKind, TaskAuthorizationContext, TaskAuthorizationMessageRol
 use crate::agent_execution::ExecutionRole;
 
 const CONTEXT_TEXT_LIMIT: usize = 64 * 1024;
-const EXECUTOR_DELIVERY_POLICY: &str = "Noema relays each accepted result through the primary conversation. The current run must put its user-facing output in result_markdown. Timing and primary-conversation relay are runtime behavior, not executor deliverables or validation evidence. Ask for a delivery channel only when the contract explicitly requires an external destination.";
+const EXECUTOR_RUNTIME_POLICY: &str = "Noema relays each accepted result through the primary conversation. The current run must put its user-facing output in result_markdown. Timing and primary-conversation relay are runtime behavior, not executor deliverables or validation evidence. Ask for a delivery channel only when the contract explicitly requires an external destination. An insufficient search result is not a human clarification. Use the contract's proportionate search budget before reporting a shortage. If evidence still supports fewer items, submit the supported items and explain the shortfall. Use task.report_blocked only when a human answer or approval can enable progress.";
 const PLANNER_DELIVERY_POLICY: &str = "Noema relays each accepted result through the primary conversation. Timing and primary-conversation relay are runtime behavior, not contract deliverables or validation evidence. Add another delivery destination only when the authenticated source request explicitly requires it.";
 
 /// Exact role prompt and fixed instruction envelope used by production task runs.
@@ -68,7 +68,7 @@ pub(crate) fn format_executor_prompt(context: &WorkRunExecutionContext) -> Strin
         criteria,
         prior_submission,
         prior_review,
-        EXECUTOR_DELIVERY_POLICY,
+        EXECUTOR_RUNTIME_POLICY,
     )
 }
 
@@ -576,7 +576,7 @@ fn invalid_terminal_message() -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        EXECUTOR_DELIVERY_POLICY, ExecutorSubmissionResponse, PLANNER_DELIVERY_POLICY,
+        EXECUTOR_RUNTIME_POLICY, ExecutorSubmissionResponse, PLANNER_DELIVERY_POLICY,
         ReviewerResponse, format_authenticated_source_request, format_runtime_handling,
         format_saved_run_item,
     };
@@ -593,8 +593,10 @@ mod tests {
 
         assert!(handling.contains("recurring task occurrence"));
         assert!(handling.contains("schedule is already configured in America/Los_Angeles"));
-        assert!(EXECUTOR_DELIVERY_POLICY.contains("relays each accepted result"));
-        assert!(EXECUTOR_DELIVERY_POLICY.contains("contract explicitly requires"));
+        assert!(EXECUTOR_RUNTIME_POLICY.contains("relays each accepted result"));
+        assert!(EXECUTOR_RUNTIME_POLICY.contains("contract explicitly requires"));
+        assert!(EXECUTOR_RUNTIME_POLICY.contains("insufficient search result is not"));
+        assert!(EXECUTOR_RUNTIME_POLICY.contains("submit the supported items"));
         assert!(
             PLANNER_DELIVERY_POLICY.contains("authenticated source request explicitly requires")
         );
