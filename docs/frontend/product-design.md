@@ -62,8 +62,10 @@ reason.
 - Prefer the existing Noema representation of a concept. Chat markers, task
   transcripts, detail rails, semantic actions, and Astryx controls should not
   acquire parallel visual languages on different routes.
-- Keep the default cursor for product controls and links. Do not use a pointer
-  cursor as an extra interaction cue.
+- Use the pointer cursor for links presented as links, including message,
+  task-result, and artifact links.
+- Keep the default cursor for product controls and button-like navigation
+  links. Do not use a pointer cursor as an extra interaction cue.
 
 The proximity test is simple: items within a group must sit closer together
 than the group sits to its neighbors. Equal vertical gaps between every element
