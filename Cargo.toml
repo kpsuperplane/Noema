@@ -52,6 +52,7 @@ obscura-browser = { git = "https://github.com/h4ckf0r0day/obscura.git", rev = "e
 openapiv3 = "2.2"
 process-wrap = { version = "9.1", default-features = false, features = ["creation-flags", "job-object", "kill-on-drop", "process-group", "tokio1"] }
 psl = "2"
+pulldown-cmark = { version = "0.13.4", default-features = false }
 reqwest = { version = "0.13", default-features = false, features = ["form", "http2", "json", "rustls"] }
 readabilityrs = "0.1.3"
 ring = "0.17"

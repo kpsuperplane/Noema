@@ -32,6 +32,7 @@ noema-runtime = { path = "../noema-runtime", default-features = false }
 noema-store = { path = "../noema-store", default-features = false }
 noema-tasks = { path = "../noema-tasks", default-features = false }
 noema-workspaces = { path = "../noema-workspaces", default-features = false }
+pulldown-cmark.workspace = true
 reqwest.workspace = true
 ring.workspace = true
 serde.workspace = true
