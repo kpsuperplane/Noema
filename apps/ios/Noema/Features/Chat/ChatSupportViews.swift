@@ -125,7 +125,6 @@ struct ChatComposer: View {
   var autoFocus = false
   var restingBottomOffset: CGFloat = 0
   @FocusState private var inputFocused: Bool
-  @Environment(NoemaShellCoordinator.self) private var coordinator
 
   private var preferredWidth: CGFloat {
     let content = model.draft.isEmpty ? placeholder : model.draft
@@ -186,16 +185,10 @@ struct ChatComposer: View {
     .frame(idealWidth: preferredWidth, maxWidth: preferredWidth)
     .offset(y: inputFocused ? 0 : restingBottomOffset)
     .padding(.bottom, inputFocused ? NoemaSpacing.sm : 0)
-    .onChange(of: inputFocused) { _, focused in
-      coordinator.primarySwipeBlocked = focused
-    }
     .task {
       guard autoFocus, isEditable else { return }
       await Task.yield()
       inputFocused = true
-    }
-    .onDisappear {
-      coordinator.primarySwipeBlocked = false
     }
   }
 }

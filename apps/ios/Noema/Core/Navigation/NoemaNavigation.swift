@@ -96,7 +96,6 @@ final class NoemaShellCoordinator {
   var requestedDestination: NoemaDestination?
   var requestedTaskID: String?
   var activeSurfaceAtTop = true
-  var primarySwipeBlocked = false
   private var activeDestination: NoemaDestination = .chat
 
   func activate(_ destination: NoemaDestination) {
@@ -384,7 +383,7 @@ struct NoemaShellView: View {
           }
           guard compact else { return }
           let horizontal = abs(value.translation.width) >= abs(value.translation.height) * 1.2
-          if !navigationOpen, horizontal, !coordinator.primarySwipeBlocked {
+          if !navigationOpen, horizontal {
             let threshold = min(84, width * 0.22)
             let distance = max(abs(value.translation.width), abs(value.predictedEndTranslation.width))
             guard distance >= threshold else { return }
