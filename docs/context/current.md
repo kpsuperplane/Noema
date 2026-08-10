@@ -92,6 +92,10 @@ vertical slice or a net-negative reduction.
 - Frontend route and interaction truth is summarized in
   [../frontend/current-contract.md](../frontend/current-contract.md). UI changes
   follow [../frontend/product-design.md](../frontend/product-design.md).
+- Web action requests show one question and one consequence. Exact evidence
+  stays available under Review details.
+- Settings omit success labels when the configured control proves readiness.
+  Recoverable failures keep safe cached content and provide a local Retry action.
 - Optimize total system simplicity. Follow
   [../development/simplicity.md](../development/simplicity.md) before nontrivial
   architecture, refactoring, workflow, testing-policy, or harness work.
@@ -101,6 +105,8 @@ vertical slice or a net-negative reduction.
 - The Linux workspace gates stop before code validation because the active
   Tauri allowlist rejects the enabled `macos-private-api` feature. The roadmap
   did not change or bypass this desktop configuration.
+- The lint gate also reports existing missing error documentation and one
+  argument-count error in client notification store code.
 - Four unit-test failures remain outside the roadmap: two interaction-resume
   tests repeat a provider call ID, one embedded-browser test disagrees with the
   current fragment-URL rule, and one store test expects a different default

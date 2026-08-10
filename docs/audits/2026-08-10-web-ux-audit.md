@@ -4,11 +4,13 @@ Date: 2026-08-10
 
 ## Outcome
 
-The static audit found eight high-severity findings and six medium-severity findings.
+The web application now includes all 14 approved changes.
 
-Approval safety is the main risk. Navigation, focus, contrast, state accuracy, and failure recovery also need work.
+The changes improve approval safety, navigation, focus, contrast, state accuracy, and failure recovery.
 
-This report recommends changes only. It does not change the web application.
+The implementation keeps default views concise. It moves evidence and internal values behind existing technical disclosures.
+
+UX-13 is not a finding. A new conversation still waits for the agent's first message.
 
 ## Scope and coverage
 
@@ -32,6 +34,15 @@ The wireframes are schematic. They show information order and interaction states
 | Better Typography | Type roles, minimum sizes, metadata density, wrapping, and web-font delivery | One finding |
 | Better Colors | Semantic roles and measured foreground-background contrast | One finding |
 | Better UI | Submission state, destructive actions, approval behavior, feedback, motion, and surface reuse | Four findings |
+
+## Implementation status
+
+| Milestone | Findings | Commit | Result |
+| --- | --- | --- | --- |
+| Consequential actions | UX-01 through UX-05 | `4e2f94c5` | Safer decisions, submission guards, and confirmation flows |
+| Accessibility foundations | UX-06 through UX-11 | `7cd52f7b` | Semantic navigation, focus, readable text, announcements, and native selection controls |
+| Concise state and recovery | UX-12, UX-14, and UX-15 | `d6987525` | Truthful status, local recovery, and target-specific accessible names |
+| Action request contract | UX-01 correction | `3dfa6eb9` | Typed target, disclosure, consequence, and exact reviewed evidence |
 
 ## Design direction
 
@@ -733,12 +744,12 @@ Why:
 
 Screen-reader control lists and voice control cannot identify each target reliably.
 
-## Recommended delivery order
+## Delivery
 
-1. Fix UX-01 through UX-03 as one approval-safety milestone.
-2. Fix UX-04 and UX-05 as one command-safety milestone.
-3. Fix UX-06 through UX-11 as one accessibility-foundation milestone.
-4. Fix UX-12, UX-14, and UX-15 as one state-clarity milestone.
+1. UX-01 through UX-05 shipped as the consequential-action milestone.
+2. UX-06 through UX-11 shipped as the accessibility-foundation milestone.
+3. UX-12, UX-14, and UX-15 shipped as the state-clarity milestone.
+4. UX-01 received a correction pass for its complete read-model contract.
 
 Keep each milestone independently shippable. Stop if a fix requires a new unsupported product contract.
 
@@ -769,6 +780,16 @@ The revised default view must not grow unless one safety-critical consequence re
 
 Runtime validation should include Chromium, Firefox, Safari, iOS Safari, NVDA, and VoiceOver.
 
+## Validation result
+
+- `cargo fmt --all --check` passed.
+- The focused action request projection test passed.
+- Web TypeScript, ESLint, schema generation, and the production build passed.
+- The total Rust change is 122 production lines and 17 test lines. It adds no test cases.
+- Workspace check and test gates stop at the existing Linux Tauri allowlist conflict.
+- The lint gate also reports existing documentation and argument-count errors in unrelated store files.
+- Browser and assistive-technology verification did not run because it was not authorized.
+
 ## Considered but rejected
 
 ### Convert the full palette to OKLCH
@@ -795,4 +816,4 @@ Do not prompt the human to start the conversation because that would invert the 
 
 ## Verdict
 
-Block
+Static implementation complete. Runtime verification required.
