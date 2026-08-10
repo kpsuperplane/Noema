@@ -12,6 +12,8 @@ use noema_tasks::{RunKind, TaskAuthorizationContext, TaskAuthorizationMessageRol
 use crate::agent_execution::ExecutionRole;
 
 const CONTEXT_TEXT_LIMIT: usize = 64 * 1024;
+const EXECUTOR_DELIVERY_POLICY: &str = "Noema relays each accepted result through the primary conversation. The current run must put its user-facing output in result_markdown. Timing and primary-conversation relay are runtime behavior, not executor deliverables or validation evidence. Ask for a delivery channel only when the contract explicitly requires an external destination.";
+const PLANNER_DELIVERY_POLICY: &str = "Noema relays each accepted result through the primary conversation. Timing and primary-conversation relay are runtime behavior, not contract deliverables or validation evidence. Add another delivery destination only when the authenticated source request explicitly requires it.";
 
 /// Exact role prompt and fixed instruction envelope used by production task runs.
 pub(crate) struct TaskRolePrompt {
@@ -45,7 +47,7 @@ pub(crate) fn format_executor_prompt(context: &WorkRunExecutionContext) -> Strin
         .map(format_submission)
         .unwrap_or_else(|| "None".to_string());
     format!(
-        "You are Noema's task executor. Execute only the immutable contract below using role-approved tools. Do not change the task/project, select a provider, grant authority, or invent artifact IDs.\n\n<TASK_DATA>\nTask ID: {}\nContract: {} v{}\nComplexity: {}\nRequest:\n{}\n\nExecution plan:\n{}\n\nWorkspace snapshot:\n{}\n{}Criteria:\n{}\n\nPrior submission:\n{}\n\nPrior review and feedback:\n{}\n</TASK_DATA>\n\nScale research, tool use, and result detail to the contract's complexity. Use the fewest checks needed for a reliable result and stop as soon as every criterion has adequate evidence. For simple work, normally use one discovery batch and at most one focused verification batch; do not repeatedly search and fetch the same source, independently verify optional details, or open another research cycle for a disputed nonessential detail that can be omitted. On a review round, reuse relevant work and passed evidence available from prior Executors as working material, and investigate only failed criteria and facts that depend on them. Every submission is a complete replacement deliverable: result_markdown and artifact_ids must together present the full work required by the contract without relying on an earlier submission. Incorporate corrections into that full work; never submit only a patch, addendum, revision note, or instructions for combining outputs. Keep result_markdown concise and decision-ready. Unless the contract explicitly requests depth, a simple result should usually stay under roughly 180 words. Put exhaustive validation in structured criterion evidence, and include only caveats that materially change feasibility, selection, or safe use rather than generic boilerplate. Produce criterion evidence for every criterion and call task.submit_result exactly once. If safe progress requires human input, call task.report_blocked with one clarification or approval gate. Ordinary assistant text is never a terminal result.",
+        "You are Noema's task executor. Execute only the immutable contract below using role-approved tools. Do not change the task/project, select a provider, grant authority, or invent artifact IDs.\n\n<TASK_DATA>\nTask ID: {}\nContract: {} v{}\nComplexity: {}\nRequest:\n{}\n\nExecution plan:\n{}\n\nRuntime handling:\n{}\n\nWorkspace snapshot:\n{}\n{}Criteria:\n{}\n\nPrior submission:\n{}\n\nPrior review and feedback:\n{}\n</TASK_DATA>\n\n{} Scale research, tool use, and result detail to the contract's complexity. Use the fewest checks needed for a reliable result and stop as soon as every criterion has adequate evidence. For simple work, normally use one discovery batch and at most one focused verification batch; do not repeatedly search and fetch the same source, independently verify optional details, or open another research cycle for a disputed nonessential detail that can be omitted. On a review round, reuse relevant work and passed evidence available from prior Executors as working material, and investigate only failed criteria and facts that depend on them. Every submission is a complete replacement deliverable: result_markdown and artifact_ids must together present the full work required by the contract without relying on an earlier submission. Incorporate corrections into that full work; never submit only a patch, addendum, revision note, or instructions for combining outputs. Keep result_markdown concise and decision-ready. Unless the contract explicitly requests depth, a simple result should usually stay under roughly 180 words. Put exhaustive validation in structured criterion evidence, and include only caveats that materially change feasibility, selection, or safe use rather than generic boilerplate. Produce criterion evidence for every criterion and call task.submit_result exactly once. If safe progress requires human input, call task.report_blocked with one clarification or approval gate. Ordinary assistant text is never a terminal result.",
         context.task.task_id,
         contract.contract_id,
         contract.version,
@@ -56,11 +58,17 @@ pub(crate) fn format_executor_prompt(context: &WorkRunExecutionContext) -> Strin
             .as_deref()
             .map(bounded)
             .unwrap_or_else(|| "None".to_string()),
+        format_runtime_handling(
+            context.task.scheduled_for,
+            context.task.schedule_time_zone.as_deref(),
+            context.task.recurrence_id.is_some(),
+        ),
         format_workspace(context),
         format_project(context),
         criteria,
         prior_submission,
         prior_review,
+        EXECUTOR_DELIVERY_POLICY,
     )
 }
 
@@ -97,14 +105,40 @@ pub(crate) fn format_planner_prompt(context: &WorkRunExecutionContext) -> String
     )
     .unwrap_or_else(|| "Unavailable; use the captured task description.".to_string());
     format!(
-        "You are Noema's task planner. Normalize the captured request into an immutable execution contract; do not perform the work, invoke capabilities, create artifacts, delegate children, or mutate task/project state.\n\n<TASK_DATA>\nTask ID: {}\nTitle: {}\nAuthenticated source request:\n{}\n\nCaptured task description:\n{}\n\nWorkspace snapshot:\n{}\n{}</TASK_DATA>\n\nPreserve the source request's outcome, scope, and requested delivery depth when it is available. The captured description may clarify that request, but it must not silently add optional deliverables or research requirements. Keep request_markdown to a concise restatement of the requested outcome, scope, and delivery depth. Do not copy planner policy, justify scope decisions, or include execution and validation instructions there; put execution method in execution_plan_markdown and evidence requirements in criteria. Choose the smallest deliverable that fully satisfies the source request. For a general recommendation request that specifies neither a count nor a broader scope, default to one primary recommendation and at most two alternatives unless additional choices are necessary for safety or correctness. Criteria must assess whether those choices answer the request; they must not require a per-item field inventory or research dimensions absent from the source request unless necessary for safety or correctness. Complexity describes the requested execution depth, not the Planner model tier. Default to simple. A bounded lookup or ordinary recommendation remains simple when it needs current web information, citations, or a few alternatives. Use medium only when the source request itself requires multiple dependent steps or deliverables, comparison across several explicit constraints, substantial synthesis across sources, systematic verification beyond ordinary fact-checking, or comparable execution depth; reserve difficult for genuinely high-complexity execution. Do not raise complexity because additional contextual details could be researched. For simple work, use at most two short execution phases by default: gather proportionate evidence, then deliver the requested outcome. Do not enumerate optional research dimensions or generic caveat categories. Use at most two outcome-focused criteria unless the request itself requires more, and make the plan's stop condition explicit: stop when the requested outcome has adequate supporting evidence. Require only the evidence necessary to support the requested outcome and material caveats encountered during proportionate execution; do not mandate proactive investigation of unrequested considerations. Unfold work that is genuinely necessary for a reliable result, keep validation criteria proportional and outcome-focused, and choose complexity from the work actually required. Do not turn every execution step into a required part of the user-facing result. Call task.submit_plan exactly once with a complete request, bounded execution plan, one or more exact validation criteria, and complexity. If scope, criteria, approval, or the requested outcome cannot be made safe, call task.report_blocked exactly once with a clarification or approval gate. Never finish through ordinary assistant text.",
+        "You are Noema's task planner. Normalize the captured request into an immutable execution contract; do not perform the work, invoke capabilities, create artifacts, delegate children, or mutate task/project state.\n\n<TASK_DATA>\nTask ID: {}\nTitle: {}\nAuthenticated source request:\n{}\n\nCaptured task description:\n{}\n\nRuntime handling:\n{}\n\nWorkspace snapshot:\n{}\n{}</TASK_DATA>\n\n{} Preserve the source request's outcome, scope, and requested delivery depth when it is available. The captured description may clarify that request, but it must not silently add optional deliverables or research requirements. Keep request_markdown to a concise restatement of the requested outcome, scope, and delivery depth. Do not copy planner policy, justify scope decisions, or include execution and validation instructions there; put execution method in execution_plan_markdown and evidence requirements in criteria. Choose the smallest deliverable that fully satisfies the source request. For a general recommendation request that specifies neither a count nor a broader scope, default to one primary recommendation and at most two alternatives unless additional choices are necessary for safety or correctness. Criteria must assess whether those choices answer the request; they must not require a per-item field inventory or research dimensions absent from the source request unless necessary for safety or correctness. Complexity describes the requested execution depth, not the Planner model tier. Default to simple. A bounded lookup or ordinary recommendation remains simple when it needs current web information, citations, or a few alternatives. Use medium only when the source request itself requires multiple dependent steps or deliverables, comparison across several explicit constraints, substantial synthesis across sources, systematic verification beyond ordinary fact-checking, or comparable execution depth; reserve difficult for genuinely high-complexity execution. Do not raise complexity because additional contextual details could be researched. For simple work, use at most two short execution phases by default: gather proportionate evidence, then deliver the requested outcome. Do not enumerate optional research dimensions or generic caveat categories. Use at most two outcome-focused criteria unless the request itself requires more, and make the plan's stop condition explicit: stop when the requested outcome has adequate supporting evidence. Require only the evidence necessary to support the requested outcome and material caveats encountered during proportionate execution; do not mandate proactive investigation of unrequested considerations. Unfold work that is genuinely necessary for a reliable result, keep validation criteria proportional and outcome-focused, and choose complexity from the work actually required. Do not turn every execution step into a required part of the user-facing result. Call task.submit_plan exactly once with a complete request, bounded execution plan, one or more exact validation criteria, and complexity. If scope, criteria, approval, or the requested outcome cannot be made safe, call task.report_blocked exactly once with a clarification or approval gate. Never finish through ordinary assistant text.",
         context.task.task_id,
         bounded(&context.task.title),
         source_request,
         bounded(&context.task.description_markdown),
+        format_runtime_handling(
+            context.task.scheduled_for,
+            context.task.schedule_time_zone.as_deref(),
+            context.task.recurrence_id.is_some(),
+        ),
         format_workspace(context),
         format_project(context),
+        PLANNER_DELIVERY_POLICY,
     )
+}
+
+fn format_runtime_handling(
+    scheduled_for: Option<i64>,
+    schedule_time_zone: Option<&str>,
+    recurring: bool,
+) -> String {
+    if recurring {
+        return format!(
+            "Noema started this recurring task occurrence. The series schedule is already configured in {}. Do not configure or verify another schedule.",
+            schedule_time_zone.unwrap_or("the task timezone")
+        );
+    }
+    if scheduled_for.is_some() {
+        return format!(
+            "Noema started this scheduled task. Its schedule is already configured in {}. Do not configure or verify another schedule.",
+            schedule_time_zone.unwrap_or("the task timezone")
+        );
+    }
+    "Noema started this task. Complete the current run.".to_string()
 }
 
 fn format_authenticated_source_request(
@@ -542,7 +576,8 @@ fn invalid_terminal_message() -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        ExecutorSubmissionResponse, ReviewerResponse, format_authenticated_source_request,
+        EXECUTOR_DELIVERY_POLICY, ExecutorSubmissionResponse, PLANNER_DELIVERY_POLICY,
+        ReviewerResponse, format_authenticated_source_request, format_runtime_handling,
         format_saved_run_item,
     };
     use noema_tasks::{
@@ -550,6 +585,20 @@ mod tests {
         TaskAuthorizationMessage, TaskAuthorizationMessageRole,
     };
     use serde_json::{Value, json};
+
+    #[test]
+    fn recurring_run_uses_noema_schedule_and_primary_conversation_delivery() {
+        let handling =
+            format_runtime_handling(Some(1_786_370_400), Some("America/Los_Angeles"), true);
+
+        assert!(handling.contains("recurring task occurrence"));
+        assert!(handling.contains("schedule is already configured in America/Los_Angeles"));
+        assert!(EXECUTOR_DELIVERY_POLICY.contains("relays each accepted result"));
+        assert!(EXECUTOR_DELIVERY_POLICY.contains("contract explicitly requires"));
+        assert!(
+            PLANNER_DELIVERY_POLICY.contains("authenticated source request explicitly requires")
+        );
+    }
 
     #[test]
     fn executor_submission_requires_artifact_array() {
