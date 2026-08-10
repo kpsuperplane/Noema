@@ -98,5 +98,5 @@ const styles = stylex.create({
   attentionIcon: { color: "var(--noema-clay-600)" },
   errorIcon: { color: "var(--noema-red-700)" },
   neutralIcon: { color: "var(--noema-text-muted)" },
-  chipTitle: { minWidth: 0, overflow: "hidden", fontSize: 11, fontWeight: 650, lineHeight: 1, textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  chipTitle: { minWidth: 0, overflow: "hidden", fontSize: 12, fontWeight: 650, lineHeight: 1, textOverflow: "ellipsis", whiteSpace: "nowrap" },
 });

@@ -515,7 +515,7 @@ const styles = stylex.create({
   capability: {
     color: "var(--noema-text-muted)",
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-    fontSize: 10,
+    fontSize: 12,
     overflowWrap: "anywhere"
   },
   details: {
@@ -539,7 +539,7 @@ const styles = stylex.create({
     borderRadius: "var(--radius-element)",
     backgroundColor: "var(--noema-surface-subtle)",
     color: "var(--noema-text-primary)",
-    fontSize: 11,
+    fontSize: 12,
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
     cursor: "text"
@@ -552,7 +552,7 @@ const styles = stylex.create({
   },
   pageUrl: {
     color: "var(--noema-text-muted)",
-    fontSize: 10,
+    fontSize: 12,
     lineHeight: 1.35,
     overflowWrap: "anywhere"
   },
@@ -565,7 +565,7 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-sunken)",
     color: "var(--noema-text-primary)",
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-    fontSize: 11,
+    fontSize: 12,
     lineHeight: 1.4,
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
@@ -574,7 +574,7 @@ const styles = stylex.create({
   technicalDetails: {
     paddingBlockStart: "var(--spacing-1)",
     color: "var(--noema-text-muted)",
-    fontSize: 10
+    fontSize: 12
   },
   assessment: {
     color: "var(--noema-text-secondary)",
@@ -587,7 +587,7 @@ const styles = stylex.create({
   },
   assessmentSignals: {
     color: "var(--noema-text-muted)",
-    fontSize: 10
+    fontSize: 12
   },
   sessionEnded: {
     color: "var(--noema-text-danger)",

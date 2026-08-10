@@ -190,7 +190,7 @@ const styles = stylex.create({
   embeddedTitle: {
     margin: "var(--spacing-0)",
     color: "var(--noema-text-secondary)",
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 650
   },
   list: {
@@ -259,7 +259,7 @@ const styles = stylex.create({
     marginBlockStart: 1
   },
   pending: {
-    color: "var(--noema-text-faint)"
+    color: "var(--noema-text-muted)"
   },
   uncertain: {
     color: "var(--noema-clay-600)"
@@ -288,7 +288,7 @@ const styles = stylex.create({
   },
   evidenceLabel: {
     color: "var(--noema-text-muted)",
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: 650
   },
   evidenceValue: {

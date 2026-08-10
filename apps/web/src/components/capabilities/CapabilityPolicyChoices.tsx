@@ -186,7 +186,7 @@ const styles = stylex.create({
   choiceTitle: { fontSize: 14, fontWeight: 600, lineHeight: 1.4 },
   choiceTitleSelected: { color: "var(--primary)" },
   choiceMeta: { flexShrink: 0 },
-  choiceNote: { fontSize: 11, fontWeight: 600, lineHeight: 1.3, color: "var(--destructive)" },
+  choiceNote: { fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "var(--destructive)" },
   choiceCheck: { width: 16, height: 16, color: "var(--primary)" },
   selectionMarker: { animationName: stylex.keyframes({ from: { opacity: 0, transform: "scale(0.6)" }, to: { opacity: 1, transform: "scale(1)" } }), animationDuration: "var(--motion-spring-micro-duration)", animationTimingFunction: "var(--motion-spring-critical-easing)" },
   choiceStep: { fontSize: 12, fontWeight: 500, lineHeight: 1.4, color: "var(--muted-foreground)" },

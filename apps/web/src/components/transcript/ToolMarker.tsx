@@ -100,10 +100,10 @@ const styles = stylex.create({
     flexShrink: 0,
     alignItems: "center",
     justifyContent: "center",
-    color: "var(--noema-text-faint)"
+    color: "var(--noema-text-muted)"
   },
   pending: {
-    color: "var(--noema-text-faint)"
+    color: "var(--noema-text-muted)"
   },
   running: {
     color: "var(--noema-pine-600)"
@@ -149,7 +149,7 @@ const styles = stylex.create({
     flexShrink: 0,
     alignItems: "center",
     justifyContent: "center",
-    color: "var(--noema-text-faint)",
+    color: "var(--noema-text-muted)",
     transitionDuration: "var(--motion-spring-micro-duration)",
     transitionProperty: "transform",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",

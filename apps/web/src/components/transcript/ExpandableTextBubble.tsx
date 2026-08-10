@@ -45,7 +45,12 @@ const styles = stylex.create({
     backgroundColor: "transparent",
     borderWidth: 0,
     cursor: "pointer",
-    outline: "none"
+    ":focus-visible": {
+      outlineWidth: 2,
+      outlineStyle: "solid",
+      outlineColor: "var(--ring)",
+      outlineOffset: 2
+    }
   },
   expandedTrigger: {
     pointerEvents: "none"
@@ -130,6 +135,7 @@ export function ExpandableTextBubbleContent({
         <button
           aria-expanded={expanded}
           aria-label={expanded ? "Collapse message" : "Expand message"}
+          data-slot="expandable-text-trigger"
           onClick={toggleExpanded}
           type="button"
           {...stylex.props(styles.trigger, expanded && styles.expandedTrigger)}

@@ -148,17 +148,17 @@ function dateLabel(value: string, timeZone: string) { return new Intl.DateTimeFo
 function occurrenceLabel(resolution: Recurrence["occurrences"][number]["resolution"]) { return resolution === "SKIPPED" ? "Skipped" : resolution === "COALESCED" ? "Combined" : "Task created"; }
 const styles = stylex.create({
   root: { minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
-  oneTime: { margin: 0, paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", color: "var(--noema-text-secondary)", fontSize: 11 },
+  oneTime: { margin: 0, paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", color: "var(--noema-text-secondary)", fontSize: 12 },
   scheduleCopy: { minWidth: 0 },
-  scheduleTitle: { minWidth: 0, color: "var(--noema-text-primary)", fontSize: 11, fontWeight: 700, lineHeight: 1.35 },
-  scheduleMeta: { minWidth: 0, color: "var(--noema-text-secondary)", fontSize: 10, lineHeight: 1.4, overflowWrap: "anywhere" },
-  nextRun: { minWidth: 0, color: "var(--noema-text-muted)", fontSize: 10, lineHeight: 1.4, overflowWrap: "anywhere" },
+  scheduleTitle: { minWidth: 0, color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, lineHeight: 1.35 },
+  scheduleMeta: { minWidth: 0, color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.4, fontVariantNumeric: "tabular-nums", overflowWrap: "anywhere" },
+  nextRun: { minWidth: 0, color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.4, fontVariantNumeric: "tabular-nums", overflowWrap: "anywhere" },
   menuButton: { width: 28, height: 28, flexShrink: 0 },
-  historyTrigger: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)", color: "var(--noema-text-secondary)", fontSize: 10, fontWeight: 650 },
-  historyCount: { color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 9, fontWeight: 500 },
+  historyTrigger: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)", color: "var(--noema-text-secondary)", fontSize: 12, fontWeight: 650 },
+  historyCount: { color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 12, fontWeight: 500, fontVariantNumeric: "tabular-nums" },
   historyList: { paddingBlockStart: "var(--spacing-1)" },
-  occurrence: { display: "flex", minWidth: 0, justifyContent: "space-between", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-1)", color: "var(--noema-text-secondary)", fontSize: 10, lineHeight: 1.4, textDecoration: "none" },
+  occurrence: { display: "flex", minWidth: 0, justifyContent: "space-between", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-1)", color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.4, fontVariantNumeric: "tabular-nums", textDecoration: "none" },
   occurrenceState: { flexShrink: 0, color: "var(--noema-text-muted)" },
   warning: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.45 },
-  error: { color: "var(--destructive)", fontSize: 11 }
+  error: { color: "var(--destructive)", fontSize: 12 }
 });

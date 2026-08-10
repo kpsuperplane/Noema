@@ -233,7 +233,7 @@ const styles = stylex.create({
   empty: { margin: "var(--spacing-0)", padding: "var(--spacing-4)", color: "var(--muted-foreground)", fontSize: 13 },
   frame: { width: "100%", overflowX: "auto", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6 },
   table: { width: "100%", minWidth: 520, borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed", color: "var(--muted-foreground)" },
-  heading: { height: 40, padding: "0 var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", backgroundColor: "var(--surface-raised)", textAlign: "center", fontSize: 11, fontWeight: 500, lineHeight: 1.2, color: "var(--muted-foreground)" },
+  heading: { height: 40, padding: "0 var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", backgroundColor: "var(--surface-raised)", textAlign: "center", fontSize: 12, fontWeight: 500, lineHeight: 1.2, color: "var(--muted-foreground)" },
   cell: { height: 44, padding: "var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", textAlign: "center" },
   nameHeading: { width: "auto", paddingLeft: "var(--spacing-2)", textAlign: "left" },
   nameCell: { paddingLeft: "var(--spacing-2)", textAlign: "left", fontSize: 13, fontWeight: 600, lineHeight: 1.35, overflowWrap: "anywhere", whiteSpace: "normal", color: "var(--foreground)" },
@@ -241,7 +241,7 @@ const styles = stylex.create({
   actionsColumn: { width: 116, paddingRight: "var(--spacing-2)" },
   statusIcon: { display: "inline-flex", width: 18, height: 18, flexShrink: 0, alignItems: "center", justifyContent: "center" },
   statusWarning: { color: "var(--noema-clay-600)" },
-  statusMuted: { color: "var(--noema-text-faint)" },
+  statusMuted: { color: "var(--noema-text-muted)" },
   statusError: { color: "var(--noema-red-700)" },
   hintValue: { display: "inline-flex", width: 24, height: 20, alignItems: "center", justifyContent: "center" },
   spinner: { animationName: stylex.keyframes({ to: { transform: "rotate(360deg)" } }), animationDuration: "900ms", animationIterationCount: "infinite", animationTimingFunction: "linear", "@media (prefers-reduced-motion: reduce)": { animationName: "none" } }

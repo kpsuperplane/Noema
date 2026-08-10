@@ -88,6 +88,7 @@ export function useDeckNavigation() {
   const menuButtonRef = React.useRef<HTMLButtonElement>(null);
 
   const openNav = React.useCallback(() => {
+    menuButtonRef.current?.focus();
     dispatch({ type: "openNav", animated: shouldAnimateDeckNavigation() });
   }, []);
 

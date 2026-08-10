@@ -30,6 +30,7 @@ const composerWidthBufferPx = 32;
 const composerMeasuredTextSlackPx = 4;
 const composerBubbleInlineReservePx = 62;
 const composerMinTextHeightPx = 24;
+const composerMaxTextHeightPx = 144;
 const composerTextareaFontSize = "1rem";
 const composerTextareaLineHeight = "1.5rem";
 
@@ -150,7 +151,9 @@ export function syncHeight({
     return;
   }
 
-  textarea.style.height = `${Math.max(composerMinTextHeightPx, textarea.scrollHeight)}px`;
+  const nextHeight = Math.max(composerMinTextHeightPx, textarea.scrollHeight);
+  textarea.style.height = `${Math.min(composerMaxTextHeightPx, nextHeight)}px`;
+  textarea.style.overflowY = nextHeight > composerMaxTextHeightPx ? "auto" : "hidden";
 }
 
 export function composerTextareaWrapStyle({
@@ -488,7 +491,13 @@ const styles = stylex.create({
       "@media (hover: none) and (pointer: coarse)": 56
     },
     color: "var(--primary-foreground)",
-    boxShadow: "var(--composer-bubble-shadow, var(--shadow-composer))"
+    boxShadow: "var(--composer-bubble-shadow, var(--shadow-composer))",
+    ":focus-within": {
+      outlineWidth: 2,
+      outlineStyle: "solid",
+      outlineColor: "var(--ring)",
+      outlineOffset: 2
+    }
   },
   textareaWrap: {
     minWidth: 0,

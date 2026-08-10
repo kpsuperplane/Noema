@@ -777,7 +777,7 @@ const styles = stylex.create({
   },
   eyebrow: {
     color: "var(--noema-text-muted)",
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 600,
     textTransform: "uppercase",
     letterSpacing: "0.045em",
@@ -789,7 +789,7 @@ const styles = stylex.create({
     paddingBlock: "var(--spacing-0-5)",
     paddingInline: "var(--spacing-1)",
     color: "var(--noema-text-secondary)",
-    fontSize: 10,
+    fontSize: 12,
     letterSpacing: 0,
     textTransform: "none"
   },
@@ -808,7 +808,7 @@ const styles = stylex.create({
   },
   setupNote: {
     color: "var(--noema-text-muted)",
-    fontSize: 11,
+    fontSize: 12,
     lineHeight: 1.4
   },
   operationList: {
@@ -824,7 +824,7 @@ const styles = stylex.create({
   operationRisk: {
     flexShrink: 0,
     color: "var(--noema-text-muted)",
-    fontSize: 10,
+    fontSize: 12,
     lineHeight: 1.35
   },
   operationName: {
@@ -833,7 +833,7 @@ const styles = stylex.create({
   },
   moreOperations: {
     color: "var(--noema-text-muted)",
-    fontSize: 11,
+    fontSize: 12,
     lineHeight: 1.35
   },
   redirectUriValue: {
@@ -843,7 +843,7 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-subtle)",
     color: "var(--noema-text-primary)",
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-    fontSize: 11,
+    fontSize: 12,
     lineHeight: 1.4,
     overflowWrap: "anywhere",
     userSelect: "all",
@@ -851,7 +851,7 @@ const styles = stylex.create({
   },
   detailHeading: {
     color: "var(--noema-text-primary)",
-    fontSize: 11
+    fontSize: 12
   },
   actions: {
     flexShrink: 0,

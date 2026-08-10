@@ -74,7 +74,7 @@ export function TasksSurface({ search, selectedTaskId, onCloseTask }: {
                   </div>
                 </ShellPageTrack>
               ) : null}
-              <main aria-label="Tasks" {...stylex.props(styles.panel)}>
+              <section aria-label="Tasks" {...stylex.props(styles.panel)}>
                 <ShellPageTrack>
                   <TasksList
                     projectId={search.project}
@@ -83,7 +83,7 @@ export function TasksSurface({ search, selectedTaskId, onCloseTask }: {
                     terminal={search.terminal ?? "all"}
                   />
                 </ShellPageTrack>
-              </main>
+              </section>
             </>
           }
           detail={selectedTaskId ? (
@@ -114,6 +114,6 @@ const styles = stylex.create({
   },
   panel: { minHeight: 0, outline: "none", overflowY: "auto", overflowX: "hidden", scrollbarWidth: "thin" },
   notices: { display: "grid", gap: "var(--spacing-1)", ":empty": { display: "none" } },
-  live: { justifySelf: "end", paddingBlock: "calc(var(--spacing-1) - 1px)", color: "var(--noema-text-muted)", fontSize: 10, ":empty": { display: "none" } },
-  refresh: { justifySelf: "start", borderWidth: 0, backgroundColor: "transparent", padding: "var(--spacing-0)", color: "var(--noema-clay-700)", font: "inherit", fontSize: 11, textDecoration: "underline", cursor: "pointer" }
+  live: { justifySelf: "end", paddingBlock: "calc(var(--spacing-1) - 1px)", color: "var(--noema-text-muted)", fontSize: 12, ":empty": { display: "none" } },
+  refresh: { justifySelf: "start", borderWidth: 0, backgroundColor: "transparent", padding: "var(--spacing-0)", color: "var(--noema-clay-700)", font: "inherit", fontSize: 12, textDecoration: "underline", cursor: "pointer" }
 });

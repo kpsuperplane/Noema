@@ -97,7 +97,9 @@ export function Transcript({
   collapseConsecutiveToolCalls?: boolean;
   ariaLabel?: string;
 }) {
-  void awaitingAssistantTurn;
+  const activeTurn = pending || awaitingAssistantTurn;
+  const previousActiveTurnRef = React.useRef(activeTurn);
+  const [completionAnnouncementKey, setCompletionAnnouncementKey] = React.useState(0);
   const [transcriptScrolling, setTranscriptScrolling] = React.useState(false);
   const [historyAnchorEntries, setHistoryAnchorEntries] = React.useState(entries);
   const latestEntriesRef = React.useRef(entries);
@@ -105,6 +107,12 @@ export function Transcript({
   React.useLayoutEffect(() => {
     latestEntriesRef.current = entries;
   }, [entries]);
+  React.useEffect(() => {
+    if (previousActiveTurnRef.current && !activeTurn) {
+      setCompletionAnnouncementKey((current) => current + 1);
+    }
+    previousActiveTurnRef.current = activeTurn;
+  }, [activeTurn]);
   const historyPrependDeferred =
     transcriptScrolling && isHistoryPrepend(historyAnchorEntries, entries);
   const visibleEntries = historyPrependDeferred ? historyAnchorEntries : entries;
@@ -203,6 +211,8 @@ export function Transcript({
         historyPrependDeferred={historyPrependDeferred}
         loadingBefore={loadingOlderTranscript}
         loadBeforeError={olderTranscriptPageError}
+        busy={activeTurn}
+        completionAnnouncementKey={completionAnnouncementKey}
         onLoadBefore={handleLoadOlderTranscript}
         onScrollActivityChange={handleScrollActivityChange}
         onViewportScroll={handleViewportScroll}

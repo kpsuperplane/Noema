@@ -42,6 +42,9 @@ export function MemoryPageTree({
     }
     void navigate({ to: "/memory/$", params: { _splat: memoryPageUrlPath(path) } });
   };
+  const pageHref = (path: string) => path === root.path
+    ? "/memory"
+    : `/memory/${memoryPageUrlPath(path).split("/").map(encodeURIComponent).join("/")}`;
 
   return (
     <nav
@@ -59,6 +62,7 @@ export function MemoryPageTree({
           activePath={activePath}
           depth={0}
           node={tree}
+          pageHref={pageHref}
           onSelectPage={selectPage}
         />
       </VStack>
@@ -70,12 +74,14 @@ function MemoryTreeItem({
   node,
   depth,
   activePath,
-  onSelectPage
+  onSelectPage,
+  pageHref
 }: {
   node: TreeNode;
   depth: number;
   activePath: string;
   onSelectPage: (path: string) => void;
+  pageHref: (path: string) => string;
 }) {
   const active = node.path === activePath;
   const deeperPadding = memoryPagePadding(depth);
@@ -89,6 +95,7 @@ function MemoryTreeItem({
         indent={deeperPadding}
         itemId={node.id}
         label={node.title}
+        href={pageHref(node.path)}
         onSelect={() => onSelectPage(node.path)}
       />
       {node.children.length > 0 ? (
@@ -99,6 +106,7 @@ function MemoryTreeItem({
               activePath={activePath}
               depth={depth + 1}
               node={child}
+              pageHref={pageHref}
               onSelectPage={onSelectPage}
             />
           ))}

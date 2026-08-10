@@ -102,7 +102,9 @@ export function TaskActions({
     input.style.fontSize = "16px";
     input.style.lineHeight = "24px";
     if (answer.length > 0) {
-      input.style.height = `${Math.max(24, input.scrollHeight)}px`;
+      const nextHeight = Math.max(24, input.scrollHeight);
+      input.style.height = `${Math.min(144, nextHeight)}px`;
+      input.style.overflowY = nextHeight > 144 ? "auto" : "hidden";
     }
     const inlineSize = measureComposerDraftInlineSize({
       textarea: input,
@@ -424,7 +426,13 @@ const styles = stylex.create({
       "@media (hover: none) and (pointer: coarse)": 52
     },
     color: "var(--primary-foreground)",
-    boxShadow: "var(--shadow-composer)"
+    boxShadow: "var(--shadow-composer)",
+    ":focus-within": {
+      outlineWidth: 2,
+      outlineStyle: "solid",
+      outlineColor: "var(--ring)",
+      outlineOffset: 2
+    }
   },
   answerInputField: {
     "--color-text-primary": "var(--primary-foreground)",
@@ -474,10 +482,10 @@ const styles = stylex.create({
     }
   },
   approvalActions: { display: "flex", justifyContent: "flex-end", gap: "var(--spacing-2)" },
-  stale: { display: "grid", justifyItems: "start", gap: "var(--spacing-2)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-2)", color: "var(--noema-clay-600)", fontSize: 11, lineHeight: 1.4 },
-  inlineError: { margin: "var(--spacing-0)", color: "var(--noema-red-700)", fontSize: 11, lineHeight: 1.4 },
+  stale: { display: "grid", justifyItems: "start", gap: "var(--spacing-2)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-2)", color: "var(--noema-clay-600)", fontSize: 12, lineHeight: 1.4 },
+  inlineError: { margin: "var(--spacing-0)", color: "var(--noema-red-700)", fontSize: 12, lineHeight: 1.4 },
   srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" },
-  loadError: { color: "var(--destructive)", fontSize: 11 }
+  loadError: { color: "var(--destructive)", fontSize: 12 }
 });
 
 function taskAnswerComposerStyle(

@@ -179,7 +179,7 @@ const styles = stylex.create({
   eyebrow: {
     margin: "var(--spacing-0)",
     fontFamily: "var(--font-mono)",
-    fontSize: 11,
+    fontSize: 12,
     letterSpacing: "0.12em",
     color: "var(--text-accent)",
     textTransform: "uppercase"
