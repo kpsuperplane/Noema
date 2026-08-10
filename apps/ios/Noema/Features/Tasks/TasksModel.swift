@@ -69,6 +69,7 @@ final class TasksModel {
   func start() async {
     guard !started else { return }
     started = true
+    await restoreCachedSnapshot()
     await refresh()
     subscribeToTasks()
   }
@@ -157,10 +158,7 @@ final class TasksModel {
     }
     do {
       if let allTasks = try await fetch(listQuery).data {
-        tasks = allTasks.tasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }
-        tasksEndCursor = allTasks.tasks.pageInfo.endCursor
-        hasMoreTasks = allTasks.tasks.pageInfo.hasNextPage && tasksEndCursor != nil
-        hasLoadedTasks = true
+        applyTaskList(allTasks)
       }
       tasksErrorMessage = nil
     } catch {
@@ -191,6 +189,12 @@ final class TasksModel {
 
   func selectProject(_ projectId: String?) async {
     selectedProjectId = projectId
+    hasLoadedTasks = false
+    tasks = []
+    needsYou = []
+    pendingInterventions = []
+    history = []
+    await restoreCachedSnapshot()
     await refresh()
   }
 
@@ -307,9 +311,7 @@ final class TasksModel {
     do {
       let query = TasksHistoryQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId), kind: .none, text: .none, first: .some(50), after: .none)
       if let result = try await fetch(query).data {
-        history = result.taskHistory.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }
-        historyEndCursor = result.taskHistory.pageInfo.endCursor
-        hasMoreHistory = result.taskHistory.pageInfo.hasNextPage && historyEndCursor != nil
+        applyHistory(result)
       }
       historyErrorMessage = nil
     } catch {
@@ -1330,6 +1332,64 @@ final class TasksModel {
 
   private func optional<T>(_ value: T?) -> GraphQLNullable<T> {
     value.map(GraphQLNullable.some) ?? .none
+  }
+
+  private func restoreCachedSnapshot() async {
+    let project = optional(selectedProjectId)
+    let overviewQuery = TasksOverviewQuery(workspaceId: workspaceId, projectId: project)
+    let projectsQuery = TasksProjectsQuery(workspaceId: workspaceId, includeArchived: true, first: .some(100), after: .none)
+    let needsQuery = TasksNeedsYouQuery(workspaceId: workspaceId, projectId: project, first: .some(50), after: .none)
+    let pendingQuery = NoemaAPI.PendingChatInterventionsQuery(
+      conversationId: .none,
+      taskId: .none,
+      projectId: project,
+      first: 50
+    )
+    let listQuery = TasksListQuery(
+      input: TaskListInput(workspaceId: workspaceId, projectId: project, scope: GraphQLEnum(.active)),
+      first: .some(100),
+      after: .none
+    )
+    let historyQuery = TasksHistoryQuery(
+      workspaceId: workspaceId,
+      projectId: project,
+      kind: .none,
+      text: .none,
+      first: .some(50),
+      after: .none
+    )
+    if let data = await cachedData(overviewQuery) { applyOverview(data.tasksOverview) }
+    if let data = await cachedData(projectsQuery) { applyProjects(data.projects) }
+    if let data = await cachedData(needsQuery) { applyNeedsYou(data.needsYou) }
+    if let data = await cachedData(listQuery) { applyTaskList(data) }
+    if let data = await cachedData(pendingQuery) {
+      pendingInterventions = data.pendingHumanInterventions.compactMap(HumanIntervention.init).filter {
+        if case .attention = $0 { return false }
+        return true
+      }
+    }
+    if let data = await cachedData(historyQuery) { applyHistory(data) }
+  }
+
+  private func cachedData<Query: GraphQLQuery>(_ query: Query) async -> Query.Data? where Query.ResponseFormat == SingleResponseFormat {
+    do {
+      return try await client.fetch(query: query, cachePolicy: .cacheOnly)?.data
+    } catch {
+      return nil
+    }
+  }
+
+  private func applyTaskList(_ data: TasksListQuery.Data) {
+    tasks = data.tasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }
+    tasksEndCursor = data.tasks.pageInfo.endCursor
+    hasMoreTasks = data.tasks.pageInfo.hasNextPage && tasksEndCursor != nil
+    hasLoadedTasks = true
+  }
+
+  private func applyHistory(_ data: TasksHistoryQuery.Data) {
+    history = data.taskHistory.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }
+    historyEndCursor = data.taskHistory.pageInfo.endCursor
+    hasMoreHistory = data.taskHistory.pageInfo.hasNextPage && historyEndCursor != nil
   }
 
   private func fetch<Query: GraphQLQuery>(_ query: Query) async throws -> GraphQLResponse<Query> where Query.ResponseFormat == SingleResponseFormat {

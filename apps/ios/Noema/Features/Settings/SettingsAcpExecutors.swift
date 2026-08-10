@@ -72,6 +72,7 @@ extension SettingsModel {
         if let values = response.data?.acpAgents {
           acpAgents = values.map(Self.acpAgent(from:))
           received = true
+          hasLoadedAcpAgents = true
         }
         if let message = response.errors?.first?.message, !received {
           acpErrorMessage = message
@@ -199,7 +200,7 @@ struct AcpWorkExecutorsSettings: View {
           editor = .add
         }
       }
-      if settings.isLoadingAcpAgents && settings.acpAgents.isEmpty {
+      if settings.isLoadingAcpAgents && !settings.hasLoadedAcpAgents {
         NoemaInlineState(message: "Loading ACP executors…", symbol: "arrow.triangle.2.circlepath")
       } else if let error = settings.acpErrorMessage, settings.acpAgents.isEmpty {
         NoemaInlineState(message: error, symbol: "wifi.slash", tone: .warning)

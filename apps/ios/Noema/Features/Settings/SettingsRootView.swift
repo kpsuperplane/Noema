@@ -5,13 +5,14 @@ import SwiftUI
 struct SettingsRootView: View {
   private let model: NoemaAppModel
   @Environment(NoemaShellCoordinator.self) private var shell
-  @State private var settings = SettingsModel()
+  @State private var settings: SettingsModel
   @State private var selection: SettingsSection = .agents
   @State private var revocationTarget: PairedClient?
   @State private var disconnectPresented = false
 
-  init(model: NoemaAppModel) {
+  init(model: NoemaAppModel, settings: SettingsModel) {
     self.model = model
+    _settings = State(initialValue: settings)
   }
 
   var body: some View {
@@ -248,7 +249,7 @@ private struct AgentsSettings: View {
     let visibleAgents = agents.filter { $0.agentId != "agent:task-executor" }
     VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
       SettingsSectionCard("Registered agents") {
-        if settings.isLoading && agents.isEmpty {
+        if settings.isLoading && settings.snapshot == nil {
           NoemaInlineState(message: "Loading agents…", symbol: "arrow.triangle.2.circlepath")
         } else if let error = settings.errorMessage, agents.isEmpty {
           NoemaInlineState(message: error, symbol: "wifi.slash", tone: .warning)
@@ -275,7 +276,7 @@ private struct AgentsSettings: View {
         let options = SettingsModel.modelOptions(
           from: agents.first(where: { $0.isPrimary })?.modelOptions ?? []
         )
-        if settings.isLoadingTaskModelPools && settings.taskModelPools.isEmpty {
+        if settings.isLoadingTaskModelPools && !settings.hasLoadedTaskModelPools {
           NoemaInlineState(message: "Loading task models…", symbol: "arrow.triangle.2.circlepath")
         } else if let error = settings.taskModelPoolsErrorMessage, settings.taskModelPools.isEmpty {
           NoemaInlineState(message: error, symbol: "exclamationmark.triangle", tone: .warning)
@@ -785,7 +786,7 @@ private struct CapabilitySettings: View {
       }
       if integrations.isEmpty {
         SettingsSectionCard {
-          if settings.isLoading {
+          if settings.isLoading && settings.snapshot == nil {
             NoemaInlineState(message: "Loading \(kind.rawValue)…", symbol: "arrow.triangle.2.circlepath")
           } else if let error = settings.errorMessage {
             NoemaInlineState(message: error, symbol: "wifi.slash", tone: .warning)

@@ -298,7 +298,7 @@ struct SettingsEmpty: View {
   let message: String
 
   var body: some View {
-    if settings.isLoading {
+    if settings.isLoading && settings.snapshot == nil {
       NoemaInlineState(message: "Loading…", symbol: "arrow.triangle.2.circlepath")
     } else if let error = settings.errorMessage {
       NoemaInlineState(message: error, symbol: "wifi.slash", tone: .warning)

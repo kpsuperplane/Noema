@@ -198,6 +198,10 @@ struct NoemaTopRail: View {
 
 struct NoemaShellView: View {
   var model: NoemaAppModel
+  @State private var chat: ChatModel
+  @State private var tasks: TasksModel?
+  @State private var memory: MemoryModel
+  @State private var settings: SettingsModel
   @State private var selection: NoemaDestination = .chat
   @State private var navigationOpen = false
   @State private var navigationDragOffset: CGFloat = 0
@@ -206,6 +210,16 @@ struct NoemaShellView: View {
   @State private var measuredMobileRevealHeight: CGFloat = 0
   @State private var coordinator = NoemaShellCoordinator()
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  init(model: NoemaAppModel) {
+    self.model = model
+    _chat = State(initialValue: ChatModel(client: model.graphQLClient?.client, profile: model.profile))
+    _tasks = State(initialValue: model.graphQLClient.map {
+      TasksModel(client: $0.client, profile: model.profile)
+    })
+    _memory = State(initialValue: MemoryModel())
+    _settings = State(initialValue: SettingsModel())
+  }
 
   var body: some View {
     GeometryReader { proxy in
@@ -313,13 +327,13 @@ struct NoemaShellView: View {
       Group {
         switch selection {
         case .chat:
-          ChatRootView(model: model)
+          ChatRootView(model: model, chat: chat)
         case .tasks:
-          TasksRootView(model: model)
+          TasksRootView(model: model, tasksModel: tasks)
         case .memory:
-          MemoryRootView(model: model)
+          MemoryRootView(model: model, memory: memory)
         case .settings:
-          SettingsRootView(model: model)
+          SettingsRootView(model: model, settings: settings)
         }
       }
       .id(selection)

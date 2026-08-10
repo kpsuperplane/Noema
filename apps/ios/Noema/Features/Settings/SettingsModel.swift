@@ -162,6 +162,9 @@ final class SettingsModel {
   var isLoadingClients = false
   var isLoadingTaskModelPools = false
   var isLoadingAcpAgents = false
+  var hasLoadedClients = false
+  var hasLoadedTaskModelPools = false
+  var hasLoadedAcpAgents = false
   var auth: ProviderAuthModel?
   var capabilityDetails: [String: SettingsCapabilityDetail] = [:]
   var adapterDefinitions: [SettingsAdapterDefinition] = []
@@ -217,6 +220,7 @@ final class SettingsModel {
         if let data = response.data {
           clients = data.clients.map(Self.client(from:))
           received = true
+          hasLoadedClients = true
         }
         if let message = response.errors?.first?.message, !received {
           clientsErrorMessage = message

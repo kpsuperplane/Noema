@@ -41,6 +41,7 @@ extension SettingsModel {
       for try await response in stream {
         if let values = response.data?.taskModelPools {
           taskModelPools = values.map(Self.taskModelPool(from:))
+          hasLoadedTaskModelPools = true
         }
         if let message = response.errors?.first?.message { taskModelPoolsErrorMessage = message }
       }

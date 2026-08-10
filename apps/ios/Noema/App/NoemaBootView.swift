@@ -2,8 +2,6 @@ import SwiftUI
 
 struct NoemaBootView: View {
   @State private var selection = NoemaDestination.chat
-  @State private var glimmerProgress: CGFloat = -1
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     GeometryReader { proxy in
@@ -35,27 +33,6 @@ struct NoemaBootView: View {
         )
         .offset(y: deckTop)
         .shadow(color: NoemaColor.pine500.opacity(0.08), radius: 8)
-        .overlay {
-          if !reduceMotion {
-            GeometryReader { deck in
-              LinearGradient(
-                colors: [.clear, NoemaColor.white.opacity(0.72), .clear],
-                startPoint: .leading,
-                endPoint: .trailing
-              )
-              .frame(width: max(120, deck.size.width * 0.34))
-              .offset(x: glimmerProgress * (deck.size.width + 160))
-              .blendMode(.screen)
-            }
-            .clipShape(
-              UnevenRoundedRectangle(
-                topLeadingRadius: NoemaRadius.page,
-                topTrailingRadius: NoemaRadius.page
-              )
-            )
-            .allowsHitTesting(false)
-          }
-        }
 
         NoemaTopRail(
           selection: $selection,
@@ -69,12 +46,6 @@ struct NoemaBootView: View {
     }
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Preparing Noema")
-    .onAppear {
-      guard !reduceMotion else { return }
-      withAnimation(.linear(duration: 1.25).repeatForever(autoreverses: false)) {
-        glimmerProgress = 1
-      }
-    }
   }
 
   private var bootComposer: some View {

@@ -5,10 +5,11 @@ import SwiftUI
 struct MemoryRootView: View {
   private let appModel: NoemaAppModel
   @Environment(NoemaShellCoordinator.self) private var shell
-  @State private var memory = MemoryModel()
+  @State private var memory: MemoryModel
 
-  init(model: NoemaAppModel) {
+  init(model: NoemaAppModel, memory: MemoryModel) {
     appModel = model
+    _memory = State(initialValue: memory)
   }
 
   var body: some View {

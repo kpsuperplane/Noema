@@ -59,7 +59,7 @@ struct LocalModelsSettings: View {
             }
           }
         }
-      } else if settings.isLoading {
+      } else if settings.isLoading && settings.snapshot == nil {
         SettingsSectionCard { NoemaInlineState(message: "Loading local model runtime…", symbol: "arrow.triangle.2.circlepath") }
       } else {
         SettingsSectionCard("Local runtime") {
@@ -392,7 +392,7 @@ struct ClientsSettings: View {
         }
       }
       SettingsSectionCard("Paired clients") {
-        if settings.isLoadingClients && settings.clients.isEmpty {
+        if settings.isLoadingClients && !settings.hasLoadedClients {
           NoemaInlineState(message: "Loading paired clients…", symbol: "arrow.triangle.2.circlepath")
         } else if let error = settings.clientsErrorMessage, settings.clients.isEmpty {
           NoemaInlineState(message: error, symbol: "wifi.slash", tone: .warning)

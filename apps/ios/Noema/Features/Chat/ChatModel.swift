@@ -90,6 +90,7 @@ final class ChatModel {
   private(set) var providerName = "Noema"
   private(set) var primaryAgentDisplayName: String?
   private(set) var agentStatus = "IDLE"
+  private(set) var hasLoadedTranscript = false
   private(set) var hasMoreBefore = false
   private(set) var beforeCursor: String?
   private(set) var isLoadingOlder = false
@@ -121,6 +122,7 @@ final class ChatModel {
   private var knownCursors = Set<String>()
   private var streamingIndex: [String: Int] = [:]
   private var subscriptionRetryAttempt = 0
+  private var started = false
 
   private var dismissalStorageKey: String? {
     profile.map { "dev.noema.app.ios.dismissed-adapter-setup.\($0.origin.absoluteString)" }
@@ -141,11 +143,14 @@ final class ChatModel {
   }
 
   func start() async {
+    guard !started else { return }
+    started = true
     guard let client else {
       phase = .failed("Pair this device with a Noema server to start chat.")
       return
     }
-    phase = .loading
+    let restoredCache = await restoreCachedChat(client: client)
+    if !restoredCache { phase = .loading }
     do {
       let response = try await client.fetchNetworkFirst(query: NoemaAPI.ChatBootQuery())
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
@@ -167,19 +172,23 @@ final class ChatModel {
     } catch {
       errorMessage = error.localizedDescription
       isOffline = true
-      if messages.isEmpty {
+      if !hasLoadedTranscript, phase != .onboarding {
         phase = .failed(errorMessage ?? "Noema could not load chat.")
       } else {
-        phase = .ready
+        if phase != .onboarding { phase = .ready }
       }
     }
   }
 
   func onboardingCompleted() async {
+    started = false
     await start()
   }
 
-  func retry() async { await start() }
+  func retry() async {
+    started = false
+    await start()
+  }
 
   /// Refetches durable transcript state before accepting a resumed live stream.
   /// The app shell calls this after the shared WebSocket transport resumes.
@@ -512,27 +521,72 @@ final class ChatModel {
     return (conversation.conversationId, conversation.provider)
   }
 
+  private func restoreCachedChat(client: ApolloClient) async -> Bool {
+    do {
+      guard let bootResponse = try await client.fetch(
+        query: NoemaAPI.ChatBootQuery(),
+        cachePolicy: .cacheOnly
+      ), let boot = bootResponse.data else { return false }
+      primaryAgentDisplayName = boot.localStatus.primaryAgentDisplayName?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      if !boot.onboardingStatus.isUserOnboarded {
+        phase = .onboarding
+        return true
+      }
+      guard let primaryResponse = try await client.fetch(
+        query: NoemaAPI.PrimaryConversationQuery(),
+        cachePolicy: .cacheOnly
+      ), let primary = primaryResponse.data?.primaryConversation else { return false }
+      conversationID = primary.conversationId
+      providerName = primary.provider
+      let input = NoemaAPI.ConversationTranscriptPageInput(
+        conversationId: primary.conversationId,
+        cursor: .none,
+        limit: 80
+      )
+      guard let transcriptResponse = try await client.fetch(
+        query: NoemaAPI.ConversationTranscriptPageQuery(input: input),
+        cachePolicy: .cacheOnly
+      ), let page = transcriptResponse.data?.conversationTranscriptPage else { return false }
+      applyLatest(page)
+      isOffline = true
+      phase = .ready
+      return true
+    } catch {
+      return false
+    }
+  }
+
   private func loadLatest(client: ApolloClient) async {
     guard let conversationID else { return }
     do {
       let input = NoemaAPI.ConversationTranscriptPageInput(conversationId: conversationID, cursor: .none, limit: 80)
-      let response = try await client.fetchNetworkFirst(
-        query: NoemaAPI.ConversationTranscriptPageQuery(input: input)
+      let stream = try client.fetch(
+        query: NoemaAPI.ConversationTranscriptPageQuery(input: input),
+        cachePolicy: .cacheAndNetwork
       )
-      guard let page = response.data?.conversationTranscriptPage else { return }
-      messages.removeAll(keepingCapacity: true)
-      knownItemIDs.removeAll(keepingCapacity: true)
-      knownCursors.removeAll(keepingCapacity: true)
-      streamingIndex.removeAll(keepingCapacity: true)
-      merge(page.items, prepend: false)
-      hasMoreBefore = page.pageInfo.hasMoreBefore
-      beforeCursor = page.pageInfo.beforeCursor
-      isOffline = response.source != .server
+      for try await response in stream {
+        guard let page = response.data?.conversationTranscriptPage else { continue }
+        applyLatest(page)
+        isOffline = response.source != .server
+        phase = .ready
+      }
     } catch {
       errorMessage = error.localizedDescription
       isOffline = true
-      if messages.isEmpty { phase = .failed(error.localizedDescription) }
+      if !hasLoadedTranscript { phase = .failed(error.localizedDescription) }
     }
+  }
+
+  private func applyLatest(_ page: NoemaAPI.ConversationTranscriptPageQuery.Data.ConversationTranscriptPage) {
+    messages.removeAll(keepingCapacity: true)
+    knownItemIDs.removeAll(keepingCapacity: true)
+    knownCursors.removeAll(keepingCapacity: true)
+    streamingIndex.removeAll(keepingCapacity: true)
+    merge(page.items, prepend: false)
+    hasMoreBefore = page.pageInfo.hasMoreBefore
+    beforeCursor = page.pageInfo.beforeCursor
+    hasLoadedTranscript = true
   }
 
   private func refreshInterventions(client: ApolloClient) async {

@@ -6,8 +6,9 @@ struct TasksRootView: View {
   let appModel: NoemaAppModel
   @State private var tasksModel: TasksModel?
 
-  init(model: NoemaAppModel) {
+  init(model: NoemaAppModel, tasksModel: TasksModel?) {
     appModel = model
+    _tasksModel = State(initialValue: tasksModel)
   }
 
   var body: some View {
@@ -307,7 +308,7 @@ struct TasksListDeck: View {
 
       ScrollView {
         LazyVStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-          if model.isRefreshing && !hasVisibleTasks {
+          if model.isRefreshing && !model.hasLoadedTasks {
             TasksStateCard(message: "Loading tasks…", symbol: "arrow.triangle.2.circlepath")
           } else if !model.hasLoadedTasks, let error = model.tasksErrorMessage {
             TasksStateCard(
@@ -317,7 +318,7 @@ struct TasksListDeck: View {
               actionTitle: "Retry",
               action: { Task { await model.refresh() } }
             )
-          } else if !hasVisibleTasks && !model.isRefreshing {
+          } else if !hasVisibleTasks && model.hasLoadedTasks {
             TasksStateCard(
               message: "No tasks yet",
               detail: "Capture a request to start a durable task.",

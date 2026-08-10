@@ -7,9 +7,9 @@ struct ChatRootView: View {
   @State private var chat: ChatModel
   @Environment(NoemaShellCoordinator.self) private var coordinator
 
-  init(model: NoemaAppModel) {
+  init(model: NoemaAppModel, chat: ChatModel) {
     self.model = model
-    _chat = State(initialValue: ChatModel(client: model.graphQLClient?.client, profile: model.profile))
+    _chat = State(initialValue: chat)
   }
 
   var body: some View {
@@ -266,7 +266,7 @@ struct ChatReadyView: View {
                   tone: .warning
                 )
                 .containerRelativeFrame(.vertical, alignment: .center)
-              } else {
+              } else if !model.hasLoadedTranscript {
                 ChatTranscriptLoadingSkeleton()
                   .containerRelativeFrame(.vertical, alignment: .bottom)
               }

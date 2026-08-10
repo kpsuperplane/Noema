@@ -113,19 +113,28 @@ final class MemoryModel {
   }
 
   func select(pageID: String) async {
-    selectedPageID = pageID
     pageErrorMessage = nil
     if pageID == tree?.root?.id {
+      selectedPageID = pageID
       article = tree?.root
       return
     }
     guard let client else { return }
-    article = nil
+    let query = NoemaAPI.MemoryPageQuery(pageId: pageID)
+    if article?.id != pageID {
+      do {
+        article = try await client.fetch(query: query, cachePolicy: .cacheOnly)?
+          .data?.memoryPage.map(Self.article(from:))
+      } catch {
+        article = nil
+      }
+    }
+    selectedPageID = pageID
     isLoading = true
     defer { isLoading = false }
     do {
       let stream = try client.fetch(
-        query: NoemaAPI.MemoryPageQuery(pageId: pageID),
+        query: query,
         cachePolicy: .cacheAndNetwork
       )
       var received = false
@@ -217,7 +226,7 @@ final class MemoryModel {
     tree = MemoryTreeSnapshot(root: root, pages: pages, update: update)
     isOffline = false
     if selectedPageID == nil { selectedPageID = root?.id }
-    if selectedPageID == root?.id || article == nil { article = root }
+    if selectedPageID == root?.id { article = root }
   }
 
   private func apply(_ value: NoemaAPI.MemoryEventsSubscription.Data.MemoryEvents) {
@@ -227,7 +236,7 @@ final class MemoryModel {
     tree = MemoryTreeSnapshot(root: root, pages: pages, update: update)
     isOffline = false
     if selectedPageID == nil { selectedPageID = root?.id }
-    if selectedPageID == root?.id || article == nil { article = root }
+    if selectedPageID == root?.id { article = root }
   }
 
   private static func article(from value: NoemaAPI.MemoryTreeQuery.Data.MemoryTree.Root) -> MemoryArticle {
