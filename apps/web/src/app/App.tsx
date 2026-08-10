@@ -84,8 +84,8 @@ type SendMessageReadiness = {
 export function canSendMessage(readiness: SendMessageReadiness): readiness is SendMessageReadiness & {
   conversationId: string;
 } {
-  const { text, conversationId, socketState } = readiness;
-  return Boolean(text.trim() && conversationId && socketState === "ready");
+  const { text, conversationId, socketState, pending } = readiness;
+  return Boolean(text.trim() && conversationId && socketState === "ready" && !pending);
 }
 
 export function shouldRefreshLocalStatusForConversationEvent(event: unknown) {
@@ -185,6 +185,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const [latestTranscriptRetryBlockedConversationId, setLatestTranscriptRetryBlockedConversationId] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState("");
   const [pending, setPending] = React.useState(false);
+  const sendInFlightRef = React.useRef(false);
   const [awaitingAssistantTurn, setAwaitingAssistantTurn] = React.useState(false);
   const [expandedActivities, setExpandedActivities] = React.useState<Set<string>>(new Set());
   const [sentMessageScrollRequest, setSentMessageScrollRequest] = React.useState(0);
@@ -793,10 +794,11 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   async function sendMessage(text: string) {
     const input = text.trim();
     const readiness = { text, conversationId, socketState, pending };
-    if (!canSendMessage(readiness)) {
+    if (sendInFlightRef.current || !canSendMessage(readiness)) {
       return;
     }
 
+    sendInFlightRef.current = true;
     const clientMessageId = createClientId();
     setPending(true);
     setAwaitingAssistantTurn(false);
@@ -819,6 +821,8 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     } catch (error: unknown) {
       setPending(false);
       pushTranscriptWindowError(error instanceof Error ? error.message : "Noema could not send that message.");
+    } finally {
+      sendInFlightRef.current = false;
     }
   }
 

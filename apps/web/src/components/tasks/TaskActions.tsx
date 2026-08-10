@@ -44,7 +44,7 @@ export function TaskActions({
   const [editLoadError, setEditLoadError] = React.useState<string | null>(null);
   const [answer, setAnswer] = React.useState("");
   const [pendingChoice, setPendingChoice] = React.useState<string | null>(null);
-  const [approvalDecision, setApprovalDecision] = React.useState<"APPROVED" | "DECLINED">("APPROVED");
+  const [pendingApprovalDecision, setPendingApprovalDecision] = React.useState<"APPROVED" | "DECLINED" | null>(null);
   const answerInputRef = React.useRef<HTMLTextAreaElement>(null);
   const answerComposerRef = React.useRef<HTMLDivElement>(null);
   const [loadEditTask, editLoad] = useLazyQuery(TasksTaskEditFieldsDocument, { fetchPolicy: "network-only" });
@@ -57,12 +57,13 @@ export function TaskActions({
   const canAnswer = validActions.includes("ANSWER");
   const canRetry = validActions.includes("RETRY");
   const hasInlineResponse = inlineResponse && (canAnswer || canRetry);
+  const approval = task.activeGate?.kind === "APPROVAL";
   const visibleAnswerChoices = canAnswer && task.activeGate?.kind !== "APPROVAL"
     ? answerChoices
     : [];
   const responseAction = answer.trim() && canAnswer ? "ANSWER" : canRetry ? "RETRY" : "ANSWER";
-  const answerPlaceholder = task.activeGate?.kind === "APPROVAL"
-    ? "Explain your decision"
+  const answerPlaceholder = approval
+    ? "Optional note"
     : visibleAnswerChoices.length
       ? "Or type another answer"
       : canAnswer && canRetry
@@ -76,6 +77,20 @@ export function TaskActions({
   const liveSubjectChanged = activeCommand ? taskSubjectChanged(activeCommand.subject, task) : false;
   const requiresAcknowledgement = liveSubjectChanged || commands.requiresAcknowledgement;
   const actionUnavailable = Boolean(activeAction && !validActions.includes(activeAction));
+
+  const answerApproval = React.useCallback(async (decision: "APPROVED" | "DECLINED") => {
+    if (commands.busy || commands.requiresAcknowledgement) return;
+    setPendingApprovalDecision(decision);
+    try {
+      await commands.run("ANSWER", {
+        message: answer.trim() || undefined,
+        approvalDecision: decision
+      });
+      setAnswer("");
+    } finally {
+      setPendingApprovalDecision(null);
+    }
+  }, [answer, commands]);
 
   React.useLayoutEffect(() => {
     const input = answerInputRef.current;
@@ -151,26 +166,13 @@ export function TaskActions({
           {...stylex.props(styles.answerForm)}
           onSubmit={(event) => {
             event.preventDefault();
+            if (approval) return;
             if ((responseAction === "ANSWER" && !answer.trim()) || commands.busy || commands.requiresAcknowledgement) return;
             void commands.run(responseAction, {
-              message: answer.trim() || undefined,
-              approvalDecision: task.activeGate?.kind === "APPROVAL" ? approvalDecision : undefined
+              message: answer.trim() || undefined
             }).then(() => setAnswer("")).catch(() => undefined);
           }}
         >
-          {task.activeGate?.kind === "APPROVAL" ? (
-            <label {...stylex.props(styles.decisionField)}>
-              <span>Decision</span>
-              <select
-                value={approvalDecision}
-                {...stylex.props(styles.decisionSelect)}
-                onChange={(event) => setApprovalDecision(event.currentTarget.value as "APPROVED" | "DECLINED")}
-              >
-                <option value="APPROVED">Approve</option>
-                <option value="DECLINED">Decline</option>
-              </select>
-            </label>
-          ) : null}
           {visibleAnswerChoices.length ? (
             <VStack as="div" gap={1} hAlign="end" width="100%" className={stylex.props(styles.answerChoices).className}>
               {visibleAnswerChoices.map((choice, index) => (
@@ -196,7 +198,7 @@ export function TaskActions({
           <div
             ref={answerComposerRef}
             data-slot="task-answer-composer"
-            {...stylex.props(styles.answerComposerRow)}
+            {...stylex.props(styles.answerComposerRow, approval && styles.approvalComposerRow)}
             style={taskAnswerComposerStyle(composerDraftInlineSize({
               value: answer,
               placeholder: answerPlaceholder
@@ -205,9 +207,10 @@ export function TaskActions({
             <TextArea
               ref={answerInputRef}
               isLabelHidden
-              label={canRetry ? "Response or retry guidance" : "Answer"}
+              label={approval ? "Optional note" : canRetry ? "Response or retry guidance" : "Answer"}
               onChange={setAnswer}
               onKeyDown={(event) => {
+                if (approval) return;
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
                   answerInputRef.current?.form?.requestSubmit();
@@ -219,18 +222,42 @@ export function TaskActions({
               width="100%"
               className={stylex.props(styles.answerInputField).className}
             />
-            <Button
-              type="submit"
-              size="sm"
-              variant="secondary"
-              label={taskActionLabel(responseAction, false, task.activeGate?.kind === "APPROVAL" ? approvalDecision : undefined)}
-              isIconOnly
-              icon={<SendHorizontal aria-hidden="true" size={14} strokeWidth={2} />}
-              isLoading={commands.busy === responseAction}
-              isDisabled={(responseAction === "ANSWER" && !answer.trim()) || commands.busy !== null || commands.requiresAcknowledgement}
-              xstyle={styles.answerSubmit}
-            />
+            {!approval ? (
+              <Button
+                type="submit"
+                size="sm"
+                variant="secondary"
+                label={taskActionLabel(responseAction, false)}
+                isIconOnly
+                icon={<SendHorizontal aria-hidden="true" size={14} strokeWidth={2} />}
+                isLoading={commands.busy === responseAction}
+                isDisabled={(responseAction === "ANSWER" && !answer.trim()) || commands.busy !== null || commands.requiresAcknowledgement}
+                xstyle={styles.answerSubmit}
+              />
+            ) : null}
           </div>
+          {approval ? (
+            <div role="group" aria-label="Approval decision" {...stylex.props(styles.approvalActions)}>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                label="Decline"
+                isLoading={pendingApprovalDecision === "DECLINED"}
+                isDisabled={commands.busy !== null || commands.requiresAcknowledgement}
+                onClick={() => void answerApproval("DECLINED").catch(() => undefined)}
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                label="Approve"
+                isLoading={pendingApprovalDecision === "APPROVED"}
+                isDisabled={commands.busy !== null || commands.requiresAcknowledgement}
+                onClick={() => void answerApproval("APPROVED").catch(() => undefined)}
+              />
+            </div>
+          ) : null}
           {commands.requiresAcknowledgement ? (
             <div role="alert" {...stylex.props(styles.stale)}>
               <span>{commands.error}</span>
@@ -417,6 +444,9 @@ const styles = stylex.create({
     },
     boxShadow: "none"
   },
+  approvalComposerRow: {
+    paddingInlineEnd: "var(--spacing-1)"
+  },
   answerSubmit: {
     position: "absolute",
     insetInlineEnd: {
@@ -443,8 +473,7 @@ const styles = stylex.create({
       ":disabled": "color-mix(in srgb, var(--primary) 70%, transparent)"
     }
   },
-  decisionField: { display: "grid", gap: "var(--spacing-1-5)", color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },
-  decisionSelect: { minHeight: 34, width: "100%", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-default)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
+  approvalActions: { display: "flex", justifyContent: "flex-end", gap: "var(--spacing-2)" },
   stale: { display: "grid", justifyItems: "start", gap: "var(--spacing-2)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-2)", color: "var(--noema-clay-600)", fontSize: 11, lineHeight: 1.4 },
   inlineError: { margin: "var(--spacing-0)", color: "var(--noema-red-700)", fontSize: 11, lineHeight: 1.4 },
   srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" },

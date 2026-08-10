@@ -78,10 +78,12 @@ export function GovernedActionCard({
 }) {
   const [resolveAction, resolution] = useMutation(ResolveGovernedActionDocument);
   const [error, setError] = React.useState<string | null>(null);
+  const [pendingDecision, setPendingDecision] = React.useState<GovernedActionDecision | null>(null);
   const browserPreview = parseBrowserActionPreview(action.arguments);
   const browserSessionEnded = action.browserSessionAvailable === false;
   const decide = async (decision: GovernedActionDecision) => {
     setError(null);
+    setPendingDecision(decision);
     try {
       await resolveAction({
         variables: {
@@ -95,13 +97,15 @@ export function GovernedActionCard({
       onResolved?.();
     } catch (caught: unknown) {
       setError(caught instanceof Error ? caught.message : "The action could not be resolved.");
+    } finally {
+      setPendingDecision(null);
     }
   };
   return (
     <HumanInterventionCard
       label={reviewLabel(action.reviewRoute, action.behavior?.readOnly)}
       meta={action.taskId ? "Background task" : "Primary conversation"}
-      title={browserPreview ? browserActionTitle(browserPreview) : action.safeSummary}
+      title={browserPreview ? browserActionTitle(browserPreview) : actionRequestTitle(action)}
       error={error}
       actions={(
         <>
@@ -109,6 +113,7 @@ export function GovernedActionCard({
             size="sm"
             variant="ghost"
             label="Decline"
+            isLoading={pendingDecision === "DECLINE"}
             isDisabled={resolution.loading}
             onClick={() => void decide("DECLINE")}
           />
@@ -116,7 +121,7 @@ export function GovernedActionCard({
             size="sm"
             variant="primary"
             label={browserSessionEnded ? "Session ended" : "Approve once"}
-            isLoading={resolution.loading}
+            isLoading={pendingDecision === "APPROVE"}
             isDisabled={resolution.loading || browserSessionEnded}
             onClick={() => void decide("APPROVE")}
           />
@@ -132,18 +137,64 @@ export function GovernedActionCard({
         {browserPreview ? (
           <BrowserInteractionDetails preview={browserPreview} capabilityName={action.capabilityName} />
         ) : (
-          <>
-            <span {...stylex.props(styles.capability)}>{action.capabilityName}</span>
+          <VStack gap={2}>
+            <span {...stylex.props(styles.consequence)}>{actionRequestConsequence(action)}</span>
             <details {...stylex.props(styles.details)}>
-              <summary>Review exact arguments</summary>
-              <pre {...stylex.props(styles.arguments)}>{formatArguments(action.arguments)}</pre>
+              <summary>Review details</summary>
+              <VStack gap={2} className={stylex.props(styles.reviewDetails).className}>
+                <MetadataList columns="single" label={{ position: "top" }}>
+                  {action.target?.serviceName ? (
+                    <MetadataListItem label="Service">{action.target.serviceName}</MetadataListItem>
+                  ) : null}
+                  {action.target?.connectionLabel ? (
+                    <MetadataListItem label="Account">{action.target.connectionLabel}</MetadataListItem>
+                  ) : null}
+                  <MetadataListItem label="Effect">{actionBehaviorEvidence(action)}</MetadataListItem>
+                </MetadataList>
+                <span {...stylex.props(styles.capability)}>{action.capabilityName}</span>
+                <pre {...stylex.props(styles.arguments)}>{formatArguments(action.arguments)}</pre>
+                {action.assessment ? <AssessmentDetails assessment={action.assessment} /> : null}
+              </VStack>
             </details>
-          </>
+          </VStack>
         )}
-        {action.assessment ? <AssessmentDetails assessment={action.assessment} /> : null}
+        {browserPreview && action.assessment ? <AssessmentDetails assessment={action.assessment} /> : null}
       </VStack>
     </HumanInterventionCard>
   );
+}
+
+function actionRequestTitle(action: PendingGovernedAction) {
+  const target = actionTargetName(action);
+  if (action.behavior?.readOnly) return `Share request data with ${target}?`;
+  if (action.behavior?.destructive) return `Allow a destructive change in ${target}?`;
+  return `Allow this change in ${target}?`;
+}
+
+function actionRequestConsequence(action: PendingGovernedAction) {
+  const target = actionTargetName(action);
+  if (action.behavior?.readOnly) return `${target} receives the request data shown in Review details.`;
+  if (action.behavior?.destructive) return `This can remove or overwrite data in ${target}.`;
+  if (action.behavior?.openWorld) return `This changes data outside Noema in ${target}.`;
+  return `This changes data in ${target}.`;
+}
+
+function actionTargetName(action: PendingGovernedAction) {
+  return action.target?.connectionLabel
+    || action.target?.serviceName
+    || action.target?.serviceId
+    || action.capabilityName;
+}
+
+function actionBehaviorEvidence(action: PendingGovernedAction) {
+  const behavior = action.behavior;
+  if (!behavior) return "No behavior evidence is available.";
+  return [
+    behavior.readOnly ? "Read only" : "Can make changes",
+    behavior.destructive ? "Destructive" : null,
+    behavior.openWorld ? "External system" : null,
+    behavior.idempotent ? "Safe to repeat" : "May repeat the effect"
+  ].filter(Boolean).join(" · ");
 }
 
 function AssessmentDetails({
@@ -471,6 +522,14 @@ const styles = stylex.create({
     color: "var(--noema-text-secondary)",
     fontSize: 12,
     cursor: "pointer"
+  },
+  consequence: {
+    color: "var(--noema-text-secondary)",
+    fontSize: 12,
+    lineHeight: 1.45
+  },
+  reviewDetails: {
+    paddingBlockStart: "var(--spacing-2)"
   },
   arguments: {
     maxHeight: 180,

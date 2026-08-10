@@ -68,6 +68,17 @@ pub struct GraphqlGovernedActionAssessment {
     pub explanation: String,
 }
 
+/// Human-visible identity for the exact action destination.
+#[derive(Clone, Debug, Eq, PartialEq, SimpleObject)]
+#[graphql(name = "ActionRequestTarget")]
+pub struct GraphqlActionRequestTarget {
+    pub service_name: Option<String>,
+    pub connection_label: Option<String>,
+    pub service_id: Option<String>,
+    pub connection_id: Option<String>,
+    pub account_id: Option<String>,
+}
+
 /// Durable state of one immutable action revision.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
 #[graphql(name = "GovernedActionState")]
@@ -115,6 +126,7 @@ pub struct GraphqlGovernedAction {
     pub review_route: GraphqlExecutionReviewRoute,
     pub behavior: Option<GraphqlToolBehavior>,
     pub safe_summary: String,
+    pub target: Option<GraphqlActionRequestTarget>,
     pub destination: Option<Json<serde_json::Value>>,
     pub arguments: Json<serde_json::Value>,
     pub assessment: Option<GraphqlGovernedActionAssessment>,
@@ -203,6 +215,7 @@ impl GraphqlGovernedAction {
             .and_then(|value| serde_json::from_value::<CapabilityDestination>(value).ok())
             .and_then(|value| serde_json::to_value(value).ok())
             .map(Json);
+        let target = action_request_target(&action.authorization_context);
         Self {
             action_id: action.action_id,
             revision: action.revision,
@@ -213,6 +226,7 @@ impl GraphqlGovernedAction {
             review_route: action.review_route.into(),
             behavior: action.behavior.map(Into::into),
             safe_summary: action.safe_summary,
+            target,
             destination,
             arguments: Json(display_arguments),
             assessment: action.assessment.map(Into::into),
@@ -222,6 +236,41 @@ impl GraphqlGovernedAction {
             failure_code: action.failure_code,
         }
     }
+}
+
+fn action_request_target(
+    authorization_context: &serde_json::Value,
+) -> Option<GraphqlActionRequestTarget> {
+    let service = authorization_context.get("service");
+    let destination = authorization_context
+        .get("destination")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<CapabilityDestination>(value).ok());
+    let target = GraphqlActionRequestTarget {
+        service_name: service
+            .and_then(|value| value.get("display_name"))
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
+        connection_label: service
+            .and_then(|value| value.get("connection_label"))
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
+        service_id: destination
+            .as_ref()
+            .map(|value| value.service_id().to_string()),
+        connection_id: destination
+            .as_ref()
+            .map(|value| value.connection_id().to_string()),
+        account_id: destination
+            .as_ref()
+            .and_then(|value| value.account_id().map(ToOwned::to_owned)),
+    };
+    (target.service_name.is_some()
+        || target.connection_label.is_some()
+        || target.service_id.is_some()
+        || target.connection_id.is_some()
+        || target.account_id.is_some())
+    .then_some(target)
 }
 
 fn browser_arguments_with_context(
@@ -348,6 +397,11 @@ mod tests {
                     "account_id": "account:test",
                     "revision": "revision:1"
                 },
+                "service": {
+                    "display_name": "Calendar",
+                    "connection_label": "Work account",
+                    "credential": "must-not-project"
+                },
                 "browser_review_context": {
                     "kind": "browser_interaction",
                     "page": {"url": "https://example.com/form", "title": "Example form"},
@@ -380,5 +434,10 @@ mod tests {
             projection.destination.as_ref().expect("destination").0["connection_id"],
             "connection:test"
         );
+        let target = projection.target.expect("target");
+        assert_eq!(target.service_name.as_deref(), Some("Calendar"));
+        assert_eq!(target.connection_label.as_deref(), Some("Work account"));
+        assert_eq!(target.connection_id.as_deref(), Some("connection:test"));
+        assert_eq!(target.account_id.as_deref(), Some("account:test"));
     }
 }

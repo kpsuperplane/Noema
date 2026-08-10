@@ -249,7 +249,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
   );
 
   function submit(nextValue = textareaRef.current?.value ?? value) {
-    if (!canSend({ ready, value: nextValue })) {
+    if (pending || !canSend({ ready, value: nextValue })) {
       refocusComposerTextarea(textareaRef.current);
       return false;
     }
@@ -278,6 +278,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
   }
 
   const submitState = composerSubmitState({ ready, pending, value });
+  const commandReady = ready && !pending;
   const textareaProps = composerTextareaProps();
   const sizeKey = `${value}\u0000${placeholder}`;
   const fallbackInlineSize = React.useMemo(
@@ -385,7 +386,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
                   ? nativeEvent.inputType
                   : null;
               const nextValue = (event.currentTarget as HTMLTextAreaElement).value;
-              if (!shouldSubmitFromBeforeInput({ ready, value: nextValue, inputType })) {
+              if (!shouldSubmitFromBeforeInput({ ready: commandReady, value: nextValue, inputType })) {
                 return;
               }
 
@@ -397,7 +398,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
               onChange(nextValue);
             }}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
+              if (event.key === "Enter" && !event.shiftKey && !pending) {
                 event.preventDefault();
                 submit();
               }
@@ -419,7 +420,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
             const nextValue = textareaRef.current?.value ?? value;
             if (
               !shouldSubmitFromTouchStart({
-                ready,
+                ready: commandReady,
                 value: nextValue,
                 touchCount: event.touches.length
               })
@@ -434,7 +435,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
             const nextValue = textareaRef.current?.value ?? value;
             if (
               !shouldSubmitFromPointerDown({
-                ready,
+                ready: commandReady,
                 value: nextValue,
                 button: event.button,
                 isPrimary: event.isPrimary,

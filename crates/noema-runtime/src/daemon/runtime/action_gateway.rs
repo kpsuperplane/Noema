@@ -175,6 +175,12 @@ async fn action_authorization_context(
     let destination = binding
         .destination()
         .map(|destination| serde_json::to_value(destination).expect("destination is serializable"));
+    let service = binding.service_context().map(|context| {
+        serde_json::json!({
+            "display_name": context.display_name(),
+            "connection_label": context.connection_label(),
+        })
+    });
     let provider_selection_digest = super::local_tools::provider_route_digest(&turn.provider_route);
     let Some(run_id) = turn.task_run_id.as_deref() else {
         let context = store
@@ -190,6 +196,7 @@ async fn action_authorization_context(
             "conversation_id": turn.conversation_id,
             "source_human_item_id": turn.user_item_id,
             "destination": destination,
+            "service": service,
             "execution_decision": execution_decision_name(binding.execution_decision()),
             "provider_selection_digest": provider_selection_digest,
         }));
@@ -212,6 +219,7 @@ async fn action_authorization_context(
         })),
         "source": context.task.provenance,
         "destination": destination,
+        "service": service,
         "execution_decision": execution_decision_name(binding.execution_decision()),
         "provider_selection_digest": provider_selection_digest,
     }))

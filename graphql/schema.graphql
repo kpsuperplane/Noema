@@ -83,6 +83,17 @@ enum AcpAgentHealthStatus {
 }
 
 """
+Human-visible identity for the exact action destination.
+"""
+type ActionRequestTarget {
+	serviceName: String
+	connectionLabel: String
+	serviceId: String
+	connectionId: String
+	accountId: String
+}
+
+"""
 Governed-action reviewer model settings.
 """
 type ActionReviewerSettings {
@@ -1378,6 +1389,7 @@ type GovernedAction {
 	reviewRoute: ExecutionReviewRoute!
 	behavior: ToolBehavior
 	safeSummary: String!
+	target: ActionRequestTarget
 	destination: JSON
 	arguments: JSON!
 	assessment: GovernedActionAssessment
