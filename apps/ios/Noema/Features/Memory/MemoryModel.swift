@@ -59,7 +59,16 @@ final class MemoryModel {
   private(set) var pageErrorMessage: String?
   private(set) var updateErrorMessage: String?
   private(set) var subscriptionErrorMessage: String?
-  private(set) var isOffline = false
+  private(set) var isOffline = false {
+    didSet {
+      guard oldValue != isOffline else { return }
+      NoemaDiagnosticTrace.shared.record(
+        category: "memory",
+        event: "offline_changed",
+        fields: ["offline": String(isOffline), "hasTree": String(tree != nil), "hasArticle": String(article != nil)]
+      )
+    }
+  }
   private var client: ApolloClient?
   private var subscriptionTask: Task<Void, Never>?
 

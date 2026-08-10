@@ -158,7 +158,16 @@ final class SettingsModel {
   var clientsErrorMessage: String?
   var taskModelPoolsErrorMessage: String?
   var acpErrorMessage: String?
-  var isOffline = false
+  var isOffline = false {
+    didSet {
+      guard oldValue != isOffline else { return }
+      NoemaDiagnosticTrace.shared.record(
+        category: "settings",
+        event: "offline_changed",
+        fields: ["offline": String(isOffline), "hasSnapshot": String(snapshot != nil)]
+      )
+    }
+  }
   var isLoadingClients = false
   var isLoadingTaskModelPools = false
   var isLoadingAcpAgents = false

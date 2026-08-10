@@ -49,8 +49,10 @@ final class NoemaAppModel {
   var graphQLClient: NoemaGraphQLClient? { graphQL }
 
   func bootstrap() async {
+    NoemaDiagnosticTrace.shared.record(category: "app", event: "bootstrap_started")
     do {
       if let stored = try await profileStore.read() {
+        NoemaDiagnosticTrace.shared.record(category: "app", event: "profile_restored")
         NoemaGraphQLClient.discardStaleCaches(keeping: stored)
         profile = stored
         graphQL = NoemaGraphQLClient(profile: stored)
@@ -58,13 +60,16 @@ final class NoemaAppModel {
         await notifications.configure(profile: stored, client: graphQL?.client)
         await liveActivities.configure(profile: stored, client: graphQL?.client)
         notifications.markModelReady()
+        NoemaDiagnosticTrace.shared.record(category: "app", event: "bootstrap_finished", fields: ["state": "paired"])
       } else {
         NoemaGraphQLClient.discardStaleCaches(keeping: nil)
         notifications.markModelNotReady()
         await liveActivities.configure(profile: nil, client: nil)
         state = .unpaired
+        NoemaDiagnosticTrace.shared.record(category: "app", event: "bootstrap_finished", fields: ["state": "unpaired"])
       }
     } catch {
+      NoemaDiagnosticTrace.shared.record(category: "app", event: "bootstrap_failed", error: error)
       notifications.markModelNotReady()
       await liveActivities.configure(profile: nil, client: nil)
       pairingError = "The saved connection could not be read. Pair this device again."
@@ -205,6 +210,18 @@ final class NoemaAppModel {
   }
 
   func scenePhaseChanged(_ phase: ScenePhase) {
+    let phaseName: String
+    switch phase {
+    case .active: phaseName = "active"
+    case .inactive: phaseName = "inactive"
+    case .background: phaseName = "background"
+    @unknown default: phaseName = "unknown"
+    }
+    NoemaDiagnosticTrace.shared.record(
+      category: "app",
+      event: "scene_phase_changed",
+      fields: ["phase": phaseName, "recoveryGeneration": String(recoveryGeneration)]
+    )
     notifications.scenePhaseChanged(phase == .active)
     liveActivities.scenePhaseChanged(phase == .active)
     guard let graphQL else { return }
@@ -213,8 +230,18 @@ final class NoemaAppModel {
       Task { await graphQL.pauseSubscriptions() }
     case .active:
       Task {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        NoemaDiagnosticTrace.shared.record(category: "graphql", event: "foreground_recovery_started")
         await graphQL.resumeSubscriptionsAndRecover()
         recoveryGeneration &+= 1
+        NoemaDiagnosticTrace.shared.record(
+          category: "graphql",
+          event: "foreground_recovery_finished",
+          fields: [
+            "durationMilliseconds": String(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)),
+            "recoveryGeneration": String(recoveryGeneration)
+          ]
+        )
       }
     @unknown default:
       break

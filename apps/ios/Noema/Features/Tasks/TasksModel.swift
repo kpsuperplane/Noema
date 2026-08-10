@@ -30,7 +30,16 @@ final class TasksModel {
   private(set) var isLoadingOlderRunItems = false
   private(set) var isLoadingMoreTasks = false
   private(set) var isLoadingMoreHistory = false
-  private(set) var isConnected = true
+  private(set) var isConnected = true {
+    didSet {
+      guard oldValue != isConnected else { return }
+      NoemaDiagnosticTrace.shared.record(
+        category: "tasks",
+        event: "connection_changed",
+        fields: ["connected": String(isConnected), "hasTasks": String(hasLoadedTasks)]
+      )
+    }
+  }
   private(set) var lastError: String?
   private(set) var hasLoadedTasks = false
   private(set) var commandTaskIDs = Set<String>()

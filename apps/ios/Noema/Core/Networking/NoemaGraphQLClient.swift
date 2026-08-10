@@ -10,6 +10,7 @@ final class NoemaGraphQLClient: @unchecked Sendable {
   private let webSocketTransport: WebSocketTransport
 
   init(profile: NoemaProfile) {
+    NoemaDiagnosticTrace.shared.record(category: "graphql", event: "client_initializing")
     let store = ApolloStore(cache: Self.normalizedCache(for: profile))
     let sessionConfiguration = URLSessionConfiguration.ephemeral
     sessionConfiguration.httpAdditionalHeaders = ["Authorization": "Bearer \(profile.token)"]
@@ -41,15 +42,20 @@ final class NoemaGraphQLClient: @unchecked Sendable {
       ),
       store: store
     )
+    NoemaDiagnosticTrace.shared.record(category: "graphql", event: "client_initialized")
   }
 
   func pauseSubscriptions() async {
+    NoemaDiagnosticTrace.shared.record(category: "graphql", event: "subscriptions_pausing")
     await webSocketTransport.pause()
+    NoemaDiagnosticTrace.shared.record(category: "graphql", event: "subscriptions_paused")
   }
 
   func resumeSubscriptionsAndRecover(refetch: (@Sendable () async -> Void)? = nil) async {
+    NoemaDiagnosticTrace.shared.record(category: "graphql", event: "subscriptions_resuming")
     await webSocketTransport.resume()
     await refetch?()
+    NoemaDiagnosticTrace.shared.record(category: "graphql", event: "subscriptions_resumed")
   }
 
   func clearCache() async throws {
@@ -70,13 +76,30 @@ final class NoemaGraphQLClient: @unchecked Sendable {
   }
 
   private static func normalizedCache(for profile: NoemaProfile) -> any NormalizedCache {
-    guard let fileURL = try? cacheURL(for: profile) else { return InMemoryNormalizedCache() }
-    if let cache = try? SQLiteNormalizedCache(fileURL: fileURL, shouldVacuumOnClear: true) {
+    let trace = NoemaDiagnosticTrace.shared
+    let fileURL: URL
+    do {
+      fileURL = try cacheURL(for: profile)
+    } catch {
+      trace.record(category: "cache", event: "directory_failed", error: error)
+      return InMemoryNormalizedCache()
+    }
+    do {
+      let cache = try SQLiteNormalizedCache(fileURL: fileURL, shouldVacuumOnClear: true)
+      trace.record(category: "cache", event: "sqlite_opened")
       return cache
+    } catch {
+      trace.record(category: "cache", event: "sqlite_open_failed", error: error)
     }
     removeCacheFiles(at: fileURL)
-    return (try? SQLiteNormalizedCache(fileURL: fileURL, shouldVacuumOnClear: true))
-      ?? InMemoryNormalizedCache()
+    do {
+      let cache = try SQLiteNormalizedCache(fileURL: fileURL, shouldVacuumOnClear: true)
+      trace.record(category: "cache", event: "sqlite_recreated")
+      return cache
+    } catch {
+      trace.record(category: "cache", event: "memory_fallback", error: error)
+      return InMemoryNormalizedCache()
+    }
   }
 
   private static func cacheURL(for profile: NoemaProfile) throws -> URL {

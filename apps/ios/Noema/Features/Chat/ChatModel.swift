@@ -95,7 +95,21 @@ final class ChatModel {
   private(set) var beforeCursor: String?
   private(set) var isLoadingOlder = false
   private(set) var isSending = false
-  private(set) var isOffline = false
+  private(set) var isOffline = false {
+    didSet {
+      guard oldValue != isOffline else { return }
+      NoemaDiagnosticTrace.shared.record(
+        category: "chat",
+        event: "offline_changed",
+        fields: [
+          "offline": String(isOffline),
+          "phase": diagnosticPhase,
+          "hasTranscript": String(hasLoadedTranscript),
+          "messageCount": String(messages.count)
+        ]
+      )
+    }
+  }
   private(set) var errorMessage: String?
   private(set) var interventions: [ChatIntervention] = []
   private(set) var interventionErrors: [String: String] = [:]
@@ -128,6 +142,15 @@ final class ChatModel {
     profile.map { "dev.noema.app.ios.dismissed-adapter-setup.\($0.origin.absoluteString)" }
   }
 
+  private var diagnosticPhase: String {
+    switch phase {
+    case .loading: "loading"
+    case .onboarding: "onboarding"
+    case .ready: "ready"
+    case .failed: "failed"
+    }
+  }
+
   init(client: ApolloClient?, profile: NoemaProfile?) {
     self.client = client
     self.profile = profile
@@ -145,14 +168,29 @@ final class ChatModel {
   func start() async {
     guard !started else { return }
     started = true
+    NoemaDiagnosticTrace.shared.record(category: "chat", event: "start_requested")
     guard let client else {
       phase = .failed("Pair this device with a Noema server to start chat.")
       return
     }
     let restoredCache = await restoreCachedChat(client: client)
+    NoemaDiagnosticTrace.shared.record(
+      category: "chat",
+      event: "cache_restore_finished",
+      fields: ["restored": String(restoredCache)]
+    )
     if !restoredCache { phase = .loading }
     do {
+      let bootStartedAt = ProcessInfo.processInfo.systemUptime
       let response = try await client.fetchNetworkFirst(query: NoemaAPI.ChatBootQuery())
+      NoemaDiagnosticTrace.shared.record(
+        category: "chat",
+        event: "boot_received",
+        fields: [
+          "source": String(describing: response.source),
+          "durationMilliseconds": String(Int((ProcessInfo.processInfo.systemUptime - bootStartedAt) * 1_000))
+        ]
+      )
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
       guard let boot = response.data else { throw ChatModelError.emptyResponse }
       primaryAgentDisplayName = boot.localStatus.primaryAgentDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -170,6 +208,7 @@ final class ChatModel {
       await refreshInterventions(client: client)
       startSubscription(client: client, conversationID: primary.conversationId)
     } catch {
+      NoemaDiagnosticTrace.shared.record(category: "chat", event: "start_failed", error: error)
       errorMessage = error.localizedDescription
       isOffline = true
       if !hasLoadedTranscript, phase != .onboarding {
@@ -194,10 +233,15 @@ final class ChatModel {
   /// The app shell calls this after the shared WebSocket transport resumes.
   func recoverConnection() async {
     guard phase == .ready, let client, let conversationID else { return }
+    NoemaDiagnosticTrace.shared.record(category: "chat", event: "recovery_started")
     await loadLatest(client: client)
     await refreshInterventions(client: client)
-    guard !isOffline else { return }
+    guard !isOffline else {
+      NoemaDiagnosticTrace.shared.record(category: "chat", event: "recovery_stopped_offline")
+      return
+    }
     startSubscription(client: client, conversationID: conversationID)
+    NoemaDiagnosticTrace.shared.record(category: "chat", event: "recovery_finished")
   }
 
   func refreshInterventions() async {
@@ -505,7 +549,16 @@ final class ChatModel {
   private func loadPrimaryConversation(
     client: ApolloClient
   ) async throws -> (conversationId: String, provider: String) {
+    let startedAt = ProcessInfo.processInfo.systemUptime
     let queryResponse = try await client.fetchNetworkFirst(query: NoemaAPI.PrimaryConversationQuery())
+    NoemaDiagnosticTrace.shared.record(
+      category: "chat",
+      event: "primary_conversation_received",
+      fields: [
+        "source": String(describing: queryResponse.source),
+        "durationMilliseconds": String(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))
+      ]
+    )
     if let message = queryResponse.errors?.first?.message { throw ChatModelError.server(message) }
     if let conversation = queryResponse.data?.primaryConversation {
       return (conversation.conversationId, conversation.provider)
@@ -526,7 +579,10 @@ final class ChatModel {
       guard let bootResponse = try await client.fetch(
         query: NoemaAPI.ChatBootQuery(),
         cachePolicy: .cacheOnly
-      ), let boot = bootResponse.data else { return false }
+      ), let boot = bootResponse.data else {
+        NoemaDiagnosticTrace.shared.record(category: "chat", event: "cache_miss", fields: ["stage": "boot"])
+        return false
+      }
       primaryAgentDisplayName = boot.localStatus.primaryAgentDisplayName?
         .trimmingCharacters(in: .whitespacesAndNewlines)
       if !boot.onboardingStatus.isUserOnboarded {
@@ -536,7 +592,10 @@ final class ChatModel {
       guard let primaryResponse = try await client.fetch(
         query: NoemaAPI.PrimaryConversationQuery(),
         cachePolicy: .cacheOnly
-      ), let primary = primaryResponse.data?.primaryConversation else { return false }
+      ), let primary = primaryResponse.data?.primaryConversation else {
+        NoemaDiagnosticTrace.shared.record(category: "chat", event: "cache_miss", fields: ["stage": "primary"])
+        return false
+      }
       conversationID = primary.conversationId
       providerName = primary.provider
       let input = NoemaAPI.ConversationTranscriptPageInput(
@@ -547,18 +606,29 @@ final class ChatModel {
       guard let transcriptResponse = try await client.fetch(
         query: NoemaAPI.ConversationTranscriptPageQuery(input: input),
         cachePolicy: .cacheOnly
-      ), let page = transcriptResponse.data?.conversationTranscriptPage else { return false }
+      ), let page = transcriptResponse.data?.conversationTranscriptPage else {
+        NoemaDiagnosticTrace.shared.record(category: "chat", event: "cache_miss", fields: ["stage": "transcript"])
+        return false
+      }
       applyLatest(page)
+      NoemaDiagnosticTrace.shared.record(
+        category: "chat",
+        event: "cache_hit",
+        fields: ["stage": "transcript", "messageCount": String(messages.count)]
+      )
       isOffline = true
       phase = .ready
       return true
     } catch {
+      NoemaDiagnosticTrace.shared.record(category: "chat", event: "cache_read_failed", error: error)
       return false
     }
   }
 
   private func loadLatest(client: ApolloClient) async {
     guard let conversationID else { return }
+    let startedAt = ProcessInfo.processInfo.systemUptime
+    NoemaDiagnosticTrace.shared.record(category: "chat", event: "transcript_refresh_started")
     do {
       let input = NoemaAPI.ConversationTranscriptPageInput(conversationId: conversationID, cursor: .none, limit: 80)
       let stream = try client.fetch(
@@ -566,12 +636,24 @@ final class ChatModel {
         cachePolicy: .cacheAndNetwork
       )
       for try await response in stream {
+        NoemaDiagnosticTrace.shared.record(
+          category: "chat",
+          event: "transcript_response",
+          fields: [
+            "source": String(describing: response.source),
+            "hasData": String(response.data != nil),
+            "errorCount": String(response.errors?.count ?? 0),
+            "durationMilliseconds": String(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))
+          ]
+        )
         guard let page = response.data?.conversationTranscriptPage else { continue }
         applyLatest(page)
         isOffline = response.source != .server
         phase = .ready
       }
+      NoemaDiagnosticTrace.shared.record(category: "chat", event: "transcript_refresh_finished")
     } catch {
+      NoemaDiagnosticTrace.shared.record(category: "chat", event: "transcript_refresh_failed", error: error)
       errorMessage = error.localizedDescription
       isOffline = true
       if !hasLoadedTranscript { phase = .failed(error.localizedDescription) }
@@ -606,19 +688,27 @@ final class ChatModel {
 
   private func startSubscription(client: ApolloClient, conversationID: String) {
     subscriptionTask?.cancel()
+    NoemaDiagnosticTrace.shared.record(category: "chat", event: "subscription_starting")
     subscriptionTask = Task { [weak self] in
       do {
         let stream = try client.subscribe(subscription: NoemaAPI.ConversationEventsSubscription(conversationId: conversationID))
+        var connected = false
         for try await response in stream {
+          if !connected {
+            connected = true
+            NoemaDiagnosticTrace.shared.record(category: "chat", event: "subscription_connected")
+          }
           self?.subscriptionRetryAttempt = 0
           self?.isOffline = false
           guard let event = response.data?.conversationEvents else { continue }
           await self?.apply(event)
         }
         guard !Task.isCancelled else { return }
+        NoemaDiagnosticTrace.shared.record(category: "chat", event: "subscription_ended")
         await self?.recoverAfterSubscriptionLoss()
       } catch {
         guard !Task.isCancelled else { return }
+        NoemaDiagnosticTrace.shared.record(category: "chat", event: "subscription_failed", error: error)
         await self?.recoverAfterSubscriptionLoss()
       }
     }
@@ -630,6 +720,11 @@ final class ChatModel {
     agentStatus = "closed"
     let attempt = nextSubscriptionRetryAttempt()
     let delay = min(1 << min(attempt - 1, 5), 30)
+    NoemaDiagnosticTrace.shared.record(
+      category: "chat",
+      event: "subscription_recovery_scheduled",
+      fields: ["attempt": String(attempt), "delaySeconds": String(delay)]
+    )
     try? await Task.sleep(for: .seconds(delay))
     guard !Task.isCancelled else { return }
     await recoverSubscription()
