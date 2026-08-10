@@ -303,7 +303,7 @@ struct ChatReadyView: View {
             }
 
             Color.clear
-              .frame(height: 64)
+              .frame(height: NoemaSpacing.xxl + NoemaSpacing.xxl)
               .id("chat-bottom")
           }
           .padding(.top, NoemaSpacing.xxl + NoemaSpacing.xl + NoemaSpacing.compact)
