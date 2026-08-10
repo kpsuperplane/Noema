@@ -4,7 +4,7 @@ Date: 2026-08-10
 
 ## Outcome
 
-The static audit found eight high-severity findings and seven medium-severity findings.
+The static audit found eight high-severity findings and six medium-severity findings.
 
 Approval safety is the main risk. Navigation, focus, contrast, state accuracy, and failure recovery also need work.
 
@@ -26,12 +26,24 @@ The wireframes are schematic. They show information order and interaction states
 
 | Domain | Reviewed evidence | Result |
 | --- | --- | --- |
-| Better Accessibility | Landmarks, focus, live updates, labels, keyboard behavior, hidden content, and control semantics | Six findings |
+| Better Accessibility | Landmarks, focus, live updates, labels, keyboard behavior, hidden content, and control semantics | Five primary findings and shared support |
 | Better Layout | Task completion paths, information order, mobile navigation, dialogs, and responsive grouping | One primary finding and shared support |
-| Better Writing | Decision copy, status labels, empty states, errors, and recovery actions | Three primary findings and shared support |
+| Better Writing | Decision copy, status labels, errors, and recovery actions | Two primary findings and shared support |
 | Better Typography | Type roles, minimum sizes, metadata density, wrapping, and web-font delivery | One finding |
 | Better Colors | Semantic roles and measured foreground-background contrast | One finding |
 | Better UI | Submission state, destructive actions, approval behavior, feedback, motion, and surface reuse | Four findings |
+
+## Design direction
+
+Every proposed change follows a concise-default rule.
+
+- Show one focal action or state first.
+- Add permanent content only when it changes the next action.
+- Keep one safety-critical consequence visible when a decision needs it.
+- Put evidence, history, and internals behind one clear disclosure.
+- Replace raw or repeated information instead of adding another status row.
+- Keep recovery beside the failed control.
+- Do not add a card, heading, label, or icon without a semantic purpose.
 
 ## Findings
 
@@ -53,10 +65,11 @@ Before:
 
 After:
 
-- Add typed target, destination, payload, audience, egress, and reversibility fields to the approval read model.
-- Do not derive these fields from prose or raw JSON.
-- Lead with a concrete verb and target.
-- Keep review routing, capability identifiers, and raw arguments under technical details.
+- Add typed target, disclosure, consequence, and technical evidence to the approval read model.
+- Show one verb-led question and one critical consequence by default.
+- When data leaves Noema, name the recipient and shared content in one sentence.
+- Put remaining evidence and raw arguments under `Review details`.
+- Omit empty fields, duplicated facts, and internal labels.
 - Keep secrets absent and preserve authorized private information.
 
 Low-fidelity wireframe:
@@ -72,13 +85,10 @@ BEFORE
 
 AFTER
 +--------------------------------------+
-| Send project update to Sam           |
-| To: Sam                              |
-| Shares: message and attachment       |
-| Audience: external                   |
-| Reversible: no                       |
-| [Technical details]                  |
-| [Decline]                 [Approve]  |
+| Send project update to Sam?          |
+| Sam receives message and attachment. |
+| [Review details]                     |
+| [Decline]             [Send update]  |
 +--------------------------------------+
 ```
 
@@ -105,10 +115,11 @@ Before:
 
 After:
 
-- Give the intervention region explicit loading, empty, error, and stale states.
-- Show a nearby Retry control when required actions cannot load.
+- Use one inline state where the missing response control belongs.
+- Show only the current question, failure, and Retry action.
+- Let the failure sentence identify stale evidence without a second badge.
+- Disable only commands that require fresh action data.
 - Remove fallback actions only after a successful intervention query.
-- Keep stale evidence visible, but disable irreversible commands until reconciliation succeeds.
 
 Low-fidelity wireframe:
 
@@ -123,12 +134,9 @@ BEFORE
 
 AFTER
 +--------------------------------------+
-| Task: Confirm delivery date          |
-| Action request could not load        |
+| Is Friday acceptable?                |
+| Response options could not load.     |
 | [Retry]                              |
-|                                      |
-| Last known question                  |
-| [Response unavailable while stale]   |
 +--------------------------------------+
 ```
 
@@ -152,15 +160,15 @@ Before:
 
 - Task approvals initialize as `APPROVED`.
 - Plain Enter submits the selected approval after a user types a response.
-- A declined governed action shows loading on the Approve button.
+- A declined action request shows loading on the Approve button.
 
 After:
 
-- Start approval gates without a selected decision.
-- Require an explicit Approve or Decline choice.
+- Remove the default selection and redundant decision selector.
+- Present explicit Decline and Approve controls beside the optional note.
 - Let plain Enter add text during approval gates.
-- Submit approval only through the explicit decision control.
-- Track the pending decision and mark only its control as loading.
+- Do not add a separate Submit control.
+- Track the selected command and mark only that control as loading.
 
 Low-fidelity wireframe:
 
@@ -176,11 +184,10 @@ BEFORE
 
 AFTER
 +--------------------------------------+
-| Decision                             |
-| Initial: ( ) Decline  ( ) Approve    |
-| [Add a note___________________]      |
+| Approve this task?                   |
+| [Optional note________________]      |
 | Enter adds a new line                |
-| After Decline: [Declining] [Approve] |
+| [Decline]                 [Approve]  |
 +--------------------------------------+
 ```
 
@@ -208,9 +215,10 @@ Before:
 After:
 
 - Add a synchronous in-flight guard at the command boundary.
-- Include `pending` in the composer disabled state.
+- Disable only the submission paths while the command is pending.
 - Clear the guard only after success or recoverable failure.
 - Keep one optimistic row and one client message identifier per submission.
+- Use the optimistic row as the only visible progress feedback.
 
 Low-fidelity wireframe:
 
@@ -226,9 +234,7 @@ BEFORE
 AFTER
 +--------------------------------------+
 | You: Send the report        Sending  |
-|                                      |
-| [Composer unavailable while sending] |
-|                           [Sending]  |
+| [New message________________] [Send] |
 +--------------------------------------+
 ```
 
@@ -255,8 +261,9 @@ Before:
 After:
 
 - Reuse the existing confirmation dialog for both actions.
-- Name the affected model or provider account.
-- State the lost data, access effect, and recovery path.
+- Name the affected model or provider account in the title.
+- Use one sentence for the immediate consequence and relevant recovery path.
+- Do not add generic warning copy or duplicate the button label.
 - Prevent repeated submission and restore focus after dismissal.
 
 Low-fidelity wireframe:
@@ -273,8 +280,7 @@ BEFORE
 AFTER
 +--------------------------------------+
 | Remove Granite 8B?                   |
-| This deletes 4.2 GB of model data.   |
-| Download the model again to restore. |
+| Removes 4.2 GB. Download again later |
 | [Cancel]              [Remove model] |
 +--------------------------------------+
 ```
@@ -310,13 +316,13 @@ Before:
 After:
 
 - Render routes with TanStack links styled through Astryx patterns.
-- Move focus into mobile navigation before hiding route content.
-- Apply `inert` and `aria-hidden` only after focus moves.
-- Restore focus to the trigger when navigation closes.
 - Keep repeated chrome outside one route-level `<main>`.
 - Use semantic lists with links inside list items.
-- Add a first-focusable skip link.
+- Move focus before changing mobile `inert` and `aria-hidden` state.
+- Restore focus to the trigger when mobile navigation closes.
+- Reveal the first-focusable skip link only when it receives focus.
 - Update the document title and route heading focus after navigation.
+- Do not add visible navigation copy, status, or wrapper panels.
 
 Low-fidelity wireframe:
 
@@ -332,10 +338,9 @@ BEFORE
 
 AFTER
 +--------------------------------------+
-| [Skip to content]                    |
-| <nav> [Chat link] [Tasks link]       |
-| <main id="content">                  |
-|   Tasks <- focus after navigation    |
+| (Tab) [Skip to content]              |
+| <nav> [Chat] [Tasks]                 |
+| <main> Tasks <- route focus          |
 |   <ul><li>[Task link]</li></ul>      |
 | Mobile menu open: route is inert     |
 +--------------------------------------+
@@ -367,6 +372,7 @@ After:
 - Add a visible focus state to the expansion trigger.
 - Preserve each indicator in forced-colors mode.
 - Cap composer height and enable internal scrolling for long drafts.
+- Do not add permanent borders, labels, or helper text.
 
 Low-fidelity wireframe:
 
@@ -380,7 +386,6 @@ BEFORE
 
 AFTER
 +======================================+
-| Composer has a visible focus ring    |
 | [Draft text____________________]     |
 +======================================+
 | Message preview   [Show full message]|
@@ -416,6 +421,7 @@ After:
 - Keep ordinary text at 4.5:1 or higher on every supported surface.
 - Reserve faint colors for disabled or decorative content.
 - Recheck accent text on paper surfaces before release.
+- Do not add labels, icons, or containers to compensate for weak color.
 
 Low-fidelity wireframe:
 
@@ -432,7 +438,6 @@ AFTER
 | Task title                           |
 | Supporting metadata         4.5:1+   |
 | Secondary help text         4.5:1+   |
-| Faint color: disabled marks only     |
 +--------------------------------------+
 ```
 
@@ -459,10 +464,11 @@ Before:
 
 After:
 
-- Define one supporting-text role at 12 pixels or larger.
-- Replace microtype in task, action, transcript, and settings surfaces.
+- Remove metadata that does not affect the current action.
+- Render the remaining supporting text at 12 pixels or larger.
+- Combine related values into one readable line.
 - Use tabular numerals for changing counts and times.
-- Keep smaller type only for nonessential marks.
+- Keep diagnostics inside technical details.
 
 Low-fidelity wireframe:
 
@@ -477,9 +483,7 @@ BEFORE
 AFTER
 +--------------------------------------+
 | Review quarterly plan                |
-| 2 runs | Due 09:30 | Waiting   12px+ |
-| Next run: 08/12 14:00          12px+ |
-| Times use tabular numerals           |
+| Waiting | Due 09:30            12px+ |
 +--------------------------------------+
 ```
 
@@ -507,6 +511,7 @@ After:
 - Announce one completed assistant response through a separate live region.
 - Do not announce every streamed token.
 - Expose busy state while a response is incomplete.
+- Keep these semantics invisible and add no duplicate status row.
 
 Low-fidelity wireframe:
 
@@ -520,11 +525,9 @@ BEFORE
 
 AFTER
 +--------------------------------------+
-| Transcript log              [busy]   |
 | Noema: Streaming response...         |
-|                                      |
-| Live status: "Noema replied"         |
-| Announced once after completion      |
+| SR state: busy                       |
+| SR completion: "Noema replied"       |
 +--------------------------------------+
 ```
 
@@ -553,7 +556,8 @@ After:
 - Reuse Astryx radio components for pick-one prompts.
 - Preserve the existing semantic submission command.
 - Use a named weekday group with checkbox controls.
-- If buttons remain, add accurate `aria-pressed` state.
+- Keep the existing visible labels and compact layout.
+- Do not add keyboard instructions to the default view.
 
 Low-fidelity wireframe:
 
@@ -571,7 +575,7 @@ BEFORE
 AFTER
 +--------------------------------------+
 | Choose one                           |
-| ( ) Basic       Tab, then arrows     |
+| ( ) Basic                            |
 | (x) Advanced                         |
 |                                      |
 | Days                                 |
@@ -604,10 +608,11 @@ Before:
 After:
 
 - Derive each visible status from its current read model.
-- Use one shared status-label authority.
-- Provide `Loading`, `Needs setup`, `Sign-in required`, `Unavailable`, and `Ready` states.
+- Omit success status when the configured control already proves readiness.
+- For a blocked row, show one plain action instead of a status-plus-action pair.
+- Use the current control as the loading indicator.
 - Keep raw values inside technical details.
-- Pair each blocked state with its recovery action.
+- Use one shared status-label authority for states that remain visible.
 
 Low-fidelity wireframe:
 
@@ -621,62 +626,15 @@ BEFORE
 
 AFTER
 +--------------------------------------+
-| Search                   Loading...  |
-| Fetch                    Needs setup |
-|                    [Choose provider] |
-| Calendar            Sign-in required |
-|                             [Sign in]|
+| Search provider       [OpenRouter v] |
+| Fetch             [Choose provider]  |
+| Calendar                   [Sign in] |
 +--------------------------------------+
 ```
 
 Why:
 
 People can receive false success signals or internal values without a useful next step.
-
-### UX-13 — MEDIUM — A loaded empty conversation looks permanently busy
-
-Owner: Better Writing.
-
-Evidence:
-
-- `apps/web/src/app/App.tsx:884`
-- `apps/web/src/components/ChatSurface.tsx:185`
-
-Before:
-
-- Chat distinguishes initial loading from a loaded empty transcript.
-- The surface still renders a loading skeleton whenever the transcript is empty.
-
-After:
-
-- Render the skeleton only while initial data is loading.
-- Show a compact loaded-empty orientation state afterward.
-- Keep the composer as the focal action.
-
-Low-fidelity wireframe:
-
-```text
-BEFORE
-+--------------------------------------+
-| Conversation                         |
-| [////////////////////////////]       |
-| [////////////////////]               |
-| Loading skeleton never ends          |
-| [Message Noema_______________]       |
-+--------------------------------------+
-
-AFTER
-+--------------------------------------+
-| New conversation                     |
-| Ask Noema a question to begin.       |
-|                                      |
-| [Message Noema_______________] [Send]|
-+--------------------------------------+
-```
-
-Why:
-
-Fresh conversations appear stuck, even when Chat is ready.
 
 ### UX-14 — MEDIUM — Async failure states lack a consistent recovery path
 
@@ -698,8 +656,9 @@ Before:
 
 After:
 
-- Add Retry or Reload beside every recoverable failure.
-- Preserve cached content with a clear stale warning.
+- Put one plain error and one recovery control where the operation failed.
+- Preserve cached content when continued reading is safe.
+- Use the error sentence as the stale warning instead of adding a badge.
 - Catch reset and toggle failures while preserving prior state.
 - Announce mutation failures once and retain focus.
 
@@ -716,9 +675,8 @@ BEFORE
 
 AFTER
 +--------------------------------------+
-| Artifact                    Stale    |
-| Refresh failed. Showing saved copy.  |
-| [Retry]                              |
+| Artifact                             |
+| Could not refresh.           [Retry] |
 |--------------------------------------|
 | Last available artifact content      |
 +--------------------------------------+
@@ -749,8 +707,9 @@ Before:
 After:
 
 - Include the affected object in every accessible name.
-- Keep visible labels concise when row context already provides meaning.
-- Use names such as `Reset Create event` and `Enable Simple task model`.
+- Keep visible labels unchanged when row context already provides meaning.
+- Derive the accessible name from the row object and action.
+- Do not add visible descriptions, tooltips, or repeated object names.
 
 Low-fidelity wireframe:
 
@@ -764,11 +723,9 @@ BEFORE
 
 AFTER
 +--------------------------------------+
-| Create event     [Edit] [Reset]      |
-| names: Edit Create event             |
-|        Reset Create event            |
-| Find event       [Edit] [Reset]      |
-| names: Edit Find event, Reset...     |
+| Visible: Create event [Edit] [Reset] |
+| SR: Edit Create event                |
+| SR: Reset Create event               |
 +--------------------------------------+
 ```
 
@@ -781,7 +738,7 @@ Screen-reader control lists and voice control cannot identify each target reliab
 1. Fix UX-01 through UX-03 as one approval-safety milestone.
 2. Fix UX-04 and UX-05 as one command-safety milestone.
 3. Fix UX-06 through UX-11 as one accessibility-foundation milestone.
-4. Fix UX-12 through UX-15 as one state-clarity milestone.
+4. Fix UX-12, UX-14, and UX-15 as one state-clarity milestone.
 
 Keep each milestone independently shippable. Stop if a fix requires a new unsupported product contract.
 
@@ -801,11 +758,14 @@ Keep each milestone independently shippable. Stop if a fix requires a new unsupp
 | UX-10 | Test streaming, completion, tool updates, failures, and user-scrolled-away states with NVDA and VoiceOver. |
 | UX-11 | Test Tab, arrows, Space, Enter, selected-state announcements, and submitted states. |
 | UX-12 | Render every known status, one unknown status, stale data, no provider, and query failure. |
-| UX-13 | Test fresh accounts, empty saved conversations, offline empty state, and narrow widths. |
 | UX-14 | Force boot, artifact, tool mutation, and deletion failures. Confirm retained context and one recovery action. |
 | UX-15 | Inspect screen-reader control lists. Test voice control against repeated rows. |
 
 Static validation should include TypeScript, ESLint, and automated contrast checks.
+
+Concision validation should count default-view headings, labels, status rows, and metadata before and after.
+
+The revised default view must not grow unless one safety-critical consequence requires it.
 
 Runtime validation should include Chromium, Firefox, Safari, iOS Safari, NVDA, and VoiceOver.
 
@@ -826,6 +786,12 @@ Shared motion paths already honor reduced motion. Runtime review should judge qu
 ### Raise mobile input text from source declarations alone
 
 `apps/web/src/styles.css:181` already enforces 16-pixel inputs on coarse pointers. Device verification remains necessary.
+
+### Replace the agent-first opening with a user-first empty state
+
+A new conversation intentionally waits for the agent's first message. Keep working feedback until that message arrives.
+
+Do not prompt the human to start the conversation because that would invert the intended interaction.
 
 ## Verdict
 
