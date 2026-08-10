@@ -43,6 +43,7 @@ The wireframes are schematic. They show information order and interaction states
 | Accessibility foundations | UX-06 through UX-11 | `7cd52f7b` | Semantic navigation, focus, readable text, announcements, and native selection controls |
 | Concise state and recovery | UX-12, UX-14, and UX-15 | `d6987525` | Truthful status, local recovery, and target-specific accessible names |
 | Action request contract | UX-01 correction | `3dfa6eb9` | Typed target, disclosure, consequence, and exact reviewed evidence |
+| Navbar visual correction | UX-06 correction | `a0770a1d` | Existing Astryx treatment retained while routes remain real links |
 
 ## Design direction
 
@@ -326,7 +327,7 @@ Before:
 
 After:
 
-- Render routes with TanStack links styled through Astryx patterns.
+- Render routes as real links with the existing Astryx navbar treatment.
 - Keep repeated chrome outside one route-level `<main>`.
 - Use semantic lists with links inside list items.
 - Move focus before changing mobile `inert` and `aria-hidden` state.
