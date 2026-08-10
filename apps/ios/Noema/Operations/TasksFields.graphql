@@ -254,6 +254,34 @@ fragment TasksCommandTaskFields on TaskDetail {
   currentRun { ...TasksCurrentRunFields }
 }
 
+fragment TasksDetailCoreFields on TaskDetail {
+  ...TasksCommandTaskFields
+  project { ...TasksProjectFields }
+  createdAt
+  source { conversationId }
+}
+
+fragment TasksDetailActivityFields on TaskDetail {
+  taskId
+  messages {
+    messageId
+    bodyMarkdown
+    author
+    createdAt
+  }
+  runs { ...TasksRunFields }
+}
+
+fragment TasksDetailOutcomeFields on TaskDetail {
+  taskId
+  currentContract { ...TasksContractFields }
+  latestSubmission { ...TasksSubmissionFields }
+  completedResult { ...TasksSubmissionFields }
+  latestReview { ...TasksReviewSummaryFields }
+  submissions { ...TasksSubmissionFields }
+  reviews { ...TasksReviewFields }
+}
+
 fragment TasksEventFields on TasksEvent {
   cursor
   eventId

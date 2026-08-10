@@ -980,36 +980,6 @@ private enum TasksRelativeTime {
   }
 }
 
-private extension TasksTaskRow {
-  func detailSnapshot(gate: TasksGateSnapshot?) -> TasksDetailSnapshot {
-    TasksDetailSnapshot(
-      id: id,
-      title: title,
-      description: summary,
-      project: nil,
-      stage: stage,
-      revision: revision,
-      generation: generation,
-      updatedAt: updatedAt,
-      completedAt: completedAt,
-      createdAt: "",
-      complexity: nil,
-      maxReviewRounds: nil,
-      sourceLabel: projectName,
-      currentContract: nil,
-      criteria: [],
-      currentRun: currentRun,
-      activeGate: gate,
-      latestSubmission: nil,
-      completedResult: nil,
-      latestReview: latestReview,
-      messages: [],
-      runs: [],
-      validActions: validActions
-    )
-  }
-}
-
 private extension String {
   var nilIfBlank: String? {
     let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)

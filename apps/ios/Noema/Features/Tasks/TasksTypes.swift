@@ -264,6 +264,36 @@ struct TasksDetailSnapshot: Identifiable, Hashable, Sendable {
   var validActions: Set<String>
 }
 
+extension TasksTaskRow {
+  func detailSnapshot(gate: TasksGateSnapshot?) -> TasksDetailSnapshot {
+    TasksDetailSnapshot(
+      id: id,
+      title: title,
+      description: summary,
+      project: nil,
+      stage: stage,
+      revision: revision,
+      generation: generation,
+      updatedAt: updatedAt,
+      completedAt: completedAt,
+      createdAt: "",
+      complexity: nil,
+      maxReviewRounds: nil,
+      sourceLabel: projectName,
+      currentContract: nil,
+      criteria: [],
+      currentRun: currentRun,
+      activeGate: gate,
+      latestSubmission: nil,
+      completedResult: nil,
+      latestReview: latestReview,
+      messages: [],
+      runs: [],
+      validActions: validActions
+    )
+  }
+}
+
 struct TasksColumnSnapshot: Identifiable, Hashable, Sendable {
   let id: String
   let title: String

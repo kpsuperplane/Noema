@@ -107,45 +107,16 @@ query TasksHistory($workspaceId: String!, $projectId: String, $kind: TerminalTas
   }
 }
 
-query TasksDetail($taskId: String!) {
-  task(taskId: $taskId) {
-    ...TasksCommandTaskFields
-    project { ...TasksProjectFields }
-    createdAt
-    source { conversationId }
-    currentContract { ...TasksContractFields }
-    latestSubmission { ...TasksSubmissionFields }
-    completedResult { ...TasksSubmissionFields }
-    latestReview { ...TasksReviewSummaryFields }
-    attention {
-      kind
-      title
-      summary
-      validActions
-      gate { ...TasksGateFields }
-    }
-    messages {
-      messageId
-      bodyMarkdown
-      author
-      createdAt
-    }
-    runs { ...TasksRunFields }
-    submissions { ...TasksSubmissionFields }
-    reviews { ...TasksReviewFields }
-    artifacts {
-      artifactId
-      title
-      artifactKind
-      storageKind
-      currentVersion {
-        artifactVersionId
-        mediaType
-        downloadUrl
-        externalUrl
-      }
-    }
-  }
+query TasksDetailCore($taskId: String!) {
+  task(taskId: $taskId) { ...TasksDetailCoreFields }
+}
+
+query TasksDetailActivity($taskId: String!) {
+  task(taskId: $taskId) { ...TasksDetailActivityFields }
+}
+
+query TasksDetailOutcome($taskId: String!) {
+  task(taskId: $taskId) { ...TasksDetailOutcomeFields }
 }
 
 query TasksRunItems($runId: String!, $first: Int = 50, $after: String) {

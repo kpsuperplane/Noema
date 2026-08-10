@@ -69,7 +69,7 @@ struct TaskReferenceChip: View {
   private func loadTask() async {
     guard let client else { return }
     do {
-      let response = try await client.fetchNetworkFirst(query: TasksDetailQuery(taskId: taskID))
+      let response = try await client.fetchNetworkFirst(query: TasksDetailCoreQuery(taskId: taskID))
       let task = response.data?.task.fragments.tasksCommandTaskFields
       title = task?.title ?? "Task unavailable"
       if task == nil {
@@ -80,7 +80,7 @@ struct TaskReferenceChip: View {
         progress = "Completed"
       } else if task?.activeGate != nil {
         status = "ATTENTION"
-        progress = response.data?.task.attention?.title ?? task?.activeGate?.prompt ?? "Waiting for you"
+        progress = task?.activeGate?.prompt ?? "Waiting for you"
       } else if task?.currentRun != nil {
         status = "ACTIVE"
         progress = task?.currentRun?.activityLabel ?? "Running"

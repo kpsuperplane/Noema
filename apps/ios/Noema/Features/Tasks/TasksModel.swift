@@ -44,8 +44,12 @@ final class TasksModel {
   private var eventSubscription: Task<Void, Never>?
   private var taskSubscription: Task<Void, Never>?
   private var runtimeSubscription: Task<Void, Never>?
+  private var detailCoreWatcher: GraphQLQueryWatcher<TasksDetailCoreQuery>?
+  private var detailActivityWatcher: GraphQLQueryWatcher<TasksDetailActivityQuery>?
+  private var detailOutcomeWatcher: GraphQLQueryWatcher<TasksDetailOutcomeQuery>?
   private var detailRequestID = UUID()
   private var detailTaskID: String?
+  private var hydratedRunIDs = Set<String>()
   private var runItemEndCursor: [String: String] = [:]
   private var runItemHasNextPage: [String: Bool] = [:]
   private var tasksEndCursor: String?
@@ -84,7 +88,7 @@ final class TasksModel {
     await refresh()
     guard isConnected else { return }
     subscribeToTasks()
-    if let taskId = detail?.id {
+    if let taskId = detailTaskID {
       subscribeToTask(taskId)
       subscribeToRuntime(taskId)
     }
@@ -197,38 +201,52 @@ final class TasksModel {
       taskSubscription = nil
       runtimeSubscription?.cancel()
       runtimeSubscription = nil
+      cancelDetailWatchers()
     }
     detailRequestID = requestID
     detailTaskID = taskId
     if detail?.id != taskId {
-      isLoadingDetail = true
-      detail = nil
+      detail = detailSeed(taskId: taskId)
+      isLoadingDetail = detail == nil
       runItems = []
+      hydratedRunIDs = []
     }
-    defer {
-      if detailRequestID == requestID { isLoadingDetail = false }
+    cancelDetailWatchers()
+    let coreWatcher = await client.watch(
+      query: TasksDetailCoreQuery(taskId: taskId),
+      cachePolicy: .cacheAndNetwork
+    ) { [weak self] result in
+      Task { @MainActor in self?.receiveDetailCore(result, taskId: taskId, requestID: requestID) }
     }
-    do {
-      let query = TasksDetailQuery(taskId: taskId)
-      if let result = try await fetch(query).data {
-        guard detailRequestID == requestID, detailTaskID == taskId, !Task.isCancelled else { return }
-        let nextDetail = mapDetail(result.task)
-        detail = nextDetail
-        let runIDs = Set(nextDetail.runs.map(\.id))
-        runItems.removeAll { !runIDs.contains($0.runId) }
-        for run in nextDetail.runs {
-          await loadRunItems(runId: run.id)
-          guard detailRequestID == requestID, detailTaskID == taskId, !Task.isCancelled else { return }
-        }
-      }
-      guard detailRequestID == requestID, detailTaskID == taskId, !Task.isCancelled else { return }
-      if isConnected { lastError = nil }
-      if taskSubscription == nil { subscribeToTask(taskId) }
-      if runtimeSubscription == nil { subscribeToRuntime(taskId) }
-    } catch {
-      guard detailRequestID == requestID, detailTaskID == taskId, !Task.isCancelled else { return }
-      record(error)
+    guard detailRequestID == requestID, detailTaskID == taskId else {
+      coreWatcher.cancel()
+      return
     }
+    detailCoreWatcher = coreWatcher
+    let activityWatcher = await client.watch(
+      query: TasksDetailActivityQuery(taskId: taskId),
+      cachePolicy: .cacheAndNetwork
+    ) { [weak self] result in
+      Task { @MainActor in await self?.receiveDetailActivity(result, taskId: taskId, requestID: requestID) }
+    }
+    guard detailRequestID == requestID, detailTaskID == taskId else {
+      activityWatcher.cancel()
+      return
+    }
+    detailActivityWatcher = activityWatcher
+    let outcomeWatcher = await client.watch(
+      query: TasksDetailOutcomeQuery(taskId: taskId),
+      cachePolicy: .cacheAndNetwork
+    ) { [weak self] result in
+      Task { @MainActor in self?.receiveDetailOutcome(result, taskId: taskId, requestID: requestID) }
+    }
+    guard detailRequestID == requestID, detailTaskID == taskId else {
+      outcomeWatcher.cancel()
+      return
+    }
+    detailOutcomeWatcher = outcomeWatcher
+    if taskSubscription == nil { subscribeToTask(taskId) }
+    if runtimeSubscription == nil { subscribeToRuntime(taskId) }
   }
 
   func clearDetail(taskId: String) {
@@ -236,32 +254,34 @@ final class TasksModel {
     detailRequestID = UUID()
     detailTaskID = nil
     isLoadingDetail = false
+    cancelDetailWatchers()
     taskSubscription?.cancel()
     taskSubscription = nil
     runtimeSubscription?.cancel()
     runtimeSubscription = nil
-    runItems = []
-    runItemEndCursor = [:]
-    runItemHasNextPage = [:]
-    detail = nil
   }
 
   func loadRunItems(runId: String, after: String? = nil) async {
     let expectedTaskID = detailTaskID
     do {
       let query = TasksRunItemsQuery(runId: runId, first: .some(50), after: optional(after))
-      if let result = try await fetch(query).data {
-        guard expectedTaskID == detailTaskID, detailTaskID != nil, !Task.isCancelled else { return }
-        let nextItems = result.taskRunItems.edges.map { item in
-          let node = item.node
-          return TasksRunItemSnapshot(id: node.itemId, runId: node.runId, sequence: node.sequenceIndex, round: node.roundIndex, kind: node.kind.rawValue, status: node.status.rawValue, correlationId: node.correlationId, parentItemId: node.parentItemId, content: node.contentText, payloadText: node.payload.encodedString, createdAt: node.createdAt, updatedAt: node.updatedAt)
+      let stream = try client.fetch(query: query, cachePolicy: .cacheAndNetwork)
+      for try await response in stream {
+        if response.source == .server { isConnected = true }
+        if let message = response.errors?.first?.message { throw TasksGraphQLError.server(message) }
+        if let result = response.data {
+          guard expectedTaskID == detailTaskID, detailTaskID != nil, !Task.isCancelled else { return }
+          let nextItems = result.taskRunItems.edges.map { item in
+            let node = item.node
+            return TasksRunItemSnapshot(id: node.itemId, runId: node.runId, sequence: node.sequenceIndex, round: node.roundIndex, kind: node.kind.rawValue, status: node.status.rawValue, correlationId: node.correlationId, parentItemId: node.parentItemId, content: node.contentText, payloadText: node.payload.encodedString, createdAt: node.createdAt, updatedAt: node.updatedAt)
+          }
+          let nextIDs = Set(nextItems.map(\.id))
+          runItems.removeAll { nextIDs.contains($0.id) }
+          runItems.append(contentsOf: nextItems)
+          runItems.sort { $0.runId == $1.runId ? $0.sequence < $1.sequence : $0.runId < $1.runId }
+          if let cursor = result.taskRunItems.pageInfo.endCursor { runItemEndCursor[runId] = cursor }
+          runItemHasNextPage[runId] = result.taskRunItems.pageInfo.hasNextPage
         }
-        let nextIDs = Set(nextItems.map(\.id))
-        runItems.removeAll { nextIDs.contains($0.id) }
-        runItems.append(contentsOf: nextItems)
-        runItems.sort { $0.runId == $1.runId ? $0.sequence < $1.sequence : $0.runId < $1.runId }
-        if let cursor = result.taskRunItems.pageInfo.endCursor { runItemEndCursor[runId] = cursor }
-        runItemHasNextPage[runId] = result.taskRunItems.pageInfo.hasNextPage
       }
       if isConnected { lastError = nil }
     } catch {
@@ -941,6 +961,103 @@ final class TasksModel {
     }
   }
 
+  private func cancelDetailWatchers() {
+    detailCoreWatcher?.cancel()
+    detailActivityWatcher?.cancel()
+    detailOutcomeWatcher?.cancel()
+    detailCoreWatcher = nil
+    detailActivityWatcher = nil
+    detailOutcomeWatcher = nil
+  }
+
+  private func detailSeed(taskId: String) -> TasksDetailSnapshot? {
+    if let attention = needsYou.first(where: { $0.task.id == taskId }) {
+      return attention.task.detailSnapshot(gate: attention.gate)
+    }
+    return (tasks + history).first(where: { $0.id == taskId })?.detailSnapshot(gate: nil)
+  }
+
+  private func receiveDetailCore(
+    _ result: Result<GraphQLResponse<TasksDetailCoreQuery>, any Error>,
+    taskId: String,
+    requestID: UUID
+  ) {
+    guard detailRequestID == requestID, detailTaskID == taskId else { return }
+    switch result {
+    case .success(let response):
+      if let message = response.errors?.first?.message {
+        isLoadingDetail = false
+        record(TasksGraphQLError.server(message))
+        return
+      }
+      guard let source = response.data?.task.fragments.tasksDetailCoreFields else { return }
+      detail = mergeDetailCore(source, into: detail)
+      isLoadingDetail = false
+      if response.source == .server {
+        isConnected = true
+        lastError = nil
+      }
+    case .failure(let error):
+      isLoadingDetail = false
+      record(error)
+    }
+  }
+
+  private func receiveDetailActivity(
+    _ result: Result<GraphQLResponse<TasksDetailActivityQuery>, any Error>,
+    taskId: String,
+    requestID: UUID
+  ) async {
+    guard detailRequestID == requestID, detailTaskID == taskId else { return }
+    switch result {
+    case .success(let response):
+      if let message = response.errors?.first?.message {
+        record(TasksGraphQLError.server(message))
+        return
+      }
+      guard let source = response.data?.task.fragments.tasksDetailActivityFields else { return }
+      detail = mergeDetailActivity(source, into: detail)
+      if response.source == .server {
+        isConnected = true
+        lastError = nil
+      }
+      let runIDs = Set(source.runs.map(\.runId))
+      runItems.removeAll { !runIDs.contains($0.runId) }
+      let missingRunIDs = runIDs.subtracting(hydratedRunIDs)
+      hydratedRunIDs.formUnion(missingRunIDs)
+      await withTaskGroup(of: Void.self) { group in
+        for runID in missingRunIDs {
+          group.addTask { [weak self] in await self?.loadRunItems(runId: runID) }
+        }
+      }
+    case .failure(let error):
+      record(error)
+    }
+  }
+
+  private func receiveDetailOutcome(
+    _ result: Result<GraphQLResponse<TasksDetailOutcomeQuery>, any Error>,
+    taskId: String,
+    requestID: UUID
+  ) {
+    guard detailRequestID == requestID, detailTaskID == taskId else { return }
+    switch result {
+    case .success(let response):
+      if let message = response.errors?.first?.message {
+        record(TasksGraphQLError.server(message))
+        return
+      }
+      guard let source = response.data?.task.fragments.tasksDetailOutcomeFields else { return }
+      detail = mergeDetailOutcome(source, into: detail)
+      if response.source == .server {
+        isConnected = true
+        lastError = nil
+      }
+    case .failure(let error):
+      record(error)
+    }
+  }
+
   private func applyOverview(_ overview: TasksOverviewQuery.Data.TasksOverview) {
     workspace = TasksWorkspaceSnapshot(id: overview.workspace.workspaceId, name: overview.workspace.name, description: overview.workspace.description, isPersonal: overview.workspace.isPersonal)
     columns = overview.boardColumns.map { TasksColumnSnapshot(id: $0.stage.stageId, title: $0.stage.name, behavior: TasksStageBehavior($0.stage.behavior.rawValue), count: $0.taskCount) }
@@ -1034,8 +1151,34 @@ final class TasksModel {
     TasksReviewSnapshot(id: source.reviewId, verdict: source.verdict.rawValue, feedback: source.feedback, createdAt: source.createdAt)
   }
 
-  private func mapDetail(_ source: TasksDetailQuery.Data.Task) -> TasksDetailSnapshot {
-    let command = source.fragments.tasksCommandTaskFields
+  private func mergeDetailCore(
+    _ source: TasksDetailCoreFields,
+    into previous: TasksDetailSnapshot?
+  ) -> TasksDetailSnapshot {
+    var next = mergeCommand(source.fragments.tasksCommandTaskFields, into: previous)
+    next.project = source.project.map { mapProject($0.fragments.tasksProjectFields) }
+    next.createdAt = source.createdAt
+    next.sourceLabel = source.project?.name ?? (source.source.conversationId == nil ? nil : "Conversation")
+    return next
+  }
+
+  private func mergeDetailActivity(
+    _ source: TasksDetailActivityFields,
+    into previous: TasksDetailSnapshot?
+  ) -> TasksDetailSnapshot {
+    var next = previous ?? emptyDetail(taskId: source.taskId)
+    next.messages = source.messages.map {
+      TasksMessageSnapshot(id: $0.messageId, body: $0.bodyMarkdown, author: $0.author, createdAt: $0.createdAt)
+    }
+    next.runs = source.runs.map { mapRun($0.fragments.tasksRunFields) }
+    return next
+  }
+
+  private func mergeDetailOutcome(
+    _ source: TasksDetailOutcomeFields,
+    into previous: TasksDetailSnapshot?
+  ) -> TasksDetailSnapshot {
+    var next = previous ?? emptyDetail(taskId: source.taskId)
     let contract = source.currentContract?.fragments.tasksContractFields
     let reviews = source.reviews.map { $0.fragments.tasksReviewFields }
     let submissions = source.submissions.map { $0.fragments.tasksSubmissionFields }
@@ -1069,32 +1212,53 @@ final class TasksModel {
     let criteria = Dictionary(uniqueKeysWithValues: contractCriteria.map {
       ($0.id, ($0.ordinal, $0.description, $0.expectedEvidence))
     })
-    return TasksDetailSnapshot(
-      id: command.taskId,
-      title: command.title,
-      description: command.description,
-      project: source.project.map { mapProject($0.fragments.tasksProjectFields) },
-      executor: mapExecutor(agentId: command.executorAgentId, backend: command.executorBackend, cwdOverride: command.cwdOverride, effectiveCwd: command.effectiveCwd, effectiveCwdSource: command.effectiveCwdSource),
-      schedule: command.schedule.map { mapSchedule(scheduledFor: $0.scheduledFor, timeZone: $0.timeZone, missedRunPolicy: $0.missedRunPolicy.rawValue, recurrenceId: $0.recurrenceId, recurrenceRevision: $0.recurrenceRevision, recurrenceScheduledFor: $0.recurrenceScheduledFor) },
-      stage: mapStage(command.stage.fragments.tasksStageFields),
-      revision: command.revision,
-      generation: command.generation,
-      updatedAt: command.updatedAt,
-      completedAt: command.completedAt,
-      createdAt: source.createdAt,
-      complexity: contract?.complexity.rawValue,
-      maxReviewRounds: contract?.executionPolicy.maxReviewRounds,
-      sourceLabel: source.project?.name ?? (source.source.conversationId == nil ? nil : "Conversation"),
-      currentContract: contract?.requestMarkdown,
-      criteria: contractCriteria,
-      currentRun: command.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) },
-      activeGate: command.activeGate.map { mapGate($0.fragments.tasksGateFields) },
-      latestSubmission: source.latestSubmission.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria, reviewedCriteria: reviewCriteriaBySubmission[$0.submissionId] ?? [:]) },
-      completedResult: source.completedResult.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria, reviewedCriteria: reviewCriteriaBySubmission[$0.submissionId] ?? [:]) },
-      latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) },
-      messages: source.messages.map { TasksMessageSnapshot(id: $0.messageId, body: $0.bodyMarkdown, author: $0.author, createdAt: $0.createdAt) },
-      runs: source.runs.map { mapRun($0.fragments.tasksRunFields) },
-      validActions: Set(command.validActions.map(\.rawValue))
+    next.complexity = contract?.complexity.rawValue
+    next.maxReviewRounds = contract?.executionPolicy.maxReviewRounds
+    next.currentContract = contract?.requestMarkdown
+    next.criteria = contractCriteria
+    next.latestSubmission = source.latestSubmission.map {
+      mapSubmission(
+        $0.fragments.tasksSubmissionFields,
+        contractCriteria: criteria,
+        reviewedCriteria: reviewCriteriaBySubmission[$0.submissionId] ?? [:]
+      )
+    }
+    next.completedResult = source.completedResult.map {
+      mapSubmission(
+        $0.fragments.tasksSubmissionFields,
+        contractCriteria: criteria,
+        reviewedCriteria: reviewCriteriaBySubmission[$0.submissionId] ?? [:]
+      )
+    }
+    next.latestReview = source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) }
+    return next
+  }
+
+  private func emptyDetail(taskId: String) -> TasksDetailSnapshot {
+    TasksDetailSnapshot(
+      id: taskId,
+      title: "Task",
+      description: "",
+      project: nil,
+      stage: TasksStageSnapshot(id: "", name: "Task", behavior: .unknown),
+      revision: 0,
+      generation: 0,
+      updatedAt: "",
+      completedAt: nil,
+      createdAt: "",
+      complexity: nil,
+      maxReviewRounds: nil,
+      sourceLabel: nil,
+      currentContract: nil,
+      criteria: [],
+      currentRun: nil,
+      activeGate: nil,
+      latestSubmission: nil,
+      completedResult: nil,
+      latestReview: nil,
+      messages: [],
+      runs: [],
+      validActions: []
     )
   }
 
