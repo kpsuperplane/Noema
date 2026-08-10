@@ -99,7 +99,7 @@ summary {
 }
 
 a[href] {
-  cursor: pointer !important;
+  cursor: default !important;
 }
 
 [data-slot="chat-composer-layer"]:has([data-slot="human-intervention-list"]) {

@@ -1,5 +1,6 @@
 import React from "react";
 import { useQuery } from "@apollo/client/react";
+import { Button } from "@astryxdesign/core/Button";
 import { TopNav } from "@astryxdesign/core/TopNav";
 import * as stylex from "@stylexjs/stylex";
 import { type ShouldBlockFn, useBlocker, useLocation } from "@tanstack/react-router";
@@ -233,25 +234,13 @@ export function PrimarySurfaceNavigation({
             const label = item.itemId === "chat" ? namedAgent ?? item.label : item.label;
 
             return (
-              <a
+              <Button
                 key={item.itemId}
                 href={item.route ? hrefForRoute(item.route) : undefined}
-                aria-label={label}
-                aria-current={active ? "page" : undefined}
-                {...stylex.props(
-                  styles.primaryNavigationLink,
-                  namedChat && styles.primaryAgentNavigationButton,
-                  active && styles.primaryNavigationButtonActive
-                )}
-                onMouseEnter={namedChat ? () => setAgentButtonHovered(true) : undefined}
-                onMouseLeave={namedChat ? () => setAgentButtonHovered(false) : undefined}
-                onClick={(event) => {
-                  if (!item.route || !shouldHandleShellLink(event)) return;
-                  event.preventDefault();
-                  onNavigate(item.route);
-                }}
-              >
-                {namedChat ? (
+                variant="ghost"
+                size="lg"
+                label={label}
+                icon={namedChat ? (
                   <span aria-hidden="true" {...stylex.props(styles.primaryAgentIcon)}>
                     <IdentityAvatar
                       actorId={LOCAL_AGENT_AVATAR_ID}
@@ -263,28 +252,44 @@ export function PrimarySurfaceNavigation({
                     />
                   </span>
                 ) : <Icon aria-hidden="true" size={20} />}
+                aria-current={active ? "page" : undefined}
+                xstyle={[
+                  styles.primaryNavigationButton,
+                  namedChat && styles.primaryAgentNavigationButton,
+                  active && styles.primaryNavigationButtonActive
+                ]}
+                onMouseEnter={namedChat ? () => setAgentButtonHovered(true) : undefined}
+                onMouseLeave={namedChat ? () => setAgentButtonHovered(false) : undefined}
+                onClick={(event) => {
+                  if (!item.route || !shouldHandleShellLink(event)) return;
+                  event.preventDefault();
+                  onNavigate(item.route);
+                }}
+              >
                 <PrimaryNavigationLabel active={active}>{label}</PrimaryNavigationLabel>
-              </a>
+              </Button>
             );
           })}
-          <a
+          <Button
             data-slot="shell-settings-button"
             href={hrefForRoute({ kind: "settings", section: "agents" })}
-            aria-label="Settings"
+            variant="ghost"
+            size="lg"
+            label="Settings"
+            icon={<Settings aria-hidden="true" size={20} />}
             aria-current={settingsActive ? "page" : undefined}
-            {...stylex.props(
-              styles.primaryNavigationLink,
+            xstyle={[
+              styles.primaryNavigationButton,
               settingsActive && styles.primaryNavigationButtonActive
-            )}
+            ]}
             onClick={(event) => {
               if (!shouldHandleShellLink(event)) return;
               event.preventDefault();
               onNavigate({ kind: "settings", section: "agents" });
             }}
           >
-            <Settings aria-hidden="true" size={20} />
             <PrimaryNavigationLabel active={settingsActive}>Settings</PrimaryNavigationLabel>
-          </a>
+          </Button>
         </>
       }
       endContent={attention ? (
@@ -294,7 +299,7 @@ export function PrimarySurfaceNavigation({
   );
 }
 
-function shouldHandleShellLink(event: React.MouseEvent<HTMLAnchorElement>) {
+function shouldHandleShellLink(event: React.MouseEvent<HTMLElement>) {
   return event.button === 0
     && !event.metaKey
     && !event.ctrlKey
@@ -975,23 +980,12 @@ const styles = stylex.create({
     minWidth: 0,
     alignItems: "center"
   },
-  primaryNavigationLink: {
-    display: "inline-flex",
-    minHeight: 44,
-    alignItems: "center",
-    justifyContent: "center",
+  primaryNavigationButton: {
     borderRadius: 999,
     cornerShape: "var(--corner-shape-full)",
     color: "var(--pine-700)",
     gap: "var(--spacing-0)",
-    paddingInline: "var(--spacing-2)",
-    textDecoration: "none",
-    ":focus-visible": {
-      outlineWidth: 2,
-      outlineStyle: "solid",
-      outlineColor: "var(--ring)",
-      outlineOffset: 2
-    }
+    paddingInline: "var(--spacing-2)"
   },
   primaryNavigationDesktopLabel: {
     display: "block",
