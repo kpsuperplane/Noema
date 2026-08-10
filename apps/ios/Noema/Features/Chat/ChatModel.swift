@@ -616,7 +616,6 @@ final class ChatModel {
         event: "cache_hit",
         fields: ["stage": "transcript", "messageCount": String(messages.count)]
       )
-      isOffline = true
       phase = .ready
       return true
     } catch {
@@ -648,7 +647,7 @@ final class ChatModel {
         )
         guard let page = response.data?.conversationTranscriptPage else { continue }
         applyLatest(page)
-        isOffline = response.source != .server
+        if response.source == .server { isOffline = false }
         phase = .ready
       }
       NoemaDiagnosticTrace.shared.record(category: "chat", event: "transcript_refresh_finished")
