@@ -121,6 +121,7 @@ function PoolEntryRow({
           <span {...stylex.props(styles.rowLabel)}>{complexityLabel(entry.complexity)}</span>
           <Switch
             label="Enabled"
+            aria-label={`Enabled for ${complexityLabel(entry.complexity)} task model`}
             value={entry.enabled}
             isDisabled={saving}
             isLoading={saving}

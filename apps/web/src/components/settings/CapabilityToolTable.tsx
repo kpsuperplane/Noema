@@ -13,6 +13,7 @@ import {
   X
 } from "lucide-react";
 import type { CapabilityConnectionQuery } from "@/generated/graphql";
+import { settingsStatusLabel } from "./settingsStatus";
 
 type ManagedTool = CapabilityConnectionQuery["capabilityTools"][number];
 type HintKey = "readOnly" | "idempotent" | "destructive" | "openWorld";
@@ -102,6 +103,7 @@ export function CapabilityToolTable({
                     variant="ghost"
                     label="Edit"
                     tooltip="Edit"
+                    aria-label={`Edit ${tool.name}`}
                     icon={<Pencil aria-hidden="true" size={16} />}
                     isIconOnly
                     onClick={() => onEdit(tool)}
@@ -112,6 +114,7 @@ export function CapabilityToolTable({
                     variant="ghost"
                     label="Reset"
                     tooltip="Reset"
+                    aria-label={`Reset ${tool.name}`}
                     icon={<RefreshCcw aria-hidden="true" size={16} />}
                     isIconOnly
                     isDisabled={busy}
@@ -123,6 +126,7 @@ export function CapabilityToolTable({
                     variant="ghost"
                     label={tool.enabled ? "Turn off" : "Turn on"}
                     tooltip={tool.enabled ? "Turn off" : "Turn on"}
+                    aria-label={`${tool.enabled ? "Turn off" : "Turn on"} ${tool.name}`}
                     icon={tool.enabled
                       ? <ToggleLeft aria-hidden="true" size={16} />
                       : <ToggleRight aria-hidden="true" size={16} />}
@@ -142,7 +146,7 @@ export function CapabilityToolTable({
 
 function ToolStatus({ status }: { status: string }) {
   if (status === "ready") return null;
-  const label = statusLabel(status);
+  const label = settingsStatusLabel(status);
   return (
     <span
       role="img"
@@ -210,15 +214,6 @@ function sharedToolPrefix(tools: ManagedTool[]) {
 function displayToolName(name: string, sharedPrefix: string) {
   const displayName = name.slice(sharedPrefix.length).replaceAll("_", " ");
   return displayName.charAt(0).toUpperCase() + displayName.slice(1);
-}
-
-function statusLabel(status: string) {
-  return ({
-    pending: "Checking",
-    ready: "Ready",
-    defaulted: "Cautious",
-    disabled: "Off"
-  } as Record<string, string>)[status] ?? status;
 }
 
 export function toolHintSourceDescription(source: string | null) {

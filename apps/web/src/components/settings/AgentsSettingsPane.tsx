@@ -36,6 +36,7 @@ import type {
 } from "./modelPreferenceTypes";
 import { agentDisplayName, selectedModelWarning } from "./agentMetadata";
 import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
+import { settingsStatusLabel } from "./settingsStatus";
 
 export type AgentSettingsAgent = {
   agentId: string;
@@ -138,15 +139,15 @@ export function AgentsSettingsPane() {
                 <SettingsListItem
                   key={agent.agentId}
                   mobileEndContentFullWidth
-                  label={<HStack gap={2} vAlign="center" wrap="wrap"><span {...stylex.props(styles.rowLabel)}>{agent.displayName}</span><Badge variant="neutral" label="ACP" />{!agent.enabled ? <Badge variant="neutral" label="Disabled" /> : null}</HStack>}
+                  label={<HStack gap={2} vAlign="center" wrap="wrap"><span {...stylex.props(styles.rowLabel)}>{agent.displayName}</span>{!agent.enabled ? <Badge variant="neutral" label="Off" /> : null}</HStack>}
                   description={acpAgentDescription(agent)}
                   endContent={
                     <HStack gap={1.5} wrap="wrap" justify="end">
                       {agent.authStatus === "REQUIRED" ? acpAuthMethods(agent).map((method) => (
-                        <Button key={method.id} type="button" size="sm" variant="secondary" label={`Authenticate with ${method.name || method.id}`} isLoading={acpBusy} isDisabled={acpBusy} onClick={() => void onAuthenticateAcpAgent({ agentId: agent.agentId, expectedRevision: agent.connectionRevision, methodId: method.id })} />
+                        <Button key={method.id} type="button" size="sm" variant="secondary" label={`Authenticate with ${method.name || method.id}`} aria-label={`Authenticate ${agent.displayName} with ${method.name || method.id}`} isLoading={acpBusy} isDisabled={acpBusy} onClick={() => void onAuthenticateAcpAgent({ agentId: agent.agentId, expectedRevision: agent.connectionRevision, methodId: method.id })} />
                       )) : null}
-                      <Button type="button" size="sm" variant="secondary" label="Test" isLoading={acpBusy} isDisabled={acpBusy} onClick={() => void onTestAcpAgent({ agentId: agent.agentId, expectedRevision: agent.connectionRevision })} />
-                      <Button type="button" size="sm" variant="ghost" label="Edit" isDisabled={acpBusy} onClick={() => setEditingAcpAgent(agent)} />
+                      <Button type="button" size="sm" variant="secondary" label="Test" aria-label={`Test ${agent.displayName}`} isLoading={acpBusy} isDisabled={acpBusy} onClick={() => void onTestAcpAgent({ agentId: agent.agentId, expectedRevision: agent.connectionRevision })} />
+                      <Button type="button" size="sm" variant="ghost" label="Edit" aria-label={`Edit ${agent.displayName}`} isDisabled={acpBusy} onClick={() => setEditingAcpAgent(agent)} />
                     </HStack>
                   }
                 />
@@ -203,8 +204,14 @@ function AcpAgentDialog({ agent, busy, error, onClose, onCreate, onUpdate }: { a
 }
 
 function acpAgentDescription(agent: AcpAgent): React.ReactNode {
+  if (agent.lastError) return agent.lastError;
+  if (!agent.enabled || agent.authStatus === "REQUIRED") return undefined;
+  if (!["AUTHENTICATED", "NONE"].includes(agent.authStatus)) {
+    return settingsStatusLabel(agent.authStatus);
+  }
+  if (agent.healthStatus !== "HEALTHY") return settingsStatusLabel(agent.healthStatus);
   const implementation = [agent.implementationName, agent.implementationVersion].filter(Boolean).join(" ");
-  return <span>{implementation || agent.command} · {agent.healthStatus.toLowerCase()} · auth {agent.authStatus.toLowerCase()}{agent.lastError ? ` · ${agent.lastError}` : ""}</span>;
+  return implementation || undefined;
 }
 
 function acpAuthMethods(agent: AcpAgent): Array<{ id: string; name: string | null }> {

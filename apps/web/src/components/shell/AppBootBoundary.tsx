@@ -1,5 +1,6 @@
 import React from "react";
 import * as stylex from "@stylexjs/stylex";
+import { Button } from "@astryxdesign/core/Button";
 import { AnimatePresence, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { ErrorMarker } from "@/components/ErrorMarker";
@@ -91,7 +92,13 @@ class AppBootErrorBoundary extends React.Component<
         <main {...stylex.props(styles.root)} aria-label="Noema status">
           <div {...stylex.props(styles.errorFrame)}>
             <img src="/assets/noema-mark.svg" width="36" height="36" alt="" />
-            <ErrorMarker message={this.state.error.message} />
+            <ErrorMarker message="Noema could not load." recoverable={false} />
+            <Button
+              type="button"
+              variant="secondary"
+              label="Retry"
+              onClick={() => this.setState({ error: null })}
+            />
           </div>
         </main>
       );

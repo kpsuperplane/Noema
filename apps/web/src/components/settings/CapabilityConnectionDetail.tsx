@@ -1,7 +1,6 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
-import { Badge } from "@astryxdesign/core/Badge";
 import { HStack } from "@astryxdesign/core/HStack";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
@@ -32,6 +31,7 @@ import {
 import { CapabilityToolTable, toolHintSourceDescription } from "./CapabilityToolTable";
 import { SettingsEditDialog } from "./SettingsEditDialog";
 import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
+import { settingsStatusLabel } from "./settingsStatus";
 
 type ManagedTool = CapabilityConnectionQuery["capabilityTools"][number];
 type HintKey = "readOnly" | "idempotent" | "destructive" | "openWorld";
@@ -86,7 +86,20 @@ export function CapabilityConnectionDetail({
   const editingTool = tools.find((tool) => tool.toolId === editing) ?? null;
 
   if (result.loading && !result.data) return <p {...stylex.props(styles.muted)}>Loading connection…</p>;
-  if (result.error) return <p role="alert" {...stylex.props(styles.error)}>Couldn't load this connection.</p>;
+  if (result.error && !connection) {
+    return (
+      <HStack gap={2} vAlign="center" wrap="wrap">
+        <p role="alert" {...stylex.props(styles.error)}>Connection could not load.</p>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          label="Retry"
+          onClick={() => void result.refetch().catch(() => undefined)}
+        />
+      </HStack>
+    );
+  }
   if (!connection) return <p {...stylex.props(styles.muted)}>This connection no longer exists.</p>;
   const sharing = (sharingDraft ?? connection.dataSharingPolicy ?? "allow_automatically") as CapabilityDataSharingPolicy;
   const unsafeActions = (unsafeActionsDraft ?? connection.unsafeActionPolicy ?? "reviewer_may_approve") as CapabilityUnsafeActionPolicy;
@@ -192,33 +205,57 @@ export function CapabilityConnectionDetail({
   }
 
   async function reset(tool: ManagedTool) {
-    await resetTool({ variables: { input: {
-      ...fence,
-      toolId: tool.toolId,
-      sourceRevision: tool.sourceRevision,
-      expectedPolicyRevision: tool.policyRevision
-    } } });
-    await refresh();
+    setError(null);
+    try {
+      await resetTool({ variables: { input: {
+        ...fence,
+        toolId: tool.toolId,
+        sourceRevision: tool.sourceRevision,
+        expectedPolicyRevision: tool.policyRevision
+      } } });
+      await refresh();
+    } catch {
+      setError(`Could not reset ${tool.name}.`);
+    }
   }
 
   async function toggle(tool: ManagedTool) {
-    await setEnabled({ variables: { input: {
-      ...fence,
-      toolId: tool.toolId,
-      sourceRevision: tool.sourceRevision,
-      expectedPolicyRevision: tool.policyRevision,
-      enabled: !tool.enabled
-    } } });
-    await refresh();
+    setError(null);
+    try {
+      await setEnabled({ variables: { input: {
+        ...fence,
+        toolId: tool.toolId,
+        sourceRevision: tool.sourceRevision,
+        expectedPolicyRevision: tool.policyRevision,
+        enabled: !tool.enabled
+      } } });
+      await refresh();
+    } catch {
+      setError(`Could not ${tool.enabled ? "turn off" : "turn on"} ${tool.name}.`);
+    }
   }
 
   return (
     <VStack gap={5}>
+      {result.error ? (
+        <HStack gap={2} vAlign="center" wrap="wrap">
+          <p role="alert" {...stylex.props(styles.error)}>Connection details may be out of date.</p>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            label="Retry"
+            onClick={() => void result.refetch().catch(() => undefined)}
+          />
+        </HStack>
+      ) : null}
       <SettingsSection aria-labelledby="connection-summary-title">
         <HStack hAlign="between" vAlign="center" gap={2}>
           <VStack gap={1}>
             <h2 id="connection-summary-title" {...stylex.props(styles.heading)}>{connection.name}</h2>
-            <p {...stylex.props(styles.muted)}>{connection.healthStatus} · {connection.authStatus}</p>
+            {connectionIssue(connection) ? (
+              <p {...stylex.props(styles.muted)}>{connectionIssue(connection)}</p>
+            ) : null}
           </VStack>
           <HStack gap={1} vAlign="center">
             {!renaming ? (
@@ -234,7 +271,6 @@ export function CapabilityConnectionDetail({
                 }}
               />
             ) : null}
-            <Badge variant="neutral" label={connection.status.replaceAll("_", " ")} />
           </HStack>
         </HStack>
         {kind === "API" && connection.authStatus === "required" ? (
@@ -290,7 +326,12 @@ export function CapabilityConnectionDetail({
         <summary {...stylex.props(styles.summary)}>Source details</summary>
         {definitionDetails}
         <strong {...stylex.props(styles.detailHeading)}>Connection metadata</strong>
-        <pre {...stylex.props(styles.details)}>{JSON.stringify(connection.sourceDetails, null, 2)}</pre>
+        <pre {...stylex.props(styles.details)}>{JSON.stringify({
+          status: connection.status,
+          healthStatus: connection.healthStatus,
+          authStatus: connection.authStatus,
+          sourceDetails: connection.sourceDetails
+        }, null, 2)}</pre>
       </VStack>
       {dangerAction ? (
         <SettingsSection aria-labelledby="connection-danger-title">
@@ -376,6 +417,17 @@ export function CapabilityConnectionDetail({
       </SettingsEditDialog>
     </VStack>
   );
+}
+
+function connectionIssue(connection: NonNullable<CapabilityConnectionQuery["capabilityConnection"]>) {
+  if (["authentication_required", "needs_auth", "required"].includes(connection.authStatus.toLowerCase())) return null;
+  if (!["active", "healthy", "ready"].includes(connection.healthStatus.toLowerCase())) {
+    return settingsStatusLabel(connection.healthStatus);
+  }
+  if (!["active", "ready", "available", "enabled"].includes(connection.status.toLowerCase())) {
+    return settingsStatusLabel(connection.status);
+  }
+  return null;
 }
 
 function ToolBehaviorEditor({

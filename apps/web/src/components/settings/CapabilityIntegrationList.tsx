@@ -7,6 +7,7 @@ import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import type { CapabilityIntegrationsQuery } from "@/generated/graphql";
 import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
+import { settingsStatusLabel } from "./settingsStatus";
 
 export type CapabilityIntegration = CapabilityIntegrationsQuery["capabilityIntegrations"][number];
 
@@ -96,7 +97,7 @@ export function CapabilityIntegrationList({
                           {connection.name}
                         </Link>
                       }
-                      description={`${connection.authStatus} · ${connection.availableToolCount}/${connection.toolCount} tools`}
+                      description={connectionDescription(connection)}
                       endContent={
                         <Link
                           to={route}
@@ -104,7 +105,7 @@ export function CapabilityIntegrationList({
                           aria-current={selectedConnectionId === connection.connectionId ? "page" : undefined}
                           {...stylex.props(styles.manageLabel)}
                         >
-                          Manage
+                          {connectionNeedsAuthorization(connection.authStatus) ? "Authorize" : "Manage"}
                         </Link>
                       }
                     />
@@ -117,6 +118,21 @@ export function CapabilityIntegrationList({
       ))}
     </VStack>
   );
+}
+
+function connectionDescription(connection: CapabilityIntegration["connections"][number]) {
+  if (connectionNeedsAuthorization(connection.authStatus)) return undefined;
+  if (!["active", "healthy", "ready"].includes(connection.healthStatus.toLowerCase())) {
+    return settingsStatusLabel(connection.healthStatus);
+  }
+  if (connection.availableToolCount !== connection.toolCount) {
+    return `${connection.availableToolCount} of ${connection.toolCount} tools available`;
+  }
+  return undefined;
+}
+
+function connectionNeedsAuthorization(authStatus: string) {
+  return ["authentication_required", "needs_auth", "required"].includes(authStatus.toLowerCase());
 }
 
 const styles = stylex.create({

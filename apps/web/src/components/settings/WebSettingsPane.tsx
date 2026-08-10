@@ -1,7 +1,6 @@
 import { HStack } from "@astryxdesign/core/HStack";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useMemo } from "react";
 import * as stylex from "@stylexjs/stylex";
@@ -108,12 +107,9 @@ export function WebSettingsPane() {
     <VStack gap={6} {...stylex.props(styles.stack)}>
       <SettingsSection aria-labelledby="web-search-settings-title">
         <VStack gap={2}>
-          <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
-            <h2 id="web-search-settings-title" {...stylex.props(styles.sectionTitle)}>
-              Search
-            </h2>
-            <EnabledStatus />
-          </HStack>
+          <h2 id="web-search-settings-title" {...stylex.props(styles.sectionTitle)}>
+            Search
+          </h2>
           <SettingsList density="balanced" hasDividers>
             <WebProviderRow
               settings={search}
@@ -141,12 +137,9 @@ export function WebSettingsPane() {
 
       <SettingsSection aria-labelledby="web-fetch-settings-title">
         <VStack gap={2}>
-          <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
-            <h2 id="web-fetch-settings-title" {...stylex.props(styles.sectionTitle)}>
-              Fetch
-            </h2>
-            <EnabledStatus />
-          </HStack>
+          <h2 id="web-fetch-settings-title" {...stylex.props(styles.sectionTitle)}>
+            Fetch
+          </h2>
           <SettingsList density="balanced" hasDividers>
             <WebProviderRow
               settings={fetch}
@@ -211,12 +204,9 @@ export function WebSettingsPane() {
 
       <SettingsSection aria-labelledby="web-browse-settings-title">
         <VStack gap={2}>
-          <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
-            <h2 id="web-browse-settings-title" {...stylex.props(styles.sectionTitle)}>
-              Browse
-            </h2>
-            <EnabledStatus />
-          </HStack>
+          <h2 id="web-browse-settings-title" {...stylex.props(styles.sectionTitle)}>
+            Browse
+          </h2>
           <SettingsList density="balanced" hasDividers>
             <WebProviderRow
               settings={browse}
@@ -279,7 +269,7 @@ function WebProviderRow({
           settings={settings}
           saving={saving}
           isDisabled={unavailable}
-          ariaLabel="Provider for web tooling"
+          ariaLabel={settings ? `Provider for ${settings.toolName}` : "Web provider"}
           onSave={onSave}
         />
       }
@@ -334,15 +324,6 @@ function WebProviderSelect({
           });
         }}
       />
-    </HStack>
-  );
-}
-
-function EnabledStatus() {
-  return (
-    <HStack gap={1} vAlign="center" {...stylex.props(styles.status)}>
-      <StatusDot variant="success" label="Enabled" />
-      <span>Enabled</span>
     </HStack>
   );
 }
@@ -411,12 +392,6 @@ const styles = stylex.create({
     color: "var(--muted-foreground)",
     fontSize: 13,
     lineHeight: 1.5
-  },
-  status: {
-    flexShrink: 0,
-    color: "var(--muted-foreground)",
-    fontSize: 12,
-    fontWeight: 600
   },
   rowControl: {
     justifyContent: "flex-end",
