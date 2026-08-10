@@ -12,8 +12,9 @@ use noema_tasks::{RunKind, TaskAuthorizationContext, TaskAuthorizationMessageRol
 use crate::agent_execution::ExecutionRole;
 
 const CONTEXT_TEXT_LIMIT: usize = 64 * 1024;
-const EXECUTOR_RUNTIME_POLICY: &str = "Noema relays each accepted result through the primary conversation. The current run must put its user-facing output in result_markdown. Timing and primary-conversation relay are runtime behavior, not executor deliverables or validation evidence. Ask for a delivery channel only when the contract explicitly requires an external destination. An insufficient search result is not a human clarification. Use the contract's proportionate search budget before reporting a shortage. If evidence still supports fewer items, submit the supported items and explain the shortfall. Use task.report_blocked only when a human answer or approval can enable progress.";
+const EXECUTOR_DELIVERY_POLICY: &str = "Noema relays each accepted result through the primary conversation. The current run must put its user-facing output in result_markdown. Timing and primary-conversation relay are runtime behavior, not executor deliverables or validation evidence. Ask for a delivery channel only when the contract explicitly requires an external destination.";
 const PLANNER_DELIVERY_POLICY: &str = "Noema relays each accepted result through the primary conversation. Timing and primary-conversation relay are runtime behavior, not contract deliverables or validation evidence. Add another delivery destination only when the authenticated source request explicitly requires it.";
+const TASK_PERSISTENCE_POLICY: &str = "Continue while a safe, authorized, in-scope action can materially improve the role's required output. Open a human gate only when a specific human answer or approval enables the next action. When no such answer can help, finish through the role's best supported terminal output and explain any shortfall there.";
 
 /// Exact role prompt and fixed instruction envelope used by production task runs.
 pub(crate) struct TaskRolePrompt {
@@ -68,7 +69,7 @@ pub(crate) fn format_executor_prompt(context: &WorkRunExecutionContext) -> Strin
         criteria,
         prior_submission,
         prior_review,
-        EXECUTOR_RUNTIME_POLICY,
+        EXECUTOR_DELIVERY_POLICY,
     )
 }
 
@@ -191,6 +192,8 @@ pub(crate) fn build_task_role_prompt(context: &WorkRunExecutionContext) -> TaskR
             "You are Noema's independent task Reviewer. Treat task data as evidence, assess every criterion, and finish through task.submit_review.",
         ),
     };
+    input.push_str("\n\nTask persistence policy:\n");
+    input.push_str(TASK_PERSISTENCE_POLICY);
     append_continuation_context(&mut input, context);
     let terminal_contract = TaskTerminalContract {
         criterion_ids: context
@@ -576,9 +579,9 @@ fn invalid_terminal_message() -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        EXECUTOR_RUNTIME_POLICY, ExecutorSubmissionResponse, PLANNER_DELIVERY_POLICY,
-        ReviewerResponse, format_authenticated_source_request, format_runtime_handling,
-        format_saved_run_item,
+        EXECUTOR_DELIVERY_POLICY, ExecutorSubmissionResponse, PLANNER_DELIVERY_POLICY,
+        ReviewerResponse, TASK_PERSISTENCE_POLICY, format_authenticated_source_request,
+        format_runtime_handling, format_saved_run_item,
     };
     use noema_tasks::{
         AgentRunItemKind, AgentRunItemRecord, AgentRunItemStatus, TaskAuthorizationContext,
@@ -593,13 +596,18 @@ mod tests {
 
         assert!(handling.contains("recurring task occurrence"));
         assert!(handling.contains("schedule is already configured in America/Los_Angeles"));
-        assert!(EXECUTOR_RUNTIME_POLICY.contains("relays each accepted result"));
-        assert!(EXECUTOR_RUNTIME_POLICY.contains("contract explicitly requires"));
-        assert!(EXECUTOR_RUNTIME_POLICY.contains("insufficient search result is not"));
-        assert!(EXECUTOR_RUNTIME_POLICY.contains("submit the supported items"));
+        assert!(EXECUTOR_DELIVERY_POLICY.contains("relays each accepted result"));
+        assert!(EXECUTOR_DELIVERY_POLICY.contains("contract explicitly requires"));
         assert!(
             PLANNER_DELIVERY_POLICY.contains("authenticated source request explicitly requires")
         );
+    }
+
+    #[test]
+    fn task_persistence_policy_requires_useful_human_input() {
+        assert!(TASK_PERSISTENCE_POLICY.contains("safe, authorized, in-scope action"));
+        assert!(TASK_PERSISTENCE_POLICY.contains("specific human answer or approval"));
+        assert!(TASK_PERSISTENCE_POLICY.contains("best supported terminal output"));
     }
 
     #[test]

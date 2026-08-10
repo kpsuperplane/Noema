@@ -273,9 +273,10 @@ Noema owns scheduled execution and relays each accepted result through the
 primary conversation. Planners and Executors must not treat those runtime
 behaviors as contract deliverables or ask for another delivery channel. They
 use an external destination only when the authenticated human request names it.
-An insufficient research result does not open a clarification gate. The
-Executor uses its proportionate research budget, then submits the supported
-result with any shortfall. Review can request another bounded research pass.
+Every task role continues while a safe, authorized, in-scope action can
+materially improve its required output. A role opens a human gate only when a
+specific answer or approval enables the next action. Otherwise, it finishes
+through its best supported terminal output and explains any shortfall there.
 
 ## API and UI
 
