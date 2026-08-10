@@ -122,6 +122,7 @@ struct ChatComposer: View {
   var isEditable = true
   var isSendEnabled = true
   var placeholderOverride: String?
+  var autoFocus = false
   var restingBottomOffset: CGFloat = 0
   @FocusState private var inputFocused: Bool
   @Environment(NoemaShellCoordinator.self) private var coordinator
@@ -187,6 +188,11 @@ struct ChatComposer: View {
     .padding(.bottom, inputFocused ? NoemaSpacing.sm : 0)
     .onChange(of: inputFocused) { _, focused in
       coordinator.primarySwipeBlocked = focused
+    }
+    .task {
+      guard autoFocus, isEditable else { return }
+      await Task.yield()
+      inputFocused = true
     }
     .onDisappear {
       coordinator.primarySwipeBlocked = false

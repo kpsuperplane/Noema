@@ -333,7 +333,12 @@ struct ChatReadyView: View {
         proxy.scrollTo("chat-bottom", anchor: .bottom)
       }
       .onChange(of: chatTranscriptFollowKey) { _, _ in
-        guard followBottom else { return }
+        let sentMessage = model.messages.last.map { message in
+          if case .user = message.kind { return message.isOptimistic }
+          return false
+        } ?? false
+        guard followBottom || sentMessage else { return }
+        followBottom = true
         withAnimation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion)) {
           proxy.scrollTo("chat-bottom", anchor: .bottom)
         }
@@ -368,6 +373,7 @@ struct ChatReadyView: View {
         }
         ChatComposer(
           model: model,
+          autoFocus: true,
           restingBottomOffset: horizontalSizeClass == .compact ? 12 : 0
         )
           .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 760, alignment: .trailing)
