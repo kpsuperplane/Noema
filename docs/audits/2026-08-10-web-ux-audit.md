@@ -22,6 +22,8 @@ Generated GraphQL output, backend-only code, and tests were supporting evidence 
 
 No browser, screen-reader, network, or device inspection occurred. Runtime findings remain explicit verification work.
 
+The wireframes are schematic. They show information order and interaction states, not final spacing or styling.
+
 | Domain | Reviewed evidence | Result |
 | --- | --- | --- |
 | Better Accessibility | Landmarks, focus, live updates, labels, keyboard behavior, hidden content, and control semantics | Six findings |
@@ -57,6 +59,29 @@ After:
 - Keep review routing, capability identifiers, and raw arguments under technical details.
 - Keep secrets absent and preserve authorized private information.
 
+Low-fidelity wireframe:
+
+```text
+BEFORE
++--------------------------------------+
+| Approve action                       |
+| capability: email.send               |
+| { raw arguments }      [Show details]|
+| [Decline]                 [Approve]  |
++--------------------------------------+
+
+AFTER
++--------------------------------------+
+| Send project update to Sam           |
+| To: Sam                              |
+| Shares: message and attachment       |
+| Audience: external                   |
+| Reversible: no                       |
+| [Technical details]                  |
+| [Decline]                 [Approve]  |
++--------------------------------------+
+```
+
 Why:
 
 People can approve an external effect without reliable evidence about its target, disclosure, or reversibility.
@@ -84,6 +109,28 @@ After:
 - Show a nearby Retry control when required actions cannot load.
 - Remove fallback actions only after a successful intervention query.
 - Keep stale evidence visible, but disable irreversible commands until reconciliation succeeds.
+
+Low-fidelity wireframe:
+
+```text
+BEFORE
++--------------------------------------+
+| Task: Confirm delivery date          |
+| Waiting for you                      |
+|                                      |
+| No response control                  |
++--------------------------------------+
+
+AFTER
++--------------------------------------+
+| Task: Confirm delivery date          |
+| Action request could not load        |
+| [Retry]                              |
+|                                      |
+| Last known question                  |
+| [Response unavailable while stale]   |
++--------------------------------------+
+```
 
 Why:
 
@@ -115,6 +162,28 @@ After:
 - Submit approval only through the explicit decision control.
 - Track the pending decision and mark only its control as loading.
 
+Low-fidelity wireframe:
+
+```text
+BEFORE
++--------------------------------------+
+| Decision                             |
+| (x) Approve  ( ) Decline             |
+| [Add a note___________________]      |
+| Enter submits                        |
+| After Decline: [Decline] [Approving] |
++--------------------------------------+
+
+AFTER
++--------------------------------------+
+| Decision                             |
+| Initial: ( ) Decline  ( ) Approve    |
+| [Add a note___________________]      |
+| Enter adds a new line                |
+| After Decline: [Declining] [Approve] |
++--------------------------------------+
+```
+
 Why:
 
 The current interaction can approve by default and can misstate which consequential command is running.
@@ -143,6 +212,26 @@ After:
 - Clear the guard only after success or recoverable failure.
 - Keep one optimistic row and one client message identifier per submission.
 
+Low-fidelity wireframe:
+
+```text
+BEFORE
++--------------------------------------+
+| You: Send the report                 |
+| You: Send the report                 |
+|                                      |
+| [Send the report____________] [Send] |
++--------------------------------------+
+
+AFTER
++--------------------------------------+
+| You: Send the report        Sending  |
+|                                      |
+| [Composer unavailable while sending] |
+|                           [Sending]  |
++--------------------------------------+
+```
+
 Why:
 
 Duplicate messages can start duplicate model work and duplicate downstream actions.
@@ -169,6 +258,26 @@ After:
 - Name the affected model or provider account.
 - State the lost data, access effect, and recovery path.
 - Prevent repeated submission and restore focus after dismissal.
+
+Low-fidelity wireframe:
+
+```text
+BEFORE
++--------------------------------------+
+| Local model: Granite 8B              |
+| 4.2 GB installed            [Remove] |
++--------------------------------------+
+                |
+                +-- removed immediately
+
+AFTER
++--------------------------------------+
+| Remove Granite 8B?                   |
+| This deletes 4.2 GB of model data.   |
+| Download the model again to restore. |
+| [Cancel]              [Remove model] |
++--------------------------------------+
+```
 
 Why:
 
@@ -209,6 +318,29 @@ After:
 - Add a first-focusable skip link.
 - Update the document title and route heading focus after navigation.
 
+Low-fidelity wireframe:
+
+```text
+BEFORE
++--------------------------------------+
+| [button Chat] [button Tasks]         |
+| <main> shell header                  |
+|   <main> Tasks                       |
+|     [Task link with listitem role]   |
+| Mobile menu open: route still tabs   |
++--------------------------------------+
+
+AFTER
++--------------------------------------+
+| [Skip to content]                    |
+| <nav> [Chat link] [Tasks link]       |
+| <main id="content">                  |
+|   Tasks <- focus after navigation    |
+|   <ul><li>[Task link]</li></ul>      |
+| Mobile menu open: route is inert     |
++--------------------------------------+
+```
+
 Why:
 
 Keyboard and screen-reader users can reach hidden content and lose native navigation behavior.
@@ -235,6 +367,26 @@ After:
 - Add a visible focus state to the expansion trigger.
 - Preserve each indicator in forced-colors mode.
 - Cap composer height and enable internal scrolling for long drafts.
+
+Low-fidelity wireframe:
+
+```text
+BEFORE
++--------------------------------------+
+| Composer                             |
+|   caret in field, no visible focus   |
+| [Message bubble: select to expand]   |
++--------------------------------------+
+
+AFTER
++======================================+
+| Composer has a visible focus ring    |
+| [Draft text____________________]     |
++======================================+
+| Message preview   [Show full message]|
+|                    ^ visible focus   |
++--------------------------------------+
+```
 
 Why:
 
@@ -265,6 +417,25 @@ After:
 - Reserve faint colors for disabled or decorative content.
 - Recheck accent text on paper surfaces before release.
 
+Low-fidelity wireframe:
+
+```text
+BEFORE
++--------------------------------------+
+| Task title                           |
+| Muted metadata on paper    3.69:1 X  |
+| Faint supporting text      2.53:1 X  |
++--------------------------------------+
+
+AFTER
++--------------------------------------+
+| Task title                           |
+| Supporting metadata         4.5:1+   |
+| Secondary help text         4.5:1+   |
+| Faint color: disabled marks only     |
++--------------------------------------+
+```
+
 Why:
 
 Normal text currently fails WCAG AA across common light surfaces.
@@ -293,6 +464,25 @@ After:
 - Use tabular numerals for changing counts and times.
 - Keep smaller type only for nonessential marks.
 
+Low-fidelity wireframe:
+
+```text
+BEFORE
++--------------------------------------+
+| Review quarterly plan                |
+| 2 RUNS | DUE 09:30 | WAITING   9px   |
+| Next run: 08/12 14:00         10px   |
++--------------------------------------+
+
+AFTER
++--------------------------------------+
+| Review quarterly plan                |
+| 2 runs | Due 09:30 | Waiting   12px+ |
+| Next run: 08/12 14:00          12px+ |
+| Times use tabular numerals           |
++--------------------------------------+
+```
+
 Why:
 
 Important operational data becomes hard to scan, especially at increased text size.
@@ -317,6 +507,26 @@ After:
 - Announce one completed assistant response through a separate live region.
 - Do not announce every streamed token.
 - Expose busy state while a response is incomplete.
+
+Low-fidelity wireframe:
+
+```text
+BEFORE
++--------------------------------------+
+| Transcript region                    |
+| Noema: Streaming response...         |
+| Response completes silently          |
++--------------------------------------+
+
+AFTER
++--------------------------------------+
+| Transcript log              [busy]   |
+| Noema: Streaming response...         |
+|                                      |
+| Live status: "Noema replied"         |
+| Announced once after completion      |
++--------------------------------------+
+```
 
 Why:
 
@@ -344,6 +554,30 @@ After:
 - Preserve the existing semantic submission command.
 - Use a named weekday group with checkbox controls.
 - If buttons remain, add accurate `aria-pressed` state.
+
+Low-fidelity wireframe:
+
+```text
+BEFORE
++--------------------------------------+
+| Choose one                           |
+| [ ] Basic       Tab stop             |
+| [x] Advanced    Tab stop             |
+|                                      |
+| Days  [M] [T] [W] [T] [F]            |
+| Selection is visual only             |
++--------------------------------------+
+
+AFTER
++--------------------------------------+
+| Choose one                           |
+| ( ) Basic       Tab, then arrows     |
+| (x) Advanced                         |
+|                                      |
+| Days                                 |
+| [x] Mon [ ] Tue [x] Wed [ ] Thu      |
++--------------------------------------+
+```
 
 Why:
 
@@ -375,6 +609,26 @@ After:
 - Keep raw values inside technical details.
 - Pair each blocked state with its recovery action.
 
+Low-fidelity wireframe:
+
+```text
+BEFORE
++--------------------------------------+
+| Search       green dot  Enabled      |
+| Fetch        green dot  Enabled      |
+| Calendar     AUTH_REQUIRED           |
++--------------------------------------+
+
+AFTER
++--------------------------------------+
+| Search                   Loading...  |
+| Fetch                    Needs setup |
+|                    [Choose provider] |
+| Calendar            Sign-in required |
+|                             [Sign in]|
++--------------------------------------+
+```
+
 Why:
 
 People can receive false success signals or internal values without a useful next step.
@@ -398,6 +652,27 @@ After:
 - Render the skeleton only while initial data is loading.
 - Show a compact loaded-empty orientation state afterward.
 - Keep the composer as the focal action.
+
+Low-fidelity wireframe:
+
+```text
+BEFORE
++--------------------------------------+
+| Conversation                         |
+| [////////////////////////////]       |
+| [////////////////////]               |
+| Loading skeleton never ends          |
+| [Message Noema_______________]       |
++--------------------------------------+
+
+AFTER
++--------------------------------------+
+| New conversation                     |
+| Ask Noema a question to begin.       |
+|                                      |
+| [Message Noema_______________] [Send]|
++--------------------------------------+
+```
 
 Why:
 
@@ -428,6 +703,27 @@ After:
 - Catch reset and toggle failures while preserving prior state.
 - Announce mutation failures once and retain focus.
 
+Low-fidelity wireframe:
+
+```text
+BEFORE
++--------------------------------------+
+| Artifact unavailable                 |
+| Refresh failed                       |
+|                                      |
+| No content and no recovery action    |
++--------------------------------------+
+
+AFTER
++--------------------------------------+
+| Artifact                    Stale    |
+| Refresh failed. Showing saved copy.  |
+| [Retry]                              |
+|--------------------------------------|
+| Last available artifact content      |
++--------------------------------------+
+```
+
 Why:
 
 Several failed operations leave people without a clear, local recovery action.
@@ -455,6 +751,26 @@ After:
 - Include the affected object in every accessible name.
 - Keep visible labels concise when row context already provides meaning.
 - Use names such as `Reset Create event` and `Enable Simple task model`.
+
+Low-fidelity wireframe:
+
+```text
+BEFORE
++--------------------------------------+
+| Create event     [Edit] [Reset]      |
+| Find event       [Edit] [Reset]      |
+| Screen reader: Edit, Reset, Edit...  |
++--------------------------------------+
+
+AFTER
++--------------------------------------+
+| Create event     [Edit] [Reset]      |
+| names: Edit Create event             |
+|        Reset Create event            |
+| Find event       [Edit] [Reset]      |
+| names: Edit Find event, Reset...     |
++--------------------------------------+
+```
 
 Why:
 
