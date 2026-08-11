@@ -473,7 +473,6 @@ struct NoemaShellView: View {
       .item(id: "models", label: "Local Models", symbol: "cpu") {},
       .item(id: "providers", label: "Providers", symbol: "server.rack") {},
       .item(id: "notifications", label: "Notifications", symbol: "bell") {},
-      .item(id: "liveActivities", label: "Live Activities", symbol: "rectangle.inset.filled.and.person.filled") {},
       .item(id: "clients", label: "Clients", symbol: "iphone") {}
     ]
   }

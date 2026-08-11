@@ -72,7 +72,6 @@ struct SettingsRootView: View {
       (.localModels, "Local Models", "cpu"),
       (.providers, "Providers", "server.rack"),
       (.notifications, "Notifications", "bell"),
-      (.liveActivities, "Live Activities", "rectangle.inset.filled.and.person.filled"),
       (.clients, "Clients", "iphone")
     ]
     var entries: [NoemaSidebarEntry] = []
@@ -118,8 +117,9 @@ private struct SettingsDetail: View {
       case .usage, .execution: ExecutionSettings(settings: settings)
       case .localModels: LocalModelsSettings(settings: settings)
       case .providers: ProvidersSettings(settings: settings)
-      case .notifications: ClientNotificationsSettings(notifications: notifications)
-      case .liveActivities: ClientLiveActivitiesSettings(liveActivities: liveActivities)
+      case .notifications:
+        ClientNotificationsSettings(notifications: notifications)
+        ClientLiveActivitiesSettings(liveActivities: liveActivities)
       case .clients:
         ClientsSettings(
           settings: settings,

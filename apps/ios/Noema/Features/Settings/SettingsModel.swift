@@ -100,7 +100,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
   case localModels
   case providers
   case notifications
-  case liveActivities
   case clients
 
   var id: String { rawValue }
@@ -118,7 +117,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case .localModels: "Local Models"
     case .providers: "Providers"
     case .notifications: "Notifications"
-    case .liveActivities: "Live Activities"
     case .clients: "Clients"
     }
   }
@@ -136,7 +134,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case .localModels: "cpu"
     case .providers: "server.rack"
     case .notifications: "bell"
-    case .liveActivities: "rectangle.inset.filled.and.person.filled"
     case .clients: "iphone.and.arrow.forward"
     }
   }
