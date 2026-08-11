@@ -183,6 +183,11 @@ impl RuntimeActor {
         };
         debug_span.finish(debug_status, Some(debug_metadata)).await;
         if let Ok(response) = result.as_ref() {
+            self.record_hosted_web_search_urls(
+                &format!("hosted_web_search:{run_id}:{round_index}"),
+                &response.hosted_web_searches,
+            )
+            .await;
             let persistence_debug = RuntimeDebugSpan::begin(
                 &self.store,
                 RuntimeDebugScope::AgentRun(run_id.to_string()),

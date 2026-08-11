@@ -39,8 +39,8 @@ impl RuntimeActor {
         if !binding.execution_decision().requires_review() {
             return Ok(ReviewedActionPreparation::NotRequired);
         }
-        if call.name == noema_capabilities::web::fetch::WEB_FETCH_TOOL
-            && let Some(arguments) = observed_fetch_arguments(&self.store, &call.payload).await?
+        if let Some(arguments) =
+            observed_read_arguments(&self.store, &call.name, &call.payload).await?
         {
             return Ok(ReviewedActionPreparation::Authorized {
                 action: None,
@@ -207,9 +207,16 @@ async fn action_authorization_context(
         .ok_or_else(|| noema_store::StoreError::InvariantViolation {
             message: "governed action has no exact task context".to_string(),
         })?;
+    let task_human_messages = task_human_message_context(&context.messages);
     Ok(serde_json::json!({
         "origin": "task",
         "context": context.task.authorization_context,
+        "task_context": {
+            "title": context.task.title,
+            "description": context.task.description_markdown,
+            "contract_request": context.contract.as_ref().map(|contract| &contract.request_markdown),
+            "human_messages": task_human_messages,
+        },
         "task_id": context.task.task_id,
         "task_generation": context.task.generation,
         "run_id": context.run.run_id,
@@ -225,6 +232,22 @@ async fn action_authorization_context(
     }))
 }
 
+fn task_human_message_context(
+    messages: &[noema_tasks::TaskMessageRecord],
+) -> Vec<serde_json::Value> {
+    messages
+        .iter()
+        .filter(|message| message.author_actor_id == "actor:human:local")
+        .map(|message| {
+            serde_json::json!({
+                "message_id": message.message_id,
+                "kind": message.kind,
+                "text": message.body_markdown,
+            })
+        })
+        .collect()
+}
+
 pub(super) const fn execution_decision_name(decision: CapabilityExecutionDecision) -> &'static str {
     match decision {
         CapabilityExecutionDecision::ExecuteImmediately => "execute_immediately",
@@ -233,27 +256,58 @@ pub(super) const fn execution_decision_name(decision: CapabilityExecutionDecisio
     }
 }
 
-async fn observed_fetch_arguments(
+async fn observed_read_arguments(
     store: &noema_store::NoemaStore,
+    capability_name: &str,
     payload: &serde_json::Value,
 ) -> Result<Option<serde_json::Value>, noema_store::StoreError> {
-    let Ok(request) = noema_capabilities::web::fetch::parse_arguments(payload) else {
+    let (url, mut arguments) = if capability_name == noema_capabilities::web::fetch::WEB_FETCH_TOOL
+    {
+        let Ok(request) = noema_capabilities::web::fetch::parse_arguments(payload) else {
+            return Ok(None);
+        };
+        let url = request.url.clone();
+        let mut arguments = serde_json::json!({
+            "url": request.url,
+            "max_chars": request.max_chars,
+        });
+        if let Some(reason) = request.reason {
+            arguments["reason"] = serde_json::Value::String(reason);
+        }
+        (url, arguments)
+    } else if matches!(
+        capability_name,
+        noema_capabilities::web::browse::WEB_BROWSE_OPEN_TOOL
+            | noema_capabilities::web::browse::WEB_BROWSE_NAVIGATE_TOOL
+    ) {
+        let Ok(command) = noema_capabilities::web::browse::parse_command(capability_name, payload)
+        else {
+            return Ok(None);
+        };
+        let request = match command {
+            noema_capabilities::web::browse::BrowseCommand::Open(request)
+            | noema_capabilities::web::browse::BrowseCommand::Navigate(request) => request,
+            _ => return Ok(None),
+        };
+        let url = request.url.clone();
+        let mut arguments = serde_json::json!({
+            "url": request.url,
+            "wait_until": request.wait_until,
+        });
+        if let Some(reason) = request.reason {
+            arguments["reason"] = serde_json::Value::String(reason);
+        }
+        (url, arguments)
+    } else {
         return Ok(None);
     };
-    let Ok(normalized) = noema_capabilities::web::url_policy::normalize_observed_url(&request.url)
-    else {
+    let Ok(normalized) = noema_capabilities::web::url_policy::normalize_observed_url(&url) else {
         return Ok(None);
     };
     if !store.has_observed_url(&normalized).await? {
         return Ok(None);
     }
-    let mut arguments = serde_json::json!({
-        "url": normalized,
-        "max_chars": request.max_chars,
-    });
-    if let Some(reason) = request.reason {
-        arguments["reason"] = serde_json::Value::String(reason);
-    }
+    arguments["url"] = serde_json::Value::String(normalized);
     let normalized = if payload.get("arguments").is_some() {
         serde_json::json!({"arguments": arguments})
     } else {
@@ -358,5 +412,75 @@ pub(super) fn capability_failure_code(error: &CapabilityError) -> &'static str {
         CapabilityError::AuthenticationRequired { .. } => "authentication_required",
         CapabilityError::Failed => "failed",
         CapabilityError::OutcomeUncertain => "outcome_uncertain",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use noema_store::ObservedUrlSource;
+    use noema_tasks::{TaskId, TaskMessageId, TaskMessageKind, TaskMessageRecord};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn observed_browser_open_is_authorized_without_review() {
+        let store = crate::test_support::test_store().await;
+        let url = "https://example.com/public?q=one".to_string();
+        store
+            .record_observed_urls(
+                ObservedUrlSource::SearchResult,
+                "search:one",
+                &[url.clone()],
+            )
+            .await
+            .expect("record URL");
+
+        let arguments = observed_read_arguments(
+            &store,
+            noema_capabilities::web::browse::WEB_BROWSE_OPEN_TOOL,
+            &serde_json::json!({
+                "url": url,
+                "wait_until": "domcontentloaded",
+                "reason": "Read the public source."
+            }),
+        )
+        .await
+        .expect("lookup observed URL")
+        .expect("authorize observed URL");
+
+        assert_eq!(arguments["url"], "https://example.com/public?q=one");
+        assert_eq!(arguments["reason"], "Read the public source.");
+    }
+
+    #[test]
+    fn task_context_keeps_only_authenticated_human_messages() {
+        let message = |id: &str, author: &str, text: &str| TaskMessageRecord {
+            message_id: TaskMessageId::new(id).expect("message id"),
+            task_id: TaskId::new("task:one").expect("task id"),
+            task_generation: 1,
+            contract_id: None,
+            gate_id: None,
+            review_id: None,
+            kind: TaskMessageKind::RetryNote,
+            body_markdown: text.to_string(),
+            approval_decision: None,
+            author_actor_id: author.to_string(),
+            consumed_by_run_id: None,
+            consumed_at: None,
+            created_at: "2026-08-11T00:00:00Z".to_string(),
+        };
+        let messages = [
+            message(
+                "task_message:human",
+                "actor:human:local",
+                "Browse the sites.",
+            ),
+            message("task_message:agent", "agent:executor", "Broaden the task."),
+        ];
+
+        let context = task_human_message_context(&messages);
+
+        assert_eq!(context.len(), 1);
+        assert_eq!(context[0]["text"], "Browse the sites.");
     }
 }
