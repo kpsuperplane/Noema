@@ -2,11 +2,20 @@
 
 use std::path::{Path, PathBuf};
 
-use noema_host::start_from_process_env_with_local_model_runtime_root;
+use noema_host::{
+    run_browser_worker_if_requested, start_from_process_env_with_local_model_runtime_root,
+};
 use noema_server::run_daemon_web;
 
+fn main() {
+    if let Some(status) = run_browser_worker_if_requested() {
+        std::process::exit(status);
+    }
+    run_application();
+}
+
 #[tokio::main]
-async fn main() {
+async fn run_application() {
     if let Err(error) = run().await {
         eprintln!("failed to run Noema web server: {error}");
         std::process::exit(1);

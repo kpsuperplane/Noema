@@ -6,7 +6,7 @@ use std::{fmt, sync::Arc};
 #[cfg(feature = "adapters")]
 use crate::adapters::web::browse::ObscuraBrowseBackend;
 
-/// Stable id for Noema's embedded Obscura browser provider.
+/// Stable id for Noema's Obscura browser provider.
 pub const OBSCURA_BROWSER_PROVIDER_ID: &str = "obscura";
 
 /// Opaque execution authority for one browser session.
@@ -56,7 +56,7 @@ pub enum WebBrowseError {
     /// The requested history entry does not exist.
     #[error("browser history entry is unavailable")]
     HistoryUnavailable,
-    /// The embedded browser worker failed before dispatch.
+    /// The browser worker failed before dispatch.
     #[error("browser worker unavailable")]
     Unavailable,
     /// The worker failed after a potentially mutating operation was dispatched.
@@ -69,12 +69,15 @@ pub enum WebBrowseError {
 pub struct WebBrowseBackendHandle(Arc<WebBrowseBackend>);
 
 impl WebBrowseBackendHandle {
-    /// Construct the embedded Obscura backend.
+    /// Construct the process-isolated Obscura backend.
     #[cfg(feature = "adapters")]
     #[must_use]
-    pub fn obscura() -> Self {
+    pub fn obscura(max_sessions: usize, max_old_space_mb: usize) -> Self {
         Self(Arc::new(WebBrowseBackend {
-            implementation: WebBrowseBackendKind::Obscura(ObscuraBrowseBackend::new()),
+            implementation: WebBrowseBackendKind::Obscura(ObscuraBrowseBackend::new(
+                max_sessions,
+                max_old_space_mb,
+            )),
         }))
     }
 

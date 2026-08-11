@@ -24,12 +24,18 @@ session when the interaction is complete.
   is the opening turn; Work ownership is task ID plus task generation so an
   approval continuation retains authority without granting a later generation
   access.
-- Noema admits at most eight sessions process-wide. One re-armable task waits
-  for the earliest deadline; it does not poll.
+- Noema admits the configured number of sessions. The default is two, and the
+  valid range is one through eight. One re-armable task waits for the earliest
+  deadline; it does not poll.
 - Successful activity extends the 15-minute idle deadline. Explicit close,
   expiry, and daemon shutdown drop the page, context, cookies, and storage.
-- Each Obscura page runs on a dedicated OS thread with a current-thread Tokio
-  runtime so its V8 state never moves between executor threads.
+- Each Obscura session runs in a child process. A private, versioned JSON-line
+  protocol limits each frame to 2 MiB.
+- Each worker has a configured V8 old-space limit. The default is 1024 MiB, and
+  the valid range is 256 through 4096 MiB.
+- Use `browser.max_sessions` and `browser.max_old_space_mb` in `config.yaml`.
+  Environment overrides use `NOEMA_BROWSER__MAX_SESSIONS` and
+  `NOEMA_BROWSER__MAX_OLD_SPACE_MB`.
 
 ## Network and execution security
 
@@ -46,9 +52,9 @@ are JSON encoded into those scripts. Arbitrary JavaScript evaluation, selectors,
 screenshots, downloads, uploads, multiple tabs, proxies, durable profiles, and
 cross-execution reuse are intentionally absent.
 
-Obscura embeds V8 in the Noema process. Its network policy and Noema's fixed
-script boundary reduce exposure, but embedded V8 is not OS-level isolation.
-Do not treat the browser context as a sandbox for hostile native code.
+Obscura embeds V8 in the browser worker. A worker crash ends only its session.
+Noema removes that session and releases its capacity. This process boundary
+contains failures, but it is not a sandbox for hostile native code.
 
 ## Governance and persistence
 

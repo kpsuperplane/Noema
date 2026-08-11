@@ -17,9 +17,9 @@ pub mod onboarding;
 /// Assembled application host and lifecycle.
 pub mod runtime_host;
 
+pub use config::{BrowserConfig, DEFAULT_NOEMA_CONFIG_YAML, HostConfig, WebConfig};
 #[cfg(feature = "composition")]
 pub use config::{Config, ConfigError};
-pub use config::{DEFAULT_NOEMA_CONFIG_YAML, HostConfig, WebConfig};
 pub use onboarding::{
     OnboardingService, OnboardingServiceError, OnboardingStatus, OnboardingStep,
     OnboardingStepStatus,
@@ -28,6 +28,15 @@ pub use runtime_host::{
     ArtifactDiagnosticHandle, ArtifactDiagnosticOperations, HostServices, NoemaHost,
     RuntimeHostError,
 };
+
+/// Run a private browser worker when the process has worker arguments.
+///
+/// The application entrypoint must exit with the returned status.
+#[cfg(feature = "composition")]
+#[must_use]
+pub fn run_browser_worker_if_requested() -> Option<i32> {
+    noema_providers::run_browser_worker_if_requested()
+}
 #[cfg(feature = "composition")]
 pub use runtime_host::{
     start_from_loaded_config, start_from_process_env,

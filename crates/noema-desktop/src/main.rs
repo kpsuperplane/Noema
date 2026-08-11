@@ -10,6 +10,9 @@ mod graphql_ipc;
 mod mcp_oauth_callback;
 
 fn main() {
+    if let Some(status) = noema_host::run_browser_worker_if_requested() {
+        std::process::exit(status);
+    }
     let app = tauri::Builder::default()
         .manage(desktop_state::DesktopState::new())
         .setup(|app| {

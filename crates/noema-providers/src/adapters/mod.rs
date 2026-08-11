@@ -21,6 +21,7 @@ pub use hosted::{ProviderBootstrap, hosted_provider_from_config, provider_bootst
 pub use openrouter::{
     OPENROUTER_PROVIDER_ACCOUNT_ID, catalog::validate_api_key as validate_openrouter_api_key,
 };
+pub(crate) use web::run_worker_if_requested;
 pub use web::{
     EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
     default_web_browse_backend, default_web_fetch_backend, default_web_search_backend,

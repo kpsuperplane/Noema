@@ -1,5 +1,6 @@
 //! Host configuration loading and provider selection.
 
+mod browser;
 mod defaults;
 #[cfg(feature = "composition")]
 mod error;
@@ -11,6 +12,7 @@ mod loading;
 mod raw;
 mod web;
 
+pub use browser::BrowserConfig;
 pub use defaults::DEFAULT_NOEMA_CONFIG_YAML;
 #[cfg(feature = "composition")]
 pub use error::ConfigError;
@@ -28,15 +30,21 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostConfig {
     pub(crate) provider: noema_providers::ProviderConfig,
+    pub(crate) browser: BrowserConfig,
     web: WebConfig,
     pub(crate) local_model_runtime_root: Option<PathBuf>,
 }
 
 impl HostConfig {
     #[cfg(feature = "composition")]
-    pub(crate) fn new(provider: noema_providers::ProviderConfig, web: WebConfig) -> Self {
+    pub(crate) fn new(
+        provider: noema_providers::ProviderConfig,
+        browser: BrowserConfig,
+        web: WebConfig,
+    ) -> Self {
         Self {
             provider,
+            browser,
             web,
             local_model_runtime_root: None,
         }

@@ -63,6 +63,36 @@ openai:
 
     assert!(matches!(error, ConfigError::InvalidInteger { .. }));
 
+    // Case: browser_limits_accept_configured_values_and_reject_out_of_range_values.
+    let resolved = load_resolved(
+        None,
+        None,
+        &[
+            ("NOEMA_PROVIDER", "codex"),
+            ("NOEMA_BROWSER__MAX_SESSIONS", "4"),
+            ("NOEMA_BROWSER__MAX_OLD_SPACE_MB", "2048"),
+        ],
+    )
+    .expect("browser limits should resolve");
+    assert_eq!(
+        resolved.browser,
+        BrowserConfig {
+            max_sessions: 4,
+            max_old_space_mb: 2_048,
+        }
+    );
+    for (name, value) in [
+        ("NOEMA_BROWSER__MAX_SESSIONS", "9"),
+        ("NOEMA_BROWSER__MAX_OLD_SPACE_MB", "255"),
+    ] {
+        let error =
+            load_resolved(None, None, &[("NOEMA_PROVIDER", "codex"), (name, value)]).unwrap_err();
+        assert!(matches!(
+            error,
+            ConfigError::InvalidInteger { name: invalid, .. } if invalid == name
+        ));
+    }
+
     // Case: unsupported_provider_is_an_error.
     let error = load_resolved(None, None, &[("NOEMA_PROVIDER", "unknown")]).unwrap_err();
 

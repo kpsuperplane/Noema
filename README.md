@@ -61,6 +61,9 @@ openai:
   organization_id: org_...
   project_id: proj_...
   timeout_seconds: 120
+browser:
+  max_sessions: 2
+  max_old_space_mb: 1024
 web:
   host: 127.0.0.1
   port: 3737
@@ -85,6 +88,8 @@ Supported environment variables include:
 - `NOEMA_OPENAI__PROJECT_ID`
 - `NOEMA_CODEX__MODEL`
 - `NOEMA_CODEX__TIMEOUT_SECONDS`
+- `NOEMA_BROWSER__MAX_SESSIONS`
+- `NOEMA_BROWSER__MAX_OLD_SPACE_MB`
 - `NOEMA_WEB__HOST`
 - `NOEMA_WEB__PORT`
 - `NOEMA_WEB__RP_ID`

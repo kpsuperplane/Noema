@@ -1,4 +1,4 @@
-use super::{HostConfig, WebConfig, error::ConfigError};
+use super::{BrowserConfig, HostConfig, WebConfig, error::ConfigError};
 use noema_providers::{
     CodexProviderConfig, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_TIMEOUT_SECONDS,
     DEFAULT_FOUNDATION_LOCAL_PROFILE, DEFAULT_HOSTED_REASONING_EFFORT,
@@ -25,6 +25,7 @@ pub(super) struct RawConfig {
     codex: RawCodexConfig,
     foundation_local: RawFoundationLocalConfig,
     local_models: RawLocalModelsConfig,
+    browser: BrowserConfig,
     web: WebConfig,
 }
 
@@ -40,6 +41,7 @@ impl Default for RawConfig {
             codex: RawCodexConfig::default(),
             foundation_local: RawFoundationLocalConfig::default(),
             local_models: RawLocalModelsConfig::default(),
+            browser: BrowserConfig::default(),
             web: WebConfig::default(),
         }
     }
@@ -69,7 +71,11 @@ impl RawConfig {
             }
         };
 
-        Ok(HostConfig::new(provider, self.web))
+        Ok(HostConfig::new(
+            provider,
+            self.browser.validate()?,
+            self.web,
+        ))
     }
 
     pub(super) fn resolve_openai_config(&self) -> Result<OpenAiProviderConfig, ConfigError> {

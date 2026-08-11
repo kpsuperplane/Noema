@@ -85,6 +85,8 @@ vertical slice or a net-negative reduction.
 - Browser auth is local-human WebAuthn; paired clients use independently
   revocable bearer credentials. Installed PWA behavior follows
   [../frontend/pwa.md](../frontend/pwa.md).
+- Each interactive browser session runs in a bounded child process. A browser
+  worker crash ends its session without stopping Noema.
 - The iOS client stores normalized GraphQL reads in a protected per-client
   SQLite cache. It clears the active cache during unpair and never queues
   offline writes.
