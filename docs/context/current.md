@@ -27,6 +27,9 @@ vertical slice or a net-negative reduction.
   SQLite FTS is rebuildable. Documented iconless-page reads remain supported.
 - Durable chat is reconstructed from conversation items. Live daemon and
   subscription state is coordination state only.
+- Hosted Codex search requests include ordered action sources. The runtime
+  resolves exact private-use citation markers before saving new chat text or
+  task submissions. Task submission citations are immutable child records.
 - An ordinary tool result and its exact saved call finish in one store
   transaction. The result ID comes from the call item ID. The same result can
   repeat without a duplicate, and different repeat data fails.

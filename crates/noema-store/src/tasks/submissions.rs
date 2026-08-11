@@ -202,6 +202,45 @@ fn submit_result_tx(
             params![&submission_id, criterion.criterion_id, criterion.evidence_markdown],
         )?;
     }
+    for (index, citation) in submission.citations.iter().enumerate() {
+        let ordinal = i64::try_from(index + 1).map_err(|_| {
+            StoreError::Work(WorkDomainError::InvalidInput {
+                field: "submission.citations",
+                message: "citation ordinal exceeds SQLite range".to_string(),
+            })
+        })?;
+        let start_index = citation
+            .start_index
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| {
+                StoreError::Work(WorkDomainError::InvalidInput {
+                    field: "submission.citation.start_index",
+                    message: "citation start index exceeds SQLite range".to_string(),
+                })
+            })?;
+        let end_index = citation
+            .end_index
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| {
+                StoreError::Work(WorkDomainError::InvalidInput {
+                    field: "submission.citation.end_index",
+                    message: "citation end index exceeds SQLite range".to_string(),
+                })
+            })?;
+        transaction.execute(
+            "INSERT INTO task_submission_citations (submission_id, ordinal, title, url, start_index, end_index) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                &submission_id,
+                ordinal,
+                citation.title,
+                citation.url,
+                start_index,
+                end_index,
+            ],
+        )?;
+    }
     // The submission row's generated id is used above after insertion.  Keep
     // the input normalized with the allocated id for the event/result marker.
     let persisted_submission_id = transaction.query_row(

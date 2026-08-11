@@ -232,6 +232,12 @@ function mapSubmission(
     revision: submission.reviewRound,
     summary: submission.summary,
     result: submission.resultMarkdown,
+    citations: submission.citations.map((citation) => ({
+      title: citation.title,
+      url: citation.url,
+      startIndex: citation.startIndex ?? null,
+      endIndex: citation.endIndex ?? null
+    })),
     evidence: submission.criteria.map((criterion) => criterion.evidenceMarkdown).join("\n\n"),
     artifacts: submission.artifacts.map((artifact) => ({
       id: artifact.artifactId,

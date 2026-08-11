@@ -126,7 +126,7 @@ pub use schedule::{
 pub use state::TaskComplexity;
 pub use submission::{
     NewTaskSubmission, SubmissionCriterionEvidence, TaskSubmissionArtifactRecord,
-    TaskSubmissionRecord,
+    TaskSubmissionCitation, TaskSubmissionRecord,
 };
 pub use task::{
     TASK_AUTHORIZATION_CONTEXT_MAX_MESSAGES, TaskAuthorizationContext, TaskAuthorizationMessage,

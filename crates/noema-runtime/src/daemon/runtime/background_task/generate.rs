@@ -2,7 +2,7 @@ impl RuntimeActor {
     pub(super) async fn generate_background_task(
         &self,
         request: BackgroundTaskGenerateRequest,
-    ) -> Result<GenerateResponse, RuntimeError> {
+    ) -> Result<BackgroundTaskGenerateResult, RuntimeError> {
         let started_at = Instant::now();
         let setup_debug = RuntimeDebugSpan::begin(
             &self.store,
@@ -88,6 +88,8 @@ impl RuntimeActor {
                 && capabilities.parallel_tool_calls,
         };
         admit_uncompacted_request(provider, &initial_request).await?;
+        let mut citation_sources = CitationSourceRegistry::default();
+        let mut next_provider_round = 0;
         let initial_response = self
             .generate_task_provider_round(
                 provider,
@@ -106,7 +108,11 @@ impl RuntimeActor {
             )
             .await;
         let mut response = match initial_response {
-            Ok(response) => response,
+            Ok(response) => {
+                citation_sources.observe(0, &response.hosted_web_searches);
+                next_provider_round = 1;
+                response
+            }
             Err(error) if is_wall_time_error(&error) => {
                 return self
                     .finalize_background_task(
@@ -117,6 +123,8 @@ impl RuntimeActor {
                         capabilities,
                         response_continuation,
                         &mut context,
+                        &mut citation_sources,
+                        next_provider_round,
                         "task active wall-time safety ceiling reached",
                         deadline,
                         None,
@@ -148,6 +156,8 @@ impl RuntimeActor {
                         capabilities,
                         response_continuation,
                         &mut context,
+                        &mut citation_sources,
+                        next_provider_round,
                         "model returned without the required terminal contract",
                         deadline,
                         aggregate_usage,
@@ -185,6 +195,8 @@ impl RuntimeActor {
                         capabilities,
                         response_continuation,
                         &mut context,
+                        &mut citation_sources,
+                        next_provider_round,
                         "task active wall-time safety ceiling reached",
                         deadline,
                         aggregate_usage,
@@ -213,6 +225,8 @@ impl RuntimeActor {
                         capabilities,
                         response_continuation,
                         &mut context,
+                        &mut citation_sources,
+                        next_provider_round,
                         "task tool-call safety ceiling reached",
                         deadline,
                         aggregate_usage,
@@ -289,6 +303,8 @@ impl RuntimeActor {
                             capabilities,
                             response_continuation,
                             &mut context,
+                            &mut citation_sources,
+                            next_provider_round,
                             "task active wall-time safety ceiling reached",
                             deadline,
                             aggregate_usage,
@@ -404,7 +420,10 @@ impl RuntimeActor {
                 .any(|result| result.requires_provider_continuation)
             {
                 response.usage = aggregate_usage;
-                return Ok(response);
+                return Ok(BackgroundTaskGenerateResult {
+                    response,
+                    citation_sources,
+                });
             }
             let continuation_step = continuation_index + 1;
             progress.mark_continuation_step(continuation_step);
@@ -427,6 +446,8 @@ impl RuntimeActor {
                         capabilities,
                         response_continuation,
                         &mut context,
+                        &mut citation_sources,
+                        next_provider_round,
                         reason,
                         deadline,
                         aggregate_usage,
@@ -450,6 +471,8 @@ impl RuntimeActor {
                             capabilities,
                             response_continuation,
                             &mut context,
+                            &mut citation_sources,
+                            next_provider_round,
                             "task active wall-time safety ceiling reached",
                             deadline,
                             aggregate_usage,
@@ -484,6 +507,8 @@ impl RuntimeActor {
                                 capabilities,
                                 response_continuation,
                                 &mut context,
+                                &mut citation_sources,
+                                next_provider_round,
                                 reason,
                                 deadline,
                                 aggregate_usage,
@@ -507,6 +532,8 @@ impl RuntimeActor {
                         capabilities,
                         response_continuation,
                         &mut context,
+                        &mut citation_sources,
+                        next_provider_round,
                         "maximum provider tool continuations reached",
                         deadline,
                         aggregate_usage,
@@ -570,6 +597,8 @@ impl RuntimeActor {
                         capabilities,
                         response_continuation,
                         &mut context,
+                        &mut citation_sources,
+                        next_provider_round,
                         "task active wall-time safety ceiling reached",
                         deadline,
                         aggregate_usage,
@@ -666,7 +695,12 @@ impl RuntimeActor {
                     .await;
             }
             response = match continuation_response {
-                Ok(response) => response,
+                Ok(response) => {
+                    citation_sources
+                        .observe(continuation_step, &response.hosted_web_searches);
+                    next_provider_round = continuation_step.saturating_add(1);
+                    response
+                }
                 Err(error) if is_wall_time_error(&error) => {
                     return self
                         .finalize_background_task(
@@ -677,6 +711,8 @@ impl RuntimeActor {
                             capabilities,
                             response_continuation,
                             &mut context,
+                            &mut citation_sources,
+                            next_provider_round,
                             "task active wall-time safety ceiling reached",
                             deadline,
                             aggregate_usage,

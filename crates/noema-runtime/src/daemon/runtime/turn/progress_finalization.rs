@@ -8,6 +8,8 @@ impl RuntimeActor {
         index: usize,
         task_handoff: bool,
         has_pending_results: bool,
+        citation_sources: &mut CitationSourceRegistry,
+        provider_round_index: usize,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
         timing: &TurnTiming,
     ) -> Result<(), RuntimeError> {
@@ -24,6 +26,8 @@ impl RuntimeActor {
                 context,
                 index,
                 reason,
+                citation_sources,
+                provider_round_index,
                 item_tx,
                 timing,
             )
@@ -38,6 +42,8 @@ impl RuntimeActor {
         context: &mut ContinuationContext,
         index: usize,
         reason: &str,
+        citation_sources: &mut CitationSourceRegistry,
+        provider_round_index: usize,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
         timing: &TurnTiming,
     ) -> Result<(), RuntimeError> {
@@ -206,15 +212,32 @@ impl RuntimeActor {
             item_tx,
         )
         .await?;
+        citation_sources.observe(provider_round_index, &response.hosted_web_searches);
         let citation_response_index = response
             .responses
             .iter()
             .rposition(|item| matches!(item, noema_providers::GenerateResponseItem::Text { .. }));
-        let mut assistant_response = ProviderAssistantResponse::with_citations(
-            citation_response_index,
-            response.citations.clone(),
-        );
+        let mut assistant_response = ProviderAssistantResponse::default();
         for (offset, response_item) in response.responses.into_iter().enumerate() {
+            let response_item = match response_item {
+                noema_providers::GenerateResponseItem::Text { phase, text } => {
+                    let existing = (citation_response_index == Some(offset))
+                        .then_some(response.citations.as_slice())
+                        .unwrap_or_default();
+                    let normalized = self.normalize_provider_citation_text(
+                        citation_sources,
+                        &text,
+                        existing,
+                        "conversation_turn",
+                        &turn.turn_id,
+                    );
+                    assistant_response.set_citations_for(offset, normalized.citations);
+                    noema_providers::GenerateResponseItem::Text {
+                        phase,
+                        text: normalized.text,
+                    }
+                }
+            };
             self.persist_provider_response_item(
                 &action_turn,
                 ProviderResponsePosition {

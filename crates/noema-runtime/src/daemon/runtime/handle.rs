@@ -440,7 +440,7 @@ impl RuntimeHandle {
     pub(crate) async fn generate_background_task(
         &self,
         request: super::BackgroundTaskGenerateRequest,
-    ) -> Result<GenerateResponse, RuntimeError> {
+    ) -> Result<super::BackgroundTaskGenerateResult, RuntimeError> {
         self.request(|reply| RuntimeCommand::BackgroundTask { request, reply })
             .await
     }
@@ -639,7 +639,7 @@ pub(super) enum RuntimeCommand {
     },
     BackgroundTask {
         request: super::BackgroundTaskGenerateRequest,
-        reply: oneshot::Sender<Result<GenerateResponse, RuntimeError>>,
+        reply: oneshot::Sender<Result<super::BackgroundTaskGenerateResult, RuntimeError>>,
     },
     DeliverWorkNotification {
         notification: noema_store::ClaimedWorkNotification,

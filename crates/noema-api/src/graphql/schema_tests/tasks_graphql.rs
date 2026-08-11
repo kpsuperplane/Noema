@@ -75,6 +75,7 @@ fn tasks_schema_exposes_exact_detail_attention_and_closed_vocabularies() {
     for field in [
         "descriptionPreview: String!",
         "completedResult: TaskSubmission",
+        "citations: [TaskSubmissionCitation!]!",
         "messages: [TaskMessage!]!",
         "runs: [TaskRun!]!",
         "submissions: [TaskSubmission!]!",

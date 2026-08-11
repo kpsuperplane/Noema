@@ -76,9 +76,8 @@ export function providerCitationContent(
   for (const citation of citations) {
     const { startIndex, endIndex } = citation;
     if (
-      startIndex === null ||
       endIndex === null ||
-      startIndex >= endIndex ||
+      (startIndex !== null && startIndex >= endIndex) ||
       endIndex > text.length
     ) {
       continue;

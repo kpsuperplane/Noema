@@ -5480,6 +5480,10 @@ type TaskSubmission {
 	"""
 	resultMarkdown: String!
 	"""
+	Verified web sources.
+	"""
+	citations: [TaskSubmissionCitation!]!
+	"""
 	Criterion evidence.
 	"""
 	criteria: [TaskSubmissionCriterion!]!
@@ -5529,6 +5533,28 @@ type TaskSubmissionArtifact {
 	External URL, when present.
 	"""
 	externalUrl: String
+}
+
+"""
+Verified web source attached to a submission.
+"""
+type TaskSubmissionCitation {
+	"""
+	Source title.
+	"""
+	title: String!
+	"""
+	Source URL.
+	"""
+	url: String!
+	"""
+	UTF-16 citation start, when available.
+	"""
+	startIndex: Int
+	"""
+	UTF-16 citation end, when available.
+	"""
+	endIndex: Int
 }
 
 """

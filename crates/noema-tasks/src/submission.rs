@@ -17,6 +17,16 @@ pub struct SubmissionCriterionEvidence {
     pub evidence_markdown: String,
 }
 
+/// One verified web source attached to an immutable executor submission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
+pub struct TaskSubmissionCitation {
+    pub title: String,
+    pub url: String,
+    pub start_index: Option<usize>,
+    pub end_index: Option<usize>,
+}
+
 /// Input for an immutable executor submission.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
@@ -28,6 +38,7 @@ pub struct NewTaskSubmission {
     pub review_round: u32,
     pub summary: String,
     pub result_markdown: String,
+    pub citations: Vec<TaskSubmissionCitation>,
     pub criteria: Vec<SubmissionCriterionEvidence>,
     pub artifact_ids: Vec<String>,
 }
@@ -47,6 +58,22 @@ impl NewTaskSubmission {
         }
         let summary = required(&self.summary, "submission.summary")?;
         let result_markdown = required(&self.result_markdown, "submission.result_markdown")?;
+        let mut citations = Vec::with_capacity(self.citations.len());
+        for citation in &self.citations {
+            if matches!((citation.start_index, citation.end_index), (Some(start), Some(end)) if start >= end)
+            {
+                return Err(invalid_input(
+                    "submission.citations",
+                    "citation start index must precede its end index",
+                ));
+            }
+            citations.push(TaskSubmissionCitation {
+                title: required(&citation.title, "submission.citation.title")?,
+                url: required(&citation.url, "submission.citation.url")?,
+                start_index: citation.start_index,
+                end_index: citation.end_index,
+            });
+        }
         let expected = expected_criterion_ids
             .iter()
             .map(String::as_str)
@@ -98,6 +125,7 @@ impl NewTaskSubmission {
             review_round: self.review_round,
             summary,
             result_markdown,
+            citations,
             criteria,
             artifact_ids,
         })
@@ -115,6 +143,7 @@ pub struct TaskSubmissionRecord {
     pub review_round: u32,
     pub summary: String,
     pub result_markdown: String,
+    pub citations: Vec<TaskSubmissionCitation>,
     pub criteria: Vec<SubmissionCriterionEvidence>,
     pub artifacts: Vec<TaskSubmissionArtifactRecord>,
     pub created_at: String,

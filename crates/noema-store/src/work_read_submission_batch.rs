@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use noema_tasks::{
     NewTaskSubmission, SubmissionCriterionEvidence, TaskContractId, TaskId,
-    TaskSubmissionArtifactRecord, TaskSubmissionRecord,
+    TaskSubmissionArtifactRecord, TaskSubmissionCitation, TaskSubmissionRecord,
 };
 use rusqlite::{Row, Transaction, types::Type};
 
@@ -45,6 +45,7 @@ pub(crate) fn load_submissions(
         ));
     }
     let criteria = load_criteria(transaction, &ids_json)?;
+    let citations = load_citations(transaction, &ids_json)?;
     let expected =
         load_contract_criterion_ids(transaction, bases.iter().map(|base| &base.contract_id))?;
     let links = load_artifact_links(transaction, &ids_json)?;
@@ -53,6 +54,10 @@ pub(crate) fn load_submissions(
     let mut records = HashMap::with_capacity(bases.len());
     for base in bases {
         let submission_criteria = criteria
+            .get(&base.submission_id)
+            .cloned()
+            .unwrap_or_default();
+        let submission_citations = citations
             .get(&base.submission_id)
             .cloned()
             .unwrap_or_default();
@@ -94,6 +99,7 @@ pub(crate) fn load_submissions(
             review_round: base.review_round,
             summary: base.summary.clone(),
             result_markdown: base.result_markdown.clone(),
+            citations: submission_citations.clone(),
             criteria: submission_criteria.clone(),
             artifact_ids: submission_links
                 .iter()
@@ -117,6 +123,7 @@ pub(crate) fn load_submissions(
             review_round: base.review_round,
             summary: base.summary,
             result_markdown: base.result_markdown,
+            citations: submission_citations,
             criteria: submission_criteria,
             artifacts: submission_links,
             created_at: base.created_at,
@@ -126,6 +133,45 @@ pub(crate) fn load_submissions(
         }
     }
     Ok(records)
+}
+
+fn load_citations(
+    transaction: &Transaction<'_>,
+    ids_json: &str,
+) -> Result<HashMap<String, Vec<TaskSubmissionCitation>>, StoreError> {
+    let mut statement = transaction.prepare(
+        "SELECT submission_id, title, url, start_index, end_index
+         FROM task_submission_citations
+         WHERE submission_id IN (SELECT value FROM json_each(?1))
+         ORDER BY submission_id, ordinal",
+    )?;
+    let rows = statement.query_map([ids_json], |row| {
+        let start_index = row
+            .get::<_, Option<i64>>(3)?
+            .map(usize::try_from)
+            .transpose()
+            .map_err(|error| conversion_failure(3, Type::Integer, error))?;
+        let end_index = row
+            .get::<_, Option<i64>>(4)?
+            .map(usize::try_from)
+            .transpose()
+            .map_err(|error| conversion_failure(4, Type::Integer, error))?;
+        Ok((
+            row.get::<_, String>(0)?,
+            TaskSubmissionCitation {
+                title: row.get(1)?,
+                url: row.get(2)?,
+                start_index,
+                end_index,
+            },
+        ))
+    })?;
+    let mut grouped = HashMap::<String, Vec<TaskSubmissionCitation>>::new();
+    for row in rows {
+        let (id, citation) = row?;
+        grouped.entry(id).or_default().push(citation);
+    }
+    Ok(grouped)
 }
 
 fn load_bases(

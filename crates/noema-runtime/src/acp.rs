@@ -258,9 +258,15 @@ pub(crate) async fn execute_acp_run(
         name: terminal.tool,
         payload: terminal.arguments,
     };
-    super::daemon::task_runtime::execution::parse_terminal(run, context, &[call], fence.clone())
-        .map(|terminal| AcpRunOutcome::Terminal(Box::new(terminal)))
-        .map_err(crate::daemon::RuntimeError::Protocol)
+    super::daemon::task_runtime::execution::parse_terminal(
+        run,
+        context,
+        &[call],
+        fence.clone(),
+        &[],
+    )
+    .map(|terminal| AcpRunOutcome::Terminal(Box::new(terminal)))
+    .map_err(crate::daemon::RuntimeError::Protocol)
 }
 
 fn map_process_loss(error: String, approval_was_sent: bool) -> crate::daemon::RuntimeError {

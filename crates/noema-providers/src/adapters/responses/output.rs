@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use super::{ResponsesDiagnosticContext, tools::ResponsesToolNameMap};
 use crate::{
     GenerateCitation, GenerateHostedWebSearch, GenerateReasoningItem, GenerateResponse,
-    GenerateResponseItem, ProviderError, ProviderToolTransport, TokenUsage,
+    GenerateResponseItem, GenerateWebSource, ProviderError, ProviderToolTransport, TokenUsage,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -234,7 +234,7 @@ impl ResponsesResponse {
             .enumerate()
             .filter_map(|(output_index, item)| match item {
                 ResponsesOutputItem::WebSearchCall { id, status, action } => {
-                    let (tool_name, arguments, result) =
+                    let (tool_name, arguments, result, sources) =
                         normalize_hosted_web_action(action, status);
                     Some(GenerateHostedWebSearch {
                         output_index,
@@ -243,6 +243,7 @@ impl ResponsesResponse {
                         arguments,
                         result,
                         status: status.clone(),
+                        sources,
                     })
                 }
                 _ => None,
@@ -324,7 +325,10 @@ impl ResponsesResponse {
     }
 }
 
-fn normalize_hosted_web_action(action: &Value, status: &str) -> (String, Value, Value) {
+fn normalize_hosted_web_action(
+    action: &Value,
+    status: &str,
+) -> (String, Value, Value, Vec<GenerateWebSource>) {
     let action_type = action.get("type").and_then(Value::as_str);
     let (tool_name, arguments) = match action_type {
         Some("open_page" | "find_in_page") => {
@@ -371,7 +375,38 @@ fn normalize_hosted_web_action(action: &Value, status: &str) -> (String, Value, 
             );
         }
     }
-    (tool_name.to_string(), arguments, result)
+    let sources = match action_type {
+        Some("open_page" | "find_in_page") => action
+            .get("url")
+            .and_then(Value::as_str)
+            .into_iter()
+            .filter_map(|url| web_source(url, None))
+            .collect(),
+        _ => action
+            .get("sources")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|source| {
+                web_source(
+                    source.get("url").and_then(Value::as_str)?,
+                    source.get("title").and_then(Value::as_str),
+                )
+            })
+            .collect(),
+    };
+    (tool_name.to_string(), arguments, result, sources)
+}
+
+fn web_source(url: &str, title: Option<&str>) -> Option<GenerateWebSource> {
+    let url = url.trim();
+    (url.starts_with("https://") || url.starts_with("http://")).then(|| GenerateWebSource {
+        title: title
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .map(ToString::to_string),
+        url: url.to_string(),
+    })
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

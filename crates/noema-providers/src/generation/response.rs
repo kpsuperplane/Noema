@@ -56,6 +56,19 @@ pub struct GenerateHostedWebSearch {
     pub result: Value,
     /// Provider-reported lifecycle status.
     pub status: String,
+    /// Ordered public sources used by this hosted web action.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<GenerateWebSource>,
+}
+
+/// One public source used by a provider-hosted web action.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GenerateWebSource {
+    /// Provider title, when supplied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Exact HTTP(S) source URL.
+    pub url: String,
 }
 
 /// One source citation supplied by a model provider.

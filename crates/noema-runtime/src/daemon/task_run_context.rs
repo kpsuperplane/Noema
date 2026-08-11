@@ -362,10 +362,20 @@ fn format_submission(submission: &noema_tasks::TaskSubmissionRecord) -> String {
             )
         })
         .collect::<Vec<_>>();
+    let citations = submission
+        .citations
+        .iter()
+        .map(|citation| format!("{}: {}", citation.title, citation.url))
+        .collect::<Vec<_>>();
     format!(
-        "Summary:\n{}\n\nResult:\n{}\n\nCriterion evidence:\n{}\n\nArtifacts: {}",
+        "Summary:\n{}\n\nResult:\n{}\n\nSources:\n{}\n\nCriterion evidence:\n{}\n\nArtifacts: {}",
         bounded(&submission.summary),
         bounded(&submission.result_markdown),
+        if citations.is_empty() {
+            "None".to_string()
+        } else {
+            citations.join("\n")
+        },
         submission
             .criteria
             .iter()

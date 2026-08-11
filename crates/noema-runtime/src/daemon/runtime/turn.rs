@@ -18,7 +18,7 @@ use noema_store::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -28,6 +28,7 @@ use tokio::sync::mpsc;
 
 use super::{
     actor::RuntimeActor,
+    citation_markers::CitationSourceRegistry,
     context_window::{ContextAdmission, RequestContext, admit_request, hard_overflow_error},
     continuation_context::ContinuationContext,
     interaction_lifecycle::resolved_interaction_tool_result_item,
@@ -323,6 +324,7 @@ struct ForegroundContinuationState {
     continuation_context: ContinuationContext,
     continuation_tool_results: Vec<LocalToolResult>,
     waiting_for_interaction: bool,
+    citation_sources: CitationSourceRegistry,
 }
 
 #[derive(Debug)]
@@ -366,22 +368,10 @@ pub(in crate::daemon) struct SuccessfulProviderTurn {
 pub(in crate::daemon) struct ProviderAssistantResponse {
     pub(in crate::daemon) item_id: Option<String>,
     pub(in crate::daemon) text: String,
-    citation_response_index: Option<usize>,
-    citations: Vec<noema_providers::GenerateCitation>,
+    citations: HashMap<usize, Vec<noema_providers::GenerateCitation>>,
 }
 
 impl ProviderAssistantResponse {
-    pub(in crate::daemon) fn with_citations(
-        citation_response_index: Option<usize>,
-        citations: Vec<noema_providers::GenerateCitation>,
-    ) -> Self {
-        Self {
-            citation_response_index,
-            citations,
-            ..Self::default()
-        }
-    }
-
     pub(in crate::daemon) fn push_text(&mut self, text: &str) {
         if !self.text.is_empty() {
             self.text.push_str("\n\n");
@@ -393,10 +383,18 @@ impl ProviderAssistantResponse {
         &self,
         response_index: usize,
     ) -> &[noema_providers::GenerateCitation] {
-        if self.citation_response_index == Some(response_index) {
-            &self.citations
-        } else {
-            &[]
+        self.citations
+            .get(&response_index)
+            .map_or(&[], Vec::as_slice)
+    }
+
+    pub(in crate::daemon) fn set_citations_for(
+        &mut self,
+        response_index: usize,
+        citations: Vec<noema_providers::GenerateCitation>,
+    ) {
+        if !citations.is_empty() {
+            self.citations.insert(response_index, citations);
         }
     }
 }
@@ -544,6 +542,7 @@ mod provider_output_span_tests {
             arguments: json!({}),
             result: json!({}),
             status: "completed".to_string(),
+            sources: Vec::new(),
         }];
 
         assert_eq!(provider_output_span(1, 0, &searches), 3);

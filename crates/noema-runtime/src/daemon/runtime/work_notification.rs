@@ -255,6 +255,12 @@ fn build_notification_prompt(
         prompt.push_str("\nSubmission result:\n");
         prompt.push_str(&submission.result_markdown);
         prompt.push('\n');
+        if !submission.citations.is_empty() {
+            prompt.push_str("Submission sources:\n");
+            for citation in &submission.citations {
+                prompt.push_str(&format!("- {}: {}\n", citation.title, citation.url));
+            }
+        }
     }
     if let Some(submission) = referenced_submission(task, payload)
         && !submission.artifacts.is_empty()

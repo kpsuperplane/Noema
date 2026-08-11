@@ -74,6 +74,7 @@ pub(crate) struct ResponsesRequestProfile {
     forward_prompt_cache_breakpoints: bool,
     allowed_tools: bool,
     include_encrypted_reasoning: bool,
+    include_web_search_sources: bool,
     stream: bool,
 }
 
@@ -86,6 +87,7 @@ pub(crate) const OPENAI_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesRe
     forward_prompt_cache_breakpoints: true,
     allowed_tools: true,
     include_encrypted_reasoning: true,
+    include_web_search_sources: true,
     stream: false,
 };
 
@@ -98,6 +100,7 @@ pub(crate) const CODEX_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesReq
     forward_prompt_cache_breakpoints: false,
     allowed_tools: false,
     include_encrypted_reasoning: false,
+    include_web_search_sources: true,
     stream: true,
 };
 
@@ -190,10 +193,15 @@ impl ResponsesRequest {
                 responses_tool_choice(&request.tool_choice, &tool_names, profile.allowed_tools)?
             },
             parallel_tool_calls: has_tools.then_some(request.parallel_tool_calls),
-            include: if profile.include_encrypted_reasoning {
-                vec!["reasoning.encrypted_content"]
-            } else {
-                Vec::new()
+            include: {
+                let mut include = Vec::new();
+                if profile.include_encrypted_reasoning {
+                    include.push("reasoning.encrypted_content");
+                }
+                if request.options.hosted_web_search && profile.include_web_search_sources {
+                    include.push("web_search_call.action.sources");
+                }
+                include
             },
             prompt_cache_key: profile
                 .forward_prompt_cache_key

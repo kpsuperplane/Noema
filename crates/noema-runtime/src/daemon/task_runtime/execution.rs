@@ -6,13 +6,13 @@ use noema_store::{
 };
 use noema_tasks::{
     CriterionOutcome, NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion, RunKind,
-    TaskExecutorBackend, TaskReviewCriterion, TaskReviewVerdict,
+    TaskExecutorBackend, TaskReviewCriterion, TaskReviewVerdict, TaskSubmissionCitation,
 };
 use std::collections::HashSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    daemon::runtime::BackgroundTaskGenerateRequest,
+    daemon::runtime::{BackgroundTaskGenerateRequest, BackgroundTaskGenerateResult},
     daemon::task_run_context::{
         ExecutorBlockedResponse, ExecutorSubmissionResponse, PlannerBlockedResponse,
         PlannerPlanResponse, ReviewerDecisionResponse, ReviewerResponse, TaskRolePrompt,
@@ -77,7 +77,7 @@ pub(super) async fn execute_run(
         return Ok(());
     }
     let prompt = build_task_role_prompt(&context);
-    let response = generate_once(
+    let mut generated = generate_once(
         &services.runtime,
         run,
         fence,
@@ -86,8 +86,15 @@ pub(super) async fn execute_run(
         &services.subscriptions,
     )
     .await?;
-    let terminal = parse_terminal(run, &context, response.tool_calls.as_slice(), fence.clone())
-        .map_err(RuntimeError::Protocol)?;
+    let citations = normalize_task_result(&mut generated, &run.run_id, &services.system_errors);
+    let terminal = parse_terminal(
+        run,
+        &context,
+        generated.response.tool_calls.as_slice(),
+        fence.clone(),
+        &citations,
+    )
+    .map_err(RuntimeError::Protocol)?;
     command_service
         .record_work_run_terminal(
             terminal,
@@ -105,6 +112,7 @@ pub(crate) fn parse_terminal(
     context: &WorkRunExecutionContext,
     calls: &[noema_providers::GenerateToolCall],
     fence: WorkRunFence,
+    citations: &[TaskSubmissionCitation],
 ) -> Result<WorkRunTerminal, String> {
     if calls.len() != 1 {
         return Err("Work role must return exactly one terminal tool call".to_string());
@@ -151,7 +159,7 @@ pub(crate) fn parse_terminal(
                 Err("Planner returned a role-inappropriate terminal tool".to_string())
             }
         }
-        RunKind::Executor => execute_executor(run, context, call, fence),
+        RunKind::Executor => execute_executor(run, context, call, fence, citations),
         RunKind::Reviewer => execute_reviewer(run, context, call, fence),
     }
 }
@@ -161,6 +169,7 @@ fn execute_executor(
     context: &WorkRunExecutionContext,
     call: &noema_providers::GenerateToolCall,
     fence: WorkRunFence,
+    citations: &[TaskSubmissionCitation],
 ) -> Result<WorkRunTerminal, String> {
     if call.name == "task.submit_result" {
         let result: ExecutorSubmissionResponse = parse_payload(call, "Executor terminal")?;
@@ -177,6 +186,7 @@ fn execute_executor(
             review_round: run.review_round,
             summary: result.summary,
             result_markdown: result.result_markdown,
+            citations: citations.to_vec(),
             criteria: result
                 .criteria
                 .into_iter()
@@ -295,9 +305,56 @@ async fn generate_once(
     cancellation: &CancellationToken,
     prompt: TaskRolePrompt,
     subscriptions: &RuntimeEventRegistry,
-) -> Result<noema_providers::GenerateResponse, RuntimeError> {
+) -> Result<BackgroundTaskGenerateResult, RuntimeError> {
     let request = background_task_generate_request(run, fence, cancellation, prompt, subscriptions);
     runtime.generate_background_task(request).await
+}
+
+fn normalize_task_result(
+    generated: &mut BackgroundTaskGenerateResult,
+    run_id: &str,
+    system_errors: &noema_home::SystemErrorLogger,
+) -> Vec<TaskSubmissionCitation> {
+    let Some(call) = generated
+        .response
+        .tool_calls
+        .iter_mut()
+        .find(|call| call.name == "task.submit_result")
+    else {
+        return Vec::new();
+    };
+    let Some(text) = call
+        .payload
+        .get("result_markdown")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return Vec::new();
+    };
+    let normalized = generated.citation_sources.normalize(text, &[]);
+    if !normalized.unresolved_references.is_empty() {
+        system_errors.try_append(
+            noema_home::SystemErrorEvent::new(
+                "provider_citation_unresolved",
+                "Provider citation references could not be resolved",
+            )
+            .with_context(serde_json::json!({
+                "scope_kind": "task_run",
+                "scope_id": run_id,
+                "reference_count": normalized.unresolved_references.len(),
+            })),
+        );
+    }
+    call.payload["result_markdown"] = serde_json::Value::String(normalized.text);
+    normalized
+        .citations
+        .into_iter()
+        .map(|citation| TaskSubmissionCitation {
+            title: citation.title,
+            url: citation.url,
+            start_index: citation.start_index,
+            end_index: citation.end_index,
+        })
+        .collect()
 }
 
 fn background_task_generate_request(
@@ -323,6 +380,70 @@ fn background_task_generate_request(
         instructions: prompt.instructions.to_string(),
         terminal_contract: prompt.terminal_contract,
         runtime_events: subscriptions.clone(),
+    }
+}
+
+#[cfg(test)]
+mod citation_tests {
+    use noema_providers::{
+        GenerateHostedWebSearch, GenerateResponse, GenerateToolCall, GenerateWebSource,
+    };
+
+    use super::*;
+
+    #[test]
+    fn task_result_markers_become_submission_citations() {
+        let mut generated = BackgroundTaskGenerateResult {
+            response: GenerateResponse {
+                responses: Vec::new(),
+                tool_calls: vec![GenerateToolCall {
+                    id: None,
+                    provider_call_id: None,
+                    provider_name: None,
+                    name: "task.submit_result".to_string(),
+                    payload: serde_json::json!({
+                        "result_markdown": "Claim\u{e200}cite\u{e202}turn0search0\u{e201}"
+                    }),
+                }],
+                reasoning_items: Vec::new(),
+                hosted_web_searches: Vec::new(),
+                citations: Vec::new(),
+                provider: "codex".to_string(),
+                model: "test".to_string(),
+                response_id: None,
+                usage: None,
+            },
+            citation_sources: Default::default(),
+        };
+        generated.citation_sources.observe(
+            0,
+            &[GenerateHostedWebSearch {
+                output_index: 0,
+                id: None,
+                tool_name: "web.search".to_string(),
+                arguments: serde_json::json!({}),
+                result: serde_json::json!({}),
+                status: "completed".to_string(),
+                sources: vec![GenerateWebSource {
+                    title: None,
+                    url: "https://example.com/source".to_string(),
+                }],
+            }],
+        );
+
+        let citations = normalize_task_result(
+            &mut generated,
+            "run:test",
+            &crate::test_support::system_error_logger(),
+        );
+
+        assert_eq!(
+            generated.response.tool_calls[0].payload["result_markdown"],
+            "Claim"
+        );
+        assert_eq!(citations.len(), 1);
+        assert_eq!(citations[0].end_index, Some(5));
+        assert_eq!(citations[0].title, "example.com");
     }
 }
 

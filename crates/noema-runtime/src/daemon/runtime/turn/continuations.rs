@@ -14,6 +14,7 @@ impl RuntimeActor {
             mut continuation_context,
             mut continuation_tool_results,
             waiting_for_interaction,
+            mut citation_sources,
         } = continuation;
         if waiting_for_interaction {
             self.update_conversation_agent_status(
@@ -32,6 +33,7 @@ impl RuntimeActor {
             return Ok(true);
         }
         let mut waiting_for_interaction = false;
+        let mut next_provider_round_index = 1;
         for continuation_step in 0..MAX_PROVIDER_TOOL_CONTINUATIONS {
             if continuation_tool_results.is_empty() {
                 break;
@@ -48,6 +50,8 @@ impl RuntimeActor {
                     &mut continuation_context,
                     next_output_index,
                     reason,
+                    &mut citation_sources,
+                    continuation_step_number,
                     item_tx,
                     timing,
                 )
@@ -98,6 +102,8 @@ impl RuntimeActor {
                                     &mut continuation_context,
                                     next_output_index,
                                     "progress audit requested final answer",
+                                    &mut citation_sources,
+                                    continuation_step_number,
                                     item_tx,
                                     timing,
                                 )
@@ -145,6 +151,8 @@ impl RuntimeActor {
                             &mut continuation_context,
                             next_output_index,
                             &message,
+                            &mut citation_sources,
+                            continuation_step_number,
                             item_tx,
                             timing,
                         )
@@ -456,10 +464,12 @@ impl RuntimeActor {
                 continuation_response.responses.iter().rposition(|item| {
                     matches!(item, noema_providers::GenerateResponseItem::Text { .. })
                 });
-            let mut continuation_assistant_response = ProviderAssistantResponse::with_citations(
-                citation_response_index,
-                continuation_response.citations.clone(),
+            citation_sources.observe(
+                continuation_step_number,
+                &continuation_response.hosted_web_searches,
             );
+            next_provider_round_index = continuation_step_number + 1;
+            let mut continuation_assistant_response = ProviderAssistantResponse::default();
             let continuation_action_turn = ProviderActionTurn {
                 conversation_id: turn.conversation_id.clone(),
                 turn_id: turn.turn_id.clone(),
@@ -539,6 +549,26 @@ impl RuntimeActor {
                 for (offset, response_item) in
                     continuation_response.responses.iter().cloned().enumerate()
                 {
+                    let response_item = match response_item {
+                        noema_providers::GenerateResponseItem::Text { phase, text } => {
+                            let existing = (citation_response_index == Some(offset))
+                                .then_some(continuation_response.citations.as_slice())
+                                .unwrap_or_default();
+                            let normalized = self.normalize_provider_citation_text(
+                                &citation_sources,
+                                &text,
+                                existing,
+                                "conversation_turn",
+                                &turn.turn_id,
+                            );
+                            continuation_assistant_response
+                                .set_citations_for(offset, normalized.citations);
+                            noema_providers::GenerateResponseItem::Text {
+                                phase,
+                                text: normalized.text,
+                            }
+                        }
+                    };
                     self.persist_provider_response_item(
                         &continuation_action_turn,
                         ProviderResponsePosition {
@@ -806,6 +836,8 @@ impl RuntimeActor {
             next_output_index,
             task_handoff,
             !continuation_tool_results.is_empty(),
+            &mut citation_sources,
+            next_provider_round_index,
             item_tx,
             timing,
         )

@@ -5,6 +5,7 @@ mod action_reviewer;
 pub(in crate::daemon) mod actor;
 mod background_task;
 mod capability_auth_arguments;
+mod citation_markers;
 pub(crate) mod context_compaction;
 mod context_window;
 pub(crate) mod continuation_context;
@@ -42,7 +43,7 @@ mod work_notification;
 
 #[cfg(feature = "eval-support")]
 pub(crate) use action_reviewer::{action_reviewer_prompt, build_action_reviewer_input};
-pub(crate) use background_task::BackgroundTaskGenerateRequest;
+pub(crate) use background_task::{BackgroundTaskGenerateRequest, BackgroundTaskGenerateResult};
 pub use handle::RuntimeHandle;
 pub use primary_notification::{CapabilityIntegrationKind, CapabilitySetupCompletion};
 

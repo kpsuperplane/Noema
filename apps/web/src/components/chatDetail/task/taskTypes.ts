@@ -71,6 +71,7 @@ export type TaskSubmission = {
   summary?: string | null;
   result?: string | null;
   evidence?: string | null;
+  citations?: readonly ProviderCitation[];
   artifacts?: readonly TaskArtifact[];
   createdAt?: string | null;
 };
@@ -200,3 +201,4 @@ export type TaskDetail = {
   } | null;
   messages?: readonly { id: string; author: string; body: string; createdAt: string }[];
 };
+import type { ProviderCitation } from "@/components/transcript/ProviderCitationSources";

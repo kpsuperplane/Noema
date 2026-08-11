@@ -52,6 +52,14 @@ graphql_object_from! { "Submission criterion evidence." => pub struct GraphqlTas
     "Evidence Markdown." => evidence_markdown: String = value.evidence_markdown,
 } }
 
+graphql_object_from! { "Verified web source attached to a submission." => pub struct GraphqlTaskSubmissionCitation("TaskSubmissionCitation")
+    from noema_tasks::TaskSubmissionCitation as value {
+    "Source title." => title: String = value.title,
+    "Source URL." => url: String = value.url,
+    "UTF-16 citation start, when available." => start_index: Option<i64> = value.start_index.map(|index| i64::try_from(index).expect("stored citation index fits SQLite")),
+    "UTF-16 citation end, when available." => end_index: Option<i64> = value.end_index.map(|index| i64::try_from(index).expect("stored citation index fits SQLite")),
+} }
+
 graphql_object! { "Immutable artifact link shown with a submission." => pub struct GraphqlTaskSubmissionArtifact("TaskSubmissionArtifact") {
     "Artifact identity." => artifact_id: String,
     "Artifact version identity." => artifact_version_id: String,
@@ -71,6 +79,7 @@ graphql_object_from! { "Immutable submission evidence." => pub struct GraphqlTas
     "Review round." => review_round: i64 = i64::from(value.review_round),
     "Short summary." => summary: String = value.summary,
     "Complete result Markdown." => result_markdown: String = value.result_markdown,
+    "Verified web sources." => citations: Vec<GraphqlTaskSubmissionCitation> = value.citations.into_iter().map(Into::into).collect(),
     "Criterion evidence." => criteria: Vec<GraphqlTaskSubmissionCriterion> = value.criteria.into_iter().map(Into::into).collect(),
     "Linked immutable artifact versions." => artifacts: Vec<GraphqlTaskSubmissionArtifact> = value.artifacts.into_iter().map(submission_artifact).collect(),
     "Creation timestamp." => created_at: String = value.created_at,

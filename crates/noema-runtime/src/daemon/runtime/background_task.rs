@@ -25,6 +25,7 @@ use noema_providers::{
 
 use super::{
     actor::RuntimeActor,
+    citation_markers::CitationSourceRegistry,
     context_window::{ContextAdmission, RequestContext, admit_request, hard_overflow_error},
     continuation_context::ContinuationContext,
     local_tool_results::LocalToolResult,
@@ -77,6 +78,12 @@ pub(crate) struct BackgroundTaskGenerateRequest {
     pub terminal_contract: TaskTerminalContract,
     /// Runtime event registry for live task-detail refreshes.
     pub runtime_events: RuntimeEventRegistry,
+}
+
+#[derive(Debug)]
+pub(crate) struct BackgroundTaskGenerateResult {
+    pub(crate) response: GenerateResponse,
+    pub(crate) citation_sources: CitationSourceRegistry,
 }
 
 impl BackgroundTaskGenerateRequest {

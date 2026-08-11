@@ -4,6 +4,10 @@ import { Tab, TabList } from "@astryxdesign/core/TabList";
 import * as stylex from "@stylexjs/stylex";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { ArtifactReferenceCard } from "@/components/transcript/ArtifactReferenceCard";
+import {
+  ProviderCitationTags,
+  providerCitationContent
+} from "@/components/transcript/ProviderCitationSources";
 import type { TaskArtifact, TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskTranscript } from "./TaskTranscript";
 
@@ -67,7 +71,12 @@ function FinalResponse({
 }) {
   const submission = detail.completedResult;
   if (!submission) return null;
-  const response = submission.result?.trim() || submission.summary?.trim();
+  const response = submission.result?.trim()
+    ? submission.result
+    : submission.summary?.trim()
+      ? submission.summary
+      : undefined;
+  const citationContent = providerCitationContent(response ?? "", submission.citations ?? []);
 
   return (
     <div data-slot="task-final-response" {...stylex.props(styles.finalScroller)}>
@@ -79,13 +88,15 @@ function FinalResponse({
             contentWidth="min(760px, calc(100% - var(--spacing-6) - var(--spacing-6)))"
             density="default"
             headingLevelStart={1}
+            sources={citationContent.sources}
             xstyle={styles.markdown}
           >
-            {response}
+            {citationContent.text}
           </Markdown>
         ) : (
           <p {...stylex.props(styles.empty)}>The accepted response has no text content.</p>
         )}
+        <ProviderCitationTags citations={citationContent.fallbackCitations} />
         {(submission.artifacts ?? []).length > 0 ? (
           <div aria-label="Final response artifacts" {...stylex.props(styles.artifacts)}>
             {(submission.artifacts ?? []).map((artifact) => (

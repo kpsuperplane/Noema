@@ -280,6 +280,7 @@ export const TasksSubmissionFields = gql`
     reviewRound
     summary
     resultMarkdown
+    citations { title url startIndex endIndex }
     criteria { criterionId evidenceMarkdown }
     artifacts { artifactId artifactVersionId title artifactKind storageKind mediaType downloadUrl externalUrl }
     createdAt
