@@ -16,36 +16,78 @@ public struct NoemaTasksActivityAttributes: ActivityAttributes, Codable, Hashabl
       case cancelled
     }
 
+    public struct TaskSummary: Codable, Hashable, Sendable, Identifiable {
+      public let taskId: String
+      public let title: String
+      public let phase: Phase
+      public let statusLabel: String
+      public let startedAtEpoch: Double?
+      public let requiresAttention: Bool?
+
+      public var id: String { taskId }
+
+      public init(
+        taskId: String,
+        title: String,
+        phase: Phase,
+        statusLabel: String,
+        startedAtEpoch: Double?,
+        requiresAttention: Bool? = nil
+      ) {
+        self.taskId = taskId
+        self.title = title
+        self.phase = phase
+        self.statusLabel = statusLabel
+        self.startedAtEpoch = startedAtEpoch
+        self.requiresAttention = requiresAttention
+      }
+    }
+
     public let focusTaskId: String
     public let focusTitle: String
     public let projectName: String?
+    public let agentName: String?
     public let phase: Phase
     public let statusLabel: String
     public let activeTaskCount: Int
     public let startedAtEpoch: Double?
     public let updatedAtEpoch: Double
     public let requiresAttention: Bool?
+    public let updateLabel: String?
+    public let updateAtEpoch: Double?
+    public let completedOutputCount: Int?
+    public let taskSummaries: [TaskSummary]?
 
     public init(
       focusTaskId: String,
       focusTitle: String,
       projectName: String?,
+      agentName: String? = nil,
       phase: Phase,
       statusLabel: String,
       activeTaskCount: Int,
       startedAtEpoch: Double?,
       updatedAtEpoch: Double,
-      requiresAttention: Bool? = nil
+      requiresAttention: Bool? = nil,
+      updateLabel: String? = nil,
+      updateAtEpoch: Double? = nil,
+      completedOutputCount: Int? = nil,
+      taskSummaries: [TaskSummary]? = nil
     ) {
       self.focusTaskId = focusTaskId
       self.focusTitle = focusTitle
       self.projectName = projectName
+      self.agentName = agentName
       self.phase = phase
       self.statusLabel = statusLabel
       self.activeTaskCount = activeTaskCount
       self.startedAtEpoch = startedAtEpoch
       self.updatedAtEpoch = updatedAtEpoch
       self.requiresAttention = requiresAttention
+      self.updateLabel = updateLabel
+      self.updateAtEpoch = updateAtEpoch
+      self.completedOutputCount = completedOutputCount
+      self.taskSummaries = taskSummaries
     }
   }
 

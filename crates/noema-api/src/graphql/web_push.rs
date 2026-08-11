@@ -33,6 +33,7 @@ use noema_store::{
     ApnsEnvironment, ClaimedApnsDelivery, ClaimedLiveActivityDelivery, ClaimedWebPushDelivery,
     ClientLiveActivityRegistration, LiveActivityEvent, LiveActivityTarget, NewLiveActivityDelivery,
     NewWebPushSubscription, NoemaStore, WorkPageSize, WorkTaskCursor, WorkTaskQuery, WorkTaskScope,
+    WorkTaskSummary,
 };
 use noema_tasks::{RunKind, RunStatus, TaskId, WorkflowStageBehavior};
 use noema_workspaces::WorkspaceId;
@@ -1503,11 +1504,33 @@ impl NotificationCoordinator {
             WorkflowStageBehavior::TerminalCancelled => "cancelled",
             _ => return None,
         };
+        let agent_id = detail
+            .current_run
+            .as_ref()
+            .map_or(detail.task.executor_agent_id.as_str(), |run| {
+                run.agent_id.as_str()
+            });
+        let agent_name = self
+            .inner
+            .store
+            .get_agent(agent_id)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|agent| agent.display_name)
+            .unwrap_or_else(|| "Agent".to_string());
+        let completed_output_count = detail
+            .completed_submission
+            .as_ref()
+            .map(|submission| submission.artifacts.len())
+            .filter(|count| *count > 0);
         Some(LiveProjection::terminal(
             task_id.as_str(),
             &detail.task.title,
             detail.project.as_ref().map(|project| project.name.as_str()),
+            &agent_name,
             phase,
+            completed_output_count,
             parse_epoch(&detail.task.updated_at)
                 .unwrap_or_else(|| chrono::Utc::now().timestamp() as f64),
         ))
@@ -1526,19 +1549,26 @@ impl LiveProjection {
         task_id: &str,
         title: &str,
         project_name: Option<&str>,
+        agent_name: &str,
         phase: &str,
+        completed_output_count: Option<usize>,
         updated_at: f64,
     ) -> Self {
         let content = serde_json::json!({
             "focusTaskId": task_id,
-            "focusTitle": title,
+            "focusTitle": notification_text(title),
             "projectName": project_name,
+            "agentName": notification_text(agent_name),
             "phase": phase,
             "statusLabel": if phase == "completed" { "Completed" } else { "Cancelled" },
             "activeTaskCount": 0,
             "startedAtEpoch": serde_json::Value::Null,
             "updatedAtEpoch": updated_at,
             "requiresAttention": false,
+            "updateLabel": serde_json::Value::Null,
+            "updateAtEpoch": serde_json::Value::Null,
+            "completedOutputCount": completed_output_count,
+            "taskSummaries": [],
         });
         Self {
             signature: hex_digest(
@@ -1631,62 +1661,57 @@ async fn live_projection(
             .then_with(|| left.task.task_id.as_str().cmp(right.task.task_id.as_str()))
     });
     let focus = &tasks[0];
-    let human_gate = focus.stage.system_behavior == WorkflowStageBehavior::HumanGate;
-    let phase = if human_gate {
-        "reviewing"
-    } else {
-        focus
-            .current_run
-            .as_ref()
-            .map(|run| match run.run_kind {
-                RunKind::Planner => "planning",
-                RunKind::Executor => "working",
-                RunKind::Reviewer => "reviewing",
-            })
-            .unwrap_or("inProgress")
-    };
-    let status_label = if human_gate {
-        "Waiting"
-    } else {
-        focus
-            .current_run
-            .as_ref()
-            .map(|run| match run.status {
-                RunStatus::Running => "Running",
-                RunStatus::Leased => "Starting",
-                RunStatus::Queued => "Queued",
-                RunStatus::WaitingForApproval => "Waiting",
-                RunStatus::Completed => "Completed",
-                RunStatus::Interrupted => "Interrupted",
-                RunStatus::Failed => "Needs attention",
-                RunStatus::Cancelled => "Cancelled",
-            })
-            .unwrap_or("In progress")
-    };
+    let phase = live_task_phase(focus);
+    let status_label = live_task_status(focus);
     let started_at = focus
         .current_run
         .as_ref()
         .and_then(|run| run.started_at.as_deref())
         .and_then(parse_epoch);
-    let requires_attention = human_gate
-        || focus.current_run.as_ref().is_some_and(|run| {
-            matches!(
-                run.status,
-                RunStatus::WaitingForApproval | RunStatus::Interrupted | RunStatus::Failed
-            )
+    let requires_attention = live_task_requires_attention(focus);
+    let updated_at_value = focus
+        .current_run
+        .as_ref()
+        .map_or(focus.task.updated_at.as_str(), |run| {
+            std::cmp::max(focus.task.updated_at.as_str(), run.updated_at.as_str())
         });
-    let updated_at = parse_epoch(&focus.task.updated_at)
-        .unwrap_or_else(|| chrono::Utc::now().timestamp() as f64);
+    let updated_at =
+        parse_epoch(updated_at_value).unwrap_or_else(|| chrono::Utc::now().timestamp() as f64);
+    let agent_id = focus
+        .current_run
+        .as_ref()
+        .map_or(focus.task.executor_agent_id.as_str(), |run| {
+            run.agent_id.as_str()
+        });
+    let agent_name = store
+        .get_agent(agent_id)
+        .await?
+        .and_then(|agent| agent.display_name)
+        .unwrap_or_else(|| "Agent".to_string());
+    let update_label = focus
+        .current_run
+        .as_ref()
+        .and_then(|run| live_update_label(run.run_kind, run.status, run.tool_call_count));
+    let task_summaries = tasks
+        .iter()
+        .take(2)
+        .map(live_task_summary)
+        .collect::<Vec<_>>();
     let content = serde_json::json!({
         "focusTaskId": focus.task.task_id.as_str(),
-        "focusTitle": focus.task.title,
+        "focusTitle": notification_text(&focus.task.title),
         "projectName": focus.project.as_ref().map(|project| project.name.clone()),
+        "agentName": notification_text(&agent_name),
         "phase": phase,
         "statusLabel": status_label,
         "activeTaskCount": tasks.len(),
         "startedAtEpoch": started_at,
         "updatedAtEpoch": updated_at,
         "requiresAttention": requires_attention,
+        "updateLabel": update_label,
+        "updateAtEpoch": update_label.map(|_| updated_at),
+        "completedOutputCount": serde_json::Value::Null,
+        "taskSummaries": task_summaries,
     });
     let signature =
         hex_digest(digest::digest(&digest::SHA256, content.to_string().as_bytes()).as_ref());
@@ -1695,6 +1720,82 @@ async fn live_projection(
         signature,
         focus_task_id: focus.task.task_id.to_string(),
     }))
+}
+
+fn live_task_phase(task: &WorkTaskSummary) -> &'static str {
+    if task.stage.system_behavior == WorkflowStageBehavior::HumanGate {
+        return "reviewing";
+    }
+    task.current_run
+        .as_ref()
+        .map_or("inProgress", |run| match run.run_kind {
+            RunKind::Planner => "planning",
+            RunKind::Executor => "working",
+            RunKind::Reviewer => "reviewing",
+        })
+}
+
+fn live_task_status(task: &WorkTaskSummary) -> &'static str {
+    if task.stage.system_behavior == WorkflowStageBehavior::HumanGate {
+        return "Needs You";
+    }
+    task.current_run
+        .as_ref()
+        .map_or("In progress", |run| match run.status {
+            RunStatus::Running => match run.run_kind {
+                RunKind::Planner => "Planning",
+                RunKind::Executor => "Working",
+                RunKind::Reviewer => "Reviewing",
+            },
+            RunStatus::Leased => "Starting",
+            RunStatus::Queued => "Queued",
+            RunStatus::WaitingForApproval => "Needs You",
+            RunStatus::Completed => "Completed",
+            RunStatus::Interrupted | RunStatus::Failed => "Needs attention",
+            RunStatus::Cancelled => "Cancelled",
+        })
+}
+
+fn live_task_requires_attention(task: &WorkTaskSummary) -> bool {
+    task.stage.system_behavior == WorkflowStageBehavior::HumanGate
+        || task.current_run.as_ref().is_some_and(|run| {
+            matches!(
+                run.status,
+                RunStatus::WaitingForApproval | RunStatus::Interrupted | RunStatus::Failed
+            )
+        })
+}
+
+fn live_update_label(
+    kind: RunKind,
+    status: RunStatus,
+    tool_call_count: u32,
+) -> Option<&'static str> {
+    match (status, kind, tool_call_count) {
+        (RunStatus::Running, RunKind::Planner, _) => Some("Building a plan"),
+        (RunStatus::Running, RunKind::Executor, 1..) => Some("Using tools"),
+        (RunStatus::Running, RunKind::Executor, _) => Some("Working on the task"),
+        (RunStatus::Running, RunKind::Reviewer, _) => Some("Checking the result"),
+        (RunStatus::Leased, _, _) => Some("Starting the agent"),
+        (RunStatus::Queued, _, _) => Some("Waiting to start"),
+        _ => None,
+    }
+}
+
+fn live_task_summary(task: &WorkTaskSummary) -> serde_json::Value {
+    let started_at = task
+        .current_run
+        .as_ref()
+        .and_then(|run| run.started_at.as_deref())
+        .and_then(parse_epoch);
+    serde_json::json!({
+        "taskId": task.task.task_id.as_str(),
+        "title": notification_text(&task.task.title),
+        "phase": live_task_phase(task),
+        "statusLabel": live_task_status(task),
+        "startedAtEpoch": started_at,
+        "requiresAttention": live_task_requires_attention(task),
+    })
 }
 
 fn live_focus_rank(run: Option<&noema_tasks::AgentRunRecord>) -> u8 {
@@ -2145,12 +2246,23 @@ mod tests {
                 "focusTaskId": "task:focus",
                 "focusTitle": "Focus",
                 "projectName": "Personal",
+                "agentName": "Atlas",
                 "phase": "working",
                 "statusLabel": "Running",
                 "activeTaskCount": 2,
                 "startedAtEpoch": 1.0,
                 "updatedAtEpoch": 2.0,
                 "requiresAttention": true,
+                "updateLabel": "Using tools",
+                "updateAtEpoch": 2.0,
+                "completedOutputCount": null,
+                "taskSummaries": [{
+                    "taskId": "task:focus",
+                    "title": "Focus",
+                    "phase": "working",
+                    "statusLabel": "Running",
+                    "startedAtEpoch": 1.0,
+                }],
             }),
             signature: "a".repeat(64),
             focus_task_id: "task:focus".to_string(),
@@ -2184,9 +2296,57 @@ mod tests {
             LIVE_ACTIVITY_ATTRIBUTES_TYPE
         );
         assert_eq!(start_payload["aps"]["content-state"]["activeTaskCount"], 2);
-        assert_eq!(start_payload["aps"]["content-state"]["requiresAttention"], true);
+        assert_eq!(
+            start_payload["aps"]["content-state"]["requiresAttention"],
+            true
+        );
+        assert_eq!(start_payload["aps"]["content-state"]["agentName"], "Atlas");
+        assert_eq!(
+            start_payload["aps"]["content-state"]["taskSummaries"][0]["title"],
+            "Focus"
+        );
         assert_eq!(alert_payload["taskId"], "task:one");
         assert_eq!(alert_payload["aps"]["alert"]["body"], "Review Focus");
+    }
+    #[test]
+    fn live_activity_update_labels_track_real_run_progress() {
+        assert_eq!(
+            live_update_label(RunKind::Planner, RunStatus::Running, 0),
+            Some("Building a plan")
+        );
+        assert_eq!(
+            live_update_label(RunKind::Executor, RunStatus::Running, 0),
+            Some("Working on the task")
+        );
+        assert_eq!(
+            live_update_label(RunKind::Executor, RunStatus::Running, 2),
+            Some("Using tools")
+        );
+        assert_eq!(
+            live_update_label(RunKind::Reviewer, RunStatus::Running, 0),
+            Some("Checking the result")
+        );
+        assert_eq!(
+            live_update_label(RunKind::Executor, RunStatus::Completed, 2),
+            None
+        );
+    }
+    #[test]
+    fn terminal_live_activity_keeps_completed_output_metadata() {
+        let projection = LiveProjection::terminal(
+            "task:done",
+            "Finished task",
+            Some("Personal"),
+            "Atlas",
+            "completed",
+            Some(3),
+            42.0,
+        );
+
+        assert_eq!(projection.content["phase"], "completed");
+        assert_eq!(projection.content["agentName"], "Atlas");
+        assert_eq!(projection.content["completedOutputCount"], 3);
+        assert_eq!(projection.content["activeTaskCount"], 0);
     }
     #[test]
     fn delivery_statuses_have_bounded_retry_and_expiry_classes() {

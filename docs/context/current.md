@@ -95,6 +95,9 @@ vertical slice or a net-negative reduction.
 - One server-driven Tasks Live Activity represents the current active task set.
   SQLite owns its client registration, aggregate projection, and durable APNs
   start, update, alert, and end deliveries. The widget has no bearer credential.
+  One task uses a progress rail. Concurrent tasks use bounded rows. A task that
+  needs input uses a dedicated Needs You state. The projection includes the
+  agent name, current run update, and completed output count.
 - Frontend route and interaction truth is summarized in
   [../frontend/current-contract.md](../frontend/current-contract.md). UI changes
   follow [../frontend/product-design.md](../frontend/product-design.md).
