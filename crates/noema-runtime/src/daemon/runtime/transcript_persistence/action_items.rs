@@ -6,6 +6,14 @@ impl RuntimeActor {
         searches: &[GenerateHostedWebSearch],
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), RuntimeError> {
+        self.record_hosted_web_search_urls(
+            &format!(
+                "hosted_web_search:{}:{}",
+                turn.conversation_id, turn.turn_index
+            ),
+            searches,
+        )
+        .await;
         for search in searches {
             let failed = search.status.eq_ignore_ascii_case("failed");
             let index = output_index + search.output_index;

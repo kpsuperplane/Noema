@@ -76,6 +76,7 @@ async fn startup_entrypoint_child() {
             };
             let config = HostConfig::new(
                 ProviderConfig::Codex(CodexProviderConfig::default()),
+                crate::BrowserConfig::default(),
                 web.clone(),
             );
             let host = crate::start_from_loaded_config(config)
@@ -108,6 +109,7 @@ async fn fresh_unresolvable_local_default_starts_onboarding_without_an_account()
             startup_timeout_seconds: noema_providers::DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
             system_errors: None,
         }),
+        crate::BrowserConfig::default(),
         crate::WebConfig::default(),
     );
 

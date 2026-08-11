@@ -1,4 +1,6 @@
 use crate::{WebBrowseError, WebBrowseOwner};
+pub(super) mod process;
+
 use noema_capabilities::web::{
     browse::{
         BrowseCommand, BrowseHistoryAction, BrowseInteractionAction, BrowseInteractiveElement,
@@ -8,6 +10,7 @@ use noema_capabilities::web::{
     url_policy::validate_public_url,
 };
 use obscura_browser::{BrowserContext, Page, WaitUntil};
+use process::{WorkerHandle, WorkerLaunch, WorkerRequest, spawn_worker};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -16,17 +19,14 @@ use std::{
         Arc, Weak,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    thread,
     time::Duration,
 };
-use tokio::sync::{Mutex, Notify, Semaphore, SemaphorePermit, mpsc, oneshot};
+use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore, oneshot};
 use tokio::time::Instant;
 
 use crate::adapters::web::fetch::url_policy::validate_public_web_fetch_url;
 
-const MAX_SESSIONS: usize = 8;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
-static GLOBAL_SESSION_CAPACITY: Semaphore = Semaphore::const_new(MAX_SESSIONS);
 
 pub(crate) struct ObscuraBrowseBackend {
     inner: Arc<BackendInner>,
@@ -37,32 +37,39 @@ struct BackendInner {
     changed: Notify,
     next_generation: AtomicU64,
     shutdown: AtomicBool,
+    capacity: Arc<Semaphore>,
+    launch: WorkerLaunch,
 }
 
 struct Session {
     generation: u64,
     deadline: Instant,
     worker: WorkerHandle,
-    _capacity: SemaphorePermit<'static>,
+    _capacity: OwnedSemaphorePermit,
 }
 
-#[derive(Clone)]
-struct WorkerHandle {
-    sender: mpsc::Sender<WorkerRequest>,
-}
-
-struct WorkerRequest {
-    command: BrowseCommand,
-    response: oneshot::Sender<Result<BrowseResponse, WebBrowseError>>,
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.worker.cancel();
+    }
 }
 
 impl ObscuraBrowseBackend {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(max_sessions: usize, max_old_space_mb: usize) -> Self {
+        Self::with_launch(
+            max_sessions.clamp(1, 8),
+            WorkerLaunch::current_executable(max_old_space_mb.clamp(256, 4_096)),
+        )
+    }
+
+    fn with_launch(max_sessions: usize, launch: WorkerLaunch) -> Self {
         let inner = Arc::new(BackendInner {
             sessions: Mutex::new(HashMap::new()),
             changed: Notify::new(),
             next_generation: AtomicU64::new(1),
             shutdown: AtomicBool::new(false),
+            capacity: Arc::new(Semaphore::new(max_sessions)),
+            launch,
         });
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(expire_sessions(Arc::downgrade(&inner)));
@@ -88,11 +95,14 @@ impl ObscuraBrowseBackend {
         command: BrowseCommand,
     ) -> Result<BrowseResponse, WebBrowseError> {
         let owner_key = owner.as_str().to_string();
-        let capacity = GLOBAL_SESSION_CAPACITY
-            .try_acquire()
+        let capacity = self
+            .inner
+            .capacity
+            .clone()
+            .try_acquire_owned()
             .map_err(|_| WebBrowseError::Capacity)?;
         let generation = self.inner.next_generation.fetch_add(1, Ordering::Relaxed);
-        let worker = spawn_worker(generation)?;
+        let worker = spawn_worker(self.inner.launch.clone(), generation)?;
         {
             let mut sessions = self.inner.sessions.lock().await;
             remove_expired(&mut sessions, Instant::now());
@@ -139,7 +149,13 @@ impl ObscuraBrowseBackend {
         let result = dispatch(&worker, command).await;
         if result.is_ok() {
             self.refresh(&owner_key, generation).await;
-        } else if result == Err(WebBrowseError::BlockedTarget) {
+        } else if matches!(
+            result,
+            Err(WebBrowseError::BlockedTarget
+                | WebBrowseError::Unavailable
+                | WebBrowseError::OutcomeUncertain)
+        ) || !worker.is_alive()
+        {
             self.remove(&owner_key, generation).await;
         }
         result
@@ -217,24 +233,7 @@ async fn expire_sessions(inner: Weak<BackendInner>) {
 }
 
 fn remove_expired(sessions: &mut HashMap<String, Session>, now: Instant) {
-    sessions.retain(|_, session| session.deadline > now);
-}
-
-fn spawn_worker(generation: u64) -> Result<WorkerHandle, WebBrowseError> {
-    let (sender, receiver) = mpsc::channel(4);
-    thread::Builder::new()
-        .name(format!("noema-obscura-{generation}"))
-        .spawn(move || {
-            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            else {
-                return;
-            };
-            runtime.block_on(worker_loop(receiver, generation));
-        })
-        .map_err(|_| WebBrowseError::Unavailable)?;
-    Ok(WorkerHandle { sender })
+    sessions.retain(|_, session| session.deadline > now && session.worker.is_alive());
 }
 
 async fn dispatch(
@@ -247,7 +246,7 @@ async fn dispatch(
     );
     let (response, receiver) = oneshot::channel();
     worker
-        .sender
+        .sender()
         .send(WorkerRequest { command, response })
         .await
         .map_err(|_| WebBrowseError::Unavailable)?;
@@ -260,35 +259,27 @@ async fn dispatch(
     })
 }
 
-async fn worker_loop(mut receiver: mpsc::Receiver<WorkerRequest>, generation: u64) {
-    let context = Arc::new(BrowserContext::with_storage_and_network(
-        format!("noema-{generation}"),
-        None,
-        false,
-        None,
-        None,
-        false,
-    ));
-    let mut state = WorkerState {
-        page: Page::new(format!("page-{generation}"), context),
-        revision: 0,
-    };
-    while let Some(request) = receiver.recv().await {
-        let closes = matches!(request.command, BrowseCommand::Close);
-        let result = state.execute(request.command).await;
-        let _ = request.response.send(result);
-        if closes {
-            return;
-        }
-    }
-}
-
 struct WorkerState {
     page: Page,
     revision: u64,
 }
 
 impl WorkerState {
+    fn new(generation: u64) -> Self {
+        let context = Arc::new(BrowserContext::with_storage_and_network(
+            format!("noema-{generation}"),
+            None,
+            false,
+            None,
+            None,
+            false,
+        ));
+        Self {
+            page: Page::new(format!("page-{generation}"), context),
+            revision: 0,
+        }
+    }
+
     async fn execute(&mut self, command: BrowseCommand) -> Result<BrowseResponse, WebBrowseError> {
         if !matches!(&command, BrowseCommand::Open(_) | BrowseCommand::Close) {
             self.validate_resulting_url().await?;
@@ -568,7 +559,9 @@ fn truncate_chars(value: String, limit: usize) -> (String, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use noema_capabilities::web::browse::BrowseInteractionRequest;
+    use noema_capabilities::web::browse::{BrowseInteractionRequest, BrowseNavigationRequest};
+    #[cfg(unix)]
+    use std::path::PathBuf;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[tokio::test(flavor = "current_thread")]
@@ -651,36 +644,76 @@ mod tests {
         assert!(!script.contains("const value = \"\"; globalThis"));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
-    async fn session_registry_fences_owners_and_expires_idle_entries() {
-        let backend = ObscuraBrowseBackend::new();
-        let (sender, _receiver) = mpsc::channel(1);
-        backend.inner.sessions.lock().await.insert(
-            "turn:owner".to_string(),
-            Session {
-                generation: 1,
-                deadline: Instant::now() - Duration::from_millis(1),
-                worker: WorkerHandle { sender },
-                _capacity: GLOBAL_SESSION_CAPACITY
-                    .try_acquire()
-                    .expect("test capacity"),
-            },
+    async fn worker_crash_is_contained_and_removes_the_session() {
+        let script = r#"printf '{"version":1,"ready":true}\n'; read -r _request; printf '{"version":1,"response":{"provider":"obscura","state":"open"}}\n'; read -r _request; exit 133"#;
+        let backend = ObscuraBrowseBackend::with_launch(
+            1,
+            WorkerLaunch::command(
+                PathBuf::from("/bin/sh"),
+                vec!["-c".to_string(), script.to_string()],
+            ),
         );
+        let owner = WebBrowseOwner::new("turn:owner");
+        let request = BrowseNavigationRequest {
+            url: "https://example.com".to_string(),
+            reason: None,
+            wait_until: BrowseWaitUntil::Load,
+        };
+        backend
+            .execute(&owner, BrowseCommand::Open(request.clone()))
+            .await
+            .expect("fake worker opens");
         assert_eq!(
             backend
-                .execute_active(
-                    &WebBrowseOwner::new("turn:other"),
-                    BrowseCommand::Snapshot { max_chars: 1_000 },
-                )
+                .execute(&owner, BrowseCommand::Navigate(request))
                 .await,
-            Err(WebBrowseError::SessionNotFound)
+            Err(WebBrowseError::OutcomeUncertain)
         );
-        assert!(
-            !backend
-                .has_session(&WebBrowseOwner::new("turn:owner"))
-                .await
+        assert!(!backend.has_session(&owner).await);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn dropping_backend_stops_and_reaps_worker() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let pid_path = directory.path().join("worker.pid");
+        let script = r#"printf '%s' "$$" > "$1"; printf '{"version":1,"ready":true}\n'; read -r _request; printf '{"version":1,"response":{"provider":"obscura","state":"open"}}\n'; while :; do sleep 1; done"#;
+        let backend = ObscuraBrowseBackend::with_launch(
+            1,
+            WorkerLaunch::command(
+                PathBuf::from("/bin/sh"),
+                vec![
+                    "-c".to_string(),
+                    script.to_string(),
+                    "noema-browser-test".to_string(),
+                    pid_path.display().to_string(),
+                ],
+            ),
         );
-        assert!(backend.inner.sessions.lock().await.is_empty());
-        assert_eq!(MAX_SESSIONS, 8);
+        let owner = WebBrowseOwner::new("turn:cleanup");
+        backend
+            .execute(
+                &owner,
+                BrowseCommand::Open(BrowseNavigationRequest {
+                    url: "https://example.com".to_string(),
+                    reason: None,
+                    wait_until: BrowseWaitUntil::Load,
+                }),
+            )
+            .await
+            .expect("fake worker opens");
+        let pid = std::fs::read_to_string(&pid_path).expect("worker pid");
+        let process_path = PathBuf::from(format!("/proc/{pid}"));
+        assert!(process_path.exists());
+        drop(backend);
+        for _ in 0..100 {
+            if !process_path.exists() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("browser worker was not reaped");
     }
 }

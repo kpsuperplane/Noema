@@ -15,11 +15,13 @@ adapters = [
     "dep:async-stream",
     "dep:base64",
     "dep:obscura-browser",
+    "dep:obscura-js",
     "dep:reqwest",
     "dep:readabilityrs",
     "dep:ring",
     "dep:scraper",
     "dep:tokio",
+    "dep:tokio-util",
     "dep:url",
 ]
 local-models = [
@@ -41,6 +43,7 @@ futures-util.workspace = true
 noema-capabilities = { path = "../noema-capabilities", default-features = false }
 noema-home = { path = "../noema-home", default-features = false }
 obscura-browser = { workspace = true, optional = true }
+obscura-js = { workspace = true, optional = true }
 reqwest = { workspace = true, features = ["stream"], optional = true }
 readabilityrs = { workspace = true, optional = true }
 ring = { workspace = true, optional = true }
@@ -49,7 +52,7 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
 thiserror.workspace = true
 tokio = { workspace = true, optional = true }
-tokio-util = { workspace = true, optional = true }
+tokio-util = { workspace = true, features = ["codec"], optional = true }
 toml = { workspace = true, optional = true }
 ts-rs.workspace = true
 url = { workspace = true, optional = true }

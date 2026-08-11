@@ -390,7 +390,8 @@ impl NotificationCoordinator {
             .register_client_live_activities(client_id, &token, input.environment.into())
             .await
             .map_err(graphql_error)?;
-        self.reconcile_live_activities_for_client(client_id).await;
+        self.reconcile_live_activities_for_client_locked(client_id)
+            .await;
         self.client_live_activity_status(client_id).await
     }
 
@@ -408,7 +409,8 @@ impl NotificationCoordinator {
             .await
             .map_err(graphql_error)?;
         if changed {
-            self.reconcile_live_activities_for_client(client_id).await;
+            self.reconcile_live_activities_for_client_locked(client_id)
+                .await;
         }
         Ok(changed)
     }
@@ -553,14 +555,7 @@ impl NotificationCoordinator {
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 },
                 event = work_events.recv() => match event {
-                    Ok(WorkRuntimeEvent::Committed { workspace_id, .. })
-                        if workspace_id == "workspace:personal" => {
-                            self.reconcile_live_activities().await;
-                        }
-                    Ok(_) => {}
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                        self.reconcile_live_activities().await;
-                    }
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 },
                 () = self.inner.wake.notified() => {},
@@ -1144,7 +1139,7 @@ impl NotificationCoordinator {
         write_apns_credential(&self.inner.paths, &credential)
             .map_err(|error| noema_store::StoreError::InvariantViolation { message: error })
     }
-    async fn reconcile_live_activities_for_client(&self, client_id: &str) {
+    async fn reconcile_live_activities_for_client_locked(&self, client_id: &str) {
         let Some(targets) = self.live_activity_targets().await else {
             return;
         };
@@ -1158,6 +1153,10 @@ impl NotificationCoordinator {
         self.apply_live_target(target, projection).await;
     }
     async fn reconcile_live_activities(&self) {
+        let _guard = self.inner.live_activity_mutation.lock().await;
+        self.reconcile_live_activities_locked().await;
+    }
+    async fn reconcile_live_activities_locked(&self) {
         let Some(targets) = self.live_activity_targets().await else {
             return;
         };
@@ -1278,7 +1277,6 @@ impl NotificationCoordinator {
                     format!("live:update:{}", projection.signature),
                     &projection,
                     None,
-                    "normal",
                     3600,
                 )
                 .await;
@@ -1293,7 +1291,6 @@ impl NotificationCoordinator {
                     format!("live:start:{}", activity.task_session_id),
                     &projection,
                     None,
-                    "high",
                     3600,
                 )
                 .await;
@@ -1397,7 +1394,6 @@ impl NotificationCoordinator {
                         format!("live:alert:{}", alert.notification_id),
                         &projection,
                         Some((title, &body, task_id)),
-                        "high",
                         86_400,
                     )
                     .await;
@@ -1448,7 +1444,6 @@ impl NotificationCoordinator {
             format!("live:end:{}", activity.task_session_id),
             projection,
             None,
-            "high",
             600,
         )
         .await
@@ -1462,7 +1457,6 @@ impl NotificationCoordinator {
         delivery_key: String,
         projection: &LiveProjection,
         alert: Option<(&str, &str, &str)>,
-        urgency: &str,
         ttl_seconds: u32,
     ) -> bool {
         let Some(environment) = registration.environment else {
@@ -1476,6 +1470,7 @@ impl NotificationCoordinator {
             projection,
             alert,
         );
+        let urgency = live_activity_urgency(event, alert.is_some());
         self.inner
             .store
             .queue_live_activity_delivery(NewLiveActivityDelivery {
@@ -1811,6 +1806,14 @@ fn parse_epoch(value: &str) -> Option<f64> {
     chrono::DateTime::parse_from_rfc3339(value)
         .ok()
         .map(|value| value.timestamp_millis() as f64 / 1000.0)
+}
+
+fn live_activity_urgency(event: LiveActivityEvent, alerts_human: bool) -> &'static str {
+    match event {
+        LiveActivityEvent::Start => "high",
+        LiveActivityEvent::Update if alerts_human => "high",
+        LiveActivityEvent::Update | LiveActivityEvent::End => "normal",
+    }
 }
 
 fn live_activity_payload(
@@ -2307,6 +2310,53 @@ mod tests {
         );
         assert_eq!(alert_payload["taskId"], "task:one");
         assert_eq!(alert_payload["aps"]["alert"]["body"], "Review Focus");
+    }
+    #[test]
+    fn live_activity_priority_reserves_high_delivery_for_immediate_events() {
+        assert_eq!(
+            live_activity_urgency(LiveActivityEvent::Start, false),
+            "high"
+        );
+        assert_eq!(
+            live_activity_urgency(LiveActivityEvent::Update, true),
+            "high"
+        );
+        assert_eq!(
+            live_activity_urgency(LiveActivityEvent::Update, false),
+            "normal"
+        );
+        assert_eq!(
+            live_activity_urgency(LiveActivityEvent::End, false),
+            "normal"
+        );
+    }
+    #[tokio::test]
+    async fn live_activity_reconciliation_uses_one_mutation_lane() {
+        let root = tempfile::tempdir().expect("home");
+        let coordinator = NotificationCoordinator::new_with_paths(
+            crate::test_support::test_store().await,
+            "https://noema.example".to_string(),
+            NoemaPaths::from_noema_home(root.path()).expect("paths"),
+        )
+        .await
+        .expect("initialize notifications");
+        let guard = coordinator.inner.live_activity_mutation.lock().await;
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let reconciliation = tokio::spawn({
+            let coordinator = coordinator.clone();
+            async move {
+                let _ = started_sender.send(());
+                coordinator.reconcile_live_activities().await;
+            }
+        });
+        started_receiver.await.expect("start reconciliation");
+        tokio::task::yield_now().await;
+        assert!(!reconciliation.is_finished());
+        drop(guard);
+        tokio::time::timeout(Duration::from_secs(1), reconciliation)
+            .await
+            .expect("finish reconciliation")
+            .expect("join reconciliation");
     }
     #[test]
     fn live_activity_update_labels_track_real_run_progress() {

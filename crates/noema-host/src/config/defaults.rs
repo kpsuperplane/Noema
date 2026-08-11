@@ -15,6 +15,10 @@ codex:
 
 # The daemon opens the embedded Noema store under this home directory.
 
+browser:
+  max_sessions: 2
+  max_old_space_mb: 1024
+
 web:
   host: 127.0.0.1
   port: 3737

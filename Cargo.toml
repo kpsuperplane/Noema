@@ -49,6 +49,7 @@ libc = "0.2"
 mlua = { version = "0.12", default-features = false, features = ["luau", "vendored"] }
 oauth2 = { version = "5", default-features = false }
 obscura-browser = { git = "https://github.com/h4ckf0r0day/obscura.git", rev = "e78b5e60261599a850c053eaecc2de92625496d7" }
+obscura-js = { git = "https://github.com/h4ckf0r0day/obscura.git", rev = "e78b5e60261599a850c053eaecc2de92625496d7" }
 openapiv3 = "2.2"
 process-wrap = { version = "9.1", default-features = false, features = ["creation-flags", "job-object", "kill-on-drop", "process-group", "tokio1"] }
 psl = "2"

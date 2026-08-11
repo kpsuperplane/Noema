@@ -4351,6 +4351,7 @@ dependencies = [
  "noema-capabilities",
  "noema-home",
  "obscura-browser",
+ "obscura-js",
  "readabilityrs",
  "reqwest 0.13.4",
  "ring",

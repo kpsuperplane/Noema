@@ -156,6 +156,18 @@ impl RuntimeActor {
             .await;
     }
 
+    pub(in crate::daemon::runtime) async fn record_hosted_web_search_urls(
+        &self,
+        source: &str,
+        searches: &[noema_providers::GenerateHostedWebSearch],
+    ) {
+        let urls = hosted_web_search_urls(searches);
+        let _ = self
+            .store
+            .record_observed_urls(ObservedUrlSource::SearchResult, source, &urls)
+            .await;
+    }
+
     pub(super) async fn record_fetched_link_urls(&self, source: &str, payload: &Value) {
         let Ok(response) = serde_json::from_value::<noema_capabilities::web::fetch::FetchResponse>(
             payload.clone(),
@@ -236,5 +248,44 @@ impl RuntimeActor {
         } else {
             None
         }
+    }
+}
+
+fn hosted_web_search_urls(searches: &[noema_providers::GenerateHostedWebSearch]) -> Vec<String> {
+    searches
+        .iter()
+        .flat_map(|search| &search.sources)
+        .filter_map(|source| {
+            noema_capabilities::web::url_policy::normalize_observed_url(&source.url).ok()
+        })
+        .take(256)
+        .collect()
+}
+
+#[cfg(test)]
+mod hosted_search_tests {
+    use noema_providers::{GenerateHostedWebSearch, GenerateWebSource};
+
+    use super::*;
+
+    #[test]
+    fn hosted_search_sources_become_observed_urls() {
+        let searches = [GenerateHostedWebSearch {
+            output_index: 0,
+            id: None,
+            tool_name: "web.search".to_string(),
+            arguments: json!({"query": "hotel"}),
+            result: json!({}),
+            status: "completed".to_string(),
+            sources: vec![GenerateWebSource {
+                title: Some("Hotel".to_string()),
+                url: "HTTPS://Example.com:443/booking#rooms".to_string(),
+            }],
+        }];
+
+        assert_eq!(
+            hosted_web_search_urls(&searches),
+            ["https://example.com/booking".to_string()]
+        );
     }
 }

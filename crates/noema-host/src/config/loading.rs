@@ -29,6 +29,8 @@ pub(super) const CONFIG_ENV_KEYS: &[&str] = &[
     "local_models.context_window_tokens",
     "local_models.timeout_seconds",
     "local_models.startup_timeout_seconds",
+    "browser.max_sessions",
+    "browser.max_old_space_mb",
     "web.host",
     "web.port",
     "web.rp_id",

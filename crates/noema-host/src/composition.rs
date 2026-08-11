@@ -95,6 +95,7 @@ async fn assemble_services(
     let web_config = config.web().clone();
     let HostConfig {
         provider,
+        browser,
         local_model_runtime_root,
         ..
     } = config.clone();
@@ -260,7 +261,7 @@ async fn assemble_services(
         credentials: provider_credentials,
         default_search: default_web_search_backend(),
         default_fetch: default_web_fetch_backend(),
-        default_browse: default_web_browse_backend(),
+        default_browse: default_web_browse_backend(browser.max_sessions, browser.max_old_space_mb),
     });
     let mcp_repository: McpRepositoryHandle = Arc::new(store.clone());
     let mcp_secrets = Arc::new(FilesystemMcpSecretStore::new(paths.clone()));
