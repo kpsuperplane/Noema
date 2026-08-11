@@ -20,33 +20,34 @@ struct NoemaTasksLiveActivityWidget: Widget {
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
           ActivityIdentity(state: context.state, appearance: .island)
-            .frame(width: 106, height: 24, alignment: .leading)
+            .frame(maxWidth: 112, minHeight: 22, alignment: .leading)
         }
-        .contentMargins(.leading, 16)
+        .contentMargins(.leading, 18)
 
         DynamicIslandExpandedRegion(.trailing) {
           ActivityHeaderStatus(state: context.state, appearance: .island)
-            .frame(width: 106, height: 24, alignment: .trailing)
+            .frame(maxWidth: 112, minHeight: 22, alignment: .trailing)
         }
-        .contentMargins(.trailing, 16)
+        .contentMargins(.trailing, 18)
 
         DynamicIslandExpandedRegion(.bottom) {
           ActivityBody(state: context.state, appearance: .island)
-            .padding(.top, 8)
+            .padding(.top, 4)
         }
-        .contentMargins([.leading, .trailing, .bottom], 16)
+        .contentMargins([.leading, .trailing], 20)
+        .contentMargins(.bottom, 18)
       } compactLeading: {
-        CompactAgentMark(state: context.state)
-          .frame(height: 20)
+        CompactAgentMark(state: context.state, size: 18)
+          .frame(width: 20, height: 20)
       } compactTrailing: {
         CompactTrailingStatus(state: context.state)
-          .frame(height: 20)
+          .frame(minHeight: 20)
       } minimal: {
-        CompactAgentMark(state: context.state, size: 18)
+        CompactAgentMark(state: context.state, size: 17)
       }
       .keylineTint(PhaseStyle(state: context.state).color(for: .island))
-      .contentMargins(.leading, 4, for: .compactLeading)
-      .contentMargins(.trailing, 4, for: .compactTrailing)
+      .contentMargins(.leading, 6, for: .compactLeading)
+      .contentMargins(.trailing, 6, for: .compactTrailing)
       .widgetURL(taskURL(for: context.state))
     }
   }
@@ -94,13 +95,16 @@ private struct ActivityIdentity: View {
   }
 
   var body: some View {
-    HStack(spacing: 7) {
-      NoemaAgentMark(size: appearance == .island ? 20 : 22)
+    HStack(spacing: appearance == .island ? 6 : 7) {
+      NoemaAgentMark(size: appearance == .island ? 18 : 22)
         .accessibilityHidden(true)
       Text(label)
-        .font(.caption.weight(.semibold))
+        .font((appearance == .island ? Font.caption2 : .caption).weight(.semibold))
         .foregroundStyle(appearance.primary)
         .lineLimit(1)
+        .minimumScaleFactor(0.82)
+        .allowsTightening(true)
+        .layoutPriority(1)
     }
     .accessibilityElement(children: .combine)
     .accessibilityLabel(label)
@@ -140,7 +144,11 @@ private struct ActivityHeaderStatus: View {
         }
       }
     }
-    .font(.caption.monospacedDigit().weight(.semibold))
+    .font(
+      (appearance == .island ? Font.caption2 : .caption)
+        .monospacedDigit()
+        .weight(.semibold)
+    )
     .lineLimit(1)
   }
 }
@@ -269,21 +277,25 @@ private struct AttentionActivityBody: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       Text(state.focusTitle)
-        .font(appearance == .island ? .headline.weight(.semibold) : .title3.weight(.semibold))
+        .font(appearance == .island ? .subheadline.weight(.semibold) : .title3.weight(.semibold))
         .foregroundStyle(appearance.primary)
-        .lineLimit(2)
+        .lineLimit(appearance == .island ? 1 : 2)
+        .minimumScaleFactor(0.82)
+        .allowsTightening(true)
 
       Text("\(agentName) is waiting for your decision on this task.")
         .font(.caption)
         .foregroundStyle(appearance.secondary)
-        .lineLimit(2)
+        .lineLimit(appearance == .island ? 1 : 2)
+        .minimumScaleFactor(0.85)
+        .allowsTightening(true)
         .padding(.top, 6)
 
       Divider()
         .overlay(appearance.divider)
-        .padding(.top, 12)
+        .padding(.top, appearance == .island ? 10 : 12)
 
-      HStack(spacing: 12) {
+      HStack(spacing: appearance == .island ? 8 : 12) {
         Text(otherTasksLabel)
           .font(.caption2.weight(.semibold))
           .foregroundStyle(appearance.secondary)
@@ -294,7 +306,7 @@ private struct AttentionActivityBody: View {
           .foregroundStyle(NoemaActivityPalette.attention(for: appearance))
           .lineLimit(1)
       }
-      .padding(.top, 12)
+      .padding(.top, appearance == .island ? 10 : 12)
     }
   }
 
@@ -315,7 +327,7 @@ private struct CompactAgentMark: View {
       .overlay {
         if state.requiresAttention == true {
           Circle()
-            .stroke(NoemaActivityPalette.islandClay, lineWidth: 2)
+            .strokeBorder(NoemaActivityPalette.islandClay, lineWidth: 2)
         }
       }
       .accessibilityLabel(state.agentName ?? "Agent")
@@ -328,7 +340,7 @@ private struct CompactTrailingStatus: View {
   var body: some View {
     Group {
       if state.requiresAttention == true {
-        Text("!")
+        Image(systemName: "exclamationmark")
           .foregroundStyle(NoemaActivityPalette.islandClay)
           .accessibilityLabel("Needs you")
       } else if state.activeTaskCount > 1 {
@@ -357,6 +369,7 @@ private struct CompactTrailingStatus: View {
     .font(.caption2.monospacedDigit().weight(.bold))
     .lineLimit(1)
     .minimumScaleFactor(0.75)
+    .fixedSize(horizontal: true, vertical: false)
   }
 }
 
@@ -438,9 +451,9 @@ private let multiplePreviewState = NoemaTasksActivityAttributes.ContentState(
 
 private let attentionPreviewState = NoemaTasksActivityAttributes.ContentState(
   focusTaskId: "task:preview",
-  focusTitle: "Choose the Live Activity direction",
+  focusTitle: "Explore flights from Seattle to Zurich",
   projectName: "Personal",
-  agentName: "Atlas",
+  agentName: "Task Executor",
   phase: .reviewing,
   statusLabel: "Needs You",
   activeTaskCount: 3,
@@ -481,6 +494,12 @@ private let completedPreviewState = NoemaTasksActivityAttributes.ContentState(
 }
 
 #Preview("Needs You", as: .content, using: previewAttributes) {
+  NoemaTasksLiveActivityWidget()
+} contentStates: {
+  attentionPreviewState
+}
+
+#Preview("Needs You · Expanded", as: .dynamicIsland(.expanded), using: previewAttributes) {
   NoemaTasksLiveActivityWidget()
 } contentStates: {
   attentionPreviewState
