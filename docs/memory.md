@@ -28,6 +28,9 @@ Current implementation direction:
   biographical overview; child files are focused topic articles. A developed
   root must contain at least two thematic sections and cannot publish as an
   unsectioned fact inventory.
+- The update model supplies ordered source identifiers and matching numeric
+  references. The runtime validates those identifiers, generates every
+  footnote definition, and derives the stored source manifest from that list.
 - Article citations render as superscript reference numbers whose hover/focus
   cards resolve to a bounded excerpt of the cited human message. Raw item ids
   remain implementation detail and there is no separate references appendix.

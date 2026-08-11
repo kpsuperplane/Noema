@@ -123,8 +123,8 @@ pub(crate) fn memory_changes_tool_spec() -> Result<ToolSpec, ToolContractError> 
                             "path": {"type": "string", "minLength": 1},
                             "title": {"type": "string", "minLength": 1},
                             "icon": {"type": "string", "minLength": 1},
-                            "body": {"type": "string"},
-                            "sources": {"type": "array", "items": {"type": "string"}}
+                            "body": {"type": "string", "description": "Article Markdown without a title or footnote definitions. Use numeric markers [^1], [^2], and so on for ordered sources."},
+                            "sources": {"type": "array", "description": "Ordered unique source ids. Every entry must have its matching numeric marker in body.", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
                         },
                         "required": ["path", "title", "icon", "body", "sources"],
                         "additionalProperties": false
