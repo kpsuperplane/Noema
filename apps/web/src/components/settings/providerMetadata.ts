@@ -1,4 +1,5 @@
 import type { ProviderAccountsQuery } from "@/generated/graphql";
+import { settingsStatusLabel } from "./settingsStatus";
 
 export type ProviderSettingsAccount = ProviderAccountsQuery["providerAccounts"][number];
 export type ProviderAccountCatalogEntry = ProviderAccountsQuery["providerAccountCatalog"][number];
@@ -9,14 +10,7 @@ export type ProviderMetadataRow = {
 };
 
 export function providerStatusLabel(status: ProviderSettingsAccount["status"]) {
-  const labels: Record<ProviderSettingsAccount["status"], string> = {
-    AUTHENTICATED: "Authenticated",
-    CHECKING: "Checking",
-    UNAUTHENTICATED: "Unauthenticated",
-    UNAVAILABLE: "Unavailable",
-    UNKNOWN: "Unknown"
-  };
-  return labels[status];
+  return settingsStatusLabel(status);
 }
 
 export function providerAuthMethodLabel(method: ProviderSettingsAccount["authMethod"]) {

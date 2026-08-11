@@ -67,10 +67,9 @@ impl RuntimeActor {
             turn.response.responses.iter().rposition(|item| {
                 matches!(item, noema_providers::GenerateResponseItem::Text { .. })
             });
-        let mut initial_assistant_response = ProviderAssistantResponse::with_citations(
-            citation_response_index,
-            turn.response.citations.clone(),
-        );
+        let mut citation_sources = CitationSourceRegistry::default();
+        citation_sources.observe(0, &turn.response.hosted_web_searches);
+        let mut initial_assistant_response = ProviderAssistantResponse::default();
         let initial_tool_calls = local_tool_calls(&turn.response.tool_calls);
         let initial_tool_description = single_tool_display_description(
             &turn.response.responses,
@@ -88,6 +87,26 @@ impl RuntimeActor {
         .await?;
         if !initial_batch_kind.contains_delegation() {
             for (index, response_item) in turn.response.responses.iter().cloned().enumerate() {
+                let response_item = match response_item {
+                    noema_providers::GenerateResponseItem::Text { phase, text } => {
+                        let existing = (citation_response_index == Some(index))
+                            .then_some(turn.response.citations.as_slice())
+                            .unwrap_or_default();
+                        let normalized = self.normalize_provider_citation_text(
+                            &citation_sources,
+                            &text,
+                            existing,
+                            "conversation_turn",
+                            &turn.turn_id,
+                        );
+                        initial_assistant_response
+                            .set_citations_for(index, normalized.citations);
+                        noema_providers::GenerateResponseItem::Text {
+                            phase,
+                            text: normalized.text,
+                        }
+                    }
+                };
                 self.persist_provider_response_item(
                     &action_turn,
                     ProviderResponsePosition {
@@ -297,6 +316,7 @@ impl RuntimeActor {
             continuation_context,
             continuation_tool_results,
             waiting_for_interaction,
+            citation_sources,
         })
     }
 }

@@ -13,6 +13,9 @@ export const ResolveGovernedActionDocument = gql`
       reviewRoute
       behavior { readOnly idempotent destructive openWorld }
       safeSummary
+      target { serviceName connectionLabel serviceId connectionId accountId }
+      disclosure { recipient contentSummary }
+      consequence
       arguments
       assessment {
         status
@@ -55,6 +58,9 @@ export const PendingHumanInterventionsDocument = gql`
         reviewRoute
         behavior { readOnly idempotent destructive openWorld }
         safeSummary
+        target { serviceName connectionLabel serviceId connectionId accountId }
+        disclosure { recipient contentSummary }
+        consequence
         arguments
         assessment {
           status

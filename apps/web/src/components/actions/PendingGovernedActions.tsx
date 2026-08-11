@@ -65,7 +65,8 @@ export function usePendingHumanInterventions(scope: Scope = {}) {
       first: 50
     },
     skip: scope.conversationId === null,
-    fetchPolicy: "cache-and-network"
+    fetchPolicy: "cache-and-network",
+    notifyOnNetworkStatusChange: true
   });
   useSubscription(ConversationEventsDocument, {
     variables: { conversationId: scope.conversationId ?? "" },
@@ -88,6 +89,27 @@ export function PendingHumanInterventions({
   emptyContent
 }: Scope & { placement?: HumanInterventionPlacement; emptyContent?: React.ReactNode }) {
   const result = usePendingHumanInterventions({ conversationId, taskId, projectId });
+  return (
+    <PendingHumanInterventionsResult
+      conversationId={conversationId}
+      placement={placement}
+      emptyContent={emptyContent}
+      result={result}
+    />
+  );
+}
+
+export function PendingHumanInterventionsResult({
+  conversationId,
+  placement = "chat",
+  emptyContent,
+  result
+}: {
+  conversationId?: string | null;
+  placement?: HumanInterventionPlacement;
+  emptyContent?: React.ReactNode;
+  result: ReturnType<typeof usePendingHumanInterventions>;
+}) {
   const interventions = result.data?.pendingHumanInterventions ?? [];
   const [dismissedAdapterSetups, setDismissedAdapterSetups] = React.useState(readDismissedAdapterSetups);
   const allowAdapterSetupDismissal = Boolean(conversationId) && placement === "chat";
@@ -106,24 +128,49 @@ export function PendingHumanInterventions({
       return next;
     });
   }, []);
+  const stale = Boolean(result.error);
+  const list = visibleInterventions.length ? (
+    <HumanInterventionMotionItem key="pending-human-interventions">
+      <HumanInterventionList
+        interventions={visibleInterventions}
+        placement={placement}
+        onResolved={() => void result.refetch().catch(() => undefined)}
+        onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
+        initialAnimation={false}
+      />
+    </HumanInterventionMotionItem>
+  ) : null;
   return (
     <>
-      <AnimatePresence>
-        {visibleInterventions.length ? (
-          <HumanInterventionMotionItem key="pending-human-interventions">
-            <HumanInterventionList
-              interventions={visibleInterventions}
-              placement={placement}
-              onResolved={() => void result.refetch()}
-              onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
-              initialAnimation={false}
-            />
-          </HumanInterventionMotionItem>
-        ) : null}
-      </AnimatePresence>
-      {result.data && !result.loading && visibleInterventions.length === 0 ? emptyContent : null}
+      {stale && list ? (
+        <fieldset disabled {...stylex.props(styles.staleInterventions)}>
+          <AnimatePresence>{list}</AnimatePresence>
+        </fieldset>
+      ) : (
+        <AnimatePresence>{list}</AnimatePresence>
+      )}
+      {stale ? (
+        <HStack as="div" role="alert" gap={2} align="center" justify="between" wrap="wrap" {...stylex.props(styles.queryError)}>
+          <span>Response options could not load. Shown details may be out of date.</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            label="Retry"
+            isLoading={result.loading}
+            onClick={() => void result.refetch().catch(() => undefined)}
+          />
+        </HStack>
+      ) : null}
+      {result.data && !result.loading && !stale && visibleInterventions.length === 0 ? emptyContent : null}
     </>
   );
+}
+
+export function pendingHumanInterventionsAreFresh(
+  result: ReturnType<typeof usePendingHumanInterventions>
+) {
+  return Boolean(result.data) && !result.error;
 }
 
 export function HumanInterventionList({
@@ -687,6 +734,19 @@ function encodeBase64(bytes: Uint8Array) {
 }
 
 const styles = stylex.create({
+  staleInterventions: {
+    minWidth: 0,
+    margin: "var(--spacing-0)",
+    padding: "var(--spacing-0)",
+    borderWidth: 0,
+    opacity: 0.72
+  },
+  queryError: {
+    marginBlockStart: "var(--spacing-2)",
+    color: "var(--destructive)",
+    fontSize: 12,
+    lineHeight: 1.45
+  },
   motionItem: {
     minWidth: 0,
     overflow: "clip",
@@ -717,7 +777,7 @@ const styles = stylex.create({
   },
   eyebrow: {
     color: "var(--noema-text-muted)",
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 600,
     textTransform: "uppercase",
     letterSpacing: "0.045em",
@@ -729,7 +789,7 @@ const styles = stylex.create({
     paddingBlock: "var(--spacing-0-5)",
     paddingInline: "var(--spacing-1)",
     color: "var(--noema-text-secondary)",
-    fontSize: 10,
+    fontSize: 12,
     letterSpacing: 0,
     textTransform: "none"
   },
@@ -748,7 +808,7 @@ const styles = stylex.create({
   },
   setupNote: {
     color: "var(--noema-text-muted)",
-    fontSize: 11,
+    fontSize: 12,
     lineHeight: 1.4
   },
   operationList: {
@@ -764,7 +824,7 @@ const styles = stylex.create({
   operationRisk: {
     flexShrink: 0,
     color: "var(--noema-text-muted)",
-    fontSize: 10,
+    fontSize: 12,
     lineHeight: 1.35
   },
   operationName: {
@@ -773,7 +833,7 @@ const styles = stylex.create({
   },
   moreOperations: {
     color: "var(--noema-text-muted)",
-    fontSize: 11,
+    fontSize: 12,
     lineHeight: 1.35
   },
   redirectUriValue: {
@@ -783,7 +843,7 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-subtle)",
     color: "var(--noema-text-primary)",
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-    fontSize: 11,
+    fontSize: 12,
     lineHeight: 1.4,
     overflowWrap: "anywhere",
     userSelect: "all",
@@ -791,7 +851,7 @@ const styles = stylex.create({
   },
   detailHeading: {
     color: "var(--noema-text-primary)",
-    fontSize: 11
+    fontSize: 12
   },
   actions: {
     flexShrink: 0,

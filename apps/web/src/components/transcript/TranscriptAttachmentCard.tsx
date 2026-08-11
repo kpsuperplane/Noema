@@ -103,7 +103,7 @@ const styles = stylex.create({
   meta: {
     color: "var(--noema-text-muted)",
     fontFamily: "var(--noema-font-mono)",
-    fontSize: 11,
+    fontSize: 12,
     fontStyle: "normal",
     overflowWrap: "anywhere"
   },

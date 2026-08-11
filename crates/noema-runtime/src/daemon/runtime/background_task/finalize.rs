@@ -9,10 +9,12 @@ impl RuntimeActor {
         capabilities: ProviderToolCapabilities,
         response_continuation: ProviderResponseContinuation,
         context: &mut ContinuationContext,
+        citation_sources: &mut CitationSourceRegistry,
+        provider_round: usize,
         reason: &str,
         deadline: tokio::time::Instant,
         mut aggregate_usage: Option<TokenUsage>,
-    ) -> Result<GenerateResponse, RuntimeError> {
+    ) -> Result<BackgroundTaskGenerateResult, RuntimeError> {
         let run_fence = request.work_run_fence();
         let now = tokio::time::Instant::now();
         let deadline = task_finalization_deadline(deadline, now);
@@ -142,6 +144,7 @@ impl RuntimeActor {
                 .await;
         }
         let mut response = finalization_result?;
+        citation_sources.observe(provider_round, &response.hosted_web_searches);
         add_usage(&mut aggregate_usage, response.usage.as_ref());
         response.usage = aggregate_usage;
         let terminal_calls = response
@@ -210,7 +213,10 @@ impl RuntimeActor {
             &run_fence,
         )
         .await;
-        Ok(response)
+        Ok(BackgroundTaskGenerateResult {
+            response,
+            citation_sources: std::mem::take(citation_sources),
+        })
     }
 
     async fn persist_progress_notice(

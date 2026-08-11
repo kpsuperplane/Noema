@@ -39,6 +39,7 @@ import {
   type ProviderSettingsAccount
 } from "./providerMetadata";
 import { SettingsEditDialog } from "./SettingsEditDialog";
+import { DeleteConfirmationDialog } from "./DeleteConnectionDialog";
 import { AuthAttempt } from "../onboarding/AuthAttempt";
 import type { ProviderAuthAttemptView } from "../onboarding/types";
 import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
@@ -196,12 +197,14 @@ function ProviderAccountRow({
 }) {
   const rows = providerTechnicalRows(account);
   const [replaceOpen, setReplaceOpen] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
   const [replacementSecret, setReplacementSecret] = useState("");
   const canSaveSecret = replacementSecret.trim().length > 0;
   const supportsSecret = account.authMethod === "secret_input" || account.providerKind === "openrouter";
 
   return (
-    <SettingsListItem
+    <>
+      <SettingsListItem
       label={
         <HStack gap={2} vAlign="center" wrap="wrap">
           <span {...stylex.props(styles.rowLabel)}>{account.displayName}</span>
@@ -243,7 +246,7 @@ function ProviderAccountRow({
                 label="Clear key"
                 icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
                 isDisabled={mutationSaving}
-                onClick={() => void onClearProviderSecret({ providerAccountId: account.providerAccountId })}
+                onClick={() => setClearOpen(true)}
               />
             </>
           ) : null}
@@ -289,7 +292,24 @@ function ProviderAccountRow({
           </SettingsEditDialog>
         </HStack>
       }
-    />
+      />
+      <DeleteConfirmationDialog
+        title={`Clear API key for ${account.displayName}?`}
+        message="Noema cannot use this account until you add a key again."
+        confirmLabel="Clear key"
+        open={clearOpen}
+        submitting={mutationSaving}
+        error={mutationError}
+        onOpenChange={(open) => {
+          if (!mutationSaving) setClearOpen(open);
+        }}
+        onConfirm={() => {
+          void onClearProviderSecret({ providerAccountId: account.providerAccountId })
+            .then(() => setClearOpen(false))
+            .catch(() => undefined);
+        }}
+      />
+    </>
   );
 }
 

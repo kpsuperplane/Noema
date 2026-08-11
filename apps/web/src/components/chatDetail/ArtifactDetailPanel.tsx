@@ -22,7 +22,7 @@ export function ArtifactDetailPanel({
   onChangeVersion: (version: string) => void;
   onDetailChange: (detail: ArtifactDetail | null) => void;
 }) {
-  const { data, error, loading } = useQuery(ArtifactVersionDetailDocument, {
+  const { data, error, loading, refetch } = useQuery(ArtifactVersionDetailDocument, {
     fetchPolicy: "cache-and-network",
     variables: { artifactVersionId: version }
   });
@@ -41,7 +41,14 @@ export function ArtifactDetailPanel({
   }
 
   if (error) {
-    return <ArtifactUnavailable message={`Error loading artifact: ${error.message}`} />;
+    if (!detail) {
+      return (
+        <ArtifactUnavailable
+          message="Artifact could not load."
+          onRetry={() => void refetch().catch(() => undefined)}
+        />
+      );
+    }
   }
 
   if (!detail) {
@@ -50,6 +57,18 @@ export function ArtifactDetailPanel({
 
   return (
     <div {...stylex.props(styles.root)}>
+      {error ? (
+        <div {...stylex.props(styles.recovery)}>
+          <p role="alert" {...stylex.props(styles.recoveryText)}>This preview may be out of date.</p>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            label="Retry"
+            onClick={() => void refetch().catch(() => undefined)}
+          />
+        </div>
+      ) : null}
       <ArtifactMeta
         detail={detail}
         selectedVersion={version}
@@ -114,10 +133,19 @@ function ArtifactMeta({
   );
 }
 
-function ArtifactUnavailable({ message }: { message: string }) {
+function ArtifactUnavailable({
+  message,
+  onRetry
+}: {
+  message: string;
+  onRetry?: () => void;
+}) {
   return (
-    <div role="status" {...stylex.props(styles.empty)}>
-      <p>{message}</p>
+    <div role={onRetry ? undefined : "status"} {...stylex.props(styles.empty)}>
+      <p role={onRetry ? "alert" : undefined}>{message}</p>
+      {onRetry ? (
+        <Button type="button" size="sm" variant="secondary" label="Retry" onClick={onRetry} />
+      ) : null}
     </div>
   );
 }
@@ -165,5 +193,14 @@ const styles = stylex.create({
     alignContent: "start",
     color: "var(--noema-text-secondary)",
     fontSize: 13
-  }
+  },
+  recovery: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "var(--spacing-2)",
+    color: "var(--noema-red-700)",
+    fontSize: 13
+  },
+  recoveryText: { margin: "var(--spacing-0)" }
 });

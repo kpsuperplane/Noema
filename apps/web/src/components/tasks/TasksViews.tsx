@@ -235,7 +235,7 @@ function TaskGroup({ title, tasks }: { title: string; tasks: readonly TasksTask[
   return (
     <VStack as="section" aria-labelledby={id} gap={1.5} className={stylex.props(styles.taskGroup).className}>
       <SectionHeader id={id} title={title} count={tasks.length} />
-      <VStack as="div" role="list" gap={1.5} className={stylex.props(styles.cards).className}>
+      <VStack as="ul" gap={1.5} className={stylex.props(styles.cards).className}>
         {tasks.map((task) => (
           <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status={taskStatusFromProjection(task)} statusLabel={taskRunLabel(task) ?? task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />
         ))}
@@ -248,7 +248,7 @@ function ScheduledGroup({ oneTimeTasks, recurrenceTasks }: { oneTimeTasks: reado
   return (
     <VStack as="section" aria-labelledby="tasks-group-scheduled" gap={1.5} className={stylex.props(styles.taskGroup).className}>
       <SectionHeader id="tasks-group-scheduled" title="Scheduled" count={oneTimeTasks.length + recurrenceTasks.length} />
-      <VStack as="div" role="list" gap={1.5} className={stylex.props(styles.cards).className}>
+      <VStack as="ul" gap={1.5} className={stylex.props(styles.cards).className}>
         {oneTimeTasks.map((task) => (
           <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status="queued" statusLabel="Scheduled" timestamp={task.schedule!.scheduledFor} />
         ))}
@@ -300,9 +300,8 @@ function TaskCard({ taskId, title, note, project, status, statusLabel, timestamp
 }) {
   const cardStyles = stylex.props(styles.taskCard, attached && styles.attachedTaskCard);
   const selectedCardStyles = stylex.props(styles.taskCard, attached && styles.attachedTaskCard, styles.selectedCard);
-  return (
+  const link = (
     <Link
-      role={listItem ? "listitem" : undefined}
       to="/tasks/$taskId"
       params={{ taskId }}
       search={(current) => normalizeTasksSearch(current)}
@@ -326,6 +325,7 @@ function TaskCard({ taskId, title, note, project, status, statusLabel, timestamp
       </HStack>
     </Link>
   );
+  return listItem ? <li {...stylex.props(styles.cardListItem)}>{link}</li> : link;
 }
 
 function TasksHistory({ projectId, query, terminal }: { projectId?: string; query?: string; terminal: "all" | "completed" | "cancelled" }) {
@@ -341,7 +341,7 @@ function TasksHistory({ projectId, query, terminal }: { projectId?: string; quer
       <SectionHeader id="tasks-history" title="History" count={tasks.length} />
       {!connection ? <ListMessage loading={result.loading} error={Boolean(result.error)} retry={() => result.refetch()} label="history" /> : null}
       {connection && !tasks.length ? <ListEmpty title="No matching history" detail="Done and cancelled tasks remain available here." /> : null}
-      <VStack as="div" role="list" gap={1.5} className={stylex.props(styles.cards).className}>
+      <VStack as="ul" gap={1.5} className={stylex.props(styles.cards).className}>
         {tasks.map((task) => <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status={taskStatusFromProjection(task)} statusLabel={task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />)}
       </VStack>
       <ListLoadMore visible={Boolean(connection?.pageInfo.hasNextPage)} loading={result.loading} onLoad={() => result.fetchMore({ variables: { after: connection?.pageInfo.endCursor }, updateQuery: (previous, { fetchMoreResult }) => ({ ...fetchMoreResult, taskHistory: { ...fetchMoreResult.taskHistory, edges: [...previous.taskHistory.edges, ...fetchMoreResult.taskHistory.edges] } }) })} />
@@ -380,18 +380,19 @@ const styles = stylex.create({
     "--task-card-shadow": "0 1px 2px color-mix(in srgb, black 4%, transparent)"
   },
   taskGroup: { minWidth: 0 },
-  cards: { minWidth: 0 },
+  cards: { minWidth: 0, margin: "var(--spacing-0)", padding: "var(--spacing-0)", listStyle: "none" },
+  cardListItem: { minWidth: 0, listStyle: "none" },
   sectionHeader: { minHeight: 24, minWidth: 0, paddingInline: "var(--spacing-1)" },
-  sectionTitle: { margin: "var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650 },
+  sectionTitle: { margin: "var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: 12, fontWeight: 650 },
   attentionTitle: { color: "var(--noema-clay-700)" },
-  count: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 9 },
+  count: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 12, fontVariantNumeric: "tabular-nums" },
   taskCard: { display: "grid", minWidth: 0, gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: "var(--task-card-radius)", backgroundColor: "var(--noema-surface-card)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)", color: "var(--noema-text-secondary)", textDecoration: "none", boxShadow: "var(--task-card-shadow)", ":hover": { borderColor: "var(--noema-border-default)", backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
   selectedCard: { borderColor: "color-mix(in srgb, var(--noema-pine-500) 26%, var(--noema-border-subtle))", backgroundColor: "color-mix(in srgb, var(--noema-pine-50) 70%, var(--noema-surface-card))", boxShadow: "0 2px 8px color-mix(in srgb, var(--noema-pine-700) 9%, transparent)" },
   cardHeading: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", minWidth: 0, alignItems: "baseline", gap: "var(--spacing-2)" },
   cardTitle: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 650, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  cardTime: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 9 },
-  cardPreview: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-secondary)", fontSize: 11, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  cardMeta: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 10 },
+  cardTime: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 12, fontVariantNumeric: "tabular-nums" },
+  cardPreview: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  cardMeta: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 12 },
   cardProject: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   attachedTask: {
     position: "relative",
@@ -405,7 +406,7 @@ const styles = stylex.create({
     zIndex: 1,
     ":hover": { backgroundColor: "var(--noema-surface-sunken)" }
   },
-  state: { display: "flex", minHeight: 64, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-2)", color: "var(--noema-text-muted)", fontSize: 11 },
+  state: { display: "flex", minHeight: 64, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-2)", color: "var(--noema-text-muted)", fontSize: 12 },
   retry: { borderWidth: 0, backgroundColor: "transparent", padding: "var(--spacing-0)", color: "var(--noema-pine-700)", font: "inherit", fontWeight: 650, textDecoration: "underline", cursor: "pointer" },
   empty: { display: "grid", minHeight: 72, alignContent: "center", justifyItems: "start", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-3)", color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.4 },
   loadMore: { paddingBlock: "var(--spacing-1)" }

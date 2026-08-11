@@ -80,6 +80,7 @@ async fn uncertain_foreground_action_fails_with_a_durable_non_retry_notice() {
         ),
         continuation_tool_results: Vec::new(),
         waiting_for_interaction: false,
+        citation_sources: Default::default(),
     };
     let (item_tx, _item_rx) = mpsc::unbounded_channel();
 

@@ -818,7 +818,7 @@ async fn current_schema_enforces_projection_history_and_ledger_invariants() {
                 "workspaces", "workspace_memberships", "projects", "workflow_definitions",
                 "workflow_stages", "tasks", "task_execution_contracts",
                 "task_contract_criteria", "task_gates", "task_messages", "agent_runs",
-                "task_submissions", "task_reviews", "work_events",
+                "task_submissions", "task_submission_citations", "task_reviews", "work_events",
                 "work_notification_outbox", "work_command_receipts",
             ] {
                 assert!(schema_object_exists(conn, "table", table)?, "missing table {table}");
@@ -950,6 +950,51 @@ async fn current_schema_enforces_projection_history_and_ledger_invariants() {
         })
         .await
         .expect("validate V8 integrity");
+}
+
+#[tokio::test]
+async fn task_submission_citations_upgrade_version_36_and_match_fresh_schema() {
+    let upgraded_home = TempDir::new().expect("citation upgrade root");
+    let upgraded_config = store_config(upgraded_home.path());
+    fs::create_dir_all(upgraded_config.path.parent().expect("database parent"))
+        .expect("create database parent");
+    let mut connection = Connection::open(&upgraded_config.path).expect("open version 36 database");
+    store_migrations()
+        .to_version(&mut connection, 36)
+        .expect("migrate through version 36");
+    assert!(
+        !schema_object_exists(&connection, "table", "task_submission_citations")
+            .expect("inspect version 36 schema")
+    );
+    drop(connection);
+
+    let upgraded = NoemaStore::open(&upgraded_config)
+        .await
+        .expect("upgrade citation schema");
+    let fresh_home = TempDir::new().expect("fresh citation root");
+    let fresh = NoemaStore::open(&store_config(fresh_home.path()))
+        .await
+        .expect("create fresh citation schema");
+    let citation_schema = |connection: &mut Connection| -> Result<String, StoreError> {
+        connection
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'task_submission_citations'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(StoreError::Sqlite)
+    };
+
+    assert_eq!(
+        upgraded
+            .with_connection(citation_schema)
+            .await
+            .expect("inspect upgraded citation schema"),
+        fresh
+            .with_connection(citation_schema)
+            .await
+            .expect("inspect fresh citation schema")
+    );
 }
 
 #[test]

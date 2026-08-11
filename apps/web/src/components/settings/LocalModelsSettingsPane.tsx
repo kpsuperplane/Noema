@@ -32,6 +32,7 @@ import {
   type LocalModelInstallationItem
 } from "./localModelMetadata";
 import { SettingsEditDialog } from "./SettingsEditDialog";
+import { DeleteConfirmationDialog } from "./DeleteConnectionDialog";
 import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 
 type LocalModelSetupView = LocalModelsSettingsQuery["localModelSetup"];
@@ -127,6 +128,7 @@ export function LocalModelsSettingsPane() {
                   key={installation.installationId}
                   installation={installation}
                   saving={saving}
+                  removeError={removeResult.error?.message ?? null}
                   onCancel={onCancel}
                   onRemove={onRemove}
                   onActivate={onActivate}
@@ -236,20 +238,24 @@ function RuntimeSection({
 function InstallationRow({
   installation,
   saving,
+  removeError,
   onCancel,
   onRemove,
   onActivate
 }: {
   installation: LocalModelInstallationItem;
   saving: boolean;
+  removeError: string | null;
   onCancel: (installationId: string) => Promise<unknown>;
   onRemove: (installationId: string) => Promise<unknown>;
   onActivate: (installationId: string) => Promise<unknown>;
 }) {
   const progress = installationProgress(installation);
   const transferActive = isTransferActive(installation);
+  const [removeOpen, setRemoveOpen] = useState(false);
   return (
-    <SettingsListItem
+    <>
+      <SettingsListItem
       label={
         <HStack gap={2} vAlign="center" wrap="wrap">
           <span {...stylex.props(styles.rowLabel)}>{installation.name}</span>
@@ -301,12 +307,29 @@ function InstallationRow({
               label="Remove"
               icon={<Trash2 size={15} aria-hidden="true" />}
               isDisabled={saving}
-              onClick={() => void onRemove(installation.installationId)}
+              onClick={() => setRemoveOpen(true)}
             />
           ) : null}
         </HStack>
       }
-    />
+      />
+      <DeleteConfirmationDialog
+        title={`Remove ${installation.name}?`}
+        message={`Removes ${formatBytes(installation.diskBytes)} from this device. You can download it again later.`}
+        confirmLabel="Remove model"
+        open={removeOpen}
+        submitting={saving}
+        error={removeError}
+        onOpenChange={(open) => {
+          if (!saving) setRemoveOpen(open);
+        }}
+        onConfirm={() => {
+          void onRemove(installation.installationId)
+            .then(() => setRemoveOpen(false))
+            .catch(() => undefined);
+        }}
+      />
+    </>
   );
 }
 

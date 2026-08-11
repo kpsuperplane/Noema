@@ -219,29 +219,29 @@ const styles = stylex.create({
   },
   operationId: {
     color: "var(--noema-text-muted)",
-    fontSize: 10,
+    fontSize: 12,
     overflowWrap: "anywhere"
   },
   endpoint: {
     color: "var(--noema-text-primary)",
     fontFamily: "var(--noema-font-mono)",
-    fontSize: 11,
+    fontSize: 12,
     overflowWrap: "anywhere"
   },
   supporting: {
     color: "var(--noema-text-muted)",
-    fontSize: 11,
+    fontSize: 12,
     lineHeight: 1.4,
     overflowWrap: "anywhere"
   },
   fieldLabel: {
     color: "var(--noema-text-secondary)",
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 600
   },
   monospace: {
     fontFamily: "var(--noema-font-mono)",
-    fontSize: 11,
+    fontSize: 12,
     overflowWrap: "anywhere"
   },
   link: {
@@ -256,7 +256,7 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-subtle)",
     color: "var(--noema-text-primary)",
     fontFamily: "var(--noema-font-mono)",
-    fontSize: 11,
+    fontSize: 12,
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
     cursor: "text"

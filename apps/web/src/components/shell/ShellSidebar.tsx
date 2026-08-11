@@ -2,6 +2,7 @@ import * as React from "react";
 import { VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import type { ShellMenuEntry, ShellMenuItem, ShellMenuLevel } from "./shellNavigation";
+import { hrefForRoute } from "@/app/routes";
 
 export function ShellSidebar({
   menuLevel,
@@ -50,18 +51,20 @@ function ShellSidebarNav({
   const pinnedItems = firstPinnedIndex === -1
     ? []
     : menuLevel.items.slice(firstPinnedIndex);
-  const renderEntry = (entry: ShellMenuEntry) =>
-    entry.kind === "group" ? (
-      <ShellSidebarGroupLabel key={`group-${entry.label}`} label={entry.label} />
-    ) : (
-      <ShellSidebarNavItem
-        key={entry.item.itemId}
-        item={entry.item}
-        active={entry.item.itemId === menuLevel.activeItemId}
-        onSelectItem={onSelectItem}
-        renderItemContent={renderItemContent}
-      />
-    );
+  const renderEntry = (entry: ShellMenuEntry) => (
+    <li key={entry.kind === "group" ? `group-${entry.label}` : entry.item.itemId} {...stylex.props(shellSidebarStyles.listItem)}>
+      {entry.kind === "group" ? (
+        <ShellSidebarGroupLabel label={entry.label} />
+      ) : (
+        <ShellSidebarNavItem
+          item={entry.item}
+          active={entry.item.itemId === menuLevel.activeItemId}
+          onSelectItem={onSelectItem}
+          renderItemContent={renderItemContent}
+        />
+      )}
+    </li>
+  );
 
   return (
     <nav
@@ -70,6 +73,7 @@ function ShellSidebarNav({
       {...stylex.props(shellSidebarStyles.nav)}
     >
       <VStack
+        as="ul"
         data-slot="shell-sidebar-items"
         gap={1}
         {...stylex.props(shellSidebarStyles.sideNavBody)}
@@ -78,6 +82,7 @@ function ShellSidebarNav({
       </VStack>
       {pinnedItems.length > 0 ? (
         <VStack
+          as="ul"
           data-slot="shell-sidebar-footer"
           gap={1}
           {...stylex.props(shellSidebarStyles.footer)}
@@ -122,6 +127,7 @@ function ShellSidebarNavItem({
       icon={<Icon size={16} />}
       itemId={item.itemId}
       label={item.label}
+      href={item.route ? hrefForRoute(item.route) : undefined}
       ariaExpanded={item.ariaExpanded}
       onSelect={() => onSelectItem(item)}
       renderContent={renderItemContent
@@ -137,6 +143,7 @@ export function ShellSidebarItem({
   icon,
   itemId,
   label,
+  href,
   ariaExpanded,
   indent,
   onSelect,
@@ -147,30 +154,53 @@ export function ShellSidebarItem({
   icon: React.ReactNode;
   itemId: string;
   label: string;
+  href?: string;
   ariaExpanded?: boolean;
   indent?: string;
   onSelect: () => void;
   renderContent?: (defaultControl: React.ReactNode) => React.ReactNode;
 }) {
-  const defaultControl = (
+  const content = (
+    <>
+      <span {...stylex.props(shellSidebarStyles.menuIcon)} aria-hidden="true">
+        {icon}
+      </span>
+      <ShellSidebarMenuLabel>{label}</ShellSidebarMenuLabel>
+    </>
+  );
+  const controlStyles = stylex.props(
+    shellSidebarStyles.menuButton,
+    shellSidebarStyles.menuButtonEmbedded,
+    depth > 0 && shellSidebarStyles.menuButtonIndented,
+    active && shellSidebarStyles.menuButtonEmbeddedActive
+  );
+  const defaultControl = href ? (
+    <a
+      href={href}
+      data-slot="shell-sidebar-control"
+      aria-current={active ? "page" : undefined}
+      aria-expanded={ariaExpanded}
+      {...controlStyles}
+      style={indent ? { paddingInlineStart: indent } : undefined}
+      onClick={(event) => {
+        if (!shouldHandleSidebarLink(event)) return;
+        event.preventDefault();
+        onSelect();
+      }}
+    >
+      {content}
+    </a>
+  ) : (
     <button
       type="button"
       data-slot="shell-sidebar-control"
       aria-current={active ? "page" : undefined}
       aria-expanded={ariaExpanded}
-      {...stylex.props(
-        shellSidebarStyles.menuButton,
-        shellSidebarStyles.menuButtonEmbedded,
-        depth > 0 && shellSidebarStyles.menuButtonIndented,
-        active && shellSidebarStyles.menuButtonEmbeddedActive
-      )}
+      {...controlStyles}
       style={indent ? { paddingInlineStart: indent } : undefined}
       onClick={onSelect}
     >
-      <span {...stylex.props(shellSidebarStyles.menuIcon)} aria-hidden="true">
-        {icon}
-      </span>
-      <ShellSidebarMenuLabel>{label}</ShellSidebarMenuLabel>
+      {content}
     </button>
   );
 
@@ -187,6 +217,14 @@ export function ShellSidebarItem({
       {renderContent?.(defaultControl) ?? defaultControl}
     </div>
   );
+}
+
+function shouldHandleSidebarLink(event: React.MouseEvent<HTMLAnchorElement>) {
+  return event.button === 0
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.shiftKey
+    && !event.altKey;
 }
 
 export function ShellSidebarMenuLabel({ children }: { children: React.ReactNode }) {
@@ -219,6 +257,10 @@ export const shellSidebarStyles = stylex.create({
     paddingBlock: "var(--spacing-0-5)",
     scrollbarWidth: "none"
   },
+  listItem: {
+    minWidth: 0,
+    listStyle: "none"
+  },
   footer: {
     minHeight: 0,
     maxHeight: "50%",
@@ -232,7 +274,7 @@ export const shellSidebarStyles = stylex.create({
   groupLabel: {
     paddingBlock: "calc(var(--spacing-2) + var(--spacing-0-5))",
     paddingInline: "calc(var(--spacing-2) + var(--spacing-0-5))",
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 600,
     lineHeight: 1.2,
     letterSpacing: 0,
@@ -280,6 +322,7 @@ export const shellSidebarStyles = stylex.create({
     paddingInline: "calc(var(--spacing-2) + var(--spacing-0-5))",
     textAlign: "left",
     fontFamily: "inherit",
+    textDecoration: "none",
     boxSizing: "border-box",
     transitionDuration: "var(--motion-spring-micro-duration)",
     transitionProperty: "background-color, color",

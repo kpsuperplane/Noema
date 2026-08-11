@@ -257,6 +257,7 @@ impl ChatCompletionResponse {
                             arguments,
                             result,
                             status,
+                            sources: Vec::new(),
                         })
                     })
             })
@@ -291,6 +292,7 @@ impl ChatCompletionResponse {
                     "summary": summary,
                 }),
                 status: "completed".to_string(),
+                sources: Vec::new(),
             }
         }));
         for (output_index, search) in searches.iter_mut().enumerate() {

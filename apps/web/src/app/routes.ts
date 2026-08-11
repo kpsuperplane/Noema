@@ -122,6 +122,12 @@ export function pathForRoute(route: AppRoute): AppPath {
   return "/";
 }
 
+export function hrefForRoute(route: AppRoute): string {
+  const path = pathForRoute(route);
+  if (route.kind !== "tasks" || !route.projectId) return path;
+  return `${path}?project=${encodeURIComponent(route.projectId)}`;
+}
+
 export function pageSurfaceKeyForPathname(pathname: string): string {
   const route = routeFromPathname(pathname);
   return route.kind === "memory" ? pathname : pathForRoute(route);

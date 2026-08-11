@@ -22,6 +22,7 @@ import { iosPageFadeTransition, shouldUseIosPageFade } from "@/motion/pageWave";
 import { springs } from "@/motion/springs";
 import {
   pageSurfaceKeyForPathname,
+  hrefForRoute,
   pathnamesSharePageSurface,
   type AppRoute
 } from "@/app/routes";
@@ -235,7 +236,7 @@ export function PrimarySurfaceNavigation({
             return (
               <Button
                 key={item.itemId}
-                type="button"
+                href={item.route ? hrefForRoute(item.route) : undefined}
                 variant="ghost"
                 size="lg"
                 label={label}
@@ -259,7 +260,11 @@ export function PrimarySurfaceNavigation({
                 ]}
                 onMouseEnter={namedChat ? () => setAgentButtonHovered(true) : undefined}
                 onMouseLeave={namedChat ? () => setAgentButtonHovered(false) : undefined}
-                onClick={() => item.route && onNavigate(item.route)}
+                onClick={(event) => {
+                  if (!item.route || !shouldHandleShellLink(event)) return;
+                  event.preventDefault();
+                  onNavigate(item.route);
+                }}
               >
                 <PrimaryNavigationLabel active={active}>{label}</PrimaryNavigationLabel>
               </Button>
@@ -267,7 +272,7 @@ export function PrimarySurfaceNavigation({
           })}
           <Button
             data-slot="shell-settings-button"
-            type="button"
+            href={hrefForRoute({ kind: "settings", section: "agents" })}
             variant="ghost"
             size="lg"
             label="Settings"
@@ -277,7 +282,11 @@ export function PrimarySurfaceNavigation({
               styles.primaryNavigationButton,
               settingsActive && styles.primaryNavigationButtonActive
             ]}
-            onClick={() => onNavigate({ kind: "settings", section: "agents" })}
+            onClick={(event) => {
+              if (!shouldHandleShellLink(event)) return;
+              event.preventDefault();
+              onNavigate({ kind: "settings", section: "agents" });
+            }}
           >
             <PrimaryNavigationLabel active={settingsActive}>Settings</PrimaryNavigationLabel>
           </Button>
@@ -288,6 +297,14 @@ export function PrimarySurfaceNavigation({
       ) : null}
     />
   );
+}
+
+function shouldHandleShellLink(event: React.MouseEvent<HTMLElement>) {
+  return event.button === 0
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.shiftKey
+    && !event.altKey;
 }
 
 function ShellSidebarRouteContent({ children }: { children: React.ReactNode }) {
@@ -332,9 +349,9 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const [memoryBreadcrumb, setMemoryBreadcrumb] = React.useState<ShellMemoryBreadcrumb | null>(null);
-  const shellRootRef = React.useRef<HTMLElement | null>(null);
+  const shellRootRef = React.useRef<HTMLDivElement | null>(null);
   const contentDeckRef = React.useRef<HTMLElement | null>(null);
-  const routeContentRef = React.useRef<HTMLDivElement | null>(null);
+  const routeContentRef = React.useRef<HTMLElement | null>(null);
   const reduceMotion = useReducedMotion();
   const memoryTreeResult = useQuery<MemoryTreeQuery>(MemoryTreeDocument, {
     fetchPolicy: "cache-only",
@@ -398,6 +415,7 @@ export function AppShell({
   const iosPageFade = shouldUseIosPageFade();
   const routePathname = useLocation({ select: (location) => location.pathname });
   const routeSurfaceKey = pageSurfaceKeyForPathname(routePathname);
+  const previousRouteSurfaceKeyRef = React.useRef(routeSurfaceKey);
   const [primaryNavigationRoute, setOptimisticPrimaryRoute] = React.useOptimistic(
     route,
     (_currentRoute, nextRoute: AppRoute) => nextRoute
@@ -431,6 +449,19 @@ export function AppShell({
     const fadeIn = animate(page, { opacity: 1 }, iosPageFadeTransition);
     return () => fadeIn.stop();
   }, [iosPageFade, reduceMotion, routeSurfaceKey]);
+
+  React.useEffect(() => {
+    document.title = `${activeLabel} · Noema`;
+    if (previousRouteSurfaceKeyRef.current === routeSurfaceKey) return;
+    previousRouteSurfaceKeyRef.current = routeSurfaceKey;
+    const frame = window.requestAnimationFrame(() => {
+      const main = routeContentRef.current;
+      const heading = main?.querySelector<HTMLElement>("h1");
+      if (heading && !heading.hasAttribute("tabindex")) heading.tabIndex = -1;
+      (heading ?? main)?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeLabel, routeSurfaceKey]);
 
   const rootStyle = shellRootStyle({
     desktopChromeOffset: shellDesktopChromeOffsetForRuntime(isDesktopRuntime)
@@ -583,7 +614,7 @@ export function AppShell({
   }, [closeNav, deckNavigation.navOpen, hasShellSidebar]);
 
   return (
-    <main
+    <div
       ref={shellRootRef}
       data-slot="shell-root"
       data-nav-open={deckNavigation.navOpen}
@@ -596,6 +627,7 @@ export function AppShell({
         isDesktopRuntime ? styles.desktopRoot : styles.browserRoot
       )}
     >
+      <a href="#noema-main-content" {...stylex.props(styles.skipLink)}>Skip to content</a>
       <header
         data-slot="shell-navbar"
         data-tauri-drag-region
@@ -708,8 +740,13 @@ export function AppShell({
             setMemoryBreadcrumb
           }}
         >
-          <div
+          <main
             ref={routeContentRef}
+            id="noema-main-content"
+            tabIndex={-1}
+            aria-label={activeLabel}
+            aria-hidden={deckNavigation.surfaceVisibility !== "visible" ? true : undefined}
+            inert={deckNavigation.surfaceVisibility !== "visible"}
             data-slot="shell-route-content"
             data-shell-surface-visibility={deckNavigation.surfaceVisibility}
             {...stylex.props(
@@ -718,10 +755,10 @@ export function AppShell({
             )}
           >
             {children}
-          </div>
+          </main>
         </ShellSurfaceProvider>
       </m.section>
-    </main>
+    </div>
   );
 }
 
@@ -732,6 +769,26 @@ const styles = stylex.create({
     height: "100dvh",
     overflow: "hidden",
     color: "var(--foreground)"
+  },
+  skipLink: {
+    position: "absolute",
+    top: "var(--spacing-2)",
+    left: "var(--spacing-2)",
+    zIndex: 100,
+    transform: "translateY(calc(-100% - var(--spacing-4)))",
+    borderRadius: "var(--radius-element)",
+    backgroundColor: "var(--background)",
+    paddingBlock: "var(--spacing-2)",
+    paddingInline: "var(--spacing-3)",
+    color: "var(--foreground)",
+    textDecoration: "none",
+    ":focus-visible": {
+      transform: "translateY(0)",
+      outlineWidth: 2,
+      outlineStyle: "solid",
+      outlineColor: "var(--ring)",
+      outlineOffset: 2
+    }
   },
   rootWithSidebar: {
     "@media (min-width: 761px)": {

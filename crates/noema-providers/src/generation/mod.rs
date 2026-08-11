@@ -18,7 +18,8 @@ pub use request::{
 pub use response::{
     AssistantTextPhase, GenerateActionItem, GenerateCitation, GenerateHostedWebSearch,
     GenerateReasoningItem, GenerateResponse, GenerateResponseItem, GenerateStreamEvent,
-    GenerateToolCall, MultipleChoiceOption, MultipleChoiceSelectionMode, TokenUsage,
+    GenerateToolCall, GenerateWebSource, MultipleChoiceOption, MultipleChoiceSelectionMode,
+    TokenUsage,
 };
 
 use crate::{ProviderSchemaRequestCapabilities, ProviderToolCapabilities};

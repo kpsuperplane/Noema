@@ -389,7 +389,7 @@ const styles = stylex.create({
     borderRadius: 6,
     backgroundColor: "var(--noema-surface-subtle)",
     fontFamily: "var(--font-mono)",
-    fontSize: 11,
+    fontSize: 12,
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
     cursor: "text"

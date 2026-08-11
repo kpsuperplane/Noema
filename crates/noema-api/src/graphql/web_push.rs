@@ -36,6 +36,7 @@ use noema_store::{
 };
 use noema_tasks::{RunKind, RunStatus, TaskId, WorkflowStageBehavior};
 use noema_workspaces::WorkspaceId;
+use pulldown_cmark::{Event, Options, Parser, TagEnd};
 use reqwest::{Client, redirect::Policy};
 use ring::digest;
 use tokio::sync::Notify;
@@ -672,7 +673,7 @@ impl NotificationCoordinator {
                 self.queue_notification(
                     &format!("attention:{key}"),
                     &title,
-                    &preview(&body),
+                    &body,
                     "high",
                     86_400,
                     &visible,
@@ -702,14 +703,16 @@ impl NotificationCoordinator {
         let apns_enabled =
             read_apns_credential(&self.inner.paths).is_ok_and(|credential| credential.configured);
         let visible_clients = self.visible_clients();
+        let title = notification_text(title);
+        let body = notification_text(body);
         let fanout = self
             .inner
             .store
             .queue_notification_fanout(
                 LOCAL_HUMAN_ID,
                 event_key,
-                title,
-                body,
+                &title,
+                &body,
                 urgency,
                 ttl_seconds,
                 visible_web,
@@ -1347,14 +1350,16 @@ impl NotificationCoordinator {
                         Err(_) => task_id.to_string(),
                     }
                 };
+                let notification_title = notification_text(title);
+                let notification_body = notification_text(&body);
                 if self
                     .inner
                     .store
                     .queue_task_notification_fanout(
                         LOCAL_HUMAN_ID,
                         &format!("task-alert:{}", alert.notification_id),
-                        title,
-                        &body,
+                        &notification_title,
+                        &notification_body,
                         "high",
                         86_400,
                         task_id,
@@ -1741,7 +1746,10 @@ fn live_activity_payload(
             "alert".to_string(),
             serde_json::json!({
                 "title": "Noema Tasks",
-                "body": projection.content["focusTitle"].clone(),
+                "body": projection.content["focusTitle"]
+                    .as_str()
+                    .map(notification_text)
+                    .unwrap_or_default(),
             }),
         );
     }
@@ -1749,7 +1757,7 @@ fn live_activity_payload(
     if let Some((title, body, _task_id)) = alert {
         aps.insert(
             "alert".to_string(),
-            serde_json::json!({"title": title, "body": body}),
+            serde_json::json!({"title": notification_text(title), "body": notification_text(body)}),
         );
     }
     serde_json::json!({
@@ -1878,8 +1886,48 @@ fn intervention_notification(intervention: &GraphqlHumanIntervention) -> (String
     }
 }
 
-fn preview(value: &str) -> String {
-    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+fn notification_text(value: &str) -> String {
+    let mut plain = String::with_capacity(value.len());
+    let options = Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TABLES
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_FOOTNOTES
+        | Options::ENABLE_MATH
+        | Options::ENABLE_DEFINITION_LIST;
+    for event in Parser::new_ext(value, options) {
+        match event {
+            Event::Text(text)
+            | Event::Code(text)
+            | Event::InlineMath(text)
+            | Event::DisplayMath(text)
+            | Event::FootnoteReference(text) => plain.push_str(&text),
+            Event::End(
+                TagEnd::Paragraph
+                | TagEnd::Heading(_)
+                | TagEnd::BlockQuote(_)
+                | TagEnd::CodeBlock
+                | TagEnd::List(_)
+                | TagEnd::Item
+                | TagEnd::FootnoteDefinition
+                | TagEnd::DefinitionList
+                | TagEnd::DefinitionListTitle
+                | TagEnd::DefinitionListDefinition
+                | TagEnd::Table
+                | TagEnd::TableHead
+                | TagEnd::TableRow
+                | TagEnd::TableCell,
+            )
+            | Event::SoftBreak
+            | Event::HardBreak
+            | Event::Rule => plain.push(' '),
+            Event::Start(_)
+            | Event::End(_)
+            | Event::Html(_)
+            | Event::InlineHtml(_)
+            | Event::TaskListMarker(_) => {}
+        }
+    }
+    let normalized = plain.split_whitespace().collect::<Vec<_>>().join(" ");
     if normalized.len() <= MAX_PREVIEW_BYTES {
         return normalized;
     }
@@ -1904,7 +1952,7 @@ fn primary_chat_notification(
     }
     Some((
         format!("chat-turn:{}", item.turn_id.as_deref()?),
-        preview(item.content_text.as_deref()?),
+        item.content_text.as_deref()?.to_string(),
     ))
 }
 
@@ -2046,14 +2094,38 @@ mod tests {
             primary_chat_notification(&assistant_item("final_answer")),
             Some((
                 "chat-turn:turn:one".to_string(),
-                "Ready for you.".to_string()
+                "  Ready   for you.  ".to_string()
             ))
         );
         assert_eq!(
             primary_chat_notification(&assistant_item("commentary")),
             None
         );
-        assert!(preview(&"x".repeat(MAX_PREVIEW_BYTES + 1)).len() <= MAX_PREVIEW_BYTES);
+        assert!(notification_text(&"x".repeat(MAX_PREVIEW_BYTES + 1)).len() <= MAX_PREVIEW_BYTES);
+    }
+    #[test]
+    fn notification_preview_removes_markdown_markup() {
+        for (markdown, expected) in [
+            (
+                "## **Ready** for [review](https://noema.example)",
+                "Ready for review",
+            ),
+            (
+                "> Use `cargo check`\n\n- first\n- second",
+                "Use cargo check first second",
+            ),
+            (
+                "![Build status](status.png) and ~~old text~~",
+                "Build status and old text",
+            ),
+            ("<strong>Ready</strong> now", "Ready now"),
+            (
+                r"Keep \*literal\* but remove *emphasis*",
+                "Keep *literal* but remove emphasis",
+            ),
+        ] {
+            assert_eq!(notification_text(markdown), expected, "{markdown:?}");
+        }
     }
     #[test]
     fn declarative_payload_keeps_required_fallback_fields() {

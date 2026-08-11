@@ -120,12 +120,13 @@ export function DeleteConfirmationDialog({
                 <AlertTriangle {...stylex.props(styles.warningIcon)} aria-hidden="true" />
                 <span>{message}</span>
               </p>
-              {error ? <p {...stylex.props(styles.error)}>{error}</p> : null}
+              {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
               <div {...stylex.props(styles.actions)}>
                 <Button
                   type="button"
                   variant="secondary"
                   label={canConfirm ? "Cancel" : "Close"}
+                  data-autofocus
                   isDisabled={submitting}
                   onClick={() => onOpenChange(false)}
                 />

@@ -196,14 +196,26 @@ function taskRunsInOrder(revisions: readonly TaskRevision[]): TaskRunTimelineEnt
 
 function submissionTranscriptEntries(submission: TaskSubmission): TranscriptEntry[] {
   const entries: TranscriptEntry[] = [];
-  const result = submission.result?.trim() || submission.summary?.trim();
+  const result = submission.result?.trim()
+    ? submission.result
+    : submission.summary?.trim()
+      ? submission.summary
+      : undefined;
   if (result) {
     entries.push({
       id: `submission-result:${submission.id}`,
       source: "replay",
       type: "assistant",
       debugScope: { kind: "TASK_RUN", scopeId: submission.executorRunId },
-      text: result
+      text: result,
+      metadata: {
+        citations: (submission.citations ?? []).map((citation) => ({
+          title: citation.title,
+          url: citation.url,
+          start_index: citation.startIndex,
+          end_index: citation.endIndex
+        }))
+      }
     });
   }
   entries.push(...(submission.artifacts ?? []).map((artifact) => submissionArtifactEntry(submission.id, artifact)));

@@ -1,13 +1,14 @@
 import * as React from "react";
 import { useQuery } from "@apollo/client/react";
 import { Banner } from "@astryxdesign/core/Banner";
-import { Button } from "@astryxdesign/core/Button";
+import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { DateTimeInput, type ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Selector } from "@astryxdesign/core/Selector";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
+import * as stylex from "@stylexjs/stylex";
 import { TasksTaskSchedulePreviewDocument, type NewTaskScheduleInput } from "@/generated/graphql";
 
 export type RepeatChoice = "never" | "daily" | "weekdays" | "selected" | "weekly" | "monthly" | "custom";
@@ -107,12 +108,17 @@ export function ScheduleFields({ value, onChange, recurringOnly = false }: { val
         size="sm"
       />
       {value.repeat === "selected" ? (
-        <VStack gap={1}>
-          <span>Days</span>
+        <VStack as="fieldset" gap={1} {...stylex.props(styles.weekdayGroup)}>
+          <legend {...stylex.props(styles.weekdayLegend)}>Days</legend>
           <HStack gap={1} wrap="wrap">
             {weekdays.map((day, index) => (
-              <Button key={day} type="button" size="sm" variant={value.selectedDays.includes(index) ? "primary" : "secondary"} label={day}
-                onClick={() => set("selectedDays", value.selectedDays.includes(index) ? value.selectedDays.filter((item) => item !== index) : [...value.selectedDays, index].sort())} />
+              <CheckboxInput
+                key={day}
+                label={day}
+                size="sm"
+                value={value.selectedDays.includes(index)}
+                onChange={() => set("selectedDays", value.selectedDays.includes(index) ? value.selectedDays.filter((item) => item !== index) : [...value.selectedDays, index].sort())}
+              />
             ))}
           </HStack>
         </VStack>
@@ -137,6 +143,18 @@ export function ScheduleFields({ value, onChange, recurringOnly = false }: { val
     </VStack>
   );
 }
+
+const styles = stylex.create({
+  weekdayGroup: {
+    minWidth: 0,
+    margin: "var(--spacing-0)",
+    padding: "var(--spacing-0)",
+    borderWidth: 0
+  },
+  weekdayLegend: {
+    marginBlockEnd: "var(--spacing-1)"
+  }
+});
 
 function cronFor(repeat: Exclude<RepeatChoice, "never" | "custom"> | "daily", local: string, days: number[]) {
   const date = new Date(`${local}:00`);

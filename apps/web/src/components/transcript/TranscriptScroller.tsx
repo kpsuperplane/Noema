@@ -43,6 +43,8 @@ type TranscriptScrollerProps = {
   historyPrependDeferred?: boolean;
   loadingBefore: boolean;
   loadBeforeError: string | null;
+  busy?: boolean;
+  completionAnnouncementKey?: number;
   renderEntry: (entry: RenderTranscriptEntry, index: number) => React.ReactNode;
   onLoadBefore: () => void;
   onScrollActivityChange?: (active: boolean) => void;
@@ -248,6 +250,8 @@ export function TranscriptScroller({
   historyPrependDeferred = false,
   loadingBefore,
   loadBeforeError,
+  busy = false,
+  completionAnnouncementKey = 0,
   renderEntry,
   onLoadBefore,
   onScrollActivityChange,
@@ -606,7 +610,10 @@ export function TranscriptScroller({
         onTouchMove={handleTouchMove}
         onTouchStart={handleTouchStart}
         onWheel={handleWheel}
-        role="region"
+        role="log"
+        aria-live="off"
+        aria-busy={busy}
+        aria-relevant="additions"
         tabIndex={0}
       >
         <div ref={contentRef} {...stylex.props(styles.content, density === "embedded" && styles.contentEmbedded)}>
@@ -647,6 +654,11 @@ export function TranscriptScroller({
           </div>
         </div>
       </div>
+      <span aria-live="polite" aria-atomic="true" {...stylex.props(styles.srOnly)}>
+        <span key={completionAnnouncementKey}>
+          {completionAnnouncementKey > 0 ? "Noema replied" : ""}
+        </span>
+      </span>
       <AnimatePresence initial={false}>
         {!stuckToBottom ? (
           <m.button

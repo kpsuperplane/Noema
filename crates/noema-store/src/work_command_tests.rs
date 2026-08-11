@@ -1941,31 +1941,47 @@ async fn run_review_case(
         )
         .await
         .expect("start executor");
+    let executor_terminal = WorkRunTerminal::TaskResult(SubmitTaskResult {
+        fence: executor_fence,
+        submission: NewTaskSubmission {
+            submission_id: Some("submission:review-case".to_string()),
+            task_id: task.task_id.clone(),
+            contract_id: contract_id.clone(),
+            executor_run_id: executor_run_id.clone(),
+            review_round: 1,
+            summary: "Fixture result".to_string(),
+            result_markdown: "The fixture completed.".to_string(),
+            citations: vec![noema_tasks::TaskSubmissionCitation {
+                title: "Example source".to_string(),
+                url: "https://example.com/source".to_string(),
+                start_index: None,
+                end_index: Some(22),
+            }],
+            criteria: vec![SubmissionCriterionEvidence {
+                criterion_id: "criterion:review-case".to_string(),
+                evidence_markdown: "The fixture result is present.".to_string(),
+            }],
+            artifact_ids: Vec::new(),
+        },
+    });
     service
         .record_work_run_terminal(
-            WorkRunTerminal::TaskResult(SubmitTaskResult {
-                fence: executor_fence,
-                submission: NewTaskSubmission {
-                    submission_id: Some("submission:review-case".to_string()),
-                    task_id: task.task_id.clone(),
-                    contract_id: contract_id.clone(),
-                    executor_run_id: executor_run_id.clone(),
-                    review_round: 1,
-                    summary: "Fixture result".to_string(),
-                    result_markdown: "The fixture completed.".to_string(),
-                    criteria: vec![SubmissionCriterionEvidence {
-                        criterion_id: "criterion:review-case".to_string(),
-                        evidence_markdown: "The fixture result is present.".to_string(),
-                    }],
-                    artifact_ids: Vec::new(),
-                },
-            }),
+            executor_terminal.clone(),
             ACTOR,
             None,
             "correlation:review-case:submission",
         )
         .await
         .expect("submit executor result");
+    service
+        .record_work_run_terminal(
+            executor_terminal,
+            ACTOR,
+            None,
+            "correlation:review-case:submission-replay",
+        )
+        .await
+        .expect("replay exact executor result");
     let executor_run_for_items = executor_run_id.clone();
     store
         .with_connection(move |connection| {
@@ -2013,6 +2029,16 @@ async fn run_review_case(
         .await
         .expect("admit reviewer context");
     assert_eq!(reviewer_context.context.lineage.len(), 2);
+    assert_eq!(
+        reviewer_context
+            .context
+            .latest_submission
+            .as_ref()
+            .expect("latest submission")
+            .citations[0]
+            .url,
+        "https://example.com/source"
+    );
     assert!(
         reviewer_context
             .context

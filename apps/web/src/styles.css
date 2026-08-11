@@ -102,6 +102,11 @@ a[href] {
   cursor: pointer !important;
 }
 
+a[href].astryx-button,
+a[href][data-slot="shell-sidebar-control"] {
+  cursor: default !important;
+}
+
 [data-slot="chat-composer-layer"]:has([data-slot="human-intervention-list"]) {
   --composer-shell-width: 100%;
   --composer-shell-padding-top: var(--spacing-2);
@@ -194,4 +199,13 @@ html[data-tauri-runtime="true"] #root {
 
 html[data-tauri-runtime="true"] {
   --radius-page: 1.25rem;
+}
+
+@media (forced-colors: active) {
+  [data-slot="composer-bubble"]:focus-within,
+  [data-slot="task-answer-composer"]:focus-within,
+  [data-slot="expandable-text-trigger"]:focus-visible {
+    outline: 2px solid CanvasText;
+    outline-offset: 2px;
+  }
 }

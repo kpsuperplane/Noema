@@ -56,6 +56,6 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-sunken)",
     color: "var(--noema-text-muted)",
     fontFamily: "var(--noema-font-mono)",
-    fontSize: 9
+    fontSize: 12
   }
 });

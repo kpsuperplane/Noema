@@ -83,7 +83,7 @@ const styles = stylex.create({
     borderStyle: "solid",
     borderColor: "var(--noema-border-subtle)",
     backgroundColor: "transparent",
-    fontSize: 11,
+    fontSize: 12,
     lineHeight: 1.2
   },
   neutral: { color: "var(--noema-text-secondary)" },

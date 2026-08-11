@@ -226,7 +226,7 @@ const styles = stylex.create({
   },
   field: { display: "grid", gap: "calc(var(--spacing-1) + 1px)", minWidth: 0 },
   fieldLabel: { color: "var(--foreground)", fontSize: 12, fontWeight: 650 },
-  fieldDescription: { color: "var(--muted-foreground)", fontSize: 11, lineHeight: 1.35 },
+  fieldDescription: { color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.35 },
   input: {
     boxSizing: "border-box",
     width: "100%",

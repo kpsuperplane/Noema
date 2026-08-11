@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
+import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
 import * as stylex from "@stylexjs/stylex";
 import type { MultipleChoiceOption, TurnTranscriptItem } from "@/shared/types";
 import { TranscriptChatBubble } from "./TranscriptChatBubble";
@@ -69,54 +70,6 @@ const styles = stylex.create({
     ":hover": {
       backgroundColor: "color-mix(in srgb, currentColor 14%, transparent)"
     }
-  },
-  buttonOption: {
-    appearance: "none",
-    gap: "var(--spacing-2)",
-    textAlign: "left",
-    ":disabled": {
-      cursor: "default",
-      opacity: 0.84
-    },
-    ":disabled:hover": {
-      backgroundColor: "color-mix(in srgb, currentColor 6%, transparent)"
-    },
-    ":focus-visible": {
-      outlineWidth: 2,
-      outlineStyle: "solid",
-      outlineColor: "color-mix(in srgb, currentColor 44%, transparent)",
-      outlineOffset: 2
-    }
-  },
-  selectedButtonOption: {
-    opacity: 1
-  },
-  optionIndicator: {
-    display: "grid",
-    width: 18,
-    height: 18,
-    flexShrink: 0,
-    placeItems: "center",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "color-mix(in srgb, currentColor 36%, transparent)",
-    borderRadius: 999,
-    cornerShape: "var(--corner-shape-full)",
-    backgroundColor: "color-mix(in srgb, currentColor 5%, transparent)",
-    color: "inherit"
-  },
-  optionIndicatorSelected: {
-    borderColor: "var(--color-accent)",
-    backgroundColor: "var(--color-accent)",
-    color: "var(--color-on-accent)"
-  },
-  optionCheck: {
-    width: 10,
-    height: 10
-  },
-  optionLabel: {
-    minWidth: 0,
-    overflowWrap: "anywhere"
   },
   checkbox: {
     width: "100%",
@@ -206,43 +159,21 @@ export function MultipleChoicePrompt({
             })}
           </div>
         ) : (
-          <div {...stylex.props(styles.options)} role="radiogroup" aria-label={item.prompt}>
-            {item.options.map((option) => {
-              const selected = displayedSelectedIds.has(option.id);
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  disabled={disabled}
-                  role="radio"
-                  aria-checked={selected}
-                  {...stylex.props(
-                    styles.option,
-                    styles.buttonOption,
-                    selected && styles.selected,
-                    selected && styles.selectedButtonOption
-                  )}
-                  onClick={() => toggle(option)}
-                >
-                  <span {...stylex.props(styles.optionIndicator, selected && styles.optionIndicatorSelected)} aria-hidden="true">
-                    {selected ? (
-                      <svg viewBox="0 0 10 10" {...stylex.props(styles.optionCheck)}>
-                        <path
-                          d="M8.5 2.5L4 7.5L1.5 5"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          fill="none"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    ) : null}
-                  </span>
-                  <span {...stylex.props(styles.optionLabel)}>{option.label}</span>
-                </button>
-              );
-            })}
-          </div>
+          <RadioList
+            label={item.prompt}
+            isLabelHidden
+            size="sm"
+            value={[...displayedSelectedIds][0] ?? ""}
+            isDisabled={disabled}
+            onChange={(optionId) => {
+              const option = item.options.find((candidate) => candidate.id === optionId);
+              if (option) toggle(option);
+            }}
+          >
+            {item.options.map((option) => (
+              <RadioListItem key={option.id} label={option.label} value={option.id} />
+            ))}
+          </RadioList>
         )}
         {pickMany ? (
           <div {...stylex.props(styles.footer)}>

@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 36;
+pub const STORE_SCHEMA_VERSION: usize = 37;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1180,8 +1180,24 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(APNS_NOTIFICATIONS_SQL),
         M::up(ACTION_REQUEST_SOURCE_SQL),
         M::up(LIVE_ACTIVITIES_SQL),
+        M::up(TASK_SUBMISSION_CITATIONS_SQL),
     ])
 }
+
+/// Ordered verified web citations attached to immutable task submissions.
+const TASK_SUBMISSION_CITATIONS_SQL: &str = r#"
+CREATE TABLE task_submission_citations (
+  submission_id TEXT NOT NULL,
+  ordinal INTEGER NOT NULL CHECK (ordinal >= 1),
+  title TEXT NOT NULL CHECK (trim(title) <> ''),
+  url TEXT NOT NULL CHECK (trim(url) <> ''),
+  start_index INTEGER CHECK (start_index IS NULL OR start_index >= 0),
+  end_index INTEGER CHECK (end_index IS NULL OR end_index >= 0),
+  PRIMARY KEY (submission_id, ordinal),
+  FOREIGN KEY (submission_id) REFERENCES task_submissions(submission_id) ON DELETE RESTRICT,
+  CHECK (start_index IS NULL OR end_index IS NULL OR start_index < end_index)
+);
+"#;
 
 /// Link each foreground action request to its exact saved approval item.
 const ACTION_REQUEST_SOURCE_SQL: &str = r#"

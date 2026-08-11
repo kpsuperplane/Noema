@@ -83,6 +83,25 @@ enum AcpAgentHealthStatus {
 }
 
 """
+Human-visible data disclosure for the exact action request.
+"""
+type ActionRequestDisclosure {
+	recipient: String!
+	contentSummary: String!
+}
+
+"""
+Human-visible identity for the exact action destination.
+"""
+type ActionRequestTarget {
+	serviceName: String
+	connectionLabel: String
+	serviceId: String
+	connectionId: String
+	accountId: String
+}
+
+"""
 Governed-action reviewer model settings.
 """
 type ActionReviewerSettings {
@@ -1378,6 +1397,9 @@ type GovernedAction {
 	reviewRoute: ExecutionReviewRoute!
 	behavior: ToolBehavior
 	safeSummary: String!
+	target: ActionRequestTarget
+	disclosure: ActionRequestDisclosure
+	consequence: String!
 	destination: JSON
 	arguments: JSON!
 	assessment: GovernedActionAssessment
@@ -5458,6 +5480,10 @@ type TaskSubmission {
 	"""
 	resultMarkdown: String!
 	"""
+	Verified web sources.
+	"""
+	citations: [TaskSubmissionCitation!]!
+	"""
 	Criterion evidence.
 	"""
 	criteria: [TaskSubmissionCriterion!]!
@@ -5507,6 +5533,28 @@ type TaskSubmissionArtifact {
 	External URL, when present.
 	"""
 	externalUrl: String
+}
+
+"""
+Verified web source attached to a submission.
+"""
+type TaskSubmissionCitation {
+	"""
+	Source title.
+	"""
+	title: String!
+	"""
+	Source URL.
+	"""
+	url: String!
+	"""
+	UTF-16 citation start, when available.
+	"""
+	startIndex: Int
+	"""
+	UTF-16 citation end, when available.
+	"""
+	endIndex: Int
 }
 
 """

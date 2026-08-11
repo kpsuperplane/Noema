@@ -485,6 +485,7 @@ fn fixture_submission(
         review_round: 1,
         summary: "Launch code supplied.".to_string(),
         result_markdown: "The launch code is **ORBIT-52**.".to_string(),
+        citations: Vec::new(),
         criteria: criteria
             .iter()
             .map(|criterion| SubmissionCriterionEvidence {

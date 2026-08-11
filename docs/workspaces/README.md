@@ -269,6 +269,14 @@ GraphQL clients hydrate the current task projection and subscribe to Tasks event
 so the card stays live. Detailed run transcripts remain attached to the task
 and should not flood the main chat. A successful completion notice also attaches
 every artifact from the accepted submission as a durable artifact reference.
+Noema owns scheduled execution and relays each accepted result through the
+primary conversation. Planners and Executors must not treat those runtime
+behaviors as contract deliverables or ask for another delivery channel. They
+use an external destination only when the authenticated human request names it.
+Every task role continues while a safe, authorized, in-scope action can
+materially improve its required output. A role opens a human gate only when a
+specific answer or approval enables the next action. Otherwise, it finishes
+through its best supported terminal output and explains any shortfall there.
 
 ## API and UI
 

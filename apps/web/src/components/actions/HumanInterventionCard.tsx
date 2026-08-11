@@ -113,7 +113,7 @@ const styles = stylex.create({
   },
   eyebrow: {
     color: "var(--noema-text-muted)",
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 600,
     textTransform: "uppercase",
     letterSpacing: "0.045em"
@@ -124,7 +124,7 @@ const styles = stylex.create({
     paddingBlock: "var(--spacing-0-5)",
     paddingInline: "var(--spacing-1)",
     color: "var(--noema-text-secondary)",
-    fontSize: 10,
+    fontSize: 12,
     letterSpacing: 0,
     textTransform: "none"
   },

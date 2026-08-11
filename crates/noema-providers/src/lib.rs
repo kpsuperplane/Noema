@@ -83,11 +83,11 @@ pub use generation::{
     GenerateHostedWebSearch, GenerateInput, GenerateInputItem, GenerateMessage,
     GenerateMessageRole, GenerateOptions, GenerateReasoningInput, GenerateReasoningItem,
     GenerateRequest, GenerateResponse, GenerateResponseItem, GenerateStreamEvent, GenerateToolCall,
-    GenerateToolCallInput, GenerateToolResultInput, GenerationPriority, ModelProvider,
-    MultipleChoiceOption, MultipleChoiceSelectionMode, PromptCacheMode, PromptCacheOptions,
-    PromptCacheRetention, PromptCacheTtl, ProviderContextMetadata, ProviderError,
-    ProviderResponseContinuation, ProviderTransportContext, ProviderTransportKind, ReasoningEffort,
-    TokenUsage,
+    GenerateToolCallInput, GenerateToolResultInput, GenerateWebSource, GenerationPriority,
+    ModelProvider, MultipleChoiceOption, MultipleChoiceSelectionMode, PromptCacheMode,
+    PromptCacheOptions, PromptCacheRetention, PromptCacheTtl, ProviderContextMetadata,
+    ProviderError, ProviderResponseContinuation, ProviderTransportContext, ProviderTransportKind,
+    ReasoningEffort, TokenUsage,
 };
 pub use local_model::{
     DefaultModelPreferenceRecord, DegradedLocalModelInstance, HuggingFaceLocalModelImport,

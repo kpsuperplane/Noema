@@ -22,6 +22,11 @@ The 2026-08-08 audit superseded the removed codebase audit tracker as the curren
 codebase-reduction assessment. It does not silently close or implement items in
 that older tracker; retiring the tracker is itself a documented cleanup action.
 
+## Current UX audit
+
+- [Web UX audit](2026-08-10-web-ux-audit.md) — full static review across
+  accessibility, layout, writing, typography, color, and interface behavior.
+
 ## Audit conventions
 
 - **P0** — current correctness, data, or policy failure; repair before ordinary

@@ -3,9 +3,9 @@ import * as stylex from "@stylexjs/stylex";
 
 const styles = stylex.create({
   label: {
-    color: "var(--text-faint)",
+    color: "var(--text-muted)",
     fontFamily: "var(--font-mono)",
-    fontSize: 9,
+    fontSize: 12,
     letterSpacing: "0.08em",
     textTransform: "uppercase"
   },

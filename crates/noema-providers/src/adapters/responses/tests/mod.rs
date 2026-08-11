@@ -94,7 +94,75 @@ fn hosted_web_search_serializes_beside_configured_functions() {
         assert_eq!(value["tools"][1]["type"], "web_search");
         assert_eq!(value["tools"][1]["external_web_access"], true);
         assert_eq!(value["tool_choice"], "auto");
+        assert!(
+            value["include"]
+                .as_array()
+                .expect("include")
+                .iter()
+                .any(|field| field == "web_search_call.action.sources")
+        );
     }
+}
+
+#[test]
+fn hosted_web_actions_preserve_ordered_search_and_page_sources() {
+    let response: ResponsesResponse = serde_json::from_value(json!({
+        "id": "response:sources",
+        "model": "gpt-test",
+        "output": [
+            {
+                "type": "web_search_call",
+                "id": "search",
+                "status": "completed",
+                "action": {
+                    "type": "search",
+                    "query": "Noema",
+                    "sources": [
+                        {"type": "url", "url": "https://one.example/a"},
+                        {"type": "url", "url": "https://two.example/b"}
+                    ]
+                }
+            },
+            {
+                "type": "web_search_call",
+                "id": "open",
+                "status": "completed",
+                "action": {"type": "open_page", "url": "https://three.example/c"}
+            },
+            {
+                "type": "web_search_call",
+                "id": "find",
+                "status": "completed",
+                "action": {
+                    "type": "find_in_page",
+                    "url": "https://four.example/d",
+                    "pattern": "citation"
+                }
+            }
+        ],
+        "usage": null
+    }))
+    .expect("response");
+
+    let actions = response.hosted_web_searches();
+    assert_eq!(
+        actions
+            .iter()
+            .flat_map(|action| action.sources.iter().map(|source| source.url.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            "https://one.example/a",
+            "https://two.example/b",
+            "https://three.example/c",
+            "https://four.example/d",
+        ]
+    );
+    assert_eq!(actions[0].tool_name, "web.search");
+    assert!(
+        actions[1..]
+            .iter()
+            .all(|action| action.tool_name == "web.fetch")
+    );
 }
 
 #[test]

@@ -6,7 +6,11 @@ import {
   type TasksTaskDetailQuery
 } from "@/generated/graphql";
 import { TaskActions } from "@/components/tasks/TaskActions";
-import { PendingHumanInterventions } from "@/components/actions/PendingGovernedActions";
+import {
+  PendingHumanInterventionsResult,
+  pendingHumanInterventionsAreFresh,
+  usePendingHumanInterventions
+} from "@/components/actions/PendingGovernedActions";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { useTaskProjects } from "@/components/tasks/useTaskProjects";
 import { useTaskEventCursor } from "./taskEventCursor";
@@ -42,6 +46,7 @@ export function TaskDetailQueryPanel({
     notifyOnNetworkStatusChange: true
   });
   const projects = useTaskProjects();
+  const interventionResult = usePendingHumanInterventions({ taskId });
   const queriedTask = result.data?.task ?? null;
   const task = queriedTask?.taskId === taskId ? queriedTask : null;
   const [cursor, recordCursor] = useTaskEventCursor(taskId);
@@ -61,13 +66,23 @@ export function TaskDetailQueryPanel({
   });
 
   const detail = React.useMemo(() => task ? mapTaskDetail(task) : null, [task]);
-  const taskControls = task?.validActions.filter((action) => action !== "ANSWER" && action !== "RETRY") ?? [];
+  const interventionFresh = pendingHumanInterventionsAreFresh(interventionResult);
+  const taskControls = result.error
+    ? []
+    : task?.validActions.filter((action) => (
+        !interventionFresh || (action !== "ANSWER" && action !== "RETRY")
+      )) ?? [];
   const renderPanel = (_actions?: React.ReactNode, controls?: React.ReactNode) => (
     <>
       <TaskDetailPanel
         detail={detail}
         error={result.error ? "Task details could not be loaded." : null}
-        governedActions={<PendingHumanInterventions placement="dock" taskId={taskId} />}
+        governedActions={(
+          <PendingHumanInterventionsResult
+            placement="dock"
+            result={interventionResult}
+          />
+        )}
         loading={result.loading}
         onOpenDetail={onOpenDetail}
         controls={controls}
@@ -217,6 +232,12 @@ function mapSubmission(
     revision: submission.reviewRound,
     summary: submission.summary,
     result: submission.resultMarkdown,
+    citations: submission.citations.map((citation) => ({
+      title: citation.title,
+      url: citation.url,
+      startIndex: citation.startIndex ?? null,
+      endIndex: citation.endIndex ?? null
+    })),
     evidence: submission.criteria.map((criterion) => criterion.evidenceMarkdown).join("\n\n"),
     artifacts: submission.artifacts.map((artifact) => ({
       id: artifact.artifactId,

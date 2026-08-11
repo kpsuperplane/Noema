@@ -12,7 +12,7 @@ export function composerSubmitState({
   value: string;
 }) {
   return {
-    disabled: !canSend({ ready, value }),
+    disabled: pending || !canSend({ ready, value }),
     label: pending ? "Sending message" : "Send message"
   };
 }

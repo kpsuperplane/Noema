@@ -529,6 +529,44 @@ pub(super) fn submission_matches_tx(
     if stored_criteria != expected_criteria {
         return Ok(false);
     }
+    let stored_citations = transaction
+        .prepare(
+            "SELECT title, url, start_index, end_index FROM task_submission_citations WHERE submission_id = ?1 ORDER BY ordinal",
+        )?
+        .query_map([submission_id], |row| {
+            let start_index = row
+                .get::<_, Option<i64>>(2)?
+                .map(usize::try_from)
+                .transpose()
+                .map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        2,
+                        rusqlite::types::Type::Integer,
+                        Box::new(error),
+                    )
+                })?;
+            let end_index = row
+                .get::<_, Option<i64>>(3)?
+                .map(usize::try_from)
+                .transpose()
+                .map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        3,
+                        rusqlite::types::Type::Integer,
+                        Box::new(error),
+                    )
+                })?;
+            Ok(noema_tasks::TaskSubmissionCitation {
+                title: row.get(0)?,
+                url: row.get(1)?,
+                start_index,
+                end_index,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    if stored_citations != submission.citations {
+        return Ok(false);
+    }
     let stored_artifacts = transaction
         .prepare(
             "SELECT artifact_id FROM task_submission_artifacts WHERE submission_id = ?1 ORDER BY ordinal",

@@ -23,7 +23,7 @@ const styles = stylex.create({
     overflowWrap: "anywhere",
     color: "var(--noema-text-secondary)",
     fontFamily: "var(--noema-font-mono)",
-    fontSize: 11,
+    fontSize: 12,
     lineHeight: 1.45,
     whiteSpace: "pre-wrap",
     wordBreak: "break-word"

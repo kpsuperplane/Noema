@@ -68,6 +68,25 @@ pub struct GraphqlGovernedActionAssessment {
     pub explanation: String,
 }
 
+/// Human-visible identity for the exact action destination.
+#[derive(Clone, Debug, Eq, PartialEq, SimpleObject)]
+#[graphql(name = "ActionRequestTarget")]
+pub struct GraphqlActionRequestTarget {
+    pub service_name: Option<String>,
+    pub connection_label: Option<String>,
+    pub service_id: Option<String>,
+    pub connection_id: Option<String>,
+    pub account_id: Option<String>,
+}
+
+/// Human-visible data disclosure for the exact action request.
+#[derive(Clone, Debug, Eq, PartialEq, SimpleObject)]
+#[graphql(name = "ActionRequestDisclosure")]
+pub struct GraphqlActionRequestDisclosure {
+    pub recipient: String,
+    pub content_summary: String,
+}
+
 /// Durable state of one immutable action revision.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
 #[graphql(name = "GovernedActionState")]
@@ -115,6 +134,9 @@ pub struct GraphqlGovernedAction {
     pub review_route: GraphqlExecutionReviewRoute,
     pub behavior: Option<GraphqlToolBehavior>,
     pub safe_summary: String,
+    pub target: Option<GraphqlActionRequestTarget>,
+    pub disclosure: Option<GraphqlActionRequestDisclosure>,
+    pub consequence: String,
     pub destination: Option<Json<serde_json::Value>>,
     pub arguments: Json<serde_json::Value>,
     pub assessment: Option<GraphqlGovernedActionAssessment>,
@@ -203,6 +225,11 @@ impl GraphqlGovernedAction {
             .and_then(|value| serde_json::from_value::<CapabilityDestination>(value).ok())
             .and_then(|value| serde_json::to_value(value).ok())
             .map(Json);
+        let target = action_request_target(&action.authorization_context);
+        let disclosure =
+            action_request_disclosure(target.as_ref(), action.behavior, &action.capability_name);
+        let consequence =
+            action_request_consequence(target.as_ref(), action.behavior, &action.capability_name);
         Self {
             action_id: action.action_id,
             revision: action.revision,
@@ -213,6 +240,9 @@ impl GraphqlGovernedAction {
             review_route: action.review_route.into(),
             behavior: action.behavior.map(Into::into),
             safe_summary: action.safe_summary,
+            target,
+            disclosure,
+            consequence,
             destination,
             arguments: Json(display_arguments),
             assessment: action.assessment.map(Into::into),
@@ -222,6 +252,90 @@ impl GraphqlGovernedAction {
             failure_code: action.failure_code,
         }
     }
+}
+
+fn action_request_disclosure(
+    target: Option<&GraphqlActionRequestTarget>,
+    behavior: Option<StoredToolBehavior>,
+    capability_name: &str,
+) -> Option<GraphqlActionRequestDisclosure> {
+    (target.is_some() || behavior.is_some_and(|value| value.open_world)).then(|| {
+        GraphqlActionRequestDisclosure {
+            recipient: action_request_target_name(target, capability_name),
+            content_summary: "the reviewed request data".to_string(),
+        }
+    })
+}
+
+fn action_request_consequence(
+    target: Option<&GraphqlActionRequestTarget>,
+    behavior: Option<StoredToolBehavior>,
+    capability_name: &str,
+) -> String {
+    let target = action_request_target_name(target, capability_name);
+    match behavior {
+        Some(behavior) if behavior.read_only => {
+            format!("{target} receives the request data shown in Review details.")
+        }
+        Some(behavior) if behavior.destructive => {
+            format!("This can remove or overwrite data in {target}.")
+        }
+        Some(behavior) if behavior.open_world => {
+            format!("This changes data outside Noema in {target}.")
+        }
+        _ => format!("This changes data in {target}."),
+    }
+}
+
+fn action_request_target_name(
+    target: Option<&GraphqlActionRequestTarget>,
+    capability_name: &str,
+) -> String {
+    target
+        .and_then(|value| {
+            value
+                .connection_label
+                .as_ref()
+                .or(value.service_name.as_ref())
+                .or(value.service_id.as_ref())
+        })
+        .cloned()
+        .unwrap_or_else(|| capability_name.to_string())
+}
+
+fn action_request_target(
+    authorization_context: &serde_json::Value,
+) -> Option<GraphqlActionRequestTarget> {
+    let service = authorization_context.get("service");
+    let destination = authorization_context
+        .get("destination")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<CapabilityDestination>(value).ok());
+    let target = GraphqlActionRequestTarget {
+        service_name: service
+            .and_then(|value| value.get("display_name"))
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
+        connection_label: service
+            .and_then(|value| value.get("connection_label"))
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
+        service_id: destination
+            .as_ref()
+            .map(|value| value.service_id().to_string()),
+        connection_id: destination
+            .as_ref()
+            .map(|value| value.connection_id().to_string()),
+        account_id: destination
+            .as_ref()
+            .and_then(|value| value.account_id().map(ToOwned::to_owned)),
+    };
+    (target.service_name.is_some()
+        || target.connection_label.is_some()
+        || target.service_id.is_some()
+        || target.connection_id.is_some()
+        || target.account_id.is_some())
+    .then_some(target)
 }
 
 fn browser_arguments_with_context(
@@ -348,6 +462,11 @@ mod tests {
                     "account_id": "account:test",
                     "revision": "revision:1"
                 },
+                "service": {
+                    "display_name": "Calendar",
+                    "connection_label": "Work account",
+                    "credential": "must-not-project"
+                },
                 "browser_review_context": {
                     "kind": "browser_interaction",
                     "page": {"url": "https://example.com/form", "title": "Example form"},
@@ -380,5 +499,17 @@ mod tests {
             projection.destination.as_ref().expect("destination").0["connection_id"],
             "connection:test"
         );
+        let target = projection.target.expect("target");
+        assert_eq!(target.service_name.as_deref(), Some("Calendar"));
+        assert_eq!(target.connection_label.as_deref(), Some("Work account"));
+        assert_eq!(target.connection_id.as_deref(), Some("connection:test"));
+        assert_eq!(target.account_id.as_deref(), Some("account:test"));
+        assert_eq!(
+            projection.consequence,
+            "This changes data outside Noema in Work account."
+        );
+        let disclosure = projection.disclosure.expect("disclosure");
+        assert_eq!(disclosure.recipient, "Work account");
+        assert_eq!(disclosure.content_summary, "the reviewed request data");
     }
 }

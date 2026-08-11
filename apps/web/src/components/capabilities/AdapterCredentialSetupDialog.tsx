@@ -189,6 +189,6 @@ const styles = stylex.create({
   codeValue: { padding: "var(--spacing-2)", borderRadius: "var(--radius-sm)", backgroundColor: "var(--noema-surface-subtle)", fontFamily: "var(--font-mono)", fontSize: 12, overflowWrap: "anywhere", userSelect: "all" },
   summary: { cursor: "pointer", color: "var(--foreground)", fontSize: 12, fontWeight: 600 },
   technical: { marginBlockStart: "var(--spacing-2)" },
-  source: { maxHeight: 220, margin: 0, padding: "var(--spacing-2)", overflow: "auto", borderRadius: "var(--radius-sm)", backgroundColor: "var(--noema-surface-subtle)", color: "var(--foreground)", fontFamily: "var(--font-mono)", fontSize: 11, whiteSpace: "pre-wrap", overflowWrap: "anywhere" },
+  source: { maxHeight: 220, margin: 0, padding: "var(--spacing-2)", overflow: "auto", borderRadius: "var(--radius-sm)", backgroundColor: "var(--noema-surface-subtle)", color: "var(--foreground)", fontFamily: "var(--font-mono)", fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" },
   error: { margin: 0, color: "var(--destructive)", fontSize: 13 }
 });

@@ -537,10 +537,10 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
         .run;
     runtime.shutdown().await;
 
-    assert_eq!(response.provider, "old-local");
-    assert_eq!(response.model, "old-model");
-    assert_eq!(response.tool_calls.len(), 1);
-    assert_eq!(response.tool_calls[0].name, "task.submit_result");
+    assert_eq!(response.response.provider, "old-local");
+    assert_eq!(response.response.model, "old-model");
+    assert_eq!(response.response.tool_calls.len(), 1);
+    assert_eq!(response.response.tool_calls[0].name, "task.submit_result");
     assert_eq!(old_provider.requests.lock().expect("old requests").len(), 2);
     assert!(
         replacement
