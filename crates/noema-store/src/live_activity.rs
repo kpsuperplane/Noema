@@ -124,8 +124,12 @@ impl NoemaStore {
         client_id: &str,
         token: &[u8],
         environment: ApnsEnvironment,
+        active_activity_ids: &[String],
     ) -> Result<ClientLiveActivityRegistration, StoreError> {
         validate_token(client_id, token)?;
+        for activity_id in active_activity_ids {
+            validate_activity_id(activity_id)?;
+        }
         self.with_connection(|connection| {
             let transaction = connection.transaction()?;
             let old_clients = {
@@ -173,11 +177,24 @@ impl NoemaStore {
             } else {
                 false
             };
+            let replace_missing_active = existing.as_ref().is_some_and(|activity| {
+                activity.lifecycle == "active"
+                    && activity.activity_id.as_ref().is_none_or(|activity_id| {
+                        !active_activity_ids.contains(activity_id)
+                    })
+            });
             if existing
                 .as_ref()
                 .is_none_or(|activity| activity.lifecycle == "dismissed")
                 || replace_failed_start
+                || replace_missing_active
             {
+                if replace_missing_active {
+                    transaction.execute(
+                        "UPDATE live_activity_deliveries SET status = 'suppressed', last_error_code = 'activity_missing', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND status = 'pending'",
+                        [client_id],
+                    )?;
+                }
                 let session_id = allocate_id("task_activity");
                 let activity_id = allocate_id("live_activity");
                 transaction.execute(

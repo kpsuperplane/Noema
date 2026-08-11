@@ -106,6 +106,7 @@ pub(crate) struct GraphqlRegisterClientNotificationsInput {
 pub(crate) struct GraphqlRegisterClientLiveActivitiesInput {
     pub push_to_start_token: String,
     pub environment: GraphqlApnsEnvironment,
+    pub active_activity_ids: Vec<String>,
 }
 
 #[derive(Clone, InputObject)]

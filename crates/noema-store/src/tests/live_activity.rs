@@ -17,6 +17,7 @@ async fn live_registration_binds_to_active_client_and_redacts_tokens() {
             "client:live-old",
             &[1, 2, 3],
             ApnsEnvironment::Development,
+            &[],
         )
         .await
         .expect("register old client");
@@ -57,6 +58,7 @@ async fn live_registration_binds_to_active_client_and_redacts_tokens() {
             "client:live-one",
             &[1, 2, 3],
             ApnsEnvironment::Development,
+            &[],
         )
         .await
         .expect("register Live Activity");
@@ -96,6 +98,7 @@ async fn live_registration_binds_to_active_client_and_redacts_tokens() {
                 "client:missing",
                 &[1, 2, 3],
                 ApnsEnvironment::Development,
+                &[],
             )
             .await
             .is_err()
@@ -122,7 +125,74 @@ async fn live_registration_binds_to_active_client_and_redacts_tokens() {
         .expect("active activity");
     assert!(!format!("{activity:?}").contains("4, 5, 6"));
     assert_eq!(activity.lifecycle, "active");
+    let active_activity_id = activity.activity_id.clone().expect("active activity id");
+    store
+        .register_client_live_activities(
+            "client:live-one",
+            &[1, 2, 3],
+            ApnsEnvironment::Development,
+            &[active_activity_id],
+        )
+        .await
+        .expect("preserve reported activity");
+    let preserved = store
+        .client_task_activity("client:live-one")
+        .await
+        .expect("read preserved activity")
+        .expect("preserved activity");
+    assert_eq!(preserved.activity_id, activity.activity_id);
+    assert_eq!(preserved.task_session_id, activity.task_session_id);
+    store
+        .queue_live_activity_delivery(NewLiveActivityDelivery {
+            client_id: "client:live-one".to_string(),
+            delivery_key: "live:update:stale".to_string(),
+            activity_id: preserved.activity_id.clone(),
+            token: vec![4, 5, 6],
+            environment: ApnsEnvironment::Development,
+            event: LiveActivityEvent::Update,
+            payload: json!({"aps":{"event":"update"}}),
+            urgency: "normal".to_string(),
+            ttl_seconds: 600,
+        })
+        .await
+        .expect("queue stale update");
+
+    store
+        .register_client_live_activities(
+            "client:live-one",
+            &[1, 2, 3],
+            ApnsEnvironment::Development,
+            &[],
+        )
+        .await
+        .expect("replace missing activity");
+
+    let replacement = store
+        .client_task_activity("client:live-one")
+        .await
+        .expect("read replacement")
+        .expect("replacement activity");
+    assert_eq!(replacement.lifecycle, "starting");
+    assert_ne!(replacement.activity_id, preserved.activity_id);
+    assert!(replacement.update_token.is_none());
+    let delivery = store
+        .with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT status, last_error_code FROM live_activity_deliveries WHERE client_id = 'client:live-one' AND delivery_key = 'live:update:stale'",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .map_err(crate::StoreError::Sqlite)
+        })
+        .await
+        .expect("read stale delivery");
+    assert_eq!(
+        delivery,
+        ("suppressed".to_string(), "activity_missing".to_string())
+    );
 }
+
 #[tokio::test]
 async fn live_activity_end_delivery_dismisses_and_allows_a_new_session() {
     let store = test_store().await;
@@ -131,7 +201,12 @@ async fn live_activity_end_delivery_dismisses_and_allows_a_new_session() {
         .await
         .expect("insert client");
     store
-        .register_client_live_activities("client:live", &[1, 2, 3], ApnsEnvironment::Production)
+        .register_client_live_activities(
+            "client:live",
+            &[1, 2, 3],
+            ApnsEnvironment::Production,
+            &[],
+        )
         .await
         .expect("register Live Activity");
     let starting = store
@@ -259,7 +334,12 @@ async fn live_activity_end_delivery_dismisses_and_allows_a_new_session() {
         .await
         .expect("finish invalid start");
     store
-        .register_client_live_activities("client:live", &[7, 8, 9], ApnsEnvironment::Production)
+        .register_client_live_activities(
+            "client:live",
+            &[7, 8, 9],
+            ApnsEnvironment::Production,
+            &[],
+        )
         .await
         .expect("rotate after invalid start");
     let rotated = store

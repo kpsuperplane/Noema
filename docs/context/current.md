@@ -97,6 +97,8 @@ vertical slice or a net-negative reduction.
 - One server-driven Tasks Live Activity represents the current active task set.
   SQLite owns its client registration, aggregate projection, and durable APNs
   start, update, alert, and end deliveries. The widget has no bearer credential.
+  Registration reports the phone's active server activity IDs and replaces a
+  stored active session when ActivityKit no longer has it.
   One task uses a progress rail. Concurrent tasks use bounded rows. A task that
   needs input uses a dedicated Needs You state. The projection includes the
   agent name, current run update, and completed output count.

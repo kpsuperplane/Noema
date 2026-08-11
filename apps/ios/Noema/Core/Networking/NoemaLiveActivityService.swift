@@ -261,11 +261,16 @@ final class NoemaLiveActivityService {
   }
 
   private func performRegistration(token: Data, generation: Int) async {
-    guard let client, desiredEnabled, status?.available == true else { return }
+    guard let client, let profile, desiredEnabled, status?.available == true else { return }
     do {
+      let activeActivityIds = matchingActivities(for: profile)
+        .filter { $0.activityState == .active || $0.activityState == .stale }
+        .map(\.attributes.activityId)
+        .sorted()
       let input = NoemaAPI.RegisterClientLiveActivitiesInput(
         pushToStartToken: token.base64URLEncoded,
-        environment: GraphQLEnum(Self.apnsEnvironment)
+        environment: GraphQLEnum(Self.apnsEnvironment),
+        activeActivityIds: activeActivityIds
       )
       let response = try await client.perform(
         mutation: NoemaAPI.RegisterClientLiveActivitiesMutation(input: input)

@@ -12,11 +12,13 @@ nonisolated public struct RegisterClientLiveActivitiesInput: InputObject {
 
   public init(
     pushToStartToken: String,
-    environment: GraphQLEnum<ApnsEnvironment>
+    environment: GraphQLEnum<ApnsEnvironment>,
+    activeActivityIds: [String]
   ) {
     __data = InputDict([
       "pushToStartToken": pushToStartToken,
-      "environment": environment
+      "environment": environment,
+      "activeActivityIds": activeActivityIds
     ])
   }
 
@@ -28,5 +30,10 @@ nonisolated public struct RegisterClientLiveActivitiesInput: InputObject {
   public var environment: GraphQLEnum<ApnsEnvironment> {
     get { __data["environment"] }
     set { __data["environment"] = newValue }
+  }
+
+  public var activeActivityIds: [String] {
+    get { __data["activeActivityIds"] }
+    set { __data["activeActivityIds"] = newValue }
   }
 }

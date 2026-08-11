@@ -387,7 +387,12 @@ impl NotificationCoordinator {
         let token = decode_live_token(&input.push_to_start_token)?;
         self.inner
             .store
-            .register_client_live_activities(client_id, &token, input.environment.into())
+            .register_client_live_activities(
+                client_id,
+                &token,
+                input.environment.into(),
+                &input.active_activity_ids,
+            )
             .await
             .map_err(graphql_error)?;
         self.reconcile_live_activities_for_client_locked(client_id)

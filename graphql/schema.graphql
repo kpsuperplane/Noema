@@ -3551,6 +3551,7 @@ enum RecurrenceOccurrenceTrigger {
 input RegisterClientLiveActivitiesInput {
 	pushToStartToken: String!
 	environment: ApnsEnvironment!
+	activeActivityIds: [String!]!
 }
 
 input RegisterClientLiveActivityUpdateInput {
