@@ -632,7 +632,6 @@ impl NotificationCoordinator {
             .advance_notification_primary_checkpoint(&conversation.conversation_id, latest_sequence)
             .await
             .map_err(graphql_error)?;
-        self.inner.wake.notify_one();
         Ok(())
     }
     async fn reconcile_interventions(&self, state: &GraphqlState) -> Result<()> {
@@ -689,7 +688,6 @@ impl NotificationCoordinator {
                 .await
                 .map_err(graphql_error)?;
         }
-        self.inner.wake.notify_one();
         Ok(())
     }
     async fn queue_notification(
@@ -2196,6 +2194,38 @@ mod tests {
             .expect("decode application server key");
         assert_eq!(public_key.len(), 65);
         assert_eq!(public_key[0], 4);
+    }
+    #[tokio::test]
+    async fn idle_notification_reconciliation_does_not_wake_itself() {
+        let environment = crate::test_support::test_environment();
+        let store = crate::test_support::test_store_for_environment(&environment).await;
+        store
+            .get_or_create_primary_conversation(LOCAL_HUMAN_ID, None, None)
+            .await
+            .expect("ensure primary conversation");
+        let coordinator = NotificationCoordinator::new_with_paths(
+            store.clone(),
+            "https://noema.example".to_string(),
+            NoemaPaths::from_noema_home(environment.root()).expect("paths"),
+        )
+        .await
+        .expect("initialize notifications");
+        let state = GraphqlState::for_tests_with_store_and_environment(store, environment);
+
+        coordinator
+            .reconcile_primary_chat(&state)
+            .await
+            .expect("reconcile chat");
+        coordinator
+            .reconcile_interventions(&state)
+            .await
+            .expect("reconcile interventions");
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), coordinator.inner.wake.notified())
+                .await
+                .is_err()
+        );
     }
     #[test]
     fn only_final_primary_chat_text_becomes_a_notification() {
