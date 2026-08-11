@@ -159,6 +159,12 @@ fragment TasksSubmissionFields on TaskSubmission {
   reviewRound
   summary
   resultMarkdown
+  citations {
+    title
+    url
+    startIndex
+    endIndex
+  }
   criteria {
     criterionId
     evidenceMarkdown

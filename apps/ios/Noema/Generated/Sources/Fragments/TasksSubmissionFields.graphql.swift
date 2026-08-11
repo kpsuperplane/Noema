@@ -6,7 +6,7 @@
 
 nonisolated public struct TasksSubmissionFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksSubmissionFields on TaskSubmission { __typename submissionId contractId executorRunId reviewRound summary resultMarkdown criteria { __typename criterionId evidenceMarkdown } artifacts { __typename artifactId artifactVersionId title artifactKind storageKind mediaType downloadUrl externalUrl } createdAt }"#
+    #"fragment TasksSubmissionFields on TaskSubmission { __typename submissionId contractId executorRunId reviewRound summary resultMarkdown citations { __typename title url startIndex endIndex } criteria { __typename criterionId evidenceMarkdown } artifacts { __typename artifactId artifactVersionId title artifactKind storageKind mediaType downloadUrl externalUrl } createdAt }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -21,6 +21,7 @@ nonisolated public struct TasksSubmissionFields: NoemaAPI.SelectionSet, Fragment
     .field("reviewRound", Int.self),
     .field("summary", String.self),
     .field("resultMarkdown", String.self),
+    .field("citations", [Citation].self),
     .field("criteria", [Criterium].self),
     .field("artifacts", [Artifact].self),
     .field("createdAt", String.self),
@@ -41,12 +42,43 @@ nonisolated public struct TasksSubmissionFields: NoemaAPI.SelectionSet, Fragment
   public var summary: String { __data["summary"] }
   /// Complete result Markdown.
   public var resultMarkdown: String { __data["resultMarkdown"] }
+  /// Verified web sources.
+  public var citations: [Citation] { __data["citations"] }
   /// Criterion evidence.
   public var criteria: [Criterium] { __data["criteria"] }
   /// Linked immutable artifact versions.
   public var artifacts: [Artifact] { __data["artifacts"] }
   /// Creation timestamp.
   public var createdAt: String { __data["createdAt"] }
+
+  /// Citation
+  ///
+  /// Parent Type: `TaskSubmissionCitation`
+  nonisolated public struct Citation: NoemaAPI.SelectionSet {
+    @_spi(Unsafe) public let __data: DataDict
+    @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+    @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TaskSubmissionCitation }
+    @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+      .field("__typename", String.self),
+      .field("title", String.self),
+      .field("url", String.self),
+      .field("startIndex", Int?.self),
+      .field("endIndex", Int?.self),
+    ] }
+    @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+      TasksSubmissionFields.Citation.self
+    ] }
+
+    /// Source title.
+    public var title: String { __data["title"] }
+    /// Source URL.
+    public var url: String { __data["url"] }
+    /// UTF-16 citation start, when available.
+    public var startIndex: Int? { __data["startIndex"] }
+    /// UTF-16 citation end, when available.
+    public var endIndex: Int? { __data["endIndex"] }
+  }
 
   /// Criterium
   ///

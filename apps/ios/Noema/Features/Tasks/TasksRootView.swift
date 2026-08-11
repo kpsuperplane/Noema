@@ -818,23 +818,21 @@ private struct TasksAttentionCard: View {
   @ViewBuilder
   private func approvalActions(gate: TasksGateSnapshot) -> some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      TextField("Explain your decision", text: $response, axis: .vertical)
+      TextField("Optional note", text: $response, axis: .vertical)
         .lineLimit(2...4)
         .textFieldStyle(.roundedBorder)
       HStack(spacing: NoemaSpacing.sm) {
         Button("Decline", systemImage: "xmark") {
-          guard let explanation = response.nilIfBlank else { return }
-          submit(explanation, approval: .declined)
+          submit(response.nilIfBlank ?? "Declined", approval: .declined)
         }
         .buttonStyle(.bordered)
         .tint(NoemaColor.danger)
-        .disabled(!model.isConnected || isSubmitting || !canAnswer || response.nilIfBlank == nil)
+        .disabled(!model.isConnected || isSubmitting || !canAnswer)
         Button("Approve", systemImage: "checkmark") {
-          guard let explanation = response.nilIfBlank else { return }
-          submit(explanation, approval: .approved)
+          submit(response.nilIfBlank ?? "Approved", approval: .approved)
         }
         .buttonStyle(.borderedProminent)
-        .disabled(!model.isConnected || isSubmitting || !canAnswer || response.nilIfBlank == nil)
+        .disabled(!model.isConnected || isSubmitting || !canAnswer)
       }
     }
     .controlSize(.small)

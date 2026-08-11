@@ -280,6 +280,9 @@ query PendingChatInterventions($conversationId: String, $taskId: String, $projec
       reviewRoute
       behavior { readOnly idempotent destructive openWorld }
       safeSummary
+      target { serviceName connectionLabel serviceId connectionId accountId }
+      disclosure { recipient contentSummary }
+      consequence
       arguments
       governedState: state
       output

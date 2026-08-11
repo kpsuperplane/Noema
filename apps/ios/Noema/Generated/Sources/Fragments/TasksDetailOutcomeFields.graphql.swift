@@ -115,6 +115,8 @@ nonisolated public struct TasksDetailOutcomeFields: NoemaAPI.SelectionSet, Fragm
     public var summary: String { __data["summary"] }
     /// Complete result Markdown.
     public var resultMarkdown: String { __data["resultMarkdown"] }
+    /// Verified web sources.
+    public var citations: [Citation] { __data["citations"] }
     /// Criterion evidence.
     public var criteria: [Criterium] { __data["criteria"] }
     /// Linked immutable artifact versions.
@@ -128,6 +130,8 @@ nonisolated public struct TasksDetailOutcomeFields: NoemaAPI.SelectionSet, Fragm
 
       public var tasksSubmissionFields: TasksSubmissionFields { _toFragment() }
     }
+
+    public typealias Citation = TasksSubmissionFields.Citation
 
     public typealias Criterium = TasksSubmissionFields.Criterium
 
@@ -163,6 +167,8 @@ nonisolated public struct TasksDetailOutcomeFields: NoemaAPI.SelectionSet, Fragm
     public var summary: String { __data["summary"] }
     /// Complete result Markdown.
     public var resultMarkdown: String { __data["resultMarkdown"] }
+    /// Verified web sources.
+    public var citations: [Citation] { __data["citations"] }
     /// Criterion evidence.
     public var criteria: [Criterium] { __data["criteria"] }
     /// Linked immutable artifact versions.
@@ -176,6 +182,8 @@ nonisolated public struct TasksDetailOutcomeFields: NoemaAPI.SelectionSet, Fragm
 
       public var tasksSubmissionFields: TasksSubmissionFields { _toFragment() }
     }
+
+    public typealias Citation = TasksSubmissionFields.Citation
 
     public typealias Criterium = TasksSubmissionFields.Criterium
 
@@ -251,6 +259,8 @@ nonisolated public struct TasksDetailOutcomeFields: NoemaAPI.SelectionSet, Fragm
     public var summary: String { __data["summary"] }
     /// Complete result Markdown.
     public var resultMarkdown: String { __data["resultMarkdown"] }
+    /// Verified web sources.
+    public var citations: [Citation] { __data["citations"] }
     /// Criterion evidence.
     public var criteria: [Criterium] { __data["criteria"] }
     /// Linked immutable artifact versions.
@@ -264,6 +274,8 @@ nonisolated public struct TasksDetailOutcomeFields: NoemaAPI.SelectionSet, Fragm
 
       public var tasksSubmissionFields: TasksSubmissionFields { _toFragment() }
     }
+
+    public typealias Citation = TasksSubmissionFields.Citation
 
     public typealias Criterium = TasksSubmissionFields.Criterium
 

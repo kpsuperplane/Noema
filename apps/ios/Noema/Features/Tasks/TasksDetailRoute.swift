@@ -390,23 +390,21 @@ private struct TasksGatePanel: View {
           }
           .disabled(!isConnected || isSubmitting || (!canAnswer && !canRetry) || (canAnswer && !canRetry && response.nilIfBlank == nil))
         } else if gate.kind.uppercased() == "APPROVAL" {
-          TextField("Explain your decision", text: $response, axis: .vertical)
+          TextField("Optional note", text: $response, axis: .vertical)
             .lineLimit(2...5)
             .textFieldStyle(.roundedBorder)
           HStack(spacing: NoemaSpacing.sm) {
             Button("Decline", systemImage: "xmark") {
-              guard let explanation = response.nilIfBlank else { return }
-              Task { if await answer(explanation, .declined) { response = "" } }
+              Task { if await answer(response.nilIfBlank ?? "Declined", .declined) { response = "" } }
             }
             .buttonStyle(.bordered)
             .tint(NoemaColor.danger)
-            .disabled(!isConnected || isSubmitting || !canAnswer || response.nilIfBlank == nil)
+            .disabled(!isConnected || isSubmitting || !canAnswer)
             Button("Approve", systemImage: "checkmark") {
-              guard let explanation = response.nilIfBlank else { return }
-              Task { if await answer(explanation, .approved) { response = "" } }
+              Task { if await answer(response.nilIfBlank ?? "Approved", .approved) { response = "" } }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!isConnected || isSubmitting || !canAnswer || response.nilIfBlank == nil)
+            .disabled(!isConnected || isSubmitting || !canAnswer)
           }
         } else {
           HStack(spacing: NoemaSpacing.xs) {

@@ -139,10 +139,12 @@ struct ChatMessageView: View {
       }
     case let .assistant(text, streaming):
       let minimumContentWidth: CGFloat? = !attachedTaskIDs.isEmpty && text.count > 30 ? 247 : nil
+      let citations = ProviderCitation.from(metadata: message.metadata)
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
         ChatBubbleView(lane: .assistant, group: group) {
           VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
             ChatMarkdownText(text: text, color: NoemaColor.content)
+            ProviderCitationLinks(citations: citations)
             ForEach(attachedTaskIDs, id: \.self) { taskID in
               TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
             }

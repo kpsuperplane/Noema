@@ -1300,6 +1300,14 @@ final class TasksModel {
       summary: source.summary,
       result: source.resultMarkdown,
       createdAt: source.createdAt,
+      citations: source.citations.compactMap {
+        ProviderCitation(
+          title: $0.title,
+          url: $0.url,
+          startIndex: $0.startIndex,
+          endIndex: $0.endIndex
+        )
+      },
       criteria: source.criteria.map {
         let contract = contractCriteria[$0.criterionId]
         let reviewed = reviewedCriteria[$0.criterionId]

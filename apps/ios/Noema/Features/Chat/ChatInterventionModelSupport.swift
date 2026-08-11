@@ -40,13 +40,42 @@ struct GovernedActionModel: Equatable {
   let actionID: String
   let revision: Int
   let summary: String
+  let consequence: String
   let state: String
   let capabilityName: String
   let reviewRoute: String
   let readOnly: Bool?
+  let idempotent: Bool?
+  let destructive: Bool?
+  let openWorld: Bool?
+  let serviceName: String?
+  let connectionLabel: String?
+  let serviceID: String?
+  let sharedContent: String?
   let taskID: String?
   let failureCode: String?
   let arguments: String
+
+  var targetName: String {
+    connectionLabel ?? serviceName ?? serviceID ?? capabilityName
+  }
+
+  var question: String {
+    if readOnly == true { return "Share request data with \(targetName)?" }
+    if destructive == true { return "Allow a destructive change in \(targetName)?" }
+    return "Allow this change in \(targetName)?"
+  }
+
+  var effect: String {
+    if readOnly == nil, idempotent == nil, destructive == nil, openWorld == nil {
+      return "No behavior evidence is available."
+    }
+    var values = [readOnly == true ? "Read only" : "Can make changes"]
+    if destructive == true { values.append("Destructive") }
+    if openWorld == true { values.append("External system") }
+    values.append(idempotent == true ? "Safe to repeat" : "May repeat the effect")
+    return values.joined(separator: " · ")
+  }
 }
 
 struct McpAuthModel: Equatable {
@@ -201,10 +230,18 @@ extension ChatIntervention {
         actionID: action.actionId,
         revision: action.revision,
         summary: action.safeSummary,
+        consequence: action.consequence,
         state: action.governedState.rawValue,
         capabilityName: action.capabilityName,
         reviewRoute: action.reviewRoute.rawValue,
         readOnly: action.behavior?.readOnly,
+        idempotent: action.behavior?.idempotent,
+        destructive: action.behavior?.destructive,
+        openWorld: action.behavior?.openWorld,
+        serviceName: action.target?.serviceName,
+        connectionLabel: action.target?.connectionLabel,
+        serviceID: action.target?.serviceId,
+        sharedContent: action.disclosure?.contentSummary,
         taskID: action.taskId,
         failureCode: action.failureCode,
         arguments: action.arguments.encodedString

@@ -21,6 +21,8 @@ nonisolated public enum SchemaMetadata: ApolloAPI.SchemaMetadata {
   private static let objectTypeMap: [String: ApolloAPI.Object] = [
     "A2UISurface": NoemaAPI.Objects.A2UISurface,
     "AcpAgent": NoemaAPI.Objects.AcpAgent,
+    "ActionRequestDisclosure": NoemaAPI.Objects.ActionRequestDisclosure,
+    "ActionRequestTarget": NoemaAPI.Objects.ActionRequestTarget,
     "ActionReviewerSettings": NoemaAPI.Objects.ActionReviewerSettings,
     "Activity": NoemaAPI.Objects.Activity,
     "AdapterAuthenticationIntervention": NoemaAPI.Objects.AdapterAuthenticationIntervention,
@@ -138,6 +140,7 @@ nonisolated public enum SchemaMetadata: ApolloAPI.SchemaMetadata {
     "TaskStageColumn": NoemaAPI.Objects.TaskStageColumn,
     "TaskSubmission": NoemaAPI.Objects.TaskSubmission,
     "TaskSubmissionArtifact": NoemaAPI.Objects.TaskSubmissionArtifact,
+    "TaskSubmissionCitation": NoemaAPI.Objects.TaskSubmissionCitation,
     "TaskSubmissionCriterion": NoemaAPI.Objects.TaskSubmissionCriterion,
     "TaskSummary": NoemaAPI.Objects.TaskSummary,
     "TaskValidationCriterion": NoemaAPI.Objects.TaskValidationCriterion,

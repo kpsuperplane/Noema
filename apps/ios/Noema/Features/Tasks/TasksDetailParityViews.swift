@@ -229,6 +229,7 @@ struct TasksCompletedResultView: View {
           .font(NoemaFont.taskTitle)
           .foregroundStyle(NoemaColor.contentSecondary)
       }
+      ProviderCitationLinks(citations: submission.citations)
       if !submission.artifacts.isEmpty {
         VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
           ForEach(submission.artifacts) { artifact in

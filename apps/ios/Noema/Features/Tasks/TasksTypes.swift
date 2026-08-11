@@ -232,6 +232,7 @@ struct TasksSubmissionSnapshot: Identifiable, Hashable, Sendable {
   let summary: String
   let result: String
   let createdAt: String
+  let citations: [ProviderCitation]
   let criteria: [TasksCriterionSnapshot]
   let artifacts: [TasksArtifactSnapshot]
 }

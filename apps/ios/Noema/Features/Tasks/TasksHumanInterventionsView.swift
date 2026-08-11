@@ -49,25 +49,13 @@ struct TasksHumanInterventionsView: View {
     Text(action.taskID == nil ? "Primary conversation" : "Background task")
       .font(NoemaFont.caption)
       .foregroundStyle(NoemaColor.contentTertiary)
-    Text(action.summary)
-      .font(NoemaFont.bodyEmphasized)
-      .foregroundStyle(NoemaColor.content)
-    Text(action.capabilityName)
-      .font(NoemaFont.monoTiny)
-      .foregroundStyle(NoemaColor.contentSecondary)
+    ActionRequestReviewContent(action: action)
     if let failureCode = action.failureCode {
       Text(failureCode)
         .font(NoemaFont.caption)
         .foregroundStyle(NoemaColor.danger)
     }
     interventionError(action.actionID)
-    DisclosureGroup("Review exact arguments") {
-      Text(action.arguments)
-        .font(NoemaFont.monoTiny)
-        .foregroundStyle(NoemaColor.contentSecondary)
-        .textSelection(.enabled)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
     GovernedInterventionActions(disabled: !model.isConnected) {
       await model.resolve(intervention, decision: $0)
     }
