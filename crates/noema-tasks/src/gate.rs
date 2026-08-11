@@ -53,7 +53,7 @@ impl TaskGateKind {
                 Self::Recovery,
                 Some(TaskRecoveryReason::ReviewRoundsExhausted),
                 Some(RunKind::Executor),
-                GateResolutionKind::Answer | GateResolutionKind::Retry,
+                GateResolutionKind::Retry,
             ) | (
                 Self::Recovery,
                 Some(TaskRecoveryReason::UnsafeEffectUncertain),
@@ -309,4 +309,23 @@ pub struct TaskMessageRecord {
     pub consumed_by_run_id: Option<String>,
     pub consumed_at: Option<String>,
     pub created_at: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exhausted_review_rounds_accept_retry_guidance_only() {
+        let allows = |resolution| {
+            TaskGateKind::Recovery.allows_resolution(
+                Some(TaskRecoveryReason::ReviewRoundsExhausted),
+                Some(RunKind::Executor),
+                resolution,
+            )
+        };
+
+        assert!(allows(GateResolutionKind::Retry));
+        assert!(!allows(GateResolutionKind::Answer));
+    }
 }
