@@ -26,7 +26,7 @@ struct NoemaTasksLiveActivityWidget: Widget {
 
         DynamicIslandExpandedRegion(.trailing) {
           ActivityHeaderStatus(state: context.state, appearance: .island)
-            .frame(maxWidth: 76, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .contentMargins(.trailing, 16)
 

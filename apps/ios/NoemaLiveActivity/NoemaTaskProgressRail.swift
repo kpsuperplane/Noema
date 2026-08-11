@@ -21,7 +21,7 @@ struct TaskProgressRail: View {
           .fill(NoemaActivityPalette.track(for: appearance, colorScheme: colorScheme))
           .frame(height: 4)
           .padding(.horizontal, 20)
-          .offset(y: 10)
+          .offset(y: 18)
 
         Capsule()
           .fill(PhaseStyle(state: state).color(for: appearance, colorScheme: colorScheme))
@@ -29,7 +29,7 @@ struct TaskProgressRail: View {
             width: max(0, (geometry.size.width - 40) * CGFloat(step) / 3),
             height: 4
           )
-          .offset(x: 20, y: 10)
+          .offset(x: 20, y: 18)
       }
       .frame(height: 24)
 
@@ -142,6 +142,7 @@ private struct RailStop: View {
         .lineLimit(1)
     }
     .frame(maxWidth: .infinity)
+    .padding(.top, 8)
   }
 }
 
