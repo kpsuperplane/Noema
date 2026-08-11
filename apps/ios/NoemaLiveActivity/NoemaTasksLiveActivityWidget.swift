@@ -20,13 +20,13 @@ struct NoemaTasksLiveActivityWidget: Widget {
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
           ActivityIdentity(state: context.state, appearance: .island)
-            .fixedSize()
+            .frame(width: 106, height: 24, alignment: .leading)
         }
         .contentMargins(.leading, 16)
 
         DynamicIslandExpandedRegion(.trailing) {
           ActivityHeaderStatus(state: context.state, appearance: .island)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(width: 106, height: 24, alignment: .trailing)
         }
         .contentMargins(.trailing, 16)
 
@@ -37,8 +37,10 @@ struct NoemaTasksLiveActivityWidget: Widget {
         .contentMargins([.leading, .trailing, .bottom], 16)
       } compactLeading: {
         CompactAgentMark(state: context.state)
+          .frame(height: 20)
       } compactTrailing: {
         CompactTrailingStatus(state: context.state)
+          .frame(height: 20)
       } minimal: {
         CompactAgentMark(state: context.state, size: 18)
       }
@@ -344,8 +346,6 @@ private struct CompactTrailingStatus: View {
       } else if let startedAtEpoch = state.startedAtEpoch {
         Text(Date(timeIntervalSince1970: startedAtEpoch), style: .timer)
           .foregroundStyle(NoemaActivityPalette.islandPrimary)
-          .frame(width: 44, alignment: .trailing)
-          .clipped()
           .accessibilityLabel("Elapsed time")
           .accessibilityValue(Text(Date(timeIntervalSince1970: startedAtEpoch), style: .timer))
       } else {
