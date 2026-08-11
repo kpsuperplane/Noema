@@ -63,10 +63,11 @@ private struct NoemaTasksLockScreenView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      HStack(alignment: .center, spacing: 8) {
+      HStack(alignment: .center, spacing: 12) {
         ActivityIdentity(state: state, appearance: .lockScreen)
-        Spacer(minLength: 12)
+          .frame(maxWidth: .infinity, alignment: .leading)
         ActivityHeaderStatus(state: state, appearance: .lockScreen)
+          .fixedSize()
       }
       ActivityBody(state: state, appearance: .lockScreen)
     }
@@ -83,17 +84,24 @@ private struct ActivityIdentity: View {
     state.agentName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "Agent"
   }
 
+  private var label: String {
+    if appearance == .lockScreen, state.requiresAttention != true, state.activeTaskCount <= 1 {
+      return state.focusTitle
+    }
+    return agentName
+  }
+
   var body: some View {
     HStack(spacing: 7) {
       NoemaAgentMark(size: appearance == .island ? 20 : 22)
         .accessibilityHidden(true)
-      Text(agentName)
+      Text(label)
         .font(.caption.weight(.semibold))
         .foregroundStyle(appearance.primary)
         .lineLimit(1)
     }
     .accessibilityElement(children: .combine)
-    .accessibilityLabel(agentName)
+    .accessibilityLabel(label)
   }
 }
 
@@ -159,12 +167,14 @@ private struct SingleTaskActivityBody: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 11) {
-      Text(state.focusTitle)
-        .font(appearance == .island ? .subheadline.weight(.semibold) : .headline.weight(.semibold))
-        .foregroundStyle(appearance.primary)
-        .lineLimit(2)
-        .multilineTextAlignment(.leading)
-        .accessibilityLabel("Task: \(state.focusTitle)")
+      if appearance == .island {
+        Text(state.focusTitle)
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(appearance.primary)
+          .lineLimit(2)
+          .multilineTextAlignment(.leading)
+          .accessibilityLabel("Task: \(state.focusTitle)")
+      }
 
       TaskProgressRail(state: state, appearance: appearance)
     }
