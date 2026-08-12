@@ -150,6 +150,7 @@ export function SettingsList({ xstyle, ...props }: ListProps) {
 }
 
 export function SettingsListItem({
+  className,
   xstyle,
   label,
   description,
@@ -174,6 +175,7 @@ export function SettingsListItem({
       label={fullWidthContent ?? label}
       description={mobileEndContentFullWidth ? undefined : description}
       endContent={mobileEndContentFullWidth ? undefined : endContent}
+      className={[className, stylex.props(styles.lastItem).className].filter(Boolean).join(" ")}
       xstyle={[
         bodyTreatment === "edge" ? styles.edgeItem : styles.item,
         xstyle
@@ -244,6 +246,9 @@ const styles = stylex.create({
   edgeItem: {
     paddingInline: "var(--spacing-3)",
     flexWrap: "nowrap"
+  },
+  lastItem: {
+    ":last-child": { borderBlockEndWidth: 0 }
   },
   fullWidthContent: {
     display: "grid",
