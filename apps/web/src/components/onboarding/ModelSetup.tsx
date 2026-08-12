@@ -241,10 +241,12 @@ const styles = stylex.create({
     boxSizing: "border-box",
     justifyContent: "center",
     marginInline: "auto",
-    paddingBlock: "var(--spacing-6)",
+    paddingBlockStart: "var(--spacing-6)",
+    paddingBlockEnd: "var(--spacing-12)",
     "@media (max-width: 760px)": {
       justifyContent: "flex-start",
-      paddingBlock: "var(--spacing-4)"
+      paddingBlockStart: "var(--spacing-4)",
+      paddingBlockEnd: "var(--spacing-8)"
     }
   },
   logo: {
