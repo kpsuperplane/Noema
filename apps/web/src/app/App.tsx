@@ -703,8 +703,10 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
         await refetchOnboardingStatus();
         setChosenSetupAccountId(attempt.providerAccountId);
       }
+      return attempt.verificationUrl;
     } catch (error: unknown) {
       setOnboardingError(error instanceof Error ? error.message : "Failed to start provider login");
+      return null;
     }
   }
 
@@ -977,7 +979,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
           error={modelSetupResult.error?.message ?? displayedOnboardingError}
           modelSetupAccountId={setupProviderAccountId}
           modelSetupLoading={modelSetupResult.loading}
-          onConnect={(providerKind, method) => void connectProvider(providerKind, method)}
+          onConnect={connectProvider}
           onContinue={(providerAccountId) => void continueOnboardingWithProvider(providerAccountId)}
           onConnectOpenRouterApiKey={(secret) => void connectOpenRouterApiKey(secret)}
           onCancelProviderAuth={() => void cancelCurrentProviderAuth()}

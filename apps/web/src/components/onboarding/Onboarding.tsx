@@ -1,11 +1,11 @@
 import { Button } from "@astryxdesign/core/Button";
-import { Card } from "@astryxdesign/core/Card";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import * as stylex from "@stylexjs/stylex";
 import { ArrowLeft, ChevronRight, CircleStop, Download, HardDrive, Route, SquareTerminal } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
+import { reserveExternalAuthNavigation } from "@/graphql/externalUrls";
 import { ErrorMarker } from "../ErrorMarker";
 import { formatBytes, formatGigabytes, installationProgress } from "../settings/localModelMetadata";
 import { AuthAttempt } from "./AuthAttempt";
@@ -56,7 +56,7 @@ export function Onboarding({
   error: string | null;
   modelSetupAccountId: string | null;
   modelSetupLoading: boolean;
-  onConnect: (providerKind: string, method: CloudAuthMethod) => void;
+  onConnect: (providerKind: string, method: CloudAuthMethod) => Promise<string | null>;
   onContinue: (providerAccountId: string) => void;
   onConnectOpenRouterApiKey: (secret: string) => void;
   onCancelProviderAuth: () => void;
@@ -97,24 +97,46 @@ export function Onboarding({
       : modelSetupProviderKind ?? (providerSaving ? "openrouter" : null);
   const visibleProviderKind = activeProviderKind ?? setupProviderKind;
 
+  async function startCodexConnection() {
+    const authNavigation = reserveExternalAuthNavigation();
+    const verificationUrl = await onConnect("codex", "OAUTH_DEVICE_CODE");
+    if (verificationUrl) {
+      await authNavigation.open(verificationUrl);
+    } else {
+      authNavigation.cancel();
+    }
+  }
+
+  function selectProvider(providerKind: ProviderKind) {
+    setSetupProviderKind(providerKind);
+    if (providerKind !== "codex") {
+      return;
+    }
+    onRetry();
+    if (codexAccount) {
+      onContinue(codexAccount.providerAccountId);
+      return;
+    }
+    void startCodexConnection();
+  }
+
   return (
     <VStack
       as="section"
       {...stylex.props(styles.root)}
       aria-label="Noema onboarding"
       data-slot="provider-onboarding"
-      gap={6}
+      gap={4}
     >
-      <img
-        src={`${import.meta.env.BASE_URL}pwa-512x512.png`}
-        width="64"
-        height="64"
-        alt=""
-        {...stylex.props(styles.logo)}
-      />
-
       {visibleProviderKind === null ? (
-        <VStack gap={4} {...stylex.props(styles.stage)}>
+        <VStack gap={6} {...stylex.props(styles.stage)}>
+          <img
+            src={`${import.meta.env.BASE_URL}pwa-512x512.png`}
+            width="64"
+            height="64"
+            alt=""
+            {...stylex.props(styles.logo)}
+          />
           <VStack gap={1.5} hAlign="center">
             <h1 {...stylex.props(styles.title)}>Welcome to Noema</h1>
             <p {...stylex.props(styles.description)}>
@@ -137,7 +159,7 @@ export function Onboarding({
                   : "Private on this Mac. Downloads one recommended model."
               }
               icon={<HardDrive size={20} aria-hidden="true" />}
-              onSelect={setSetupProviderKind}
+              onSelect={selectProvider}
             />
             <ProviderOption
               kind="openrouter"
@@ -149,7 +171,7 @@ export function Onboarding({
               }
               icon={<Route size={20} aria-hidden="true" />}
               isDisabled={!openRouter}
-              onSelect={setSetupProviderKind}
+              onSelect={selectProvider}
             />
             <ProviderOption
               kind="codex"
@@ -161,13 +183,14 @@ export function Onboarding({
               }
               icon={<SquareTerminal size={20} aria-hidden="true" />}
               isDisabled={!codex}
-              onSelect={setSetupProviderKind}
+              onSelect={selectProvider}
             />
           </VStack>
         </VStack>
       ) : (
-        <VStack gap={4} {...stylex.props(styles.stage)}>
-          {activeProviderKind === null ? (
+        <VStack gap={4} {...stylex.props(styles.stage, styles.setupStage)}>
+          {activeProviderKind === null &&
+          !(visibleProviderKind === "codex" && !authFailed && !error) ? (
             <Button
               {...stylex.props(styles.backButton)}
               type="button"
@@ -183,14 +206,13 @@ export function Onboarding({
           ) : null}
 
           <VStack gap={1.5}>
-            <p {...stylex.props(styles.eyebrow)}>Provider setup</p>
-            <h1 {...stylex.props(styles.title)}>{providerName(visibleProviderKind, openRouter, codex)}</h1>
+            <h1 {...stylex.props(styles.title)}>{providerSetupTitle(visibleProviderKind)}</h1>
             <p {...stylex.props(styles.setupDescription)}>
               {providerDescription(visibleProviderKind)}
             </p>
           </VStack>
 
-          <Card padding={5} {...stylex.props(styles.setupCard)}>
+          <VStack gap={3} {...stylex.props(styles.setupContent)}>
             {visibleProviderKind === "local_models" ? (
               <VStack gap={3}>
                 {localSetupLoading ? <p {...stylex.props(styles.muted)}>Checking this machine…</p> : null}
@@ -330,36 +352,56 @@ export function Onboarding({
               <VStack gap={3}>
                 {codexAccount ? (
                   <VStack gap={2}>
-                    <p {...stylex.props(styles.connected)}>Codex is connected.</p>
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="lg"
-                      label="Continue with Codex"
-                      isLoading={
-                        modelSetupLoading && modelSetupAccountId === codexAccount.providerAccountId
-                      }
-                      onClick={() => onContinue(codexAccount.providerAccountId)}
-                    />
+                    <p {...stylex.props(styles.connected)} aria-live="polite">
+                      Preparing your Codex models…
+                    </p>
+                    {error && !modelSetupLoading ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        label="Try loading models again"
+                        onClick={() => onContinue(codexAccount.providerAccountId)}
+                      />
+                    ) : null}
                   </VStack>
                 ) : attempt?.providerKind === "codex" && authPending ? (
-                  <AuthAttempt attempt={attempt} onCancel={onCancelProviderAuth} />
-                ) : (
+                  <AuthAttempt
+                    attempt={attempt}
+                    onCancel={() => {
+                      setSetupProviderKind(null);
+                      onCancelProviderAuth();
+                    }}
+                  />
+                ) : attempt?.providerKind === "codex" && attempt.status === "COMPLETED" ? (
+                  <p {...stylex.props(styles.connected)} aria-live="polite">
+                    Preparing your Codex models…
+                  </p>
+                ) : attempt?.providerKind === "codex" && authFailed ? (
+                  <RetryMessage
+                    attempt={attempt}
+                    onRetry={() => {
+                      onRetry();
+                      void startCodexConnection();
+                    }}
+                  />
+                ) : error ? (
                   <Button
                     type="button"
-                    variant="primary"
-                    size="lg"
-                    label="Connect Codex"
-                    isDisabled={!codex}
-                    onClick={() => onConnect("codex", "OAUTH_DEVICE_CODE")}
+                    variant="secondary"
+                    label="Try Codex sign-in again"
+                    onClick={() => {
+                      onRetry();
+                      void startCodexConnection();
+                    }}
                   />
+                ) : (
+                  <p {...stylex.props(styles.muted)} aria-live="polite">
+                    Starting Codex sign-in…
+                  </p>
                 )}
-                {attempt?.providerKind === "codex" && authFailed ? (
-                  <RetryMessage attempt={attempt} onRetry={onRetry} />
-                ) : null}
               </VStack>
             ) : null}
-          </Card>
+          </VStack>
         </VStack>
       )}
 
@@ -407,18 +449,14 @@ function ProviderOption({
   );
 }
 
-function providerName(
-  providerKind: ProviderKind,
-  openRouter: OnboardingProviderCatalog[number] | undefined,
-  codex: OnboardingProviderCatalog[number] | undefined
-) {
+function providerSetupTitle(providerKind: ProviderKind) {
   if (providerKind === "openrouter") {
-    return openRouter?.displayName ?? "OpenRouter";
+    return "Connect OpenRouter";
   }
   if (providerKind === "codex") {
-    return codex?.displayName ?? "Codex";
+    return "Sign in to Codex";
   }
-  return "Local";
+  return "Set up Local";
 }
 
 function providerDescription(providerKind: ProviderKind) {
@@ -462,6 +500,7 @@ const styles = stylex.create({
   logo: {
     display: "block",
     flexShrink: 0,
+    alignSelf: "center",
     borderRadius: 15,
     boxShadow:
       "0 2px 3px color-mix(in srgb, black 8%, transparent), 0 12px 30px color-mix(in srgb, var(--pine-500) 18%, transparent)"
@@ -469,11 +508,9 @@ const styles = stylex.create({
   stage: {
     width: "100%"
   },
-  eyebrow: {
-    margin: "var(--spacing-0)",
-    color: "var(--muted-foreground)",
-    fontSize: "var(--font-size-sm)",
-    fontWeight: 600
+  setupStage: {
+    maxWidth: 560,
+    alignSelf: "center"
   },
   title: {
     margin: "var(--spacing-0)",
@@ -567,7 +604,7 @@ const styles = stylex.create({
     width: "fit-content",
     alignSelf: "flex-start"
   },
-  setupCard: {
+  setupContent: {
     width: "100%",
     minWidth: 0
   },
