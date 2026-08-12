@@ -13,19 +13,21 @@ import {
   Wrench
 } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import type { CapabilityIntegrationsQuery } from "@/generated/graphql";
 import { ListCardLink } from "@/components/ListCardLink";
 import { settingsStatusLabel } from "./settingsStatus";
 
 export type CapabilityIntegration = CapabilityIntegrationsQuery["capabilityIntegrations"][number];
+type CapabilityConnection = CapabilityIntegration["connections"][number];
+type CapabilityAccount = { id: string; name: string };
 
 type CapabilityIntegrationListProps = {
   integrations: readonly CapabilityIntegration[];
   kind: "API" | "MCP";
   selectedConnectionId?: string;
   emptyMessage: string;
-  integrationAction?: (integration: CapabilityIntegration) => ReactNode;
+  accountFor?: (connection: CapabilityConnection) => CapabilityAccount;
   isAddingConnection?: boolean;
   onAddConnection?: (integration: CapabilityIntegration) => void;
 };
@@ -39,11 +41,43 @@ function CapabilityIntegrationListView({
   kind,
   selectedConnectionId,
   emptyMessage,
-  integrationAction,
+  accountFor,
   isAddingConnection = false,
   onAddConnection
 }: CapabilityIntegrationListProps) {
   const [visibleSelectedConnectionId, setVisibleSelectedConnectionId] = useState(selectedConnectionId);
+  const selectConnection = (connectionId: string) => setVisibleSelectedConnectionId(connectionId);
+
+  if (accountFor) {
+    return (
+      <VStack gap={4}>
+        {integrations.length === 0 ? <p {...stylex.props(styles.empty)}>{emptyMessage}</p> : null}
+        {groupConnectionsByAccount(integrations, accountFor).map(({ account, items }, index) => {
+          const titleId = `capability-account-${index}-title`;
+          return (
+            <VStack as="section" key={account.id} gap={1.5} aria-labelledby={titleId} {...stylex.props(styles.service)}>
+              <HStack gap={2} vAlign="center" {...stylex.props(styles.serviceHeader)}>
+                <Avatar name={account.name} size="sm" tooltip={false} />
+                <h2 id={titleId} {...stylex.props(styles.title)}>{account.name}</h2>
+              </HStack>
+              {items.map(({ integration, connection }) => (
+                <CapabilityConnectionCard
+                  key={connection.connectionId}
+                  kind={kind}
+                  integration={integration}
+                  connection={connection}
+                  showIntegration
+                  selectedConnectionId={selectedConnectionId}
+                  visibleSelectedConnectionId={visibleSelectedConnectionId}
+                  onSelect={selectConnection}
+                />
+              ))}
+            </VStack>
+          );
+        })}
+      </VStack>
+    );
+  }
 
   return (
     <VStack gap={4}>
@@ -64,57 +98,103 @@ function CapabilityIntegrationListView({
               <h2 id={`capability-${integration.definitionId}-title`} {...stylex.props(styles.title)}>
                 {integration.name}
               </h2>
-              <HStack gap={1} vAlign="center">
-                {onAddConnection ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    label="Add connection"
-                    isLoading={isAddingConnection}
-                    onClick={() => onAddConnection(integration)}
-                  />
-                ) : null}
-                {integrationAction?.(integration)}
-              </HStack>
+              {onAddConnection ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  label="Add connection"
+                  isLoading={isAddingConnection}
+                  onClick={() => onAddConnection(integration)}
+                />
+              ) : null}
             </HStack>
             {integration.connections.length === 0 ? (
               <p {...stylex.props(styles.emptyConnection)}>No connections</p>
-            ) : integration.connections.map((connection) => {
-              const route = kind === "API"
-                ? "/settings/tools/apis/$connectionId"
-                : "/settings/tools/mcps/$connectionId";
-              const isSelected = visibleSelectedConnectionId === connection.connectionId;
-              return (
-                <ListCardLink
-                  key={connection.connectionId}
-                  to={route}
-                  params={{ connectionId: connection.connectionId }}
-                  selected={isSelected}
-                  xstyle={styles.connectionRow}
-                  aria-current={selectedConnectionId === connection.connectionId ? "page" : undefined}
-                  onClick={(event) => {
-                    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-                    setVisibleSelectedConnectionId(connection.connectionId);
-                  }}
-                >
-                  <Avatar name={connection.name} size="sm" tooltip={false} />
-                  <VStack gap={0.5} {...stylex.props(styles.connectionCopy)}>
-                    <strong {...stylex.props(styles.connectionName)}>{connection.name}</strong>
-                    <HStack as="span" gap={1} vAlign="center" {...stylex.props(styles.connectionMeta)}>
-                      <Wrench aria-hidden="true" {...stylex.props(styles.metaIcon)} />
-                      {connectionDescription(connection)}
-                    </HStack>
-                  </VStack>
-                  <ChevronRight aria-hidden="true" {...stylex.props(styles.chevron)} />
-                </ListCardLink>
-              );
-            })}
+            ) : integration.connections.map((connection) => (
+              <CapabilityConnectionCard
+                key={connection.connectionId}
+                kind={kind}
+                integration={integration}
+                connection={connection}
+                selectedConnectionId={selectedConnectionId}
+                visibleSelectedConnectionId={visibleSelectedConnectionId}
+                onSelect={selectConnection}
+              />
+            ))}
           </VStack>
         );
       })}
     </VStack>
   );
+}
+
+function CapabilityConnectionCard({
+  kind,
+  integration,
+  connection,
+  showIntegration = false,
+  selectedConnectionId,
+  visibleSelectedConnectionId,
+  onSelect
+}: {
+  kind: "API" | "MCP";
+  integration: CapabilityIntegration;
+  connection: CapabilityConnection;
+  showIntegration?: boolean;
+  selectedConnectionId?: string;
+  visibleSelectedConnectionId?: string;
+  onSelect: (connectionId: string) => void;
+}) {
+  const route = kind === "API"
+    ? "/settings/tools/apis/$connectionId"
+    : "/settings/tools/mcps/$connectionId";
+  return (
+    <ListCardLink
+      to={route}
+      params={{ connectionId: connection.connectionId }}
+      selected={visibleSelectedConnectionId === connection.connectionId}
+      xstyle={styles.connectionRow}
+      aria-current={selectedConnectionId === connection.connectionId ? "page" : undefined}
+      onClick={(event) => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        onSelect(connection.connectionId);
+      }}
+    >
+      {showIntegration
+        ? <CapabilityIcon kind={kind} definitionId={integration.definitionId} />
+        : <Avatar name={connection.name} size="sm" tooltip={false} />}
+      <VStack gap={0.5} {...stylex.props(styles.connectionCopy)}>
+        <strong {...stylex.props(styles.connectionName)}>
+          {showIntegration ? integration.name : connection.name}
+        </strong>
+        <HStack as="span" gap={1} vAlign="center" {...stylex.props(styles.connectionMeta)}>
+          <Wrench aria-hidden="true" {...stylex.props(styles.metaIcon)} />
+          {connectionDescription(connection)}
+        </HStack>
+      </VStack>
+      <ChevronRight aria-hidden="true" {...stylex.props(styles.chevron)} />
+    </ListCardLink>
+  );
+}
+
+function groupConnectionsByAccount(
+  integrations: readonly CapabilityIntegration[],
+  accountFor: (connection: CapabilityConnection) => CapabilityAccount
+) {
+  const groups = new Map<string, { account: CapabilityAccount; items: Array<{
+    integration: CapabilityIntegration;
+    connection: CapabilityConnection;
+  }> }>();
+  for (const integration of integrations) {
+    for (const connection of integration.connections) {
+      const account = accountFor(connection);
+      const group = groups.get(account.id) ?? { account, items: [] };
+      group.items.push({ integration, connection });
+      groups.set(account.id, group);
+    }
+  }
+  return [...groups.values()];
 }
 
 export function CapabilityIcon({

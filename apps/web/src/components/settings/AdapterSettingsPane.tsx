@@ -309,6 +309,13 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       <Button type="button" size="sm" label={actionLabel(selectedDefinition)} isLoading={oauthStartState.loading}
         onClick={() => requestAction(selectedDefinition)} />
     ) : null}
+    {selectedDefinition.connectionActions.length > 0 ? (
+      <IconButton size="sm" variant="ghost"
+        label={`Connect an account to ${selectedDefinition.displayName}`}
+        tooltip={`Connect an account to ${selectedDefinition.displayName}`}
+        icon={<Plus aria-hidden="true" {...stylex.props(styles.icon)} />}
+        onClick={() => requestConnection(selectedDefinition)} />
+    ) : null}
   </> : null;
 
   return <>
@@ -348,14 +355,15 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           kind="API"
           selectedConnectionId={connectionId}
           emptyMessage="No APIs connected."
-          integrationAction={(integration) => {
-            const definition = definitions.find((item) => item.semanticDigest === integration.sourceRevision);
-            if (!definition || definition.connectionActions.length === 0) return null;
-            return <IconButton size="sm" variant="ghost"
-              label={`Connect another account to ${integration.name}`}
-              tooltip={`Connect another account to ${integration.name}`}
-              icon={<Plus aria-hidden="true" {...stylex.props(styles.icon)} />}
-              onClick={() => requestConnection(definition)} />;
+          accountFor={(connection) => {
+            const grant = oauth.grants.find((item) => item.connectionIds.includes(connection.connectionId));
+            return grant ? {
+              id: grant.accountId ?? grant.grantId,
+              name: grant.accountLabel ?? "Unlabeled account"
+            } : {
+              id: connection.connectionId,
+              name: connection.name
+            };
           }}
         /> : null}
         {availableDefinitions.length > 0 ? <SettingsSection aria-labelledby="available-api-title"><VStack gap={2}>
