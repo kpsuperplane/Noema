@@ -291,16 +291,24 @@ export function CapabilityIcon({
 function CapabilityGlyph({ kind, definitionId }: { kind: "API" | "MCP"; definitionId: string }) {
   const iconProps = stylex.props(styles.icon);
   if (kind === "MCP") return <Plug {...iconProps} />;
-  if (definitionId === "definition:google_calendar") return <CalendarDays {...iconProps} />;
-  if (["definition:google_docs", "definition:google_docs_read_edit"].includes(definitionId)) {
-    return <FileText {...iconProps} />;
-  }
-  if (definitionId === "definition:google_drive") return <HardDrive {...iconProps} />;
-  if (["definition:google_gmail", "definition:gmail_read_search_drafts"].includes(definitionId)) {
-    return <Mail {...iconProps} />;
-  }
-  return <Braces {...iconProps} />;
+  const terms = definitionId
+    .replace(/([a-z\d])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z\d]+/)
+    .filter(Boolean);
+  const rule = API_ICON_RULES.find(({ keywords }) =>
+    terms.some((term) => keywords.some((keyword) => term === keyword || term.endsWith(keyword)))
+  );
+  const Glyph = rule?.Glyph ?? Braces;
+  return <Glyph {...iconProps} />;
 }
+
+const API_ICON_RULES = [
+  { keywords: ["calendar", "schedule"], Glyph: CalendarDays },
+  { keywords: ["doc", "docs", "document", "documents"], Glyph: FileText },
+  { keywords: ["drive", "storage"], Glyph: HardDrive },
+  { keywords: ["mail", "email", "inbox"], Glyph: Mail }
+] as const;
 
 function connectionDescription(connection: CapabilityIntegration["connections"][number]) {
   if (connectionNeedsAuthorization(connection.authStatus)) return "Authorization required";
