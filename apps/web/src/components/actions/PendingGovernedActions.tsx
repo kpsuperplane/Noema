@@ -647,7 +647,7 @@ function AdapterDefinitionCard({
             />
           </Dialog>
           <AdapterCredentialSetupDialog
-            title={nextKind === "import_application" ? `Import ${definition.displayName} OAuth client` : undefined}
+            title={nextKind === "import_application" ? "Import OAuth client" : undefined}
             serviceName={definition.displayName}
             setup={setup}
             scopes={definition.scopes}

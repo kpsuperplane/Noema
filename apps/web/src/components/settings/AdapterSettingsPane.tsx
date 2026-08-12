@@ -362,13 +362,6 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
                 <p {...stylex.props(styles.muted)}>
                   OAuth clients hold provider setup for account authorization. Most people do not need to manage them here.
                 </p>
-                <HStack gap={1} wrap="wrap">
-                  {oauth.profiles.map((profile) => <Button key={profile.profileDigest} type="button" size="sm" variant="secondary"
-                    label={oauth.applications.some((application) => application.profileDigest === profile.profileDigest)
-                      ? `Import another ${profile.displayName} OAuth client`
-                      : `Import ${profile.displayName} OAuth client`}
-                    onClick={() => setApplicationProfileDigest(profile.profileDigest)} />)}
-                </HStack>
                 <SettingsList density="compact" hasDividers>
                   {oauth.applications.map((application) => (
                     <SettingsListItem key={application.applicationId}
@@ -401,7 +394,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
         icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />} onClick={() => setDeleteOpen(true)} /> : null}
     />
     <AdapterCredentialSetupDialog
-      title={`Import ${applicationProfile?.displayName ?? "provider"} OAuth client`}
+      title="Import OAuth client"
       serviceName={applicationProfile?.displayName ?? "OAuth client"}
       setup={applicationProfile?.credentialSetup} scopes={[]} open={applicationProfile !== null}
       submitting={applicationImportState.loading} error={error}

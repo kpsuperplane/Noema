@@ -731,7 +731,6 @@ private struct CapabilitySettings: View {
   @State private var labelDraft = ""
   @State private var disconnectGrant: SettingsAdapterOAuthGrant?
   @State private var replaceApplication: SettingsAdapterOAuthApplication?
-  @State private var importApplicationProfile: SettingsAdapterOAuthProfile?
   @State private var setupPresented = false
 
   var body: some View {
@@ -822,26 +821,6 @@ private struct CapabilitySettings: View {
             guard let document = submission.document,
                   await settings.replaceAdapterOAuthApplication(application, document: document) else {
               throw SettingsError.server(settings.errorMessage ?? "The OAuth client could not be replaced.")
-            }
-            await settings.loadAdapterOAuthState()
-          }
-        )
-      }
-    }
-    .sheet(item: $importApplicationProfile) { profile in
-      if let setup = profile.credentialSetup {
-        AdapterCredentialSetupSheet(
-          serviceName: profile.displayName,
-          title: "Import \(profile.displayName) OAuth client",
-          setup: setup,
-          scopes: [],
-          introduction: "Import this provider client document once. Noema can reuse it for compatible APIs and accounts.",
-          submitTitle: "Import OAuth client",
-          onClose: { importApplicationProfile = nil },
-          onSubmit: { submission in
-            guard let document = submission.document,
-                  await settings.importAdapterOAuthApplication(profileDigest: profile.profileDigest, document: document) else {
-              throw SettingsError.server(settings.errorMessage ?? "The OAuth client could not be imported.")
             }
             await settings.loadAdapterOAuthState()
           }
@@ -965,22 +944,6 @@ private struct CapabilitySettings: View {
             Text("OAuth clients hold provider setup for account authorization. Most people do not need to manage them here.")
               .font(NoemaFont.caption)
               .foregroundStyle(NoemaColor.contentSecondary)
-            if let profiles = oauth?.profiles {
-              ForEach(Array(profiles.enumerated()), id: \.element.id) { index, profile in
-                if index > 0 { SettingsRowDivider() }
-                SettingsAction(
-                  title: applications.contains { $0.profileDigest == profile.profileDigest }
-                    ? "Import another \(profile.displayName) OAuth client"
-                    : "Import \(profile.displayName) OAuth client",
-                  symbol: "doc.badge.plus",
-                  role: nil,
-                  disabled: !settings.canMutate || profile.credentialSetup == nil
-                ) {
-                  importApplicationProfile = profile
-                }
-              }
-              if !profiles.isEmpty && !applications.isEmpty { SettingsRowDivider() }
-            }
             ForEach(Array(applications.enumerated()), id: \.element.id) { index, application in
               if index > 0 { SettingsRowDivider() }
               SettingsRow {

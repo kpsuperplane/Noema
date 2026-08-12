@@ -442,10 +442,13 @@ On iPhone, use sequential sheets with the same information order.
 ### 12.2 Application setup
 
 Use the existing document importer only when no compatible application exists.
-Title this action **Import [provider] OAuth client**.
+Title this generic action **Import OAuth client**.
 
-After one client exists, expose **Import another [provider] OAuth client** in advanced setup.
-Do not expose alternate-client management in the initial empty state.
+Import a client only when the structured API connection action requires one.
+Do not expose proactive client-import actions in API Settings.
+
+Advanced setup manages existing clients only.
+It does not start provider-specific setup.
 
 Show the required redirect URI before document selection.
 Never persist selected document bytes on the device.
