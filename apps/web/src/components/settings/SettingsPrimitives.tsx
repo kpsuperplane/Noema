@@ -8,7 +8,11 @@ import {
 import { HStack } from "@astryxdesign/core/HStack";
 import { Section, type SectionProps } from "@astryxdesign/core/Section";
 import { VStack } from "@astryxdesign/core/VStack";
-import type { ReactNode } from "react";
+import { createContext, type ReactNode, useContext } from "react";
+
+type SettingsBodyTreatment = "outside" | "edge" | "inset";
+
+const SettingsBodyTreatmentContext = createContext<SettingsBodyTreatment>("outside");
 
 type SettingsSectionProps = Omit<SectionProps, "padding" | "variant" | "title"> & {
   title?: string;
@@ -51,7 +55,9 @@ export function SettingsSection({
           {action ?? (summary ? <span {...stylex.props(styles.summary)}>{summary}</span> : null)}
         </HStack>
       ) : null}
-      {children}
+      <SettingsBodyTreatmentContext value={hasHeader ? "edge" : "inset"}>
+        {children}
+      </SettingsBodyTreatmentContext>
     </Section>
   );
 }
@@ -65,7 +71,7 @@ export function SettingsSectionInset({
 }) {
   return (
     <VStack gap={2} {...stylex.props(styles.inset, divided && styles.divided)}>
-      {children}
+      <SettingsBodyTreatmentContext value="inset">{children}</SettingsBodyTreatmentContext>
     </VStack>
   );
 }
@@ -90,7 +96,9 @@ export function SettingsTechnicalDetails({
   return (
     <details {...stylex.props(styles.technicalDetails)}>
       <summary {...stylex.props(styles.technicalSummary)}>{summary}</summary>
-      <VStack gap={2} {...stylex.props(styles.technicalBody)}>{children}</VStack>
+      <VStack gap={2} {...stylex.props(styles.technicalBody)}>
+        <SettingsBodyTreatmentContext value="inset">{children}</SettingsBodyTreatmentContext>
+      </VStack>
     </details>
   );
 }
@@ -106,7 +114,7 @@ export function SettingsRowActions({ children }: { children: ReactNode }) {
 export function SettingsLocalFeedback({ children }: { children: ReactNode }) {
   return (
     <VStack gap={1} {...stylex.props(styles.feedback)}>
-      {children}
+      <SettingsBodyTreatmentContext value="inset">{children}</SettingsBodyTreatmentContext>
     </VStack>
   );
 }
@@ -150,6 +158,7 @@ export function SettingsListItem({
   mobileEndContentFullWidth = false,
   ...props
 }: SettingsListItemProps) {
+  const bodyTreatment = useContext(SettingsBodyTreatmentContext);
   const fullWidthContent = mobileEndContentFullWidth ? (
     <span {...stylex.props(styles.fullWidthContent)}>
       <span {...stylex.props(styles.fullWidthCopy)}>
@@ -166,7 +175,7 @@ export function SettingsListItem({
       description={mobileEndContentFullWidth ? undefined : description}
       endContent={mobileEndContentFullWidth ? undefined : endContent}
       xstyle={[
-        styles.item,
+        bodyTreatment === "edge" ? styles.edgeItem : styles.item,
         xstyle
       ]}
       style={style}
@@ -230,6 +239,10 @@ const styles = stylex.create({
   },
   item: {
     paddingInline: "var(--spacing-0)",
+    flexWrap: "nowrap"
+  },
+  edgeItem: {
+    paddingInline: "var(--spacing-3)",
     flexWrap: "nowrap"
   },
   fullWidthContent: {
