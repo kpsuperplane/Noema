@@ -55,6 +55,6 @@ const styles = stylex.create({
   },
   selected: {
     borderColor: "var(--noema-pine-500)",
-    boxShadow: "inset 0 0 0 1px var(--noema-pine-500), var(--shadow-low)"
+    boxShadow: "var(--shadow-low)"
   }
 });
