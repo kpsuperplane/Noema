@@ -3,7 +3,7 @@ import { Card } from "@astryxdesign/core/Card";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import * as stylex from "@stylexjs/stylex";
-import { ArrowLeft, CircleStop, Download, HardDrive, Route, SquareTerminal } from "lucide-react";
+import { ArrowLeft, ChevronRight, CircleStop, Download, HardDrive, Route, SquareTerminal } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { ErrorMarker } from "../ErrorMarker";
@@ -66,7 +66,6 @@ export function Onboarding({
 }) {
   const [apiKeyOpen, setApiKeyOpen] = useState(false);
   const [apiKey, setApiKey] = useState("");
-  const [selectedProviderKind, setSelectedProviderKind] = useState<ProviderKind | null>(null);
   const [setupProviderKind, setSetupProviderKind] = useState<ProviderKind | null>(null);
   const openRouter = providerCatalog.find((entry) => entry.providerKind === "openrouter");
   const codex = providerCatalog.find((entry) => entry.providerKind === "codex");
@@ -124,8 +123,12 @@ export function Onboarding({
             </p>
           </VStack>
 
-          <VStack as="fieldset" gap={2} {...stylex.props(styles.providerOptions)}>
-            <legend {...stylex.props(styles.visuallyHidden)}>Model provider</legend>
+          <VStack
+            gap={2}
+            role="group"
+            aria-label="Model providers"
+            {...stylex.props(styles.providerOptions)}
+          >
             <ProviderOption
               kind="local_models"
               label="Local"
@@ -135,8 +138,7 @@ export function Onboarding({
                   : "Private on this Mac. Downloads one recommended model."
               }
               icon={<HardDrive size={20} aria-hidden="true" />}
-              isSelected={selectedProviderKind === "local_models"}
-              onSelect={setSelectedProviderKind}
+              onSelect={setSetupProviderKind}
             />
             <ProviderOption
               kind="openrouter"
@@ -147,9 +149,8 @@ export function Onboarding({
                   : "Use models available through your OpenRouter account."
               }
               icon={<Route size={20} aria-hidden="true" />}
-              isSelected={selectedProviderKind === "openrouter"}
               isDisabled={!openRouter}
-              onSelect={setSelectedProviderKind}
+              onSelect={setSetupProviderKind}
             />
             <ProviderOption
               kind="codex"
@@ -160,21 +161,10 @@ export function Onboarding({
                   : "Use your existing Codex sign-in."
               }
               icon={<SquareTerminal size={20} aria-hidden="true" />}
-              isSelected={selectedProviderKind === "codex"}
               isDisabled={!codex}
-              onSelect={setSelectedProviderKind}
+              onSelect={setSetupProviderKind}
             />
           </VStack>
-
-          <Button
-            {...stylex.props(styles.primaryAction)}
-            type="button"
-            variant="primary"
-            size="lg"
-            label="Continue"
-            isDisabled={selectedProviderKind === null}
-            onClick={() => setSetupProviderKind(selectedProviderKind)}
-          />
         </VStack>
       ) : (
         <VStack gap={4} {...stylex.props(styles.stage)}>
@@ -387,7 +377,6 @@ function ProviderOption({
   label,
   description,
   icon,
-  isSelected,
   isDisabled = false,
   onSelect
 }: {
@@ -395,38 +384,27 @@ function ProviderOption({
   label: string;
   description: string;
   icon: ReactNode;
-  isSelected: boolean;
   isDisabled?: boolean;
   onSelect: (kind: ProviderKind) => void;
 }) {
   return (
-    <HStack
-      as="label"
-      gap={3}
-      vAlign="center"
-      {...stylex.props(
-        styles.providerOption,
-        isSelected && styles.providerOptionSelected,
-        isDisabled && styles.providerOptionDisabled
-      )}
+    <button
+      type="button"
+      disabled={isDisabled}
+      onClick={() => onSelect(kind)}
+      {...stylex.props(styles.providerOption, isDisabled && styles.providerOptionDisabled)}
     >
-      <HStack as="span" hAlign="center" vAlign="center" {...stylex.props(styles.providerIcon)}>
-        {icon}
+      <HStack gap={3} vAlign="center" {...stylex.props(styles.providerOptionContent)}>
+        <HStack as="span" hAlign="center" vAlign="center" {...stylex.props(styles.providerIcon)}>
+          {icon}
+        </HStack>
+        <VStack as="span" gap={0.5} {...stylex.props(styles.providerCopy)}>
+          <strong {...stylex.props(styles.providerName)}>{label}</strong>
+          <span {...stylex.props(styles.providerDescription)}>{description}</span>
+        </VStack>
+        <ChevronRight {...stylex.props(styles.providerChevron)} size={20} aria-hidden="true" />
       </HStack>
-      <VStack as="span" gap={0.5} {...stylex.props(styles.providerCopy)}>
-        <strong {...stylex.props(styles.providerName)}>{label}</strong>
-        <span {...stylex.props(styles.providerDescription)}>{description}</span>
-      </VStack>
-      <input
-        {...stylex.props(styles.providerRadio)}
-        type="radio"
-        name="model-provider"
-        value={kind}
-        checked={isSelected}
-        disabled={isDisabled}
-        onChange={() => onSelect(kind)}
-      />
-    </HStack>
+    </button>
   );
 }
 
@@ -519,12 +497,10 @@ const styles = stylex.create({
   },
   providerOptions: {
     width: "100%",
-    minWidth: 0,
-    margin: "var(--spacing-0)",
-    padding: "var(--spacing-0)",
-    borderWidth: 0
+    minWidth: 0
   },
   providerOption: {
+    appearance: "none",
     width: "100%",
     minHeight: 76,
     boxSizing: "border-box",
@@ -535,25 +511,25 @@ const styles = stylex.create({
     borderRadius: "var(--radius-container)",
     backgroundColor: {
       default: "var(--surface-raised)",
-      ":hover": "var(--surface-sunken)"
+      ":hover": "color-mix(in srgb, var(--foreground) 3%, var(--surface-raised))"
     },
     color: "var(--foreground)",
+    font: "inherit",
+    textAlign: "start",
     transitionProperty: "background-color, border-color, box-shadow",
     transitionDuration: "var(--motion-spring-micro-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
     outline: {
       default: "none",
-      ":focus-within": "2px solid var(--pine-500)"
+      ":focus-visible": "2px solid var(--pine-500)"
     },
     outlineOffset: 2
   },
-  providerOptionSelected: {
-    borderColor: "var(--pine-500)",
-    backgroundColor: "color-mix(in srgb, var(--pine-500) 8%, var(--surface-raised))",
-    boxShadow: "inset 0 0 0 1px var(--pine-500)"
-  },
   providerOptionDisabled: {
     opacity: 0.5
+  },
+  providerOptionContent: {
+    width: "100%"
   },
   providerIcon: {
     width: 40,
@@ -577,15 +553,9 @@ const styles = stylex.create({
     fontSize: "var(--font-size-sm)",
     textWrap: "pretty"
   },
-  providerRadio: {
-    width: 20,
-    height: 20,
+  providerChevron: {
     flexShrink: 0,
-    margin: "var(--spacing-0)",
-    accentColor: "var(--pine-500)"
-  },
-  primaryAction: {
-    width: "100%"
+    color: "var(--muted-foreground)"
   },
   backButton: {
     width: "fit-content",
@@ -610,18 +580,7 @@ const styles = stylex.create({
   progressAmount: { fontVariantNumeric: "tabular-nums" },
   progress: { width: "100%", accentColor: "var(--pine-500)" },
   apiKeyTrigger: { width: "100%", minHeight: 44 },
-  connected: { margin: "var(--spacing-0)", color: "var(--pine-700)" },
-  visuallyHidden: {
-    position: "absolute",
-    width: 1,
-    height: 1,
-    padding: "var(--spacing-0)",
-    margin: -1,
-    overflow: "hidden",
-    clip: "rect(0, 0, 0, 0)",
-    whiteSpace: "nowrap",
-    borderWidth: 0
-  }
+  connected: { margin: "var(--spacing-0)", color: "var(--pine-700)" }
 });
 
 function isRetryableTerminalStatus(status: ProviderAuthAttemptView["status"]) {
