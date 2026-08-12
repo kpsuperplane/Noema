@@ -2,6 +2,7 @@ import Foundation
 import Apollo
 import MarkdownUI
 import SwiftUI
+import UIKit
 
 struct ChatLaneRow<Content: View>: View {
   let lane: ChatLane
@@ -219,6 +220,14 @@ struct ChatMessageView: View {
 }
 
 private struct ChatMarkdownText: View {
+  private static let fontSize: CGFloat = 14
+  private static let webLineHeightMultiplier: CGFloat = 1.7
+  private static let lineSpacing: CGFloat = {
+    let font = UIFont(name: "HankenGrotesk-Regular", size: fontSize)
+      ?? UIFont.systemFont(ofSize: fontSize)
+    return max(0, fontSize * webLineHeightMultiplier - font.lineHeight)
+  }()
+
   let text: String
   let color: Color
 
@@ -227,7 +236,7 @@ private struct ChatMarkdownText: View {
       .frame(alignment: .leading)
       .markdownTextStyle {
         FontFamily(.custom("Hanken Grotesk"))
-        FontSize(14)
+        FontSize(Self.fontSize)
         TextKerning(-0.12)
         ForegroundColor(color)
       }
@@ -237,7 +246,7 @@ private struct ChatMarkdownText: View {
       }
       .markdownBlockStyle(\.paragraph) { configuration in
         configuration.label
-          .relativeLineSpacing(.em(0.08))
+          .lineSpacing(Self.lineSpacing)
           .markdownMargin(top: 0, bottom: NoemaSpacing.sm)
       }
   }
