@@ -33,6 +33,8 @@ import { Route as SettingsToolsMcpsConnectionIdRouteImport } from './routes/sett
 import { Route as SettingsToolsApisConnectionIdRouteImport } from './routes/settings/tools/apis_.$connectionId'
 import { Route as SettingsSystemProvidersProviderAccountIdRouteImport } from './routes/settings/system/providers_.$providerAccountId'
 import { Route as SettingsSystemClientsClientIdRouteImport } from './routes/settings/system/clients_.$clientId'
+import { Route as SettingsModelsInstallationsInstallationIdRouteImport } from './routes/settings/models.installations_.$installationId'
+import { Route as SettingsModelsCatalogModelIdRouteImport } from './routes/settings/models.catalog_.$modelId'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
@@ -159,6 +161,18 @@ const SettingsSystemClientsClientIdRoute =
     path: '/system/clients/$clientId',
     getParentRoute: () => SettingsRoute,
   } as any)
+const SettingsModelsInstallationsInstallationIdRoute =
+  SettingsModelsInstallationsInstallationIdRouteImport.update({
+    id: '/installations_/$installationId',
+    path: '/installations/$installationId',
+    getParentRoute: () => SettingsModelsRoute,
+  } as any)
+const SettingsModelsCatalogModelIdRoute =
+  SettingsModelsCatalogModelIdRouteImport.update({
+    id: '/catalog_/$modelId',
+    path: '/catalog/$modelId',
+    getParentRoute: () => SettingsModelsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -168,7 +182,7 @@ export interface FileRoutesByFullPath {
   '/memory/$': typeof MemorySplatRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
-  '/settings/models': typeof SettingsModelsRoute
+  '/settings/models': typeof SettingsModelsRouteWithChildren
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/memory/': typeof MemoryIndexRoute
   '/settings/': typeof SettingsIndexRoute
@@ -181,6 +195,8 @@ export interface FileRoutesByFullPath {
   '/settings/tools/apis': typeof SettingsToolsApisRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
+  '/settings/models/catalog/$modelId': typeof SettingsModelsCatalogModelIdRoute
+  '/settings/models/installations/$installationId': typeof SettingsModelsInstallationsInstallationIdRoute
   '/settings/system/clients/$clientId': typeof SettingsSystemClientsClientIdRoute
   '/settings/system/providers/$providerAccountId': typeof SettingsSystemProvidersProviderAccountIdRoute
   '/settings/tools/apis/$connectionId': typeof SettingsToolsApisConnectionIdRoute
@@ -191,7 +207,7 @@ export interface FileRoutesByTo {
   '/memory/$': typeof MemorySplatRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
-  '/settings/models': typeof SettingsModelsRoute
+  '/settings/models': typeof SettingsModelsRouteWithChildren
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/memory': typeof MemoryIndexRoute
   '/settings': typeof SettingsIndexRoute
@@ -204,6 +220,8 @@ export interface FileRoutesByTo {
   '/settings/tools/apis': typeof SettingsToolsApisRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
+  '/settings/models/catalog/$modelId': typeof SettingsModelsCatalogModelIdRoute
+  '/settings/models/installations/$installationId': typeof SettingsModelsInstallationsInstallationIdRoute
   '/settings/system/clients/$clientId': typeof SettingsSystemClientsClientIdRoute
   '/settings/system/providers/$providerAccountId': typeof SettingsSystemProvidersProviderAccountIdRoute
   '/settings/tools/apis/$connectionId': typeof SettingsToolsApisConnectionIdRoute
@@ -218,7 +236,7 @@ export interface FileRoutesById {
   '/memory/$': typeof MemorySplatRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
-  '/settings/models': typeof SettingsModelsRoute
+  '/settings/models': typeof SettingsModelsRouteWithChildren
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/memory/': typeof MemoryIndexRoute
   '/settings/': typeof SettingsIndexRoute
@@ -231,6 +249,8 @@ export interface FileRoutesById {
   '/settings/tools/apis': typeof SettingsToolsApisRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
+  '/settings/models/catalog_/$modelId': typeof SettingsModelsCatalogModelIdRoute
+  '/settings/models/installations_/$installationId': typeof SettingsModelsInstallationsInstallationIdRoute
   '/settings/system/clients_/$clientId': typeof SettingsSystemClientsClientIdRoute
   '/settings/system/providers_/$providerAccountId': typeof SettingsSystemProvidersProviderAccountIdRoute
   '/settings/tools/apis_/$connectionId': typeof SettingsToolsApisConnectionIdRoute
@@ -259,6 +279,8 @@ export interface FileRouteTypes {
     | '/settings/tools/apis'
     | '/settings/tools/mcps'
     | '/settings/tools/web'
+    | '/settings/models/catalog/$modelId'
+    | '/settings/models/installations/$installationId'
     | '/settings/system/clients/$clientId'
     | '/settings/system/providers/$providerAccountId'
     | '/settings/tools/apis/$connectionId'
@@ -282,6 +304,8 @@ export interface FileRouteTypes {
     | '/settings/tools/apis'
     | '/settings/tools/mcps'
     | '/settings/tools/web'
+    | '/settings/models/catalog/$modelId'
+    | '/settings/models/installations/$installationId'
     | '/settings/system/clients/$clientId'
     | '/settings/system/providers/$providerAccountId'
     | '/settings/tools/apis/$connectionId'
@@ -308,6 +332,8 @@ export interface FileRouteTypes {
     | '/settings/tools/apis'
     | '/settings/tools/mcps'
     | '/settings/tools/web'
+    | '/settings/models/catalog_/$modelId'
+    | '/settings/models/installations_/$installationId'
     | '/settings/system/clients_/$clientId'
     | '/settings/system/providers_/$providerAccountId'
     | '/settings/tools/apis_/$connectionId'
@@ -491,6 +517,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsSystemClientsClientIdRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/models/installations_/$installationId': {
+      id: '/settings/models/installations_/$installationId'
+      path: '/installations/$installationId'
+      fullPath: '/settings/models/installations/$installationId'
+      preLoaderRoute: typeof SettingsModelsInstallationsInstallationIdRouteImport
+      parentRoute: typeof SettingsModelsRoute
+    }
+    '/settings/models/catalog_/$modelId': {
+      id: '/settings/models/catalog_/$modelId'
+      path: '/catalog/$modelId'
+      fullPath: '/settings/models/catalog/$modelId'
+      preLoaderRoute: typeof SettingsModelsCatalogModelIdRouteImport
+      parentRoute: typeof SettingsModelsRoute
+    }
   }
 }
 
@@ -507,10 +547,25 @@ const MemoryRouteChildren: MemoryRouteChildren = {
 const MemoryRouteWithChildren =
   MemoryRoute._addFileChildren(MemoryRouteChildren)
 
+interface SettingsModelsRouteChildren {
+  SettingsModelsCatalogModelIdRoute: typeof SettingsModelsCatalogModelIdRoute
+  SettingsModelsInstallationsInstallationIdRoute: typeof SettingsModelsInstallationsInstallationIdRoute
+}
+
+const SettingsModelsRouteChildren: SettingsModelsRouteChildren = {
+  SettingsModelsCatalogModelIdRoute: SettingsModelsCatalogModelIdRoute,
+  SettingsModelsInstallationsInstallationIdRoute:
+    SettingsModelsInstallationsInstallationIdRoute,
+}
+
+const SettingsModelsRouteWithChildren = SettingsModelsRoute._addFileChildren(
+  SettingsModelsRouteChildren,
+)
+
 interface SettingsRouteChildren {
   SettingsAgentsRoute: typeof SettingsAgentsRoute
   SettingsMemoryRoute: typeof SettingsMemoryRoute
-  SettingsModelsRoute: typeof SettingsModelsRoute
+  SettingsModelsRoute: typeof SettingsModelsRouteWithChildren
   SettingsIndexRoute: typeof SettingsIndexRoute
   SettingsSafetyPrivacyRoute: typeof SettingsSafetyPrivacyRoute
   SettingsSafetyUsageRoute: typeof SettingsSafetyUsageRoute
@@ -529,7 +584,7 @@ interface SettingsRouteChildren {
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAgentsRoute: SettingsAgentsRoute,
   SettingsMemoryRoute: SettingsMemoryRoute,
-  SettingsModelsRoute: SettingsModelsRoute,
+  SettingsModelsRoute: SettingsModelsRouteWithChildren,
   SettingsIndexRoute: SettingsIndexRoute,
   SettingsSafetyPrivacyRoute: SettingsSafetyPrivacyRoute,
   SettingsSafetyUsageRoute: SettingsSafetyUsageRoute,

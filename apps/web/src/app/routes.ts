@@ -45,7 +45,7 @@ export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/settings/memory") {
     return { kind: "settings", section: "memory" };
   }
-  if (pathname === "/settings/models") {
+  if (pathname === "/settings/models" || pathname.startsWith("/settings/models/")) {
     return { kind: "settings", section: "models" };
   }
   if (pathname === "/settings" || pathname === "/settings/agents") {

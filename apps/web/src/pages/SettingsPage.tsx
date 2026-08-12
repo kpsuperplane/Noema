@@ -21,6 +21,8 @@ type SettingsSurfaceProps = {
   connectionId?: string;
   providerAccountId?: string;
   clientId?: string;
+  installationId?: string;
+  modelId?: string;
 };
 
 const settingsSectionCopy: Record<SettingsSection, { title: string }> = {
@@ -37,12 +39,20 @@ const settingsSectionCopy: Record<SettingsSection, { title: string }> = {
   "system-clients": { title: "Clients" }
 };
 
-export function SettingsSurface({ section, connectionId, providerAccountId, clientId }: SettingsSurfaceProps) {
+export function SettingsSurface({
+  section,
+  connectionId,
+  providerAccountId,
+  clientId,
+  installationId,
+  modelId
+}: SettingsSurfaceProps) {
   const copy = settingsSectionCopy[section];
   const isManagement = section === "tools-apis"
     || section === "tools-mcps"
     || section === "system-providers"
-    || section === "system-clients";
+    || section === "system-clients"
+    || section === "models";
 
   return (
     <ShellPageLayout width={isManagement ? "fluid" : "centered"}>
@@ -63,6 +73,8 @@ export function SettingsSurface({ section, connectionId, providerAccountId, clie
               connectionId={connectionId}
               providerAccountId={providerAccountId}
               clientId={clientId}
+              installationId={installationId}
+              modelId={modelId}
             />
           </StackItem>
         ) : (
@@ -77,12 +89,19 @@ export function SettingsSurface({ section, connectionId, providerAccountId, clie
   );
 }
 
-function SettingsSectionPane({ section, connectionId, providerAccountId, clientId }: SettingsSurfaceProps) {
+function SettingsSectionPane({
+  section,
+  connectionId,
+  providerAccountId,
+  clientId,
+  installationId,
+  modelId
+}: SettingsSurfaceProps) {
   switch (section) {
     case "agents":
       return <AgentsSettingsPane />;
     case "models":
-      return <LocalModelsSettingsPane />;
+      return <LocalModelsSettingsPane installationId={installationId} modelId={modelId} />;
     case "memory":
       return <MemorySettingsPane />;
     case "tools-web":
