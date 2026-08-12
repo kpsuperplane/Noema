@@ -45,16 +45,9 @@ pub fn setup_credential(
         AuthenticationSchemeV4::Credential(config) if callback_mode.is_none() => {
             (&config.setup, None)
         }
-        AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(config) => {
-            let mode = callback_mode.ok_or(AdapterCredentialImportError::Unsupported)?;
-            let setup = config
-                .setups
-                .iter()
-                .find(|setup| setup.callback_mode == mode)
-                .ok_or(AdapterCredentialImportError::Unsupported)?;
-            (&setup.setup, Some(mode))
-        }
-        AuthenticationSchemeV4::None | AuthenticationSchemeV4::Credential(_) => {
+        AuthenticationSchemeV4::None
+        | AuthenticationSchemeV4::Credential(_)
+        | AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(_) => {
             return Err(AdapterCredentialImportError::Unsupported);
         }
     };
@@ -165,7 +158,7 @@ mod tests {
 
     fn oauth_definition() -> CompiledAdapterDefinition {
         let manifest: AdapterManifest = serde_json::from_value(json!({
-            "schema_version": 8,
+            "schema_version": 9,
             "definition_id": "definition:google_web",
             "adapter_id": "google_web",
             "definition_revision": "v1",
@@ -173,22 +166,11 @@ mod tests {
             "origin": "https://api.example.test/",
             "authentication": {
                 "kind": "oauth2_authorization_code_pkce",
-                "scopes": ["calendar.read"],
-                "authorization_endpoint": "https://accounts.example.test/authorize",
-                "token_endpoint": "https://accounts.example.test/token",
-                "client_authentication": "client_secret_post",
-                "setups": [{"callback_mode": "hosted", "setup": {
-                    "credential_type": "Web application",
-                    "setup_url": "https://developers.example.test/oauth/clients/new",
-                    "instructions": ["Create a Web application client."],
-                    "input": {"kind": "document", "media_type": "application/json", "fields": [
-                        {"id": "client_id", "label": "Client ID"}, {"id": "client_secret", "label": "Client secret"}
-                    ], "normalize": {"language": "luau", "source": "return function(input) local d = json.decode(input.document) return { client_id = d.web.client_id, client_secret = d.web.client_secret } end"}}
-                }}],
-                "extra_authorization_parameters": {}
+                "profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             },
             "operations": [{
                 "operation_id": "list", "description": "List items.", "method": "GET", "path": "/v1/items",
+                "authorization": {"kind": "oauth_scopes", "accepted_scope_sets": [["calendar.read"]]},
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "transport_safe_read", "pagination": {"kind": "none"},
                 "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
@@ -198,39 +180,17 @@ mod tests {
     }
 
     #[test]
-    fn callback_specific_document_normalization_is_private_and_exact() {
+    fn oauth_documents_are_not_imported_as_connection_credentials() {
         let definition = oauth_definition();
-        let credential = setup_credential(
-            &definition,
-            Some(Oauth2CallbackMode::Hosted),
-            BTreeMap::new(),
-            Some(br#"{"web":{"client_id":"client-marker","client_secret":"secret-marker"}}"#),
-            "a".repeat(32),
-        )
-        .expect("hosted credential");
-        assert!(!format!("{credential:?}").contains("secret-marker"));
-        assert!(matches!(
-            credential.material,
-            AdapterCredentialMaterial::Oauth2ClientMetadata {
-                callback_mode: Oauth2CallbackMode::Hosted,
-                ..
-            }
-        ));
-        for invalid in [
-            br#"{"installed":{"client_id":"desktop","client_secret":"secret"}}"#.as_slice(),
-            br#"{"web":{"client_id":"client-marker"}}"#.as_slice(),
-            br#"{"web":{"client_id":"client-marker","client_secret":"secret"},"web":{"client_id":"duplicate","client_secret":"secret"}}"#.as_slice(),
-        ] {
-            assert_eq!(
-                setup_credential(
-                    &definition,
-                    Some(Oauth2CallbackMode::Hosted),
-                    BTreeMap::new(),
-                    Some(invalid),
-                    "b".repeat(32),
-                ),
-                Err(AdapterCredentialImportError::Invalid)
-            );
-        }
+        assert_eq!(
+            setup_credential(
+                &definition,
+                Some(Oauth2CallbackMode::Hosted),
+                BTreeMap::new(),
+                Some(br#"{"web":{"client_id":"client-marker","client_secret":"secret-marker"}}"#),
+                "a".repeat(32),
+            ),
+            Err(AdapterCredentialImportError::Unsupported)
+        );
     }
 }

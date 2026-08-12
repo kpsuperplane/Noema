@@ -122,8 +122,11 @@ fn fixture_with_options(
 ) -> Fixture {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let profile = crate::OauthAuthorityStore::new(paths.clone())
+        .install_profile(&oauth_profile())
+        .expect("OAuth profile");
     let mut manifest: AdapterManifest = serde_json::from_value(json!({
-        "schema_version": 8,
+        "schema_version": 9,
         "definition_id": "definition:invocation_fixture",
         "adapter_id": "invocation_fixture",
         "definition_revision": "v1",
@@ -147,6 +150,7 @@ fn fixture_with_options(
             "description": "Get one item.",
             "method": "GET",
             "path": "/v1/items/{item_id}",
+            "authorization": {"kind": "none"},
             "fixed_headers": {"accept": "application/json"},
             "arguments": [
                 {"name": "item_id", "description": "Item identifier.", "location": "path", "type": "string", "required": true},
@@ -168,6 +172,7 @@ fn fixture_with_options(
             "description": "Create one item.",
             "method": "POST",
             "path": "/v1/items",
+            "authorization": {"kind": "none"},
             "arguments": [
                 {"name": "title", "description": "Title for the new item.", "location": "json_body", "type": "string", "required": true}
             ],
@@ -182,6 +187,11 @@ fn fixture_with_options(
     }))
     .expect("manifest");
     configure(&mut manifest);
+    if let crate::AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(authentication) =
+        &mut manifest.authentication
+    {
+        authentication.profile_digest = profile.profile_digest;
+    }
     let definition = AdapterDefinitionStore::new(paths.clone())
         .install(&manifest, "fixture://company-a/items.json", None, None)
         .expect("definition");
@@ -204,7 +214,7 @@ fn fixture_with_options(
         },
         credential_generation: Some(generation_id.clone()),
         granted_scopes: oauth_expiry
-            .map(|_| definition.compiled.authentication.scopes().to_vec())
+            .map(|_| vec!["items.read".to_string()])
             .unwrap_or_default(),
         allowed_operations: vec!["create_item".to_string(), "get_item".to_string()],
         policy: Some(noema_capabilities::CapabilityConnectionPolicy {
@@ -255,6 +265,29 @@ fn fixture_with_options(
     (home, service, http, connection_id)
 }
 
+fn oauth_profile() -> crate::OauthProfileV1 {
+    serde_json::from_value(json!({
+        "schema_version": 1,
+        "profile_id": "oauth:invocation-test",
+        "display_name": "Invocation test OAuth",
+        "authorization_endpoint": "https://auth.example.test/authorize",
+        "token_endpoint": "https://auth.example.test/token",
+        "client_authentication": "none",
+        "setups": [{"callback_mode": "loopback", "setup": {
+            "credential_type": "Desktop app",
+            "setup_url": "https://developers.example.test/oauth/clients/new",
+            "instructions": ["Create an OAuth client."],
+            "input": {"kind": "document", "media_type": "application/json", "fields": [{"id": "client_id", "label": "Client ID"}], "normalize": {"language": "luau", "source": "return function(input) return { client_id = 'client' } end"}}
+        }}],
+        "authorization_parameters": {},
+        "account_selection_parameters": {},
+        "grant_audience": "items",
+        "omitted_scope_policy": "requested_scopes",
+        "preserve_refresh_token_on_expansion": true
+    }))
+    .expect("OAuth profile")
+}
+
 fn oauth_fixture(
     outcome: Result<AdapterHttpResponse, AdapterHttpError>,
     expires_at_epoch_seconds: u64,
@@ -266,30 +299,14 @@ fn oauth_fixture(
         |manifest| {
             manifest.authentication = serde_json::from_value(json!({
                 "kind": "oauth2_authorization_code_pkce",
-                "scopes": ["items.read"],
-                "authorization_endpoint": "https://auth.example.test/authorize",
-                "token_endpoint": "https://auth.example.test/token",
-                "client_authentication": "none",
-                "setups": [{
-                    "callback_mode": "loopback",
-                    "setup": {
-                        "credential_type": "Desktop app",
-                        "setup_url": "https://developers.example.test/oauth/clients/new",
-                        "instructions": ["Create an OAuth client."],
-                        "input": {
-                            "kind": "document",
-                            "media_type": "application/json",
-                            "fields": [{"id": "client_id", "label": "Client ID"}],
-                            "normalize": {
-                                "language": "luau",
-                                "source": "return function(input) return { client_id = 'client' } end"
-                            }
-                        }
-                    }
-                }],
-                "extra_authorization_parameters": {}
+                "profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             }))
             .expect("OAuth authentication");
+            for operation in &mut manifest.operations {
+                operation.authorization = crate::OperationAuthorization::OauthScopes {
+                    accepted_scope_sets: vec![vec!["items.read".to_string()]],
+                };
+            }
         },
         Some(expires_at_epoch_seconds),
     );

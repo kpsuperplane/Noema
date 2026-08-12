@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 fn definition() -> CompiledAdapterDefinition {
     let manifest: AdapterManifest = serde_json::from_value(json!({
-        "schema_version": 8,
+        "schema_version": 9,
         "definition_id": "definition:oauth",
         "adapter_id": "oauth",
         "definition_revision": "v1",
@@ -13,11 +13,33 @@ fn definition() -> CompiledAdapterDefinition {
         "origin": "https://api.example.test/",
         "authentication": {
             "kind": "oauth2_authorization_code_pkce",
-            "scopes": ["read", "write"],
-            "authorization_endpoint": "https://auth.example.test/authorize",
-            "token_endpoint": "https://auth.example.test/token",
-            "client_authentication": "none",
-            "setups": [
+            "profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "operations": [{
+            "operation_id": "read",
+            "description": "Read the current resource.",
+            "method": "GET",
+            "path": "/v1/read",
+            "authorization": {"kind": "oauth_scopes", "accepted_scope_sets": [["read", "write"]]},
+            "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
+            "retry": "never",
+            "pagination": {"kind": "none"},
+            "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
+        }]
+    }))
+    .expect("manifest");
+    AdapterCompiler::compile(&manifest).expect("compile")
+}
+
+fn profile() -> OauthProfileV1 {
+    serde_json::from_value(json!({
+        "schema_version": 1,
+        "profile_id": "oauth:test",
+        "display_name": "Test OAuth",
+        "authorization_endpoint": "https://auth.example.test/authorize",
+        "token_endpoint": "https://auth.example.test/token",
+        "client_authentication": "none",
+        "setups": [
                 {"callback_mode": "loopback", "setup": {
                     "credential_type": "Desktop app", "setup_url": "https://developers.example.test/oauth/clients/new",
                     "instructions": ["Create a Desktop app client."],
@@ -31,21 +53,13 @@ fn definition() -> CompiledAdapterDefinition {
                         "normalize": {"language": "luau", "source": "return function(input) local d = json.decode(input.document) return { client_id = d.web.client_id } end"}}
                 }}
             ],
-            "extra_authorization_parameters": {"prompt": "consent"}
-        },
-        "operations": [{
-            "operation_id": "read",
-            "description": "Read the current resource.",
-            "method": "GET",
-            "path": "/v1/read",
-            "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
-            "retry": "never",
-            "pagination": {"kind": "none"},
-            "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
-        }]
+        "authorization_parameters": {"prompt": "consent"},
+        "account_selection_parameters": {"prompt": "select_account"},
+        "grant_audience": "test-api",
+        "omitted_scope_policy": "requested_scopes",
+        "preserve_refresh_token_on_expansion": true
     }))
-    .expect("manifest");
-    AdapterCompiler::compile(&manifest).expect("compile")
+    .expect("profile")
 }
 
 fn authority(definition: &CompiledAdapterDefinition) -> AdapterOAuthAuthorityV1 {
@@ -55,6 +69,7 @@ fn authority(definition: &CompiledAdapterDefinition) -> AdapterOAuthAuthorityV1 
         account_id: Some("account:synthetic".to_string()),
         account_kind: "personal".to_string(),
         semantic_digest: definition.semantic_digest.to_string(),
+        profile_digest: "a".repeat(64),
         connection_revision: 1,
         credential_revision: 0,
         grant_revision: 1,
@@ -82,12 +97,18 @@ fn start_with(
 ) -> Result<AdapterOAuthAttempt, AdapterOAuthError> {
     AdapterOAuthAttempt::start_with_random(
         definition,
-        "client-synthetic",
-        authority,
-        callback_mode,
-        redirect_uri,
-        100,
-        300,
+        &profile(),
+        AdapterOAuthStart {
+            profile_digest: &"a".repeat(64),
+            target_scopes: &["read".to_string(), "write".to_string()],
+            select_account: false,
+            client_id: "client-synthetic",
+            authority,
+            callback_mode,
+            redirect_uri,
+            now_epoch_seconds: 100,
+            ttl_seconds: 300,
+        },
         &[random_byte; RANDOM_BYTES],
     )
 }

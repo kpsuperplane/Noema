@@ -88,6 +88,16 @@ impl AdapterCatalogCompiler {
                 )?;
                 match descriptor.status {
                     crate::AdapterConnectionStatus::Active => {
+                        if !operation
+                            .authorization
+                            .is_satisfied_by(&descriptor.granted_scopes)
+                        {
+                            notices.push(CapabilityAvailabilityNotice {
+                                capability: Some(canonical_name),
+                                status: CapabilityAvailabilityStatus::AuthenticationRequired,
+                            });
+                            continue;
+                        }
                         let Some(connection_policy) = descriptor.policy else {
                             notices.push(CapabilityAvailabilityNotice {
                                 capability: Some(canonical_name),

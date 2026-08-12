@@ -16,7 +16,7 @@ fn fixture() -> (
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let manifest: AdapterManifest = serde_json::from_value(serde_json::json!({
-        "schema_version": 8,
+        "schema_version": 9,
         "definition_id": "definition:synthetic_tasks",
         "adapter_id": "synthetic_tasks",
         "display_name": "Synthetic Tasks",
@@ -25,17 +25,7 @@ fn fixture() -> (
         "origin": "https://api.example.test/",
         "authentication": {
             "kind": "oauth2_authorization_code_pkce",
-            "scopes": ["https://scope.example/tasks.read"],
-            "authorization_endpoint": "https://auth.example.test/authorize",
-            "token_endpoint": "https://auth.example.test/token",
-            "client_authentication": "none",
-            "setups": [{"callback_mode": "loopback", "setup": {
-                "credential_type": "Desktop app", "setup_url": "https://developers.example.test/oauth/clients/new",
-                "instructions": ["Create a Desktop app client."],
-                "input": {"kind": "document", "media_type": "application/json", "fields": [{"id": "client_id", "label": "Client ID"}],
-                    "normalize": {"language": "luau", "source": "return function(input) local d = json.decode(input.document) return { client_id = d.client_id } end"}}
-            }}],
-            "extra_authorization_parameters": {}
+            "profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "operations": [
             {
@@ -43,6 +33,7 @@ fn fixture() -> (
                 "description": "List available items.",
                 "method": "GET",
                 "path": "/v1/items",
+                "authorization": {"kind": "oauth_scopes", "accepted_scope_sets": [["https://scope.example/tasks.read"]]},
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "transport_safe_read",
                 "pagination": {"kind": "none"},
@@ -53,6 +44,7 @@ fn fixture() -> (
                 "description": "Create an item.",
                 "method": "POST",
                 "path": "/v1/items",
+                "authorization": {"kind": "oauth_scopes", "accepted_scope_sets": [["https://scope.example/tasks.write"]]},
                 "behavior": {"readOnly": {"value": false, "source": "model"}, "idempotent": {"value": false, "source": "model"}, "destructive": {"value": true, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "never",
                 "pagination": {"kind": "none"},
@@ -283,6 +275,10 @@ fn risky_tool_uses_the_connection_review_policy() {
     );
     let mut descriptor = installed.descriptor;
     descriptor.allowed_operations = vec!["create_item".to_string(), "list_items".to_string()];
+    descriptor.granted_scopes = vec![
+        "https://scope.example/tasks.read".to_string(),
+        "https://scope.example/tasks.write".to_string(),
+    ];
     descriptor.policy = Some(noema_capabilities::CapabilityConnectionPolicy {
         data_sharing: noema_capabilities::CapabilityDataSharingPolicy::AllowAutomatically,
         unsafe_actions: noema_capabilities::CapabilityUnsafeActionPolicy::AlwaysAsk,

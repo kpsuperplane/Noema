@@ -77,10 +77,13 @@ vertical slice or a net-negative reduction.
 - Adapter definitions are filesystem-canonical and written only through Noema;
   the running service executes an immutable compiled registry refreshed by
   managed definition changes. The body-free SQLite projection is disposable.
-  Current manifests use strict schema version 8.
+  Current manifests use strict schema version 9. OAuth definitions reference
+  one exact reviewed profile. Each OAuth operation declares accepted scope sets.
 - Reusable OAuth work is active under the committed architecture plan. Reviewed
   profiles, applications, external accounts, and grants now have separate
   filesystem authorities. Client secrets and tokens use protected generations.
+- Catalog compilation enables only operations covered by current granted
+  scopes. It calculates the smallest exact scope target for selected operations.
 - SQLite schema version 38 adds rebuildable public OAuth projections. It also
   supersedes active adapter authentication requests from the replaced model.
 - The active reviewed Calendar definition has all 12 current operations,

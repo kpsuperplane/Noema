@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterManifest {
     let proposal = &candidate.operations[0];
     AdapterManifest {
-        schema_version: 8,
+        schema_version: 9,
         definition_id: "fixture:openapi".to_string(),
         adapter_id: "openapi-fixture".to_string(),
         display_name: Some(candidate.title.clone()),
@@ -24,6 +24,7 @@ fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterMan
             source_description: proposal.source_description.clone(),
             method: proposal.method,
             path: proposal.path.clone(),
+            authorization: crate::OperationAuthorization::None,
             fixed_headers: proposal.fixed_headers.clone(),
             fixed_query: BTreeMap::new(),
             arguments: proposal

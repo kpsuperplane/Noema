@@ -241,6 +241,7 @@ async fn sqlite_rebuilds_the_complete_public_oauth_authority_hierarchy() {
                 grant_audience: "google-apis".into(),
                 omitted_scope_policy: OauthScopeResponsePolicy::RequireScope,
                 preserve_refresh_token_on_expansion: true,
+                account_identity: None,
             },
         }],
         applications: vec![OauthApplicationV1 {

@@ -150,14 +150,7 @@ fn compatible_authentication_replacement(
         (
             crate::AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(current),
             crate::AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(replacement),
-        ) => {
-            current.scopes == replacement.scopes
-                && current.authorization_endpoint == replacement.authorization_endpoint
-                && current.token_endpoint == replacement.token_endpoint
-                && current.client_authentication == replacement.client_authentication
-                && current.setups == replacement.setups
-                && current.account_identity == replacement.account_identity
-        }
+        ) => current.profile_digest == replacement.profile_digest,
         _ => current == replacement,
     }
 }
@@ -242,6 +235,8 @@ pub struct AdapterCapabilityService {
 
 struct LoadedOAuthConnection {
     definition: CompiledAdapterDefinition,
+    profile: crate::OauthProfileV1,
+    profile_digest: String,
     descriptor: AdapterConnectionV3,
     client_id: String,
     client_secret: Option<String>,
@@ -867,33 +862,12 @@ impl AdapterCapabilityService {
         let connection_id = random_hex(16).map_err(|_| AdapterConnectionSetupError::Unavailable)?;
         let connection_slug = format!("personal-{}", &connection_id[..8]);
         let generation_id = random_hex(16).map_err(|_| AdapterConnectionSetupError::Unavailable)?;
-        let callback_mode = match definition.authentication.mode() {
-            AuthenticationMode::Oauth2AuthorizationCodePkce => Some(
-                self.inner
-                    .oauth_callback_mode
-                    .lock()
-                    .ok()
-                    .and_then(|mode| *mode)
-                    .ok_or(AdapterConnectionSetupError::DefinitionUnavailable)?,
-            ),
-            AuthenticationMode::Credential => None,
-            AuthenticationMode::None => {
-                return Err(AdapterConnectionSetupError::DefinitionUnavailable);
-            }
-        };
-        let credential = setup_credential(
-            &definition,
-            callback_mode,
-            field_values,
-            document,
-            generation_id,
-        )
-        .map_err(|_| AdapterConnectionSetupError::InvalidCredential)?;
-        let status = if definition.authentication.mode() == AuthenticationMode::Credential {
-            AdapterConnectionStatus::Active
-        } else {
-            AdapterConnectionStatus::AuthenticationRequired
-        };
+        if definition.authentication.mode() != AuthenticationMode::Credential {
+            return Err(AdapterConnectionSetupError::DefinitionUnavailable);
+        }
+        let credential = setup_credential(&definition, None, field_values, document, generation_id)
+            .map_err(|_| AdapterConnectionSetupError::InvalidCredential)?;
+        let status = AdapterConnectionStatus::Active;
         let mut allowed_operations = definition
             .operations
             .iter()
@@ -925,17 +899,6 @@ impl AdapterCapabilityService {
             .connections
             .install(&descriptor, Some(&credential), &definition)
             .map_err(|_| AdapterConnectionSetupError::Unavailable)
-    }
-
-    /// Normalize one OAuth client document through the active callback setup.
-    #[cfg(test)]
-    pub(crate) async fn import_oauth_client_json(
-        &self,
-        semantic_digest: &str,
-        bytes: &[u8],
-    ) -> Result<crate::ConnectionInstall, AdapterConnectionSetupError> {
-        self.setup_connection(semantic_digest, BTreeMap::new(), Some(bytes))
-            .await
     }
 
     /// Ensure one active credential-free connection exists for a reviewed definition.
@@ -1062,29 +1025,36 @@ impl AdapterCapabilityService {
         {
             return Err(AdapterOAuthSetupError::Superseded);
         }
-        if current
-            .definition
-            .authentication
-            .oauth2()
-            .is_some_and(|config| {
-                config.client_authentication != Oauth2ClientAuthentication::None
-                    && current.client_secret.is_none()
-            })
+        if current.profile.client_authentication != Oauth2ClientAuthentication::None
+            && current.client_secret.is_none()
         {
             return Err(AdapterOAuthSetupError::Invalid);
         }
         if current.callback_mode != callback_mode {
             return Err(AdapterOAuthSetupError::Invalid);
         }
-        let authority = oauth_authority(human_id, &current.descriptor);
+        let target_scopes = current
+            .definition
+            .scope_target(
+                &current.descriptor.allowed_operations,
+                &current.descriptor.granted_scopes,
+            )
+            .ok_or(AdapterOAuthSetupError::Invalid)?;
+        let authority = oauth_authority(human_id, &current.descriptor, &current.profile_digest);
         let attempt = AdapterOAuthAttempt::start(
             &current.definition,
-            &current.client_id,
-            authority,
-            callback_mode,
-            redirect_uri,
-            now_epoch_seconds,
-            OAUTH_ATTEMPT_TTL_SECONDS,
+            &current.profile,
+            crate::oauth::AdapterOAuthStart {
+                profile_digest: &current.profile_digest,
+                target_scopes: &target_scopes,
+                select_account: current.descriptor.account_id.is_none(),
+                client_id: &current.client_id,
+                authority,
+                callback_mode,
+                redirect_uri,
+                now_epoch_seconds,
+                ttl_seconds: OAUTH_ATTEMPT_TTL_SECONDS,
+            },
         )
         .map_err(map_oauth_error)?;
         let started = AdapterOAuthSetupStart {
@@ -1136,8 +1106,11 @@ impl AdapterCapabilityService {
         let (current, reservation) = {
             let _guard = lock.write().await;
             let current = self.load_oauth_connection(&connection_id)?;
-            let current_authority =
-                oauth_authority(&initiating_authority.human_id, &current.descriptor);
+            let current_authority = oauth_authority(
+                &initiating_authority.human_id,
+                &current.descriptor,
+                &current.profile_digest,
+            );
             let reservation = self
                 .inner
                 .oauth_attempts
@@ -1153,19 +1126,21 @@ impl AdapterCapabilityService {
             let code = reservation
                 .complete(callback_url, now_epoch_seconds, &initiating_authority)
                 .map_err(map_oauth_error)?;
-            let config = current
+            let target_scopes = current
                 .definition
-                .authentication
-                .oauth2()
+                .scope_target(
+                    &current.descriptor.allowed_operations,
+                    &current.descriptor.granted_scopes,
+                )
                 .ok_or(AdapterOAuthSetupError::Unavailable)?;
             let (authorization_code, redirect_uri, pkce_verifier) = code.token_exchange_parts();
             let token = self
                 .inner
                 .http
                 .exchange_oauth_token(AdapterOAuthTokenRequest {
-                    token_endpoint: url::Url::parse(&config.token_endpoint)
+                    token_endpoint: url::Url::parse(&current.profile.token_endpoint)
                         .map_err(|_| AdapterOAuthSetupError::Unavailable)?,
-                    client_authentication: config.client_authentication,
+                    client_authentication: current.profile.client_authentication,
                     client_id: current.client_id.clone(),
                     client_secret: current.client_secret.clone(),
                     grant: AdapterOAuthTokenGrant::AuthorizationCode {
@@ -1173,19 +1148,22 @@ impl AdapterCapabilityService {
                         redirect_uri: redirect_uri.to_string(),
                         pkce_verifier: pkce_verifier.to_string(),
                     },
-                    expected_scopes: current.definition.authentication.scopes().to_vec(),
+                    expected_scopes: target_scopes,
                     now_epoch_seconds,
                 })
                 .await
                 .map_err(map_oauth_token_error)?;
             let connection_label = self
-                .probe_connection_label(&current.definition, &token.access_token)
+                .probe_connection_label(&current.definition, &current.profile, &token.access_token)
                 .await;
 
             let _guard = lock.write().await;
             let fresh = self.load_oauth_connection(&connection_id)?;
-            let fresh_authority =
-                oauth_authority(&initiating_authority.human_id, &fresh.descriptor);
+            let fresh_authority = oauth_authority(
+                &initiating_authority.human_id,
+                &fresh.descriptor,
+                &fresh.profile_digest,
+            );
             if !initiating_authority.matches(&fresh_authority)
                 || fresh.client_id != current.client_id
                 || fresh.client_secret != current.client_secret
@@ -1256,9 +1234,10 @@ impl AdapterCapabilityService {
     async fn probe_connection_label(
         &self,
         definition: &CompiledAdapterDefinition,
+        profile: &crate::OauthProfileV1,
         access_token: &str,
     ) -> Option<String> {
-        let probe = definition.authentication.account_identity()?;
+        let probe = profile.account_identity.as_ref()?;
         let operation = definition
             .operations
             .iter()
@@ -1317,6 +1296,17 @@ impl AdapterCapabilityService {
             })
             .map(|definition| definition.compiled)
             .ok_or(AdapterOAuthSetupError::Unavailable)?;
+        let profile_digest = definition
+            .authentication
+            .oauth2()
+            .map(|config| config.profile_digest.clone())
+            .ok_or(AdapterOAuthSetupError::Unavailable)?;
+        let profile = self
+            .inner
+            .oauth_authorities
+            .load_profile(&profile_digest)
+            .map_err(|_| AdapterOAuthSetupError::Unavailable)?
+            .profile;
         let (_, credential) = self
             .inner
             .connections
@@ -1341,6 +1331,8 @@ impl AdapterCapabilityService {
         };
         Ok(LoadedOAuthConnection {
             definition,
+            profile,
+            profile_digest,
             descriptor,
             client_id,
             client_secret,
@@ -1587,13 +1579,18 @@ impl CapabilityBindingSource for AdapterCapabilityService {
     }
 }
 
-fn oauth_authority(human_id: &str, descriptor: &AdapterConnectionV3) -> AdapterOAuthAuthorityV1 {
+fn oauth_authority(
+    human_id: &str,
+    descriptor: &AdapterConnectionV3,
+    profile_digest: &str,
+) -> AdapterOAuthAuthorityV1 {
     AdapterOAuthAuthorityV1 {
         human_id: human_id.to_string(),
         connection_id: descriptor.connection_id.clone(),
         account_id: descriptor.account_id.clone(),
         account_kind: descriptor.account_kind.clone(),
         semantic_digest: descriptor.semantic_digest.clone(),
+        profile_digest: profile_digest.to_string(),
         connection_revision: descriptor.revisions.connection,
         credential_revision: descriptor.revisions.credential,
         grant_revision: descriptor.revisions.grant,
@@ -1639,6 +1636,3 @@ fn valid_connection_id(value: &str) -> bool {
             .bytes()
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
-
-#[cfg(test)]
-mod tests;

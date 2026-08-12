@@ -1,12 +1,12 @@
 use super::*;
 use crate::{
-    AdapterCatalogCompiler, AdapterConnectionRevisions, AdapterConnectionStatus,
-    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifest, setup_credential,
+    AdapterConnectionRevisions, AdapterConnectionStatus, AdapterCredentialMaterial,
+    AdapterDefinitionStore, AdapterManifest,
 };
 
 fn definition(paths: &NoemaPaths) -> DefinitionInstall {
     let manifest: AdapterManifest = serde_json::from_value(serde_json::json!({
-        "schema_version": 8,
+        "schema_version": 9,
         "definition_id": "definition:synthetic_calendar",
         "adapter_id": "synthetic_calendar",
         "definition_revision": "v1",
@@ -14,35 +14,14 @@ fn definition(paths: &NoemaPaths) -> DefinitionInstall {
         "origin": "https://api.example.test/",
         "authentication": {
             "kind": "oauth2_authorization_code_pkce",
-            "scopes": ["https://scope.example/calendar.read"],
-            "authorization_endpoint": "https://auth.example.test/authorize",
-            "token_endpoint": "https://auth.example.test/token",
-            "client_authentication": "client_secret_post",
-            "setups": [
-                {"callback_mode": "loopback", "setup": {
-                    "credential_type": "Desktop app",
-                    "setup_url": "https://developers.example.test/oauth/clients/new",
-                    "instructions": ["Create a Desktop app client."],
-                    "input": {"kind": "document", "media_type": "application/json", "fields": [
-                        {"id": "client_id", "label": "Client ID"}, {"id": "client_secret", "label": "Client secret"}
-                    ], "normalize": {"language": "luau", "source": "return function(input) local d = json.decode(input.document) return { client_id = d.desktop.client_id, client_secret = d.desktop.client_secret } end"}}
-                }},
-                {"callback_mode": "hosted", "setup": {
-                    "credential_type": "Web application",
-                    "setup_url": "https://developers.example.test/oauth/clients/new",
-                    "instructions": ["Create a Web application client."],
-                    "input": {"kind": "document", "media_type": "application/json", "fields": [
-                        {"id": "client_id", "label": "Client ID"}, {"id": "client_secret", "label": "Client secret"}
-                    ], "normalize": {"language": "luau", "source": "return function(input) local d = json.decode(input.document) return { client_id = d.browser.client_id, client_secret = d.browser.client_secret } end"}}
-                }}
-            ],
-            "extra_authorization_parameters": {}
+            "profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "operations": [{
             "operation_id": "list_events",
             "description": "List calendar events.",
             "method": "GET",
             "path": "/v1/events",
+            "authorization": {"kind": "oauth_scopes", "accepted_scope_sets": [["https://scope.example/calendar.read"]]},
             "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry": "transport_safe_read",
             "pagination": {"kind": "none"},
@@ -280,19 +259,13 @@ fn invalid_connection_isolated_and_quarantine_prevents_rediscovery() {
 }
 
 #[test]
-fn connection_rejects_definition_scope_operation_and_credential_mismatch() {
+fn connection_rejects_missing_scopes_operation_and_credential_mismatch() {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let definition = definition(&paths);
     let store = AdapterConnectionStore::new(paths);
     let (mut descriptor, credential) = connection(&definition, &"1".repeat(32), &"2".repeat(32));
 
-    descriptor.granted_scopes = vec!["calendar.write".to_string()];
-    assert!(
-        store
-            .install(&descriptor, Some(&credential), &definition.compiled)
-            .is_err()
-    );
     descriptor.granted_scopes = Vec::new();
     assert!(
         store
@@ -334,128 +307,6 @@ fn active_connection_preserves_combined_scope_grant() {
     assert_eq!(
         installed.descriptor.granted_scopes,
         descriptor.granted_scopes
-    );
-}
-
-#[test]
-fn transient_client_json_publishes_only_metadata_and_rebuilds_auth_required_state() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let definition = definition(&paths);
-    let store = AdapterConnectionStore::new(paths.clone());
-    let generation_id = "9".repeat(32);
-    let upload = br#"{"desktop":{"client_id":"client-marker","client_secret":"secret-marker","raw_upload_marker":"discard-me"}}"#;
-    let credential = setup_credential(
-        &definition.compiled,
-        Some(crate::Oauth2CallbackMode::Loopback),
-        std::collections::BTreeMap::new(),
-        Some(upload),
-        generation_id,
-    )
-    .expect("import");
-    let AdapterCredentialMaterial::Oauth2ClientMetadata {
-        callback_mode,
-        client_id,
-        client_secret,
-    } = &credential.material
-    else {
-        panic!("client metadata");
-    };
-    assert_eq!(client_id, "client-marker");
-    assert_eq!(client_secret.as_deref(), Some("secret-marker"));
-    assert_eq!(*callback_mode, crate::Oauth2CallbackMode::Loopback);
-
-    let descriptor = AdapterConnectionV3 {
-        schema_version: 3,
-        connection_id: "8".repeat(32),
-        connection_slug: "pending".to_string(),
-        semantic_digest: definition.compiled.semantic_digest.to_string(),
-        account_id: None,
-        connection_label: None,
-        account_kind: "personal".to_string(),
-        status: AdapterConnectionStatus::AuthenticationRequired,
-        revisions: AdapterConnectionRevisions {
-            connection: 1,
-            credential: 1,
-            grant: 1,
-            policy: 1,
-        },
-        credential_generation: Some(credential.generation_id.clone()),
-        granted_scopes: Vec::new(),
-        allowed_operations: vec!["list_events".to_string()],
-        policy: None,
-        tool_overrides: Vec::new(),
-    };
-    store
-        .install(&descriptor, Some(&credential), &definition.compiled)
-        .expect("publish");
-    let mut active_with_metadata = descriptor.clone();
-    active_with_metadata.connection_id = "7".repeat(32);
-    active_with_metadata.status = AdapterConnectionStatus::Active;
-    active_with_metadata.granted_scopes = vec!["https://scope.example/calendar.read".to_string()];
-    assert!(
-        store
-            .install(
-                &active_with_metadata,
-                Some(&credential),
-                &definition.compiled,
-            )
-            .is_err(),
-        "pre-authorization metadata cannot become an active bearer credential"
-    );
-    let mut definition_without_import = definition.compiled.clone();
-    definition_without_import.authentication = crate::AuthenticationSchemeV4::None;
-    let mut pending_without_import = descriptor.clone();
-    pending_without_import.connection_id = "5".repeat(32);
-    assert!(
-        store
-            .install(
-                &pending_without_import,
-                Some(&credential),
-                &definition_without_import,
-            )
-            .is_err(),
-        "metadata generations require the definition import authority"
-    );
-    let credential_path = paths
-        .adapter_connection_dir(&descriptor.connection_id)
-        .expect("path")
-        .join("credentials")
-        .join(format!("{}.json", credential.generation_id));
-    let stored = std::fs::read_to_string(credential_path).expect("stored credential");
-    assert!(stored.contains("client-marker"));
-    assert!(stored.contains("secret-marker"));
-    assert!(!stored.contains("discard-me"));
-    assert!(!stored.contains(std::str::from_utf8(upload).expect("upload text")));
-
-    let scan = store.scan(std::slice::from_ref(&definition)).expect("scan");
-    assert_eq!(scan.connections.len(), 1);
-    assert_eq!(scan.connections[0].descriptor, descriptor);
-    let catalog = AdapterCatalogCompiler::compile(&[definition], &scan).expect("catalog");
-    assert_eq!(catalog.snapshot.len(), 0);
-    assert_eq!(catalog.availability_notices.len(), 1);
-    assert_eq!(
-        catalog.availability_notices[0].status,
-        noema_capabilities::CapabilityAvailabilityStatus::AuthenticationRequired
-    );
-
-    let abandoned = paths
-        .adapter_connections_dir()
-        .join(".staging")
-        .join("interrupted");
-    std::fs::create_dir_all(abandoned.join("credentials")).expect("staging");
-    std::fs::write(
-        abandoned.join("credentials").join("deadbeef.json"),
-        b"discard-me",
-    )
-    .expect("staged secret");
-    store.recover().expect("recover");
-    assert!(!abandoned.exists());
-    assert!(
-        paths
-            .adapter_connection_dir(&descriptor.connection_id)
-            .expect("active path")
-            .exists()
     );
 }
 

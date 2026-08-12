@@ -607,7 +607,6 @@ mod tests {
                 "get_profile",
                 "application/json",
                 serde_json::json!({"account": "person@example.test", "message_count": 42}),
-                Some("/account"),
             ),
             (
                 include_bytes!("../tests/fixtures/github-user-transform.json").as_slice(),
@@ -615,7 +614,6 @@ mod tests {
                 "get_user",
                 "application/json",
                 serde_json::json!({"account": "fixture-user", "provider_id": 7}),
-                None,
             ),
             (
                 include_bytes!("../tests/fixtures/csv-response-transform.json").as_slice(),
@@ -623,11 +621,10 @@ mod tests {
                 "get_record",
                 "text/csv",
                 serde_json::json!({"id": "item-7", "total": 42}),
-                None,
             ),
         ];
 
-        for (manifest, body, operation_id, content_type, expected, identity_pointer) in cases {
+        for (manifest, body, operation_id, content_type, expected) in cases {
             let compiled = AdapterCompiler::compile_json(manifest).expect("reviewed fixture");
             let operation = compiled
                 .operations
@@ -652,14 +649,6 @@ mod tests {
                 )
                 .expect("normalized fixture response"),
                 expected
-            );
-            assert_eq!(
-                compiled
-                    .authentication
-                    .account_identity()
-                    .as_ref()
-                    .map(|probe| probe.output_pointer.as_str()),
-                identity_pointer
             );
         }
     }

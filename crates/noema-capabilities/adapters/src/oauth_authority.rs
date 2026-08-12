@@ -1,6 +1,8 @@
 //! Stored OAuth application, account, grant, and token authorities.
 
-use crate::{Oauth2CallbackMode, Oauth2ClientAuthentication, Oauth2CredentialSetup};
+use crate::{
+    AccountIdentityProbe, Oauth2CallbackMode, Oauth2ClientAuthentication, Oauth2CredentialSetup,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -44,6 +46,9 @@ pub struct OauthProfileV1 {
     pub omitted_scope_policy: OauthScopeResponsePolicy,
     /// Whether an expanded grant can retain an omitted refresh token.
     pub preserve_refresh_token_on_expansion: bool,
+    /// Optional reviewed operation used to resolve stable account identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_identity: Option<AccountIdentityProbe>,
 }
 
 /// Desired lifecycle state for one OAuth application.

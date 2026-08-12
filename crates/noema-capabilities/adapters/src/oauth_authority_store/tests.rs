@@ -41,6 +41,7 @@ fn profile() -> OauthProfileV1 {
         grant_audience: "google-apis".into(),
         omitted_scope_policy: OauthScopeResponsePolicy::RequireScope,
         preserve_refresh_token_on_expansion: true,
+        account_identity: None,
     }
 }
 

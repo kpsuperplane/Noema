@@ -385,19 +385,25 @@ impl AdapterCapabilityService {
             .authentication
             .oauth2()
             .ok_or(CapabilityError::Failed)?;
+        let profile = self
+            .inner
+            .oauth_authorities
+            .load_profile(&config.profile_digest)
+            .map_err(|_| CapabilityError::Failed)?
+            .profile;
         let token = self
             .inner
             .http
             .exchange_oauth_token(AdapterOAuthTokenRequest {
-                token_endpoint: url::Url::parse(&config.token_endpoint)
+                token_endpoint: url::Url::parse(&profile.token_endpoint)
                     .map_err(|_| CapabilityError::Failed)?,
-                client_authentication: config.client_authentication,
+                client_authentication: profile.client_authentication,
                 client_id: client_id.clone(),
                 client_secret: client_secret.clone(),
                 grant: AdapterOAuthTokenGrant::RefreshToken {
                     refresh_token: refresh_token.clone(),
                 },
-                expected_scopes: current.definition.authentication.scopes().to_vec(),
+                expected_scopes: current.connection.granted_scopes.clone(),
                 now_epoch_seconds,
             })
             .await

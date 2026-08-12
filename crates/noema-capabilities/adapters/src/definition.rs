@@ -1,4 +1,4 @@
-//! Closed v7 adapter-definition vocabulary.
+//! Closed adapter-definition vocabulary.
 
 use noema_capabilities::CapabilityToolHint;
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdapterManifest {
-    /// Exact schema version. Only version 8 is accepted.
+    /// Exact schema version. Only version 9 is accepted.
     pub schema_version: u16,
     /// Stable definition identity.
     pub definition_id: String,
@@ -49,24 +49,6 @@ impl AuthenticationSchemeV4 {
             Self::None => AuthenticationMode::None,
             Self::Credential(_) => AuthenticationMode::Credential,
             Self::Oauth2AuthorizationCodePkce(_) => AuthenticationMode::Oauth2AuthorizationCodePkce,
-        }
-    }
-
-    /// Return the exact reviewed OAuth scopes, or an empty set.
-    #[must_use]
-    pub fn scopes(&self) -> &[String] {
-        match self {
-            Self::Oauth2AuthorizationCodePkce(config) => &config.scopes,
-            Self::None | Self::Credential(_) => &[],
-        }
-    }
-
-    /// Return the optional identity probe.
-    #[must_use]
-    pub const fn account_identity(&self) -> Option<&AccountIdentityProbe> {
-        match self {
-            Self::Oauth2AuthorizationCodePkce(config) => config.account_identity.as_ref(),
-            Self::None | Self::Credential(_) => None,
         }
     }
 
@@ -196,28 +178,12 @@ pub struct AccountIdentityProbe {
     pub output_pointer: String,
 }
 
-/// Reviewed endpoint and parameter policy for standard OAuth 2.0 setup.
+/// Exact reviewed OAuth profile required by one definition.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Oauth2AuthorizationCodePkceConfig {
-    /// Exact reviewed scopes, sorted by the compiler.
-    #[serde(default)]
-    pub scopes: Vec<String>,
-    /// Fixed authorization endpoint. It must use HTTPS at compile time.
-    pub authorization_endpoint: String,
-    /// Fixed token endpoint. It must use HTTPS at compile time.
-    pub token_endpoint: String,
-    /// Client authentication method for the later token exchange.
-    #[serde(default)]
-    pub client_authentication: Oauth2ClientAuthentication,
-    /// Callback-specific reviewed credential setups.
-    pub setups: Vec<Oauth2CredentialSetup>,
-    /// Provider-defined authorization parameters, excluding RFC and PKCE keys.
-    #[serde(default)]
-    pub extra_authorization_parameters: BTreeMap<String, String>,
-    /// Optional safe read used once to obtain a recognizable account label.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub account_identity: Option<AccountIdentityProbe>,
+    /// Content address of the reviewed public protocol profile.
+    pub profile_digest: String,
 }
 
 /// OAuth 2.0 token-endpoint client authentication policy.
@@ -255,6 +221,47 @@ pub enum AuthenticationMode {
     Oauth2AuthorizationCodePkce,
 }
 
+/// Authorization requirement for one reviewed operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum OperationAuthorization {
+    /// The operation needs no OAuth scope.
+    None,
+    /// Any one complete scope set authorizes the operation.
+    OauthScopes {
+        /// Alternative complete scope sets in canonical order.
+        accepted_scope_sets: Vec<Vec<String>>,
+    },
+}
+
+impl OperationAuthorization {
+    /// Return whether the granted scope set covers this operation.
+    #[must_use]
+    pub fn is_satisfied_by(&self, granted_scopes: &[String]) -> bool {
+        match self {
+            Self::None => true,
+            Self::OauthScopes {
+                accepted_scope_sets,
+            } => accepted_scope_sets.iter().any(|required| {
+                required
+                    .iter()
+                    .all(|scope| granted_scopes.binary_search(scope).is_ok())
+            }),
+        }
+    }
+
+    /// Return all accepted complete scope sets.
+    #[must_use]
+    pub fn accepted_scope_sets(&self) -> &[Vec<String>] {
+        match self {
+            Self::None => &[],
+            Self::OauthScopes {
+                accepted_scope_sets,
+            } => accepted_scope_sets,
+        }
+    }
+}
+
 /// One declarative HTTP operation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -270,6 +277,8 @@ pub struct AdapterOperation {
     pub method: HttpMethod,
     /// Fixed-origin relative path with named argument placeholders.
     pub path: String,
+    /// Exact operation-specific authorization requirement.
+    pub authorization: OperationAuthorization,
     /// Fixed non-secret request headers.
     #[serde(default)]
     pub fixed_headers: BTreeMap<String, String>,

@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifest {
     AdapterManifest {
-        schema_version: 8,
+        schema_version: 9,
         definition_id: definition_id.to_string(),
         adapter_id: adapter_id.to_string(),
         display_name: Some("Fixture".to_string()),
@@ -22,6 +22,7 @@ fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifest {
             source_description: None,
             method: HttpMethod::Get,
             path: "/v1/items".to_string(),
+            authorization: crate::OperationAuthorization::None,
             fixed_headers: BTreeMap::new(),
             fixed_query: BTreeMap::new(),
             arguments: vec![crate::ArgumentDefinition {

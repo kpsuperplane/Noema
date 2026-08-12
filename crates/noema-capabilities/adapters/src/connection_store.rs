@@ -1003,20 +1003,12 @@ fn validate_connection(
                     operation.operation_digest.as_str() != policy.source_revision
                 })
         })
-        || match (
-            definition.authentication.mode(),
-            descriptor.status == crate::AdapterConnectionStatus::AuthenticationRequired,
-        ) {
-            (AuthenticationMode::Oauth2AuthorizationCodePkce, false) => definition
-                .authentication
-                .scopes()
-                .iter()
-                .any(|scope| !descriptor.granted_scopes.contains(scope)),
-            (AuthenticationMode::Oauth2AuthorizationCodePkce, true) => descriptor
-                .granted_scopes
-                .iter()
-                .any(|scope| !definition.authentication.scopes().contains(scope)),
-            _ => descriptor.granted_scopes != definition.authentication.scopes(),
+        || match definition.authentication.mode() {
+            AuthenticationMode::Oauth2AuthorizationCodePkce => {
+                descriptor.status == crate::AdapterConnectionStatus::Active
+                    && descriptor.granted_scopes.is_empty()
+            }
+            _ => !descriptor.granted_scopes.is_empty(),
         }
         || descriptor.allowed_operations.iter().any(|operation| {
             !definition
@@ -1081,6 +1073,7 @@ fn same_operation_contract(
     current.operation_id == replacement.operation_id
         && current.method == replacement.method
         && current.path == replacement.path
+        && current.authorization == replacement.authorization
         && current.fixed_headers == replacement.fixed_headers
         && current.fixed_query == replacement.fixed_query
         && current_arguments == replacement_arguments
@@ -1112,25 +1105,19 @@ fn credential_matches(
             }
             (
                 AdapterCredentialMaterial::Oauth2ClientMetadata {
-                    callback_mode,
+                    callback_mode: _,
                     client_id,
                     client_secret,
                 },
                 AuthenticationMode::Oauth2AuthorizationCodePkce,
             ) => {
                 status == crate::AdapterConnectionStatus::AuthenticationRequired
-                    && definition.authentication.oauth2().is_some_and(|config| {
-                        config
-                            .setups
-                            .iter()
-                            .any(|setup| setup.callback_mode == *callback_mode)
-                    })
                     && valid_secret(client_id)
                     && client_secret.as_deref().is_none_or(valid_secret)
             }
             (
                 AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
-                    callback_mode,
+                    callback_mode: _,
                     client_id,
                     client_secret,
                     access_token,
@@ -1139,12 +1126,7 @@ fn credential_matches(
                 },
                 AuthenticationMode::Oauth2AuthorizationCodePkce,
             ) => {
-                definition.authentication.oauth2().is_some_and(|config| {
-                    config
-                        .setups
-                        .iter()
-                        .any(|setup| setup.callback_mode == *callback_mode)
-                }) && valid_secret(client_id)
+                valid_secret(client_id)
                     && client_secret.as_deref().is_none_or(valid_secret)
                     && valid_secret(access_token)
                     && refresh_token.as_deref().is_none_or(valid_secret)

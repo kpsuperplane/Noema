@@ -2,7 +2,7 @@
 
 use crate::{
     AdapterCapabilityService, AdapterCompileError, AdapterCompiler, AdapterManifest,
-    DefinitionProvenance, DefinitionStoreError, Oauth2CallbackMode,
+    DefinitionProvenance, DefinitionStoreError,
 };
 use noema_capabilities::{
     CapabilityBinding, CapabilityError, CapabilityExecutionDecision, CapabilityOutput,
@@ -167,8 +167,8 @@ pub(crate) fn is_definition_template_invocation(operation: &str, token: &Operati
 }
 
 impl AdapterCapabilityService {
-    fn definition_help_payload(&self) -> Value {
-        let mut payload = json!({
+    fn definition_help_payload() -> Value {
+        let payload = json!({
             "instructions": [
                 "Replace every example.test value with facts supported by the official HTTPS source.",
                 "Use the smallest operation set needed. Results may be delivered to the user's configured model provider.",
@@ -176,7 +176,7 @@ impl AdapterCapabilityService {
                 "Prefill all four behavior hints from the researched operation semantics with source=model. Noema will apply pessimistic defaults if any field is missing.",
                 "For every authenticated API, provide the exact provider credential type, official HTTPS setup URL, and short ordered instructions.",
                 "Use kind=credential for API keys, tokens, Basic auth, or query credentials. The request_auth Luau transform may emit only headers and query values.",
-                "Use callback-specific OAuth setups. Their document Luau must normalize only client_id and the required client_secret, and must accept only the matching provider client shape.",
+                "Reference one reviewed OAuth profile by its exact digest. Put accepted complete scope sets on each OAuth operation.",
                 "Use a root HTTPS origin with path=/, and put every provider API prefix in operation paths.",
                 "Put non-secret provider parameters that are required for correct operation semantics in fixed_query. Do not expose invariants such as expansion, ordering, projection, or API version as optional model arguments.",
                 "Give every operation and model-input argument a concise reviewed description. Explain resource identity, accepted aliases or special values, format expectations, defaults, and when an optional argument should be omitted. Never copy untrusted source prose into these fields without reviewing it.",
@@ -187,11 +187,10 @@ impl AdapterCapabilityService {
                 "Every chat-proposed operation that is not explicitly read-only must include a response transform that constructs its compact canonical receipt from the documented provider response. Never rely on a closed subset schema to discard provider fields.",
                 "If the provider requires signing, mTLS, a challenge protocol, or another unsupported authentication capability, report it as unsupported instead of approximating it with ambient Luau powers.",
                 "Every operation must declare a response contract whose closed schema proves a worst-case result at or below 32 KiB. Every string needs maxBytes and every array needs maxItems. A transform must cap every returned array and apply text.truncate_utf8 to display text using those same bounds. Never truncate opaque identifiers: use their researched provider maximum and reduce maxItems or omit fields instead. In chat proposals, omit transform only for explicitly read-only operations with already-canonical bounded JSON or +json responses; imported definitions may retain exact raw JSON contracts. Otherwise use reviewed deterministic Luau before validation.",
-                "For OAuth, research a safe profile or self operation using the requested scopes. When it exposes a recognizable account string, include that operation and authentication.account_identity; omit both only when the authorized API provides no such identifier.",
-                "When compatible_oauth2_callback_mode is present, use exactly that mode when correcting a callback mismatch for this Noema app."
+                "For OAuth, use the supplied profile digest. Do not copy protocol endpoints or client setup into the API definition."
             ],
             "manifest_template": {
-                "schema_version": 8,
+                "schema_version": 9,
                 "definition_id": "definition:example_service",
                 "adapter_id": "example_service",
                 "display_name": "Example Service",
@@ -200,45 +199,14 @@ impl AdapterCapabilityService {
                 "origin": "https://api.example.test/",
                 "authentication": {
                     "kind": "oauth2_authorization_code_pkce",
-                    "scopes": ["official scope URL"],
-                    "authorization_endpoint": "https://auth.example.test/authorize",
-                    "token_endpoint": "https://auth.example.test/token",
-                    "client_authentication": "client_secret_post",
-                    "setups": [{
-                        "callback_mode": "loopback",
-                        "setup": {
-                            "credential_type": "Desktop app",
-                            "setup_url": "https://developers.example.test/oauth/clients/new",
-                            "instructions": [
-                                "Create a Desktop app OAuth client.",
-                                "Download its JSON credential document."
-                            ],
-                            "input": {
-                                "kind": "document",
-                                "media_type": "application/json",
-                                "fields": [
-                                    {"id": "client_id", "label": "Client ID"},
-                                    {"id": "client_secret", "label": "Client secret"}
-                                ],
-                                "normalize": {
-                                    "language": "luau",
-                                    "source": "return function(input) local document = json.decode(input.document) return { client_id = document.installed.client_id, client_secret = document.installed.client_secret } end"
-                                }
-                            }
-                        }
-                    }],
-                    "extra_authorization_parameters": {},
-                    "account_identity": {
-                        "operation_id": "get_profile",
-                        "arguments": {},
-                        "output_pointer": "/displayName"
-                    }
+                    "profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                 },
                 "operations": [{
                     "operation_id": "get_profile",
                     "description": "Get the recognizable profile for this connection.",
                     "method": "GET",
                     "path": "/v1/profile",
+                    "authorization": {"kind": "oauth_scopes", "accepted_scope_sets": [["official profile scope URL"]]},
                     "fixed_headers": {},
                     "fixed_query": {},
                     "arguments": [],
@@ -255,6 +223,7 @@ impl AdapterCapabilityService {
                     "description": "List a bounded page of items for this connection.",
                     "method": "GET",
                     "path": "/v1/items",
+                    "authorization": {"kind": "oauth_scopes", "accepted_scope_sets": [["official read scope URL"]]},
                     "fixed_headers": {},
                     "fixed_query": {},
                     "arguments": [{
@@ -322,8 +291,7 @@ impl AdapterCapabilityService {
             },
             "enums": {
                 "authentication.kind": ["none", "credential", "oauth2_authorization_code_pkce"],
-                "oauth2.client_authentication": ["none", "client_secret_basic", "client_secret_post"],
-                "oauth2.setup.callback_mode": ["loopback", "hosted"],
+                "operation.authorization.kind": ["none", "oauth_scopes"],
                 "operation.method": ["GET", "POST", "PUT", "PATCH", "DELETE"],
                 "argument.location": ["path", "query", "json_body"],
                 "argument.type": ["string", "integer", "number", "boolean", "string_array"],
@@ -341,41 +309,6 @@ impl AdapterCapabilityService {
                 "declare_request_argument_in_operation_arguments": false
             }
         });
-        if let Some(mode) = self
-            .inner
-            .oauth_callback_mode
-            .lock()
-            .ok()
-            .and_then(|configured| *configured)
-        {
-            payload["compatible_oauth2_callback_mode"] = json!(mode);
-            payload["manifest_template"]["authentication"]["setups"][0]["callback_mode"] =
-                json!(mode);
-            payload["manifest_template"]["authentication"]["setups"][0]["setup"]["credential_type"] =
-                json!(match mode {
-                    Oauth2CallbackMode::Loopback => "Desktop app",
-                    Oauth2CallbackMode::Hosted => "Web application",
-                });
-            payload["manifest_template"]["authentication"]["setups"][0]["setup"]["instructions"] =
-                json!(match mode {
-                    Oauth2CallbackMode::Loopback => vec![
-                        "Create a Desktop app OAuth client.",
-                        "Download its JSON credential document.",
-                    ],
-                    Oauth2CallbackMode::Hosted => vec![
-                        "Create a Web application OAuth client.",
-                        "Add the authorized redirect URI shown by Noema.",
-                        "Download its JSON credential document.",
-                    ],
-                });
-            payload["manifest_template"]["authentication"]["setups"][0]["setup"]["input"]["normalize"]
-                ["source"] = json!(match mode {
-                Oauth2CallbackMode::Loopback =>
-                    "return function(input) local document = json.decode(input.document) return { client_id = document.installed.client_id, client_secret = document.installed.client_secret } end",
-                Oauth2CallbackMode::Hosted =>
-                    "return function(input) local document = json.decode(input.document) return { client_id = document.web.client_id, client_secret = document.web.client_secret } end",
-            });
-        }
         payload
     }
 
@@ -424,7 +357,7 @@ impl AdapterCapabilityService {
         definitions.sort_by_key(Value::to_string);
         let truncated = definitions.len() > 100;
         definitions.truncate(100);
-        let mut payload = self.definition_help_payload();
+        let mut payload = Self::definition_help_payload();
         let object = payload
             .as_object_mut()
             .ok_or(CapabilityError::Unavailable)?;
@@ -459,7 +392,7 @@ impl AdapterCapabilityService {
         let input: ProposeDefinitionInput =
             serde_json::from_value(arguments).map_err(|_| CapabilityError::InvalidArguments)?;
         if let Err(reason) = validate_source_reference(&input.source_reference) {
-            return Ok(self.proposal_rejection(reason));
+            return Ok(Self::proposal_rejection(reason));
         }
         let manifest_json = match (
             input.manifest_json.as_deref(),
@@ -468,7 +401,7 @@ impl AdapterCapabilityService {
             (Some(manifest_json), []) => manifest_json.to_string(),
             (None, replacements) if !replacements.is_empty() => {
                 let Some(target_digest) = input.replaces_semantic_digest.as_deref() else {
-                    return Ok(self.proposal_rejection("replacement_target_invalid"));
+                    return Ok(Self::proposal_rejection("replacement_target_invalid"));
                 };
                 let stored = self
                     .inner
@@ -480,19 +413,19 @@ impl AdapterCapabilityService {
                 let mut pointers = BTreeSet::new();
                 for (index, replacement) in replacements.iter().enumerate() {
                     if replacement.pointer.is_empty() || !pointers.insert(&replacement.pointer) {
-                        return Ok(self.proposal_rejection_at(
+                        return Ok(Self::proposal_rejection_at(
                             "manifest_replacement_invalid",
                             &format!("manifest_value_replacements[{index}].pointer"),
                         ));
                     }
                     let Ok(value) = serde_json::from_str(&replacement.value_json) else {
-                        return Ok(self.proposal_rejection_at(
+                        return Ok(Self::proposal_rejection_at(
                             "manifest_replacement_invalid",
                             &format!("manifest_value_replacements[{index}].value_json"),
                         ));
                     };
                     let Some(target) = manifest.pointer_mut(&replacement.pointer) else {
-                        return Ok(self.proposal_rejection_at(
+                        return Ok(Self::proposal_rejection_at(
                             "manifest_replacement_invalid",
                             &format!("manifest_value_replacements[{index}].pointer"),
                         ));
@@ -501,17 +434,17 @@ impl AdapterCapabilityService {
                 }
                 serde_json::to_string(&manifest).map_err(|_| CapabilityError::Unavailable)?
             }
-            _ => return Ok(self.proposal_rejection("manifest_input_invalid")),
+            _ => return Ok(Self::proposal_rejection("manifest_input_invalid")),
         };
         if manifest_json.len() > MAX_MANIFEST_JSON_BYTES {
-            return Ok(self.proposal_rejection("manifest_json_too_large"));
+            return Ok(Self::proposal_rejection("manifest_json_too_large"));
         }
         let mut deserializer = serde_json::Deserializer::from_str(&manifest_json);
         let mut manifest: AdapterManifest =
             match serde_path_to_error::deserialize(&mut deserializer) {
                 Ok(manifest) => manifest,
                 Err(error) => {
-                    return Ok(self.proposal_rejection_at(
+                    return Ok(Self::proposal_rejection_at(
                         "manifest_json_invalid",
                         &safe_manifest_path(error.path()),
                     ));
@@ -519,7 +452,7 @@ impl AdapterCapabilityService {
             };
         manifest.reviewed = false;
         if let Some((path, operation_id)) = missing_proposal_description(&manifest) {
-            let mut output = self.proposal_rejection_at("description", &path);
+            let mut output = Self::proposal_rejection_at("description", &path);
             output.payload["operation_id"] = json!(operation_id);
             output.payload["message"] = json!(format!(
                 "The reviewed model-facing description at {path} cannot be empty."
@@ -528,7 +461,7 @@ impl AdapterCapabilityService {
         }
         let proposed = match AdapterCompiler::compile(&manifest) {
             Ok(compiled) => compiled,
-            Err(error) => return Ok(self.proposal_compile_rejection(&manifest, &error)),
+            Err(error) => return Ok(Self::proposal_compile_rejection(&manifest, &error)),
         };
         if let Some((index, operation)) =
             manifest
@@ -540,7 +473,7 @@ impl AdapterCapabilityService {
                         && operation.response.transform.is_none()
                 })
         {
-            let mut output = self.proposal_rejection("mutation_response_transform");
+            let mut output = Self::proposal_rejection("mutation_response_transform");
             output.payload["manifest_path"] =
                 json!(format!("operations[{index}].response.transform"));
             output.payload["operation_id"] = json!(operation.operation_id);
@@ -572,23 +505,23 @@ impl AdapterCapabilityService {
         let mut replaces = BTreeSet::new();
         if family.is_empty() {
             if input.replaces_semantic_digest.is_some() {
-                return Ok(self.proposal_rejection("replacement_target_invalid"));
+                return Ok(Self::proposal_rejection("replacement_target_invalid"));
             }
         } else {
             let Some(target_digest) = input.replaces_semantic_digest.as_deref() else {
-                return Ok(
-                    self.proposal_rejection("existing_definition_requires_replacement_target")
-                );
+                return Ok(Self::proposal_rejection(
+                    "existing_definition_requires_replacement_target",
+                ));
             };
             let target = family
                 .iter()
                 .find(|definition| definition.compiled.semantic_digest.as_str() == target_digest)
                 .copied();
             let Some(target) = target else {
-                return Ok(self.proposal_rejection("replacement_target_invalid"));
+                return Ok(Self::proposal_rejection("replacement_target_invalid"));
             };
             if target.compiled.adapter_id != manifest.adapter_id {
-                return Ok(self.proposal_rejection("replacement_identity_changed"));
+                return Ok(Self::proposal_rejection("replacement_identity_changed"));
             }
             let active_pending = family
                 .iter()
@@ -599,7 +532,7 @@ impl AdapterCapabilityService {
                 .map(|definition| definition.compiled.semantic_digest.to_string())
                 .collect::<BTreeSet<_>>();
             if !active_pending.is_empty() && !active_pending.contains(target_digest) {
-                return Ok(self.proposal_rejection("replacement_target_stale"));
+                return Ok(Self::proposal_rejection("replacement_target_stale"));
             }
             if active_pending.is_empty() {
                 let replaced_by_reviewed = self
@@ -627,7 +560,7 @@ impl AdapterCapabilityService {
                 if current_reviewed.is_none_or(|definition| {
                     definition.compiled.semantic_digest.as_str() != target_digest
                 }) {
-                    return Ok(self.proposal_rejection("replacement_target_stale"));
+                    return Ok(Self::proposal_rejection("replacement_target_stale"));
                 }
             }
             let stored_target = self
@@ -640,7 +573,7 @@ impl AdapterCapabilityService {
             if AdapterCompiler::compile(&comparable)
                 .is_ok_and(|compiled| compiled.semantic_digest == proposed.semantic_digest)
             {
-                return Ok(self.proposal_rejection("proposal_unchanged"));
+                return Ok(Self::proposal_rejection("proposal_unchanged"));
             }
             replaces.extend(active_pending);
             replaces.insert(target_digest.to_string());
@@ -650,7 +583,7 @@ impl AdapterCapabilityService {
             .iter()
             .any(|definition| definition.compiled.semantic_digest == proposed.semantic_digest)
         {
-            return Ok(self.proposal_rejection("proposal_revision_already_exists"));
+            return Ok(Self::proposal_rejection("proposal_revision_already_exists"));
         }
         let display_name = manifest
             .display_name
@@ -674,13 +607,13 @@ impl AdapterCapabilityService {
         ) {
             Ok(installed) => installed,
             Err(DefinitionStoreError::Compile(error)) => {
-                return Ok(self.proposal_rejection(&error.to_string()));
+                return Ok(Self::proposal_rejection(&error.to_string()));
             }
             Err(DefinitionStoreError::Json(_)) => {
-                return Ok(self.proposal_rejection("manifest_json_invalid"));
+                return Ok(Self::proposal_rejection("manifest_json_invalid"));
             }
             Err(DefinitionStoreError::Integrity("provenance")) => {
-                return Ok(self.proposal_rejection("source_reference_invalid"));
+                return Ok(Self::proposal_rejection("source_reference_invalid"));
             }
             Err(_) => return Err(CapabilityError::Unavailable),
         };
@@ -697,22 +630,21 @@ impl AdapterCapabilityService {
         })))
     }
 
-    fn proposal_rejection(&self, reason: &str) -> CapabilityOutput {
+    fn proposal_rejection(reason: &str) -> CapabilityOutput {
         CapabilityOutput::success(json!({
             "status": "invalid_proposal",
             "reason": reason,
-            "definition_help": self.definition_help_payload(),
+            "definition_help": Self::definition_help_payload(),
             "next_step": "Correct the manifest from the returned template and retry the available proposal tool."
         }))
     }
 
     fn proposal_compile_rejection(
-        &self,
         manifest: &AdapterManifest,
         error: &AdapterCompileError,
     ) -> CapabilityOutput {
         let reason = compile_error_reason(error);
-        let mut output = self.proposal_rejection(reason);
+        let mut output = Self::proposal_rejection(reason);
         output.payload["message"] = json!(error.to_string());
         let operation = manifest
             .operations
@@ -756,8 +688,8 @@ impl AdapterCapabilityService {
         output
     }
 
-    fn proposal_rejection_at(&self, reason: &str, manifest_path: &str) -> CapabilityOutput {
-        let mut output = self.proposal_rejection(reason);
+    fn proposal_rejection_at(reason: &str, manifest_path: &str) -> CapabilityOutput {
+        let mut output = Self::proposal_rejection(reason);
         output.payload["manifest_path"] = json!(manifest_path);
         output
     }
@@ -888,7 +820,7 @@ mod tests {
 
     fn proposal_manifest(reviewed: bool) -> Value {
         json!({
-            "schema_version": 8,
+            "schema_version": 9,
             "definition_id": "definition:discovered_calendar",
             "adapter_id": "discovered_calendar",
             "display_name": "Discovered Calendar",
@@ -901,6 +833,7 @@ mod tests {
                 "description": "List calendar events.",
                 "method": "GET",
                 "path": "/v1/events",
+                "authorization": {"kind": "none"},
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "transport_safe_read",
                 "pagination": {"kind": "none"},
@@ -953,17 +886,19 @@ mod tests {
             json!(32)
         );
         assert!(catalog.snapshot.resolve(DEFINITION_TEMPLATE_TOOL).is_some());
-        let template: AdapterManifest =
-            serde_json::from_value(service.definition_help_payload()["manifest_template"].clone())
-                .expect("template manifest");
-        assert!(template.authentication.account_identity().is_some());
+        let template: AdapterManifest = serde_json::from_value(
+            AdapterCapabilityService::definition_help_payload()["manifest_template"].clone(),
+        )
+        .expect("template manifest");
+        assert!(template.authentication.oauth2().is_some());
         AdapterCompiler::compile(&template).expect("compilable template");
         assert_eq!(
-            service.definition_help_payload()["manifest_template"]["operations"][1]["fixed_query"],
+            AdapterCapabilityService::definition_help_payload()["manifest_template"]["operations"]
+                [1]["fixed_query"],
             json!({})
         );
         assert_eq!(
-            service.definition_help_payload()["response_token_pagination_example"],
+            AdapterCapabilityService::definition_help_payload()["response_token_pagination_example"],
             json!({
                 "kind": "response_token",
                 "response_pointer": "/next_cursor",
@@ -988,7 +923,7 @@ mod tests {
     }
 
     #[test]
-    fn definition_template_uses_the_serving_shell_oauth_callback_mode() {
+    fn definition_template_references_a_profile_without_client_setup() {
         let home = tempfile::tempdir().expect("home");
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let service = AdapterCapabilityService::new(paths);
@@ -998,23 +933,12 @@ mod tests {
             .definition_template(json!({}))
             .expect("definition template");
 
+        assert!(output.payload["compatible_oauth2_callback_mode"].is_null());
         assert_eq!(
-            output.payload["compatible_oauth2_callback_mode"],
-            json!("hosted")
+            output.payload["manifest_template"]["authentication"]["profile_digest"],
+            json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
-        assert_eq!(
-            output.payload["manifest_template"]["authentication"]["setups"][0]["callback_mode"],
-            json!("hosted")
-        );
-        assert_eq!(
-            output.payload["manifest_template"]["authentication"]["setups"][0]["setup"]["credential_type"],
-            json!("Web application")
-        );
-        assert_eq!(
-            output.payload["manifest_template"]["authentication"]["setups"][0]["setup"]["instructions"]
-                [0],
-            json!("Create a Web application OAuth client.")
-        );
+        assert!(output.payload["manifest_template"]["authentication"]["setups"].is_null());
     }
 
     #[tokio::test]
