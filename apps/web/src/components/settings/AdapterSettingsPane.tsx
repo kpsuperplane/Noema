@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useSubscription } from "@apollo/client/react";
+import { useLazyQuery, useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { useNavigate } from "@tanstack/react-router";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
@@ -9,6 +9,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import {
   AdapterDefinitionsDocument,
+  AdapterOauthAttemptDocument,
   AdapterOauthAttemptEventsDocument,
   AdapterOauthStateDocument,
   ApproveAdapterDefinitionDocument,
@@ -70,6 +71,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const [setConnectionActive, connectionState] = useMutation(SetAdapterConnectionActiveDocument);
   const [deleteConnection, deletingConnection] = useMutation(DeleteAdapterConnectionDocument);
   const [deleteService, deletingService] = useMutation(DeleteAdapterServiceDocument);
+  const [loadOauthAttempt] = useLazyQuery(AdapterOauthAttemptDocument, { fetchPolicy: "network-only" });
   const [setupDefinitionDigest, setSetupDefinitionDigest] = useState<string | null>(null);
   const [applicationProfileDigest, setApplicationProfileDigest] = useState<string | null>(null);
   const [replacementApplicationId, setReplacementApplicationId] = useState<string | null>(null);
@@ -83,6 +85,10 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     definition: AdapterDefinition;
     action: OAuthAction;
   } | null>(null);
+  const [connectionChoice, setConnectionChoice] = useState<{
+    definition: AdapterDefinition;
+    action: ConnectionAction | null;
+  } | null>(null);
   const [deleteServiceTargetId, setDeleteServiceTargetId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,28 +99,43 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       integrationsResult.refetch()
     ]);
   };
+
+  const finishOauthAttempt = async (event: {
+    status: string;
+    grantId?: string | null;
+    grantRevision?: number | null;
+  }) => {
+    const action = pendingAction;
+    let policyConnectionId: string | null = null;
+    if (event.status === "completed" && event.grantId && event.grantRevision != null
+      && action && action.connectionId == null) {
+      const attached = await attachGrant({ variables: { input: {
+        semanticDigest: action.semanticDigest,
+        grantId: event.grantId,
+        expectedGrantRevision: event.grantRevision
+      } } });
+      const connection = attached.data?.attachAdapterOauthConnection.connections
+        .find((item) => item.grantId === event.grantId && !item.policyConfigured);
+      policyConnectionId = connection?.connectionId ?? null;
+    } else if (event.status !== "completed") {
+      setError(attemptFailure(event.status));
+    }
+    setAttemptId(null);
+    setPendingAction(null);
+    await refresh();
+    if (policyConnectionId) {
+      void navigate({ to: "/settings/tools/apis/$connectionId", params: { connectionId: policyConnectionId } });
+    }
+  };
+
   useSubscription(AdapterOauthAttemptEventsDocument, {
     variables: { attemptId: attemptId ?? "" },
     skip: attemptId === null,
     onData: ({ data }) => {
       const event = data.data?.adapterOauthAttemptEvents;
       if (!event || event.status === "authorizing") return;
-      void (async () => {
-        const action = pendingAction;
-        if (event.status === "completed" && event.grantId && event.grantRevision != null
-          && action && action.connectionId == null) {
-          await attachGrant({ variables: { input: {
-            semanticDigest: action.semanticDigest,
-            grantId: event.grantId,
-            expectedGrantRevision: event.grantRevision
-          } } });
-        } else if (event.status !== "completed") {
-          setError(attemptFailure(event.status));
-        }
-        setAttemptId(null);
-        setPendingAction(null);
-        await refresh();
-      })().catch(() => setError("The account changed, but Noema could not refresh this view."));
+      void finishOauthAttempt(event)
+        .catch(() => setError("The account changed, but Noema could not refresh this view."));
     }
   });
 
@@ -157,12 +178,17 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       return;
     }
     if (action.kind === "attach_account" && action.grantId && action.expectedGrantRevision != null) {
-      await attachGrant({ variables: { input: {
+      const attached = await attachGrant({ variables: { input: {
         semanticDigest: action.semanticDigest,
         grantId: action.grantId,
         expectedGrantRevision: action.expectedGrantRevision
       } } });
       await refresh();
+      const connection = attached.data?.attachAdapterOauthConnection.connections
+        .find((item) => item.grantId === action.grantId && !item.policyConfigured);
+      if (connection) {
+        void navigate({ to: "/settings/tools/apis/$connectionId", params: { connectionId: connection.connectionId } });
+      }
       return;
     }
     if (action.kind === "import_application" && definition.oauthProfileDigest) {
@@ -190,7 +216,13 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
         setPendingAction(action);
         setAttemptId(attempt.attemptId);
         await navigation.open(attempt.authorizationUrl);
-        window.addEventListener("focus", () => void refresh(), { once: true });
+        window.addEventListener("focus", () => {
+          void loadOauthAttempt({ variables: { attemptId: attempt.attemptId } }).then((result) => {
+            const recovered = result.data?.adapterOauthAttempt;
+            if (recovered && recovered.status !== "authorizing") return finishOauthAttempt(recovered);
+            return refresh();
+          }).catch(() => setError("Noema could not recover the account authorization state."));
+        }, { once: true });
       } catch {
         navigation.cancel();
         throw new Error("Account authorization could not start.");
@@ -206,6 +238,14 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       return;
     }
     void runAction(definition, selectedAction).catch(actionError(setError));
+  }
+
+  function requestConnection(definition: AdapterDefinition) {
+    if (definition.connectionActions.length === 1) {
+      requestAction(definition, definition.connectionActions[0]);
+      return;
+    }
+    setConnectionChoice({ definition, action: null });
   }
 
   async function importOauthApplication(submission: AdapterCredentialSubmission) {
@@ -247,7 +287,9 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   }
 
   const sourceActions = selectedDefinition && selectedDescriptor ? <>
-    {selectedDefinition.nextAction && ["add_access", "reconnect_account"].includes(selectedDefinition.nextAction.kind) ? (
+    {selectedDefinition.nextAction
+      && selectedDefinition.nextAction.connectionId === selectedDescriptor.connectionId
+      && ["add_access", "reconnect_account"].includes(selectedDefinition.nextAction.kind) ? (
       <Button type="button" size="sm" label={actionLabel(selectedDefinition)} isLoading={oauthStartState.loading}
         onClick={() => requestAction(selectedDefinition)} />
     ) : null}
@@ -265,6 +307,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     <CapabilityManagementLayout
       kind="API"
       connectionId={connectionId}
+      startPolicyEditing={selectedDescriptor?.policyConfigured === false}
       sourceActions={sourceActions}
       list={<VStack gap={4} {...stylex.props(styles.stack)}>
         {definitions.some((item) => !item.reviewed) ? (
@@ -285,19 +328,19 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           onOpen={(id) => void navigate({ to: "/settings/tools/apis/$connectionId", params: { connectionId: id } })}
           onLabel={(grant) => { setLabelGrant(grant); setLabelDraft(grant.accountLabel ?? ""); }}
           onDisconnect={setDisconnectTarget}
-          onRunAction={requestAction} />
+          onChooseConnection={requestConnection} />
         <SettingsSection aria-labelledby="available-api-title"><VStack gap={2}>
           <h2 id="available-api-title" {...stylex.props(styles.sectionTitle)}>Available APIs</h2>
           <SettingsList density="compact" hasDividers>
             {definitions.filter((item) => item.reviewed && item.connectionCount === 0).map((definition) => (
               <SettingsListItem key={definition.semanticDigest} label={definition.displayName}
                 description={nextActionDescription(definition)}
-                endContent={<HStack gap={1} wrap="wrap">{definition.connectionActions.map((action) => (
-                  <Button key={connectionActionKey(action)} type="button" size="sm"
-                    label={connectionActionLabel(definition, action, oauth)}
-                    isLoading={oauthStartState.loading || attachState.loading}
-                    onClick={() => requestAction(definition, action)} />
-                ))}</HStack>} />
+                endContent={definition.connectionActions.length > 0 ? <Button type="button" size="sm"
+                  label={definition.connectionActions.length === 1
+                    ? connectionActionLabel(definition, definition.connectionActions[0], oauth)
+                    : "Choose account"}
+                  isLoading={oauthStartState.loading || attachState.loading}
+                  onClick={() => requestConnection(definition)} /> : null} />
             ))}
             {definitions.every((item) => !item.reviewed || item.connectionCount > 0) ? (
               <SettingsListItem label="All reviewed APIs are connected" />
@@ -316,7 +359,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
             {oauth.applications.map((application) => (
               <SettingsListItem key={application.applicationId}
                 label={application.projectLabel ?? application.providerDisplayName}
-                description={`${application.clientId} · ${application.callbackMode} · ${application.accountCount} accounts`}
+                description={`${application.clientId} · ${application.callbackMode} · ${oauth.profiles.find((profile) => profile.profileDigest === application.profileDigest)?.credentialSetup?.redirectUri ?? "Redirect unavailable"} · ${application.accountCount} accounts`}
                 endContent={<HStack gap={1} wrap="wrap">
                   <Button type="button" size="sm" variant="secondary" label="Replace document"
                     onClick={() => setReplacementApplicationId(application.applicationId)} />
@@ -354,7 +397,9 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     <AdapterCredentialSetupDialog serviceName={replacementApplication?.providerDisplayName ?? "OAuth application"}
       setup={replacementProfile?.credentialSetup} scopes={[]} open={replacementApplication !== null}
       submitting={applicationReplaceState.loading} error={error}
-      intro="Replace this OAuth application document. Existing account grants will use the new application credential."
+      intro={replacementApplication
+        ? `Replace this OAuth application document. ${replacementApplication.grantCount} grants across ${replacementApplication.accountCount} accounts will use the new credential.`
+        : "Replace this OAuth application document."}
       submitLabel="Replace application" onOpenChange={(open) => { if (!open) setReplacementApplicationId(null); }}
       onSubmit={replaceOauthApplication} />
     <SettingsEditDialog title="Label account" open={labelGrant !== null} saving={labelState.loading}
@@ -389,6 +434,29 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           </VStack>
         </details>
       </> : null}
+    </SettingsEditDialog>
+    <SettingsEditDialog title={connectionChoice ? `Connect ${connectionChoice.definition.displayName}` : "Connect API"}
+      open={connectionChoice !== null} saving={false}
+      saveLabel={connectionChoice?.action
+        ? connectionActionLabel(connectionChoice.definition, connectionChoice.action, oauth)
+        : "Continue"}
+      saveDisabled={connectionChoice?.action == null} error={error}
+      onOpenChange={(open) => { if (!open) setConnectionChoice(null); }}
+      onSave={() => {
+        if (!connectionChoice?.action) return;
+        const { definition, action } = connectionChoice;
+        setConnectionChoice(null);
+        requestAction(definition, action);
+      }}>
+      {connectionChoice ? <SettingsList density="compact" hasDividers>
+        {connectionChoice.definition.connectionActions.map((action) => <SettingsListItem
+          key={connectionActionKey(action)}
+          label={connectionActionLabel(connectionChoice.definition, action, oauth)}
+          description={connectionActionDescription(connectionChoice.definition, action)}
+          endContent={<Button type="button" size="sm" variant="secondary"
+            label={connectionChoice.action === action ? "Selected" : "Select"}
+            onClick={() => setConnectionChoice({ ...connectionChoice, action })} />} />)}
+      </SettingsList> : null}
     </SettingsEditDialog>
     <DeleteConnectionDialog connection={selectedConnection ? { name: selectedConnection.name, toolCount: selectedConnection.toolCount } : null}
       keepsAccount
@@ -426,24 +494,28 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   </>;
 }
 
-function AccountSections({ oauth, definitions, busy, onOpen, onLabel, onDisconnect, onRunAction }: {
+function AccountSections({ oauth, definitions, busy, onOpen, onLabel, onDisconnect, onChooseConnection }: {
   oauth: AdapterOauthStateQuery["adapterOauthState"];
   definitions: AdapterDefinition[];
   busy: boolean;
   onOpen: (connectionId: string) => void;
   onLabel: (grant: Grant) => void;
   onDisconnect: (grants: Grant[]) => void;
-  onRunAction: (definition: AdapterDefinition, action: ConnectionAction) => void;
+  onChooseConnection: (definition: AdapterDefinition) => void;
 }) {
-  const groups = new Map<string, Grant[]>();
+  const providers = new Map<string, Map<string, Grant[]>>();
   for (const grant of oauth.grants) {
-    const key = `${grant.providerDisplayName}\0${grant.accountId ?? grant.grantId}`;
-    groups.set(key, [...(groups.get(key) ?? []), grant]);
+    const accounts = providers.get(grant.providerDisplayName) ?? new Map<string, Grant[]>();
+    const key = grant.accountId ?? grant.grantId;
+    accounts.set(key, [...(accounts.get(key) ?? []), grant]);
+    providers.set(grant.providerDisplayName, accounts);
   }
   return <SettingsSection aria-labelledby="api-accounts-title"><VStack gap={2}>
     <h2 id="api-accounts-title" {...stylex.props(styles.sectionTitle)}>Accounts</h2>
-    {groups.size === 0 ? <p {...stylex.props(styles.muted)}>No API accounts are connected.</p> : null}
-    {[...groups.values()].map((grants) => {
+    {providers.size === 0 ? <p {...stylex.props(styles.muted)}>No API accounts are connected.</p> : null}
+    {[...providers.entries()].map(([provider, accounts]) => <VStack key={provider} gap={1}>
+      <strong {...stylex.props(styles.providerLabel)}>{provider}</strong>
+      {[...accounts.values()].map((grants) => {
       const first = grants[0];
       if (!first) return null;
       const connectionIds = new Set(grants.flatMap((grant) => grant.connectionIds));
@@ -453,9 +525,12 @@ function AccountSections({ oauth, definitions, busy, onOpen, onLabel, onDisconne
         <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
           <VStack gap={0}>
             <strong {...stylex.props(styles.rowLabel)}>{first.accountLabel ?? "Unlabeled account"}</strong>
-            <span {...stylex.props(styles.muted)}>{first.providerDisplayName} · {connections.length} APIs</span>
+            <span {...stylex.props(styles.muted)}>{connections.length} APIs</span>
           </VStack>
           <HStack gap={1} wrap="wrap">
+            {grants.some((grant) => grant.status !== "active")
+              ? <Badge label="Action required" variant="warning" />
+              : <Badge label="Connected" variant="success" />}
             <Button type="button" size="sm" variant="secondary" label="Edit label" isDisabled={busy} onClick={() => onLabel(first)} />
             <Button type="button" size="sm" variant="destructive" label="Disconnect account" isDisabled={busy}
               onClick={() => onDisconnect(grants)} />
@@ -467,14 +542,15 @@ function AccountSections({ oauth, definitions, busy, onOpen, onLabel, onDisconne
             description={`${connection.operationAccess.filter((item) => item.status === "available").length}/${definition.operations.length} tools available`}
             endContent={<HStack gap={1} vAlign="center" wrap="wrap"><Badge label={connectionStatus(connection.status)}
               variant={connection.status === "active" ? "success" : "warning"} />
-              {definition.connectionActions.map((action) => <Button key={connectionActionKey(action)} type="button" size="sm"
-                variant="secondary" label={connectionActionLabel(definition, action, oauth)}
-                onClick={() => onRunAction(definition, action)} />)}
+              {definition.connectionActions.length > 0 ? <Button type="button" size="sm"
+                variant="secondary" label="Add connection"
+                onClick={() => onChooseConnection(definition)} /> : null}
               <Button type="button" size="sm" variant="secondary" label="Manage" onClick={() => onOpen(connection.connectionId)} /></HStack>} />)}
           {connections.length === 0 ? <SettingsListItem label="No APIs attached" /> : null}
         </SettingsList>
       </VStack>;
-    })}
+      })}
+    </VStack>)}
   </VStack></SettingsSection>;
 }
 
@@ -503,7 +579,9 @@ function connectionActionLabel(
   if (action.kind === "reconnect_account") return account ? `Reconnect ${account}` : "Reconnect account";
   if (action.kind === "add_account") {
     const application = oauth.applications.find((item) => item.applicationId === action.applicationId);
-    return application?.projectLabel ? `Add account with ${application.projectLabel}` : "Add account";
+    return application?.projectLabel
+      ? `Add account with ${application.projectLabel}`
+      : `Add ${application?.providerDisplayName ?? "provider"} account`;
   }
   if (action.kind === "import_application") return "Set up OAuth application";
   return actionLabel(definition);
@@ -511,6 +589,17 @@ function connectionActionLabel(
 
 function connectionActionKey(action: ConnectionAction) {
   return [action.kind, action.applicationId, action.grantId].filter(Boolean).join(":");
+}
+
+function connectionActionDescription(definition: AdapterDefinition, action: ConnectionAction) {
+  if (action.kind === "attach_account") return "This account already has the required access.";
+  if (action.kind === "add_access") {
+    return `Approve access for ${action.operationIds.length} ${definition.displayName} operations. Current access stays available.`;
+  }
+  if (action.kind === "reconnect_account") return "Reconnect this account before attaching the API.";
+  if (action.kind === "add_account") return "Use this OAuth application. No new client document is required.";
+  if (action.kind === "import_application") return "Import one provider client document for reuse.";
+  return definition.origin;
 }
 
 function dependentApiNames(
@@ -567,6 +656,7 @@ const styles = stylex.create({
   sectionTitle: { margin: 0, fontFamily: "var(--font-heading)", fontSize: 16, lineHeight: 1.3, fontWeight: 600 },
   accountGroup: { paddingBlock: "var(--spacing-2)", borderBlockStartWidth: "var(--border-width)", borderBlockStartStyle: "solid", borderBlockStartColor: "var(--border-subtle)" },
   rowLabel: { color: "var(--foreground)", fontWeight: 650, overflowWrap: "anywhere" },
+  providerLabel: { color: "var(--foreground)", fontSize: 13, fontWeight: 700 },
   muted: { margin: 0, color: "var(--muted-foreground)", fontSize: 13, lineHeight: 1.5 },
   error: { margin: 0, color: "var(--destructive)", fontSize: 13 },
   fit: { width: "fit-content" },

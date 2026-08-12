@@ -336,6 +336,7 @@ query PendingChatInterventions($conversationId: String, $taskId: String, $projec
       sourceReference
       origin
       authenticationMode
+      oauthProfileDigest
       scopes
       credentialSetup {
         ...AdapterCredentialSetupFields
@@ -344,10 +345,24 @@ query PendingChatInterventions($conversationId: String, $taskId: String, $projec
       connectionCount
       reviewed
       superseded
+      nextAction {
+        kind
+        semanticDigest
+        applicationId
+        expectedApplicationRevision
+        grantId
+        expectedGrantRevision
+        connectionId
+        expectedConnectionRevision
+        expectedPolicyRevision
+        operationIds
+        missingScopes
+      }
       connections {
         connectionId
         status
-        accountKind
+        grantId
+        accountId
         connectionRevision
         credentialRevision
         grantRevision
@@ -355,6 +370,7 @@ query PendingChatInterventions($conversationId: String, $taskId: String, $projec
         grantedScopes
         allowedOperations
         policyConfigured
+        operationAccess { operationId status missingScopes }
       }
       operations {
         operationId

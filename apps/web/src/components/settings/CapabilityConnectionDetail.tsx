@@ -37,12 +37,14 @@ type HintDraft = Record<HintKey, boolean>;
 export function CapabilityConnectionDetail({
   kind,
   connectionId,
+  startPolicyEditing = false,
   sourceActions,
   definitionDetails,
   dangerAction
 }: {
   kind: "API" | "MCP";
   connectionId: string;
+  startPolicyEditing?: boolean;
   sourceActions?: React.ReactNode;
   definitionDetails?: React.ReactNode;
   dangerAction?: React.ReactNode;
@@ -77,7 +79,16 @@ export function CapabilityConnectionDetail({
   const [error, setError] = React.useState<string | null>(null);
   const [renaming, setRenaming] = React.useState(false);
   const [labelDraft, setLabelDraft] = React.useState("");
+  const didStartPolicyEditing = React.useRef(false);
   const editingTool = tools.find((tool) => tool.toolId === editing) ?? null;
+
+  React.useEffect(() => {
+    if (!startPolicyEditing || !connection || didStartPolicyEditing.current) return;
+    didStartPolicyEditing.current = true;
+    setSharing(connection.dataSharingPolicy ?? "allow_automatically");
+    setUnsafeActions(connection.unsafeActionPolicy ?? "reviewer_may_approve");
+    setPolicyEditing(true);
+  }, [connection, startPolicyEditing]);
 
   if (result.loading && !result.data) return <p {...stylex.props(styles.muted)}>Loading connection…</p>;
   if (result.error && !connection) {

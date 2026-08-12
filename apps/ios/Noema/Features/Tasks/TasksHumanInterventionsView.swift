@@ -133,6 +133,8 @@ struct TasksHumanInterventionsView: View {
       onCancel: { try await model.cancelAdapterDefinition(definition) },
       onSetup: { try await model.setupAdapterConnection(definition, submission: $0) },
       onStartOAuth: { try await model.startAdapterOAuth($0) },
+      onWaitForOAuth: { try await model.completeAdapterOAuth($0, action: $1) },
+      onAttach: { try await model.attachAdapterGrant($0) },
       onSavePolicy: { try await model.saveAdapterPolicy($0, sharing: $1, unsafeActions: $2) }
     )
   }

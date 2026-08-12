@@ -13,7 +13,9 @@ struct AdapterDefinitionInterventionCard: View {
   let onApprove: () async throws -> Void
   let onCancel: () async throws -> Void
   let onSetup: (AdapterCredentialSubmission) async throws -> Void
-  let onStartOAuth: (AdapterConnectionModel) async throws -> AdapterOAuthSetupAttempt
+  let onStartOAuth: (AdapterNextActionModel) async throws -> AdapterOAuthSetupAttempt
+  let onWaitForOAuth: (AdapterOAuthSetupAttempt, AdapterNextActionModel) async throws -> String
+  let onAttach: (AdapterNextActionModel) async throws -> Void
   let onSavePolicy: (AdapterConnectionModel, String, String) async throws -> Void
   @State private var policyStep: PolicyStep = .sharing
   @State private var dataSharingPolicy = "allow_automatically"
@@ -31,10 +33,10 @@ struct AdapterDefinitionInterventionCard: View {
   private var connection: AdapterConnectionModel? { definition.connections.first { $0.status == "authentication_required" } }
   private var policyConnection: AdapterConnectionModel? { definition.connections.first { $0.status == "active" && !$0.policyConfigured } }
   private var credentialSetup: AdapterCredentialSetupModel? { definition.credentialSetup }
+  private var nextAction: AdapterNextActionModel? { definition.nextAction }
   private var oauthSetupUnavailable: Bool {
     definition.reviewed
-      && definition.authenticationMode == "oauth2_authorization_code_pkce"
-      && connection == nil
+      && nextAction?.kind == "import_application"
       && credentialSetup == nil
   }
   private var operationCount: Int { definition.operationDetails.isEmpty ? definition.operations.count : definition.operationDetails.count }
@@ -152,6 +154,10 @@ struct AdapterDefinitionInterventionCard: View {
           serviceName: definition.displayName,
           setup: credentialSetup,
           scopes: definition.scopes,
+          introduction: nextAction?.kind == "import_application"
+            ? "Import this provider client document once. You can reuse it for more accounts and compatible APIs."
+            : "Create the exact reviewed credential below. Noema stores only the declared private fields.",
+          submitTitle: nextAction?.kind == "import_application" ? "Import application" : "Add connection",
           onClose: { credentialSetupPresented = false },
           onSubmit: onSetup
         )
@@ -175,20 +181,30 @@ struct AdapterDefinitionInterventionCard: View {
   private var eyebrow: String {
     if !definition.reviewed { return "Connection review" }
     if definition.reviewed, policyConnection != nil { return "Tool permissions · \(policyStep == .sharing ? "1" : "2") of 2" }
-    return connection != nil ? "Authorization" : "OAuth setup"
+    return nextAction?.kind == "add_access" ? "Additional access" : nextAction?.kind == "reconnect_account" ? "Account recovery" : "OAuth setup"
   }
 
   private var title: String {
     if !definition.reviewed { return "Review \(definition.displayName)" }
     if definition.reviewed, policyConnection != nil { return "Enable \(definition.displayName)" }
-    return connection != nil ? "Connect \(definition.displayName)" : "Add credentials for \(definition.displayName)"
+    switch nextAction?.kind {
+    case "add_access": return "Add \(definition.displayName) access"
+    case "reconnect_account": return "Reconnect account"
+    case "add_account": return "Add account"
+    case "attach_account": return "Connect \(definition.displayName)"
+    case "import_application": return "Set up OAuth application"
+    default: return "Add credentials for \(definition.displayName)"
+    }
   }
 
   private var context: String {
     if definition.superseded { return "A newer definition is available. Review the latest revision before changing access." }
     if definition.reviewed, policyConnection != nil { return policyStep == .sharing ? "Your account is connected. Choose when Noema may share relevant conversation details." : "Choose who may approve calls that can change, delete, or send information." }
-    if oauthSetupUnavailable { return "This connection's reviewed OAuth callback modes do not match this Noema app. Ask Noema to propose a compatible definition." }
-    if connection != nil { return "Noema has the OAuth client details. Continue in your browser to grant the reviewed access." }
+    if oauthSetupUnavailable { return "This OAuth application cannot use the callback for this Noema app." }
+    if nextAction?.kind == "attach_account" { return "Use an account that already has the required access." }
+    if nextAction?.kind == "add_access" { return "Approve added access. Current account access stays available." }
+    if nextAction?.kind == "add_account" { return "Use the existing OAuth application. No new client document is required." }
+    if nextAction?.kind == "import_application" { return "Import one provider client document. You can reuse it later." }
     if let credentialSetup {
       return "Create a \(credentialSetup.credentialType) using the reviewed provider instructions, then add it here."
     }
@@ -441,8 +457,12 @@ struct AdapterDefinitionInterventionCard: View {
       if definition.reviewed, policyConnection != nil {
         Button("Review permissions") { policyPresented = true }
           .buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || definition.superseded)
-      } else if !oauthSetupUnavailable, definition.reviewed, let connection {
-        Button(authorizing ? "Opening…" : "Continue in browser") { Task { await authorize(connection) } }
+      } else if definition.reviewed, nextAction?.kind == "attach_account", let nextAction {
+        Button("Connect \(definition.displayName)") { Task { await attach(nextAction) } }
+          .buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || definition.superseded)
+      } else if !oauthSetupUnavailable, definition.reviewed,
+                ["add_account", "add_access", "reconnect_account"].contains(nextAction?.kind ?? ""), let nextAction {
+        Button(authorizing ? "Opening…" : actionTitle(nextAction)) { Task { await authorize(nextAction) } }
           .buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || authorizing || definition.superseded)
       } else if definition.reviewed, !oauthSetupUnavailable, credentialSetup != nil {
         Button("Add credentials") { credentialSetupPresented = true }
@@ -470,14 +490,49 @@ struct AdapterDefinitionInterventionCard: View {
     do { try await onCancel() } catch { errorMessage = error.localizedDescription }
   }
 
-  private func authorize(_ connection: AdapterConnectionModel) async {
+  private func authorize(_ action: AdapterNextActionModel) async {
     isWorking = true; errorMessage = nil; authorizationExpired = false
     defer { isWorking = false }
     do {
-      let attempt = try await onStartOAuth(connection)
+      let attempt = try await onStartOAuth(action)
       authorizationExpiresAt = attempt.expiresAt; authorizing = true; onOpenBrowser(attempt.authorizationURL)
+      Task {
+        do {
+          let status = try await onWaitForOAuth(attempt, action)
+          await MainActor.run {
+            authorizing = false
+            authorizationExpiresAt = nil
+            if status != "completed" { errorMessage = oauthFailure(status) }
+          }
+        } catch {
+          await MainActor.run { errorMessage = error.localizedDescription }
+        }
+      }
     } catch {
       authorizing = false; authorizationExpiresAt = nil; errorMessage = error.localizedDescription
+    }
+  }
+
+  private func attach(_ action: AdapterNextActionModel) async {
+    isWorking = true; errorMessage = nil
+    defer { isWorking = false }
+    do { try await onAttach(action) } catch { errorMessage = error.localizedDescription }
+  }
+
+  private func actionTitle(_ action: AdapterNextActionModel) -> String {
+    switch action.kind {
+    case "add_access": "Add access"
+    case "reconnect_account": "Reconnect account"
+    default: "Add account"
+    }
+  }
+
+  private func oauthFailure(_ status: String) -> String {
+    switch status {
+    case "denied": "Access was not approved. Current account access did not change."
+    case "expired": "Account authorization expired. Current account access did not change."
+    case "superseded": "A newer account authorization replaced this attempt."
+    default: "Account authorization failed. Current account access did not change."
     }
   }
 

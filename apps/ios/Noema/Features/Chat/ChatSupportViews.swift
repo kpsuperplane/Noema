@@ -300,6 +300,8 @@ struct ChatInterventionsView: View {
             onCancel: { try await model.cancelAdapterDefinition(definition) },
             onSetup: { try await model.setupAdapterConnection(definition, submission: $0) },
             onStartOAuth: { try await model.startAdapterOauthSetup($0) },
+            onWaitForOAuth: { try await model.completeAdapterOauthSetup($0, action: $1) },
+            onAttach: { try await model.attachAdapterGrant($0) },
             onSavePolicy: { try await model.saveAdapterPolicy($0, dataSharingPolicy: $1, unsafeActionPolicy: $2) }
           )
         }

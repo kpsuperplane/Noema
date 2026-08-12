@@ -75,6 +75,11 @@ Web and iOS use the structured server-selected next action. They do not infer
 setup work from status copy. OAuth completion uses the exact attempt event and
 foreground recovery query.
 
+Settings also receives exact connection actions for every compatible account
+and application. It excludes grants already attached to that definition.
+Added-access confirmation shows operation benefits before scopes. A new
+attachment continues directly to the existing connection-policy editor.
+
 Connection deletion keeps the account authorization. Account disconnection
 removes tokens and disables every dependent API. Application deletion requires
 all grants to be disconnected first.

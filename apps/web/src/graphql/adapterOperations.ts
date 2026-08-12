@@ -237,7 +237,11 @@ export const ReplaceAdapterOauthApplicationDocument = gql`
 
 export const AttachAdapterOauthConnectionDocument = gql`
   mutation AttachAdapterOauthConnection($input: AttachAdapterOauthConnectionInput!) {
-    attachAdapterOauthConnection(input: $input) { semanticDigest connectionCount }
+    attachAdapterOauthConnection(input: $input) {
+      semanticDigest
+      connectionCount
+      connections { connectionId grantId policyConfigured }
+    }
   }
 `;
 

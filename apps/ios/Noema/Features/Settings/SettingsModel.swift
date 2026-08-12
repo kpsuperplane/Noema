@@ -174,6 +174,7 @@ final class SettingsModel {
   var auth: ProviderAuthModel?
   var capabilityDetails: [String: SettingsCapabilityDetail] = [:]
   var adapterDefinitions: [SettingsAdapterDefinition] = []
+  var adapterOAuthState: SettingsAdapterOAuthState?
   var client: ApolloClient?
   var authSubscription: Task<Void, Never>?
 
@@ -209,6 +210,7 @@ final class SettingsModel {
     }
     isLoading = false
     await loadAdapterDefinitions(client: client)
+    await loadAdapterOAuthState(client: client)
     await loadTaskModelPools(client: client)
     await loadAcpAgents(client: client)
     await loadClients(client: client)

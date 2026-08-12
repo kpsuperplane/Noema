@@ -477,12 +477,25 @@ final class ChatModel {
     await refreshInterventions(client: client)
   }
 
-  func startAdapterOauthSetup(_ connection: AdapterConnectionModel) async throws -> AdapterOAuthSetupAttempt {
+  func startAdapterOauthSetup(_ action: AdapterNextActionModel) async throws -> AdapterOAuthSetupAttempt {
     guard let client, !isOffline else { throw ChatModelError.offline }
-    let attempt = try await HumanInterventionActions.startOAuth(connection, client: client)
+    let attempt = try await HumanInterventionActions.startOAuth(action, client: client)
     isOffline = false
     await refreshInterventions(client: client)
     return attempt
+  }
+
+  func attachAdapterGrant(_ action: AdapterNextActionModel) async throws {
+    guard let client, !isOffline else { throw ChatModelError.offline }
+    try await HumanInterventionActions.attach(action, client: client)
+    await refreshInterventions(client: client)
+  }
+
+  func completeAdapterOauthSetup(_ attempt: AdapterOAuthSetupAttempt, action: AdapterNextActionModel) async throws -> String {
+    guard let client, !isOffline else { throw ChatModelError.offline }
+    let status = try await HumanInterventionActions.waitForOAuth(attempt, action: action, client: client)
+    await refreshInterventions(client: client)
+    return status
   }
 
   func saveAdapterPolicy(

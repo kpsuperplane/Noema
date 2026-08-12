@@ -27,6 +27,10 @@ GraphQL, Web, iOS source flows, and clean cutover. Native Apollo generation,
 native visual validation, and live Google acceptance still need macOS and human
 provider access.
 
+Settings receives ordered exact connection actions. These actions cover every
+compatible unattached grant and active application. Web and iOS continue new
+attachments into the existing connection-policy editor.
+
 ## 2. Current Failure
 
 The current definition owns the API origin, OAuth endpoints, client setup, and one global scope set.

@@ -88,6 +88,19 @@ enum HumanInterventionActions {
        document.isEmpty || document.count > 128 * 1024 {
       throw AdapterCredentialError.invalidDocument
     }
+    if definition.nextAction?.kind == "import_application",
+       let profileDigest = definition.oauthProfileDigest,
+       let document = submission.document {
+      let response = try await client.perform(mutation: NoemaAPI.SettingsImportAdapterOauthApplicationMutation(
+        input: NoemaAPI.ImportAdapterOauthApplicationInput(
+          profileDigest: profileDigest,
+          projectLabel: .none,
+          clientDocumentBase64: document.base64EncodedString()
+        )
+      ))
+      if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
+      return
+    }
     let input = NoemaAPI.SetupAdapterConnectionInput(
       semanticDigest: definition.semanticDigest,
       fieldValues: submission.fieldValues.map {
@@ -99,13 +112,19 @@ enum HumanInterventionActions {
     if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
   }
 
-  static func startOAuth(_ connection: AdapterConnectionModel, client: ApolloClient) async throws -> AdapterOAuthSetupAttempt {
+  static func startOAuth(_ action: AdapterNextActionModel, client: ApolloClient) async throws -> AdapterOAuthSetupAttempt {
+    guard let applicationID = action.applicationID,
+          let applicationRevision = action.applicationRevision,
+          let exactApplicationRevision = Int32(exactly: applicationRevision) else {
+      throw ChatModelError.emptyResponse
+    }
     let input = NoemaAPI.StartAdapterOauthSetupInput(
-      connectionId: connection.connectionID,
-      expectedConnectionRevision: Int32(connection.connectionRevision),
-      expectedCredentialRevision: Int32(connection.credentialRevision),
-      expectedGrantRevision: Int32(connection.grantRevision),
-      expectedPolicyRevision: Int32(connection.policyRevision)
+      applicationId: applicationID,
+      expectedApplicationRevision: exactApplicationRevision,
+      grantId: action.grantID.map { .some($0) } ?? .none,
+      expectedGrantRevision: action.grantRevision.flatMap { Int32(exactly: $0) }.map { .some($0) } ?? .none,
+      semanticDigest: action.semanticDigest,
+      operationIds: action.operationIDs
     )
     let response = try await client.perform(mutation: NoemaAPI.StartAdapterOauthSetupMutation(input: input))
     if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
@@ -116,6 +135,47 @@ enum HumanInterventionActions {
       authorizationURL: url,
       expiresAt: Date(timeIntervalSince1970: TimeInterval(attempt.expiresAtEpochSeconds))
     )
+  }
+
+  static func attach(
+    _ action: AdapterNextActionModel,
+    grantID: String? = nil,
+    grantRevision: Int? = nil,
+    client: ApolloClient
+  ) async throws {
+    guard let grantID = grantID ?? action.grantID,
+          let revision = grantRevision ?? action.grantRevision,
+          let exactRevision = Int32(exactly: revision) else { throw ChatModelError.emptyResponse }
+    let response = try await client.perform(mutation: NoemaAPI.SettingsAttachAdapterOauthConnectionMutation(
+      input: NoemaAPI.AttachAdapterOauthConnectionInput(
+        semanticDigest: action.semanticDigest,
+        grantId: grantID,
+        expectedGrantRevision: exactRevision
+      )
+    ))
+    if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
+  }
+
+  static func waitForOAuth(
+    _ attempt: AdapterOAuthSetupAttempt,
+    action: AdapterNextActionModel,
+    client: ApolloClient
+  ) async throws -> String {
+    let stream = try client.subscribe(
+      subscription: NoemaAPI.SettingsAdapterOauthAttemptEventsSubscription(attemptId: attempt.attemptID)
+    )
+    for try await response in stream {
+      guard let event = response.data?.adapterOauthAttemptEvents,
+            event.status != "authorizing" else { continue }
+      if event.status == "completed", action.connectionID == nil {
+        guard let grantID = event.grantId, let grantRevision = event.grantRevision else {
+          throw ChatModelError.emptyResponse
+        }
+        try await attach(action, grantID: grantID, grantRevision: grantRevision, client: client)
+      }
+      return event.status
+    }
+    throw ChatModelError.emptyResponse
   }
 
   static func savePolicy(_ connection: AdapterConnectionModel, sharing: String, unsafeActions: String, client: ApolloClient) async throws {

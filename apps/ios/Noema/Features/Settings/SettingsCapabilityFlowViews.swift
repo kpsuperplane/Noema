@@ -5,15 +5,51 @@ import SwiftUI
 struct APIConnectionSheet: View {
   let integration: SettingsIntegration
   let settings: SettingsModel
+  let onAttached: (String) -> Void
   @Environment(\.dismiss) private var dismiss
+  @State private var browserURL: URL?
+  @State private var attemptID: String?
+  @State private var selectedAction: SettingsAdapterNextAction?
+  @State private var authorizationTask: Task<Void, Never>?
+  @State private var isWorking = false
+  @State private var errorMessage: String?
 
   private var definition: SettingsAdapterDefinition? {
     settings.adapterDefinitions.first { $0.semanticDigest == integration.sourceRevision }
   }
 
+  private var action: SettingsAdapterNextAction? {
+    if let selectedAction { return selectedAction }
+    guard definition?.connectionActions.count == 1 else { return nil }
+    return definition?.connectionActions.first
+  }
+
   var body: some View {
     Group {
-      if let definition, let setup = definition.credentialSetup {
+      if let definition, definition.connectionActions.count > 1, action == nil {
+        actionChoiceSheet(definition: definition)
+      } else if let definition, let action,
+         action.kind == "import_application",
+         let profileDigest = definition.oauthProfileDigest,
+         let setup = definition.credentialSetup {
+        AdapterCredentialSetupSheet(
+          serviceName: definition.displayName,
+          setup: setup,
+          scopes: definition.scopes,
+          introduction: "Import this provider client document once. You can reuse it for more accounts and compatible APIs.",
+          submitTitle: "Import application",
+          dismissAfterSubmit: false,
+          onClose: { dismiss() },
+          onSubmit: { submission in
+            guard let document = submission.document,
+                  await settings.importAdapterOAuthApplication(profileDigest: profileDigest, document: document) else {
+              throw SettingsError.server(settings.errorMessage ?? "The OAuth application could not be imported.")
+            }
+            await refresh()
+          }
+        )
+      } else if let definition, let action,
+                action.kind == "set_up_credential", let setup = definition.credentialSetup {
         AdapterCredentialSetupSheet(
           serviceName: definition.displayName,
           setup: setup,
@@ -25,6 +61,8 @@ struct APIConnectionSheet: View {
             }
           }
         )
+      } else if let definition, let action {
+        oauthActionSheet(definition: definition, action: action)
       } else if let definition {
         SettingsBottomSheet(
           title: "Add connection to \(definition.displayName)",
@@ -43,6 +81,225 @@ struct APIConnectionSheet: View {
           NoemaInlineState(message: "Definition details are unavailable.", symbol: "wifi.slash", tone: .warning)
         }
       }
+    }
+    .sheet(isPresented: Binding(
+      get: { browserURL != nil },
+      set: { if !$0 { browserURL = nil } }
+    ), onDismiss: recoverAttempt) {
+      if let browserURL { SafariView(url: browserURL) }
+    }
+    .onDisappear { authorizationTask?.cancel() }
+  }
+
+  private func actionChoiceSheet(definition: SettingsAdapterDefinition) -> some View {
+    SettingsBottomSheet(
+      title: "Connect \(definition.displayName)",
+      subtitle: "Choose the account or OAuth application for this API.",
+      detent: .medium,
+      onClose: { dismiss() }
+    ) {
+      VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+        ForEach(Array(definition.connectionActions.enumerated()), id: \.offset) { index, candidate in
+          if index > 0 { SettingsRowDivider() }
+          Button {
+            selectedAction = candidate
+          } label: {
+            HStack(spacing: NoemaSpacing.sm) {
+              VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+                Text(choiceTitle(definition, action: candidate)).font(NoemaFont.bodyEmphasized)
+                Text(actionDescription(definition, action: candidate))
+                  .font(NoemaFont.caption)
+                  .foregroundStyle(NoemaColor.contentSecondary)
+              }
+              Spacer(minLength: NoemaSpacing.sm)
+              Image(systemName: "chevron.right").foregroundStyle(NoemaColor.contentTertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+          }
+          .buttonStyle(.plain)
+          .disabled(!settings.canMutate)
+        }
+      }
+    }
+  }
+
+  private func oauthActionSheet(
+    definition: SettingsAdapterDefinition,
+    action: SettingsAdapterNextAction
+  ) -> some View {
+    SettingsBottomSheet(
+      title: actionTitle(definition, action: action),
+      subtitle: integration.sourceSummary,
+      detent: .medium,
+      onClose: { dismiss() }
+    ) {
+      VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+        Text(actionDescription(definition, action: action))
+          .font(NoemaFont.body)
+          .foregroundStyle(NoemaColor.contentSecondary)
+        if !action.missingScopes.isEmpty {
+          DisclosureGroup("Technical details") {
+            VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+              Text("Operations").font(NoemaFont.captionEmphasized)
+              ForEach(action.operationIDs, id: \.self) { operation in
+                Text(operation).font(NoemaFont.monoTiny).textSelection(.enabled)
+              }
+              Text("Dependent APIs").font(NoemaFont.captionEmphasized)
+              ForEach(dependentAPINames(action), id: \.self) { name in
+                Text(name).font(NoemaFont.caption)
+              }
+              Text("New OAuth scopes").font(NoemaFont.captionEmphasized)
+              ForEach(action.missingScopes, id: \.self) { scope in
+                Text(scope).font(NoemaFont.monoTiny).textSelection(.enabled)
+              }
+            }
+            .padding(.top, NoemaSpacing.sm)
+          }
+        }
+        if let errorMessage {
+          NoemaInlineState(message: errorMessage, symbol: "exclamationmark.triangle", tone: .error)
+        }
+        HStack(spacing: NoemaSpacing.sm) {
+          Spacer(minLength: 0)
+          Button("Cancel") { dismiss() }
+            .buttonStyle(NoemaActionButtonStyle(variant: .ghost))
+            .disabled(isWorking)
+          Button(actionTitle(definition, action: action)) {
+            Task { await run(action) }
+          }
+          .buttonStyle(NoemaActionButtonStyle(variant: .primary))
+          .disabled(isWorking || !settings.canMutate)
+        }
+      }
+    }
+  }
+
+  private func run(_ action: SettingsAdapterNextAction) async {
+    guard !isWorking else { return }
+    isWorking = true
+    errorMessage = nil
+    defer { isWorking = false }
+    if action.kind == "attach_account" {
+      if let connectionID = await settings.attachAdapterGrant(action) {
+        onAttached(connectionID)
+        dismiss()
+      } else { errorMessage = settings.errorMessage ?? "The account could not be attached." }
+      return
+    }
+    guard let attempt = await settings.startAdapterOAuth(action) else {
+      errorMessage = settings.errorMessage ?? "Account authorization could not start."
+      return
+    }
+    attemptID = attempt.attemptID
+    browserURL = attempt.authorizationURL
+    authorizationTask?.cancel()
+    authorizationTask = Task {
+      guard let result = await settings.waitForAdapterOAuth(attemptID: attempt.attemptID) else { return }
+      await finish(result, action: action)
+    }
+  }
+
+  private func recoverAttempt() {
+    guard let attemptID, let action else { return }
+    Task {
+      guard let result = await settings.adapterOAuthAttempt(attemptID: attemptID),
+            result.status != "authorizing" else { return }
+      await finish(result, action: action)
+    }
+  }
+
+  @MainActor
+  private func finish(
+    _ result: (status: String, grantID: String?, grantRevision: Int?),
+    action: SettingsAdapterNextAction
+  ) async {
+    guard result.status == "completed" else {
+      errorMessage = oauthFailure(result.status)
+      return
+    }
+    if action.connectionID == nil {
+      guard let grantID = result.grantID, let grantRevision = result.grantRevision else {
+        errorMessage = "The account was authorized, but Noema did not return its exact revision."
+        return
+      }
+      guard let connectionID = await settings.attachAdapterGrant(
+        action,
+        grantID: grantID,
+        grantRevision: grantRevision
+      ) else {
+        errorMessage = settings.errorMessage ?? "The account was authorized, but the API could not be attached."
+        return
+      }
+      onAttached(connectionID)
+    }
+    await refresh()
+    dismiss()
+  }
+
+  private func refresh() async {
+    await settings.loadAdapterDefinitions()
+    await settings.loadAdapterOAuthState()
+  }
+
+  private func actionTitle(_ definition: SettingsAdapterDefinition, action: SettingsAdapterNextAction) -> String {
+    switch action.kind {
+    case "attach_account": "Connect \(definition.displayName)"
+    case "add_access": "Add \(definition.displayName) access"
+    case "reconnect_account": "Reconnect account"
+    case "add_account":
+      settings.adapterOAuthState?.applications
+        .first { $0.applicationID == action.applicationID }
+        .map { "Add \($0.providerName) account" } ?? "Add account"
+    default: "Continue"
+    }
+  }
+
+  private func choiceTitle(_ definition: SettingsAdapterDefinition, action: SettingsAdapterNextAction) -> String {
+    let grant = settings.adapterOAuthState?.grants.first { $0.grantID == action.grantID }
+    let account = grant?.accountLabel ?? (grant == nil ? nil : "Unlabeled account")
+    switch action.kind {
+    case "attach_account": account.map { "Connect \($0)" } ?? "Connect \(definition.displayName)"
+    case "add_access": account.map { "Add access for \($0)" } ?? "Add \(definition.displayName) access"
+    case "reconnect_account": account.map { "Reconnect \($0)" } ?? "Reconnect account"
+    case "add_account":
+      if let application = settings.adapterOAuthState?.applications
+        .first(where: { $0.applicationID == action.applicationID }) {
+        application.projectLabel.map { "Add account with \($0)" }
+          ?? "Add \(application.providerName) account"
+      } else {
+        "Add account"
+      }
+    case "import_application": "Set up OAuth application"
+    default: actionTitle(definition, action: action)
+    }
+  }
+
+  private func actionDescription(_ definition: SettingsAdapterDefinition, action: SettingsAdapterNextAction) -> String {
+    switch action.kind {
+    case "attach_account": "Use an account that already has the required access."
+    case "add_access": "This enables \(action.operationIDs.count) additional \(definition.displayName) operations. Current access stays available if you cancel or deny consent."
+    case "reconnect_account": "Reconnect this account. API definitions and local policy stay unchanged."
+    default: "Use the existing OAuth application. No new client document is required."
+    }
+  }
+
+  private func dependentAPINames(_ action: SettingsAdapterNextAction) -> [String] {
+    guard let grant = settings.adapterOAuthState?.grants.first(where: { $0.grantID == action.grantID }) else {
+      return ["No connected APIs"]
+    }
+    let connectionIDs = Set(grant.connectionIDs)
+    let names = Set(settings.adapterDefinitions.flatMap { definition in
+      definition.connections.contains { connectionIDs.contains($0.id) } ? [definition.displayName] : []
+    })
+    return names.isEmpty ? ["No connected APIs"] : names.sorted()
+  }
+
+  private func oauthFailure(_ status: String) -> String {
+    switch status {
+    case "denied": "Access was not approved. Current account access did not change."
+    case "expired": "Account authorization expired. Current account access did not change."
+    case "superseded": "A newer account authorization replaced this attempt."
+    default: "Account authorization failed. Current account access did not change."
     }
   }
 }
@@ -198,6 +455,7 @@ struct SettingsAdapterDefinitionReview: View {
             .foregroundStyle(NoemaColor.accent)
         }
       }
+      SettingsDefinitionMetadataRow(label: "Canonical manifest", value: definition.manifestJSON, monospace: true)
     }
   }
 

@@ -216,6 +216,7 @@ struct CapabilityConnectionEditor: View {
   let connection: SettingsIntegrationConnection
   let settings: SettingsModel
   let appModel: NoemaAppModel
+  let startPolicyEditing: Bool
   @Environment(\.dismiss) private var dismiss
   @State private var label: String
   @State private var sharing: String
@@ -235,6 +236,8 @@ struct CapabilityConnectionEditor: View {
   @State private var policyDiscardPresented = false
   @State private var deletePresented = false
   @State private var browserURL: URL?
+  @State private var browserAttemptID: String?
+  @State private var authorizationTask: Task<Void, Never>?
   @State private var reauthPresented = false
   @FocusState private var focusedField: Bool
 
@@ -249,11 +252,25 @@ struct CapabilityConnectionEditor: View {
   private var invalidPolicy: Bool { sharingDraft == "review_every_call" && unsafeActionsDraft == "never_ask" }
   private var toolCount: Int { detail?.toolCount ?? connection.toolCount }
   private var availableToolCount: Int { detail?.availableToolCount ?? connection.availableToolCount }
+  private var adapterAction: SettingsAdapterNextAction? {
+    let action = settings.adapterDefinitions.first { $0.semanticDigest == connection.sourceRevision }?.nextAction
+    return action?.connectionID == connection.id ? action : nil
+  }
+  private var adapterDescriptor: SettingsAdapterConnection? {
+    settings.adapterDefinitions.first { $0.semanticDigest == connection.sourceRevision }?
+      .connections.first { $0.id == connection.id }
+  }
 
-  init(connection: SettingsIntegrationConnection, settings: SettingsModel, appModel: NoemaAppModel) {
+  init(
+    connection: SettingsIntegrationConnection,
+    settings: SettingsModel,
+    appModel: NoemaAppModel,
+    startPolicyEditing: Bool = false
+  ) {
     self.connection = connection
     self.settings = settings
     self.appModel = appModel
+    self.startPolicyEditing = startPolicyEditing
     _label = State(initialValue: connection.connectionLabel ?? "")
     _sharing = State(initialValue: connection.dataSharingPolicy ?? "")
     _unsafeActions = State(initialValue: connection.unsafeActionPolicy ?? "")
@@ -283,9 +300,35 @@ struct CapabilityConnectionEditor: View {
             }
             NoemaStatusToken(text: currentStatus.replacingOccurrences(of: "_", with: " ").capitalized, tone: currentStatus == "active" ? .success : .neutral)
           }
-          if connection.kind == .api && connection.authStatus == "required" {
-            SettingsAction(title: "Authorize connection", symbol: "person.badge.key", role: nil, disabled: isSaving || !settings.canMutate) {
-              Task { browserURL = await settings.startAdapterOAuth(connection: connection) }
+          if connection.kind == .api,
+             let action = adapterAction,
+             ["add_access", "reconnect_account"].contains(action.kind) {
+            SettingsAction(title: action.kind == "add_access" ? "Add access" : "Reconnect account", symbol: "person.badge.key", role: nil, disabled: isSaving || !settings.canMutate) {
+              Task {
+                if let attempt = await settings.startAdapterOAuth(action) {
+                  browserAttemptID = attempt.attemptID
+                  browserURL = attempt.authorizationURL
+                  authorizationTask?.cancel()
+                  authorizationTask = Task {
+                    guard let result = await settings.waitForAdapterOAuth(attemptID: attempt.attemptID) else { return }
+                    await finishAdapterOAuth(status: result.status)
+                  }
+                }
+              }
+            }
+          }
+          if connection.kind == .api, let descriptor = adapterDescriptor {
+            SettingsAction(
+              title: descriptor.status == "suspended" ? "Resume connection" : "Suspend connection",
+              symbol: descriptor.status == "suspended" ? "play" : "pause",
+              role: nil,
+              disabled: isSaving || !settings.canMutate
+            ) {
+              Task {
+                if await settings.setAdapterConnectionActive(descriptor, active: descriptor.status == "suspended") {
+                  await settings.load(client: settings.client)
+                }
+              }
             }
           }
           if connection.kind == .mcp,
@@ -353,13 +396,18 @@ struct CapabilityConnectionEditor: View {
             if let detail {
               Text("\(detail.pendingToolCount) pending · \(detail.defaultedToolCount) defaulted · \(detail.disabledToolCount) disabled tools")
             }
+            if let definition = settings.adapterDefinitions.first(where: { $0.semanticDigest == connection.sourceRevision }) {
+              Text(definition.manifestJSON).font(NoemaFont.monoTiny).textSelection(.enabled)
+            }
           }
           .font(NoemaFont.caption)
           .foregroundStyle(NoemaColor.contentSecondary)
         }
 
         SettingsSectionCard("Connection") {
-          Text("Remove this connection, its credentials, and its tool settings.")
+          Text(connection.kind == .api
+            ? "Remove this API binding and tool settings. The account and OAuth application stay connected."
+            : "Remove this connection, its credentials, and its tool settings.")
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
           Button(role: .destructive) { deletePresented = true } label: {
@@ -379,9 +427,15 @@ struct CapabilityConnectionEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving)
+    .onDisappear { authorizationTask?.cancel() }
     .task {
       await settings.loadCapabilityDetail(kind: connection.kind, connectionID: connection.id)
       detail = settings.capabilityDetails[connection.id]
+      if startPolicyEditing {
+        sharingDraft = sharing
+        unsafeActionsDraft = unsafeActions
+        policyPresented = true
+      }
     }
     .sheet(item: $editingTool, onDismiss: { Task { await refreshConnectionState() } }) { tool in
       CapabilityToolEditor(connection: currentConnection, tool: tool, settings: settings)
@@ -389,7 +443,13 @@ struct CapabilityConnectionEditor: View {
     .sheet(isPresented: $renamePresented) { renameSheet }
     .sheet(isPresented: $policyPresented) { policySheet }
     .sheet(isPresented: Binding(get: { browserURL != nil }, set: { if !$0 { browserURL = nil } }), onDismiss: {
-      Task { await settings.load(client: settings.client) }
+      Task {
+        if let browserAttemptID,
+           let result = await settings.adapterOAuthAttempt(attemptID: browserAttemptID),
+           result.status != "authorizing" {
+          await finishAdapterOAuth(status: result.status)
+        }
+      }
     }) {
       if let browserURL { SafariView(url: browserURL) }
     }
@@ -406,7 +466,9 @@ struct CapabilityConnectionEditor: View {
     .sheet(isPresented: $deletePresented) {
       SettingsMutationConfirmationSheet(
         title: "Delete \(displayName)?",
-        message: "Removes the connection, sign-in details, \(toolCount) \(toolCount == 1 ? "tool" : "tools"), and tool settings. You can't undo this. Past activity is kept.",
+        message: connection.kind == .api
+          ? "Removes this API binding and \(toolCount) tool settings. The account and OAuth application stay connected. Past activity is kept."
+          : "Removes the connection, sign-in details, \(toolCount) \(toolCount == 1 ? "tool" : "tools"), and tool settings. You can't undo this. Past activity is kept.",
         confirmTitle: "Delete"
       ) {
         let deleted = connection.kind == .api
@@ -421,6 +483,20 @@ struct CapabilityConnectionEditor: View {
   private func requestDismissal() {
     guard !isSaving else { return }
     dismiss()
+  }
+
+  @MainActor
+  private func finishAdapterOAuth(status: String) async {
+    guard status == "completed" else {
+      settings.errorMessage = switch status {
+      case "denied": "Access was not approved. Current account access did not change."
+      case "expired": "Account authorization expired. Current account access did not change."
+      case "superseded": "A newer account authorization replaced this attempt."
+      default: "Account authorization failed. Current account access did not change."
+      }
+      return
+    }
+    await settings.load(client: settings.client)
   }
 
   private var unsafeActionSummary: String {

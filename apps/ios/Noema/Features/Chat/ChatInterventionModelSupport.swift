@@ -129,9 +129,11 @@ struct AdapterDefinitionModel: Equatable {
   let connectionCount: Int
   let origin: String
   let authenticationMode: String
+  let oauthProfileDigest: String?
   let accountIdentityOperationID: String?
   let operationDetails: [AdapterOperationModel]
   let connections: [AdapterConnectionModel]
+  let nextAction: AdapterNextActionModel?
 
   init(
     semanticDigest: String,
@@ -148,9 +150,11 @@ struct AdapterDefinitionModel: Equatable {
     connectionCount: Int,
     origin: String = "",
     authenticationMode: String = "",
+    oauthProfileDigest: String? = nil,
     accountIdentityOperationID: String? = nil,
     operationDetails: [AdapterOperationModel] = [],
-    connections: [AdapterConnectionModel] = []
+    connections: [AdapterConnectionModel] = [],
+    nextAction: AdapterNextActionModel? = nil
   ) {
     self.semanticDigest = semanticDigest
     self.definitionID = definitionID
@@ -166,9 +170,11 @@ struct AdapterDefinitionModel: Equatable {
     self.connectionCount = connectionCount
     self.origin = origin
     self.authenticationMode = authenticationMode
+    self.oauthProfileDigest = oauthProfileDigest
     self.accountIdentityOperationID = accountIdentityOperationID
     self.operationDetails = operationDetails
     self.connections = connections
+    self.nextAction = nextAction
   }
 }
 
@@ -198,16 +204,29 @@ struct AdapterResponseTransformModel: Equatable {
 struct AdapterConnectionModel: Equatable, Identifiable {
   let connectionID: String
   let status: String
-  let accountKind: String
+  let grantID: String?
+  let accountID: String?
   let connectionRevision: Int
-  let credentialRevision: Int
-  let grantRevision: Int
+  let credentialRevision: Int?
+  let grantRevision: Int?
   let policyRevision: Int
   let grantedScopes: [String]
   let allowedOperations: [String]
   let policyConfigured: Bool
 
   var id: String { connectionID }
+}
+
+struct AdapterNextActionModel: Equatable {
+  let kind: String
+  let semanticDigest: String
+  let applicationID: String?
+  let applicationRevision: Int?
+  let grantID: String?
+  let grantRevision: Int?
+  let connectionID: String?
+  let operationIDs: [String]
+  let missingScopes: [String]
 }
 
 struct AdapterOAuthSetupAttempt: Equatable {
@@ -274,6 +293,7 @@ extension ChatIntervention {
         connectionCount: definition.connectionCount,
         origin: definition.origin,
         authenticationMode: definition.authenticationMode,
+        oauthProfileDigest: definition.oauthProfileDigest,
         accountIdentityOperationID: definition.accountIdentityOperationId,
         operationDetails: definition.operations.map { operation in
           AdapterOperationModel(
@@ -300,7 +320,8 @@ extension ChatIntervention {
           AdapterConnectionModel(
             connectionID: connection.connectionId,
             status: connection.status,
-            accountKind: connection.accountKind,
+            grantID: connection.grantId,
+            accountID: connection.accountId,
             connectionRevision: connection.connectionRevision,
             credentialRevision: connection.credentialRevision,
             grantRevision: connection.grantRevision,
@@ -308,6 +329,19 @@ extension ChatIntervention {
             grantedScopes: connection.grantedScopes,
             allowedOperations: connection.allowedOperations,
             policyConfigured: connection.policyConfigured
+          )
+        },
+        nextAction: definition.nextAction.map { action in
+          AdapterNextActionModel(
+            kind: action.kind,
+            semanticDigest: action.semanticDigest,
+            applicationID: action.applicationId,
+            applicationRevision: action.expectedApplicationRevision,
+            grantID: action.grantId,
+            grantRevision: action.expectedGrantRevision,
+            connectionID: action.connectionId,
+            operationIDs: action.operationIds,
+            missingScopes: action.missingScopes
           )
         }
       ))

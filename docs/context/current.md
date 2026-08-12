@@ -84,6 +84,11 @@ vertical slice or a net-negative reduction.
   Client secrets and tokens use protected generations.
 - Catalog compilation enables only operations covered by current granted
   scopes. It calculates the smallest exact scope target for selected operations.
+- Adapter Settings exposes every exact compatible account and application
+  choice. It excludes grants already attached to that definition. Existing
+  connection recovery carries the exact application revision.
+- Web and iOS continue a new OAuth attachment into the existing connection
+  policy editor. Added-access decisions show operations before exact scopes.
 - SQLite schema version 40 has rebuildable public OAuth projections and grant
   labels. It supersedes authentication requests from the replaced model.
 - The active reviewed Calendar definition has all 12 current operations,
@@ -126,6 +131,11 @@ vertical slice or a net-negative reduction.
 - The Linux workspace gates stop before code validation because the active
   Tauri allowlist rejects the enabled `macos-private-api` feature. The roadmap
   did not change or bypass this desktop configuration.
+- Apollo iOS 2.3 code generation requires macOS. This Linux workspace can
+  validate operations and parse Swift source, but it cannot regenerate native
+  sources or run the unsigned Simulator build.
+- Live Gmail and Calendar OAuth acceptance still needs interactive Google
+  account consent after native generation.
 - The lint gate also reports existing missing error documentation and one
   argument-count error in client notification store code.
 - Four unit-test failures remain outside the roadmap: two interaction-resume
