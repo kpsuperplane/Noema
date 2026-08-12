@@ -253,6 +253,7 @@ export function CapabilityConnectionDetail({
             </VStack>
           </HStack>
           <HStack gap={1} vAlign="center" wrap="wrap">
+            {sourceActions}
             {!renaming ? (
               <IconButton
                 variant="ghost"
@@ -267,7 +268,7 @@ export function CapabilityConnectionDetail({
                 }}
               />
             ) : null}
-            {sourceActions}
+            {dangerAction}
           </HStack>
         </HStack>
         <HStack gap={1} vAlign="center" {...stylex.props(styles.toolCount)}>
@@ -283,7 +284,7 @@ export function CapabilityConnectionDetail({
         <Toolbar
           label="Connection policy actions"
           size="sm"
-          variant="muted"
+          variant="transparent"
           xstyle={styles.sectionHeader}
           startContent={<h2 id="connection-policy-title" {...stylex.props(styles.heading)}>Connection policy</h2>}
           endContent={<IconButton
@@ -312,7 +313,7 @@ export function CapabilityConnectionDetail({
         <Toolbar
           label="Tool settings"
           size="sm"
-          variant="muted"
+          variant="transparent"
           xstyle={styles.sectionHeader}
           startContent={<h2 id="connection-tools-title" {...stylex.props(styles.heading)}>Tools</h2>}
           endContent={<span {...stylex.props(styles.muted)}>{connection.availableToolCount} / {connection.toolCount} available</span>}
@@ -338,11 +339,6 @@ export function CapabilityConnectionDetail({
           sourceDetails: connection.sourceDetails
         }, null, 2)}</pre>
       </VStack>
-      {dangerAction ? (
-        <HStack gap={1} wrap="wrap" vAlign="center" {...stylex.props(styles.connectionActions)}>
-          {dangerAction}
-        </HStack>
-      ) : null}
       {error && !renaming && !policyEditing && !editingTool ? (
         <p role="alert" {...stylex.props(styles.error)}>{error}</p>
       ) : null}
@@ -543,7 +539,6 @@ const styles = stylex.create({
   muted: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 12 },
   summary: { cursor: "pointer", fontSize: 13, fontWeight: 600 },
   detailsSection: { minWidth: 0 },
-  connectionActions: { paddingBlockStart: "var(--spacing-1)" },
   detailHeading: { fontSize: 12 },
   details: { margin: "var(--spacing-0)", overflowX: "auto", fontFamily: "var(--font-mono)", fontSize: 12 },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 }

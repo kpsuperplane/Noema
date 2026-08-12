@@ -15,21 +15,13 @@ import {
   Wrench
 } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { CapabilityIntegrationsQuery } from "@/generated/graphql";
 import { settingsStatusLabel } from "./settingsStatus";
 
 export type CapabilityIntegration = CapabilityIntegrationsQuery["capabilityIntegrations"][number];
 
-export function CapabilityIntegrationList({
-  integrations,
-  kind,
-  selectedConnectionId,
-  emptyMessage,
-  integrationAction,
-  isAddingConnection = false,
-  onAddConnection
-}: {
+type CapabilityIntegrationListProps = {
   integrations: readonly CapabilityIntegration[];
   kind: "API" | "MCP";
   selectedConnectionId?: string;
@@ -37,8 +29,24 @@ export function CapabilityIntegrationList({
   integrationAction?: (integration: CapabilityIntegration) => ReactNode;
   isAddingConnection?: boolean;
   onAddConnection?: (integration: CapabilityIntegration) => void;
-}) {
+};
+
+export function CapabilityIntegrationList(props: CapabilityIntegrationListProps) {
+  return <CapabilityIntegrationListView key={props.selectedConnectionId ?? "unselected"} {...props} />;
+}
+
+function CapabilityIntegrationListView({
+  integrations,
+  kind,
+  selectedConnectionId,
+  emptyMessage,
+  integrationAction,
+  isAddingConnection = false,
+  onAddConnection
+}: CapabilityIntegrationListProps) {
   const connectionNoun = kind === "API" ? "account" : "connection";
+  const [visibleSelectedConnectionId, setVisibleSelectedConnectionId] = useState(selectedConnectionId);
+
   return (
     <VStack gap={2}>
       {integrations.length === 0 ? (
@@ -87,13 +95,17 @@ export function CapabilityIntegrationList({
                 const route = kind === "API"
                   ? "/settings/tools/apis/$connectionId"
                   : "/settings/tools/mcps/$connectionId";
-                const isSelected = selectedConnectionId === connection.connectionId;
+                const isSelected = visibleSelectedConnectionId === connection.connectionId;
                 return (
                   <Link
                     key={connection.connectionId}
                     to={route}
                     params={{ connectionId: connection.connectionId }}
-                    aria-current={isSelected ? "page" : undefined}
+                    aria-current={selectedConnectionId === connection.connectionId ? "page" : undefined}
+                    onClick={(event) => {
+                      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                      setVisibleSelectedConnectionId(connection.connectionId);
+                    }}
                     {...stylex.props(styles.connectionRow, isSelected && styles.selectedConnection)}
                   >
                     <Avatar name={connection.name} size="sm" tooltip={false} />
@@ -209,7 +221,7 @@ const styles = stylex.create({
     ":hover": { backgroundColor: "var(--surface-raised)" },
     ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: -2 }
   },
-  selectedConnection: { backgroundColor: "var(--color-success-muted)" },
+  selectedConnection: { boxShadow: "inset 0 0 0 2px var(--primary)" },
   connectionCopy: { minWidth: 0 },
   connectionName: { fontSize: 13, fontWeight: 650, overflowWrap: "anywhere" },
   connectionMeta: { color: "var(--muted-foreground)", fontSize: 12 },

@@ -5,7 +5,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { VStack } from "@astryxdesign/core/VStack";
-import { ChevronRight, KeyRound, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, KeyRound, Pause, Play, Plus, Trash2 } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import {
@@ -421,15 +421,19 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           <pre {...stylex.props(styles.manifest)}>{selectedDefinition.manifestJson}</pre></details>
       </VStack> : null}
       dangerAction={selectedConnection && selectedDescriptor ? <>
-        <Button type="button" size="sm" variant="ghost"
+        <IconButton size="sm" variant="ghost"
           label={selectedDescriptor.status === "suspended" ? "Resume connection" : "Suspend connection"}
+          tooltip={selectedDescriptor.status === "suspended" ? "Resume connection" : "Suspend connection"}
+          icon={selectedDescriptor.status === "suspended"
+            ? <Play {...stylex.props(styles.icon)} aria-hidden="true" />
+            : <Pause {...stylex.props(styles.icon)} aria-hidden="true" />}
           isLoading={connectionState.loading}
           onClick={() => void setConnectionActive({ variables: { input: {
             connectionId: selectedDescriptor.connectionId,
             expectedConnectionRevision: selectedDescriptor.connectionRevision,
             active: selectedDescriptor.status === "suspended"
           } } }).then(refresh).catch(actionError(setError))} />
-        <Button type="button" size="sm" variant="destructive" label="Delete connection"
+        <IconButton size="sm" variant="destructive" label="Delete connection" tooltip="Delete connection"
           icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />} onClick={() => setDeleteOpen(true)} />
       </> : null}
     />

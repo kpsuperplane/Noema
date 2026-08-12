@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { KeyRound, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
@@ -334,10 +335,11 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
           />
         ) : null}
         dangerAction={selectedServer ? (
-          <Button
-            type="button"
+          <IconButton
+            size="sm"
             variant="destructive"
             label="Delete connection"
+            tooltip="Delete connection"
             icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
             isDisabled={deleteSubmitting}
             onClick={() => setDeleteTargetId(selectedServer.mcpServerId)}
