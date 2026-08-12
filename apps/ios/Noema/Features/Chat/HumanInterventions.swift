@@ -13,7 +13,7 @@ extension ChatIntervention {
     case let .mcpAuth(value): value.taskID
     case let .adapterAuth(value): value.taskID
     case let .attention(value): value.taskID
-    case .setup, .adapterDefinition: nil
+    case .setup, .oauthClientSetup, .adapterDefinition: nil
     }
   }
 }
@@ -109,6 +109,26 @@ enum HumanInterventionActions {
       documentBase64: submission.document.map { .some($0.base64EncodedString()) } ?? .none
     )
     let response = try await client.perform(mutation: NoemaAPI.SetupAdapterConnectionMutation(input: input))
+    if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
+  }
+
+  static func importOauthClient(
+    _ setup: AdapterOauthClientSetupModel,
+    submission: AdapterCredentialSubmission,
+    client: ApolloClient
+  ) async throws {
+    guard let document = submission.document,
+          !document.isEmpty,
+          document.count <= 128 * 1024 else {
+      throw AdapterCredentialError.invalidDocument
+    }
+    let response = try await client.perform(mutation: NoemaAPI.SettingsImportAdapterOauthApplicationMutation(
+      input: NoemaAPI.ImportAdapterOauthApplicationInput(
+        profileDigest: setup.profileDigest,
+        projectLabel: .none,
+        clientDocumentBase64: document.base64EncodedString()
+      )
+    ))
     if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
   }
 

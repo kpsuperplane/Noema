@@ -22,6 +22,7 @@ enum ChatIntervention: Identifiable, Equatable {
   case adapterAuth(AdapterAuthModel)
   case setup(McpSetupModel)
   case attention(ChatTaskAttentionModel)
+  case oauthClientSetup(AdapterOauthClientSetupModel)
   case adapterDefinition(AdapterDefinitionModel)
 
   var id: String {
@@ -31,6 +32,7 @@ enum ChatIntervention: Identifiable, Equatable {
     case let .adapterAuth(value): value.requestID
     case let .setup(value): value.itemID
     case let .attention(value): "task-" + value.taskID + "-" + (value.gate?.id ?? "attention")
+    case let .oauthClientSetup(value): "oauth-client-" + value.profileDigest
     case let .adapterDefinition(value): "adapter-" + value.semanticDigest
     }
   }
@@ -112,6 +114,20 @@ struct McpSetupModel: Equatable {
   let connectionRevision: String?
   let policyRevision: Int?
   let toolCount: Int?
+}
+
+struct AdapterOauthClientSetupDependencyModel: Equatable, Identifiable {
+  let semanticDigest: String
+  let displayName: String
+
+  var id: String { semanticDigest }
+}
+
+struct AdapterOauthClientSetupModel: Equatable {
+  let profileDigest: String
+  let displayName: String
+  let credentialSetup: AdapterCredentialSetupModel
+  let dependentDefinitions: [AdapterOauthClientSetupDependencyModel]
 }
 
 struct AdapterDefinitionModel: Equatable {
@@ -275,6 +291,18 @@ extension ChatIntervention {
       let task = attention.task
       let gate = attention.gate.map { mapChatTaskGate($0.fragments.tasksGateFields) } ?? task.activeGate.map { mapChatTaskGate($0.fragments.tasksGateFields) }
       self = .attention(ChatTaskAttentionModel(taskID: task.taskId, title: attention.title, summary: attention.summary, revision: task.revision, generation: task.generation, gate: gate, validActions: Set(attention.validActions.map(\.rawValue))))
+    } else if let setup = data.asAdapterOauthClientSetupIntervention {
+      self = .oauthClientSetup(AdapterOauthClientSetupModel(
+        profileDigest: setup.profileDigest,
+        displayName: setup.displayName,
+        credentialSetup: AdapterCredentialSetupModel(setup.oauthCredentialSetup.fragments.adapterCredentialSetupFields),
+        dependentDefinitions: setup.dependentDefinitions.map {
+          AdapterOauthClientSetupDependencyModel(
+            semanticDigest: $0.semanticDigest,
+            displayName: $0.displayName
+          )
+        }
+      ))
     } else if let definition = data.asAdapterDefinition {
       self = .adapterDefinition(AdapterDefinitionModel(
         semanticDigest: definition.semanticDigest,

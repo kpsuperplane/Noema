@@ -1,6 +1,94 @@
 import Foundation
 import SwiftUI
 
+struct AdapterOauthClientSetupInterventionCard: View {
+  let setup: AdapterOauthClientSetupModel
+  let isOffline: Bool
+  let onOpenBrowser: (URL) -> Void
+  let onDismiss: (() -> Void)?
+  let onImport: (AdapterCredentialSubmission) async throws -> Void
+  @State private var setupPresented = false
+  @State private var isWorking = false
+  @State private var errorMessage: String?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      HStack(spacing: NoemaSpacing.sm) {
+        Text("Shared OAuth setup").interventionEyebrow()
+        Spacer(minLength: 0)
+        if let onDismiss {
+          Button(action: onDismiss) {
+            Image(systemName: "xmark")
+              .font(NoemaFont.captionEmphasized)
+              .frame(width: 28, height: 28)
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(NoemaColor.contentSecondary)
+          .accessibilityLabel("Hide OAuth client setup from chat")
+        }
+      }
+      Text("Import one OAuth client")
+        .font(NoemaFont.bodyEmphasized)
+        .foregroundStyle(NoemaColor.content)
+      Text("Noema will reuse this client for \(setup.dependentDefinitions.count) reviewed API\(setup.dependentDefinitions.count == 1 ? "" : "s").")
+        .font(NoemaFont.caption)
+        .foregroundStyle(NoemaColor.contentSecondary)
+      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+        ForEach(setup.dependentDefinitions) { definition in
+          Text(definition.displayName).font(NoemaFont.caption)
+        }
+      }
+      if let redirectURI = setup.credentialSetup.redirectURI {
+        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+          Text("Authorized redirect URI").font(NoemaFont.captionEmphasized)
+          Text(redirectURI)
+            .font(NoemaFont.monoTiny)
+            .textSelection(.enabled)
+            .padding(NoemaSpacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaRadius.inner))
+        }
+      }
+      if let errorMessage {
+        NoemaInlineState(message: errorMessage, symbol: "exclamationmark.triangle", tone: .error)
+      }
+      HStack(spacing: NoemaSpacing.sm) {
+        if let setupURL = setup.credentialSetup.setupURL {
+          Button("Developer Tools") { onOpenBrowser(setupURL) }
+            .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
+        }
+        Spacer(minLength: 0)
+        Button("Import OAuth client") { setupPresented = true }
+          .buttonStyle(NoemaActionButtonStyle(variant: .primary))
+          .disabled(isOffline || isWorking)
+      }
+    }
+    .sheet(isPresented: $setupPresented) {
+      AdapterCredentialSetupSheet(
+        serviceName: setup.displayName,
+        title: "Import OAuth client",
+        setup: setup.credentialSetup,
+        scopes: [],
+        introduction: "Import this client document once. Noema will reuse it for every compatible reviewed API.",
+        submitTitle: "Import OAuth client",
+        onClose: { guard !isWorking else { return }; setupPresented = false },
+        onSubmit: { submission in
+          isWorking = true
+          errorMessage = nil
+          defer { isWorking = false }
+          do {
+            try await onImport(submission)
+            setupPresented = false
+          } catch {
+            errorMessage = error.localizedDescription
+            throw error
+          }
+        }
+      )
+    }
+  }
+}
+
 /// Native counterpart of the mobile-web AdapterDefinition intervention card.
 struct AdapterDefinitionInterventionCard: View {
   enum PolicyStep { case sharing, unsafeActions }

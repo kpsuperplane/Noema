@@ -424,6 +424,12 @@ Replace the combined setup card with one current action:
 The backend supplies a structured next action.
 Clients must not infer it from status text.
 
+Project application setup as one profile-owned intervention.
+Group all reviewed definitions that need the same profile application.
+List each dependent API in that intervention.
+Keep pending definition reviews before the shared application setup.
+Remove the intervention when an active compatible application exists.
+
 ## 12. iOS and iPadOS UX
 
 Use the same hierarchy and action meanings as Web.
@@ -475,6 +481,7 @@ Preserve the current native policy and tool editors.
 ### 12.4 Chat and Tasks
 
 Update native intervention models and views for the same five actions as Web.
+Render one OAuth client card for each profile, not one card for each API.
 
 Do not select the first authentication-required connection.
 Use exact application, grant, and connection IDs from GraphQL.

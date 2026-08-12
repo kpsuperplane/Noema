@@ -110,6 +110,22 @@ export const PendingHumanInterventionsDocument = gql`
         state
         failureCode
       }
+      ... on AdapterOauthClientSetupIntervention {
+        profileDigest
+        displayName
+        oauthCredentialSetup: credentialSetup {
+          credentialType
+          setupUrl
+          instructions
+          inputKind
+          fields { fieldId label }
+          documentMediaType
+          redirectUri
+          normalizationTransform { language sourceDigest source }
+          requestAuthTransform { language sourceDigest source }
+        }
+        dependentDefinitions { semanticDigest displayName }
+      }
       ... on AdapterDefinition {
         semanticDigest
         definitionId

@@ -49,6 +49,7 @@ import {
 
 export type PendingHumanIntervention = PendingHumanInterventionsQuery["pendingHumanInterventions"][number];
 type PendingAdapterDefinition = Extract<PendingHumanIntervention, { __typename: "AdapterDefinition" }>;
+type PendingOauthClientSetup = Extract<PendingHumanIntervention, { __typename: "AdapterOauthClientSetupIntervention" }>;
 
 type Scope = {
   conversationId?: string | null;
@@ -120,10 +121,12 @@ export function PendingHumanInterventionsResult({
   const allowAdapterSetupDismissal = Boolean(conversationId) && placement === "chat";
   const visibleInterventions = allowAdapterSetupDismissal
     ? interventions.filter((intervention) => (
-        intervention.__typename !== "AdapterDefinition"
-        || !intervention.reviewed
-        || intervention.connectionCount > 0
-        || !dismissedAdapterSetups.has(intervention.semanticDigest)
+        intervention.__typename === "AdapterOauthClientSetupIntervention"
+          ? !dismissedAdapterSetups.has(`oauth:${intervention.profileDigest}`)
+          : intervention.__typename !== "AdapterDefinition"
+            || !intervention.reviewed
+            || intervention.connectionCount > 0
+            || !dismissedAdapterSetups.has(intervention.semanticDigest)
       ))
     : interventions;
   const selectedChatInterventionIndex = Math.max(0, visibleInterventions.findIndex(
@@ -329,6 +332,17 @@ function HumanInterventionListItem({
   if (intervention.__typename === "AdapterAuthenticationIntervention") {
     return <AdapterAuthenticationCard request={intervention} onResolved={onResolved} />;
   }
+  if (intervention.__typename === "AdapterOauthClientSetupIntervention") {
+    return (
+      <OauthClientSetupCard
+        setup={intervention}
+        onResolved={onResolved}
+        onDismiss={onDismissAdapterSetup
+          ? () => onDismissAdapterSetup(`oauth:${intervention.profileDigest}`)
+          : undefined}
+      />
+    );
+  }
   return (
     <AdapterDefinitionCard
       definition={intervention}
@@ -347,8 +361,109 @@ function humanInterventionKey(intervention: PendingHumanIntervention) {
     case "McpAuthenticationIntervention":
     case "AdapterAuthenticationIntervention": return `${intervention.requestId}:${intervention.revision}`;
     case "McpSetupIntervention": return intervention.itemId;
+    case "AdapterOauthClientSetupIntervention": return `oauth:${intervention.profileDigest}`;
     case "AdapterDefinition": return intervention.semanticDigest;
   }
+}
+
+function OauthClientSetupCard({
+  setup,
+  onResolved,
+  onDismiss
+}: {
+  setup: PendingOauthClientSetup;
+  onResolved?: () => void;
+  onDismiss?: () => void;
+}) {
+  const [importApplication, applicationImport] = useMutation(ImportAdapterOauthApplicationDocument);
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const openSetupUrl = async () => {
+    const handled = await openExternalUrlForAuth(setup.oauthCredentialSetup.setupUrl);
+    if (!handled) window.open(setup.oauthCredentialSetup.setupUrl, "_blank", "noopener,noreferrer");
+  };
+  const importCredentials = async (submission: AdapterCredentialSubmission) => {
+    setError(null);
+    try {
+      if (!submission.document) throw new Error("Select an OAuth client document.");
+      const documentBase64 = encodeBase64(new Uint8Array(await submission.document.arrayBuffer()));
+      await importApplication({ variables: { input: {
+        profileDigest: setup.profileDigest,
+        projectLabel: null,
+        clientDocumentBase64: documentBase64
+      } } });
+      setDialogOpen(false);
+      onResolved?.();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "The OAuth client could not be imported.");
+      throw caught;
+    }
+  };
+  return (
+    <InterventionCardShell
+      dismissLabel="Hide OAuth client setup from chat"
+      onDismiss={onDismiss}
+      copy={
+        <VStack gap={3} className={stylex.props(styles.copy).className}>
+          <VStack gap={1}>
+            <span {...stylex.props(styles.eyebrow)}>Shared OAuth setup</span>
+            <strong {...stylex.props(styles.summary, styles.adapterSummary)}>Import one OAuth client</strong>
+            <span {...stylex.props(styles.context)}>
+              Noema will reuse this client for {countLabel(setup.dependentDefinitions.length, "reviewed API")}.
+            </span>
+          </VStack>
+          <VStack as="ul" gap={1} className={stylex.props(styles.operationList).className}>
+            {setup.dependentDefinitions.map((definition) => (
+              <li key={definition.semanticDigest} {...stylex.props(styles.operationName)}>
+                {definition.displayName}
+              </li>
+            ))}
+          </VStack>
+          {setup.oauthCredentialSetup.redirectUri ? (
+            <VStack gap={1}>
+              <span {...stylex.props(styles.context)}><b>Authorized redirect URI</b></span>
+              <code {...stylex.props(styles.redirectUriValue)}>{setup.oauthCredentialSetup.redirectUri}</code>
+            </VStack>
+          ) : null}
+          <AdapterCredentialSetupDialog
+            title="Import OAuth client"
+            serviceName={setup.displayName}
+            setup={setup.oauthCredentialSetup}
+            scopes={[]}
+            open={dialogOpen}
+            submitting={applicationImport.loading}
+            error={error}
+            onOpenChange={(open) => {
+              if (!applicationImport.loading) setDialogOpen(open);
+            }}
+            intro="Import this client document once. Noema will reuse it for every compatible reviewed API."
+            submitLabel="Import OAuth client"
+            onSubmit={importCredentials}
+          />
+          {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
+        </VStack>
+      }
+      actions={
+        <HStack gap={1} justify="end" className={stylex.props(styles.actions).className}>
+          <Button
+            size="sm"
+            variant="ghost"
+            label="Developer Tools"
+            isDisabled={applicationImport.loading}
+            onClick={() => void openSetupUrl()}
+          />
+          <Button
+            size="sm"
+            variant="primary"
+            label="Import OAuth client"
+            isLoading={applicationImport.loading}
+            isDisabled={applicationImport.loading}
+            onClick={() => setDialogOpen(true)}
+          />
+        </HStack>
+      }
+    />
+  );
 }
 
 function AdapterDefinitionCard({

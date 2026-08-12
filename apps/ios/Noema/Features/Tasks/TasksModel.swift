@@ -712,6 +712,12 @@ final class TasksModel {
     await refresh()
   }
 
+  func importAdapterOauthClient(_ setup: AdapterOauthClientSetupModel, submission: AdapterCredentialSubmission) async throws {
+    guard isConnected else { throw ChatModelError.offline }
+    try await HumanInterventionActions.importOauthClient(setup, submission: submission, client: client)
+    await refresh()
+  }
+
   func startAdapterOAuth(_ action: AdapterNextActionModel) async throws -> AdapterOAuthSetupAttempt {
     guard isConnected else { throw ChatModelError.offline }
     let attempt = try await HumanInterventionActions.startOAuth(action, client: client)

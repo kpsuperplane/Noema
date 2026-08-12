@@ -1987,6 +1987,31 @@ mod tests {
         })
     }
 
+    async fn oauth_client_setup_interventions(
+        state: &GraphqlState,
+    ) -> Vec<crate::graphql::human_interventions::GraphqlAdapterOauthClientSetupIntervention> {
+        crate::graphql::human_interventions::pending_human_interventions(
+            state,
+            "human:local",
+            Some("conversation:fixture".to_string()),
+            None,
+            None,
+            Some(50),
+        )
+        .await
+        .expect("pending interventions")
+        .into_iter()
+        .filter_map(|intervention| {
+            match intervention {
+            crate::graphql::human_interventions::GraphqlHumanIntervention::AdapterOauthClientSetup(
+                setup,
+            ) => Some(setup),
+            _ => None,
+        }
+        })
+        .collect()
+    }
+
     #[tokio::test]
     async fn approval_publishes_reviewed_definition_and_reconciles_projection() {
         let (environment, state, pending_digest) = fixture().await;
@@ -2246,6 +2271,13 @@ mod tests {
                 .map(|action| action.kind.as_str()),
             Some("import_application")
         );
+        let setup_interventions = oauth_client_setup_interventions(&state).await;
+        assert_eq!(setup_interventions.len(), 1);
+        assert_eq!(setup_interventions[0].dependent_definitions.len(), 1);
+        assert_eq!(
+            setup_interventions[0].dependent_definitions[0].semantic_digest,
+            reviewed.semantic_digest
+        );
 
         let upload = br#"{"installed":{"client_id":"client-marker","client_secret":"secret-marker","discard":"raw-upload-marker"}}"#;
         let imported = import_adapter_oauth_application(
@@ -2275,6 +2307,7 @@ mod tests {
             next_action.application_id,
             Some(imported.application_id.clone())
         );
+        assert!(oauth_client_setup_interventions(&state).await.is_empty());
 
         let state_view = adapter_oauth_state(&state).await.expect("OAuth state");
         assert_eq!(state_view.applications.len(), 1);
@@ -2355,6 +2388,106 @@ mod tests {
                 .applications
                 .len(),
             1
+        );
+    }
+
+    #[tokio::test]
+    async fn oauth_client_setup_is_grouped_by_profile_after_definition_reviews() {
+        let environment = crate::test_support::TestEnvironment::new();
+        let store = crate::test_support::test_store_for_environment(&environment).await;
+        let paths = NoemaPaths::from_noema_home(environment.root()).expect("paths");
+        let definitions = AdapterDefinitionStore::new(paths);
+        let first = definitions
+            .install(
+                &oauth_pending_manifest(),
+                "https://developers.example.test/oauth-a",
+                None,
+                None,
+            )
+            .expect("first pending definition");
+        let mut second_manifest = oauth_pending_manifest();
+        second_manifest.definition_id = "definition:oauth_review_fixture_two".to_string();
+        second_manifest.adapter_id = "oauth_review_fixture_two".to_string();
+        second_manifest.display_name = Some("Second OAuth fixture".to_string());
+        second_manifest.operations[0].path = "/v2/items".to_string();
+        let second = definitions
+            .install(
+                &second_manifest,
+                "https://developers.example.test/oauth-b",
+                None,
+                None,
+            )
+            .expect("second pending definition");
+        let state = GraphqlState::for_tests_with_store_and_environment(store, environment)
+            .with_adapter_oauth_callback_url("http://localhost:43123/adapter/oauth/callback");
+        state
+            .adapter_operations()
+            .expect("adapter operations")
+            .prepare_filesystem()
+            .expect("prepare adapter filesystem");
+
+        assert!(oauth_client_setup_interventions(&state).await.is_empty());
+        let first_reviewed = approve_adapter_definition(
+            &state,
+            "human:local",
+            GraphqlApproveAdapterDefinitionInput {
+                semantic_digest: first.compiled.semantic_digest.to_string(),
+            },
+        )
+        .await
+        .expect("approve first");
+        let partial_interventions =
+            crate::graphql::human_interventions::pending_human_interventions(
+                &state,
+                "human:local",
+                Some("conversation:fixture".to_string()),
+                None,
+                None,
+                Some(50),
+            )
+            .await
+            .expect("partial interventions");
+        let review_position = partial_interventions
+            .iter()
+            .position(|intervention| {
+                matches!(
+                intervention,
+                crate::graphql::human_interventions::GraphqlHumanIntervention::AdapterDefinition(_)
+            )
+            })
+            .expect("pending definition review");
+        let setup_position = partial_interventions
+            .iter()
+            .position(|intervention| matches!(
+                intervention,
+                crate::graphql::human_interventions::GraphqlHumanIntervention::AdapterOauthClientSetup(_)
+            ))
+            .expect("shared OAuth setup");
+        assert!(review_position < setup_position);
+        let second_reviewed = approve_adapter_definition(
+            &state,
+            "human:local",
+            GraphqlApproveAdapterDefinitionInput {
+                semantic_digest: second.compiled.semantic_digest.to_string(),
+            },
+        )
+        .await
+        .expect("approve second");
+
+        let setups = oauth_client_setup_interventions(&state).await;
+        assert_eq!(setups.len(), 1);
+        assert_eq!(setups[0].dependent_definitions.len(), 2);
+        let digests = setups[0]
+            .dependent_definitions
+            .iter()
+            .map(|definition| definition.semantic_digest.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            digests,
+            std::collections::BTreeSet::from([
+                first_reviewed.semantic_digest.as_str(),
+                second_reviewed.semantic_digest.as_str(),
+            ])
         );
     }
 

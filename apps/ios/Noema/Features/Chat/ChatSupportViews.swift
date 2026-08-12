@@ -313,6 +313,14 @@ struct ChatInterventionsView: View {
           )
         case let .attention(attention):
           taskAttentionContent(attention)
+        case let .oauthClientSetup(setup):
+          AdapterOauthClientSetupInterventionCard(
+            setup: setup,
+            isOffline: model.isOffline,
+            onOpenBrowser: { browserURL = $0 },
+            onDismiss: { model.dismissOauthClientSetup(setup) },
+            onImport: { try await model.importAdapterOauthClient(setup, submission: $0) }
+          )
         case let .adapterDefinition(definition):
           AdapterDefinitionInterventionCard(
             definition: definition,
@@ -336,8 +344,11 @@ struct ChatInterventionsView: View {
   }
 
   private func isVisible(_ intervention: ChatIntervention) -> Bool {
-    guard case let .adapterDefinition(definition) = intervention else { return true }
-    return !model.isAdapterSetupDismissed(definition)
+    switch intervention {
+    case let .adapterDefinition(definition): return !model.isAdapterSetupDismissed(definition)
+    case let .oauthClientSetup(setup): return !model.isOauthClientSetupDismissed(setup)
+    default: return true
+    }
   }
 
   @ViewBuilder

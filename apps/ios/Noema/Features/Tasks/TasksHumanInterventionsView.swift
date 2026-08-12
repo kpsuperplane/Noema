@@ -33,6 +33,7 @@ struct TasksHumanInterventionsView: View {
         case let .mcpAuth(auth): mcpAuth(auth)
         case let .adapterAuth(auth): adapterAuth(auth)
         case let .setup(setup): setupCard(setup)
+        case let .oauthClientSetup(setup): oauthClientSetup(setup)
         case let .adapterDefinition(definition): adapterDefinition(definition)
         case .attention:
           EmptyView()
@@ -119,6 +120,16 @@ struct TasksHumanInterventionsView: View {
       onStartOAuth: { try await model.startMcpSetupOAuth(setup) },
       onSavePolicy: { try await model.saveMcpPolicy($0, sharing: $1, unsafeActions: $2) },
       onResolve: { try await model.resolveMcpSetup(setup, server: $0) }
+    )
+  }
+
+  private func oauthClientSetup(_ setup: AdapterOauthClientSetupModel) -> some View {
+    AdapterOauthClientSetupInterventionCard(
+      setup: setup,
+      isOffline: !model.isConnected,
+      onOpenBrowser: { browserURL = $0 },
+      onDismiss: nil,
+      onImport: { try await model.importAdapterOauthClient(setup, submission: $0) }
     )
   }
 

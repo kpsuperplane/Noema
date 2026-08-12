@@ -122,10 +122,20 @@ final class ChatModel {
     UserDefaults.standard.set(Array(dismissedAdapterSetupDigests).sorted(), forKey: dismissalStorageKey)
   }
 
+  func dismissOauthClientSetup(_ setup: AdapterOauthClientSetupModel) {
+    dismissedAdapterSetupDigests.insert("oauth:" + setup.profileDigest)
+    guard let dismissalStorageKey else { return }
+    UserDefaults.standard.set(Array(dismissedAdapterSetupDigests).sorted(), forKey: dismissalStorageKey)
+  }
+
   func isAdapterSetupDismissed(_ definition: AdapterDefinitionModel) -> Bool {
     definition.reviewed
       && definition.connectionCount == 0
       && dismissedAdapterSetupDigests.contains(definition.semanticDigest)
+  }
+
+  func isOauthClientSetupDismissed(_ setup: AdapterOauthClientSetupModel) -> Bool {
+    dismissedAdapterSetupDigests.contains("oauth:" + setup.profileDigest)
   }
 
   let client: ApolloClient?
@@ -473,6 +483,13 @@ final class ChatModel {
   func setupAdapterConnection(_ definition: AdapterDefinitionModel, submission: AdapterCredentialSubmission) async throws {
     guard let client, !isOffline else { throw ChatModelError.offline }
     try await HumanInterventionActions.setup(definition, submission: submission, client: client)
+    isOffline = false
+    await refreshInterventions(client: client)
+  }
+
+  func importAdapterOauthClient(_ setup: AdapterOauthClientSetupModel, submission: AdapterCredentialSubmission) async throws {
+    guard let client, !isOffline else { throw ChatModelError.offline }
+    try await HumanInterventionActions.importOauthClient(setup, submission: submission, client: client)
     isOffline = false
     await refreshInterventions(client: client)
   }

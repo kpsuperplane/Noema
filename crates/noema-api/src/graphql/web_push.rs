@@ -1982,6 +1982,19 @@ fn intervention_notification(intervention: &GraphqlHumanIntervention) -> (String
             format!("Finish setting up {}", setup.display_name),
             setup.description.clone().unwrap_or_default(),
         ),
+        GraphqlHumanIntervention::AdapterOauthClientSetup(setup) => (
+            format!("adapter-oauth-client:{}", setup.profile_digest),
+            "Import one OAuth client".to_string(),
+            format!(
+                "Use it for {} reviewed API{}.",
+                setup.dependent_definitions.len(),
+                if setup.dependent_definitions.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ),
+        ),
         GraphqlHumanIntervention::AdapterDefinition(definition) => (
             format!(
                 "adapter:{}:{}",

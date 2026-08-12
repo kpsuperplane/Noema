@@ -89,6 +89,8 @@ vertical slice or a net-negative reduction.
   connection recovery carries the exact application revision.
 - Web and iOS continue a new OAuth attachment into the existing connection
   policy editor. Added-access decisions show operations before exact scopes.
+- Chat projects OAuth client setup by profile. One intervention lists every
+  reviewed API that can reuse the imported client.
 - SQLite schema version 40 has rebuildable public OAuth projections and grant
   labels. It supersedes authentication requests from the replaced model.
 - The active reviewed Calendar definition has all 12 current operations,

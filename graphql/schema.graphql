@@ -320,6 +320,24 @@ type AdapterOauthAttemptEvent {
 }
 
 """
+One reviewed adapter definition that depends on a shared OAuth client.
+"""
+type AdapterOauthClientSetupDependency {
+	semanticDigest: String!
+	displayName: String!
+}
+
+"""
+One profile-owned OAuth client setup shared by compatible adapter definitions.
+"""
+type AdapterOauthClientSetupIntervention {
+	profileDigest: String!
+	displayName: String!
+	credentialSetup: AdapterCredentialSetup!
+	dependentDefinitions: [AdapterOauthClientSetupDependency!]!
+}
+
+"""
 One reviewed public OAuth profile.
 """
 type AdapterOauthProfile {
@@ -1693,7 +1711,7 @@ type GraphqlTaskRuntimeEvent {
 """
 Human intervention variants share presentation, but retain separate authorities.
 """
-union HumanIntervention = TaskAttention | GovernedAction | McpAuthenticationIntervention | AdapterAuthenticationIntervention | McpSetupIntervention | AdapterDefinition
+union HumanIntervention = TaskAttention | GovernedAction | McpAuthenticationIntervention | AdapterAuthenticationIntervention | McpSetupIntervention | AdapterOauthClientSetupIntervention | AdapterDefinition
 
 """
 Human intervention invalidation delivered by subscription.

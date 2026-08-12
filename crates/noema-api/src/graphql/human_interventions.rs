@@ -16,7 +16,7 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 
 use super::{
-    adapters::{GraphqlAdapterDefinition, adapter_definitions},
+    adapters::{GraphqlAdapterCredentialSetup, GraphqlAdapterDefinition, adapter_definitions},
     governed_actions::{GraphqlGovernedAction, pending_governed_actions},
     mcp::GraphqlMcpOAuthSetupAttempt,
     runtime_state::GraphqlState,
@@ -87,6 +87,24 @@ pub struct GraphqlMcpSetupIntervention {
     pub tool_count: Option<usize>,
 }
 
+/// One reviewed adapter definition that depends on a shared OAuth client.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "AdapterOauthClientSetupDependency")]
+pub struct GraphqlAdapterOauthClientSetupDependency {
+    pub semantic_digest: String,
+    pub display_name: String,
+}
+
+/// One profile-owned OAuth client setup shared by compatible adapter definitions.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "AdapterOauthClientSetupIntervention")]
+pub struct GraphqlAdapterOauthClientSetupIntervention {
+    pub profile_digest: String,
+    pub display_name: String,
+    pub credential_setup: GraphqlAdapterCredentialSetup,
+    pub dependent_definitions: Vec<GraphqlAdapterOauthClientSetupDependency>,
+}
+
 /// Human intervention variants share presentation, but retain separate authorities.
 #[derive(Clone, Debug, Union)]
 #[graphql(name = "HumanIntervention")]
@@ -96,6 +114,7 @@ pub enum GraphqlHumanIntervention {
     McpAuthentication(GraphqlMcpAuthenticationIntervention),
     AdapterAuthentication(GraphqlAdapterAuthenticationIntervention),
     McpSetup(GraphqlMcpSetupIntervention),
+    AdapterOauthClientSetup(GraphqlAdapterOauthClientSetupIntervention),
     AdapterDefinition(Box<GraphqlAdapterDefinition>),
 }
 
@@ -178,26 +197,10 @@ pub(super) async fn pending_human_interventions(
     let mcp_setups =
         pending_mcp_setups(state, principal, conversation_id.as_deref(), first).await?;
     let adapter_service_names = adapter_service_names(state, &authentications);
-    let adapter_reviews = if conversation_id.is_some() && task_id.is_none() {
-        adapter_definitions(state)
-            .await?
-            .into_iter()
-            .filter(|definition| {
-                if definition.superseded {
-                    return false;
-                }
-                !definition.reviewed
-                    || (definition.connection_count == 0 && definition.credential_setup.is_some())
-                    || definition.connections.iter().any(|connection| {
-                        connection.status == "authentication_required"
-                            || (connection.status == "active" && !connection.policy_configured)
-                    })
-            })
-            .map(Box::new)
-            .map(GraphqlHumanIntervention::AdapterDefinition)
-            .collect::<Vec<_>>()
+    let (adapter_reviews, oauth_client_setups) = if conversation_id.is_some() && task_id.is_none() {
+        project_adapter_interventions(adapter_definitions(state).await?)
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new())
     };
     Ok(task_attentions
         .into_iter()
@@ -230,10 +233,77 @@ pub(super) async fn pending_human_interventions(
                         .into_iter()
                         .map(GraphqlHumanIntervention::McpSetup),
                 )
-                .chain(adapter_reviews),
+                .chain(adapter_reviews)
+                .chain(oauth_client_setups),
         )
         .take(first)
         .collect())
+}
+
+fn project_adapter_interventions(
+    definitions: Vec<GraphqlAdapterDefinition>,
+) -> (Vec<GraphqlHumanIntervention>, Vec<GraphqlHumanIntervention>) {
+    let mut definitions_to_show = Vec::new();
+    let mut setups = BTreeMap::<String, GraphqlAdapterOauthClientSetupIntervention>::new();
+
+    for definition in definitions
+        .into_iter()
+        .filter(|definition| !definition.superseded)
+    {
+        let needs_import = definition.reviewed
+            && definition.connection_count == 0
+            && definition
+                .next_action
+                .as_ref()
+                .is_some_and(|action| action.kind == "import_application");
+        if needs_import {
+            if let (Some(profile_digest), Some(credential_setup)) = (
+                definition.oauth_profile_digest.clone(),
+                definition.credential_setup.clone(),
+            ) {
+                let setup = setups.entry(profile_digest.clone()).or_insert_with(|| {
+                    GraphqlAdapterOauthClientSetupIntervention {
+                        profile_digest,
+                        display_name: "OAuth client".to_string(),
+                        credential_setup,
+                        dependent_definitions: Vec::new(),
+                    }
+                });
+                setup
+                    .dependent_definitions
+                    .push(GraphqlAdapterOauthClientSetupDependency {
+                        semantic_digest: definition.semantic_digest,
+                        display_name: definition.display_name,
+                    });
+                continue;
+            }
+        }
+
+        let needs_definition_intervention = !definition.reviewed
+            || (definition.connection_count == 0 && definition.credential_setup.is_some())
+            || definition.connections.iter().any(|connection| {
+                connection.status == "authentication_required"
+                    || (connection.status == "active" && !connection.policy_configured)
+            });
+        if needs_definition_intervention {
+            definitions_to_show.push(GraphqlHumanIntervention::AdapterDefinition(Box::new(
+                definition,
+            )));
+        }
+    }
+
+    for setup in setups.values_mut() {
+        setup.dependent_definitions.sort_by(|left, right| {
+            left.display_name
+                .cmp(&right.display_name)
+                .then_with(|| left.semantic_digest.cmp(&right.semantic_digest))
+        });
+    }
+    let setup_interventions = setups
+        .into_values()
+        .map(GraphqlHumanIntervention::AdapterOauthClientSetup)
+        .collect();
+    (definitions_to_show, setup_interventions)
 }
 
 async fn pending_mcp_setups(
