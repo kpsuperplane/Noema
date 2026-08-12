@@ -125,7 +125,6 @@ struct NoemaTopRail: View {
   let breakpoint: NoemaBreakpoint
   let agentLabel: String
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Namespace private var activeTabNamespace
 
   var body: some View {
     HStack(spacing: NoemaSpacing.xs) {
@@ -143,7 +142,6 @@ struct NoemaTopRail: View {
                 NoemaSuperellipse.full
                   .fill(NoemaColor.white)
                   .shadow(color: NoemaColor.pine600.opacity(0.10), radius: 4, y: 3)
-                  .matchedGeometryEffect(id: "primary-navigation-selection", in: activeTabNamespace)
               }
             }
             .frame(minWidth: 44, minHeight: 44)
