@@ -18,6 +18,10 @@ mod json_limits;
 mod luau;
 mod network;
 mod oauth;
+mod oauth_authority;
+mod oauth_authority_fs;
+mod oauth_authority_store;
+mod oauth_authority_validation;
 mod openapi;
 mod openapi31;
 mod openapi_normalize;
@@ -26,6 +30,9 @@ mod output_schema;
 mod private_fs;
 mod request;
 mod response;
+#[cfg(test)]
+#[path = "runtime_tests.rs"]
+mod runtime_tests;
 mod schedule;
 mod service;
 mod setup;
@@ -36,7 +43,7 @@ pub use compiler::{
     ConnectionSlug, DefinitionOperationToken, SemanticChange,
 };
 pub use connection::{
-    AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionV3,
+    AdapterConnectionAuthenticationV1, AdapterConnectionStatus, AdapterConnectionV4,
     AdapterCredentialGenerationV2, AdapterCredentialMaterial,
 };
 pub use connection_store::{
@@ -53,14 +60,23 @@ pub use definition::{
     ArgumentDefinition, ArgumentLocation, ArgumentType, AuthenticationMode, AuthenticationSchemeV4,
     CredentialAuthentication, CredentialField, CredentialInput, CredentialSetup, HttpMethod,
     LuauTransform, Oauth2AuthorizationCodePkceConfig, Oauth2CallbackMode,
-    Oauth2ClientAuthentication, Oauth2CredentialSetup, OutputSchema, OutputType, PageSizePolicy,
-    PaginationPolicy, ResponseContract, ResponseTransform, RetryPolicy,
+    Oauth2ClientAuthentication, Oauth2CredentialSetup, OperationAuthorization, OutputSchema,
+    OutputType, PageSizePolicy, PaginationPolicy, ResponseContract, ResponseTransform, RetryPolicy,
 };
 pub use definition_store::{
     AdapterDefinitionStore, DefinitionInstall, DefinitionProjection, DefinitionProvenance,
     DefinitionScan, DefinitionScanDiagnostic, DefinitionStoreError, StoredAdapterDefinition,
 };
 pub use digest::{OperationDigest, SemanticDigest, SourceDigest};
+pub use oauth_authority::{
+    AuthorizationGrantStatus, AuthorizationGrantV1, ExternalAccountV1,
+    OauthApplicationCredentialV1, OauthApplicationStatus, OauthApplicationV1, OauthGrantTokenV1,
+    OauthProfileV1, OauthScopeResponsePolicy, reviewed_google_oauth_profile,
+    reviewed_google_oauth_profile_digest,
+};
+pub use oauth_authority_store::{
+    OauthAuthoritySnapshot, OauthAuthorityStore, OauthAuthorityStoreError, OauthProfileInstall,
+};
 pub use openapi::{
     OpenApiActivation, OpenApiActivationError, OpenApiCandidate, OpenApiDiagnostic,
     OpenApiDiagnosticSeverity, OpenApiImportError, OpenApiImporter, OpenApiOperationProposal,
@@ -77,5 +93,6 @@ pub use schedule::{
 pub use service::{
     AdapterCapabilityService, AdapterConnectionSetupError, AdapterManagementError,
     AdapterManagementFence, AdapterManagementSnapshot, AdapterMigrationError,
+    AdapterOAuthAttemptEvent, AdapterOAuthAttemptStatus, AdapterOAuthAuthorizationRequest,
     AdapterOAuthSetupCompletion, AdapterOAuthSetupError, AdapterOAuthSetupStart,
 };

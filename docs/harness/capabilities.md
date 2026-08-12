@@ -121,17 +121,31 @@ bounded transient document, a closed normalized private field set, and a
 request-auth transform that may emit only bounded headers and query values.
 Rust still owns the origin, method, path, body, URL/header serialization,
 transport policy, secret lifecycle, and final connection-generation fence.
-OAuth remains a Rust protocol; its reviewed setup variant binds the exact
-provider client type and normalized metadata to the serving runtime's loopback
-or hosted callback mode. Legacy v1-v4 definitions and all objects that depend on
-them are recoverably quarantined and must be proposed and credentialed again.
+OAuth remains a Rust protocol. A reviewed profile owns endpoints, callback
+rules, client authentication, audience sharing, and omitted-scope behavior.
+An imported application stores one protected client credential generation.
+Many account grants can reuse that application.
+
+Each grant owns provider-returned scopes and one protected token generation.
+Compatible API connections reference the grant. They keep separate operation
+policy and connection lifecycle state.
+
+Each OAuth operation declares accepted scope sets. Catalog compilation exposes
+only operations covered by one complete set. Scope expansion keeps existing
+covered operations active until a new token generation is promoted.
+
+OAuth start, attachment, refresh, and invocation use exact application, grant,
+connection, definition, and policy fences where applicable. Refresh uses one
+grant lock across all dependent connections.
+
+Legacy OAuth connection credentials have no runtime reader. Startup moves them,
+their schedules, and their cursors into recoverable quarantine.
 
 OAuth definitions may also identify one existing, read-only, idempotent
 operation as `account_identity`. Noema invokes that exact reviewed request once
-after successful authorization and persists only the bounded string selected by
-its JSON Pointer as a recognizable `connection_label`. Failure does not block the
-connection, and the probe never polls, runs at startup, or adds a provider-only
-identity path.
+after successful authorization. It persists only the bounded selected string as
+the account identity and label. Failure does not block grant publication. The
+probe never polls, runs at startup, or adds a provider-only identity path.
 
 Manifest v6 also makes model guidance reviewed authority. Every operation has
 one model-facing description, and every model-input argument has a description

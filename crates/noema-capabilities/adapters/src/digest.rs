@@ -169,6 +169,14 @@ fn sort_semantic_sets(value: &mut Value) {
                 .to_string()
         });
     }
+    if let Some(Value::Object(authorization)) = object.get_mut("authorization")
+        && let Some(Value::Array(scope_sets)) = authorization.get_mut("accepted_scope_sets")
+    {
+        for scopes in scope_sets.iter_mut().filter_map(Value::as_array_mut) {
+            scopes.sort_by_key(ToString::to_string);
+        }
+        scope_sets.sort_by_key(ToString::to_string);
+    }
     if let Some(Value::Object(response)) = object.get_mut("response") {
         if let Some(Value::Array(content_types)) = response.get_mut("accepted_content_types") {
             content_types.sort_by_key(ToString::to_string);

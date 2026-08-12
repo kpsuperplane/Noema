@@ -6,11 +6,34 @@ import NoemaAPI
 struct SettingsAdapterConnection: Identifiable, Hashable {
   let id: String
   let status: String
+  let grantID: String?
+  let accountID: String?
   let connectionRevision: Int
-  let credentialRevision: Int
-  let grantRevision: Int
+  let credentialRevision: Int?
+  let grantRevision: Int?
   let policyRevision: Int
   let policyConfigured: Bool
+  let operationAccess: [SettingsAdapterOperationAccess]
+}
+
+struct SettingsAdapterOperationAccess: Hashable {
+  let operationID: String
+  let status: String
+  let missingScopes: [String]
+}
+
+struct SettingsAdapterNextAction: Hashable {
+  let kind: String
+  let semanticDigest: String
+  let applicationID: String?
+  let applicationRevision: Int?
+  let grantID: String?
+  let grantRevision: Int?
+  let connectionID: String?
+  let connectionRevision: Int?
+  let policyRevision: Int?
+  let operationIDs: [String]
+  let missingScopes: [String]
 }
 
 struct SettingsAdapterOperation: Identifiable, Hashable {
@@ -43,13 +66,65 @@ struct SettingsAdapterDefinition: Identifiable, Hashable {
   let sourceReference: URL?
   let origin: String
   let authenticationMode: String
+  let oauthProfileDigest: String?
   let accountIdentityOperationID: String?
+  let manifestJSON: String
   let scopes: [String]
   let credentialSetup: AdapterCredentialSetupModel?
   let operations: [SettingsAdapterOperation]
   let reviewed: Bool
   let superseded: Bool
   let connections: [SettingsAdapterConnection]
+  let nextAction: SettingsAdapterNextAction?
+  let connectionActions: [SettingsAdapterNextAction]
+}
+
+struct SettingsAdapterOAuthProfile: Identifiable, Hashable {
+  var id: String { profileDigest }
+  let profileDigest: String
+  let displayName: String
+  let audience: String
+  let credentialSetup: AdapterCredentialSetupModel?
+}
+
+struct SettingsAdapterOAuthApplication: Identifiable, Hashable {
+  var id: String { applicationID }
+  let applicationID: String
+  let profileDigest: String
+  let providerName: String
+  let callbackMode: String
+  let clientID: String
+  let projectLabel: String?
+  let revision: Int
+  let status: String
+  let grantCount: Int
+  let accountCount: Int
+}
+
+struct SettingsAdapterOAuthGrant: Identifiable, Hashable {
+  var id: String { grantID }
+  let grantID: String
+  let applicationID: String
+  let accountID: String?
+  let accountLabel: String?
+  let providerName: String
+  let desiredScopes: [String]
+  let grantedScopes: [String]
+  let authorityRevision: Int
+  let status: String
+  let connectionIDs: [String]
+}
+
+struct SettingsAdapterOAuthState: Hashable {
+  let profiles: [SettingsAdapterOAuthProfile]
+  let applications: [SettingsAdapterOAuthApplication]
+  let grants: [SettingsAdapterOAuthGrant]
+}
+
+struct SettingsAdapterOAuthAttempt: Hashable {
+  let attemptID: String
+  let authorizationURL: URL
+  let expiresAt: Date
 }
 
 struct SettingsMCPServer: Hashable {
@@ -101,6 +176,50 @@ extension SettingsModel {
     }
   }
 
+  func loadAdapterOAuthState(client: ApolloClient? = nil) async {
+    guard let client = client ?? self.client else { return }
+    do {
+      let stream = try client.fetch(query: NoemaAPI.SettingsAdapterOauthStateQuery(), cachePolicy: .cacheAndNetwork)
+      for try await response in stream {
+        guard let state = response.data?.adapterOauthState else { continue }
+        adapterOAuthState = SettingsAdapterOAuthState(
+          profiles: state.profiles.map { SettingsAdapterOAuthProfile(
+            profileDigest: $0.profileDigest,
+            displayName: $0.displayName,
+            audience: $0.grantAudience,
+            credentialSetup: $0.credentialSetup.map { AdapterCredentialSetupModel($0.fragments.adapterCredentialSetupFields) }
+          ) },
+          applications: state.applications.map { SettingsAdapterOAuthApplication(
+            applicationID: $0.applicationId,
+            profileDigest: $0.profileDigest,
+            providerName: $0.providerDisplayName,
+            callbackMode: $0.callbackMode,
+            clientID: $0.clientId,
+            projectLabel: $0.projectLabel,
+            revision: $0.revision,
+            status: $0.status,
+            grantCount: $0.grantCount,
+            accountCount: $0.accountCount
+          ) },
+          grants: state.grants.map { SettingsAdapterOAuthGrant(
+            grantID: $0.grantId,
+            applicationID: $0.applicationId,
+            accountID: $0.accountId,
+            accountLabel: $0.accountLabel,
+            providerName: $0.providerDisplayName,
+            desiredScopes: $0.desiredScopes,
+            grantedScopes: $0.grantedScopes,
+            authorityRevision: $0.authorityRevision,
+            status: $0.status,
+            connectionIDs: $0.connectionIds
+          ) }
+        )
+      }
+    } catch {
+      if adapterOAuthState == nil { errorMessage = "API accounts could not be loaded." }
+    }
+  }
+
   @discardableResult
   func approveAdapterDefinition(_ semanticDigest: String) async -> Bool {
     guard canMutate, let client else { return false }
@@ -141,29 +260,187 @@ extension SettingsModel {
     }
   }
 
-  func startAdapterOAuth(connection: SettingsIntegrationConnection) async -> URL? {
-    guard canMutate, let client,
-          let definition = adapterDefinitions.first(where: { $0.semanticDigest == connection.sourceRevision }),
-          let adapterConnection = definition.connections.first(where: { $0.id == connection.id }),
-          let expectedConnectionRevision = Int32(exactly: adapterConnection.connectionRevision) else {
-      errorMessage = "The API connection revision is invalid. Refresh Settings and try again."
-      return nil
-    }
+  func startAdapterOAuth(_ action: SettingsAdapterNextAction) async -> SettingsAdapterOAuthAttempt? {
+    guard canMutate, let client, let applicationID = action.applicationID,
+          let applicationRevision = action.applicationRevision,
+          let exactApplicationRevision = Int32(exactly: applicationRevision) else { return nil }
     isMutating = true
     defer { isMutating = false }
     do {
       let response = try await client.perform(mutation: NoemaAPI.SettingsStartAdapterOauthSetupMutation(
         input: NoemaAPI.StartAdapterOauthSetupInput(
-          connectionId: connection.id,
-          expectedConnectionRevision: expectedConnectionRevision,
-          expectedCredentialRevision: Int32(adapterConnection.credentialRevision),
-          expectedGrantRevision: Int32(adapterConnection.grantRevision),
-          expectedPolicyRevision: Int32(connection.policyRevision)
+          applicationId: applicationID,
+          expectedApplicationRevision: exactApplicationRevision,
+          grantId: action.grantID.map { .some($0) } ?? .none,
+          expectedGrantRevision: action.grantRevision.flatMap { Int32(exactly: $0) }.map { .some($0) } ?? .none,
+          semanticDigest: action.semanticDigest,
+          operationIds: action.operationIDs
         )
       ))
       if let message = response.errors?.first?.message { throw SettingsError.server(message) }
+      guard let attempt = response.data?.startAdapterOauthSetup,
+            let url = URL(string: attempt.authorizationUrl) else {
+        throw SettingsError.server("Noema did not return an authorization URL.")
+      }
       isOffline = false
-      return URL(string: response.data?.startAdapterOauthSetup.authorizationUrl ?? "")
+      return SettingsAdapterOAuthAttempt(
+        attemptID: attempt.attemptId,
+        authorizationURL: url,
+        expiresAt: Date(timeIntervalSince1970: TimeInterval(attempt.expiresAtEpochSeconds))
+      )
+    } catch {
+      errorMessage = error.localizedDescription
+      return nil
+    }
+  }
+
+  @discardableResult
+  func importAdapterOAuthApplication(profileDigest: String, document: Data) async -> Bool {
+    guard canMutate, let client, !document.isEmpty, document.count <= 128 * 1024 else { return false }
+    return await performMutation {
+      try await client.perform(mutation: NoemaAPI.SettingsImportAdapterOauthApplicationMutation(
+        input: NoemaAPI.ImportAdapterOauthApplicationInput(
+          profileDigest: profileDigest,
+          projectLabel: .none,
+          clientDocumentBase64: document.base64EncodedString()
+        )
+      ))
+    }
+  }
+
+  @discardableResult
+  func replaceAdapterOAuthApplication(_ application: SettingsAdapterOAuthApplication, document: Data) async -> Bool {
+    guard canMutate, let client, !document.isEmpty, document.count <= 128 * 1024,
+          let revision = Int32(exactly: application.revision) else { return false }
+    return await performMutation {
+      try await client.perform(mutation: NoemaAPI.SettingsReplaceAdapterOauthApplicationMutation(
+        input: NoemaAPI.ReplaceAdapterOauthApplicationInput(
+          applicationId: application.applicationID,
+          expectedRevision: revision,
+          clientDocumentBase64: document.base64EncodedString()
+        )
+      ))
+    }
+  }
+
+  @discardableResult
+  func deleteAdapterOAuthApplication(_ application: SettingsAdapterOAuthApplication) async -> Bool {
+    guard canMutate, let client, let revision = Int32(exactly: application.revision) else { return false }
+    return await performMutation {
+      try await client.perform(mutation: NoemaAPI.SettingsDeleteAdapterOauthApplicationMutation(
+        input: NoemaAPI.DeleteAdapterOauthApplicationInput(
+          applicationId: application.applicationID,
+          expectedRevision: revision
+        )
+      ))
+    }
+  }
+
+  @discardableResult
+  func attachAdapterGrant(
+    _ action: SettingsAdapterNextAction,
+    grantID: String? = nil,
+    grantRevision: Int? = nil
+  ) async -> String? {
+    guard canMutate, let client, let grantID = grantID ?? action.grantID,
+          let revision = grantRevision ?? action.grantRevision,
+          let exactRevision = Int32(exactly: revision) else { return nil }
+    isMutating = true
+    defer { isMutating = false }
+    do {
+      let response = try await client.perform(mutation: NoemaAPI.SettingsAttachAdapterOauthConnectionMutation(
+        input: NoemaAPI.AttachAdapterOauthConnectionInput(
+          semanticDigest: action.semanticDigest,
+          grantId: grantID,
+          expectedGrantRevision: exactRevision
+        )
+      ))
+      if let message = response.errors?.first?.message { throw SettingsError.server(message) }
+      guard let connection = response.data?.attachAdapterOauthConnection.connections
+        .first(where: { $0.grantId == grantID }) else {
+        throw SettingsError.server("The attached API connection is unavailable.")
+      }
+      isOffline = false
+      await load(client: client)
+      return connection.connectionId
+    } catch {
+      errorMessage = error.localizedDescription
+      return nil
+    }
+  }
+
+  @discardableResult
+  func disconnectAdapterGrant(_ grant: SettingsAdapterOAuthGrant) async -> Bool {
+    guard canMutate, let client, let revision = Int32(exactly: grant.authorityRevision) else { return false }
+    return await performMutation {
+      try await client.perform(mutation: NoemaAPI.SettingsDisconnectAdapterOauthGrantMutation(
+        input: NoemaAPI.DisconnectAdapterOauthGrantInput(
+          grantId: grant.grantID,
+          expectedAuthorityRevision: revision
+        )
+      ))
+    }
+  }
+
+  @discardableResult
+  func setAdapterConnectionActive(_ connection: SettingsAdapterConnection, active: Bool) async -> Bool {
+    guard canMutate, let client, let revision = Int32(exactly: connection.connectionRevision) else { return false }
+    return await performMutation {
+      try await client.perform(mutation: NoemaAPI.SettingsSetAdapterConnectionActiveMutation(
+        input: NoemaAPI.SetAdapterConnectionActiveInput(
+          connectionId: connection.id,
+          expectedConnectionRevision: revision,
+          active: active
+        )
+      ))
+    }
+  }
+
+  @discardableResult
+  func labelAdapterGrant(_ grant: SettingsAdapterOAuthGrant, label: String?) async -> Bool {
+    guard canMutate, let client, let revision = Int32(exactly: grant.authorityRevision) else { return false }
+    return await performMutation {
+      try await client.perform(mutation: NoemaAPI.SettingsSaveAdapterOauthGrantLabelMutation(
+        input: NoemaAPI.SaveAdapterOauthGrantLabelInput(
+          grantId: grant.grantID,
+          expectedAuthorityRevision: revision,
+          accountLabel: label.map { .some($0) } ?? .none
+        )
+      ))
+    }
+  }
+
+  func waitForAdapterOAuth(attemptID: String) async -> (status: String, grantID: String?, grantRevision: Int?)? {
+    guard let client else { return nil }
+    do {
+      let stream = try client.subscribe(
+        subscription: NoemaAPI.SettingsAdapterOauthAttemptEventsSubscription(attemptId: attemptID)
+      )
+      for try await response in stream {
+        guard let event = response.data?.adapterOauthAttemptEvents else { continue }
+        if event.status != "authorizing" {
+          return (event.status, event.grantId, event.grantRevision)
+        }
+      }
+    } catch is CancellationError {
+      return nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+    return nil
+  }
+
+  func adapterOAuthAttempt(attemptID: String) async -> (status: String, grantID: String?, grantRevision: Int?)? {
+    guard let client else { return nil }
+    do {
+      let stream = try client.fetch(
+        query: NoemaAPI.SettingsAdapterOauthAttemptQuery(attemptId: attemptID),
+        cachePolicy: .fetchIgnoringCacheData
+      )
+      for try await response in stream {
+        guard let event = response.data?.adapterOauthAttempt else { continue }
+        return (event.status, event.grantId, event.grantRevision)
+      }
     } catch {
       errorMessage = error.localizedDescription
       return nil
@@ -354,7 +631,9 @@ extension SettingsModel {
       sourceReference: URL(string: value.sourceReference),
       origin: value.origin,
       authenticationMode: value.authenticationMode,
+      oauthProfileDigest: value.oauthProfileDigest,
       accountIdentityOperationID: value.accountIdentityOperationId,
+      manifestJSON: value.manifestJson,
       scopes: value.scopes,
       credentialSetup: value.credentialSetup.map {
         AdapterCredentialSetupModel($0.fragments.adapterCredentialSetupFields)
@@ -376,7 +655,48 @@ extension SettingsModel {
       },
       reviewed: value.reviewed,
       superseded: value.superseded,
-      connections: value.connections.map { SettingsAdapterConnection(id: $0.connectionId, status: $0.status, connectionRevision: $0.connectionRevision, credentialRevision: $0.credentialRevision, grantRevision: $0.grantRevision, policyRevision: $0.policyRevision, policyConfigured: $0.policyConfigured) }
+      connections: value.connections.map { SettingsAdapterConnection(
+        id: $0.connectionId,
+        status: $0.status,
+        grantID: $0.grantId,
+        accountID: $0.accountId,
+        connectionRevision: $0.connectionRevision,
+        credentialRevision: $0.credentialRevision,
+        grantRevision: $0.grantRevision,
+        policyRevision: $0.policyRevision,
+        policyConfigured: $0.policyConfigured,
+        operationAccess: $0.operationAccess.map { SettingsAdapterOperationAccess(
+          operationID: $0.operationId,
+          status: $0.status,
+          missingScopes: $0.missingScopes
+        ) }
+      ) },
+      nextAction: value.nextAction.map { SettingsAdapterNextAction(
+        kind: $0.kind,
+        semanticDigest: $0.semanticDigest,
+        applicationID: $0.applicationId,
+        applicationRevision: $0.expectedApplicationRevision,
+        grantID: $0.grantId,
+        grantRevision: $0.expectedGrantRevision,
+        connectionID: $0.connectionId,
+        connectionRevision: $0.expectedConnectionRevision,
+        policyRevision: $0.expectedPolicyRevision,
+        operationIDs: $0.operationIds,
+        missingScopes: $0.missingScopes
+      ) },
+      connectionActions: value.connectionActions.map { SettingsAdapterNextAction(
+        kind: $0.kind,
+        semanticDigest: $0.semanticDigest,
+        applicationID: $0.applicationId,
+        applicationRevision: $0.expectedApplicationRevision,
+        grantID: $0.grantId,
+        grantRevision: $0.expectedGrantRevision,
+        connectionID: $0.connectionId,
+        connectionRevision: $0.expectedConnectionRevision,
+        policyRevision: $0.expectedPolicyRevision,
+        operationIDs: $0.operationIds,
+        missingScopes: $0.missingScopes
+      ) }
     )
   }
 

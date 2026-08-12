@@ -122,10 +122,20 @@ final class ChatModel {
     UserDefaults.standard.set(Array(dismissedAdapterSetupDigests).sorted(), forKey: dismissalStorageKey)
   }
 
+  func dismissOauthClientSetup(_ setup: AdapterOauthClientSetupModel) {
+    dismissedAdapterSetupDigests.insert("oauth:" + setup.profileDigest)
+    guard let dismissalStorageKey else { return }
+    UserDefaults.standard.set(Array(dismissedAdapterSetupDigests).sorted(), forKey: dismissalStorageKey)
+  }
+
   func isAdapterSetupDismissed(_ definition: AdapterDefinitionModel) -> Bool {
     definition.reviewed
       && definition.connectionCount == 0
       && dismissedAdapterSetupDigests.contains(definition.semanticDigest)
+  }
+
+  func isOauthClientSetupDismissed(_ setup: AdapterOauthClientSetupModel) -> Bool {
+    dismissedAdapterSetupDigests.contains("oauth:" + setup.profileDigest)
   }
 
   let client: ApolloClient?
@@ -477,12 +487,32 @@ final class ChatModel {
     await refreshInterventions(client: client)
   }
 
-  func startAdapterOauthSetup(_ connection: AdapterConnectionModel) async throws -> AdapterOAuthSetupAttempt {
+  func importAdapterOauthClient(_ setup: AdapterOauthClientSetupModel, submission: AdapterCredentialSubmission) async throws {
     guard let client, !isOffline else { throw ChatModelError.offline }
-    let attempt = try await HumanInterventionActions.startOAuth(connection, client: client)
+    try await HumanInterventionActions.importOauthClient(setup, submission: submission, client: client)
+    isOffline = false
+    await refreshInterventions(client: client)
+  }
+
+  func startAdapterOauthSetup(_ action: AdapterNextActionModel) async throws -> AdapterOAuthSetupAttempt {
+    guard let client, !isOffline else { throw ChatModelError.offline }
+    let attempt = try await HumanInterventionActions.startOAuth(action, client: client)
     isOffline = false
     await refreshInterventions(client: client)
     return attempt
+  }
+
+  func attachAdapterGrant(_ action: AdapterNextActionModel) async throws {
+    guard let client, !isOffline else { throw ChatModelError.offline }
+    try await HumanInterventionActions.attach(action, client: client)
+    await refreshInterventions(client: client)
+  }
+
+  func completeAdapterOauthSetup(_ attempt: AdapterOAuthSetupAttempt, action: AdapterNextActionModel) async throws -> String {
+    guard let client, !isOffline else { throw ChatModelError.offline }
+    let status = try await HumanInterventionActions.waitForOAuth(attempt, action: action, client: client)
+    await refreshInterventions(client: client)
+    return status
   }
 
   func saveAdapterPolicy(

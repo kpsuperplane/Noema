@@ -2719,6 +2719,38 @@ async fn due_processing_is_idempotent_and_applies_one_time_missed_policy() {
 }
 
 #[tokio::test]
+async fn schedule_deadline_ignores_due_tasks_that_already_left_intake() {
+    let (store, service) = fixture().await;
+    let now = 2_000_000_000;
+    let captured = task!(service, capture("deadline:capture", "Due"), "capture");
+    let due = task!(
+        service,
+        schedule("deadline:set", &captured, now - 60, None),
+        "schedule"
+    );
+    let task_id = due.task_id.clone();
+    store
+        .with_connection(move |connection| {
+            connection.execute(
+                "UPDATE tasks SET stage_id = ?2 WHERE task_id = ?1",
+                rusqlite::params![task_id.as_str(), noema_tasks::PERSONAL_WAITING_STAGE_ID],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(store.next_work_schedule_deadline().await.unwrap(), None);
+    assert!(
+        service
+            .process_due_work_schedules(now, false)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn overlap_policies_skip_coalesce_or_materialize_a_due_slot() {
     let now = 1_999_999_980;
     for policy in [

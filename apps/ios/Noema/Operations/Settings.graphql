@@ -537,11 +537,13 @@ fragment SettingsAdapterDefinitionFields on AdapterDefinition {
     sourceReference
     origin
     authenticationMode
+    oauthProfileDigest
     scopes
     credentialSetup {
       ...AdapterCredentialSetupFields
     }
     accountIdentityOperationId
+    manifestJson
     operations {
       operationId
       method
@@ -563,7 +565,8 @@ fragment SettingsAdapterDefinitionFields on AdapterDefinition {
     connections {
       connectionId
       status
-      accountKind
+      grantId
+      accountId
       connectionRevision
       credentialRevision
       grantRevision
@@ -571,15 +574,121 @@ fragment SettingsAdapterDefinitionFields on AdapterDefinition {
       grantedScopes
       allowedOperations
       policyConfigured
+      operationAccess { operationId status missingScopes }
     }
     reviewed
     superseded
+    nextAction {
+      kind
+      semanticDigest
+      applicationId
+      expectedApplicationRevision
+      grantId
+      expectedGrantRevision
+      connectionId
+      expectedConnectionRevision
+      expectedPolicyRevision
+      operationIds
+      missingScopes
+    }
+    connectionActions {
+      kind
+      semanticDigest
+      applicationId
+      expectedApplicationRevision
+      grantId
+      expectedGrantRevision
+      connectionId
+      expectedConnectionRevision
+      expectedPolicyRevision
+      operationIds
+      missingScopes
+    }
 }
 
 query SettingsAdapterDefinitions {
   adapterDefinitions {
     ...SettingsAdapterDefinitionFields
   }
+}
+
+query SettingsAdapterOauthState {
+  adapterOauthState {
+    profiles {
+      profileDigest
+      profileId
+      displayName
+      grantAudience
+      credentialSetup { ...AdapterCredentialSetupFields }
+    }
+    applications {
+      applicationId
+      profileDigest
+      providerDisplayName
+      callbackMode
+      clientId
+      projectLabel
+      revision
+      status
+      grantCount
+      accountCount
+    }
+    accounts { accountId profileDigest accountLabel revision grantIds }
+    grants {
+      grantId
+      applicationId
+      accountId
+      accountLabel
+      providerDisplayName
+      audience
+      desiredScopes
+      grantedScopes
+      authorityRevision
+      tokenRevision
+      status
+      connectionIds
+    }
+  }
+}
+
+mutation SettingsImportAdapterOauthApplication($input: ImportAdapterOauthApplicationInput!) {
+  importAdapterOauthApplication(input: $input) { applicationId profileDigest revision status }
+}
+
+mutation SettingsReplaceAdapterOauthApplication($input: ReplaceAdapterOauthApplicationInput!) {
+  replaceAdapterOauthApplication(input: $input) { applicationId revision status }
+}
+
+mutation SettingsAttachAdapterOauthConnection($input: AttachAdapterOauthConnectionInput!) {
+  attachAdapterOauthConnection(input: $input) {
+    semanticDigest
+    connectionCount
+    connections { connectionId grantId policyConfigured }
+  }
+}
+
+mutation SettingsDisconnectAdapterOauthGrant($input: DisconnectAdapterOauthGrantInput!) {
+  disconnectAdapterOauthGrant(input: $input) { grantId authorityRevision status connectionIds }
+}
+
+mutation SettingsSaveAdapterOauthGrantLabel($input: SaveAdapterOauthGrantLabelInput!) {
+  saveAdapterOauthGrantLabel(input: $input) { grantId accountLabel authorityRevision }
+}
+
+mutation SettingsDeleteAdapterOauthApplication($input: DeleteAdapterOauthApplicationInput!) {
+  deleteAdapterOauthApplication(input: $input)
+}
+
+mutation SettingsSetAdapterConnectionActive($input: SetAdapterConnectionActiveInput!) {
+  setAdapterConnectionActive(input: $input) { semanticDigest connectionCount }
+}
+
+query SettingsAdapterOauthAttempt($attemptId: String!) {
+  adapterOauthAttempt(attemptId: $attemptId) { attemptId semanticDigest grantId grantRevision status }
+}
+
+subscription SettingsAdapterOauthAttemptEvents($attemptId: String!) {
+  adapterOauthAttemptEvents(attemptId: $attemptId) { attemptId semanticDigest grantId grantRevision status }
 }
 
 mutation SettingsApproveAdapterDefinition($input: ApproveAdapterDefinitionInput!) {

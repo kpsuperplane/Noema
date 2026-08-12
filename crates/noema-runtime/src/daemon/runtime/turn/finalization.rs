@@ -519,39 +519,7 @@ pub(crate) fn parse_memory_change_set(
         deletes: proposed.deletes,
     };
     for change in &mut changes.upserts {
-        for source in &mut change.sources {
-            let Some(canonical) = canonical_memory_source(source, allowed_sources) else {
-                continue;
-            };
-            if canonical == source {
-                continue;
-            }
-            change.body = change
-                .body
-                .split('\n')
-                .map(|line| match line.split_once("]:") {
-                    Some((label, target))
-                        if label.starts_with("[^")
-                            && target.trim().trim_matches('`') == source.as_str() =>
-                    {
-                        format!("{label}]: {canonical}")
-                    }
-                    _ => line.to_string(),
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            source.clone_from(canonical);
-        }
-    }
-    if let Some(source) = changes
-        .upserts
-        .iter()
-        .flat_map(|change| &change.sources)
-        .find(|source| !allowed_sources.contains(*source))
-    {
-        return Err(format!(
-            "memory change set cites source {source} that is neither existing provenance nor a human message in this chunk"
-        ));
+        normalize_memory_citations(change, allowed_sources)?;
     }
     let mut metadata_paths = HashSet::new();
     for update in proposed.metadata_updates {
@@ -594,6 +562,85 @@ pub(crate) fn parse_memory_change_set(
     })
 }
 
+fn normalize_memory_citations(
+    change: &mut noema_memory::MemoryPageChange,
+    allowed_sources: &HashSet<String>,
+) -> Result<(), String> {
+    let mut seen_sources = HashSet::new();
+    for source in &mut change.sources {
+        let canonical = canonical_memory_source(source, allowed_sources).ok_or_else(|| {
+            format!(
+                "memory change set cites source {source} that is neither existing provenance nor a human message in this chunk"
+            )
+        })?;
+        source.clone_from(canonical);
+        if !seen_sources.insert(source.clone()) {
+            return Err(format!("memory page {} cites source {source} more than once", change.path));
+        }
+    }
+
+    let article = change
+        .body
+        .lines()
+        .filter(|line| !is_numeric_footnote_definition(line))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let references = numeric_footnote_references(&article)?;
+    let expected = (1..=change.sources.len()).collect::<std::collections::BTreeSet<_>>();
+    if references != expected {
+        return Err(format!(
+            "memory page {} must cite every ordered source exactly by numeric marker; expected {expected:?}, found {references:?}",
+            change.path
+        ));
+    }
+
+    let article = article.trim();
+    if change.sources.is_empty() {
+        change.body = article.to_string();
+        return Ok(());
+    }
+    let definitions = change
+        .sources
+        .iter()
+        .enumerate()
+        .map(|(index, source)| format!("[^{}]: {source}", index + 1))
+        .collect::<Vec<_>>()
+        .join("\n");
+    change.body = format!("{article}\n\n{definitions}");
+    Ok(())
+}
+
+fn is_numeric_footnote_definition(line: &str) -> bool {
+    let Some((label, _)) = line.strip_prefix("[^").and_then(|line| line.split_once("]:")) else {
+        return false;
+    };
+    label.parse::<usize>().is_ok_and(|index| index > 0)
+}
+
+fn numeric_footnote_references(body: &str) -> Result<std::collections::BTreeSet<usize>, String> {
+    let mut references = std::collections::BTreeSet::new();
+    let mut remainder = body;
+    while let Some(start) = remainder.find("[^") {
+        remainder = &remainder[start + 2..];
+        let Some(end) = remainder.find(']') else {
+            return Err("memory body contains an unterminated footnote marker".to_string());
+        };
+        let label = &remainder[..end];
+        let index = label.parse::<usize>().map_err(|_| {
+            format!("memory body footnote marker {label} is not a positive source index")
+        })?;
+        if index == 0 {
+            return Err("memory body footnote indexes start at 1".to_string());
+        }
+        remainder = &remainder[end + 1..];
+        if remainder.starts_with(':') {
+            return Err("memory body must omit footnote definitions".to_string());
+        }
+        references.insert(index);
+    }
+    Ok(references)
+}
+
 fn canonical_memory_source<'a>(
     source: &str,
     allowed_sources: &'a std::collections::HashSet<String>,
@@ -617,9 +664,9 @@ pub(crate) fn memory_update_instructions(canonical: &str, correction: Option<&st
     format!(
         "You are editing a compact personal encyclopedia, not recording a chronological fact list. The complete page catalog is below. Entries with body and sources are content-editable and include stable ids and exact hashes; excerpt-only entries are discovery context and must not be content-upserted, moved, overwritten, or deleted, though their icon may be changed with metadata_updates. You may create a new page when the evidence warrants one. Existing pages are: {canonical}\n\
 Call noema.submit_memory_changes exactly once through the provider's native tool channel. Do not encode the tool call or its arguments in ordinary assistant text.\n\
-Editorial contract: root.md is a biographical overview titled with the local human's name whenever known, never \"Human memory\" in that case. Begin each page with a natural human-language lead, then group related material into thematic ## sections. A developed root article must have at least two sections. Merge related claims into multi-sentence prose; never emit a sequence of one-sentence fact paragraphs, a field inventory, or a chronology of messages. Keep the root concise and create focused child pages when a domain has enough detail, rather than accumulating every fact in root.md. Do not put a # title in body because Noema generates it. Rewrite any existing page that violates this structure even when its facts remain correct. Put all footnote definitions together after the article.\n\
+Editorial contract: root.md is a biographical overview titled with the local human's name whenever known, never \"Human memory\" in that case. Begin each page with a natural human-language lead, then group related material into thematic ## sections. A developed root article must have at least two sections. Merge related claims into multi-sentence prose; never emit a sequence of one-sentence fact paragraphs, a field inventory, or a chronology of messages. Keep the root concise and create focused child pages when a domain has enough detail, rather than accumulating every fact in root.md. Do not put a # title in body because Noema generates it. Rewrite any existing page that violates this structure even when its facts remain correct.\n\
 Icon contract: every content upsert must include exactly one semantically specific Lucide icon key from [{icon_keys}]. Preserve an existing icon when it remains the clearest fit. When only an existing page's icon should change, emit one metadata_updates entry instead of reproducing its content; use this whenever another allowed key represents the stable page subject more clearly. Treat file-text as a generic fallback and replace it whenever a more specific key fits.\n\
-Evidence contract: every cited footnote has one definition whose exact target is a source id, definitions exactly match sources, and assistant messages are context rather than independent evidence. Preserve stable ids, expected hashes, hierarchy, and user-authored meaning unless evidence requires a change. To move a page, retain its id and expected hash and change its path. Do not copy secrets, tokens, credentials, or private keys. Use owner human:local and scope human:local.{correction}"
+Evidence contract: sources is the ordered, unique list of exact source ids. Cite its first entry as [^1], its second as [^2], and so on. Cite every source at least once. Do not write footnote definitions because Noema generates them. Assistant messages are context rather than independent evidence. Preserve stable ids, expected hashes, hierarchy, and user-authored meaning unless evidence requires a change. To move a page, retain its id and expected hash and change its path. Do not copy secrets, tokens, credentials, or private keys. Use owner human:local and scope human:local.{correction}"
     )
 }
 
@@ -663,14 +710,14 @@ mod memory_change_set_tests {
     }
 
     #[test]
-    fn parser_repairs_only_an_exact_missing_item_namespace() {
+    fn parser_generates_definitions_from_canonical_ordered_sources() {
         let allowed = HashSet::from(["item:18c46bcd2ec74cc0f4".to_string()]);
         let response = serde_json::json!({
             "upserts": [{
                 "path": "root.md",
                 "title": "Momo",
                 "icon": "user",
-                "body": "Momo corrected the agent's name.[^name]\n\n[^name]: 18c46bcd2ec74cc0f4",
+                "body": "Momo corrected the agent's name.[^1]\n\n[^1]: stale-target",
                 "sources": ["18c46bcd2ec74cc0f4"]
             }],
             "metadata_updates": [],
@@ -684,10 +731,9 @@ mod memory_change_set_tests {
             changes.upserts[0].sources,
             ["item:18c46bcd2ec74cc0f4"]
         );
-        assert!(
-            changes.upserts[0]
-                .body
-                .contains("[^name]: item:18c46bcd2ec74cc0f4")
+        assert_eq!(
+            changes.upserts[0].body,
+            "Momo corrected the agent's name.[^1]\n\n[^1]: item:18c46bcd2ec74cc0f4"
         );
 
         let unrelated = response.to_string().replace("18c46bcd2ec74cc0f4", "invented");
@@ -696,14 +742,14 @@ mod memory_change_set_tests {
     }
 
     #[test]
-    fn parser_repairs_exact_rendered_human_source_label() {
+    fn parser_canonicalizes_exact_rendered_human_source_label() {
         let allowed = HashSet::from(["item:18c7c757f1f6fa3a5a7".to_string()]);
         let response = serde_json::json!({
             "upserts": [{
                 "path": "root.md",
                 "title": "Momo",
                 "icon": "user",
-                "body": "Momo has a durable preference.[^preference]\n\n[^preference]: human [item:18c7c757f1f6fa3a5a7]",
+                "body": "Momo has a durable preference.[^1]",
                 "sources": ["human [item:18c7c757f1f6fa3a5a7]"]
             }],
             "metadata_updates": [],
@@ -715,11 +761,34 @@ mod memory_change_set_tests {
             .changes;
 
         assert_eq!(changes.upserts[0].sources, ["item:18c7c757f1f6fa3a5a7"]);
-        assert!(
-            changes.upserts[0]
-                .body
-                .contains("[^preference]: item:18c7c757f1f6fa3a5a7")
+        assert_eq!(
+            changes.upserts[0].body,
+            "Momo has a durable preference.[^1]\n\n[^1]: item:18c7c757f1f6fa3a5a7"
         );
+    }
+
+    #[test]
+    fn parser_rejects_invalid_source_indexes_and_provenance() {
+        let allowed = HashSet::from(["item:human".to_string()]);
+        for (body, sources) in [
+            ("Missing a marker.", vec!["item:human"]),
+            ("Named marker.[^name]", vec!["item:human"]),
+            ("Duplicate sources.[^1][^2]", vec!["item:human", "item:human"]),
+            ("Unknown source.[^1]", vec!["item:unknown"]),
+        ] {
+            let response = serde_json::json!({
+                "upserts": [{
+                    "path": "root.md",
+                    "title": "Momo",
+                    "icon": "user",
+                    "body": body,
+                    "sources": sources,
+                }],
+                "metadata_updates": [],
+                "deletes": [],
+            });
+            assert!(parse_memory_change_set(&response, &allowed, &[]).is_err());
+        }
     }
 
     #[test]

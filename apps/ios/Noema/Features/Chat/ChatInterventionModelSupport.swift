@@ -22,6 +22,7 @@ enum ChatIntervention: Identifiable, Equatable {
   case adapterAuth(AdapterAuthModel)
   case setup(McpSetupModel)
   case attention(ChatTaskAttentionModel)
+  case oauthClientSetup(AdapterOauthClientSetupModel)
   case adapterDefinition(AdapterDefinitionModel)
 
   var id: String {
@@ -31,6 +32,7 @@ enum ChatIntervention: Identifiable, Equatable {
     case let .adapterAuth(value): value.requestID
     case let .setup(value): value.itemID
     case let .attention(value): "task-" + value.taskID + "-" + (value.gate?.id ?? "attention")
+    case let .oauthClientSetup(value): "oauth-client-" + value.profileDigest
     case let .adapterDefinition(value): "adapter-" + value.semanticDigest
     }
   }
@@ -114,6 +116,20 @@ struct McpSetupModel: Equatable {
   let toolCount: Int?
 }
 
+struct AdapterOauthClientSetupDependencyModel: Equatable, Identifiable {
+  let semanticDigest: String
+  let displayName: String
+
+  var id: String { semanticDigest }
+}
+
+struct AdapterOauthClientSetupModel: Equatable {
+  let profileDigest: String
+  let displayName: String
+  let credentialSetup: AdapterCredentialSetupModel
+  let dependentDefinitions: [AdapterOauthClientSetupDependencyModel]
+}
+
 struct AdapterDefinitionModel: Equatable {
   let semanticDigest: String
   let definitionID: String
@@ -129,9 +145,11 @@ struct AdapterDefinitionModel: Equatable {
   let connectionCount: Int
   let origin: String
   let authenticationMode: String
+  let oauthProfileDigest: String?
   let accountIdentityOperationID: String?
   let operationDetails: [AdapterOperationModel]
   let connections: [AdapterConnectionModel]
+  let nextAction: AdapterNextActionModel?
 
   init(
     semanticDigest: String,
@@ -148,9 +166,11 @@ struct AdapterDefinitionModel: Equatable {
     connectionCount: Int,
     origin: String = "",
     authenticationMode: String = "",
+    oauthProfileDigest: String? = nil,
     accountIdentityOperationID: String? = nil,
     operationDetails: [AdapterOperationModel] = [],
-    connections: [AdapterConnectionModel] = []
+    connections: [AdapterConnectionModel] = [],
+    nextAction: AdapterNextActionModel? = nil
   ) {
     self.semanticDigest = semanticDigest
     self.definitionID = definitionID
@@ -166,9 +186,11 @@ struct AdapterDefinitionModel: Equatable {
     self.connectionCount = connectionCount
     self.origin = origin
     self.authenticationMode = authenticationMode
+    self.oauthProfileDigest = oauthProfileDigest
     self.accountIdentityOperationID = accountIdentityOperationID
     self.operationDetails = operationDetails
     self.connections = connections
+    self.nextAction = nextAction
   }
 }
 
@@ -198,16 +220,29 @@ struct AdapterResponseTransformModel: Equatable {
 struct AdapterConnectionModel: Equatable, Identifiable {
   let connectionID: String
   let status: String
-  let accountKind: String
+  let grantID: String?
+  let accountID: String?
   let connectionRevision: Int
-  let credentialRevision: Int
-  let grantRevision: Int
+  let credentialRevision: Int?
+  let grantRevision: Int?
   let policyRevision: Int
   let grantedScopes: [String]
   let allowedOperations: [String]
   let policyConfigured: Bool
 
   var id: String { connectionID }
+}
+
+struct AdapterNextActionModel: Equatable {
+  let kind: String
+  let semanticDigest: String
+  let applicationID: String?
+  let applicationRevision: Int?
+  let grantID: String?
+  let grantRevision: Int?
+  let connectionID: String?
+  let operationIDs: [String]
+  let missingScopes: [String]
 }
 
 struct AdapterOAuthSetupAttempt: Equatable {
@@ -256,6 +291,18 @@ extension ChatIntervention {
       let task = attention.task
       let gate = attention.gate.map { mapChatTaskGate($0.fragments.tasksGateFields) } ?? task.activeGate.map { mapChatTaskGate($0.fragments.tasksGateFields) }
       self = .attention(ChatTaskAttentionModel(taskID: task.taskId, title: attention.title, summary: attention.summary, revision: task.revision, generation: task.generation, gate: gate, validActions: Set(attention.validActions.map(\.rawValue))))
+    } else if let setup = data.asAdapterOauthClientSetupIntervention {
+      self = .oauthClientSetup(AdapterOauthClientSetupModel(
+        profileDigest: setup.profileDigest,
+        displayName: setup.displayName,
+        credentialSetup: AdapterCredentialSetupModel(setup.oauthCredentialSetup.fragments.adapterCredentialSetupFields),
+        dependentDefinitions: setup.dependentDefinitions.map {
+          AdapterOauthClientSetupDependencyModel(
+            semanticDigest: $0.semanticDigest,
+            displayName: $0.displayName
+          )
+        }
+      ))
     } else if let definition = data.asAdapterDefinition {
       self = .adapterDefinition(AdapterDefinitionModel(
         semanticDigest: definition.semanticDigest,
@@ -274,6 +321,7 @@ extension ChatIntervention {
         connectionCount: definition.connectionCount,
         origin: definition.origin,
         authenticationMode: definition.authenticationMode,
+        oauthProfileDigest: definition.oauthProfileDigest,
         accountIdentityOperationID: definition.accountIdentityOperationId,
         operationDetails: definition.operations.map { operation in
           AdapterOperationModel(
@@ -300,7 +348,8 @@ extension ChatIntervention {
           AdapterConnectionModel(
             connectionID: connection.connectionId,
             status: connection.status,
-            accountKind: connection.accountKind,
+            grantID: connection.grantId,
+            accountID: connection.accountId,
             connectionRevision: connection.connectionRevision,
             credentialRevision: connection.credentialRevision,
             grantRevision: connection.grantRevision,
@@ -308,6 +357,19 @@ extension ChatIntervention {
             grantedScopes: connection.grantedScopes,
             allowedOperations: connection.allowedOperations,
             policyConfigured: connection.policyConfigured
+          )
+        },
+        nextAction: definition.nextAction.map { action in
+          AdapterNextActionModel(
+            kind: action.kind,
+            semanticDigest: action.semanticDigest,
+            applicationID: action.applicationId,
+            applicationRevision: action.expectedApplicationRevision,
+            grantID: action.grantId,
+            grantRevision: action.expectedGrantRevision,
+            connectionID: action.connectionId,
+            operationIDs: action.operationIds,
+            missingScopes: action.missingScopes
           )
         }
       ))

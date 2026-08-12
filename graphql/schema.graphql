@@ -155,10 +155,29 @@ type AdapterAuthenticationIntervention {
 	taskId: String
 	runId: String
 	adapterConnectionId: String!
+	grantId: String
 	serviceDisplayName: String!
 	capabilityName: String!
 	state: McpAuthenticationRequestState!
 	failureCode: String
+}
+
+"""
+One reusable account authorization and its dependent connections.
+"""
+type AdapterAuthorizationGrant {
+	grantId: String!
+	applicationId: String!
+	accountId: String
+	accountLabel: String
+	providerDisplayName: String!
+	audience: String!
+	desiredScopes: [String!]!
+	grantedScopes: [String!]!
+	authorityRevision: Int!
+	tokenRevision: Int!
+	status: String!
+	connectionIds: [String!]!
 }
 
 """
@@ -167,14 +186,16 @@ One non-secret filesystem connection for an exact adapter definition.
 type AdapterConnection {
 	connectionId: String!
 	status: String!
-	accountKind: String!
+	grantId: String
+	accountId: String
 	connectionRevision: Int!
-	credentialRevision: Int!
-	grantRevision: Int!
+	credentialRevision: Int
+	grantRevision: Int
 	policyRevision: Int!
 	grantedScopes: [String!]!
 	allowedOperations: [String!]!
 	policyConfigured: Boolean!
+	operationAccess: [AdapterOperationAccess!]!
 }
 
 """
@@ -229,6 +250,7 @@ type AdapterDefinition {
 	sourceReference: String!
 	origin: String!
 	authenticationMode: String!
+	oauthProfileDigest: String
 	scopes: [String!]!
 	credentialSetup: AdapterCredentialSetup
 	accountIdentityOperationId: String
@@ -238,6 +260,92 @@ type AdapterDefinition {
 	connections: [AdapterConnection!]!
 	reviewed: Boolean!
 	superseded: Boolean!
+	nextAction: AdapterNextAction
+	connectionActions: [AdapterNextAction!]!
+}
+
+"""
+One stable external account identity.
+"""
+type AdapterExternalAccount {
+	accountId: String!
+	profileDigest: String!
+	accountLabel: String
+	revision: Int!
+	grantIds: [String!]!
+}
+
+"""
+One server-selected safe action for an adapter definition.
+"""
+type AdapterNextAction {
+	kind: String!
+	semanticDigest: String!
+	applicationId: String
+	expectedApplicationRevision: Int
+	grantId: String
+	expectedGrantRevision: Int
+	connectionId: String
+	expectedConnectionRevision: Int
+	expectedPolicyRevision: Int
+	operationIds: [String!]!
+	missingScopes: [String!]!
+}
+
+"""
+One non-secret reusable OAuth application.
+"""
+type AdapterOauthApplication {
+	applicationId: String!
+	profileDigest: String!
+	providerDisplayName: String!
+	callbackMode: String!
+	clientId: String!
+	projectLabel: String
+	revision: Int!
+	status: String!
+	grantCount: Int!
+	accountCount: Int!
+}
+
+"""
+Current lifecycle state of one browser OAuth attempt.
+"""
+type AdapterOauthAttemptEvent {
+	attemptId: String!
+	semanticDigest: String
+	grantId: String
+	grantRevision: Int
+	status: String!
+}
+
+"""
+One reviewed adapter definition that depends on a shared OAuth client.
+"""
+type AdapterOauthClientSetupDependency {
+	semanticDigest: String!
+	displayName: String!
+}
+
+"""
+One profile-owned OAuth client setup shared by compatible adapter definitions.
+"""
+type AdapterOauthClientSetupIntervention {
+	profileDigest: String!
+	displayName: String!
+	credentialSetup: AdapterCredentialSetup!
+	dependentDefinitions: [AdapterOauthClientSetupDependency!]!
+}
+
+"""
+One reviewed public OAuth profile.
+"""
+type AdapterOauthProfile {
+	profileDigest: String!
+	profileId: String!
+	displayName: String!
+	grantAudience: String!
+	credentialSetup: AdapterCredentialSetup
 }
 
 """
@@ -247,6 +355,16 @@ type AdapterOauthSetupAttempt {
 	attemptId: String!
 	authorizationUrl: String!
 	expiresAtEpochSeconds: Int!
+}
+
+"""
+Complete non-secret OAuth settings state.
+"""
+type AdapterOauthState {
+	profiles: [AdapterOauthProfile!]!
+	applications: [AdapterOauthApplication!]!
+	accounts: [AdapterExternalAccount!]!
+	grants: [AdapterAuthorizationGrant!]!
 }
 
 """
@@ -262,6 +380,16 @@ type AdapterOperation {
 	openWorld: Boolean
 	argumentNames: [String!]!
 	responseTransform: AdapterResponseTransform
+	acceptedScopeSets: [AdapterScopeSet!]!
+}
+
+"""
+Derived access for one operation on one connection.
+"""
+type AdapterOperationAccess {
+	operationId: String!
+	status: String!
+	missingScopes: [String!]!
 }
 
 """
@@ -273,6 +401,13 @@ type AdapterResponseTransform {
 	source: String!
 	acceptedContentTypes: [String!]!
 	outputSchemaJson: String!
+}
+
+"""
+One complete accepted OAuth scope set for an operation.
+"""
+type AdapterScopeSet {
+	scopes: [String!]!
 }
 
 """
@@ -792,6 +927,15 @@ type AssistantTextDeltaEvent {
 	Assistant text delta.
 	"""
 	delta: String!
+}
+
+"""
+Attach one reviewed API definition to one reusable grant.
+"""
+input AttachAdapterOauthConnectionInput {
+	semanticDigest: String!
+	grantId: String!
+	expectedGrantRevision: Int!
 }
 
 input AuthenticateAcpAgentInput {
@@ -1348,6 +1492,14 @@ input DeleteAdapterConnectionInput {
 }
 
 """
+Delete one unreferenced OAuth application revision.
+"""
+input DeleteAdapterOauthApplicationInput {
+	applicationId: String!
+	expectedRevision: Int!
+}
+
+"""
 Delete one exact adapter service family selection.
 """
 input DeleteAdapterServiceInput {
@@ -1360,6 +1512,14 @@ Input for hard-deleting a user-managed provider account.
 """
 input DeleteProviderAccountInput {
 	providerAccountId: String!
+}
+
+"""
+Disconnect one exact reusable grant revision.
+"""
+input DisconnectAdapterOauthGrantInput {
+	grantId: String!
+	expectedAuthorityRevision: Int!
 }
 
 """
@@ -1551,7 +1711,7 @@ type GraphqlTaskRuntimeEvent {
 """
 Human intervention variants share presentation, but retain separate authorities.
 """
-union HumanIntervention = TaskAttention | GovernedAction | McpAuthenticationIntervention | AdapterAuthenticationIntervention | McpSetupIntervention | AdapterDefinition
+union HumanIntervention = TaskAttention | GovernedAction | McpAuthenticationIntervention | AdapterAuthenticationIntervention | McpSetupIntervention | AdapterOauthClientSetupIntervention | AdapterDefinition
 
 """
 Human intervention invalidation delivered by subscription.
@@ -1561,6 +1721,15 @@ type HumanInterventionsChangedEvent {
 	Durable Noema conversation id.
 	"""
 	conversationId: String!
+}
+
+"""
+Import one reusable OAuth application document.
+"""
+input ImportAdapterOauthApplicationInput {
+	profileDigest: String!
+	projectLabel: String
+	clientDocumentBase64: String!
 }
 
 """
@@ -2655,6 +2824,34 @@ type MutationRoot {
 	"""
 	startAdapterOauthSetup(input: StartAdapterOauthSetupInput!): AdapterOauthSetupAttempt!
 	"""
+	Import one reusable OAuth client document.
+	"""
+	importAdapterOauthApplication(input: ImportAdapterOauthApplicationInput!): AdapterOauthApplication!
+	"""
+	Replace one exact OAuth application document.
+	"""
+	replaceAdapterOauthApplication(input: ReplaceAdapterOauthApplicationInput!): AdapterOauthApplication!
+	"""
+	Attach one API definition to one account grant.
+	"""
+	attachAdapterOauthConnection(input: AttachAdapterOauthConnectionInput!): AdapterDefinition!
+	"""
+	Disconnect one reusable account grant.
+	"""
+	disconnectAdapterOauthGrant(input: DisconnectAdapterOauthGrantInput!): AdapterAuthorizationGrant!
+	"""
+	Save a label for an account without stable provider identity.
+	"""
+	saveAdapterOauthGrantLabel(input: SaveAdapterOauthGrantLabelInput!): AdapterAuthorizationGrant!
+	"""
+	Delete one OAuth application without dependent grants.
+	"""
+	deleteAdapterOauthApplication(input: DeleteAdapterOauthApplicationInput!): Boolean!
+	"""
+	Suspend or resume one API connection.
+	"""
+	setAdapterConnectionActive(input: SetAdapterConnectionActiveInput!): AdapterDefinition!
+	"""
 	Add and verify an MCP server.
 	"""
 	createMcpServer(input: CreateMcpServerInput!): McpServerSetupResult!
@@ -3416,6 +3613,14 @@ type QueryRoot {
 	"""
 	adapterDefinitions: [AdapterDefinition!]!
 	"""
+	Return the reusable OAuth application and account hierarchy.
+	"""
+	adapterOauthState: AdapterOauthState!
+	"""
+	Return the latest process-local state for one OAuth attempt.
+	"""
+	adapterOauthAttempt(attemptId: String!): AdapterOauthAttemptEvent
+	"""
 	Return a short-lived MCP OAuth setup attempt.
 	"""
 	mcpOauthSetupAttempt(attemptId: String!): McpOAuthSetupAttempt
@@ -3629,6 +3834,15 @@ input ReopenTaskInput {
 	clientMutationId: String!
 }
 
+"""
+Replace one exact OAuth application document.
+"""
+input ReplaceAdapterOauthApplicationInput {
+	applicationId: String!
+	expectedRevision: Int!
+	clientDocumentBase64: String!
+}
+
 input ResetCapabilityToolPolicyInput {
 	kind: CapabilityIntegrationKind!
 	connectionId: String!
@@ -3783,6 +3997,15 @@ input SaveActionReviewerPreferenceInput {
 	Optional explicit reasoning effort for reasoning-capable model profiles.
 	"""
 	reasoningEffort: ReasoningEffort
+}
+
+"""
+Label one grant when the provider exposes no stable account identity.
+"""
+input SaveAdapterOauthGrantLabelInput {
+	grantId: String!
+	expectedAuthorityRevision: Int!
+	accountLabel: String
 }
 
 """
@@ -3981,6 +4204,15 @@ input SendMultipleChoiceSelectionInput {
 	clientMessageId: String
 }
 
+"""
+Suspend or resume one exact API connection.
+"""
+input SetAdapterConnectionActiveInput {
+	connectionId: String!
+	expectedConnectionRevision: Int!
+	active: Boolean!
+}
+
 input SetCapabilityToolEnabledInput {
 	kind: CapabilityIntegrationKind!
 	connectionId: String!
@@ -4028,11 +4260,12 @@ input StartAdapterAuthenticationInput {
 Start browser OAuth against one exact filesystem connection revision.
 """
 input StartAdapterOauthSetupInput {
-	connectionId: String!
-	expectedConnectionRevision: Int!
-	expectedCredentialRevision: Int!
-	expectedGrantRevision: Int!
-	expectedPolicyRevision: Int!
+	applicationId: String!
+	expectedApplicationRevision: Int!
+	grantId: String
+	expectedGrantRevision: Int
+	semanticDigest: String!
+	operationIds: [String!]!
 }
 
 """
@@ -4101,6 +4334,10 @@ type SubscriptionReadyEvent {
 }
 
 type SubscriptionRoot {
+	"""
+	Stream lifecycle changes for one API OAuth attempt.
+	"""
+	adapterOauthAttemptEvents(attemptId: String!): AdapterOauthAttemptEvent!
 	"""
 	Keep the current paired native client visible while its Chat is focused.
 	"""

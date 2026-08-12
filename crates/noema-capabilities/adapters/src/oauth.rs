@@ -22,7 +22,7 @@ use std::{
 use thiserror::Error;
 use url::{Host, Url};
 
-use crate::{CompiledAdapterDefinition, Oauth2AuthorizationCodePkceConfig, Oauth2CallbackMode};
+use crate::{CompiledAdapterDefinition, Oauth2CallbackMode, OauthProfileV1};
 
 const RANDOM_BYTES: usize = 80;
 const MAX_ATTEMPT_TTL_SECONDS: u64 = 15 * 60;
@@ -63,37 +63,43 @@ pub(crate) enum AdapterOAuthError {
 pub(crate) struct AdapterOAuthAuthorityV1 {
     /// Authenticated human who initiated the attempt.
     pub(crate) human_id: String,
-    /// Exact connection identity being created or reauthenticated.
-    pub(crate) connection_id: String,
-    /// Stable external account identity when already known.
-    pub(crate) account_id: Option<String>,
-    /// Exact account surface selected by the reviewed definition.
-    pub(crate) account_kind: String,
+    /// Exact OAuth application identity.
+    pub(crate) application_id: String,
+    /// Application revision captured before redirect.
+    pub(crate) application_revision: u64,
+    /// Existing grant identity for access expansion or reconnection.
+    pub(crate) grant_id: Option<String>,
+    /// Existing grant authority revision captured before redirect.
+    pub(crate) grant_authority_revision: Option<u64>,
     /// Reviewed definition semantic digest.
     pub(crate) semantic_digest: String,
-    /// Connection descriptor revision captured before redirect.
-    pub(crate) connection_revision: u64,
-    /// Credential generation revision captured before redirect.
-    pub(crate) credential_revision: u64,
-    /// Provider-grant revision captured before redirect.
-    pub(crate) grant_revision: u64,
-    /// Reviewed operation/policy revision captured before redirect.
-    pub(crate) policy_revision: u64,
+    /// Exact reviewed OAuth profile digest.
+    pub(crate) profile_digest: String,
+    /// Exact target scopes selected before redirect.
+    pub(crate) target_scopes: Vec<String>,
 }
 
 impl AdapterOAuthAuthorityV1 {
-    fn validate(&self, definition: &CompiledAdapterDefinition) -> Result<(), AdapterOAuthError> {
+    fn validate(
+        &self,
+        definition: &CompiledAdapterDefinition,
+        profile_digest: &str,
+    ) -> Result<(), AdapterOAuthError> {
         if self.semantic_digest != definition.semantic_digest.as_str()
-            || self.connection_revision == 0
-            || self.grant_revision == 0
-            || self.policy_revision == 0
+            || self.profile_digest != profile_digest
+            || self.application_revision == 0
             || !valid_component(&self.human_id, 256)
-            || !valid_hex_id(&self.connection_id)
-            || !valid_component(&self.account_kind, 96)
+            || !valid_hex_id(&self.application_id)
             || self
-                .account_id
+                .grant_id
                 .as_deref()
-                .is_some_and(|value| !valid_component(value, 256))
+                .is_some_and(|value| !valid_hex_id(value))
+            || self.grant_id.is_some() != self.grant_authority_revision.is_some()
+            || self
+                .grant_authority_revision
+                .is_some_and(|revision| revision == 0)
+            || self.target_scopes.is_empty()
+            || !self.target_scopes.windows(2).all(|pair| pair[0] < pair[1])
             || crate::SemanticDigest::parse(self.semantic_digest.clone()).is_err()
         {
             return Err(AdapterOAuthError::InvalidInput);
@@ -156,40 +162,33 @@ impl AdapterOAuthAttempt {
     /// or TTL is invalid.
     pub(crate) fn start(
         definition: &CompiledAdapterDefinition,
-        client_id: &str,
-        authority: AdapterOAuthAuthorityV1,
-        callback_mode: Oauth2CallbackMode,
-        redirect_uri: &str,
-        now_epoch_seconds: u64,
-        ttl_seconds: u64,
+        profile: &OauthProfileV1,
+        start: AdapterOAuthStart<'_>,
     ) -> Result<Self, AdapterOAuthError> {
         let mut random = [0_u8; RANDOM_BYTES];
         SystemRandom::new()
             .fill(&mut random)
             .map_err(|_| AdapterOAuthError::Unavailable)?;
-        Self::start_with_random(
-            definition,
+        Self::start_with_random(definition, profile, start, &random)
+    }
+
+    fn start_with_random(
+        definition: &CompiledAdapterDefinition,
+        profile: &OauthProfileV1,
+        start: AdapterOAuthStart<'_>,
+        random: &[u8; RANDOM_BYTES],
+    ) -> Result<Self, AdapterOAuthError> {
+        let AdapterOAuthStart {
+            profile_digest,
+            target_scopes,
+            select_account,
             client_id,
             authority,
             callback_mode,
             redirect_uri,
             now_epoch_seconds,
             ttl_seconds,
-            &random,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn start_with_random(
-        definition: &CompiledAdapterDefinition,
-        client_id: &str,
-        authority: AdapterOAuthAuthorityV1,
-        callback_mode: Oauth2CallbackMode,
-        redirect_uri: &str,
-        now_epoch_seconds: u64,
-        ttl_seconds: u64,
-        random: &[u8; RANDOM_BYTES],
-    ) -> Result<Self, AdapterOAuthError> {
+        } = start;
         if !definition.reviewed
             || definition.authentication.mode()
                 != crate::AuthenticationMode::Oauth2AuthorizationCodePkce
@@ -199,12 +198,17 @@ impl AdapterOAuthAttempt {
         let Some(config) = definition.authentication.oauth2() else {
             return Err(AdapterOAuthError::Unsupported);
         };
-        validate_oauth_config(config).map_err(|_| AdapterOAuthError::InvalidInput)?;
-        authority.validate(definition)?;
+        if config.profile_digest != profile_digest {
+            return Err(AdapterOAuthError::InvalidInput);
+        }
+        validate_oauth_profile(profile).map_err(|_| AdapterOAuthError::InvalidInput)?;
+        authority.validate(definition, profile_digest)?;
         if !valid_secret(client_id, MAX_CLIENT_ID_BYTES)
             || ttl_seconds == 0
             || ttl_seconds > MAX_ATTEMPT_TTL_SECONDS
-            || !config
+            || target_scopes.is_empty()
+            || !target_scopes.windows(2).all(|pair| pair[0] < pair[1])
+            || !profile
                 .setups
                 .iter()
                 .any(|setup| setup.callback_mode == callback_mode)
@@ -226,11 +230,11 @@ impl AdapterOAuthAttempt {
         let challenge = PkceCodeChallenge::from_code_verifier_sha256(&verifier);
         let client = BasicClient::new(ClientId::new(client_id.to_string()))
             .set_auth_uri(
-                AuthUrl::new(config.authorization_endpoint.clone())
+                AuthUrl::new(profile.authorization_endpoint.clone())
                     .map_err(|_| AdapterOAuthError::InvalidInput)?,
             )
             .set_token_uri(
-                TokenUrl::new(config.token_endpoint.clone())
+                TokenUrl::new(profile.token_endpoint.clone())
                     .map_err(|_| AdapterOAuthError::InvalidInput)?,
             )
             .set_redirect_uri(
@@ -239,17 +243,15 @@ impl AdapterOAuthAttempt {
             );
         let mut request = client
             .authorize_url(|| CsrfToken::new(state.clone()))
-            .add_scopes(
-                definition
-                    .authentication
-                    .scopes()
-                    .iter()
-                    .cloned()
-                    .map(Scope::new),
-            )
+            .add_scopes(target_scopes.iter().cloned().map(Scope::new))
             .set_pkce_challenge(challenge);
-        for (name, value) in &config.extra_authorization_parameters {
+        for (name, value) in &profile.authorization_parameters {
             request = request.add_extra_param(name.clone(), value.clone());
+        }
+        if select_account {
+            for (name, value) in &profile.account_selection_parameters {
+                request = request.add_extra_param(name.clone(), value.clone());
+            }
         }
         let (authorization_url, _) = request.url();
         Ok(Self {
@@ -380,6 +382,18 @@ impl AdapterOAuthAttempt {
     }
 }
 
+pub(crate) struct AdapterOAuthStart<'a> {
+    pub(crate) profile_digest: &'a str,
+    pub(crate) target_scopes: &'a [String],
+    pub(crate) select_account: bool,
+    pub(crate) client_id: &'a str,
+    pub(crate) authority: AdapterOAuthAuthorityV1,
+    pub(crate) callback_mode: Oauth2CallbackMode,
+    pub(crate) redirect_uri: &'a str,
+    pub(crate) now_epoch_seconds: u64,
+    pub(crate) ttl_seconds: u64,
+}
+
 /// Bounded process-local OAuth attempts indexed by a digest of returned
 /// `state`. Restart intentionally discards attempts and leaves the canonical
 /// connection in `authentication_required` so the human can start again.
@@ -419,6 +433,42 @@ impl AdapterOAuthAttemptReservation {
 }
 
 impl AdapterOAuthAttemptRegistry {
+    pub(crate) fn active_attempt_for_grant(&self, grant_id: &str) -> Option<String> {
+        self.attempts.values().find_map(|registered| {
+            if registered.authority.grant_id.as_deref() == Some(grant_id) {
+                registered
+                    .attempt
+                    .as_ref()
+                    .map(|attempt| attempt.attempt_id().to_string())
+            } else {
+                None
+            }
+        })
+    }
+
+    pub(crate) fn attempt_id_for_callback(&self, callback_url: &str) -> Option<String> {
+        let state = callback_state(callback_url).ok()?;
+        self.attempts
+            .get(&state_key(&state))?
+            .attempt
+            .as_ref()
+            .map(|attempt| attempt.attempt_id().to_string())
+    }
+
+    pub(crate) fn expire_attempt(&mut self, attempt_id: &str, now_epoch_seconds: u64) -> bool {
+        let key = self.attempts.iter().find_map(|(key, registered)| {
+            registered
+                .attempt
+                .as_ref()
+                .is_some_and(|attempt| {
+                    attempt.attempt_id() == attempt_id
+                        && now_epoch_seconds >= attempt.expires_at_epoch_seconds()
+                })
+                .then_some(*key)
+        });
+        key.is_some_and(|key| self.attempts.remove(&key).is_some())
+    }
+
     pub(crate) fn insert(
         &mut self,
         attempt: AdapterOAuthAttempt,
@@ -431,8 +481,10 @@ impl AdapterOAuthAttemptRegistry {
                 .is_none_or(|attempt| now_epoch_seconds < attempt.expires_at_epoch_seconds())
         });
         let authority = attempt.authority().clone();
-        let replacement_key = self.attempts.iter().find_map(|(key, candidate)| {
-            (candidate.authority.connection_id == authority.connection_id).then_some(*key)
+        let replacement_key = authority.grant_id.as_ref().and_then(|grant_id| {
+            self.attempts.iter().find_map(|(key, candidate)| {
+                (candidate.authority.grant_id.as_ref() == Some(grant_id)).then_some(*key)
+            })
         });
         if replacement_key
             .and_then(|key| self.attempts.get(&key))
@@ -542,33 +594,33 @@ impl AdapterOAuthAuthorizationCode {
     }
 }
 
-/// Validate the complete reviewed OAuth policy at both compile and use time.
-pub(crate) fn validate_oauth_config(
-    config: &Oauth2AuthorizationCodePkceConfig,
-) -> Result<(), &'static str> {
+/// Validate the complete reviewed OAuth profile at use time.
+pub(crate) fn validate_oauth_profile(profile: &OauthProfileV1) -> Result<(), &'static str> {
     for (field, value) in [
         (
             "oauth2_authorization_endpoint",
-            config.authorization_endpoint.as_str(),
+            profile.authorization_endpoint.as_str(),
         ),
-        ("oauth2_token_endpoint", config.token_endpoint.as_str()),
+        ("oauth2_token_endpoint", profile.token_endpoint.as_str()),
     ] {
         if value.len() > MAX_ENDPOINT_BYTES || !valid_endpoint(value) {
             return Err(field);
         }
     }
-    if config.setups.is_empty() || config.setups.len() > 2 {
+    if profile.setups.is_empty() || profile.setups.len() > 2 {
         return Err("oauth2_setups");
     }
     let mut callback_modes = BTreeSet::new();
-    if config
+    if profile
         .setups
         .iter()
         .any(|setup| !callback_modes.insert(setup.callback_mode))
     {
         return Err("oauth2_setups");
     }
-    if config.extra_authorization_parameters.len() > 32 {
+    if profile.authorization_parameters.len() > 32
+        || profile.account_selection_parameters.len() > 32
+    {
         return Err("oauth2_extra_parameters");
     }
     const RESERVED: [&str; 14] = [
@@ -587,7 +639,11 @@ pub(crate) fn validate_oauth_config(
         "error_description",
         "error_uri",
     ];
-    for (key, value) in &config.extra_authorization_parameters {
+    for (key, value) in profile
+        .authorization_parameters
+        .iter()
+        .chain(&profile.account_selection_parameters)
+    {
         if !valid_component(key, 128) || !valid_secret(value, 1_024) {
             return Err("oauth2_extra_parameter");
         }

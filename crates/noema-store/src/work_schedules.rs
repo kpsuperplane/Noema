@@ -25,9 +25,12 @@ impl NoemaStore {
             connection
                 .query_row(
                     "SELECT MIN(value) FROM (
-                   SELECT scheduled_for AS value FROM tasks
-                   WHERE scheduled_for IS NOT NULL AND queued_at IS NULL
-                     AND completed_at IS NULL AND cancelled_at IS NULL
+                   SELECT task.scheduled_for AS value FROM tasks task
+                   JOIN workflow_stages stage
+                     ON stage.workflow_id = task.workflow_id AND stage.stage_id = task.stage_id
+                   WHERE task.scheduled_for IS NOT NULL AND task.queued_at IS NULL
+                     AND task.completed_at IS NULL AND task.cancelled_at IS NULL
+                     AND stage.system_behavior = 'intake'
                    UNION ALL
                    SELECT COALESCE(recurrence.pending_coalesced_at, recurrence.next_run_at) AS value
                    FROM task_recurrences recurrence WHERE recurrence.lifecycle = 'active'

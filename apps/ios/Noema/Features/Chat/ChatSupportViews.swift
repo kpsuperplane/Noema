@@ -197,13 +197,37 @@ struct ChatInterventionsView: View {
   @Bindable var model: ChatModel
   @State private var browserURL: URL?
   @State private var taskResponses: [String: String] = [:]
+  @State private var selectedInterventionID: String?
 
   var body: some View {
+    let visibleInterventions = model.interventions.filter(isVisible)
+    let selectedIndex = max(
+      0,
+      visibleInterventions.firstIndex { $0.id == selectedInterventionID } ?? 0
+    )
     VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-        ForEach(model.interventions.filter(isVisible)) { intervention in
-          interventionCard(for: intervention)
+      if visibleInterventions.count > 1 {
+        HStack(spacing: NoemaSpacing.sm) {
+          Text("\(selectedIndex + 1) of \(visibleInterventions.count) waiting")
+            .font(NoemaFont.metadata)
+            .foregroundStyle(NoemaColor.contentTertiary)
+          Spacer(minLength: NoemaSpacing.sm)
+          Button("Previous request", systemImage: "chevron.left") {
+            selectedInterventionID = visibleInterventions[selectedIndex - 1].id
+          }
+          .labelStyle(.iconOnly)
+          .buttonStyle(.borderless)
+          .disabled(selectedIndex == 0)
+          Button("Next request", systemImage: "chevron.right") {
+            selectedInterventionID = visibleInterventions[selectedIndex + 1].id
+          }
+          .labelStyle(.iconOnly)
+          .buttonStyle(.borderless)
+          .disabled(selectedIndex == visibleInterventions.count - 1)
         }
+      }
+      if !visibleInterventions.isEmpty {
+        interventionCard(for: visibleInterventions[selectedIndex])
       }
     }
     .frame(maxWidth: 760, alignment: .leading)
@@ -289,6 +313,14 @@ struct ChatInterventionsView: View {
           )
         case let .attention(attention):
           taskAttentionContent(attention)
+        case let .oauthClientSetup(setup):
+          AdapterOauthClientSetupInterventionCard(
+            setup: setup,
+            isOffline: model.isOffline,
+            onOpenBrowser: { browserURL = $0 },
+            onDismiss: { model.dismissOauthClientSetup(setup) },
+            onImport: { try await model.importAdapterOauthClient(setup, submission: $0) }
+          )
         case let .adapterDefinition(definition):
           AdapterDefinitionInterventionCard(
             definition: definition,
@@ -300,6 +332,8 @@ struct ChatInterventionsView: View {
             onCancel: { try await model.cancelAdapterDefinition(definition) },
             onSetup: { try await model.setupAdapterConnection(definition, submission: $0) },
             onStartOAuth: { try await model.startAdapterOauthSetup($0) },
+            onWaitForOAuth: { try await model.completeAdapterOauthSetup($0, action: $1) },
+            onAttach: { try await model.attachAdapterGrant($0) },
             onSavePolicy: { try await model.saveAdapterPolicy($0, dataSharingPolicy: $1, unsafeActionPolicy: $2) }
           )
         }
@@ -310,8 +344,11 @@ struct ChatInterventionsView: View {
   }
 
   private func isVisible(_ intervention: ChatIntervention) -> Bool {
-    guard case let .adapterDefinition(definition) = intervention else { return true }
-    return !model.isAdapterSetupDismissed(definition)
+    switch intervention {
+    case let .adapterDefinition(definition): return !model.isAdapterSetupDismissed(definition)
+    case let .oauthClientSetup(setup): return !model.isOauthClientSetupDismissed(setup)
+    default: return true
+    }
   }
 
   @ViewBuilder

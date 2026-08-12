@@ -21,6 +21,47 @@ pub struct SubscriptionRoot;
 
 #[Subscription]
 impl SubscriptionRoot {
+    /// Stream lifecycle changes for one API OAuth attempt.
+    async fn adapter_oauth_attempt_events(
+        &self,
+        ctx: &Context<'_>,
+        attempt_id: String,
+    ) -> Result<impl Stream<Item = Result<GraphqlAdapterOauthAttemptEvent>>> {
+        if crate::graphql::request_principal_subject(ctx)? != "human:local" {
+            return Err(async_graphql::Error::new(
+                "adapter OAuth attempt is unauthorized",
+            ));
+        }
+        let service = ctx
+            .data_unchecked::<GraphqlState>()
+            .adapter_operations()?
+            .clone();
+        let mut receiver = service.subscribe_oauth_attempts();
+        let initial = service.oauth_attempt_status(&attempt_id);
+        Ok(async_stream::stream! {
+            if let Some(initial) = initial {
+                let terminal = adapters::oauth_attempt_terminal(initial.status);
+                yield Ok(initial.into());
+                if terminal {
+                    return;
+                }
+            }
+            loop {
+                match receiver.recv().await {
+                    Ok(event) if event.attempt_id == attempt_id => {
+                        let terminal = adapters::oauth_attempt_terminal(event.status);
+                        yield Ok(event.into());
+                        if terminal {
+                            break;
+                        }
+                    }
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        })
+    }
+
     /// Keep the current paired native client visible while its Chat is focused.
     async fn client_notification_presence(
         &self,

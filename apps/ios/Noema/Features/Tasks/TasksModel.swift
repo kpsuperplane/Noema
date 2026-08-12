@@ -712,11 +712,30 @@ final class TasksModel {
     await refresh()
   }
 
-  func startAdapterOAuth(_ connection: AdapterConnectionModel) async throws -> AdapterOAuthSetupAttempt {
+  func importAdapterOauthClient(_ setup: AdapterOauthClientSetupModel, submission: AdapterCredentialSubmission) async throws {
     guard isConnected else { throw ChatModelError.offline }
-    let attempt = try await HumanInterventionActions.startOAuth(connection, client: client)
+    try await HumanInterventionActions.importOauthClient(setup, submission: submission, client: client)
+    await refresh()
+  }
+
+  func startAdapterOAuth(_ action: AdapterNextActionModel) async throws -> AdapterOAuthSetupAttempt {
+    guard isConnected else { throw ChatModelError.offline }
+    let attempt = try await HumanInterventionActions.startOAuth(action, client: client)
     await refresh()
     return attempt
+  }
+
+  func attachAdapterGrant(_ action: AdapterNextActionModel) async throws {
+    guard isConnected else { throw ChatModelError.offline }
+    try await HumanInterventionActions.attach(action, client: client)
+    await refresh()
+  }
+
+  func completeAdapterOAuth(_ attempt: AdapterOAuthSetupAttempt, action: AdapterNextActionModel) async throws -> String {
+    guard isConnected else { throw ChatModelError.offline }
+    let status = try await HumanInterventionActions.waitForOAuth(attempt, action: action, client: client)
+    await refresh()
+    return status
   }
 
   func saveAdapterPolicy(_ connection: AdapterConnectionModel, sharing: String, unsafeActions: String) async throws {

@@ -33,21 +33,27 @@ export type AdapterCredentialSubmission = {
 };
 
 export function AdapterCredentialSetupDialog({
+  title,
   serviceName,
   setup,
   scopes,
   open,
   submitting,
   error,
+  intro = "Create the exact reviewed credential below. Noema stores only the declared private fields.",
+  submitLabel = "Add connection",
   onOpenChange,
   onSubmit
 }: {
+  title?: string;
   serviceName: string;
   setup: AdapterCredentialSetup | null | undefined;
   scopes: readonly string[];
   open: boolean;
   submitting: boolean;
   error?: string | null;
+  intro?: string;
+  submitLabel?: string;
   onOpenChange: (open: boolean) => void;
   onSubmit: (submission: AdapterCredentialSubmission) => Promise<void>;
 }) {
@@ -59,6 +65,7 @@ export function AdapterCredentialSetupDialog({
   const complete = isDocument
     ? document !== null
     : setup.fields.every((field) => Boolean(values[field.fieldId]));
+  const dialogTitle = title ?? `Connect ${serviceName}`;
 
   return (
     <Dialog
@@ -73,11 +80,11 @@ export function AdapterCredentialSetupDialog({
       purpose="form"
       width={660}
       maxHeight="min(780px, calc(100dvh - var(--spacing-8)))"
-      aria-label={`Add ${serviceName} credentials`}
+      aria-label={dialogTitle}
     >
       <Layout
         height="auto"
-        header={<DialogHeader title={`Connect ${serviceName}`} subtitle={setup.credentialType} onOpenChange={onOpenChange} />}
+        header={<DialogHeader title={dialogTitle} subtitle={setup.credentialType} onOpenChange={onOpenChange} />}
         content={
           <LayoutContent>
             <VStack
@@ -107,7 +114,7 @@ export function AdapterCredentialSetupDialog({
             >
               <VStack gap={2}>
                 <p {...stylex.props(styles.intro)}>
-                  Create the exact reviewed credential below. Noema stores only the declared private fields.
+                  {intro}
                 </p>
                 <ol {...stylex.props(styles.instructions)}>
                   {setup.instructions.map((instruction, index) => <li key={`${index}-${instruction}`}>{instruction}</li>)}
@@ -162,7 +169,7 @@ export function AdapterCredentialSetupDialog({
               {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
               <HStack gap={2} hAlign="end" wrap="wrap">
                 <Button type="button" variant="secondary" label="Cancel" isDisabled={submitting} onClick={() => onOpenChange(false)} />
-                <Button type="submit" label="Add connection" isLoading={submitting} isDisabled={submitting || !complete} />
+                <Button type="submit" label={submitLabel} isLoading={submitting} isDisabled={submitting || !complete} />
               </HStack>
             </VStack>
           </LayoutContent>

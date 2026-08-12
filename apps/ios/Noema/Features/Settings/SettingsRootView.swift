@@ -721,25 +721,41 @@ private struct CapabilitySettings: View {
   let settings: SettingsModel
   let kind: NoemaAPI.CapabilityIntegrationKind
   let appModel: NoemaAppModel
+  @Environment(NoemaShellCoordinator.self) private var shell
   @State private var editor: SettingsIntegrationConnection?
   @State private var addTarget: SettingsIntegration?
+  @State private var pendingPolicyConnectionID: String?
+  @State private var startPolicyConnectionID: String?
   @State private var deleteTarget: SettingsIntegration?
+  @State private var labelGrant: SettingsAdapterOAuthGrant?
+  @State private var labelDraft = ""
+  @State private var disconnectGrant: SettingsAdapterOAuthGrant?
+  @State private var replaceApplication: SettingsAdapterOAuthApplication?
   @State private var setupPresented = false
 
   var body: some View {
     Group {
       if kind == .api {
-        capabilityList(integrations(settings.snapshot?.apis ?? []))
+        apiAccountList(integrations(settings.snapshot?.apis ?? []))
       } else {
         capabilityList(integrations(settings.snapshot?.mcps ?? []))
       }
     }
-    .sheet(item: $editor) { connection in
-      CapabilityConnectionEditor(connection: connection, settings: settings, appModel: appModel)
+    .sheet(item: $editor, onDismiss: { startPolicyConnectionID = nil }) { connection in
+      CapabilityConnectionEditor(
+        connection: connection,
+        settings: settings,
+        appModel: appModel,
+        startPolicyEditing: startPolicyConnectionID == connection.id
+      )
     }
-    .sheet(item: $addTarget) { integration in
+    .sheet(item: $addTarget, onDismiss: openPendingPolicy) { integration in
       if kind == .api {
-        APIConnectionSheet(integration: integration, settings: settings)
+        APIConnectionSheet(
+          integration: integration,
+          settings: settings,
+          onAttached: { pendingPolicyConnectionID = $0 }
+        )
       } else {
         MCPConnectionSheet(integration: integration, settings: settings)
       }
@@ -761,6 +777,236 @@ private struct CapabilitySettings: View {
     .sheet(isPresented: $setupPresented) {
       MCPSetupSheet(settings: settings, appModel: appModel)
     }
+    .sheet(item: $labelGrant) { grant in
+      SettingsBottomSheet(title: "Label account", subtitle: grant.providerName, detent: .medium, onClose: { labelGrant = nil }) {
+        VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+          SettingsSheetField("Account label") { TextField("Account label", text: $labelDraft).settingsSheetControl() }
+          HStack(spacing: NoemaSpacing.sm) {
+            Spacer(minLength: 0)
+            Button("Cancel") { labelGrant = nil }.buttonStyle(NoemaActionButtonStyle(variant: .ghost))
+            Button("Save label") {
+              Task {
+                if await settings.labelAdapterGrant(grant, label: labelDraft.nilIfBlank) {
+                  await settings.loadAdapterOAuthState(); labelGrant = nil
+                }
+              }
+            }
+            .buttonStyle(NoemaActionButtonStyle(variant: .primary))
+          }
+        }
+      }
+    }
+    .sheet(item: $disconnectGrant) { grant in
+      SettingsMutationConfirmationSheet(
+        title: "Disconnect \(grant.accountLabel ?? "account")?",
+        message: "This removes account tokens and disables dependent APIs. API definitions and OAuth client setup stay available.",
+        confirmTitle: "Disconnect"
+      ) {
+        let result = await settings.disconnectAdapterGrant(grant)
+        if result { await settings.loadAdapterOAuthState() }
+        return result
+      }
+    }
+    .sheet(item: $replaceApplication) { application in
+      if let setup = settings.adapterOAuthState?.profiles.first(where: { $0.profileDigest == application.profileDigest })?.credentialSetup {
+        AdapterCredentialSetupSheet(
+          serviceName: application.providerName,
+          title: "Replace \(application.providerName) OAuth client",
+          setup: setup,
+          scopes: [],
+          introduction: "Replace this OAuth client document. \(application.grantCount) grants across \(application.accountCount) accounts will use the new credential.",
+          submitTitle: "Replace OAuth client",
+          onClose: { replaceApplication = nil },
+          onSubmit: { submission in
+            guard let document = submission.document,
+                  await settings.replaceAdapterOAuthApplication(application, document: document) else {
+              throw SettingsError.server(settings.errorMessage ?? "The OAuth client could not be replaced.")
+            }
+            await settings.loadAdapterOAuthState()
+          }
+        )
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func apiAccountList(_ integrations: [SettingsIntegration]) -> some View {
+    let pending = settings.adapterDefinitions.filter { !$0.reviewed && !$0.superseded }
+    let reviewed = settings.adapterDefinitions.filter { $0.reviewed && !$0.superseded }
+    let available = integrations.filter { $0.connections.isEmpty }
+    let oauth = settings.adapterOAuthState
+    let grants = oauth?.grants ?? []
+    let providerGroups = Dictionary(grouping: grants, by: \.providerName)
+    let providerNames = providerGroups.keys.sorted()
+    VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
+      if !pending.isEmpty {
+        SettingsSectionCard("Review before connecting") {
+          ForEach(Array(pending.enumerated()), id: \.element.id) { index, definition in
+            if index > 0 { SettingsRowDivider() }
+            SettingsAdapterDefinitionReview(definition: definition, settings: settings)
+          }
+        }
+      }
+      if pending.isEmpty && reviewed.isEmpty {
+        SettingsSectionCard("No APIs set up") {
+          Text("Ask Noema in Chat to add Gmail, Google Calendar, or another API. You will review access before it connects.")
+            .font(NoemaFont.body)
+            .foregroundStyle(NoemaColor.contentSecondary)
+          Button("Open Chat") { shell.requestedDestination = .chat }
+            .buttonStyle(NoemaActionButtonStyle(variant: .primary))
+        }
+      }
+      if !providerGroups.isEmpty {
+        SettingsSectionCard("Connected accounts") {
+          ForEach(Array(providerNames.enumerated()), id: \.element) { providerIndex, providerName in
+            if providerIndex > 0 { SettingsRowDivider() }
+            SettingsRow {
+              Text(providerName).font(NoemaFont.captionEmphasized)
+            }
+            let providerGrants = providerGroups[providerName] ?? []
+            let accountGroups = Dictionary(grouping: providerGrants) { $0.accountID ?? $0.grantID }
+            ForEach(Array(accountGroups.keys.sorted().enumerated()), id: \.element) { _, accountID in
+              SettingsRowDivider(verticalPadding: NoemaSpacing.xs)
+              let accountGrants = accountGroups[accountID] ?? []
+              if let account = accountGrants.first {
+                let connectionIDs = Set(accountGrants.flatMap(\.connectionIDs))
+                let connections = integrations.flatMap(\.connections).filter { connectionIDs.contains($0.id) }
+                SettingsRow {
+                  VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+                    HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+                      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+                        Text(account.accountLabel ?? "Unlabeled account").font(NoemaFont.bodyEmphasized)
+                        Text("\(connections.count) APIs")
+                          .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+                      }
+                      Spacer(minLength: NoemaSpacing.sm)
+                      NoemaStatusToken(
+                        text: accountGrants.contains { $0.status != "active" } ? "Action required" : "Connected",
+                        tone: accountGrants.contains { $0.status != "active" } ? .warning : .success
+                      )
+                      SettingsAction(title: "Label", symbol: "pencil", role: nil, disabled: !settings.canMutate) {
+                        labelDraft = account.accountLabel ?? ""; labelGrant = account
+                      }
+                      SettingsAction(title: "Disconnect", symbol: "link.badge.minus", role: .destructive, disabled: !settings.canMutate) {
+                        disconnectGrant = account
+                      }
+                    }
+                    ForEach(connections) { connection in
+                      SettingsRowDivider(verticalPadding: NoemaSpacing.xs)
+                      HStack(spacing: NoemaSpacing.sm) {
+                        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+                          Text(connection.name).font(NoemaFont.bodyEmphasized)
+                          Text("\(connection.availableToolCount)/\(connection.toolCount) tools · \(connection.authStatus)")
+                            .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+                        }
+                        Spacer(minLength: NoemaSpacing.sm)
+                        if let integration = integrations.first(where: { $0.connections.contains { $0.id == connection.id } }),
+                           let definition = settings.adapterDefinitions.first(where: { $0.semanticDigest == integration.sourceRevision }),
+                           !definition.connectionActions.isEmpty {
+                          SettingsAction(title: "Add connection", symbol: "person.badge.plus", role: nil, disabled: !settings.canMutate) {
+                            addTarget = integration
+                          }
+                        }
+                        SettingsAction(title: "Manage", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate) {
+                          editor = connection
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      if !available.isEmpty {
+        SettingsSectionCard("Connect an API") {
+          ForEach(Array(available.enumerated()), id: \.element.id) { index, integration in
+            if index > 0 { SettingsRowDivider() }
+            SettingsRow {
+              HStack(spacing: NoemaSpacing.sm) {
+                VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+                  Text(integration.name).font(NoemaFont.bodyEmphasized)
+                  Text(apiActionDescription(integration)).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+                }
+                Spacer(minLength: NoemaSpacing.sm)
+                SettingsAction(title: apiActionTitle(integration), symbol: "plus", role: nil, disabled: !settings.canMutate) {
+                  addTarget = integration
+                }
+              }
+            }
+          }
+        }
+      }
+      if let applications = oauth?.applications, !applications.isEmpty {
+        DisclosureGroup("Advanced OAuth client setup") {
+          SettingsSectionCard(footer: "Client secrets are never displayed.") {
+            Text("OAuth clients hold provider setup for account authorization. Most people do not need to manage them here.")
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.contentSecondary)
+            ForEach(Array(applications.enumerated()), id: \.element.id) { index, application in
+              if index > 0 { SettingsRowDivider() }
+              SettingsRow {
+                VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+                  Text(application.projectLabel ?? "\(application.providerName) OAuth client").font(NoemaFont.bodyEmphasized)
+                  Text("\(application.clientID) · \(application.callbackMode) · \(application.accountCount) accounts")
+                    .font(NoemaFont.monoTiny).foregroundStyle(NoemaColor.contentSecondary).textSelection(.enabled)
+                  if let redirectURI = oauth?.profiles.first(where: { $0.profileDigest == application.profileDigest })?.credentialSetup?.redirectURI {
+                    Text(redirectURI)
+                      .font(NoemaFont.monoTiny).foregroundStyle(NoemaColor.contentSecondary).textSelection(.enabled)
+                  }
+                  HStack(spacing: NoemaSpacing.sm) {
+                    SettingsAction(title: "Replace document", symbol: "doc.badge.arrow.up", role: nil, disabled: !settings.canMutate) {
+                      replaceApplication = application
+                    }
+                    SettingsAction(title: "Delete client", symbol: "trash", role: .destructive,
+                      disabled: !settings.canMutate || application.grantCount > 0) {
+                      Task {
+                        if await settings.deleteAdapterOAuthApplication(application) { await settings.loadAdapterOAuthState() }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private func apiActionTitle(_ integration: SettingsIntegration) -> String {
+    guard let action = settings.adapterDefinitions.first(where: { $0.semanticDigest == integration.sourceRevision })?.nextAction else { return "Connect" }
+    switch action.kind {
+    case "attach_account": "Connect \(integration.name)"
+    case "add_access": "Add access"
+    case "add_account":
+      settings.adapterOAuthState?.applications
+        .first { $0.applicationID == action.applicationID }
+        .map { "Add \($0.providerName) account" } ?? "Add account"
+    case "import_application": "Set up \(integration.name)"
+    default: "Connect"
+    }
+  }
+
+  private func apiActionDescription(_ integration: SettingsIntegration) -> String {
+    guard let action = settings.adapterDefinitions.first(where: { $0.semanticDigest == integration.sourceRevision })?.nextAction else { return integration.sourceSummary }
+    switch action.kind {
+    case "attach_account": "Use an account that already has the required access."
+    case "add_access": "Approve added access. Current access stays available."
+    case "add_account": "Use the existing provider setup. No new document is required."
+    case "import_application": "Import the provider's OAuth client document once. Noema will reuse it for compatible APIs."
+    default: integration.sourceSummary
+    }
+  }
+
+  private func openPendingPolicy() {
+    guard let connectionID = pendingPolicyConnectionID else { return }
+    pendingPolicyConnectionID = nil
+    startPolicyConnectionID = connectionID
+    editor = integrations(settings.snapshot?.apis ?? [])
+      .flatMap(\.connections)
+      .first { $0.id == connectionID }
   }
 
   @ViewBuilder
@@ -769,7 +1015,7 @@ private struct CapabilitySettings: View {
       if kind == .api {
         let pending = settings.adapterDefinitions.filter { !$0.reviewed && !$0.superseded }
         if !pending.isEmpty {
-          SettingsSectionCard("Definition review") {
+          SettingsSectionCard("Review before connecting") {
             ForEach(Array(pending.enumerated()), id: \.element.id) { index, definition in
               if index > 0 { SettingsRowDivider() }
               SettingsAdapterDefinitionReview(definition: definition, settings: settings)

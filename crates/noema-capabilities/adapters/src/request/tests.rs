@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 fn definition() -> CompiledAdapterDefinition {
     let manifest: AdapterManifest = serde_json::from_value(json!({
-        "schema_version": 8,
+        "schema_version": 9,
         "definition_id": "definition:request_fixture",
         "adapter_id": "request_fixture",
         "definition_revision": "v1",
@@ -17,6 +17,7 @@ fn definition() -> CompiledAdapterDefinition {
             "description": "Inspect one item.",
             "method": "GET",
             "path": "/v1/items/{item_id}",
+            "authorization": {"kind": "none"},
             "fixed_headers": {"accept": "application/json"},
             "fixed_query": {"orderBy": "startTime", "singleEvents": "true"},
             "arguments": [
@@ -106,7 +107,7 @@ fn rejects_missing_unknown_wrong_type_and_enum_arguments() {
 #[test]
 fn renders_reviewed_nested_json_body_without_arbitrary_body_input() {
     let manifest: AdapterManifest = serde_json::from_value(json!({
-        "schema_version": 8,
+        "schema_version": 9,
         "definition_id": "definition:calendar_rsvp",
         "adapter_id": "calendar_rsvp",
         "definition_revision": "v1",
@@ -118,6 +119,7 @@ fn renders_reviewed_nested_json_body_without_arbitrary_body_input() {
             "description": "Respond to one invitation.",
             "method": "PATCH",
             "path": "/calendar/v3/calendars/{calendar_id}/events/{event_id}",
+            "authorization": {"kind": "none"},
             "arguments": [
                 {"name": "calendar_id", "description": "Calendar identifier; primary selects the primary calendar.", "location": "path", "type": "string", "required": true},
                 {"name": "event_id", "description": "Event identifier.", "location": "path", "type": "string", "required": true},
@@ -171,7 +173,7 @@ fn renders_reviewed_nested_json_body_without_arbitrary_body_input() {
 #[test]
 fn omits_missing_optional_template_properties_and_empty_array_items() {
     let manifest: AdapterManifest = serde_json::from_value(json!({
-        "schema_version": 8,
+        "schema_version": 9,
         "definition_id": "definition:calendar_attendees",
         "adapter_id": "calendar_attendees",
         "definition_revision": "v1",
@@ -183,6 +185,7 @@ fn omits_missing_optional_template_properties_and_empty_array_items() {
             "description": "Set one or two attendees.",
             "method": "PATCH",
             "path": "/events/{event_id}",
+            "authorization": {"kind": "none"},
             "arguments": [
                 {"name": "event_id", "description": "Event identifier.", "location": "path", "type": "string", "required": true},
                 {"name": "attendee_1", "description": "First attendee.", "location": "json_body", "type": "string", "required": true},

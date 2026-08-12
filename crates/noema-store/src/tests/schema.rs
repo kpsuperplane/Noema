@@ -1047,7 +1047,7 @@ async fn version_thirteen_adds_mcp_service_description_without_losing_connection
 }
 
 #[tokio::test]
-async fn adapter_label_migrations_preserve_connection_and_converge_on_connection_label() {
+async fn adapter_label_migrations_converge_before_projection_cutover() {
     let home = TempDir::new().expect("version fourteen root");
     let config = store_config(home.path());
     fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
@@ -1079,21 +1079,26 @@ async fn adapter_label_migrations_preserve_connection_and_converge_on_connection
     store
         .with_connection(|conn| {
             assert_eq!(
-                conn.query_row(
-                    "SELECT connection_slug, connection_label FROM adapter_connections WHERE connection_id = ?1",
-                    ["a".repeat(32)],
-                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-                )?,
-                ("personal".to_string(), None)
+                conn.query_row("SELECT COUNT(*) FROM adapter_connections", [], |row| {
+                    row.get::<_, i64>(0)
+                })?,
+                0
             );
+            let table_sql: String = conn.query_row(
+                "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'adapter_connections'",
+                [],
+                |row| row.get(0),
+            )?;
+            assert!(table_sql.contains("connection_label"));
+            assert!(!table_sql.contains("account_label"));
             Ok(())
         })
         .await
-        .expect("preserved adapter connection");
+        .expect("converged adapter projection");
 }
 
 #[tokio::test]
-async fn version_fifteen_account_label_shape_is_repaired_without_losing_connection() {
+async fn version_fifteen_account_label_shape_converges_before_projection_cutover() {
     let home = TempDir::new().expect("version fifteen root");
     let config = store_config(home.path());
     fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
@@ -1130,24 +1135,22 @@ async fn version_fifteen_account_label_shape_is_repaired_without_losing_connecti
     store
         .with_connection(|conn| {
             assert_eq!(
-                conn.query_row(
-                    "SELECT connection_slug, connection_label FROM adapter_connections WHERE connection_id = ?1",
-                    ["a".repeat(32)],
-                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-                )?,
-                ("personal".to_string(), Some("me@example.com".to_string()))
+                conn.query_row("SELECT COUNT(*) FROM adapter_connections", [], |row| {
+                    row.get::<_, i64>(0)
+                })?,
+                0
             );
             let table_sql: String = conn.query_row(
                 "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'adapter_connections'",
                 [],
                 |row| row.get(0),
             )?;
-            assert!(table_sql.contains("length(CAST(connection_label AS BLOB))"));
+            assert!(table_sql.contains("connection_label TEXT"));
             assert!(!table_sql.contains("account_label"));
             Ok(())
         })
         .await
-        .expect("preserved adapter connection");
+        .expect("converged adapter projection");
 }
 
 #[tokio::test]
@@ -2169,6 +2172,82 @@ fn schema_object_exists(
         params![object_type, name],
         |row| row.get(0),
     )
+}
+
+#[tokio::test]
+async fn v37_oauth_authority_upgrade_terminalizes_old_requests_and_matches_fresh_schema() {
+    let upgrade_home = TempDir::new().expect("v37 root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    let mut connection = Connection::open(&upgrade_config.path).expect("v37 database");
+    store_migrations()
+        .to_version(&mut connection, 37)
+        .expect("construct v37 schema");
+    connection
+        .execute(
+            "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:valid', 'workspace:personal', 'workflow:personal:default', 'stage:personal:queue', 'OAuth migration', 'system', 'actor:system')",
+            [],
+        )
+        .expect("task");
+    insert_planner_run(&connection, "run:oauth-migration").expect("run");
+    connection
+        .execute(
+            r#"INSERT INTO capability_auth_requests (
+              request_id, owner_human_id, task_id, run_id, task_generation,
+              requesting_agent_id, adapter_connection_id, challenge_kind,
+              authority_revision, capability_name, operation_token, input_schema_json,
+              protected_arguments_ref, arguments_sha256, provider_selection_digest,
+              output_index, result_context_json, state
+            ) VALUES (
+              'cap_auth:oauth-migration', 'human:local', 'task:valid',
+              'run:oauth-migration', 1, 'agent:task-executor', ?1,
+              'reauthenticate', 'grant:1', 'adapter.read', 'operation', '{}',
+              ?2, ?3, ?3, 0, '{}', 'authorizing'
+            )"#,
+            params!["a".repeat(32), "b".repeat(32), "c".repeat(64)],
+        )
+        .expect("active adapter authentication");
+    drop(connection);
+
+    drop(
+        NoemaStore::open(&upgrade_config)
+            .await
+            .expect("upgrade v37"),
+    );
+    let connection = Connection::open(&upgrade_config.path).expect("upgraded database");
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT state, supersession_reason FROM capability_auth_requests WHERE request_id = 'cap_auth:oauth-migration'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .expect("terminal request"),
+        (
+            "superseded".to_string(),
+            "adapter_oauth_authority_replaced".to_string()
+        )
+    );
+    for table in [
+        "adapter_oauth_profiles",
+        "adapter_oauth_applications",
+        "adapter_external_accounts",
+        "adapter_oauth_grants",
+    ] {
+        assert!(
+            schema_object_exists(&connection, "table", table).expect("schema lookup"),
+            "missing {table}"
+        );
+    }
+
+    let fresh_home = TempDir::new().expect("fresh root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(NoemaStore::open(&fresh_config).await.expect("fresh schema"));
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
+    );
 }
 
 fn table_columns(conn: &Connection, table: &str) -> rusqlite::Result<Vec<String>> {

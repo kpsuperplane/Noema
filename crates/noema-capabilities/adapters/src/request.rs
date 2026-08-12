@@ -274,8 +274,8 @@ pub(crate) fn apply_credential_auth(
     let AuthenticationSchemeV4::Credential(config) = &definition.authentication else {
         return Err(AdapterRequestError);
     };
-    let AdapterCredentialMaterial::Credential { fields } = credential else {
-        return Err(AdapterRequestError);
+    let fields = match credential {
+        AdapterCredentialMaterial::Credential { fields } => fields,
     };
     let input = json!({
         "credentials": fields,

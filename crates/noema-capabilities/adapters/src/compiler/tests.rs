@@ -1,27 +1,25 @@
 use super::*;
 use crate::{
-    AccountIdentityProbe, AdapterOperationBehavior, AuthenticationSchemeV4, CredentialField,
-    CredentialInput, CredentialSetup, LuauTransform, OutputSchema, OutputType, ResponseContract,
-    ResponseTransform,
+    AdapterOperationBehavior, AuthenticationSchemeV4, CredentialField, CredentialInput,
+    CredentialSetup, LuauTransform, OperationAuthorization, OutputSchema, OutputType,
+    ResponseContract, ResponseTransform,
 };
 use std::collections::BTreeMap;
 
 fn manifest() -> AdapterManifest {
     AdapterManifest {
-        schema_version: 8,
+        schema_version: 9,
         definition_id: "definition:fixture".to_string(),
         adapter_id: "fixture".to_string(),
         display_name: Some("Fixture Service".to_string()),
         definition_revision: "v1".to_string(),
         reviewed: true,
         origin: "https://api.example.test/".to_string(),
-        authentication: AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(oauth_config(
-            "https://auth.example.test/authorize",
-            "https://auth.example.test/token",
-            crate::Oauth2ClientAuthentication::None,
-            vec![crate::Oauth2CallbackMode::Loopback],
-            &[],
-        )),
+        authentication: AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(
+            crate::Oauth2AuthorizationCodePkceConfig {
+                profile_digest: "a".repeat(64),
+            },
+        ),
         operations: vec![AdapterOperation {
             operation_id: "list_items".to_string(),
             description: "List items by kind.".to_string(),
@@ -30,6 +28,9 @@ fn manifest() -> AdapterManifest {
             ),
             method: HttpMethod::Get,
             path: "/v1/items".to_string(),
+            authorization: OperationAuthorization::OauthScopes {
+                accepted_scope_sets: vec![vec!["items.read".to_string()]],
+            },
             fixed_headers: BTreeMap::new(),
             fixed_query: BTreeMap::new(),
             arguments: vec![
@@ -107,11 +108,23 @@ fn reviewed_descriptions_are_model_facing_authority_but_source_prose_is_not() {
         reviewed_guidance.operations[0].operation_digest,
         original_compiled.operations[0].operation_digest
     );
-    oauth_mut(&mut presentation)
-        .scopes
-        .push("items.metadata".to_string());
+    let OperationAuthorization::OauthScopes {
+        accepted_scope_sets,
+    } = &mut presentation.operations[0].authorization
+    else {
+        panic!("OAuth scopes")
+    };
+    accepted_scope_sets.push(vec!["items.metadata".to_string()]);
+    accepted_scope_sets.sort();
+    let _ = accepted_scope_sets;
     let changed_scope = AdapterCompiler::compile(&presentation).expect("scope compile");
-    oauth_mut(&mut presentation).scopes.reverse();
+    let OperationAuthorization::OauthScopes {
+        accepted_scope_sets,
+    } = &mut presentation.operations[0].authorization
+    else {
+        panic!("OAuth scopes")
+    };
+    accepted_scope_sets.reverse();
     presentation.operations[0].arguments.reverse();
     presentation.operations[0].arguments[0]
         .enum_values
@@ -139,7 +152,7 @@ fn reviewed_descriptions_are_model_facing_authority_but_source_prose_is_not() {
 
 #[test]
 fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
-    let unknown = serde_json::json!({"schema_version": 8,"unknown":true});
+    let unknown = serde_json::json!({"schema_version": 9,"unknown":true});
     assert!(matches!(
         AdapterCompiler::compile_json(&serde_json::to_vec(&unknown).expect("json")),
         Err(AdapterCompileError::Manifest)
@@ -219,33 +232,33 @@ fn compiler_rejects_retired_v7_policy_and_continuation_fields() {
 }
 
 #[test]
-fn account_identity_probe_must_be_an_exact_safe_reviewed_request() {
-    let mut valid = manifest();
-    valid.operations[0].behavior = AdapterOperationBehavior::model(true, true, false, false);
-    oauth_mut(&mut valid).account_identity = Some(AccountIdentityProbe {
-        operation_id: "list_items".to_string(),
-        arguments: BTreeMap::from([("kind".to_string(), serde_json::json!("a"))]),
-        output_pointer: "/profile/email".to_string(),
-    });
-    AdapterCompiler::compile(&valid).expect("safe fixed identity probe");
+fn operation_scope_sets_are_exact_and_choose_the_smallest_shared_target() {
+    let mut definition = manifest();
+    definition.operations[0].authorization = OperationAuthorization::OauthScopes {
+        accepted_scope_sets: vec![vec!["items.modify".into()], vec!["items.read".into()]],
+    };
+    let compiled = AdapterCompiler::compile(&definition).expect("scope alternatives");
+    assert_eq!(
+        compiled.scope_target(&["list_items".into()], &[]),
+        Some(vec!["items.modify".into()])
+    );
+    assert!(
+        compiled.operations[0]
+            .authorization
+            .is_satisfied_by(&["items.read".into()])
+    );
 
-    let mut unsafe_probe = valid.clone();
-    unsafe_probe.operations[0].behavior = AdapterOperationBehavior::model(true, true, false, true);
+    definition.operations[0].authorization = OperationAuthorization::OauthScopes {
+        accepted_scope_sets: vec![
+            vec!["items.read".into()],
+            vec!["items.read".into(), "items.write".into()],
+        ],
+    };
     assert!(matches!(
-        AdapterCompiler::compile(&unsafe_probe),
-        Err(AdapterCompileError::Invalid("account_identity"))
-    ));
-
-    let mut invalid_arguments = valid;
-    oauth_mut(&mut invalid_arguments)
-        .account_identity
-        .as_mut()
-        .expect("identity probe")
-        .arguments
-        .insert("unknown".to_string(), serde_json::json!(true));
-    assert!(matches!(
-        AdapterCompiler::compile(&invalid_arguments),
-        Err(AdapterCompileError::Invalid("account_identity_arguments"))
+        AdapterCompiler::compile(&definition),
+        Err(AdapterCompileError::Invalid(
+            "ambiguous_operation_scope_set"
+        ))
     ));
 }
 
@@ -341,215 +354,6 @@ fn response_contract_is_closed_compilable_and_semantic() {
         AdapterCompiler::compile(&oversized),
         Err(AdapterCompileError::Invalid("response_size"))
     ));
-}
-
-#[test]
-fn compiler_validates_oauth_endpoint_callback_and_extra_parameter_policy() {
-    let mut invalid = manifest();
-    oauth_mut(&mut invalid).setups[0].setup.setup_url =
-        "https://developers.example.test/oauth/new?continue=attacker".to_string();
-    assert!(matches!(
-        AdapterCompiler::compile(&invalid),
-        Err(AdapterCompileError::Invalid("credential_setup_url"))
-    ));
-
-    let mut invalid = manifest();
-    invalid.authentication = AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(oauth_config(
-        "http://auth.example.test/authorize",
-        "https://auth.example.test/token",
-        crate::Oauth2ClientAuthentication::None,
-        vec![crate::Oauth2CallbackMode::Loopback],
-        &[],
-    ));
-    assert!(matches!(
-        AdapterCompiler::compile(&invalid),
-        Err(AdapterCompileError::Invalid(
-            "oauth2_authorization_endpoint"
-        ))
-    ));
-
-    let mut invalid = manifest();
-    invalid.authentication = AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(oauth_config(
-        "https://auth.example.test/authorize",
-        "https://auth.example.test/token?next=1",
-        crate::Oauth2ClientAuthentication::None,
-        vec![crate::Oauth2CallbackMode::Loopback],
-        &[],
-    ));
-    assert!(matches!(
-        AdapterCompiler::compile(&invalid),
-        Err(AdapterCompileError::Invalid("oauth2_token_endpoint"))
-    ));
-
-    let mut invalid = manifest();
-    invalid.authentication = AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(oauth_config(
-        "https://auth.example.test:0/authorize",
-        "https://auth.example.test/token",
-        crate::Oauth2ClientAuthentication::None,
-        vec![crate::Oauth2CallbackMode::Loopback],
-        &[],
-    ));
-    assert!(matches!(
-        AdapterCompiler::compile(&invalid),
-        Err(AdapterCompileError::Invalid(
-            "oauth2_authorization_endpoint"
-        ))
-    ));
-
-    let mut invalid = manifest();
-    invalid.authentication = AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(oauth_config(
-        "https://auth.example.test/authorize",
-        "https://auth.example.test/token",
-        crate::Oauth2ClientAuthentication::None,
-        vec![
-            crate::Oauth2CallbackMode::Loopback,
-            crate::Oauth2CallbackMode::Loopback,
-        ],
-        &[("state", "override")],
-    ));
-    assert!(matches!(
-        AdapterCompiler::compile(&invalid),
-        Err(AdapterCompileError::Invalid("oauth2_setups"))
-    ));
-
-    let mut invalid = manifest();
-    invalid.authentication = AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(oauth_config(
-        "https://auth.example.test/authorize",
-        "https://auth.example.test/token",
-        crate::Oauth2ClientAuthentication::None,
-        vec![crate::Oauth2CallbackMode::Loopback],
-        &[("state", "override")],
-    ));
-    assert!(matches!(
-        AdapterCompiler::compile(&invalid),
-        Err(AdapterCompileError::Invalid("oauth2_reserved_parameter"))
-    ));
-
-    let mut first = manifest();
-    first.authentication = AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(oauth_config(
-        "https://auth.example.test/authorize",
-        "https://auth.example.test/token",
-        crate::Oauth2ClientAuthentication::None,
-        vec![
-            crate::Oauth2CallbackMode::Loopback,
-            crate::Oauth2CallbackMode::Hosted,
-        ],
-        &[],
-    ));
-    let mut second = first.clone();
-    oauth_mut(&mut second).setups.reverse();
-    assert_eq!(
-        AdapterCompiler::compile(&first)
-            .expect("first oauth config")
-            .semantic_digest,
-        AdapterCompiler::compile(&second)
-            .expect("second oauth config")
-            .semantic_digest
-    );
-    let baseline = AdapterCompiler::compile(&first).expect("baseline oauth config");
-    let mut setup_url = first.clone();
-    oauth_mut(&mut setup_url).setups[0].setup.setup_url =
-        "https://developers.example.test/oauth/clients/alternate".to_string();
-    assert_ne!(
-        baseline.semantic_digest,
-        AdapterCompiler::compile(&setup_url)
-            .expect("setup URL change")
-            .semantic_digest
-    );
-    let mut endpoint = first.clone();
-    oauth_mut(&mut endpoint).authorization_endpoint =
-        "https://auth.example.test/authorize-v2".to_string();
-    assert_ne!(
-        baseline.semantic_digest,
-        AdapterCompiler::compile(&endpoint)
-            .expect("endpoint change")
-            .semantic_digest
-    );
-    let mut client_auth = first.clone();
-    oauth_mut(&mut client_auth).client_authentication =
-        crate::Oauth2ClientAuthentication::ClientSecretPost;
-    for setup in &mut oauth_mut(&mut client_auth).setups {
-        setup.setup.input = oauth_document_input(true);
-    }
-    assert_ne!(
-        baseline.semantic_digest,
-        AdapterCompiler::compile(&client_auth)
-            .expect("client auth change")
-            .semantic_digest
-    );
-    let mut extra = first;
-    oauth_mut(&mut extra)
-        .extra_authorization_parameters
-        .insert("prompt".to_string(), "login".to_string());
-    assert_ne!(
-        baseline.semantic_digest,
-        AdapterCompiler::compile(&extra)
-            .expect("extra parameter change")
-            .semantic_digest
-    );
-}
-
-fn oauth_config(
-    authorization_endpoint: &str,
-    token_endpoint: &str,
-    client_authentication: crate::Oauth2ClientAuthentication,
-    callback_modes: Vec<crate::Oauth2CallbackMode>,
-    extra_authorization_parameters: &[(&str, &str)],
-) -> crate::Oauth2AuthorizationCodePkceConfig {
-    crate::Oauth2AuthorizationCodePkceConfig {
-        scopes: vec!["items.read".to_string()],
-        authorization_endpoint: authorization_endpoint.to_string(),
-        token_endpoint: token_endpoint.to_string(),
-        client_authentication,
-        setups: callback_modes
-            .into_iter()
-            .map(|callback_mode| crate::Oauth2CredentialSetup {
-                callback_mode,
-                setup: CredentialSetup {
-                    credential_type: match callback_mode {
-                        crate::Oauth2CallbackMode::Loopback => "Desktop app",
-                        crate::Oauth2CallbackMode::Hosted => "Web application",
-                    }
-                    .to_string(),
-                    setup_url: "https://developers.example.test/oauth/clients/new".to_string(),
-                    instructions: vec!["Create the matching OAuth client.".to_string()],
-                    input: oauth_document_input(
-                        client_authentication != crate::Oauth2ClientAuthentication::None,
-                    ),
-                },
-            })
-            .collect(),
-        extra_authorization_parameters: extra_authorization_parameters
-            .iter()
-            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
-            .collect(),
-        account_identity: None,
-    }
-}
-
-fn oauth_mut(manifest: &mut AdapterManifest) -> &mut crate::Oauth2AuthorizationCodePkceConfig {
-    let AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(config) = &mut manifest.authentication
-    else {
-        panic!("OAuth fixture")
-    };
-    config
-}
-
-fn oauth_document_input(with_secret: bool) -> CredentialInput {
-    let mut fields = vec![credential_field("client_id", "Client ID")];
-    let secret = if with_secret {
-        fields.push(credential_field("client_secret", "Client secret"));
-        ", client_secret = document.client_secret"
-    } else {
-        ""
-    };
-    CredentialInput::Document {
-        media_type: "application/json".to_string(),
-        fields,
-        normalize: transform(&format!(
-            "return function(input) local document = json.decode(input.document) return {{ client_id = document.client_id{secret} }} end"
-        )),
-    }
 }
 
 fn credential_auth(input: CredentialInput) -> AuthenticationSchemeV4 {

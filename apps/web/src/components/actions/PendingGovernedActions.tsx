@@ -1,12 +1,12 @@
 import * as React from "react";
-import { useMutation, useQuery, useSubscription } from "@apollo/client/react";
+import { useLazyQuery, useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
-import { Code2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Code2 } from "lucide-react";
 import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import {
@@ -15,6 +15,10 @@ import {
   CancelAdapterDefinitionDocument,
   SetupAdapterConnectionDocument,
   StartAdapterOauthSetupDocument,
+  AdapterOauthAttemptDocument,
+  AdapterOauthAttemptEventsDocument,
+  ImportAdapterOauthApplicationDocument,
+  AttachAdapterOauthConnectionDocument,
   SaveCapabilityConnectionPolicyDocument,
   ConversationEventsDocument,
   type PendingHumanInterventionsQuery,
@@ -45,6 +49,7 @@ import {
 
 export type PendingHumanIntervention = PendingHumanInterventionsQuery["pendingHumanInterventions"][number];
 type PendingAdapterDefinition = Extract<PendingHumanIntervention, { __typename: "AdapterDefinition" }>;
+type PendingOauthClientSetup = Extract<PendingHumanIntervention, { __typename: "AdapterOauthClientSetupIntervention" }>;
 
 type Scope = {
   conversationId?: string | null;
@@ -112,15 +117,24 @@ export function PendingHumanInterventionsResult({
 }) {
   const interventions = result.data?.pendingHumanInterventions ?? [];
   const [dismissedAdapterSetups, setDismissedAdapterSetups] = React.useState(readDismissedAdapterSetups);
+  const [selectedChatInterventionKey, setSelectedChatInterventionKey] = React.useState<string | null>(null);
   const allowAdapterSetupDismissal = Boolean(conversationId) && placement === "chat";
   const visibleInterventions = allowAdapterSetupDismissal
     ? interventions.filter((intervention) => (
-        intervention.__typename !== "AdapterDefinition"
-        || !intervention.reviewed
-        || intervention.connectionCount > 0
-        || !dismissedAdapterSetups.has(intervention.semanticDigest)
+        intervention.__typename === "AdapterOauthClientSetupIntervention"
+          ? !dismissedAdapterSetups.has(`oauth:${intervention.profileDigest}`)
+          : intervention.__typename !== "AdapterDefinition"
+            || !intervention.reviewed
+            || intervention.connectionCount > 0
+            || !dismissedAdapterSetups.has(intervention.semanticDigest)
       ))
     : interventions;
+  const selectedChatInterventionIndex = Math.max(0, visibleInterventions.findIndex(
+    (intervention) => humanInterventionKey(intervention) === selectedChatInterventionKey
+  ));
+  const presentedInterventions = placement === "chat"
+    ? visibleInterventions.slice(selectedChatInterventionIndex, selectedChatInterventionIndex + 1)
+    : visibleInterventions;
   const dismissAdapterSetup = React.useCallback((semanticDigest: string) => {
     setDismissedAdapterSetups((current) => {
       const next = new Set(current).add(semanticDigest);
@@ -131,13 +145,52 @@ export function PendingHumanInterventionsResult({
   const stale = Boolean(result.error);
   const list = visibleInterventions.length ? (
     <HumanInterventionMotionItem key="pending-human-interventions">
-      <HumanInterventionList
-        interventions={visibleInterventions}
-        placement={placement}
-        onResolved={() => void result.refetch().catch(() => undefined)}
-        onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
-        initialAnimation={false}
-      />
+      <VStack gap={0}>
+        {placement === "chat" && visibleInterventions.length > 1 ? (
+          <HStack hAlign="between" vAlign="center" gap={1} {...stylex.props(styles.queueNavigation)}>
+            <span aria-live="polite" {...stylex.props(styles.queuePosition)}>
+              {selectedChatInterventionIndex + 1} of {visibleInterventions.length} waiting
+            </span>
+            <HStack gap={1}>
+              <IconButton
+                type="button"
+                size="sm"
+                variant="ghost"
+                label="Previous request"
+                tooltip="Previous request"
+                icon={<ChevronLeft aria-hidden="true" size={15} />}
+                isDisabled={selectedChatInterventionIndex === 0}
+                xstyle={styles.queueAction}
+                onClick={() => {
+                  const previous = visibleInterventions[selectedChatInterventionIndex - 1];
+                  if (previous) setSelectedChatInterventionKey(humanInterventionKey(previous));
+                }}
+              />
+              <IconButton
+                type="button"
+                size="sm"
+                variant="ghost"
+                label="Next request"
+                tooltip="Next request"
+                icon={<ChevronRight aria-hidden="true" size={15} />}
+                isDisabled={selectedChatInterventionIndex === visibleInterventions.length - 1}
+                xstyle={styles.queueAction}
+                onClick={() => {
+                  const next = visibleInterventions[selectedChatInterventionIndex + 1];
+                  if (next) setSelectedChatInterventionKey(humanInterventionKey(next));
+                }}
+              />
+            </HStack>
+          </HStack>
+        ) : null}
+        <HumanInterventionList
+          interventions={presentedInterventions}
+          placement={placement}
+          onResolved={() => void result.refetch().catch(() => undefined)}
+          onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
+          initialAnimation={false}
+        />
+      </VStack>
     </HumanInterventionMotionItem>
   ) : null;
   return (
@@ -279,6 +332,17 @@ function HumanInterventionListItem({
   if (intervention.__typename === "AdapterAuthenticationIntervention") {
     return <AdapterAuthenticationCard request={intervention} onResolved={onResolved} />;
   }
+  if (intervention.__typename === "AdapterOauthClientSetupIntervention") {
+    return (
+      <OauthClientSetupCard
+        setup={intervention}
+        onResolved={onResolved}
+        onDismiss={onDismissAdapterSetup
+          ? () => onDismissAdapterSetup(`oauth:${intervention.profileDigest}`)
+          : undefined}
+      />
+    );
+  }
   return (
     <AdapterDefinitionCard
       definition={intervention}
@@ -297,8 +361,109 @@ function humanInterventionKey(intervention: PendingHumanIntervention) {
     case "McpAuthenticationIntervention":
     case "AdapterAuthenticationIntervention": return `${intervention.requestId}:${intervention.revision}`;
     case "McpSetupIntervention": return intervention.itemId;
+    case "AdapterOauthClientSetupIntervention": return `oauth:${intervention.profileDigest}`;
     case "AdapterDefinition": return intervention.semanticDigest;
   }
+}
+
+function OauthClientSetupCard({
+  setup,
+  onResolved,
+  onDismiss
+}: {
+  setup: PendingOauthClientSetup;
+  onResolved?: () => void;
+  onDismiss?: () => void;
+}) {
+  const [importApplication, applicationImport] = useMutation(ImportAdapterOauthApplicationDocument);
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const openSetupUrl = async () => {
+    const handled = await openExternalUrlForAuth(setup.oauthCredentialSetup.setupUrl);
+    if (!handled) window.open(setup.oauthCredentialSetup.setupUrl, "_blank", "noopener,noreferrer");
+  };
+  const importCredentials = async (submission: AdapterCredentialSubmission) => {
+    setError(null);
+    try {
+      if (!submission.document) throw new Error("Select an OAuth client document.");
+      const documentBase64 = encodeBase64(new Uint8Array(await submission.document.arrayBuffer()));
+      await importApplication({ variables: { input: {
+        profileDigest: setup.profileDigest,
+        projectLabel: null,
+        clientDocumentBase64: documentBase64
+      } } });
+      setDialogOpen(false);
+      onResolved?.();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "The OAuth client could not be imported.");
+      throw caught;
+    }
+  };
+  return (
+    <InterventionCardShell
+      dismissLabel="Hide OAuth client setup from chat"
+      onDismiss={onDismiss}
+      copy={
+        <VStack gap={3} className={stylex.props(styles.copy).className}>
+          <VStack gap={1}>
+            <span {...stylex.props(styles.eyebrow)}>Shared OAuth setup</span>
+            <strong {...stylex.props(styles.summary, styles.adapterSummary)}>Import one OAuth client</strong>
+            <span {...stylex.props(styles.context)}>
+              Noema will reuse this client for {countLabel(setup.dependentDefinitions.length, "reviewed API")}.
+            </span>
+          </VStack>
+          <VStack as="ul" gap={1} className={stylex.props(styles.operationList).className}>
+            {setup.dependentDefinitions.map((definition) => (
+              <li key={definition.semanticDigest} {...stylex.props(styles.operationName)}>
+                {definition.displayName}
+              </li>
+            ))}
+          </VStack>
+          {setup.oauthCredentialSetup.redirectUri ? (
+            <VStack gap={1}>
+              <span {...stylex.props(styles.context)}><b>Authorized redirect URI</b></span>
+              <code {...stylex.props(styles.redirectUriValue)}>{setup.oauthCredentialSetup.redirectUri}</code>
+            </VStack>
+          ) : null}
+          <AdapterCredentialSetupDialog
+            title="Import OAuth client"
+            serviceName={setup.displayName}
+            setup={setup.oauthCredentialSetup}
+            scopes={[]}
+            open={dialogOpen}
+            submitting={applicationImport.loading}
+            error={error}
+            onOpenChange={(open) => {
+              if (!applicationImport.loading) setDialogOpen(open);
+            }}
+            intro="Import this client document once. Noema will reuse it for every compatible reviewed API."
+            submitLabel="Import OAuth client"
+            onSubmit={importCredentials}
+          />
+          {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
+        </VStack>
+      }
+      actions={
+        <HStack gap={1} justify="end" className={stylex.props(styles.actions).className}>
+          <Button
+            size="sm"
+            variant="ghost"
+            label="Developer Tools"
+            isDisabled={applicationImport.loading}
+            onClick={() => void openSetupUrl()}
+          />
+          <Button
+            size="sm"
+            variant="primary"
+            label="Import OAuth client"
+            isLoading={applicationImport.loading}
+            isDisabled={applicationImport.loading}
+            onClick={() => setDialogOpen(true)}
+          />
+        </HStack>
+      }
+    />
+  );
 }
 
 function AdapterDefinitionCard({
@@ -313,13 +478,21 @@ function AdapterDefinitionCard({
   const [approveDefinition, approval] = useMutation(ApproveAdapterDefinitionDocument);
   const [cancelDefinition, cancellation] = useMutation(CancelAdapterDefinitionDocument);
   const [setupConnection, credentialSetup] = useMutation(SetupAdapterConnectionDocument);
+  const [importApplication, applicationImport] = useMutation(ImportAdapterOauthApplicationDocument);
+  const [attachGrant, grantAttach] = useMutation(AttachAdapterOauthConnectionDocument);
   const [startOauth, oauthStart] = useMutation(StartAdapterOauthSetupDocument);
+  const [loadOauthAttempt] = useLazyQuery(AdapterOauthAttemptDocument, {
+    fetchPolicy: "network-only"
+  });
   const [savePolicy, policySave] = useMutation<SaveCapabilityConnectionPolicyMutation>(
     SaveCapabilityConnectionPolicyDocument
   );
   const [error, setError] = React.useState<string | null>(null);
   const [authorizing, setAuthorizing] = React.useState(false);
   const [authorizationExpiry, setAuthorizationExpiry] = React.useState<number | null>(null);
+  const [oauthAttemptId, setOauthAttemptId] = React.useState<string | null>(null);
+  const [oauthAttemptNeedsAttach, setOauthAttemptNeedsAttach] = React.useState(false);
+  const finishingOauthAttempt = React.useRef(false);
   const [technicalDetailsOpen, setTechnicalDetailsOpen] = React.useState(false);
   const [credentialSetupOpen, setCredentialSetupOpen] = React.useState(false);
   const connection = definition.connections.find(
@@ -363,15 +536,19 @@ function AdapterDefinitionCard({
       const documentBase64 = submission.document
         ? encodeBase64(new Uint8Array(await submission.document.arrayBuffer()))
         : null;
-      await setupConnection({
-        variables: {
-          input: {
-            semanticDigest: definition.semanticDigest,
-            fieldValues: submission.fieldValues,
-            documentBase64
-          }
-        }
-      });
+      if (definition.nextAction?.kind === "import_application" && definition.oauthProfileDigest && documentBase64) {
+        await importApplication({ variables: { input: {
+          profileDigest: definition.oauthProfileDigest,
+          projectLabel: null,
+          clientDocumentBase64: documentBase64
+        } } });
+      } else {
+        await setupConnection({ variables: { input: {
+          semanticDigest: definition.semanticDigest,
+          fieldValues: submission.fieldValues,
+          documentBase64
+        } } });
+      }
       setCredentialSetupOpen(false);
       onResolved?.();
     } catch (caught: unknown) {
@@ -380,31 +557,116 @@ function AdapterDefinitionCard({
     }
   };
   const authorize = async () => {
-    if (!connection) return;
+    const action = definition.nextAction;
+    if (!action?.applicationId || action.expectedApplicationRevision === null) return;
     const navigation = reserveExternalAuthNavigation();
+    finishingOauthAttempt.current = false;
     setError(null);
     try {
       const response = await startOauth({
         variables: {
           input: {
-            connectionId: connection.connectionId,
-            expectedConnectionRevision: connection.connectionRevision,
-            expectedCredentialRevision: connection.credentialRevision,
-            expectedGrantRevision: connection.grantRevision,
-            expectedPolicyRevision: connection.policyRevision
+            applicationId: action.applicationId,
+            expectedApplicationRevision: action.expectedApplicationRevision,
+            grantId: action.grantId,
+            expectedGrantRevision: action.expectedGrantRevision,
+            semanticDigest: action.semanticDigest,
+            operationIds: action.operationIds
           }
         }
       });
       const attempt = response.data?.startAdapterOauthSetup;
       if (!attempt) throw new Error("Noema did not return an OAuth attempt.");
+      setOauthAttemptId(attempt.attemptId);
+      setOauthAttemptNeedsAttach(action.connectionId === null);
       setAuthorizationExpiry(attempt.expiresAtEpochSeconds);
       setAuthorizing(true);
       await navigation.open(attempt.authorizationUrl);
     } catch (caught: unknown) {
       navigation.cancel();
       setAuthorizing(false);
+      setOauthAttemptId(null);
+      setOauthAttemptNeedsAttach(false);
+      finishingOauthAttempt.current = false;
       setAuthorizationExpiry(null);
       setError(caught instanceof Error ? caught.message : "Authorization could not be started.");
+    }
+  };
+  const finishOauthAttempt = React.useCallback(async (
+    attempt: { status: string; grantId?: string | null; grantRevision?: number | null }
+  ) => {
+    if (!["completed", "failed", "expired", "superseded"].includes(attempt.status)) return;
+    if (finishingOauthAttempt.current) return;
+    finishingOauthAttempt.current = true;
+    setOauthAttemptId(null);
+    setAuthorizing(false);
+    setAuthorizationExpiry(null);
+    if (attempt.status !== "completed") {
+      setOauthAttemptNeedsAttach(false);
+      setError(attempt.status === "expired"
+        ? "Authorization expired. You can try again."
+        : "Authorization did not complete. You can try again.");
+      return;
+    }
+    try {
+      if (oauthAttemptNeedsAttach) {
+        if (!attempt.grantId || attempt.grantRevision == null) {
+          throw new Error("Noema did not return the authorized account revision.");
+        }
+        await attachGrant({ variables: { input: {
+          semanticDigest: definition.semanticDigest,
+          grantId: attempt.grantId,
+          expectedGrantRevision: attempt.grantRevision
+        } } });
+      }
+      setOauthAttemptNeedsAttach(false);
+      onResolved?.();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "The authorized account could not be attached.");
+      onResolved?.();
+    }
+  }, [attachGrant, definition.semanticDigest, oauthAttemptNeedsAttach, onResolved]);
+  useSubscription(AdapterOauthAttemptEventsDocument, {
+    variables: { attemptId: oauthAttemptId ?? "" },
+    skip: oauthAttemptId === null,
+    onData: ({ data }) => {
+      const attempt = data.data?.adapterOauthAttemptEvents;
+      if (attempt) void finishOauthAttempt(attempt);
+    }
+  });
+  React.useEffect(() => {
+    if (!oauthAttemptId) return;
+    const recoverAttempt = () => {
+      if (document.visibilityState !== "visible") return;
+      void loadOauthAttempt({ variables: { attemptId: oauthAttemptId } })
+        .then((result) => {
+          if (result.data?.adapterOauthAttempt) {
+            return finishOauthAttempt(result.data.adapterOauthAttempt);
+          }
+          return undefined;
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener("focus", recoverAttempt);
+    document.addEventListener("visibilitychange", recoverAttempt);
+    return () => {
+      window.removeEventListener("focus", recoverAttempt);
+      document.removeEventListener("visibilitychange", recoverAttempt);
+    };
+  }, [finishOauthAttempt, loadOauthAttempt, oauthAttemptId]);
+  const attach = async () => {
+    const action = definition.nextAction;
+    if (!action?.grantId || action.expectedGrantRevision === null) return;
+    setError(null);
+    try {
+      await attachGrant({ variables: { input: {
+        semanticDigest: action.semanticDigest,
+        grantId: action.grantId,
+        expectedGrantRevision: action.expectedGrantRevision
+      } } });
+      onResolved?.();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "The account could not be attached.");
     }
   };
   const submitPolicy = async () => {
@@ -428,6 +690,9 @@ function AdapterDefinitionCard({
     if (!authorizing || authorizationExpiry === null || policyConnection) return;
     const timeout = window.setTimeout(() => {
       setAuthorizing(false);
+      setOauthAttemptId(null);
+      setOauthAttemptNeedsAttach(false);
+      finishingOauthAttempt.current = false;
       setAuthorizationExpiry(null);
       setError("Authorization expired. You can try again.");
     }, Math.max(0, authorizationExpiry * 1000 - Date.now()));
@@ -441,10 +706,8 @@ function AdapterDefinitionCard({
   const sourceIsHttps = definition.sourceReference.startsWith("https://");
   const setup = definition.credentialSetup;
   const setupUrl = setup?.setupUrl;
-  const oauthSetupUnavailable = definition.reviewed
-    && definition.authenticationMode === "oauth2_authorization_code_pkce"
-    && !connection
-    && !setup;
+  const nextKind = definition.nextAction?.kind;
+  const oauthSetupUnavailable = definition.reviewed && nextKind === "import_application" && !setup;
   const title = policyConnection
     ? `Enable ${definition.displayName}`
     : connection
@@ -545,15 +808,20 @@ function AdapterDefinitionCard({
             />
           </Dialog>
           <AdapterCredentialSetupDialog
+            title={nextKind === "import_application" ? "Import OAuth client" : undefined}
             serviceName={definition.displayName}
             setup={setup}
             scopes={definition.scopes}
             open={credentialSetupOpen}
-            submitting={credentialSetup.loading}
+            submitting={credentialSetup.loading || applicationImport.loading}
             error={error}
             onOpenChange={(open) => {
-              if (!credentialSetup.loading) setCredentialSetupOpen(open);
+              if (!credentialSetup.loading && !applicationImport.loading) setCredentialSetupOpen(open);
             }}
+            intro={nextKind === "import_application"
+              ? "Import this provider client document once. You can reuse it for more accounts and compatible APIs."
+              : undefined}
+            submitLabel={nextKind === "import_application" ? "Import OAuth client" : "Add connection"}
             onSubmit={importCredentials}
           />
           {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
@@ -614,25 +882,34 @@ function AdapterDefinitionCard({
                 />
               </>
             )
-          ) : oauthSetupUnavailable ? null : definition.reviewed && connection ? (
+          ) : oauthSetupUnavailable ? null : definition.reviewed && nextKind === "attach_account" ? (
             <Button
               size="sm"
               variant="primary"
-              label="Continue in browser"
+              label={`Connect ${definition.displayName}`}
+              isLoading={grantAttach.loading}
+              isDisabled={grantAttach.loading}
+              onClick={() => void attach()}
+            />
+          ) : definition.reviewed && ["add_account", "add_access", "reconnect_account"].includes(nextKind ?? "") ? (
+            <Button
+              size="sm"
+              variant="primary"
+              label={nextKind === "add_access" ? "Add access" : nextKind === "reconnect_account" ? "Reconnect account" : "Add account"}
               isLoading={oauthStart.loading || authorizing}
               isDisabled={oauthStart.loading || authorizing}
               onClick={() => void authorize()}
             />
-          ) : definition.reviewed ? (
+          ) : definition.reviewed && ["import_application", "set_up_credential"].includes(nextKind ?? "") ? (
             <Button
               size="sm"
               variant="primary"
-              label="Add credentials"
-              isLoading={credentialSetup.loading}
-              isDisabled={credentialSetup.loading || oauthStart.loading || !setup}
+              label={nextKind === "import_application" ? `Set up ${definition.displayName}` : "Add credentials"}
+              isLoading={credentialSetup.loading || applicationImport.loading}
+              isDisabled={credentialSetup.loading || applicationImport.loading || oauthStart.loading || !setup}
               onClick={() => setCredentialSetupOpen(true)}
             />
-          ) : (
+          ) : definition.reviewed ? null : (
             <>
               <Button
                 size="sm"
@@ -771,6 +1048,26 @@ const styles = stylex.create({
     padding: "var(--spacing-0)",
     marginBlockEnd: "calc(-1 * var(--human-intervention-card-overlap, var(--spacing-6)))",
     "--human-intervention-card-shadow": "var(--task-card-shadow, var(--shadow-low))"
+  },
+  queueNavigation: {
+    paddingInline: "var(--spacing-3)",
+    paddingBlockStart: "var(--spacing-1)",
+    marginBlockEnd: "calc(-1 * var(--spacing-1))"
+  },
+  queuePosition: {
+    color: "var(--color-on-accent)",
+    fontSize: 12,
+    lineHeight: 1.35
+  },
+  queueAction: {
+    color: {
+      default: "var(--color-on-accent)",
+      ":disabled": "var(--color-on-accent)"
+    },
+    opacity: {
+      default: 1,
+      ":disabled": 0.45
+    }
   },
   copy: {
     minWidth: 0

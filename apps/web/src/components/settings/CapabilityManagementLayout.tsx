@@ -9,6 +9,7 @@ export function CapabilityManagementLayout({
   kind,
   connectionId,
   list,
+  startPolicyEditing,
   sourceActions,
   definitionDetails,
   dangerAction
@@ -16,6 +17,7 @@ export function CapabilityManagementLayout({
   kind: "API" | "MCP";
   connectionId?: string;
   list: ReactNode;
+  startPolicyEditing?: boolean;
   sourceActions?: ReactNode;
   definitionDetails?: ReactNode;
   dangerAction?: ReactNode;
@@ -48,6 +50,7 @@ export function CapabilityManagementLayout({
             <CapabilityConnectionDetail
               kind={kind}
               connectionId={connectionId}
+              startPolicyEditing={startPolicyEditing}
               sourceActions={sourceActions}
               definitionDetails={definitionDetails}
               dangerAction={dangerAction}

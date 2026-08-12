@@ -2,12 +2,13 @@ use super::*;
 use noema_home::NoemaPaths;
 use tempfile::tempdir;
 
-fn binding(account_kind: &str) -> CursorBinding {
+fn binding() -> CursorBinding {
     CursorBinding {
         connection_id: "connection-1".to_string(),
         semantic_digest: "a".repeat(64),
         operation_id: "list_items".to_string(),
-        account_kind: account_kind.to_string(),
+        grant_id: Some("grant-1".to_string()),
+        account_id: Some("account-1".to_string()),
         grant_revision: 4,
         arguments_sha256: "b".repeat(64),
     }
@@ -19,7 +20,7 @@ fn durable_cursor_secrets_survive_store_recreation_without_metadata_leakage() {
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let handle = CursorHandle {
         secret_reference: "cursor-ref".to_string(),
-        binding: binding("personal_user"),
+        binding: binding(),
         expires_at_epoch_seconds: 100,
     };
     DurableCursorStore::new(paths.clone())
@@ -28,7 +29,7 @@ fn durable_cursor_secrets_survive_store_recreation_without_metadata_leakage() {
     let reopened = DurableCursorStore::new(paths);
     assert_eq!(
         reopened
-            .resolve("cursor-ref", &binding("personal_user"), 1)
+            .resolve("cursor-ref", &binding(), 1)
             .expect("resolve")
             .1
             .as_str(),
@@ -42,7 +43,7 @@ fn durable_cursor_secrets_survive_store_recreation_without_metadata_leakage() {
 fn durable_cursor_authority_rejects_tampering_expiry_and_every_binding_drift() {
     let home = tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let expected = binding("personal_user");
+    let expected = binding();
     let handle = CursorHandle {
         secret_reference: "cursor-ref".to_string(),
         binding: expected.clone(),
@@ -61,6 +62,12 @@ fn durable_cursor_authority_rejects_tampering_expiry_and_every_binding_drift() {
     let mut stale_grant = expected.clone();
     stale_grant.grant_revision += 1;
     variants.push(stale_grant);
+    let mut different_grant = expected.clone();
+    different_grant.grant_id = Some("grant-2".to_string());
+    variants.push(different_grant);
+    let mut different_account = expected.clone();
+    different_account.account_id = Some("account-2".to_string());
+    variants.push(different_account);
     let mut mismatched_arguments = expected.clone();
     mismatched_arguments.arguments_sha256 = "d".repeat(64);
     variants.push(mismatched_arguments);

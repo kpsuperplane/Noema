@@ -7,7 +7,6 @@ use crate::{
         OperationDigest, SemanticDigest, canonical_json_bytes, semantic_manifest_value,
         semantic_operation_value,
     },
-    oauth::validate_oauth_config,
 };
 use noema_capabilities::{
     CapabilityToolBehavior, CapabilityToolHintSource, CapabilityToolPolicy,
@@ -18,7 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 use url::Url;
 
-const COMPILER_VERSION: &str = "adapter-compiler-v7";
+const COMPILER_VERSION: &str = "adapter-compiler-v8";
 const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_OPERATIONS: usize = 256;
 const MAX_ARGUMENTS: usize = 128;
@@ -50,7 +49,7 @@ pub struct CompiledAdapterDefinition {
     pub reviewed: bool,
     /// Fixed request origin shared by every operation.
     pub origin: String,
-    /// Credential family/scopes retained as immutable connection input.
+    /// Credential family or exact OAuth profile reference.
     pub authentication: crate::AuthenticationSchemeV4,
     /// Content address of execution/security semantics.
     pub semantic_digest: SemanticDigest,
@@ -69,6 +68,8 @@ pub struct CompiledOperation {
     pub method: HttpMethod,
     /// Fixed-origin relative request path.
     pub path: String,
+    /// Exact operation-specific authorization requirement.
+    pub authorization: crate::OperationAuthorization,
     /// Fixed reviewed non-secret headers.
     pub fixed_headers: BTreeMap<String, String>,
     /// Fixed reviewed non-secret query parameters.
@@ -104,6 +105,16 @@ impl CompiledAdapterDefinition {
         } else {
             SemanticChange::RequiresReview
         }
+    }
+
+    /// Return the smallest scope target that covers selected operations.
+    #[must_use]
+    pub fn scope_target(
+        &self,
+        operation_ids: &[String],
+        granted_scopes: &[String],
+    ) -> Option<Vec<String>> {
+        scope_target(self, operation_ids, granted_scopes)
     }
 }
 
@@ -189,7 +200,7 @@ impl AdapterCompiler {
         Self::compile(&manifest)
     }
 
-    /// Validate and deterministically compile one v7 manifest.
+    /// Validate and deterministically compile one version 9 manifest.
     ///
     /// # Errors
     ///
@@ -221,7 +232,6 @@ impl AdapterCompiler {
             semantic_digest,
             operations,
         };
-        validate_account_identity(manifest, &compiled)?;
         Ok(compiled)
     }
 
@@ -232,8 +242,56 @@ impl AdapterCompiler {
     }
 }
 
+fn scope_target(
+    definition: &CompiledAdapterDefinition,
+    operation_ids: &[String],
+    granted_scopes: &[String],
+) -> Option<Vec<String>> {
+    let mut candidates = vec![granted_scopes.to_vec()];
+    for operation_id in operation_ids {
+        let operation = definition
+            .operations
+            .iter()
+            .find(|operation| operation.operation_id == *operation_id)?;
+        let alternatives = operation.authorization.accepted_scope_sets();
+        if alternatives.is_empty() {
+            continue;
+        }
+        let mut expanded = BTreeSet::new();
+        for current in &candidates {
+            for required in alternatives {
+                expanded.insert(sorted_union(current, required));
+                if expanded.len() > 4_096 {
+                    return None;
+                }
+            }
+        }
+        candidates = expanded
+            .iter()
+            .filter(|candidate| {
+                !expanded.iter().any(|other| {
+                    other.len() < candidate.len() && scope_set_contains(candidate, other)
+                })
+            })
+            .cloned()
+            .collect();
+    }
+    candidates
+        .into_iter()
+        .min_by_key(|scopes| (scopes.len(), scopes.join("\0")))
+}
+
+fn sorted_union(left: &[String], right: &[String]) -> Vec<String> {
+    left.iter()
+        .chain(right)
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 fn validate_manifest(manifest: &AdapterManifest) -> Result<(), AdapterCompileError> {
-    if manifest.schema_version != 8 {
+    if manifest.schema_version != 9 {
         return Err(AdapterCompileError::Unsupported("schema_version"));
     }
     validate_id("definition_id", &manifest.definition_id)?;
@@ -276,18 +334,6 @@ fn validate_origin(origin: &str) -> Result<(), AdapterCompileError> {
 }
 
 fn validate_authentication(manifest: &AdapterManifest) -> Result<(), AdapterCompileError> {
-    if manifest.authentication.scopes().len() > 128 {
-        return Err(AdapterCompileError::Invalid("authentication_scopes"));
-    }
-    let mut scopes = BTreeSet::new();
-    for scope in manifest.authentication.scopes() {
-        validate_bounded_text("authentication_scope", scope, MAX_SCOPE_BYTES)?;
-        if !scopes.insert(scope) {
-            return Err(AdapterCompileError::Invalid(
-                "duplicate_authentication_scope",
-            ));
-        }
-    }
     match &manifest.authentication {
         crate::AuthenticationSchemeV4::None => {}
         crate::AuthenticationSchemeV4::Credential(config) => {
@@ -295,36 +341,63 @@ fn validate_authentication(manifest: &AdapterManifest) -> Result<(), AdapterComp
             validate_luau("request_auth", &config.request_auth)?;
         }
         crate::AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(config) => {
-            validate_oauth_config(config).map_err(AdapterCompileError::Invalid)?;
-            if config.setups.is_empty() || config.setups.len() > 2 {
-                return Err(AdapterCompileError::Invalid("oauth2_setups"));
-            }
-            let mut modes = BTreeSet::new();
-            for setup in &config.setups {
-                if !modes.insert(setup.callback_mode) {
-                    return Err(AdapterCompileError::Invalid("oauth2_setups"));
-                }
-                validate_credential_setup(&setup.setup)?;
-                let CredentialInput::Document { fields, .. } = &setup.setup.input else {
-                    return Err(AdapterCompileError::Invalid("oauth2_setup_input"));
-                };
-                let ids = fields
-                    .iter()
-                    .map(|field| field.id.as_str())
-                    .collect::<BTreeSet<_>>();
-                let expected =
-                    if config.client_authentication == crate::Oauth2ClientAuthentication::None {
-                        BTreeSet::from(["client_id"])
-                    } else {
-                        BTreeSet::from(["client_id", "client_secret"])
-                    };
-                if ids != expected {
-                    return Err(AdapterCompileError::Invalid("oauth2_credential_fields"));
-                }
+            if SemanticDigest::parse(config.profile_digest.clone()).is_err() {
+                return Err(AdapterCompileError::Invalid("oauth_profile_digest"));
             }
         }
     }
+    for operation in &manifest.operations {
+        validate_operation_authorization(&manifest.authentication, &operation.authorization)?;
+    }
     Ok(())
+}
+
+fn validate_operation_authorization(
+    authentication: &crate::AuthenticationSchemeV4,
+    authorization: &crate::OperationAuthorization,
+) -> Result<(), AdapterCompileError> {
+    match (authentication, authorization) {
+        (
+            crate::AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(_),
+            crate::OperationAuthorization::OauthScopes {
+                accepted_scope_sets,
+            },
+        ) => {
+            if accepted_scope_sets.is_empty() || accepted_scope_sets.len() > 16 {
+                return Err(AdapterCompileError::Invalid("operation_scope_sets"));
+            }
+            for (index, scopes) in accepted_scope_sets.iter().enumerate() {
+                if scopes.is_empty()
+                    || scopes.len() > 32
+                    || !scopes.windows(2).all(|pair| pair[0] < pair[1])
+                {
+                    return Err(AdapterCompileError::Invalid("operation_scope_set"));
+                }
+                for scope in scopes {
+                    validate_bounded_text("operation_scope", scope, MAX_SCOPE_BYTES)?;
+                }
+                if accepted_scope_sets[..index].iter().any(|other| {
+                    scope_set_contains(scopes, other) || scope_set_contains(other, scopes)
+                }) {
+                    return Err(AdapterCompileError::Invalid(
+                        "ambiguous_operation_scope_set",
+                    ));
+                }
+            }
+        }
+        (crate::AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(_), _)
+        | (_, crate::OperationAuthorization::OauthScopes { .. }) => {
+            return Err(AdapterCompileError::Invalid("operation_authorization"));
+        }
+        (_, crate::OperationAuthorization::None) => {}
+    }
+    Ok(())
+}
+
+fn scope_set_contains(candidate: &[String], required: &[String]) -> bool {
+    required
+        .iter()
+        .all(|scope| candidate.binary_search(scope).is_ok())
 }
 
 fn validate_credential_setup(setup: &crate::CredentialSetup) -> Result<(), AdapterCompileError> {
@@ -397,52 +470,6 @@ fn validate_luau(
         return Err(AdapterCompileError::Invalid(field));
     }
     Ok(())
-}
-
-fn validate_account_identity(
-    manifest: &AdapterManifest,
-    compiled: &CompiledAdapterDefinition,
-) -> Result<(), AdapterCompileError> {
-    let Some(probe) = manifest.authentication.account_identity() else {
-        return Ok(());
-    };
-    let operation = compiled
-        .operations
-        .iter()
-        .find(|operation| operation.operation_id == probe.operation_id)
-        .ok_or(AdapterCompileError::Invalid("account_identity_operation"))?;
-    if manifest.authentication.mode() != crate::AuthenticationMode::Oauth2AuthorizationCodePkce
-        || operation.method != HttpMethod::Get
-        || !operation.behavior.read_only
-        || !operation.behavior.idempotent
-        || operation.behavior.destructive
-        || operation.behavior.open_world
-        || operation.retry != RetryPolicy::TransportSafeRead
-        || !matches!(operation.pagination, PaginationPolicy::None)
-        || !valid_json_pointer(&probe.output_pointer)
-    {
-        return Err(AdapterCompileError::Invalid("account_identity"));
-    }
-    crate::request::encode_request(
-        compiled,
-        operation,
-        &Value::Object(probe.arguments.clone().into_iter().collect()),
-    )
-    .map_err(|_| AdapterCompileError::Invalid("account_identity_arguments"))?;
-    Ok(())
-}
-
-fn valid_json_pointer(value: &str) -> bool {
-    value.len() <= 256
-        && (value.is_empty() || value.starts_with('/'))
-        && !value.bytes().any(|byte| byte.is_ascii_control())
-        && value.as_bytes().iter().enumerate().all(|(index, byte)| {
-            *byte != b'~'
-                || value
-                    .as_bytes()
-                    .get(index + 1)
-                    .is_some_and(|next| matches!(*next, b'0' | b'1'))
-        })
 }
 
 pub(crate) fn validate_operation(operation: &AdapterOperation) -> Result<(), AdapterCompileError> {
@@ -841,6 +868,7 @@ fn compile_operation(
         description: operation.description.clone(),
         method: operation.method,
         path: operation.path.clone(),
+        authorization: operation.authorization.clone(),
         fixed_headers: operation.fixed_headers.clone(),
         fixed_query: operation.fixed_query.clone(),
         arguments,

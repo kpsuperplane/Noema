@@ -872,6 +872,83 @@ impl MutationRoot {
         adapters::start_adapter_oauth_setup(state, principal, input).await
     }
 
+    /// Import one reusable OAuth client document.
+    async fn import_adapter_oauth_application(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlImportAdapterOauthApplicationInput,
+    ) -> Result<GraphqlAdapterOauthApplication> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        adapters::import_adapter_oauth_application(state, principal, input).await
+    }
+
+    /// Replace one exact OAuth application document.
+    async fn replace_adapter_oauth_application(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlReplaceAdapterOauthApplicationInput,
+    ) -> Result<GraphqlAdapterOauthApplication> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        adapters::replace_adapter_oauth_application(state, principal, input).await
+    }
+
+    /// Attach one API definition to one account grant.
+    async fn attach_adapter_oauth_connection(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlAttachAdapterOauthConnectionInput,
+    ) -> Result<GraphqlAdapterDefinition> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        adapters::attach_adapter_oauth_connection(state, principal, input).await
+    }
+
+    /// Disconnect one reusable account grant.
+    async fn disconnect_adapter_oauth_grant(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlDisconnectAdapterOauthGrantInput,
+    ) -> Result<GraphqlAdapterAuthorizationGrant> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        adapters::disconnect_adapter_oauth_grant(state, principal, input).await
+    }
+
+    /// Save a label for an account without stable provider identity.
+    async fn save_adapter_oauth_grant_label(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSaveAdapterOauthGrantLabelInput,
+    ) -> Result<GraphqlAdapterAuthorizationGrant> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        adapters::save_adapter_oauth_grant_label(state, principal, input).await
+    }
+
+    /// Delete one OAuth application without dependent grants.
+    async fn delete_adapter_oauth_application(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlDeleteAdapterOauthApplicationInput,
+    ) -> Result<bool> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        adapters::delete_adapter_oauth_application(state, principal, input).await
+    }
+
+    /// Suspend or resume one API connection.
+    async fn set_adapter_connection_active(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSetAdapterConnectionActiveInput,
+    ) -> Result<GraphqlAdapterDefinition> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        adapters::set_adapter_connection_active(state, principal, input).await
+    }
+
     /// Add and verify an MCP server.
     async fn create_mcp_server(
         &self,

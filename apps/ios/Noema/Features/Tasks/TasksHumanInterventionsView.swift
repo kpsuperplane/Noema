@@ -33,6 +33,7 @@ struct TasksHumanInterventionsView: View {
         case let .mcpAuth(auth): mcpAuth(auth)
         case let .adapterAuth(auth): adapterAuth(auth)
         case let .setup(setup): setupCard(setup)
+        case let .oauthClientSetup(setup): oauthClientSetup(setup)
         case let .adapterDefinition(definition): adapterDefinition(definition)
         case .attention:
           EmptyView()
@@ -122,6 +123,16 @@ struct TasksHumanInterventionsView: View {
     )
   }
 
+  private func oauthClientSetup(_ setup: AdapterOauthClientSetupModel) -> some View {
+    AdapterOauthClientSetupInterventionCard(
+      setup: setup,
+      isOffline: !model.isConnected,
+      onOpenBrowser: { browserURL = $0 },
+      onDismiss: nil,
+      onImport: { try await model.importAdapterOauthClient(setup, submission: $0) }
+    )
+  }
+
   private func adapterDefinition(_ definition: AdapterDefinitionModel) -> some View {
     AdapterDefinitionInterventionCard(
       definition: definition,
@@ -133,6 +144,8 @@ struct TasksHumanInterventionsView: View {
       onCancel: { try await model.cancelAdapterDefinition(definition) },
       onSetup: { try await model.setupAdapterConnection(definition, submission: $0) },
       onStartOAuth: { try await model.startAdapterOAuth($0) },
+      onWaitForOAuth: { try await model.completeAdapterOAuth($0, action: $1) },
+      onAttach: { try await model.attachAdapterGrant($0) },
       onSavePolicy: { try await model.saveAdapterPolicy($0, sharing: $1, unsafeActions: $2) }
     )
   }

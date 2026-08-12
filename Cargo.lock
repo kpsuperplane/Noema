@@ -4412,6 +4412,7 @@ dependencies = [
  "noema-artifacts",
  "noema-host",
  "noema-store",
+ "noema-tasks",
  "reqwest 0.13.4",
  "ring",
  "rmcp",

@@ -11,15 +11,21 @@ fn main() {
     if let Some(status) = run_browser_worker_if_requested() {
         std::process::exit(status);
     }
-    run_application();
-}
-
-#[tokio::main]
-async fn run_application() {
-    if let Err(error) = run().await {
+    if let Err(error) = run_application() {
         eprintln!("failed to run Noema web server: {error}");
         std::process::exit(1);
     }
+}
+
+fn run_application() -> Result<(), Box<dyn std::error::Error>> {
+    application_runtime()?.block_on(run())
+}
+
+fn application_runtime() -> Result<tokio::runtime::Runtime, std::io::Error> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(4 * 1024 * 1024)
+        .build()
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -62,6 +68,25 @@ fn local_model_runtime_root() -> Option<PathBuf> {
 #[cfg(all(test, feature = "dev-no-auth"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn application_runtime_supports_cold_iana_timezone_parsing() {
+        let runtime = application_runtime().expect("application runtime");
+        let next = runtime.block_on(async {
+            tokio::task::spawn_blocking(|| {
+                noema_tasks::next_recurrence_at_or_after(
+                    "0 7 * * *",
+                    "America/Los_Angeles",
+                    1_786_472_647,
+                )
+            })
+            .await
+            .expect("timezone parser task")
+            .expect("valid recurrence")
+        });
+
+        assert!(next >= 1_786_472_647);
+    }
 
     #[test]
     fn unchanged_schema_is_not_rewritten() {

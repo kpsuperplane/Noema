@@ -14,9 +14,9 @@ use noema_tasks::{
     CreateProject, DelegateExecutionIntent, DelegateTask, NewTaskRecurrence, NewTaskSchedule,
     QueueTask, RecurrenceCommandKind, RecurrencePrecondition, ReopenProject, ReopenTask, RetryTask,
     RunScheduledTaskNow, RunTaskRecurrenceNow, ScheduleTask, TaskContractAmendment, TaskGateAnswer,
-    TaskGateId, TaskId, TaskPrecondition, TaskProvenance, TaskRecurrenceId, TaskSourceKind,
-    UnscheduleTask, UpdateInboxTask, UpdateProject, UpdateTaskRecurrence, WorkCommand,
-    WorkflowStageBehavior,
+    TaskGateId, TaskGateRecord, TaskId, TaskPrecondition, TaskProvenance, TaskRecurrenceId,
+    TaskRecurrenceRecord, TaskSourceKind, UnscheduleTask, UpdateInboxTask, UpdateProject,
+    UpdateTaskRecurrence, WorkCommand, WorkflowStageBehavior,
 };
 use noema_workspaces::{ProjectId, WorkspaceId};
 use serde::de::DeserializeOwned;
@@ -103,6 +103,8 @@ async fn execute_scoped_task_list_inner(
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "current task is unavailable".to_string())?;
     let task = detail.task;
+    let recurrence_authority =
+        current_recurrence_authority(store, task.recurrence_id.as_ref()).await?;
     Ok(json!({
         "tasks": [json!({
             "task_id": task.task_id,
@@ -118,6 +120,8 @@ async fn execute_scoped_task_list_inner(
             "recurrence_id": task.recurrence_id,
             "recurrence_revision": task.recurrence_revision,
             "recurrence_scheduled_for": task.recurrence_scheduled_for,
+            "recurrence_authority": recurrence_authority,
+            "active_gate": active_gate_payload(detail.active_gate.as_ref()),
             "attention": detail.attention.map(|attention| format!("{attention:?}").to_ascii_lowercase()),
             "valid_actions": detail.valid_actions.into_iter().map(serialized_action).collect::<Vec<_>>(),
         })],
@@ -417,7 +421,7 @@ async fn execute_primary_inner(
         PROJECT_LIST_TOOL => return list_projects(store, &workspace_id, &args).await,
         _ => return Err("unknown primary Work tool".to_string()),
     };
-    Ok(command_result_payload(result))
+    command_result_payload(store, result).await
 }
 
 fn provenance(
@@ -509,8 +513,65 @@ fn criterion_ordinal(index: usize) -> Result<u32, String> {
         .ok_or_else(|| "criterion count exceeds the supported bound".to_string())
 }
 
-fn command_result_payload(result: noema_tasks::WorkCommandResult) -> Value {
-    json!({"task": result.task.map(|task| json!({"task_id":task.task_id,"title":task.title,"stage_id":task.stage_id,"generation":task.generation,"revision":task.revision,"project_id":task.project_id,"scheduled_for":task.scheduled_for,"schedule_time_zone":task.schedule_time_zone,"recurrence_id":task.recurrence_id,"recurrence_revision":task.recurrence_revision})),"project": result.project.map(|project| json!({"project_id":project.project_id,"name":project.name,"description":project.description,"revision":project.revision,"archived":project.archived_at.is_some()})),"contract_id":result.contract_id,"gate_id":result.gate_id,"run_id":result.run_id,"event_id":result.event_id,"event_sequence":result.event_sequence})
+async fn command_result_payload(
+    store: &NoemaStore,
+    result: noema_tasks::WorkCommandResult,
+) -> Result<Value, String> {
+    let recurrence_id = result
+        .task
+        .as_ref()
+        .and_then(|task| task.recurrence_id.as_ref());
+    let recurrence_authority = current_recurrence_authority(store, recurrence_id).await?;
+    Ok(
+        json!({"task": result.task.map(|task| json!({"task_id":task.task_id,"title":task.title,"stage_id":task.stage_id,"generation":task.generation,"revision":task.revision,"project_id":task.project_id,"scheduled_for":task.scheduled_for,"schedule_time_zone":task.schedule_time_zone,"recurrence_id":task.recurrence_id,"recurrence_revision":task.recurrence_revision})),"recurrence_authority":recurrence_authority,"project": result.project.map(|project| json!({"project_id":project.project_id,"name":project.name,"description":project.description,"revision":project.revision,"archived":project.archived_at.is_some()})),"contract_id":result.contract_id,"gate_id":result.gate_id,"run_id":result.run_id,"event_id":result.event_id,"event_sequence":result.event_sequence}),
+    )
+}
+
+fn active_gate_payload(gate: Option<&TaskGateRecord>) -> Value {
+    gate.map_or(Value::Null, |gate| {
+        json!({
+            "gate_id": gate.gate_id,
+            "kind": gate.kind,
+            "prompt": gate.prompt_markdown,
+            "context": gate.context_markdown,
+            "suggested_answers": gate.suggested_answers,
+        })
+    })
+}
+
+fn recurrence_authority_payload(recurrence: &TaskRecurrenceRecord) -> Value {
+    json!({
+        "recurrence_id": recurrence.recurrence_id,
+        "title": recurrence.title,
+        "description": recurrence.description_markdown,
+        "project_id": recurrence.project_id,
+        "starts_at": recurrence.starts_at,
+        "cron_expression": recurrence.cron_expression,
+        "time_zone": recurrence.time_zone,
+        "missed_run_policy": recurrence.missed_run_policy,
+        "overlap_policy": recurrence.overlap_policy,
+        "lifecycle": recurrence.lifecycle,
+        "revision": recurrence.revision,
+        "next_run_at": recurrence.next_run_at,
+        "pending_coalesced_at": recurrence.pending_coalesced_at,
+    })
+}
+
+async fn current_recurrence_authority(
+    store: &NoemaStore,
+    recurrence_id: Option<&TaskRecurrenceId>,
+) -> Result<Value, String> {
+    let Some(recurrence_id) = recurrence_id else {
+        return Ok(Value::Null);
+    };
+    store
+        .get_task_recurrence(recurrence_id)
+        .await
+        .map_err(|error| error.to_string())?
+        .as_ref()
+        .map_or(Ok(Value::Null), |recurrence| {
+            Ok(recurrence_authority_payload(recurrence))
+        })
 }
 
 async fn list_tasks(
@@ -555,22 +616,10 @@ async fn list_tasks(
         .map_err(|error| error.to_string())?;
     let mut tasks = Vec::with_capacity(connection.edges.len());
     for edge in connection.edges {
-        let task = edge.node.task;
-        let recurrence_authority = if let Some(recurrence_id) = task.recurrence_id.as_ref() {
-            store
-                .get_task_recurrence(recurrence_id)
-                .await
-                .map_err(|error| error.to_string())?
-                .map(|recurrence| {
-                    json!({
-                        "revision": recurrence.revision,
-                        "lifecycle": recurrence.lifecycle,
-                        "next_run_at": recurrence.next_run_at,
-                    })
-                })
-        } else {
-            None
-        };
+        let summary = edge.node;
+        let task = summary.task;
+        let recurrence_authority =
+            current_recurrence_authority(store, task.recurrence_id.as_ref()).await?;
         tasks.push(json!({
             "task_id": task.task_id, "title": task.title,
             "description": task.description_markdown, "stage_id": task.stage_id,
@@ -581,8 +630,9 @@ async fn list_tasks(
             "recurrence_revision": task.recurrence_revision,
             "recurrence_scheduled_for": task.recurrence_scheduled_for,
             "recurrence_authority": recurrence_authority,
-            "attention": edge.node.attention.map(|attention| format!("{attention:?}").to_ascii_lowercase()),
-            "valid_actions": edge.node.valid_actions.into_iter().map(serialized_action).collect::<Vec<_>>(),
+            "active_gate": active_gate_payload(summary.active_gate.as_ref()),
+            "attention": summary.attention.map(|attention| format!("{attention:?}").to_ascii_lowercase()),
+            "valid_actions": summary.valid_actions.into_iter().map(serialized_action).collect::<Vec<_>>(),
         }));
     }
     Ok(json!({
@@ -628,11 +678,81 @@ async fn list_projects(
 
 #[cfg(test)]
 mod tests {
-    use super::project_id;
+    use super::*;
+
+    fn task_id(value: &str) -> TaskId {
+        TaskId::new(value.to_string()).expect("task id")
+    }
 
     #[test]
     fn blank_optional_project_ids_are_omitted() {
         assert!(project_id(Some(String::new())).unwrap().is_none());
         assert!(project_id(Some(" \t".to_string())).unwrap().is_none());
+    }
+
+    #[test]
+    fn active_gate_projection_exposes_exact_answer_authority() {
+        let gate = TaskGateRecord {
+            gate_id: TaskGateId::new("gate:current".to_string()).expect("gate id"),
+            task_id: task_id("task:current"),
+            task_generation: 3,
+            contract_id: None,
+            kind: noema_tasks::TaskGateKind::Clarification,
+            state: noema_tasks::TaskGateState::Open,
+            recovery_reason: None,
+            retry_run_kind: None,
+            prompt_markdown: "Which date range?".to_string(),
+            context_markdown: "The current occurrence needs one range.".to_string(),
+            suggested_answers: vec!["Previous 24 hours".to_string()],
+            opened_by_actor_id: "actor:runtime:worker".to_string(),
+            originating_run_id: None,
+            resolved_by_actor_id: None,
+            resolution_message_id: None,
+            opened_at: "2026-08-11T14:00:00Z".to_string(),
+            resolved_at: None,
+        };
+
+        assert_eq!(
+            active_gate_payload(Some(&gate)),
+            json!({
+                "gate_id": "gate:current",
+                "kind": "clarification",
+                "prompt": "Which date range?",
+                "context": "The current occurrence needs one range.",
+                "suggested_answers": ["Previous 24 hours"],
+            })
+        );
+    }
+
+    #[test]
+    fn recurrence_projection_exposes_current_future_authority() {
+        let recurrence = TaskRecurrenceRecord {
+            recurrence_id: TaskRecurrenceId::new("recurrence:current".to_string())
+                .expect("recurrence id"),
+            workspace_id: WorkspaceId::new("workspace:personal".to_string()).expect("workspace id"),
+            project_id: None,
+            title: "Daily briefing".to_string(),
+            description_markdown: "Use the previous 24 hours.".to_string(),
+            authorization_context: noema_tasks::TaskAuthorizationContext::None,
+            starts_at: 1_786_456_800,
+            cron_expression: "0 7 * * *".to_string(),
+            time_zone: "America/Los_Angeles".to_string(),
+            missed_run_policy: noema_tasks::MissedRunPolicy::RunOnce,
+            overlap_policy: noema_tasks::OverlapPolicy::Skip,
+            lifecycle: noema_tasks::RecurrenceLifecycle::Active,
+            revision: 3,
+            next_run_at: Some(1_786_543_200),
+            pending_coalesced_at: None,
+            created_at: "2026-08-01T00:00:00Z".to_string(),
+            updated_at: "2026-08-11T14:00:00Z".to_string(),
+        };
+
+        let payload = recurrence_authority_payload(&recurrence);
+        assert_eq!(payload["recurrence_id"], "recurrence:current");
+        assert_eq!(payload["description"], "Use the previous 24 hours.");
+        assert_eq!(payload["revision"], 3);
+        assert_eq!(payload["cron_expression"], "0 7 * * *");
+        assert_eq!(payload["time_zone"], "America/Los_Angeles");
+        assert_eq!(payload["lifecycle"], "active");
     }
 }

@@ -1,5 +1,5 @@
 {
-  "schema_version": 8,
+  "schema_version": 9,
   "definition_id": "definition:fixture_gmail_profile",
   "adapter_id": "fixture_gmail_profile",
   "display_name": "Gmail fixture",
@@ -8,39 +8,7 @@
   "origin": "https://gmail.googleapis.com/",
   "authentication": {
     "kind": "oauth2_authorization_code_pkce",
-    "scopes": ["https://www.googleapis.com/auth/gmail.readonly"],
-    "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
-    "token_endpoint": "https://oauth2.googleapis.com/token",
-    "client_authentication": "client_secret_post",
-    "setups": [{
-      "callback_mode": "loopback",
-      "setup": {
-        "credential_type": "Desktop app",
-        "setup_url": "https://console.cloud.google.com/apis/credentials",
-        "instructions": ["Create a Desktop app OAuth client and download its JSON."],
-        "input": {
-          "kind": "document",
-          "media_type": "application/json",
-          "fields": [
-            {"id": "client_id", "label": "Client ID"},
-            {"id": "client_secret", "label": "Client secret"}
-          ],
-          "normalize": {
-            "language": "luau",
-            "source": "return function(input) local d = json.decode(input.document) return { client_id = d.installed.client_id, client_secret = d.installed.client_secret } end"
-          }
-        }
-      }
-    }],
-    "extra_authorization_parameters": {
-      "access_type": "offline",
-      "prompt": "consent"
-    },
-    "account_identity": {
-      "operation_id": "get_profile",
-      "arguments": {},
-      "output_pointer": "/account"
-    }
+    "profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   },
   "operations": [
     {
@@ -48,6 +16,7 @@
       "description": "Get the authenticated Gmail profile.",
       "method": "GET",
       "path": "/gmail/v1/users/me/profile",
+      "authorization": { "kind": "oauth_scopes", "accepted_scope_sets": [["https://www.googleapis.com/auth/gmail.readonly"]] },
       "fixed_headers": {},
       "arguments": [],
       "behavior": {

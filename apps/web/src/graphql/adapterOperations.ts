@@ -10,6 +10,7 @@ const AdapterDefinitionFields = gql`
     sourceReference
     origin
     authenticationMode
+    oauthProfileDigest
     scopes
     credentialSetup {
       credentialType
@@ -36,6 +37,32 @@ const AdapterDefinitionFields = gql`
     accountIdentityOperationId
     reviewed
     superseded
+    nextAction {
+      kind
+      semanticDigest
+      applicationId
+      expectedApplicationRevision
+      grantId
+      expectedGrantRevision
+      connectionId
+      expectedConnectionRevision
+      expectedPolicyRevision
+      operationIds
+      missingScopes
+    }
+    connectionActions {
+      kind
+      semanticDigest
+      applicationId
+      expectedApplicationRevision
+      grantId
+      expectedGrantRevision
+      connectionId
+      expectedConnectionRevision
+      expectedPolicyRevision
+      operationIds
+      missingScopes
+    }
     operations {
       operationId
       method
@@ -45,6 +72,7 @@ const AdapterDefinitionFields = gql`
       destructive
       openWorld
       argumentNames
+      acceptedScopeSets { scopes }
       responseTransform {
         language
         sourceDigest
@@ -58,7 +86,8 @@ const AdapterDefinitionFields = gql`
     connections {
       connectionId
       status
-      accountKind
+      grantId
+      accountId
       connectionRevision
       credentialRevision
       grantRevision
@@ -66,6 +95,11 @@ const AdapterDefinitionFields = gql`
       grantedScopes
       allowedOperations
       policyConfigured
+      operationAccess {
+        operationId
+        status
+        missingScopes
+      }
     }
   }
 `;
@@ -121,6 +155,140 @@ export const StartAdapterOauthSetupDocument = gql`
       attemptId
       authorizationUrl
       expiresAtEpochSeconds
+    }
+  }
+`;
+
+export const AdapterOauthStateDocument = gql`
+  query AdapterOauthState {
+    adapterOauthState {
+      profiles {
+        profileDigest
+        profileId
+        displayName
+        grantAudience
+        credentialSetup {
+          credentialType
+          setupUrl
+          instructions
+          inputKind
+          fields { fieldId label }
+          documentMediaType
+          redirectUri
+        }
+      }
+      applications {
+        applicationId
+        profileDigest
+        providerDisplayName
+        callbackMode
+        clientId
+        projectLabel
+        revision
+        status
+        grantCount
+        accountCount
+      }
+      accounts {
+        accountId
+        profileDigest
+        accountLabel
+        revision
+        grantIds
+      }
+      grants {
+        grantId
+        applicationId
+        accountId
+        accountLabel
+        providerDisplayName
+        audience
+        desiredScopes
+        grantedScopes
+        authorityRevision
+        tokenRevision
+        status
+        connectionIds
+      }
+    }
+  }
+`;
+
+export const ImportAdapterOauthApplicationDocument = gql`
+  mutation ImportAdapterOauthApplication($input: ImportAdapterOauthApplicationInput!) {
+    importAdapterOauthApplication(input: $input) {
+      applicationId
+      profileDigest
+      revision
+      status
+    }
+  }
+`;
+
+export const ReplaceAdapterOauthApplicationDocument = gql`
+  mutation ReplaceAdapterOauthApplication($input: ReplaceAdapterOauthApplicationInput!) {
+    replaceAdapterOauthApplication(input: $input) {
+      applicationId
+      revision
+      status
+    }
+  }
+`;
+
+export const AttachAdapterOauthConnectionDocument = gql`
+  mutation AttachAdapterOauthConnection($input: AttachAdapterOauthConnectionInput!) {
+    attachAdapterOauthConnection(input: $input) {
+      semanticDigest
+      connectionCount
+      connections { connectionId grantId policyConfigured }
+    }
+  }
+`;
+
+export const DisconnectAdapterOauthGrantDocument = gql`
+  mutation DisconnectAdapterOauthGrant($input: DisconnectAdapterOauthGrantInput!) {
+    disconnectAdapterOauthGrant(input: $input) { grantId authorityRevision status connectionIds }
+  }
+`;
+
+export const SaveAdapterOauthGrantLabelDocument = gql`
+  mutation SaveAdapterOauthGrantLabel($input: SaveAdapterOauthGrantLabelInput!) {
+    saveAdapterOauthGrantLabel(input: $input) { grantId accountLabel authorityRevision }
+  }
+`;
+
+export const DeleteAdapterOauthApplicationDocument = gql`
+  mutation DeleteAdapterOauthApplication($input: DeleteAdapterOauthApplicationInput!) {
+    deleteAdapterOauthApplication(input: $input)
+  }
+`;
+
+export const SetAdapterConnectionActiveDocument = gql`
+  mutation SetAdapterConnectionActive($input: SetAdapterConnectionActiveInput!) {
+    setAdapterConnectionActive(input: $input) { semanticDigest connectionCount }
+  }
+`;
+
+export const AdapterOauthAttemptDocument = gql`
+  query AdapterOauthAttempt($attemptId: String!) {
+    adapterOauthAttempt(attemptId: $attemptId) {
+      attemptId
+      semanticDigest
+      grantId
+      grantRevision
+      status
+    }
+  }
+`;
+
+export const AdapterOauthAttemptEventsDocument = gql`
+  subscription AdapterOauthAttemptEvents($attemptId: String!) {
+    adapterOauthAttemptEvents(attemptId: $attemptId) {
+      attemptId
+      semanticDigest
+      grantId
+      grantRevision
+      status
     }
   }
 `;

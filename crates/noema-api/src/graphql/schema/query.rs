@@ -460,6 +460,26 @@ impl QueryRoot {
         adapters::adapter_definitions(state).await
     }
 
+    /// Return the reusable OAuth application and account hierarchy.
+    async fn adapter_oauth_state(&self, ctx: &Context<'_>) -> Result<GraphqlAdapterOauthState> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        adapters::adapter_oauth_state(state).await
+    }
+
+    /// Return the latest process-local state for one OAuth attempt.
+    async fn adapter_oauth_attempt(
+        &self,
+        ctx: &Context<'_>,
+        attempt_id: String,
+    ) -> Result<Option<GraphqlAdapterOauthAttemptEvent>> {
+        if crate::graphql::request_principal_subject(ctx)? != "human:local" {
+            return Err(async_graphql::Error::new(
+                "adapter OAuth attempt is unauthorized",
+            ));
+        }
+        adapters::adapter_oauth_attempt(ctx.data_unchecked::<GraphqlState>(), &attempt_id)
+    }
+
     /// Return a short-lived MCP OAuth setup attempt.
     async fn mcp_oauth_setup_attempt(
         &self,

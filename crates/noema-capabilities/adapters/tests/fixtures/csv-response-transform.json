@@ -1,5 +1,5 @@
 {
-  "schema_version": 8,
+  "schema_version": 9,
   "definition_id": "definition:fixture_csv_response",
   "adapter_id": "fixture_csv_response",
   "display_name": "CSV fixture",
@@ -13,6 +13,7 @@
       "description": "Get one CSV record.",
       "method": "GET",
       "path": "/record.csv",
+      "authorization": { "kind": "none" },
       "fixed_headers": {},
       "arguments": [],
       "behavior": {

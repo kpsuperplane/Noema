@@ -3,8 +3,12 @@ import UniformTypeIdentifiers
 
 struct AdapterCredentialSetupSheet: View {
   let serviceName: String
+  var title: String? = nil
   let setup: AdapterCredentialSetupModel
   let scopes: [String]
+  var introduction = "Create the exact reviewed credential below. Noema stores only the declared private fields."
+  var submitTitle = "Add connection"
+  var dismissAfterSubmit = true
   let onClose: () -> Void
   let onSubmit: (AdapterCredentialSubmission) async throws -> Void
 
@@ -24,7 +28,7 @@ struct AdapterCredentialSetupSheet: View {
 
   var body: some View {
     NoemaNativeSheet(
-      title: "Connect \(serviceName)",
+      title: title ?? "Connect \(serviceName)",
       dismissTitle: "Cancel",
       dismissDisabled: isSubmitting,
       onDismiss: requestDismissal
@@ -35,7 +39,7 @@ struct AdapterCredentialSetupSheet: View {
             Text(setup.credentialType)
               .font(NoemaFont.sectionTitle)
               .foregroundStyle(NoemaColor.content)
-            Text("Create the exact reviewed credential below. Noema stores only the declared private fields.")
+            Text(introduction)
               .font(NoemaFont.body)
               .foregroundStyle(NoemaColor.contentSecondary)
           }
@@ -144,7 +148,7 @@ struct AdapterCredentialSetupSheet: View {
               submit()
             } label: {
               if isSubmitting { ProgressView().controlSize(.small) }
-              else { Text("Add connection") }
+              else { Text(submitTitle) }
             }
             .buttonStyle(NoemaActionButtonStyle(variant: .primary))
             .disabled(isSubmitting || !isComplete)
@@ -227,7 +231,7 @@ struct AdapterCredentialSetupSheet: View {
       do {
         try await onSubmit(submission)
         clearSensitiveState()
-        onClose()
+        if dismissAfterSubmit { onClose() }
       } catch {
         errorMessage = error.localizedDescription
       }
