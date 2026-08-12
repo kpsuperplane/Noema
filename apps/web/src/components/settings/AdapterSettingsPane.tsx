@@ -5,8 +5,9 @@ import { DropdownMenu, DropdownMenuItem } from "@astryxdesign/core/DropdownMenu"
 import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
+import { Switch } from "@astryxdesign/core/Switch";
 import { VStack } from "@astryxdesign/core/VStack";
-import { Check, FileKey2, MoreHorizontal, Pause, Pencil, Play, Plus, Trash2, Unplug } from "lucide-react";
+import { Check, FileKey2, MoreHorizontal, Pencil, Plus, Trash2, Unplug } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import {
@@ -557,17 +558,15 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           <pre {...stylex.props(styles.manifest)}>{selectedDefinition.manifestJson}</pre></details>
       </VStack> : null}
       dangerAction={selectedConnection && selectedDescriptor ? <>
-        <IconButton size="sm" variant="ghost"
-          label={selectedDescriptor.status === "suspended" ? "Resume connection" : "Suspend connection"}
-          tooltip={selectedDescriptor.status === "suspended" ? "Resume connection" : "Suspend connection"}
-          icon={selectedDescriptor.status === "suspended"
-            ? <Play {...stylex.props(styles.icon)} aria-hidden="true" />
-            : <Pause {...stylex.props(styles.icon)} aria-hidden="true" />}
+        <Switch
+          label="Connection enabled"
+          isLabelHidden
+          value={selectedDescriptor.status !== "suspended"}
           isLoading={connectionState.loading}
-          onClick={() => void setConnectionActive({ variables: { input: {
+          changeAction={(active) => setConnectionActive({ variables: { input: {
             connectionId: selectedDescriptor.connectionId,
             expectedConnectionRevision: selectedDescriptor.connectionRevision,
-            active: selectedDescriptor.status === "suspended"
+            active
           } } }).then(refresh).catch(actionError(setError))} />
         <IconButton size="sm" variant="destructive" label="Delete connection" tooltip="Delete connection"
           icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />} onClick={() => setDeleteOpen(true)} />
