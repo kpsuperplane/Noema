@@ -185,10 +185,13 @@ struct ChatComposer: View {
     .frame(idealWidth: preferredWidth, maxWidth: preferredWidth)
     .offset(y: inputFocused ? 0 : restingBottomOffset)
     .padding(.bottom, inputFocused ? NoemaSpacing.sm : 0)
-    .task {
+    .task(id: autoFocus) {
       guard autoFocus, isEditable else { return }
       await Task.yield()
       inputFocused = true
+    }
+    .onChange(of: autoFocus) { _, active in
+      if !active { inputFocused = false }
     }
   }
 }

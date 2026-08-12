@@ -153,7 +153,7 @@ private struct SettingsPage<Content: View>: View {
       .frame(maxWidth: 860, alignment: .leading)
       .frame(maxWidth: .infinity, alignment: .center)
     }
-    .tracksNoemaSurfaceTop()
+    .tracksNoemaSurfaceTop(for: .settings)
     .background(NoemaColor.surface)
     .scrollContentBackground(.hidden)
   }

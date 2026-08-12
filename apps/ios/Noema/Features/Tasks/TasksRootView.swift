@@ -423,7 +423,7 @@ struct TasksListDeck: View {
         .padding(.bottom, NoemaSpacing.xxl + 48)
         .frame(maxWidth: .infinity, alignment: .center)
       }
-      .tracksNoemaSurfaceTop()
+      .tracksNoemaSurfaceTop(for: .tasks)
       .scrollIndicators(.hidden)
       .refreshable { await model.refresh() }
     }

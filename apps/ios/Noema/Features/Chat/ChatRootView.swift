@@ -35,14 +35,11 @@ struct ChatRootView: View {
     .onAppear {
       coordinator.clearSecondary(for: .chat)
       syncAgentLabel()
-      syncShellChrome()
-      model.notifications.chatVisibilityChanged(chat.phase == .ready)
+      syncActiveChatState()
     }
     .onChange(of: chat.primaryAgentDisplayName) { _, _ in syncAgentLabel() }
-    .onChange(of: chat.phase) { _, phase in
-      syncShellChrome()
-      model.notifications.chatVisibilityChanged(phase == .ready)
-    }
+    .onChange(of: chat.phase) { _, _ in syncActiveChatState() }
+    .onChange(of: coordinator.activeDestination) { _, _ in syncActiveChatState() }
     .onChange(of: model.recoveryGeneration) { _, _ in
       Task { await chat.recoverConnection() }
     }
@@ -60,6 +57,16 @@ struct ChatRootView: View {
 
   private func syncShellChrome() {
     coordinator.primaryNavigationHidden = chat.phase == .onboarding
+  }
+
+  private func syncActiveChatState() {
+    let active = coordinator.activeDestination == .chat
+    if active {
+      syncShellChrome()
+    } else {
+      coordinator.primaryNavigationHidden = false
+    }
+    model.notifications.chatVisibilityChanged(active && chat.phase == .ready)
   }
 }
 
@@ -135,6 +142,7 @@ struct ChatFailureView: View {
 struct ChatReadyView: View {
   @Bindable var model: ChatModel
   let notifications: NoemaNotificationService
+  @Environment(NoemaShellCoordinator.self) private var shellCoordinator
   @State private var followBottom = true
   @State private var scrollToBottomRequest = 0
   @State private var selectedArtifact: ArtifactSelection?
@@ -383,7 +391,7 @@ struct ChatReadyView: View {
         }
         ChatComposer(
           model: model,
-          autoFocus: true,
+          autoFocus: shellCoordinator.activeDestination == .chat,
           restingBottomOffset: horizontalSizeClass == .compact ? 12 : 0
         )
           .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 760, alignment: .trailing)

@@ -38,7 +38,8 @@ struct NoemaBootView: View {
         NoemaTopRail(
           selection: $selection,
           breakpoint: NoemaBreakpoint.resolve(width: proxy.size.width),
-          agentLabel: "Chat"
+          agentLabel: "Chat",
+          selectionPosition: 0
         )
         .padding(.top, safeTop)
         .allowsHitTesting(false)

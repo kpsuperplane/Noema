@@ -131,7 +131,7 @@ private struct MemoryArticleView: View {
         .padding(.top, NoemaSpacing.sm)
         .padding(.bottom, NoemaSpacing.lg)
       }
-      .tracksNoemaSurfaceTop()
+      .tracksNoemaSurfaceTop(for: .memory)
       .environment(\.openURL, OpenURLAction { url in
         guard url.scheme == "noema-citation", let number = url.host else { return .systemAction }
         selectedCitation = citation(number: number)
