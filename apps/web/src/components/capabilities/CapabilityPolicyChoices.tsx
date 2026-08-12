@@ -8,6 +8,7 @@ import {
   Zap
 } from "lucide-react";
 import { HStack } from "@astryxdesign/core/HStack";
+import { Grid } from "@astryxdesign/core/Grid";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 
@@ -22,14 +23,18 @@ type CapabilityPolicy = {
 export function CapabilityPolicyChoices({
   serviceName,
   step = "all",
+  layout = "stacked",
   hasAutoFocus = false,
+  isDisabled = false,
   dataSharingPolicy,
   unsafeActionPolicy,
   onChange
 }: CapabilityPolicy & {
   serviceName: string;
   step?: "all" | "sharing" | "unsafe_actions";
+  layout?: "stacked" | "responsive";
   hasAutoFocus?: boolean;
+  isDisabled?: boolean;
   onChange: (policy: CapabilityPolicy) => void;
 }) {
   const showSharing = step === "all" || step === "sharing";
@@ -49,13 +54,14 @@ export function CapabilityPolicyChoices({
             <h2 {...stylex.props(styles.heading)}>Share personal information with {serviceName}?</h2>
             <p {...stylex.props(styles.muted)}>Choose how Noema shares relevant conversation details.</p>
           </VStack>
-          <VStack gap={2}>
+          <PolicyChoiceList responsive={layout === "responsive"} maxColumns={2}>
             <PolicyChoiceCard
               hasAutoFocus={hasAutoFocus}
               selected={dataSharingPolicy === "allow_automatically"}
               title="Share when needed"
               icon={<MessageSquareText aria-hidden="true" size={18} />}
               steps={["Relevant details", "Tool runs"]}
+              disabled={isDisabled}
               onClick={() => setSharing("allow_automatically")}
             />
             <PolicyChoiceCard
@@ -63,9 +69,10 @@ export function CapabilityPolicyChoices({
               title="Review every time"
               icon={<ShieldCheck aria-hidden="true" size={18} />}
               steps={["Relevant details", "Approval check", "Tool runs"]}
+              disabled={isDisabled}
               onClick={() => setSharing("review_every_call")}
             />
-          </VStack>
+          </PolicyChoiceList>
         </VStack>
       ) : null}
       {showUnsafeActions ? (
@@ -81,13 +88,14 @@ export function CapabilityPolicyChoices({
                 : "Risky calls can change, delete, or send information."}
             </p>
           </VStack>
-          <VStack gap={2}>
+          <PolicyChoiceList responsive={layout === "responsive"} maxColumns={3}>
             <PolicyChoiceCard
               hasAutoFocus={hasAutoFocus && !showSharing}
               selected={unsafeActionPolicy === "always_ask"}
               title="Always me"
               icon={<UserRoundCheck aria-hidden="true" size={18} />}
               steps={["Risky call", "You approve", "Runs"]}
+              disabled={isDisabled}
               onClick={() => onChange({ dataSharingPolicy, unsafeActionPolicy: "always_ask" })}
             />
             <PolicyChoiceCard
@@ -95,6 +103,7 @@ export function CapabilityPolicyChoices({
               title="Noema first"
               icon={<ShieldCheck aria-hidden="true" size={18} />}
               steps={["Risky call", "Noema checks", "You if needed"]}
+              disabled={isDisabled}
               onClick={() => onChange({ dataSharingPolicy, unsafeActionPolicy: "reviewer_may_approve" })}
             />
             <PolicyChoiceCard
@@ -103,15 +112,31 @@ export function CapabilityPolicyChoices({
               note="Not recommended"
               icon={<Zap aria-hidden="true" size={18} />}
               steps={["Risky call", "Runs"]}
-              disabled={dataSharingPolicy === "review_every_call"}
-              disabledReason="Choose “Share when needed” first."
+              disabled={isDisabled || dataSharingPolicy === "review_every_call"}
+              disabledReason={dataSharingPolicy === "review_every_call"
+                ? "Choose “Share when needed” first."
+                : undefined}
               onClick={() => onChange({ dataSharingPolicy, unsafeActionPolicy: "never_ask" })}
             />
-          </VStack>
+          </PolicyChoiceList>
         </VStack>
       ) : null}
     </VStack>
   );
+}
+
+function PolicyChoiceList({
+  responsive,
+  maxColumns,
+  children
+}: {
+  responsive: boolean;
+  maxColumns: number;
+  children: React.ReactNode;
+}) {
+  return responsive
+    ? <Grid columns={{ minWidth: 180, max: maxColumns, repeat: "fit" }} gap={2}>{children}</Grid>
+    : <VStack gap={2}>{children}</VStack>;
 }
 
 function PolicyChoiceCard({
@@ -136,7 +161,7 @@ function PolicyChoiceCard({
   onClick: () => void;
 }) {
   return (
-    <div>
+    <VStack gap={0}>
       <button
         type="button"
         data-autofocus={hasAutoFocus || undefined}
@@ -170,7 +195,7 @@ function PolicyChoiceCard({
         </HStack>
       </button>
       {disabled && disabledReason ? <p {...stylex.props(styles.disabledReason)}>{disabledReason}</p> : null}
-    </div>
+    </VStack>
   );
 }
 

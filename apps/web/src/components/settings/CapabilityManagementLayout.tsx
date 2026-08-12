@@ -18,7 +18,6 @@ export function CapabilityManagementLayout({
   title,
   primaryAction,
   list,
-  startPolicyEditing,
   serviceName,
   connectionName,
   sourceActions,
@@ -31,7 +30,6 @@ export function CapabilityManagementLayout({
   title: string;
   primaryAction?: { label: string; onClick: () => void };
   list: ReactNode;
-  startPolicyEditing?: boolean;
   serviceName?: string;
   connectionName?: string;
   sourceActions?: ReactNode;
@@ -79,7 +77,6 @@ export function CapabilityManagementLayout({
             <CapabilityConnectionDetail
               kind={kind}
               connectionId={connectionId}
-              startPolicyEditing={startPolicyEditing}
               serviceName={serviceName}
               connectionName={connectionName}
               sourceActions={sourceActions}

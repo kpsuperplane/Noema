@@ -31,7 +31,6 @@ import {
 } from "@/components/capabilities/CapabilityPolicyChoices";
 import { CapabilityToolTable, toolHintSourceDescription } from "./CapabilityToolTable";
 import { SettingsEditDialog } from "./SettingsEditDialog";
-import { SettingsList, SettingsListItem } from "./SettingsPrimitives";
 import { settingsStatusLabel } from "./settingsStatus";
 import { CapabilityIcon } from "./CapabilityIntegrationList";
 
@@ -42,7 +41,6 @@ type HintDraft = Record<HintKey, boolean>;
 export function CapabilityConnectionDetail({
   kind,
   connectionId,
-  startPolicyEditing = false,
   serviceName,
   connectionName,
   sourceActions,
@@ -51,7 +49,6 @@ export function CapabilityConnectionDetail({
 }: {
   kind: "API" | "MCP";
   connectionId: string;
-  startPolicyEditing?: boolean;
   serviceName?: string;
   connectionName?: string;
   sourceActions?: React.ReactNode;
@@ -63,7 +60,7 @@ export function CapabilityConnectionDetail({
     variables: { ref: reference },
     fetchPolicy: "cache-and-network"
   });
-  const [savePolicy, policyState] = useMutation<SaveCapabilityConnectionPolicyMutation>(
+  const [savePolicy] = useMutation<SaveCapabilityConnectionPolicyMutation>(
     SaveCapabilityConnectionPolicyDocument
   );
   const [saveLabel, labelState] = useMutation<SaveCapabilityConnectionLabelMutation>(
@@ -82,22 +79,15 @@ export function CapabilityConnectionDetail({
   const tools = result.data?.capabilityTools ?? [];
   const [sharingDraft, setSharing] = React.useState<string | null>(null);
   const [unsafeActionsDraft, setUnsafeActions] = React.useState<string | null>(null);
-  const [policyEditing, setPolicyEditing] = React.useState(false);
+  const [policyBusy, setPolicyBusy] = React.useState(false);
+  const [policyError, setPolicyError] = React.useState<string | null>(null);
   const [editing, setEditing] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState<HintDraft | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [renaming, setRenaming] = React.useState(false);
   const [labelDraft, setLabelDraft] = React.useState("");
-  const didStartPolicyEditing = React.useRef(false);
+  const policySaving = React.useRef(false);
   const editingTool = tools.find((tool) => tool.toolId === editing) ?? null;
-
-  React.useEffect(() => {
-    if (!startPolicyEditing || !connection || didStartPolicyEditing.current) return;
-    didStartPolicyEditing.current = true;
-    setSharing(connection.dataSharingPolicy ?? "allow_automatically");
-    setUnsafeActions(connection.unsafeActionPolicy ?? "reviewer_may_approve");
-    setPolicyEditing(true);
-  }, [connection, startPolicyEditing]);
 
   if (result.loading && !result.data) return <p {...stylex.props(styles.muted)}>Loading connection…</p>;
   if (result.error && !connection) {
@@ -132,20 +122,42 @@ export function CapabilityConnectionDetail({
     await result.refetch();
   }
 
-  async function submitPolicy() {
-    if (!connection) return;
-    setError(null);
+  async function submitPolicy(policy: {
+    dataSharingPolicy: CapabilityDataSharingPolicy;
+    unsafeActionPolicy: CapabilityUnsafeActionPolicy;
+  }) {
+    if (!connection || policySaving.current) return;
+    if (policy.dataSharingPolicy === sharing && policy.unsafeActionPolicy === unsafeActions) return;
+    policySaving.current = true;
+    setPolicyBusy(true);
+    setPolicyError(null);
+    setSharing(policy.dataSharingPolicy);
+    setUnsafeActions(policy.unsafeActionPolicy);
     try {
       await savePolicy({ variables: { input: {
         ...fence,
         expectedPolicyRevision: connection.policyRevision,
-        dataSharingPolicy: sharing,
-        unsafeActionPolicy: unsafeActions
+        dataSharingPolicy: policy.dataSharingPolicy,
+        unsafeActionPolicy: policy.unsafeActionPolicy
       } } });
-      setPolicyEditing(false);
-      await refresh();
     } catch {
-      setError("This connection changed. Reload it and try again.");
+      setSharing(null);
+      setUnsafeActions(null);
+      setPolicyError("Connection policy could not be saved. Try again.");
+      await result.refetch().catch(() => undefined);
+      policySaving.current = false;
+      setPolicyBusy(false);
+      return;
+    }
+    try {
+      await result.refetch();
+      setSharing(null);
+      setUnsafeActions(null);
+    } catch {
+      setPolicyError("Policy saved, but connection details could not refresh.");
+    } finally {
+      policySaving.current = false;
+      setPolicyBusy(false);
     }
   }
 
@@ -281,31 +293,20 @@ export function CapabilityConnectionDetail({
       </VStack>
 
       <Section variant="section" padding={0} aria-labelledby="connection-policy-title" xstyle={styles.detailSection}>
-        <Toolbar
-          label="Connection policy actions"
-          size="sm"
-          variant="transparent"
-          xstyle={styles.sectionHeader}
-          startContent={<h2 id="connection-policy-title" {...stylex.props(styles.heading)}>Connection policy</h2>}
-          endContent={<IconButton
-            variant="ghost"
-            size="sm"
-            label="Edit connection policy"
-            tooltip="Edit connection policy"
-            icon={<Pencil aria-hidden="true" size={16} />}
-            onClick={() => {
-              setError(null);
-              setSharing(sharing);
-              setUnsafeActions(unsafeActions);
-              setPolicyEditing(true);
-            }}
-          />}
-        />
-        <VStack {...stylex.props(styles.sectionBody)}>
-          <SettingsList density="compact" hasDividers>
-            <SettingsListItem label="Data sharing" description={sharingLabel(sharing)} />
-            <SettingsListItem label="Risky actions" description={unsafeActionLabel(unsafeActions)} />
-          </SettingsList>
+        <HStack hAlign="between" vAlign="center" gap={2} {...stylex.props(styles.policyHeader)}>
+          <h2 id="connection-policy-title" {...stylex.props(styles.heading)}>Connection policy</h2>
+          {policyBusy ? <span role="status" {...stylex.props(styles.muted)}>Saving…</span> : null}
+        </HStack>
+        <VStack gap={2} {...stylex.props(styles.policyBody)}>
+          <CapabilityPolicyChoices
+            layout="responsive"
+            isDisabled={policyBusy}
+            serviceName={serviceName ?? connection.name}
+            dataSharingPolicy={sharing}
+            unsafeActionPolicy={unsafeActions}
+            onChange={(policy) => void submitPolicy(policy)}
+          />
+          {policyError ? <p role="alert" {...stylex.props(styles.error)}>{policyError}</p> : null}
         </VStack>
       </Section>
 
@@ -339,7 +340,7 @@ export function CapabilityConnectionDetail({
           sourceDetails: connection.sourceDetails
         }, null, 2)}</pre>
       </VStack>
-      {error && !renaming && !policyEditing && !editingTool ? (
+      {error && !renaming && !editingTool ? (
         <p role="alert" {...stylex.props(styles.error)}>{error}</p>
       ) : null}
       <SettingsEditDialog
@@ -363,35 +364,6 @@ export function CapabilityConnectionDetail({
           value={labelDraft}
           description="Leave blank to use the generated connection name."
           onChange={setLabelDraft}
-        />
-      </SettingsEditDialog>
-      <SettingsEditDialog
-        title="Edit connection policy"
-        open={policyEditing}
-        saving={policyState.loading}
-        saveLabel="Save policy"
-        saveDisabled={sharing === "review_every_call" && unsafeActions === "never_ask"}
-        error={policyEditing ? error : null}
-        width={560}
-        onOpenChange={(open) => {
-          setPolicyEditing(open);
-          if (!open) {
-            setSharing(null);
-            setUnsafeActions(null);
-            setError(null);
-          }
-        }}
-        onSave={submitPolicy}
-      >
-        <CapabilityPolicyChoices
-          hasAutoFocus
-          serviceName={connection.name}
-          dataSharingPolicy={sharing}
-          unsafeActionPolicy={unsafeActions}
-          onChange={(policy) => {
-            setSharing(policy.dataSharingPolicy);
-            setUnsafeActions(policy.unsafeActionPolicy);
-          }}
         />
       </SettingsEditDialog>
       <SettingsEditDialog
@@ -508,16 +480,6 @@ function hintLabel(value: HintKey) {
   } as const)[value];
 }
 
-function sharingLabel(value: CapabilityDataSharingPolicy) {
-  return value === "review_every_call" ? "Review sharing every time" : "Share when needed";
-}
-
-function unsafeActionLabel(value: CapabilityUnsafeActionPolicy) {
-  if (value === "always_ask") return "You approve risky calls";
-  if (value === "never_ask") return "Risky calls run automatically";
-  return "Noema reviews risky calls first";
-}
-
 const styles = stylex.create({
   connectionHeader: { paddingBlockEnd: "var(--spacing-3)", borderBlockEndWidth: "var(--border-width)", borderBlockEndStyle: "solid", borderBlockEndColor: "var(--border-subtle)" },
   serviceName: { color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.2 },
@@ -525,7 +487,8 @@ const styles = stylex.create({
   toolCount: { color: "var(--muted-foreground)", fontSize: 12 },
   detailSection: { overflow: "hidden", borderWidth: "var(--border-width)", borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: "var(--radius-container)" },
   sectionHeader: { paddingInline: "var(--spacing-2)" },
-  sectionBody: { paddingInline: "var(--spacing-2)" },
+  policyHeader: { padding: "var(--spacing-2) var(--spacing-3)", borderBlockEndWidth: "var(--border-width)", borderBlockEndStyle: "solid", borderBlockEndColor: "var(--border-subtle)" },
+  policyBody: { padding: "var(--spacing-3)" },
   heading: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 14, fontWeight: 650 },
   editorDescription: { margin: "var(--spacing-0)", fontSize: 13, lineHeight: 1.5, color: "var(--muted-foreground)" },
   hintRow: { paddingBlock: "var(--spacing-2)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", fontSize: 14, "@media (max-width: 520px)": { alignItems: "flex-start" } },
