@@ -51,13 +51,22 @@ export function CapabilityToolTable({
         const hasHumanOverride = hintFields.some((field) => tool[field].source === "human");
         return (
           <HStack as="li" key={tool.toolId} gap={1} vAlign="center"
-            {...stylex.props(styles.row, tool.status !== "ready" && styles.unavailableRow)}>
-            <VStack gap={0.5} {...stylex.props(styles.toolCopy)}>
+            {...stylex.props(
+              styles.row,
+              tool.status !== "ready" && tool.status !== "disabled" && styles.unavailableRow
+            )}>
+            <VStack gap={0.5} {...stylex.props(
+              styles.toolCopy,
+              tool.status === "disabled" && styles.disabledLabel
+            )}>
               <HStack as="span" gap={1} vAlign="center">
                 <strong {...stylex.props(styles.toolName)}>{displayToolName(tool.name, sharedPrefix)}</strong>
                 <ToolStatus status={tool.status} />
               </HStack>
-              <span {...stylex.props(styles.toolSummary, tool.status !== "ready" && styles.unavailableSummary)}>
+              <span {...stylex.props(
+                styles.toolSummary,
+                tool.status !== "ready" && tool.status !== "disabled" && styles.unavailableSummary
+              )}>
                 {toolSummary(tool)}
               </span>
             </VStack>
@@ -168,6 +177,7 @@ const styles = stylex.create({
   row: { minHeight: "var(--spacing-12)", paddingInlineStart: "var(--spacing-2)", borderBlockStartWidth: "var(--border-width)", borderBlockStartStyle: "solid", borderBlockStartColor: "var(--border-subtle)" },
   unavailableRow: { backgroundColor: "var(--color-warning-muted)" },
   toolCopy: { minWidth: 0, flex: 1 },
+  disabledLabel: { opacity: 0.55 },
   toolName: { color: "var(--foreground)", fontSize: 13, fontWeight: 650, lineHeight: 1.3, overflowWrap: "anywhere" },
   toolSummary: { color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.3 },
   unavailableSummary: { color: "var(--noema-clay-600)" },
