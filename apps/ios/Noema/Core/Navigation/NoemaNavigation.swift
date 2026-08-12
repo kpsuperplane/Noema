@@ -1,5 +1,6 @@
 import Observation
 import SwiftUI
+import UIKit
 
 enum NoemaBreakpoint {
   case compact
@@ -248,6 +249,51 @@ private enum NoemaShellDragAxis {
   case vertical
 }
 
+private final class NoemaHorizontalPanGestureRecognizer: UIPanGestureRecognizer, UIGestureRecognizerDelegate {
+  override init(target: Any?, action: Selector?) {
+    super.init(target: target, action: action)
+    cancelsTouchesInView = true
+    delegate = self
+  }
+
+  func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    let velocity = velocity(in: view)
+    return abs(velocity.x) >= abs(velocity.y) * 1.2
+  }
+}
+
+private struct NoemaHorizontalSwipeGesture: UIGestureRecognizerRepresentable {
+  let enabled: Bool
+  let changed: (CGFloat) -> Void
+  let ended: (_ translation: CGFloat, _ projectedTranslation: CGFloat) -> Void
+  let cancelled: () -> Void
+
+  func makeUIGestureRecognizer(context: Context) -> NoemaHorizontalPanGestureRecognizer {
+    NoemaHorizontalPanGestureRecognizer()
+  }
+
+  func updateUIGestureRecognizer(_ recognizer: NoemaHorizontalPanGestureRecognizer, context: Context) {
+    recognizer.isEnabled = enabled
+  }
+
+  func handleUIGestureRecognizerAction(
+    _ recognizer: NoemaHorizontalPanGestureRecognizer,
+    context: Context
+  ) {
+    let translation = recognizer.translation(in: recognizer.view).x
+    switch recognizer.state {
+    case .began, .changed:
+      changed(translation)
+    case .ended:
+      ended(translation, translation + recognizer.velocity(in: recognizer.view).x * 0.2)
+    case .cancelled, .failed:
+      cancelled()
+    default:
+      break
+    }
+  }
+}
+
 struct NoemaShellView: View {
   var model: NoemaAppModel
   @State private var chat: ChatModel
@@ -415,6 +461,28 @@ struct NoemaShellView: View {
       }
     }
     .contentShape(Rectangle())
+    .gesture(
+      NoemaHorizontalSwipeGesture(
+        enabled: compact && !navigationOpen,
+        changed: { translation in
+          if !pageSwipeInFlight {
+            pageSwipeInFlight = true
+            pageSwipeGeneration += 1
+          }
+          updatePageSwipe(translation: translation, width: width)
+        },
+        ended: { translation, projectedTranslation in
+          finishPageSwipe(
+            translation: translation,
+            projectedTranslation: projectedTranslation,
+            width: width
+          )
+        },
+        cancelled: {
+          settlePageSwipe()
+        }
+      )
+    )
     .simultaneousGesture(
       DragGesture(minimumDistance: 8)
         .onChanged { value in
@@ -424,10 +492,6 @@ struct NoemaShellView: View {
             let vertical = abs(value.translation.height) >= abs(value.translation.width) * 1.2
             if horizontal {
               shellDragAxis = .horizontal
-              if !navigationOpen {
-                pageSwipeInFlight = true
-                pageSwipeGeneration += 1
-              }
             } else if vertical {
               shellDragAxis = .vertical
               navigationDragMayOpen = hasSecondary && coordinator.activeSurfaceAtTop
@@ -437,8 +501,6 @@ struct NoemaShellView: View {
           }
 
           switch shellDragAxis {
-          case .horizontal where !navigationOpen:
-            updatePageSwipe(translation: value.translation.width, width: width)
           case .vertical where hasSecondary:
             if !navigationOpen, navigationDragMayOpen, value.translation.height > 0 {
               navigationDragOffset = min(max(0, reveal - 1), max(0, value.translation.height - 8))
@@ -458,9 +520,7 @@ struct NoemaShellView: View {
             shellDragAxis = nil
           }
           guard compact else { return }
-          if shellDragAxis == .horizontal, !navigationOpen {
-            finishPageSwipe(value: value, width: width)
-          } else if shellDragAxis == .vertical, hasSecondary, navigationOpen || navigationDragMayOpen {
+          if shellDragAxis == .vertical, hasSecondary, navigationOpen || navigationDragMayOpen {
             let distance = navigationOpen ? -navigationDragOffset : navigationDragOffset
             let threshold = min(84, reveal * 0.35)
             let predicted = navigationOpen
@@ -540,11 +600,15 @@ struct NoemaShellView: View {
     pageDragOffset = min(width, max(-width, translation))
   }
 
-  private func finishPageSwipe(value: DragGesture.Value, width: CGFloat) {
+  private func finishPageSwipe(
+    translation: CGFloat,
+    projectedTranslation: CGFloat,
+    width: CGFloat
+  ) {
     let threshold = min(84, width * 0.22)
-    let distance = max(abs(value.translation.width), abs(value.predictedEndTranslation.width))
+    let distance = max(abs(translation), abs(projectedTranslation))
     guard distance >= threshold,
-          let target = adjacentDestination(translation: value.translation.width),
+          let target = adjacentDestination(translation: translation),
           let currentIndex = NoemaDestination.allCases.firstIndex(of: selection),
           let targetIndex = NoemaDestination.allCases.firstIndex(of: target)
     else {
