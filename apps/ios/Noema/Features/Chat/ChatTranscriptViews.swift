@@ -866,21 +866,30 @@ struct SystemNoticeView: View {
       Rectangle()
         .fill(NoemaColor.separatorSubtle)
         .frame(minWidth: NoemaSpacing.lg, maxWidth: .infinity, maxHeight: 1)
-      HStack(spacing: NoemaSpacing.xs) {
-        Image(systemName: symbol)
-          .font(NoemaFont.metadata.weight(.semibold))
-        Text(displayText)
-          .multilineTextAlignment(.center)
+      ViewThatFits(in: .horizontal) {
+        noticeLabel
+          .fixedSize(horizontal: true, vertical: false)
+        noticeLabel
           .fixedSize(horizontal: false, vertical: true)
       }
-      .font(NoemaFont.caption)
-      .foregroundStyle(foreground)
+      .layoutPriority(1)
       Rectangle()
         .fill(NoemaColor.separatorSubtle)
         .frame(minWidth: NoemaSpacing.lg, maxWidth: .infinity, maxHeight: 1)
     }
     .frame(maxWidth: .infinity)
     .padding(.vertical, NoemaSpacing.xs)
+  }
+
+  private var noticeLabel: some View {
+    HStack(spacing: NoemaSpacing.xs) {
+      Image(systemName: symbol)
+        .font(NoemaFont.metadata.weight(.semibold))
+      Text(displayText)
+        .multilineTextAlignment(.center)
+    }
+    .font(NoemaFont.caption)
+    .foregroundStyle(foreground)
   }
 
   private var displayText: String {
