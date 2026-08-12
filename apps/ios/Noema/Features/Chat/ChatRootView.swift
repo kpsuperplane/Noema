@@ -291,13 +291,23 @@ struct ChatReadyView: View {
             }
 
             let rows = timelineRows
+            let avatarAnchor = latestAssistantAvatarAnchor(in: rows)
+            let avatarMotion = conversationAvatarMotion
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
               let previous = index > 0 ? rows[index - 1] : nil
               let next = index + 1 < rows.count ? rows[index + 1] : nil
               let lane = row.lane
-              let showAvatar = previous?.lane != lane
+              let ownsActiveAvatar = index == avatarAnchor
+              let showAvatar = previous?.lane != lane || ownsActiveAvatar
               let group = bubbleGroup(row: row, previous: previous, next: next)
-              timelineContent(row, lane: lane, showAvatar: showAvatar, group: group)
+              timelineContent(
+                row,
+                lane: lane,
+                showAvatar: showAvatar,
+                group: group,
+                avatarActivity: ownsActiveAvatar ? avatarMotion.activity : .idle,
+                avatarAnimated: ownsActiveAvatar && avatarMotion.animated
+              )
                 .padding(.top, index == 0 ? 0 : rowSpacing(row: row, previous: previous))
                 .id(row.id)
             }
@@ -453,7 +463,9 @@ struct ChatReadyView: View {
     _ row: TimelineRow,
     lane: ChatLane,
     showAvatar: Bool,
-    group: ChatBubbleGroup
+    group: ChatBubbleGroup,
+    avatarActivity: NoemaAvatarActivity,
+    avatarAnimated: Bool
   ) -> some View {
     switch row {
     case let .message(message, taskIDs):
@@ -463,6 +475,8 @@ struct ChatReadyView: View {
         attachedTaskIDs: taskIDs,
         group: group,
         showAvatar: showAvatar,
+        avatarActivity: avatarActivity,
+        avatarAnimated: avatarAnimated,
         submittedChoiceIDs: submittedChoices(for: message),
         disabled: model.isSending || model.isOffline,
         onChoice: { promptID, optionIDs in
@@ -486,26 +500,76 @@ struct ChatReadyView: View {
         onTask: { selectedTaskID = $0 }
       )
     case let .task(_, taskID):
-      ChatLaneRow(lane: .assistant, showAvatar: showAvatar, compactContentInset: 0) {
+      ChatLaneRow(
+        lane: .assistant,
+        showAvatar: showAvatar,
+        avatarActivity: avatarActivity,
+        avatarAnimated: avatarAnimated,
+        compactContentInset: 0
+      ) {
         TaskReferenceChip(client: model.client, taskID: taskID, onOpen: { selectedTaskID = $0 })
       }
     case let .toolMarkers(_, messages):
-      ChatLaneRow(lane: .assistant, showAvatar: showAvatar, compactContentInset: 0) {
+      ChatLaneRow(
+        lane: .assistant,
+        showAvatar: showAvatar,
+        avatarActivity: avatarActivity,
+        avatarAnimated: avatarAnimated,
+        compactContentInset: 0
+      ) {
         ToolMarkerView(client: model.client, messages: messages)
       }
     case let .activity(message):
-      ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
+      ChatLaneRow(
+        lane: .assistant,
+        showAvatar: showAvatar,
+        avatarActivity: avatarActivity,
+        avatarAnimated: avatarAnimated
+      ) {
         ActivityRowView(message: message)
       }
     case let .systemNotice(message):
       SystemNoticeView(message: message)
         .padding(.horizontal, NoemaSpacing.xs)
     case .typing:
-      ChatLaneRow(lane: .assistant, showAvatar: true) {
+      ChatLaneRow(
+        lane: .assistant,
+        showAvatar: true,
+        avatarActivity: avatarActivity,
+        avatarAnimated: avatarAnimated
+      ) {
         ChatBubbleView(lane: .assistant, group: .single) {
           TypingDotsView()
         }
       }
+    }
+  }
+
+  private func latestAssistantAvatarAnchor(in rows: [TimelineRow]) -> Int? {
+    guard let humanIndex = rows.lastIndex(where: { $0.lane == .human }) else { return nil }
+    return rows.indices.first { index in
+      guard index > humanIndex else { return false }
+      switch rows[index] {
+      case .systemNotice: return false
+      default: return rows[index].lane == .assistant
+      }
+    }
+  }
+
+  private var conversationAvatarMotion: (activity: NoemaAvatarActivity, animated: Bool) {
+    let hasLiveStream = model.messages.contains { message in
+      if case let .assistant(_, streaming) = message.kind { return streaming }
+      return false
+    }
+    if hasLiveStream { return (.idle, true) }
+    let normalized = model.agentStatus.replacingOccurrences(of: "_", with: "").lowercased()
+    switch normalized {
+    case "inputreceived", "waitingforpreviousturncompletion", "interrupting":
+      return (.listening, true)
+    case "thinking", "toolrunning":
+      return (.thinking, true)
+    default:
+      return (.idle, false)
     }
   }
 

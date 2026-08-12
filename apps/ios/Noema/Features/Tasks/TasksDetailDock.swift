@@ -12,11 +12,15 @@ struct TasksTaskContextDock: View {
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: NoemaSpacing.sm) {
-        Text(String((run?.instanceName ?? "Task").prefix(1)))
-          .font(NoemaFont.captionEmphasized)
-          .foregroundStyle(NoemaColor.pine700)
+        let avatarMotion = noemaTaskRunAvatarMotion(status: run?.status ?? "")
+        NoemaIdentityAvatar(
+          actorID: "subagent:\(run?.instanceName ?? "Task")",
+          actorType: .agent,
+          activity: avatarMotion.activity,
+          animated: avatarMotion.animated
+        )
           .frame(width: 30, height: 30)
-          .background(NoemaColor.clay50, in: Circle())
+          .accessibilityLabel("\(run?.instanceName ?? "Task") run")
         VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
           Text(run.map { "\($0.instanceName) · \($0.kind.capitalized)" } ?? "No agent run yet")
             .font(NoemaFont.captionEmphasized)

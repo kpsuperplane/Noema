@@ -7,6 +7,8 @@ import UIKit
 struct ChatLaneRow<Content: View>: View {
   let lane: ChatLane
   let showAvatar: Bool
+  let avatarActivity: NoemaAvatarActivity
+  let avatarAnimated: Bool
   let compactContentInset: CGFloat
   let content: Content
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -14,11 +16,15 @@ struct ChatLaneRow<Content: View>: View {
   init(
     lane: ChatLane,
     showAvatar: Bool,
+    avatarActivity: NoemaAvatarActivity = .idle,
+    avatarAnimated: Bool = false,
     compactContentInset: CGFloat = NoemaSpacing.sm,
     @ViewBuilder content: () -> Content
   ) {
     self.lane = lane
     self.showAvatar = showAvatar
+    self.avatarActivity = avatarActivity
+    self.avatarAnimated = avatarAnimated
     self.compactContentInset = compactContentInset
     self.content = content()
   }
@@ -33,7 +39,12 @@ struct ChatLaneRow<Content: View>: View {
       } else {
         HStack(alignment: .bottom, spacing: NoemaSpacing.sm) {
           if lane == .assistant {
-            ChatAvatarView(lane: lane, visible: showAvatar)
+            ChatAvatarView(
+              lane: lane,
+              visible: showAvatar,
+              activity: avatarActivity,
+              animated: avatarAnimated
+            )
             content
               .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: NoemaSpacing.xxl)
@@ -90,13 +101,17 @@ private struct CompactChatLaneLayout: Layout {
 struct ChatAvatarView: View {
   let lane: ChatLane
   let visible: Bool
+  var activity: NoemaAvatarActivity = .idle
+  var animated = false
 
   var body: some View {
-    Image(systemName: lane == .assistant ? "sparkles" : "person.fill")
-      .font(NoemaFont.metadata.weight(.semibold))
-      .foregroundStyle(lane == .assistant ? NoemaColor.pine700 : NoemaColor.contentSecondary)
+    NoemaIdentityAvatar(
+      actorID: lane == .assistant ? "agent:local" : "human:local",
+      actorType: lane == .assistant ? .agent : .human,
+      activity: activity,
+      animated: animated && visible
+    )
       .frame(width: 28, height: 28)
-      .background(lane == .assistant ? NoemaColor.pine100 : NoemaColor.paper200, in: Circle())
       .opacity(visible ? 1 : 0)
       .accessibilityHidden(!visible)
   }
@@ -108,6 +123,8 @@ struct ChatMessageView: View {
   let attachedTaskIDs: [String]
   let group: ChatBubbleGroup
   let showAvatar: Bool
+  let avatarActivity: NoemaAvatarActivity
+  let avatarAnimated: Bool
   let submittedChoiceIDs: Set<String>
   let disabled: Bool
   let onChoice: (String, [String]) -> Void
@@ -141,7 +158,12 @@ struct ChatMessageView: View {
     case let .assistant(text, streaming):
       let minimumContentWidth: CGFloat? = !attachedTaskIDs.isEmpty && text.count > 30 ? 247 : nil
       let citations = ProviderCitation.from(metadata: message.metadata)
-      ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
+      ChatLaneRow(
+        lane: .assistant,
+        showAvatar: showAvatar,
+        avatarActivity: avatarActivity,
+        avatarAnimated: avatarAnimated
+      ) {
         ChatBubbleView(lane: .assistant, group: group) {
           VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
             ChatMarkdownText(text: text, color: NoemaColor.content, assistant: true)
@@ -162,7 +184,12 @@ struct ChatMessageView: View {
       if isSystemNotice(message) {
         SystemNoticeView(message: message)
       } else {
-        ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
+        ChatLaneRow(
+          lane: .assistant,
+          showAvatar: showAvatar,
+          avatarActivity: avatarActivity,
+          avatarAnimated: avatarAnimated
+        ) {
           ActivityRowView(message: ChatMessage(
             id: message.id,
             cursor: message.cursor,
@@ -175,13 +202,23 @@ struct ChatMessageView: View {
         }
       }
     case let .a2ui(surface):
-      ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
+      ChatLaneRow(
+        lane: .assistant,
+        showAvatar: showAvatar,
+        avatarActivity: avatarActivity,
+        avatarAnimated: avatarAnimated
+      ) {
         A2UISurfaceView(surface: surface, disabled: disabled) { componentID, actionName, context, dataModel in
           onA2UI(surface, componentID, actionName, context, dataModel)
         }
       }
     case let .choicePrompt(prompt, mode, options):
-      ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
+      ChatLaneRow(
+        lane: .assistant,
+        showAvatar: showAvatar,
+        avatarActivity: avatarActivity,
+        avatarAnimated: avatarAnimated
+      ) {
         ChoicePromptView(
           prompt: prompt,
           mode: mode,
@@ -208,11 +245,21 @@ struct ChatMessageView: View {
         tone: .error
       )
     case let .artifact(reference):
-      ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
+      ChatLaneRow(
+        lane: .assistant,
+        showAvatar: showAvatar,
+        avatarActivity: avatarActivity,
+        avatarAnimated: avatarAnimated
+      ) {
         ArtifactReferenceView(reference: reference, onOpen: { onArtifact(reference) })
       }
     case let .task(taskID):
-      ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
+      ChatLaneRow(
+        lane: .assistant,
+        showAvatar: showAvatar,
+        avatarActivity: avatarActivity,
+        avatarAnimated: avatarAnimated
+      ) {
         TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
       }
       }

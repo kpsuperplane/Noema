@@ -511,11 +511,14 @@ struct TasksTranscriptSection: View {
   }
 
   private func runAvatar(_ run: TasksRunSnapshot) -> some View {
-    Text(String(runRoleLabel(run).prefix(1)))
-      .font(.custom("Hanken Grotesk", size: 9, relativeTo: .caption2).weight(.semibold))
-      .foregroundStyle(NoemaColor.pine700)
+    let avatarMotion = noemaTaskRunAvatarMotion(status: run.status)
+    return NoemaIdentityAvatar(
+      actorID: "subagent:\(run.instanceName)",
+      actorType: .agent,
+      activity: avatarMotion.activity,
+      animated: avatarMotion.animated
+    )
       .frame(width: 16, height: 16)
-      .background(NoemaColor.pine100, in: Circle())
       .accessibilityLabel("\(runRoleLabel(run)) run")
   }
 

@@ -120,6 +120,9 @@ vertical slice or a net-negative reduction.
 - Frontend route and interaction truth is summarized in
   [../frontend/current-contract.md](../frontend/current-contract.md). UI changes
   follow [../frontend/product-design.md](../frontend/product-design.md).
+- Web and iOS use the same deterministic Marble and Beam avatar identities.
+  The native iOS renderer supports idle, listening, thinking, and speaking motion.
+  Active chat and task status selects the activity. Reduced Motion keeps a stable pose.
 - Web action requests show one question and one consequence. Exact evidence
   stays available under Review details.
 - Settings omit success labels when the configured control proves readiness.
