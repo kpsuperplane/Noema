@@ -1,8 +1,37 @@
 //! Shared MCP tool eligibility and prompt-safety helpers.
 
 use crate::{
-    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolPolicyRecord, McpToolRecord,
+    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolPolicyRecord,
+    McpToolPolicyStatus, McpToolRecord,
 };
+
+/// Return whether one exact disabled tool can be enabled without other setup.
+#[must_use]
+pub(crate) fn mcp_tool_can_be_enabled(
+    server: &McpServerRecord,
+    tool: &McpToolRecord,
+    policy: &McpToolPolicyRecord,
+) -> bool {
+    server.enabled
+        && server.health_status == McpServerHealthStatus::Healthy
+        && matches!(
+            server.auth_status,
+            McpServerAuthStatus::None | McpServerAuthStatus::Authenticated
+        )
+        && server.data_sharing_policy.is_some()
+        && server.unsafe_action_policy.is_some()
+        && policy.tool_id == tool.mcp_tool_id
+        && policy.source_revision == tool.metadata_fingerprint
+        && policy.status == McpToolPolicyStatus::Disabled
+        && [
+            policy.read_only.value,
+            policy.idempotent.value,
+            policy.destructive.value,
+            policy.open_world.value,
+        ]
+        .into_iter()
+        .all(|value| value.is_some())
+}
 
 /// Return whether a tool is ineligible for current model calls or gateway execution.
 #[must_use]

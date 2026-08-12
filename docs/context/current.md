@@ -59,6 +59,9 @@ vertical slice or a net-negative reduction.
 - Every capability binding owns a source input check. The shared capability
   router runs that check after it resolves the exact binding and before it
   calls the invoker. Immediate and reviewed calls use the same check.
+- A disabled API or MCP tool stays non-callable. Its safe catalog row names one
+  reviewed enablement tool when the current policy can enable it. That tool
+  always creates a human action request and reuses the current policy fences.
 - Invalid task terminal input stops before invocation. It returns the existing
   invalid-terminal result so that the task can request one corrected report. A
   second invalid report ends in recovery.

@@ -74,6 +74,9 @@ Client import occurs only when a structured API connection action requires it.
 
 Chat presents one pending human intervention at a time with queue navigation.
 Tasks and dedicated queue surfaces can show the complete pending list.
+An agent request to enable a disabled tool uses the existing action request
+card. The primary action says `Enable tool` because approval changes persistent
+tool policy.
 
 An OAuth application is reusable provider setup. An authorization grant is one
 account's access. An API connection keeps its own tool policy and lifecycle.

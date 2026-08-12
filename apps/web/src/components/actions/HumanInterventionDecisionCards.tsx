@@ -80,6 +80,7 @@ export function GovernedActionCard({
   const [error, setError] = React.useState<string | null>(null);
   const [pendingDecision, setPendingDecision] = React.useState<GovernedActionDecision | null>(null);
   const browserPreview = parseBrowserActionPreview(action.arguments);
+  const toolEnablement = toolEnablementTarget(action.capabilityName);
   const browserSessionEnded = action.browserSessionAvailable === false;
   const decide = async (decision: GovernedActionDecision) => {
     setError(null);
@@ -120,7 +121,7 @@ export function GovernedActionCard({
           <Button
             size="sm"
             variant="primary"
-            label={browserSessionEnded ? "Session ended" : "Approve once"}
+            label={browserSessionEnded ? "Session ended" : toolEnablement ? "Enable tool" : "Approve once"}
             isLoading={pendingDecision === "APPROVE"}
             isDisabled={resolution.loading || browserSessionEnded}
             onClick={() => void decide("APPROVE")}
@@ -168,10 +169,16 @@ export function GovernedActionCard({
 }
 
 function actionRequestTitle(action: PendingGovernedAction) {
+  const toolName = toolEnablementTarget(action.capabilityName);
+  if (toolName) return `Enable ${toolName}?`;
   const target = actionTargetName(action);
   if (action.behavior?.readOnly) return `Share request data with ${target}?`;
   if (action.behavior?.destructive) return `Allow a destructive change in ${target}?`;
   return `Allow this change in ${target}?`;
+}
+
+function toolEnablementTarget(capabilityName: string) {
+  return capabilityName.startsWith("enable.") ? capabilityName.slice("enable.".length) : null;
 }
 
 function actionTargetName(action: PendingGovernedAction) {

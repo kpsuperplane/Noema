@@ -27,7 +27,7 @@ use noema_capabilities::{
     CapabilityCatalogBuilder, CapabilityCatalogSnapshot, CapabilityExecutionDecision,
     CapabilityScope, CapabilityTarget, CapabilityToolBehavior, InvokerKey,
     RedactingPayloadSanitizer, ToolContractError, ToolName, ToolSpec, WebBrowsePayloadSanitizer,
-    WebFetchPayloadSanitizer,
+    WebFetchPayloadSanitizer, tool_enablement_name,
 };
 use noema_memory::{native_search_memory_tool_spec, read_memory_page_tool_spec};
 use noema_providers::{
@@ -100,8 +100,13 @@ pub(super) async fn build_model_tools_for_role(
     let unavailable_rows = capability_catalog
         .availability_notices
         .iter()
-        .filter(|notice| notice.status != CapabilityAvailabilityStatus::Disabled)
-        .map(render_availability_notice)
+        .map(|notice| {
+            render_availability_notice(
+                notice,
+                &capability_catalog.snapshot,
+                transport != ProviderToolTransport::None,
+            )
+        })
         .collect();
     if transport == ProviderToolTransport::None {
         return Ok(ModelTools {
@@ -520,7 +525,11 @@ fn builtin_tool_specs(include_agent_name_tool: bool) -> Result<Vec<ToolSpec>, To
     Ok(specs)
 }
 
-fn render_availability_notice(notice: &CapabilityAvailabilityNotice) -> String {
+fn render_availability_notice(
+    notice: &CapabilityAvailabilityNotice,
+    catalog: &CapabilityCatalogSnapshot,
+    enablement_supported: bool,
+) -> String {
     let capability = notice
         .capability
         .as_ref()
@@ -530,7 +539,14 @@ fn render_availability_notice(notice: &CapabilityAvailabilityNotice) -> String {
         CapabilityAvailabilityStatus::AuthenticationRequired => "authentication_required",
         CapabilityAvailabilityStatus::Disabled => "disabled",
     };
-    format!("- unavailable_capability\t{capability}\tstatus={status}")
+    let enablement = notice
+        .capability
+        .as_ref()
+        .and_then(|name| tool_enablement_name(name).ok())
+        .filter(|name| enablement_supported && catalog.resolve(name.as_str()).is_some())
+        .map(|name| format!("\tenable_with={name}"))
+        .unwrap_or_default();
+    format!("- unavailable_capability\t{capability}\tstatus={status}{enablement}")
 }
 
 #[cfg(feature = "eval-support")]

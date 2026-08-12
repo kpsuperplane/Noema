@@ -2,16 +2,18 @@
 
 use crate::{
     LocalMcpService, McpClientError, McpDiagnosticEvent, McpDiagnosticKind, McpFailureStatus,
-    McpServerAuthStatus, McpServerHealthStatus, McpToolCallOutput,
+    McpRepositoryErrorKind, McpServerAuthStatus, McpServerHealthStatus, McpSetToolEnabledUpdate,
+    McpToolCallOutput,
     catalog::{McpOperationAuthority, execution_decision, is_connect_service_invocation},
-    eligibility::mcp_tool_ineligibility,
+    eligibility::{mcp_tool_can_be_enabled, mcp_tool_ineligibility},
     service::map_client_operation_error,
     setup::{auth_status_for_secrets, secret_material_matches_server},
 };
 use noema_capabilities::{
     CapabilityAuthenticationAuthorityKind, CapabilityAuthenticationChallenge,
     CapabilityAuthenticationChallengeKind, CapabilityError, CapabilityFuture, CapabilityInvocation,
-    CapabilityInvoker, CapabilityOutput, sanitize_standard_credentials,
+    CapabilityInvoker, CapabilityOutput, ToolName, sanitize_standard_credentials,
+    tool_enablement_name,
 };
 
 impl CapabilityInvoker for LocalMcpService {
@@ -46,6 +48,11 @@ impl LocalMcpService {
             return self.connect_service_from_chat(invocation.arguments).await;
         }
         let authority = McpOperationAuthority::from_operation_token(&invocation.operation_token)?;
+        let disabled_name = ToolName::new(authority.canonical_name())
+            .map_err(|_| CapabilityError::UnknownOperation)?;
+        if tool_enablement_name(&disabled_name).is_ok_and(|name| name == invocation.operation) {
+            return self.enable_disabled_tool(invocation, authority).await;
+        }
         if invocation.operation.as_str() != authority.canonical_name() {
             return Err(CapabilityError::UnknownOperation);
         }
@@ -204,6 +211,77 @@ impl LocalMcpService {
                 }
             }
         }
+    }
+
+    async fn enable_disabled_tool(
+        &self,
+        invocation: CapabilityInvocation,
+        authority: McpOperationAuthority,
+    ) -> Result<CapabilityOutput, CapabilityError> {
+        if !invocation
+            .arguments
+            .as_object()
+            .is_some_and(serde_json::Map::is_empty)
+        {
+            return Err(CapabilityError::InvalidArguments);
+        }
+        let Some(authorization) = invocation.reviewed_authorization.as_ref() else {
+            return Err(CapabilityError::Denied);
+        };
+        if !authorization.matches_arguments(&invocation.arguments) {
+            return Err(CapabilityError::Denied);
+        }
+        let context = self
+            .inner
+            .request_context(self.inner.config.invocation_timeout);
+        let _server_guard = self
+            .inner
+            .lock_server(authority.server_id(), &context)
+            .await
+            .map_err(|_| CapabilityError::Unavailable)?;
+        let _policy_guard = self
+            .inner
+            .lock_policy_write(vec![authority.server_id().to_string()], &context)
+            .await
+            .map_err(|_| CapabilityError::Unavailable)?;
+        let snapshot = self
+            .inner
+            .repository
+            .invocation_snapshot(
+                authority.server_id().to_string(),
+                authority.tool_id().to_string(),
+            )
+            .await
+            .map_err(|_| CapabilityError::Unavailable)?
+            .ok_or(CapabilityError::UnknownOperation)?;
+        let policy = snapshot
+            .policy
+            .as_ref()
+            .ok_or(CapabilityError::UnknownOperation)?;
+        if !authority.matches(&snapshot.server, &snapshot.tool, policy)
+            || !mcp_tool_can_be_enabled(&snapshot.server, &snapshot.tool, policy)
+        {
+            return Err(CapabilityError::UnknownOperation);
+        }
+        self.inner
+            .repository
+            .set_tool_enabled(McpSetToolEnabledUpdate {
+                mcp_tool_id: authority.tool_id().to_string(),
+                enabled: true,
+                source_revision: policy.source_revision.clone(),
+                expected_policy_revision: policy.policy_revision,
+                expected_connection_revision: snapshot.server.authority_generation,
+            })
+            .await
+            .map_err(|error| match error.kind() {
+                McpRepositoryErrorKind::Unavailable => CapabilityError::Unavailable,
+                McpRepositoryErrorKind::NotFound
+                | McpRepositoryErrorKind::Conflict
+                | McpRepositoryErrorKind::Invariant => CapabilityError::UnknownOperation,
+            })?;
+        Ok(CapabilityOutput::success(serde_json::json!({
+            "enabled_capability": authority.canonical_name()
+        })))
     }
 
     async fn record_invocation_client_failure(

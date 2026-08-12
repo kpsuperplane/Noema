@@ -12,7 +12,7 @@ use crate::{
 };
 use noema_capabilities::{
     CapabilityAuthenticationAuthorityKind, CapabilityBindingSource, CapabilityError,
-    CapabilityInvocation, CapabilityInvoker,
+    CapabilityInvocation, CapabilityInvoker, ReviewedCapabilityAuthorization,
 };
 use noema_home::NoemaPaths;
 use serde_json::json;
@@ -70,6 +70,64 @@ struct GrantFixture {
     grant_id: String,
     application_id: String,
     semantic_digest: String,
+}
+
+#[tokio::test]
+async fn reviewed_enablement_restores_one_disabled_adapter_tool() {
+    let fixture = grant_fixture(Err(AdapterOAuthTokenError::Unavailable));
+    let snapshot = fixture.service.management_snapshot().expect("management");
+    let connection = snapshot
+        .connections
+        .connections
+        .iter()
+        .find(|connection| connection.descriptor.connection_slug == "first")
+        .expect("connection");
+    let operation = &snapshot.definitions.definitions[0].compiled.operations[0];
+    fixture
+        .service
+        .set_management_tool_enabled(
+            crate::AdapterManagementFence {
+                connection_id: connection.descriptor.connection_id.clone(),
+                expected_connection_revision: connection.descriptor.connection_revision,
+                expected_policy_revision: connection.descriptor.policy_revision,
+            },
+            operation.operation_id.clone(),
+            operation.operation_digest.to_string(),
+            false,
+        )
+        .await
+        .expect("disable tool");
+
+    let disabled = CapabilityBindingSource::catalog(&fixture.service)
+        .await
+        .expect("disabled catalog");
+    let disabled_name = "shared_grant_fixture_first.get_item";
+    let enablement = disabled
+        .snapshot
+        .resolve("enable.shared_grant_fixture_first.get_item")
+        .expect("enablement tool");
+
+    let arguments = json!({});
+    CapabilityInvoker::invoke(
+        &fixture.service,
+        CapabilityInvocation {
+            operation: enablement.spec().name.clone(),
+            operation_token: enablement.target().operation_token().clone(),
+            arguments: arguments.clone(),
+            reviewed_authorization: Some(ReviewedCapabilityAuthorization::for_action(
+                "action:test",
+                1,
+                &arguments,
+            )),
+        },
+    )
+    .await
+    .expect("enable tool");
+
+    let restored = CapabilityBindingSource::catalog(&fixture.service)
+        .await
+        .expect("restored catalog");
+    assert!(restored.snapshot.resolve(disabled_name).is_some());
 }
 
 fn grant_fixture(

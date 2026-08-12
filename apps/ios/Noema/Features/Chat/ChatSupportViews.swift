@@ -264,7 +264,10 @@ struct ChatInterventionsView: View {
               .foregroundStyle(NoemaColor.danger)
           }
           interventionError(action.actionID)
-          GovernedInterventionActions(disabled: model.isOffline) {
+          GovernedInterventionActions(
+            disabled: model.isOffline,
+            approveTitle: action.isToolEnablement ? "Enable tool" : "Approve once"
+          ) {
             await model.resolve(intervention, decision: $0)
           }
         case let .mcpAuth(auth):

@@ -9,7 +9,7 @@ use noema_capabilities::{
     CapabilityConnectionPolicy, CapabilityDestination, CapabilityExecutionDecision,
     CapabilityScope, CapabilityServiceContext, CapabilityTarget, CapabilityToolBehavior,
     InvokerKey, RedactingPayloadSanitizer, ToolInputCheck, ToolName, ToolSpec,
-    resolve_capability_execution_decision,
+    resolve_capability_execution_decision, tool_enablement_name,
 };
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +20,8 @@ use crate::{
     McpControlPlaneServer, McpControlPlaneTool, McpServerAuthStatus, McpServerHealthStatus,
     McpToolPolicyRecord,
     eligibility::{
-        mcp_tool_catalog_ineligibility, mcp_tool_ineligibility, prompt_safe_mcp_tool_description,
+        mcp_tool_can_be_enabled, mcp_tool_catalog_ineligibility, mcp_tool_ineligibility,
+        prompt_safe_mcp_tool_description,
     },
     limits::bounded_provider_schema,
 };
@@ -178,15 +179,42 @@ pub(crate) fn catalog_from_servers(
                 .map_err(|_| CapabilityBindingSourceError::Invalid)?;
         }
         for tool in &server.tools {
-            if mcp_tool_catalog_ineligibility(&server.server, &tool.tool, tool.policy.as_ref()) {
-                continue;
-            }
             let Some(policy) = tool.policy.as_ref() else {
                 continue;
             };
             let canonical_name = format!("mcp.{}.{}", server.server.mcp_server_id, tool.tool.name);
             let name = ToolName::new(&canonical_name)
                 .map_err(|_| CapabilityBindingSourceError::Invalid)?;
+            let description =
+                prompt_safe_mcp_tool_description(tool.tool.description.as_deref(), 96)
+                    .unwrap_or_else(|| "MCP tool".to_string());
+            let authority = McpOperationAuthority::capture(canonical_name, server, tool, policy);
+            let destination = CapabilityDestination::new(
+                "mcp",
+                server.server.mcp_server_id.clone(),
+                None::<String>,
+                server.server.authority_generation.clone(),
+            )
+            .map_err(|_| CapabilityBindingSourceError::Invalid)?;
+            if mcp_tool_can_be_enabled(&server.server, &tool.tool, policy) {
+                availability_notices.push(CapabilityAvailabilityNotice {
+                    capability: Some(name.clone()),
+                    status: CapabilityAvailabilityStatus::Disabled,
+                });
+                builder
+                    .add(enablement_binding(
+                        &name,
+                        &description,
+                        &authority,
+                        destination,
+                        service_context.clone(),
+                    )?)
+                    .map_err(|_| CapabilityBindingSourceError::Invalid)?;
+                continue;
+            }
+            if mcp_tool_catalog_ineligibility(&server.server, &tool.tool, Some(policy)) {
+                continue;
+            }
             let callable = !mcp_tool_ineligibility(&server.server, &tool.tool, Some(policy));
             if !callable {
                 availability_notices.push(CapabilityAvailabilityNotice {
@@ -205,23 +233,12 @@ pub(crate) fn catalog_from_servers(
                     },
                 });
             }
-            let description =
-                prompt_safe_mcp_tool_description(tool.tool.description.as_deref(), 96)
-                    .unwrap_or_else(|| "MCP tool".to_string());
             let input_schema = bounded_provider_schema(&tool.tool.input_schema)
                 .ok_or(CapabilityBindingSourceError::Invalid)?;
             let spec = ToolSpec::new(name.as_str(), description, input_schema)
                 .map_err(|_| CapabilityBindingSourceError::Invalid)?;
             let input_check = compile_mcp_input_check(spec.input_schema.as_value())?;
-            let authority = McpOperationAuthority::capture(canonical_name, server, tool, policy);
             let execution_decision = execution_decision(&server.server, policy);
-            let destination = CapabilityDestination::new(
-                "mcp",
-                server.server.mcp_server_id.clone(),
-                None::<String>,
-                server.server.authority_generation.clone(),
-            )
-            .map_err(|_| CapabilityBindingSourceError::Invalid)?;
             builder
                 .add(
                     CapabilityBinding::new(
@@ -246,6 +263,52 @@ pub(crate) fn catalog_from_servers(
         snapshot: builder.build(),
         availability_notices,
     })
+}
+
+#[cfg(any(feature = "transport", test))]
+fn enablement_binding(
+    disabled_name: &ToolName,
+    disabled_description: &str,
+    authority: &McpOperationAuthority,
+    destination: CapabilityDestination,
+    service_context: CapabilityServiceContext,
+) -> Result<CapabilityBinding, CapabilityBindingSourceError> {
+    let name =
+        tool_enablement_name(disabled_name).map_err(|_| CapabilityBindingSourceError::Invalid)?;
+    let spec = ToolSpec::new(
+        name.as_str(),
+        format!(
+            "Ask the human to enable the disabled {disabled_name} tool ({disabled_description}). Use this only when that tool is required for the current request."
+        ),
+        serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+        }),
+    )
+    .map_err(|_| CapabilityBindingSourceError::Invalid)?;
+    Ok(CapabilityBinding::new(
+        spec,
+        CapabilityTarget::new(
+            InvokerKey::new(MCP_INVOKER_KEY),
+            authority.operation_token(),
+        ),
+        CapabilityToolBehavior {
+            read_only: false,
+            idempotent: true,
+            destructive: false,
+            open_world: false,
+        },
+        CapabilityExecutionDecision::HumanReview,
+        CapabilityScope::Global,
+        Arc::new(|arguments: &serde_json::Value| {
+            arguments.as_object().is_some_and(serde_json::Map::is_empty)
+        }),
+        Arc::new(RedactingPayloadSanitizer),
+    )
+    .with_destination(destination)
+    .with_service_context(service_context))
 }
 
 #[cfg(any(feature = "transport", test))]

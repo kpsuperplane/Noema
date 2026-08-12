@@ -62,7 +62,10 @@ struct GovernedActionModel: Equatable {
     connectionLabel ?? serviceName ?? serviceID ?? capabilityName
   }
 
+  var isToolEnablement: Bool { capabilityName.hasPrefix("enable.") }
+
   var question: String {
+    if isToolEnablement { return "Enable \(String(capabilityName.dropFirst("enable.".count)))?" }
     if readOnly == true { return "Share request data with \(targetName)?" }
     if destructive == true { return "Allow a destructive change in \(targetName)?" }
     return "Allow this change in \(targetName)?"

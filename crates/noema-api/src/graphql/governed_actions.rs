@@ -259,6 +259,9 @@ fn action_request_disclosure(
     behavior: Option<StoredToolBehavior>,
     capability_name: &str,
 ) -> Option<GraphqlActionRequestDisclosure> {
+    if capability_name.starts_with(noema_capabilities::TOOL_ENABLEMENT_PREFIX) {
+        return None;
+    }
     (target.is_some() || behavior.is_some_and(|value| value.open_world)).then(|| {
         GraphqlActionRequestDisclosure {
             recipient: action_request_target_name(target, capability_name),
@@ -273,6 +276,9 @@ fn action_request_consequence(
     capability_name: &str,
 ) -> String {
     let target = action_request_target_name(target, capability_name);
+    if capability_name.starts_with(noema_capabilities::TOOL_ENABLEMENT_PREFIX) {
+        return format!("This keeps the tool enabled for future requests in {target}.");
+    }
     match behavior {
         Some(behavior) if behavior.read_only => {
             format!("{target} receives the request data shown in Review details.")

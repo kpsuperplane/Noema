@@ -56,4 +56,5 @@ pub use router::{
     CapabilityRegistryRouter, CapabilityRouterConstructionError, InvokerKey,
     ReviewedCapabilityAuthorization,
 };
+pub use tool::{TOOL_ENABLEMENT_PREFIX, tool_enablement_name};
 pub use tool::{ToolContractError, ToolName, ToolSchema, ToolSpec};

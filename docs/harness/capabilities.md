@@ -652,6 +652,10 @@ The summary should not expose:
 - Tools the agent cannot use.
 - Resource names the agent cannot know.
 
+A disabled operation is one bounded exception. Noema can show its safe reviewed
+name and purpose when the current human can enable it. The operation remains
+uncallable. A separate enablement tool always creates a human action request.
+
 ## Installation and enablement lifecycle
 
 Capability lifecycle:
@@ -666,6 +670,10 @@ Capability lifecycle:
 8. Invocations are audited.
 9. Grants may be revoked.
 10. Capability may be disabled or uninstalled.
+
+When an agent needs a disabled operation, it can request enablement through the
+same durable action gateway. Human approval changes the tool policy. A fresh
+continuation receives the updated catalog before it can call the operation.
 
 Installation should not imply broad use. Enablement and grants are separate.
 

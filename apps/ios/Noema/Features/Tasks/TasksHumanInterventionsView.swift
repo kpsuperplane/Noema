@@ -57,7 +57,10 @@ struct TasksHumanInterventionsView: View {
         .foregroundStyle(NoemaColor.danger)
     }
     interventionError(action.actionID)
-    GovernedInterventionActions(disabled: !model.isConnected) {
+    GovernedInterventionActions(
+      disabled: !model.isConnected,
+      approveTitle: action.isToolEnablement ? "Enable tool" : "Approve once"
+    ) {
       await model.resolve(intervention, decision: $0)
     }
   }

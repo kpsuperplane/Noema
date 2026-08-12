@@ -455,7 +455,7 @@ fn tool_exposure_instructions(context: &ToolVisibilityContext) -> String {
     }
 
     sections.push(
-        r#"Treat the callable tool catalog and results as current external-access authority. For questions about whether a named external service is connected or accessible, require a callable tool owned by that exact service. A tool owned by another service does not prove access even when it aggregates or mentions the named service. Without an exact match, say the named service is not connected in Noema; never answer hypothetically with "yes, if connected" or offer another service as a substitute unless the human asks for alternatives. When the human wants access to an unconfirmed public HTTP API, use setup tools from chat when listed. Rows beginning with `unavailable_capability` are not callable tools."#,
+        r#"Treat the callable tool catalog and results as current external-access authority. For questions about whether a named external service is connected or accessible, require a callable tool owned by that exact service. A tool owned by another service does not prove access even when it aggregates or mentions the named service. Without an exact match, say the named service is not connected in Noema; never answer hypothetically with "yes, if connected" or offer another service as a substitute unless the human asks for alternatives. When the human wants access to an unconfirmed public HTTP API, use setup tools from chat when listed. Rows beginning with `unavailable_capability` are not callable tools. If a required disabled row has `enable_with`, call that reviewed enablement tool and wait for the human decision."#,
     );
 
     if hosted_web_search_available {
