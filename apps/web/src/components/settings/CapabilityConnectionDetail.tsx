@@ -13,16 +13,13 @@ import {
   SaveCapabilityConnectionLabelDocument,
   SaveCapabilityToolOverrideDocument,
   SetCapabilityToolEnabledDocument,
-  StartAdapterOauthSetupDocument,
   type CapabilityConnectionQuery,
   type ResetCapabilityToolPolicyMutation,
   type SaveCapabilityConnectionPolicyMutation,
   type SaveCapabilityConnectionLabelMutation,
   type SaveCapabilityToolOverrideMutation,
-  type SetCapabilityToolEnabledMutation,
-  type StartAdapterOauthSetupMutation
+  type SetCapabilityToolEnabledMutation
 } from "@/generated/graphql";
-import { reserveExternalAuthNavigation } from "@/graphql/externalUrls";
 import {
   CapabilityPolicyChoices,
   type CapabilityDataSharingPolicy,
@@ -69,9 +66,6 @@ export function CapabilityConnectionDetail({
   );
   const [setEnabled, enabledState] = useMutation<SetCapabilityToolEnabledMutation>(
     SetCapabilityToolEnabledDocument
-  );
-  const [startAdapterOauth, oauthState] = useMutation<StartAdapterOauthSetupMutation>(
-    StartAdapterOauthSetupDocument
   );
   const connection = result.data?.capabilityConnection ?? null;
   const tools = result.data?.capabilityTools ?? [];
@@ -151,28 +145,6 @@ export function CapabilityConnectionDetail({
       await refresh();
     } catch {
       setError("This connection label changed. Reload it and try again.");
-    }
-  }
-
-  async function authorizeApi() {
-    if (!connection || connection.credentialRevision === null || connection.grantRevision === null) return;
-    const navigation = reserveExternalAuthNavigation();
-    setError(null);
-    try {
-      const response = await startAdapterOauth({ variables: { input: {
-        connectionId,
-        expectedConnectionRevision: Number(connection.connectionRevision),
-        expectedCredentialRevision: connection.credentialRevision,
-        expectedGrantRevision: connection.grantRevision,
-        expectedPolicyRevision: connection.policyRevision
-      } } });
-      const url = response.data?.startAdapterOauthSetup.authorizationUrl;
-      if (!url) throw new Error("missing authorization URL");
-      await navigation.open(url);
-      window.addEventListener("focus", () => void refresh(), { once: true });
-    } catch {
-      navigation.cancel();
-      setError("Authorization could not be started.");
     }
   }
 
@@ -273,15 +245,6 @@ export function CapabilityConnectionDetail({
             ) : null}
           </HStack>
         </HStack>
-        {kind === "API" && connection.authStatus === "required" ? (
-          <Button
-            type="button"
-            label="Authorize connection"
-            isLoading={oauthState.loading}
-            {...stylex.props(styles.fit)}
-            onClick={() => void authorizeApi()}
-          />
-        ) : null}
         {sourceActions ? <HStack gap={1} wrap="wrap" vAlign="center">{sourceActions}</HStack> : null}
       </SettingsSection>
 

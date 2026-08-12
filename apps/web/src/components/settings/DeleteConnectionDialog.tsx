@@ -14,6 +14,7 @@ export function DeleteConnectionDialog({
   open,
   submitting,
   error,
+  keepsAccount = false,
   onOpenChange,
   onConfirm
 }: {
@@ -21,6 +22,7 @@ export function DeleteConnectionDialog({
   open: boolean;
   submitting: boolean;
   error: string | null;
+  keepsAccount?: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
 }) {
@@ -28,7 +30,9 @@ export function DeleteConnectionDialog({
   const toolCount = connection
     ? `${connection.toolCount} ${connection.toolCount === 1 ? "tool" : "tools"}`
     : null;
-  const consequence = toolCount
+  const consequence = keepsAccount
+    ? `Removes this API connection and ${toolCount ?? "its tools"}. The account remains connected.`
+    : toolCount
     ? `Removes the connection, sign-in details, ${toolCount}, and tool settings.`
     : "Removes the connection and sign-in details.";
 

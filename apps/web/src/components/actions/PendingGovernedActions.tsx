@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useMutation, useQuery, useSubscription } from "@apollo/client/react";
+import { useLazyQuery, useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
@@ -15,6 +15,10 @@ import {
   CancelAdapterDefinitionDocument,
   SetupAdapterConnectionDocument,
   StartAdapterOauthSetupDocument,
+  AdapterOauthAttemptDocument,
+  AdapterOauthAttemptEventsDocument,
+  ImportAdapterOauthApplicationDocument,
+  AttachAdapterOauthConnectionDocument,
   SaveCapabilityConnectionPolicyDocument,
   ConversationEventsDocument,
   type PendingHumanInterventionsQuery,
@@ -313,13 +317,21 @@ function AdapterDefinitionCard({
   const [approveDefinition, approval] = useMutation(ApproveAdapterDefinitionDocument);
   const [cancelDefinition, cancellation] = useMutation(CancelAdapterDefinitionDocument);
   const [setupConnection, credentialSetup] = useMutation(SetupAdapterConnectionDocument);
+  const [importApplication, applicationImport] = useMutation(ImportAdapterOauthApplicationDocument);
+  const [attachGrant, grantAttach] = useMutation(AttachAdapterOauthConnectionDocument);
   const [startOauth, oauthStart] = useMutation(StartAdapterOauthSetupDocument);
+  const [loadOauthAttempt] = useLazyQuery(AdapterOauthAttemptDocument, {
+    fetchPolicy: "network-only"
+  });
   const [savePolicy, policySave] = useMutation<SaveCapabilityConnectionPolicyMutation>(
     SaveCapabilityConnectionPolicyDocument
   );
   const [error, setError] = React.useState<string | null>(null);
   const [authorizing, setAuthorizing] = React.useState(false);
   const [authorizationExpiry, setAuthorizationExpiry] = React.useState<number | null>(null);
+  const [oauthAttemptId, setOauthAttemptId] = React.useState<string | null>(null);
+  const [oauthAttemptNeedsAttach, setOauthAttemptNeedsAttach] = React.useState(false);
+  const finishingOauthAttempt = React.useRef(false);
   const [technicalDetailsOpen, setTechnicalDetailsOpen] = React.useState(false);
   const [credentialSetupOpen, setCredentialSetupOpen] = React.useState(false);
   const connection = definition.connections.find(
@@ -363,15 +375,19 @@ function AdapterDefinitionCard({
       const documentBase64 = submission.document
         ? encodeBase64(new Uint8Array(await submission.document.arrayBuffer()))
         : null;
-      await setupConnection({
-        variables: {
-          input: {
-            semanticDigest: definition.semanticDigest,
-            fieldValues: submission.fieldValues,
-            documentBase64
-          }
-        }
-      });
+      if (definition.nextAction?.kind === "import_application" && definition.oauthProfileDigest && documentBase64) {
+        await importApplication({ variables: { input: {
+          profileDigest: definition.oauthProfileDigest,
+          projectLabel: null,
+          clientDocumentBase64: documentBase64
+        } } });
+      } else {
+        await setupConnection({ variables: { input: {
+          semanticDigest: definition.semanticDigest,
+          fieldValues: submission.fieldValues,
+          documentBase64
+        } } });
+      }
       setCredentialSetupOpen(false);
       onResolved?.();
     } catch (caught: unknown) {
@@ -380,31 +396,116 @@ function AdapterDefinitionCard({
     }
   };
   const authorize = async () => {
-    if (!connection) return;
+    const action = definition.nextAction;
+    if (!action?.applicationId || action.expectedApplicationRevision === null) return;
     const navigation = reserveExternalAuthNavigation();
+    finishingOauthAttempt.current = false;
     setError(null);
     try {
       const response = await startOauth({
         variables: {
           input: {
-            connectionId: connection.connectionId,
-            expectedConnectionRevision: connection.connectionRevision,
-            expectedCredentialRevision: connection.credentialRevision,
-            expectedGrantRevision: connection.grantRevision,
-            expectedPolicyRevision: connection.policyRevision
+            applicationId: action.applicationId,
+            expectedApplicationRevision: action.expectedApplicationRevision,
+            grantId: action.grantId,
+            expectedGrantRevision: action.expectedGrantRevision,
+            semanticDigest: action.semanticDigest,
+            operationIds: action.operationIds
           }
         }
       });
       const attempt = response.data?.startAdapterOauthSetup;
       if (!attempt) throw new Error("Noema did not return an OAuth attempt.");
+      setOauthAttemptId(attempt.attemptId);
+      setOauthAttemptNeedsAttach(action.connectionId === null);
       setAuthorizationExpiry(attempt.expiresAtEpochSeconds);
       setAuthorizing(true);
       await navigation.open(attempt.authorizationUrl);
     } catch (caught: unknown) {
       navigation.cancel();
       setAuthorizing(false);
+      setOauthAttemptId(null);
+      setOauthAttemptNeedsAttach(false);
+      finishingOauthAttempt.current = false;
       setAuthorizationExpiry(null);
       setError(caught instanceof Error ? caught.message : "Authorization could not be started.");
+    }
+  };
+  const finishOauthAttempt = React.useCallback(async (
+    attempt: { status: string; grantId?: string | null; grantRevision?: number | null }
+  ) => {
+    if (!["completed", "failed", "expired", "superseded"].includes(attempt.status)) return;
+    if (finishingOauthAttempt.current) return;
+    finishingOauthAttempt.current = true;
+    setOauthAttemptId(null);
+    setAuthorizing(false);
+    setAuthorizationExpiry(null);
+    if (attempt.status !== "completed") {
+      setOauthAttemptNeedsAttach(false);
+      setError(attempt.status === "expired"
+        ? "Authorization expired. You can try again."
+        : "Authorization did not complete. You can try again.");
+      return;
+    }
+    try {
+      if (oauthAttemptNeedsAttach) {
+        if (!attempt.grantId || attempt.grantRevision == null) {
+          throw new Error("Noema did not return the authorized account revision.");
+        }
+        await attachGrant({ variables: { input: {
+          semanticDigest: definition.semanticDigest,
+          grantId: attempt.grantId,
+          expectedGrantRevision: attempt.grantRevision
+        } } });
+      }
+      setOauthAttemptNeedsAttach(false);
+      onResolved?.();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "The authorized account could not be attached.");
+      onResolved?.();
+    }
+  }, [attachGrant, definition.semanticDigest, oauthAttemptNeedsAttach, onResolved]);
+  useSubscription(AdapterOauthAttemptEventsDocument, {
+    variables: { attemptId: oauthAttemptId ?? "" },
+    skip: oauthAttemptId === null,
+    onData: ({ data }) => {
+      const attempt = data.data?.adapterOauthAttemptEvents;
+      if (attempt) void finishOauthAttempt(attempt);
+    }
+  });
+  React.useEffect(() => {
+    if (!oauthAttemptId) return;
+    const recoverAttempt = () => {
+      if (document.visibilityState !== "visible") return;
+      void loadOauthAttempt({ variables: { attemptId: oauthAttemptId } })
+        .then((result) => {
+          if (result.data?.adapterOauthAttempt) {
+            return finishOauthAttempt(result.data.adapterOauthAttempt);
+          }
+          return undefined;
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener("focus", recoverAttempt);
+    document.addEventListener("visibilitychange", recoverAttempt);
+    return () => {
+      window.removeEventListener("focus", recoverAttempt);
+      document.removeEventListener("visibilitychange", recoverAttempt);
+    };
+  }, [finishOauthAttempt, loadOauthAttempt, oauthAttemptId]);
+  const attach = async () => {
+    const action = definition.nextAction;
+    if (!action?.grantId || action.expectedGrantRevision === null) return;
+    setError(null);
+    try {
+      await attachGrant({ variables: { input: {
+        semanticDigest: action.semanticDigest,
+        grantId: action.grantId,
+        expectedGrantRevision: action.expectedGrantRevision
+      } } });
+      onResolved?.();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "The account could not be attached.");
     }
   };
   const submitPolicy = async () => {
@@ -428,6 +529,9 @@ function AdapterDefinitionCard({
     if (!authorizing || authorizationExpiry === null || policyConnection) return;
     const timeout = window.setTimeout(() => {
       setAuthorizing(false);
+      setOauthAttemptId(null);
+      setOauthAttemptNeedsAttach(false);
+      finishingOauthAttempt.current = false;
       setAuthorizationExpiry(null);
       setError("Authorization expired. You can try again.");
     }, Math.max(0, authorizationExpiry * 1000 - Date.now()));
@@ -441,10 +545,8 @@ function AdapterDefinitionCard({
   const sourceIsHttps = definition.sourceReference.startsWith("https://");
   const setup = definition.credentialSetup;
   const setupUrl = setup?.setupUrl;
-  const oauthSetupUnavailable = definition.reviewed
-    && definition.authenticationMode === "oauth2_authorization_code_pkce"
-    && !connection
-    && !setup;
+  const nextKind = definition.nextAction?.kind;
+  const oauthSetupUnavailable = definition.reviewed && nextKind === "import_application" && !setup;
   const title = policyConnection
     ? `Enable ${definition.displayName}`
     : connection
@@ -549,11 +651,15 @@ function AdapterDefinitionCard({
             setup={setup}
             scopes={definition.scopes}
             open={credentialSetupOpen}
-            submitting={credentialSetup.loading}
+            submitting={credentialSetup.loading || applicationImport.loading}
             error={error}
             onOpenChange={(open) => {
-              if (!credentialSetup.loading) setCredentialSetupOpen(open);
+              if (!credentialSetup.loading && !applicationImport.loading) setCredentialSetupOpen(open);
             }}
+            intro={nextKind === "import_application"
+              ? "Import this provider client document once. You can reuse it for more accounts and compatible APIs."
+              : undefined}
+            submitLabel={nextKind === "import_application" ? "Import application" : "Add connection"}
             onSubmit={importCredentials}
           />
           {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
@@ -614,25 +720,34 @@ function AdapterDefinitionCard({
                 />
               </>
             )
-          ) : oauthSetupUnavailable ? null : definition.reviewed && connection ? (
+          ) : oauthSetupUnavailable ? null : definition.reviewed && nextKind === "attach_account" ? (
             <Button
               size="sm"
               variant="primary"
-              label="Continue in browser"
+              label={`Connect ${definition.displayName}`}
+              isLoading={grantAttach.loading}
+              isDisabled={grantAttach.loading}
+              onClick={() => void attach()}
+            />
+          ) : definition.reviewed && ["add_account", "add_access", "reconnect_account"].includes(nextKind ?? "") ? (
+            <Button
+              size="sm"
+              variant="primary"
+              label={nextKind === "add_access" ? "Add access" : nextKind === "reconnect_account" ? "Reconnect account" : "Add account"}
               isLoading={oauthStart.loading || authorizing}
               isDisabled={oauthStart.loading || authorizing}
               onClick={() => void authorize()}
             />
-          ) : definition.reviewed ? (
+          ) : definition.reviewed && ["import_application", "set_up_credential"].includes(nextKind ?? "") ? (
             <Button
               size="sm"
               variant="primary"
-              label="Add credentials"
-              isLoading={credentialSetup.loading}
-              isDisabled={credentialSetup.loading || oauthStart.loading || !setup}
+              label={nextKind === "import_application" ? "Set up OAuth application" : "Add credentials"}
+              isLoading={credentialSetup.loading || applicationImport.loading}
+              isDisabled={credentialSetup.loading || applicationImport.loading || oauthStart.loading || !setup}
               onClick={() => setCredentialSetupOpen(true)}
             />
-          ) : (
+          ) : definition.reviewed ? null : (
             <>
               <Button
                 size="sm"

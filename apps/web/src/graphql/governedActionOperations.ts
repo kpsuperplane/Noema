@@ -119,6 +119,7 @@ export const PendingHumanInterventionsDocument = gql`
         sourceReference
         origin
         authenticationMode
+        oauthProfileDigest
         scopes
         credentialSetup {
           credentialType
@@ -144,11 +145,25 @@ export const PendingHumanInterventionsDocument = gql`
         }
         accountIdentityOperationId
         reviewed
+        nextAction {
+          kind
+          semanticDigest
+          applicationId
+          expectedApplicationRevision
+          grantId
+          expectedGrantRevision
+          connectionId
+          expectedConnectionRevision
+          expectedPolicyRevision
+          operationIds
+          missingScopes
+        }
         connectionCount
         connections {
           connectionId
           status
-          accountKind
+          grantId
+          accountId
           connectionRevision
           credentialRevision
           grantRevision
@@ -156,6 +171,7 @@ export const PendingHumanInterventionsDocument = gql`
           grantedScopes
           allowedOperations
           policyConfigured
+          operationAccess { operationId status missingScopes }
         }
         operations {
           operationId

@@ -39,6 +39,8 @@ export function AdapterCredentialSetupDialog({
   open,
   submitting,
   error,
+  intro = "Create the exact reviewed credential below. Noema stores only the declared private fields.",
+  submitLabel = "Add connection",
   onOpenChange,
   onSubmit
 }: {
@@ -48,6 +50,8 @@ export function AdapterCredentialSetupDialog({
   open: boolean;
   submitting: boolean;
   error?: string | null;
+  intro?: string;
+  submitLabel?: string;
   onOpenChange: (open: boolean) => void;
   onSubmit: (submission: AdapterCredentialSubmission) => Promise<void>;
 }) {
@@ -107,7 +111,7 @@ export function AdapterCredentialSetupDialog({
             >
               <VStack gap={2}>
                 <p {...stylex.props(styles.intro)}>
-                  Create the exact reviewed credential below. Noema stores only the declared private fields.
+                  {intro}
                 </p>
                 <ol {...stylex.props(styles.instructions)}>
                   {setup.instructions.map((instruction, index) => <li key={`${index}-${instruction}`}>{instruction}</li>)}
@@ -162,7 +166,7 @@ export function AdapterCredentialSetupDialog({
               {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
               <HStack gap={2} hAlign="end" wrap="wrap">
                 <Button type="button" variant="secondary" label="Cancel" isDisabled={submitting} onClick={() => onOpenChange(false)} />
-                <Button type="submit" label="Add connection" isLoading={submitting} isDisabled={submitting || !complete} />
+                <Button type="submit" label={submitLabel} isLoading={submitting} isDisabled={submitting || !complete} />
               </HStack>
             </VStack>
           </LayoutContent>
