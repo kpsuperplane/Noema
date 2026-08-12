@@ -19,6 +19,7 @@ import * as stylex from "@stylexjs/stylex";
 type SettingsSurfaceProps = {
   section: SettingsSection;
   connectionId?: string;
+  providerAccountId?: string;
 };
 
 const settingsSectionCopy: Record<SettingsSection, { title: string }> = {
@@ -35,25 +36,31 @@ const settingsSectionCopy: Record<SettingsSection, { title: string }> = {
   "system-clients": { title: "Clients" }
 };
 
-export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps) {
+export function SettingsSurface({ section, connectionId, providerAccountId }: SettingsSurfaceProps) {
   const copy = settingsSectionCopy[section];
-  const isIntegrationManagement = section === "tools-apis" || section === "tools-mcps";
+  const isManagement = section === "tools-apis"
+    || section === "tools-mcps"
+    || section === "system-providers";
 
   return (
-    <ShellPageLayout width={isIntegrationManagement ? "fluid" : "centered"}>
+    <ShellPageLayout width={isManagement ? "fluid" : "centered"}>
       <VStack
         as="section"
         data-slot="settings-surface"
-        {...stylex.props(styles.surface, isIntegrationManagement && styles.integrationSurface)}
+        {...stylex.props(styles.surface, isManagement && styles.managementSurface)}
         aria-labelledby="settings-surface-title"
       >
-        {!isIntegrationManagement ? <ShellSectionHeader
+        {!isManagement ? <ShellSectionHeader
           title={copy.title}
           titleId="settings-surface-title"
         /> : null}
-        {isIntegrationManagement ? (
-          <StackItem size="fill" {...stylex.props(styles.integrationContent)}>
-            <SettingsSectionPane section={section} connectionId={connectionId} />
+        {isManagement ? (
+          <StackItem size="fill" {...stylex.props(styles.managementContent)}>
+            <SettingsSectionPane
+              section={section}
+              connectionId={connectionId}
+              providerAccountId={providerAccountId}
+            />
           </StackItem>
         ) : (
           <ShellPageTrack>
@@ -67,7 +74,7 @@ export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps)
   );
 }
 
-function SettingsSectionPane({ section, connectionId }: SettingsSurfaceProps) {
+function SettingsSectionPane({ section, connectionId, providerAccountId }: SettingsSurfaceProps) {
   switch (section) {
     case "agents":
       return <AgentsSettingsPane />;
@@ -86,7 +93,7 @@ function SettingsSectionPane({ section, connectionId }: SettingsSurfaceProps) {
     case "safety-usage":
       return <UsageSettingsPane />;
     case "system-providers":
-      return <ProvidersSettingsPane />;
+      return <ProvidersSettingsPane providerAccountId={providerAccountId} />;
     case "system-notifications":
       return <NotificationsSettingsPane />;
     case "system-clients":
@@ -105,10 +112,10 @@ const styles = stylex.create({
       paddingTop: "var(--shell-deck-header-height)"
     }
   },
-  integrationSurface: {
+  managementSurface: {
     overflow: "hidden"
   },
-  integrationContent: {
+  managementContent: {
     minHeight: 0,
     overflow: "hidden"
   },

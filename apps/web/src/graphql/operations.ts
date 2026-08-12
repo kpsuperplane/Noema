@@ -98,6 +98,12 @@ export const ProviderAccountsDocument = gql`
       lastAuthenticatedAt
       lastErrorCode
       lastErrorMessage
+      capabilities {
+        capabilityId
+        status
+        reliabilityContract
+        dataFlowClass
+      }
     }
   }
 `;

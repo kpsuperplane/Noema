@@ -66,7 +66,7 @@ export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/settings/safety/usage") {
     return { kind: "settings", section: "safety-usage" };
   }
-  if (pathname === "/settings/system/providers") {
+  if (pathname === "/settings/system/providers" || pathname.startsWith("/settings/system/providers/")) {
     return { kind: "settings", section: "system-providers" };
   }
   if (pathname === "/settings/system/notifications") {
