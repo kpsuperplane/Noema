@@ -140,7 +140,7 @@ mod tests {
             Some("text/css; charset=utf-8")
         );
         assert_eq!(
-            content_type_for_asset_name("noema-mark.svg"),
+            content_type_for_asset_name("icon.svg"),
             Some("image/svg+xml; charset=utf-8")
         );
         assert_eq!(content_type_for_asset_name("data.bin"), None);

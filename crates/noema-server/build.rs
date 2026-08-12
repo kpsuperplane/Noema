@@ -38,7 +38,6 @@ fn validate_release_assets(asset_dir: &Path) -> io::Result<()> {
         "index.html",
         "manifest.webmanifest",
         "sw.js",
-        "noema-mark.svg",
         "apple-touch-icon.png",
         "pwa-192x192.png",
         "pwa-512x512.png",

@@ -106,7 +106,7 @@ export function Onboarding({
       gap={6}
     >
       <img
-        src={`${import.meta.env.BASE_URL}noema-mark.svg`}
+        src={`${import.meta.env.BASE_URL}pwa-512x512.png`}
         width="64"
         height="64"
         alt=""

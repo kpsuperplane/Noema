@@ -91,7 +91,12 @@ class AppBootErrorBoundary extends React.Component<
       return (
         <main {...stylex.props(styles.root)} aria-label="Noema status">
           <div {...stylex.props(styles.errorFrame)}>
-            <img src="/assets/noema-mark.svg" width="36" height="36" alt="" />
+            <img
+              src={`${import.meta.env.BASE_URL}pwa-192x192.png`}
+              width="36"
+              height="36"
+              alt=""
+            />
             <ErrorMarker message="Noema could not load." recoverable={false} />
             <Button
               type="button"

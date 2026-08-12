@@ -1,4 +1,3 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
@@ -29,24 +28,7 @@ export default defineConfig({
       babel: {
         plugins: [stylexPlugin]
       }
-    }),
-    {
-      name: "noema-desktop-public-assets",
-      transformIndexHtml(html) {
-        return html
-          .replaceAll('href="/assets/', 'href="./assets/')
-          .replaceAll('src="/assets/', 'src="./assets/');
-      },
-      async writeBundle() {
-        await fs.mkdir(path.resolve(__dirname, "dist-tauri/assets"), {
-          recursive: true
-        });
-        await fs.copyFile(
-          path.resolve(__dirname, "public/noema-mark.svg"),
-          path.resolve(__dirname, "dist-tauri/assets/noema-mark.svg")
-        );
-      }
-    }
+    })
   ],
   base: "./",
   publicDir: "public",
