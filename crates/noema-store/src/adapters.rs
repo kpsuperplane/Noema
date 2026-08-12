@@ -1,6 +1,9 @@
 //! Rebuildable SQLite projection of filesystem-canonical adapter definitions.
 
-use noema_capability_adapters::{ConnectionProjection, DefinitionProjection};
+use noema_capability_adapters::{
+    AuthorizationGrantStatus, ConnectionProjection, DefinitionProjection, OauthApplicationStatus,
+    OauthAuthoritySnapshot,
+};
 use rusqlite::params;
 use std::collections::BTreeSet;
 
@@ -75,6 +78,121 @@ pub struct AdapterConnectionRecord {
 }
 
 impl NoemaStore {
+    /// Replace all rebuildable OAuth authority projections in one transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the snapshot is invalid or SQLite fails.
+    pub async fn reconcile_adapter_oauth_authorities(
+        &self,
+        snapshot: &OauthAuthoritySnapshot,
+    ) -> Result<(), StoreError> {
+        validate_oauth_snapshot(snapshot)?;
+        let grant_scopes = snapshot
+            .grants
+            .iter()
+            .map(|grant| {
+                Ok((
+                    grant,
+                    serde_json::to_string(&grant.desired_scopes)?,
+                    serde_json::to_string(&grant.granted_scopes)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, serde_json::Error>>()?;
+        self.with_connection(|connection| {
+            let transaction =
+                connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            transaction.execute("DELETE FROM adapter_oauth_grants", [])?;
+            transaction.execute("DELETE FROM adapter_external_accounts", [])?;
+            transaction.execute("DELETE FROM adapter_oauth_applications", [])?;
+            transaction.execute("DELETE FROM adapter_oauth_profiles", [])?;
+            for profile in &snapshot.profiles {
+                transaction.execute(
+                    r#"INSERT INTO adapter_oauth_profiles (
+                      profile_digest, profile_id, display_name, grant_audience,
+                      descriptor_relative_path
+                    ) VALUES (?1, ?2, ?3, ?4, ?5)"#,
+                    params![
+                        profile.profile_digest,
+                        profile.profile.profile_id,
+                        profile.profile.display_name,
+                        profile.profile.grant_audience,
+                        format!(
+                            "adapters/oauth-profiles/{}/profile.json",
+                            profile.profile_digest
+                        ),
+                    ],
+                )?;
+            }
+            for application in &snapshot.applications {
+                transaction.execute(
+                    r#"INSERT INTO adapter_oauth_applications (
+                      application_id, profile_digest, callback_mode, client_id,
+                      project_label, status, revision, credential_generation,
+                      descriptor_relative_path
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
+                    params![
+                        application.application_id,
+                        application.profile_digest,
+                        callback_mode(application.callback_mode),
+                        application.client_id,
+                        application.project_label,
+                        application_status(application.status),
+                        application.revision,
+                        application.credential_generation,
+                        format!(
+                            "adapters/oauth-applications/{}/application.json",
+                            application.application_id
+                        ),
+                    ],
+                )?;
+            }
+            for account in &snapshot.accounts {
+                transaction.execute(
+                    r#"INSERT INTO adapter_external_accounts (
+                      account_id, profile_digest, provider_subject, account_label,
+                      revision, descriptor_relative_path
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)"#,
+                    params![
+                        account.account_id,
+                        account.profile_digest,
+                        account.provider_subject,
+                        account.account_label,
+                        account.revision,
+                        format!(
+                            "adapters/external-accounts/{}/account.json",
+                            account.account_id
+                        ),
+                    ],
+                )?;
+            }
+            for (grant, desired_scopes, granted_scopes) in &grant_scopes {
+                transaction.execute(
+                    r#"INSERT INTO adapter_oauth_grants (
+                      grant_id, application_id, account_id, audience,
+                      desired_scopes_json, granted_scopes_json, authority_revision,
+                      token_revision, status, descriptor_relative_path
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"#,
+                    params![
+                        grant.grant_id,
+                        grant.application_id,
+                        grant.account_id,
+                        grant.audience,
+                        desired_scopes,
+                        granted_scopes,
+                        grant.authority_revision,
+                        grant.token_revision,
+                        grant_status(grant.status),
+                        format!("adapters/oauth-grants/{}/grant.json", grant.grant_id),
+                    ],
+                )?;
+            }
+            transaction.commit()?;
+            Ok(())
+        })
+        .await
+    }
+
     /// Replace the rebuildable definition projection in one transaction.
     ///
     /// The provided rows must come from a completed filesystem scan. SQLite
@@ -442,6 +560,87 @@ fn valid_connection_id(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
+fn validate_oauth_snapshot(snapshot: &OauthAuthoritySnapshot) -> Result<(), StoreError> {
+    if [
+        snapshot.profiles.len(),
+        snapshot.applications.len(),
+        snapshot.accounts.len(),
+        snapshot.grants.len(),
+    ]
+    .into_iter()
+    .any(|count| count > MAX_DEFINITIONS)
+    {
+        return Err(invariant("adapter OAuth snapshot exceeds its bound"));
+    }
+    let profiles = snapshot
+        .profiles
+        .iter()
+        .map(|profile| profile.profile_digest.as_str())
+        .collect::<BTreeSet<_>>();
+    let applications = snapshot
+        .applications
+        .iter()
+        .map(|application| application.application_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let accounts = snapshot
+        .accounts
+        .iter()
+        .map(|account| account.account_id.as_str())
+        .collect::<BTreeSet<_>>();
+    if profiles.len() != snapshot.profiles.len()
+        || applications.len() != snapshot.applications.len()
+        || accounts.len() != snapshot.accounts.len()
+        || snapshot
+            .applications
+            .iter()
+            .any(|application| !profiles.contains(application.profile_digest.as_str()))
+        || snapshot
+            .accounts
+            .iter()
+            .any(|account| !profiles.contains(account.profile_digest.as_str()))
+    {
+        return Err(invariant("adapter OAuth projection is invalid"));
+    }
+    let mut grants = BTreeSet::new();
+    for grant in &snapshot.grants {
+        if !grants.insert(grant.grant_id.as_str())
+            || !applications.contains(grant.application_id.as_str())
+            || grant
+                .account_id
+                .as_deref()
+                .is_some_and(|account| !accounts.contains(account))
+            || !sorted_unique_text(&grant.desired_scopes, 1_024)
+            || !sorted_unique_text(&grant.granted_scopes, 1_024)
+        {
+            return Err(invariant("adapter OAuth projection is invalid"));
+        }
+    }
+    Ok(())
+}
+
+const fn callback_mode(mode: noema_capability_adapters::Oauth2CallbackMode) -> &'static str {
+    match mode {
+        noema_capability_adapters::Oauth2CallbackMode::Loopback => "loopback",
+        noema_capability_adapters::Oauth2CallbackMode::Hosted => "hosted",
+    }
+}
+
+const fn application_status(status: OauthApplicationStatus) -> &'static str {
+    match status {
+        OauthApplicationStatus::Active => "active",
+        OauthApplicationStatus::Suspended => "suspended",
+    }
+}
+
+const fn grant_status(status: AuthorizationGrantStatus) -> &'static str {
+    match status {
+        AuthorizationGrantStatus::Active => "active",
+        AuthorizationGrantStatus::AuthenticationRequired => "authentication_required",
+        AuthorizationGrantStatus::Revoked => "revoked",
+        AuthorizationGrantStatus::Blocked => "blocked",
+    }
 }
 
 fn sorted_unique_components(values: &[String]) -> bool {

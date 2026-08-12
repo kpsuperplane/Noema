@@ -82,6 +82,59 @@ pub struct AdapterConnectionV3 {
     pub tool_overrides: Vec<CapabilityToolPolicyOverride>,
 }
 
+/// Non-secret authentication reference owned by an API connection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AdapterConnectionAuthenticationV1 {
+    /// The reviewed definition requires no authentication.
+    None,
+    /// The connection owns one direct-credential generation.
+    Credential {
+        /// Current protected direct-credential generation.
+        generation_id: String,
+        /// Immutable credential revision used by delayed calls.
+        revision: u64,
+    },
+    /// The connection uses one reusable OAuth authorization grant.
+    OauthGrant {
+        /// Stable grant identity.
+        grant_id: String,
+    },
+}
+
+/// API connection descriptor with reusable OAuth grant ownership.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdapterConnectionV4 {
+    /// Exact descriptor schema. Only version 4 is accepted.
+    pub schema_version: u16,
+    /// Stable random lower-hex identity and directory name.
+    pub connection_id: String,
+    /// Stable human-chosen tool namespace component.
+    pub connection_slug: String,
+    /// Exact reviewed definition content address.
+    pub semantic_digest: String,
+    /// Optional human-visible label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_label: Option<String>,
+    /// Desired lifecycle state. Authentication health comes from the grant.
+    pub status: AdapterConnectionStatus,
+    /// Descriptor revision used by delayed-work fences.
+    pub connection_revision: u64,
+    /// Policy revision used by delayed-work fences.
+    pub policy_revision: u64,
+    /// Direct credential or reusable OAuth grant reference.
+    pub authentication: AdapterConnectionAuthenticationV1,
+    /// Reviewed operation identities enabled for this connection.
+    pub allowed_operations: Vec<String>,
+    /// Connection-owned sharing and unsafe-action policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<CapabilityConnectionPolicy>,
+    /// Human behavior overrides fenced to operation source revisions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_overrides: Vec<CapabilityToolPolicyOverride>,
+}
+
 /// Immutable secret-bearing credential generation.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

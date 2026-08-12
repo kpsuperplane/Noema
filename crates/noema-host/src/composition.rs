@@ -109,6 +109,9 @@ async fn assemble_services(
         .reconcile_adapter_definitions(&adapter_snapshot.definitions.projections())
         .await?;
     store
+        .reconcile_adapter_oauth_authorities(&adapter_snapshot.oauth_authorities)
+        .await?;
+    store
         .reconcile_adapter_connections(&adapter_snapshot.connections.projections())
         .await?;
     let provider_registry: ProviderRegistryHandle = Arc::new(ProviderRegistry::new());

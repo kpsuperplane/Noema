@@ -2171,6 +2171,82 @@ fn schema_object_exists(
     )
 }
 
+#[tokio::test]
+async fn v37_oauth_authority_upgrade_terminalizes_old_requests_and_matches_fresh_schema() {
+    let upgrade_home = TempDir::new().expect("v37 root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    let mut connection = Connection::open(&upgrade_config.path).expect("v37 database");
+    store_migrations()
+        .to_version(&mut connection, 37)
+        .expect("construct v37 schema");
+    connection
+        .execute(
+            "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:valid', 'workspace:personal', 'workflow:personal:default', 'stage:personal:queue', 'OAuth migration', 'system', 'actor:system')",
+            [],
+        )
+        .expect("task");
+    insert_planner_run(&connection, "run:oauth-migration").expect("run");
+    connection
+        .execute(
+            r#"INSERT INTO capability_auth_requests (
+              request_id, owner_human_id, task_id, run_id, task_generation,
+              requesting_agent_id, adapter_connection_id, challenge_kind,
+              authority_revision, capability_name, operation_token, input_schema_json,
+              protected_arguments_ref, arguments_sha256, provider_selection_digest,
+              output_index, result_context_json, state
+            ) VALUES (
+              'cap_auth:oauth-migration', 'human:local', 'task:valid',
+              'run:oauth-migration', 1, 'agent:task-executor', ?1,
+              'reauthenticate', 'grant:1', 'adapter.read', 'operation', '{}',
+              ?2, ?3, ?3, 0, '{}', 'authorizing'
+            )"#,
+            params!["a".repeat(32), "b".repeat(32), "c".repeat(64)],
+        )
+        .expect("active adapter authentication");
+    drop(connection);
+
+    drop(
+        NoemaStore::open(&upgrade_config)
+            .await
+            .expect("upgrade v37"),
+    );
+    let connection = Connection::open(&upgrade_config.path).expect("upgraded database");
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT state, supersession_reason FROM capability_auth_requests WHERE request_id = 'cap_auth:oauth-migration'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .expect("terminal request"),
+        (
+            "superseded".to_string(),
+            "adapter_oauth_authority_replaced".to_string()
+        )
+    );
+    for table in [
+        "adapter_oauth_profiles",
+        "adapter_oauth_applications",
+        "adapter_external_accounts",
+        "adapter_oauth_grants",
+    ] {
+        assert!(
+            schema_object_exists(&connection, "table", table).expect("schema lookup"),
+            "missing {table}"
+        );
+    }
+
+    let fresh_home = TempDir::new().expect("fresh root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(NoemaStore::open(&fresh_config).await.expect("fresh schema"));
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
+    );
+}
+
 fn table_columns(conn: &Connection, table: &str) -> rusqlite::Result<Vec<String>> {
     let mut statement = conn.prepare(&format!("PRAGMA table_info({table})"))?;
     statement

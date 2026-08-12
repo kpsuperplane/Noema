@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 37;
+pub const STORE_SCHEMA_VERSION: usize = 38;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1181,8 +1181,96 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(ACTION_REQUEST_SOURCE_SQL),
         M::up(LIVE_ACTIVITIES_SQL),
         M::up(TASK_SUBMISSION_CITATIONS_SQL),
+        M::up(ADAPTER_OAUTH_AUTHORITIES_SQL),
     ])
 }
+
+/// Rebuildable public projections for reusable OAuth authorities.
+const ADAPTER_OAUTH_AUTHORITIES_SQL: &str = r#"
+UPDATE capability_auth_requests
+SET state = 'superseded',
+    revision = revision + 1,
+    supersession_reason = 'adapter_oauth_authority_replaced',
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+    completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE adapter_connection_id IS NOT NULL
+  AND state IN ('awaiting_user', 'authorizing', 'resuming');
+
+CREATE TABLE adapter_oauth_profiles (
+  profile_digest TEXT PRIMARY KEY NOT NULL
+    CHECK (length(profile_digest) = 64 AND profile_digest = lower(profile_digest)),
+  profile_id TEXT NOT NULL CHECK (trim(profile_id) <> ''),
+  display_name TEXT NOT NULL CHECK (trim(display_name) <> ''),
+  grant_audience TEXT NOT NULL CHECK (trim(grant_audience) <> ''),
+  descriptor_relative_path TEXT NOT NULL
+    CHECK (descriptor_relative_path GLOB 'adapters/oauth-profiles/*/profile.json'),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX adapter_oauth_profiles_identity
+ON adapter_oauth_profiles(profile_id, profile_digest);
+
+CREATE TABLE adapter_oauth_applications (
+  application_id TEXT PRIMARY KEY NOT NULL
+    CHECK (length(application_id) = 32 AND application_id = lower(application_id)),
+  profile_digest TEXT NOT NULL,
+  callback_mode TEXT NOT NULL CHECK (callback_mode IN ('loopback', 'hosted')),
+  client_id TEXT NOT NULL CHECK (trim(client_id) <> ''),
+  project_label TEXT,
+  status TEXT NOT NULL CHECK (status IN ('active', 'suspended')),
+  revision INTEGER NOT NULL CHECK (revision > 0),
+  credential_generation TEXT NOT NULL
+    CHECK (length(credential_generation) = 32 AND credential_generation = lower(credential_generation)),
+  descriptor_relative_path TEXT NOT NULL
+    CHECK (descriptor_relative_path GLOB 'adapters/oauth-applications/*/application.json'),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (profile_digest) REFERENCES adapter_oauth_profiles(profile_digest) ON DELETE RESTRICT
+);
+
+CREATE INDEX adapter_oauth_applications_profile
+ON adapter_oauth_applications(profile_digest, status, application_id);
+
+CREATE TABLE adapter_external_accounts (
+  account_id TEXT PRIMARY KEY NOT NULL
+    CHECK (length(account_id) = 32 AND account_id = lower(account_id)),
+  profile_digest TEXT NOT NULL,
+  provider_subject TEXT NOT NULL CHECK (trim(provider_subject) <> ''),
+  account_label TEXT,
+  revision INTEGER NOT NULL CHECK (revision > 0),
+  descriptor_relative_path TEXT NOT NULL
+    CHECK (descriptor_relative_path GLOB 'adapters/external-accounts/*/account.json'),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (profile_digest) REFERENCES adapter_oauth_profiles(profile_digest) ON DELETE RESTRICT,
+  UNIQUE(profile_digest, provider_subject)
+);
+
+CREATE INDEX adapter_external_accounts_profile
+ON adapter_external_accounts(profile_digest, account_id);
+
+CREATE TABLE adapter_oauth_grants (
+  grant_id TEXT PRIMARY KEY NOT NULL
+    CHECK (length(grant_id) = 32 AND grant_id = lower(grant_id)),
+  application_id TEXT NOT NULL,
+  account_id TEXT,
+  audience TEXT NOT NULL CHECK (trim(audience) <> ''),
+  desired_scopes_json TEXT NOT NULL CHECK (json_valid(desired_scopes_json)),
+  granted_scopes_json TEXT NOT NULL CHECK (json_valid(granted_scopes_json)),
+  authority_revision INTEGER NOT NULL CHECK (authority_revision > 0),
+  token_revision INTEGER NOT NULL CHECK (token_revision > 0),
+  status TEXT NOT NULL CHECK (status IN ('active', 'authentication_required', 'revoked', 'blocked')),
+  descriptor_relative_path TEXT NOT NULL
+    CHECK (descriptor_relative_path GLOB 'adapters/oauth-grants/*/grant.json'),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (application_id) REFERENCES adapter_oauth_applications(application_id) ON DELETE RESTRICT,
+  FOREIGN KEY (account_id) REFERENCES adapter_external_accounts(account_id) ON DELETE RESTRICT,
+  UNIQUE(application_id, account_id, audience)
+);
+
+CREATE INDEX adapter_oauth_grants_account
+ON adapter_oauth_grants(account_id, status, grant_id);
+CREATE INDEX adapter_oauth_grants_application
+ON adapter_oauth_grants(application_id, status, grant_id);
+"#;
 
 /// Ordered verified web citations attached to immutable task submissions.
 const TASK_SUBMISSION_CITATIONS_SQL: &str = r#"

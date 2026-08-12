@@ -175,6 +175,30 @@ impl NoemaPaths {
         self.adapters_dir().join("sources")
     }
 
+    /// Content-addressed reviewed OAuth profiles.
+    #[must_use]
+    pub fn adapter_oauth_profiles_dir(&self) -> PathBuf {
+        self.adapters_dir().join("oauth-profiles")
+    }
+
+    /// OAuth application descriptors and protected client-secret generations.
+    #[must_use]
+    pub fn adapter_oauth_applications_dir(&self) -> PathBuf {
+        self.adapters_dir().join("oauth-applications")
+    }
+
+    /// Stable external account descriptors.
+    #[must_use]
+    pub fn adapter_external_accounts_dir(&self) -> PathBuf {
+        self.adapters_dir().join("external-accounts")
+    }
+
+    /// OAuth grant descriptors and protected token generations.
+    #[must_use]
+    pub fn adapter_oauth_grants_dir(&self) -> PathBuf {
+        self.adapters_dir().join("oauth-grants")
+    }
+
     /// Filesystem-canonical adapter connection descriptors and credentials.
     #[must_use]
     pub fn adapter_connections_dir(&self) -> PathBuf {
@@ -191,6 +215,13 @@ impl NoemaPaths {
     #[must_use]
     pub fn adapter_connection_quarantine_dir(&self) -> PathBuf {
         self.adapter_quarantine_dir().join("connections")
+    }
+
+    /// Legacy OAuth connections retained after the clean cutover.
+    #[must_use]
+    pub fn adapter_legacy_oauth_connection_quarantine_dir(&self) -> PathBuf {
+        self.adapter_quarantine_dir()
+            .join("legacy-oauth-connections")
     }
 
     /// Directory for one canonical adapter definition digest.
@@ -212,6 +243,46 @@ impl NoemaPaths {
     pub fn adapter_connection_dir(&self, connection_id: &str) -> Result<PathBuf, NoemaPathError> {
         validate_adapter_connection_id(connection_id)?;
         Ok(self.adapter_connections_dir().join(connection_id))
+    }
+
+    /// Directory for one reviewed OAuth profile digest.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NoemaPathError::InvalidAdapterDigest`] for a malformed digest.
+    pub fn adapter_oauth_profile_dir(&self, digest: &str) -> Result<PathBuf, NoemaPathError> {
+        validate_adapter_digest(digest)?;
+        Ok(self.adapter_oauth_profiles_dir().join(digest))
+    }
+
+    /// Directory for one OAuth application.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NoemaPathError::InvalidAdapterObjectId`] for a malformed id.
+    pub fn adapter_oauth_application_dir(&self, id: &str) -> Result<PathBuf, NoemaPathError> {
+        validate_adapter_object_id(id)?;
+        Ok(self.adapter_oauth_applications_dir().join(id))
+    }
+
+    /// Directory for one external account.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NoemaPathError::InvalidAdapterObjectId`] for a malformed id.
+    pub fn adapter_external_account_dir(&self, id: &str) -> Result<PathBuf, NoemaPathError> {
+        validate_adapter_object_id(id)?;
+        Ok(self.adapter_external_accounts_dir().join(id))
+    }
+
+    /// Directory for one OAuth grant.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NoemaPathError::InvalidAdapterObjectId`] for a malformed id.
+    pub fn adapter_oauth_grant_dir(&self, id: &str) -> Result<PathBuf, NoemaPathError> {
+        validate_adapter_object_id(id)?;
+        Ok(self.adapter_oauth_grants_dir().join(id))
     }
 
     /// Quarantine destination for one stable adapter connection identity.
@@ -310,6 +381,13 @@ pub enum NoemaPathError {
         value: String,
     },
 
+    /// An adapter OAuth object identity was not canonical lower hexadecimal.
+    #[error("adapter object id must be 32 lowercase hexadecimal characters: {value}")]
+    InvalidAdapterObjectId {
+        /// Rejected identity.
+        value: String,
+    },
+
     /// An imported source extension was outside the closed document set.
     #[error("unsupported adapter source extension: {value}")]
     InvalidAdapterSourceExtension {
@@ -355,6 +433,20 @@ fn validate_adapter_connection_id(value: &str) -> Result<(), NoemaPathError> {
         Ok(())
     } else {
         Err(NoemaPathError::InvalidAdapterConnectionId {
+            value: value.to_string(),
+        })
+    }
+}
+
+fn validate_adapter_object_id(value: &str) -> Result<(), NoemaPathError> {
+    if value.len() == 32
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        Ok(())
+    } else {
+        Err(NoemaPathError::InvalidAdapterObjectId {
             value: value.to_string(),
         })
     }
@@ -431,6 +523,32 @@ mod tests {
             ))
         );
         assert!(override_paths.adapter_connection_dir("../escape").is_err());
+        assert_eq!(
+            override_paths
+                .adapter_oauth_profile_dir(&"f".repeat(64))
+                .expect("OAuth profile"),
+            PathBuf::from(format!(
+                "/tmp/custom-noema/adapters/oauth-profiles/{}",
+                "f".repeat(64)
+            ))
+        );
+        for (path, expected) in [
+            (
+                override_paths.adapter_oauth_application_dir(&"1".repeat(32)),
+                "/tmp/custom-noema/adapters/oauth-applications/",
+            ),
+            (
+                override_paths.adapter_external_account_dir(&"2".repeat(32)),
+                "/tmp/custom-noema/adapters/external-accounts/",
+            ),
+            (
+                override_paths.adapter_oauth_grant_dir(&"3".repeat(32)),
+                "/tmp/custom-noema/adapters/oauth-grants/",
+            ),
+        ] {
+            assert!(path.expect("OAuth object").starts_with(expected));
+        }
+        assert!(override_paths.adapter_oauth_grant_dir("../escape").is_err());
         assert!(
             override_paths
                 .adapter_source_path(&"d".repeat(64), "rs")

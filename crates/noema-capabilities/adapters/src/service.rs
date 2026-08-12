@@ -92,6 +92,8 @@ pub struct AdapterManagementSnapshot {
     pub replaced_definition_digests: BTreeSet<String>,
     /// Connection scan and its quarantine diagnostics.
     pub connections: crate::ConnectionScan,
+    /// Complete reusable OAuth authority hierarchy.
+    pub oauth_authorities: crate::OauthAuthoritySnapshot,
 }
 
 /// Exact fence shared by one adapter management mutation.
@@ -175,6 +177,9 @@ pub enum AdapterMigrationError {
     /// A polling schedule could not be rebound safely.
     #[error("adapter schedule migration failed: {0}")]
     Schedule(#[from] crate::ScheduleError),
+    /// Reusable OAuth authority roots could not be prepared safely.
+    #[error("adapter OAuth authority migration failed: {0}")]
+    OauthAuthority(#[from] crate::OauthAuthorityStoreError),
 }
 
 /// Opaque browser handoff for one process-local OAuth attempt.
@@ -217,6 +222,7 @@ pub(crate) struct AdapterCapabilityServiceInner {
     pub(crate) definitions: AdapterDefinitionStore,
     definition_registry: Mutex<Option<Arc<crate::DefinitionScan>>>,
     pub(crate) connections: AdapterConnectionStore,
+    pub(crate) oauth_authorities: crate::OauthAuthorityStore,
     pub(crate) cursors: crate::DurableCursorStore,
     schedules: crate::ScheduleStore,
     pub(crate) oauth_callback_mode: Mutex<Option<Oauth2CallbackMode>>,
@@ -266,6 +272,7 @@ impl AdapterCapabilityService {
                 definitions,
                 definition_registry: Mutex::new(definition_registry),
                 connections: AdapterConnectionStore::new(paths.clone()),
+                oauth_authorities: crate::OauthAuthorityStore::new(paths.clone()),
                 cursors: crate::DurableCursorStore::new(paths.clone()),
                 schedules: crate::ScheduleStore::new(paths),
                 oauth_callback_mode: Mutex::new(None),
@@ -353,11 +360,17 @@ impl AdapterCapabilityService {
             .connections
             .scan(&definitions.definitions)
             .map_err(|_| AdapterManagementError::Unavailable)?;
+        let oauth_authorities = self
+            .inner
+            .oauth_authorities
+            .snapshot()
+            .map_err(|_| AdapterManagementError::Unavailable)?;
         Ok(AdapterManagementSnapshot {
             definitions,
             superseded_pending_digests,
             replaced_definition_digests,
             connections,
+            oauth_authorities,
         })
     }
 
@@ -1525,6 +1538,7 @@ impl AdapterCapabilityService {
             .lock()
             .map_err(|_| AdapterMigrationError::Unavailable)?;
         self.inner.connections.recover()?;
+        self.inner.oauth_authorities.prepare()?;
         self.inner.schedules.recover()?;
         self.inner.connections.upgrade_legacy_descriptors()?;
         let legacy = self.inner.definitions.legacy_definition_digests()?;

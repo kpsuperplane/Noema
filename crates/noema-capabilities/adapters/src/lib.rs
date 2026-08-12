@@ -18,6 +18,10 @@ mod json_limits;
 mod luau;
 mod network;
 mod oauth;
+mod oauth_authority;
+mod oauth_authority_fs;
+mod oauth_authority_store;
+mod oauth_authority_validation;
 mod openapi;
 mod openapi31;
 mod openapi_normalize;
@@ -36,8 +40,9 @@ pub use compiler::{
     ConnectionSlug, DefinitionOperationToken, SemanticChange,
 };
 pub use connection::{
-    AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionV3,
-    AdapterCredentialGenerationV2, AdapterCredentialMaterial,
+    AdapterConnectionAuthenticationV1, AdapterConnectionRevisions, AdapterConnectionStatus,
+    AdapterConnectionV3, AdapterConnectionV4, AdapterCredentialGenerationV2,
+    AdapterCredentialMaterial,
 };
 pub use connection_store::{
     AdapterConnectionStore, ConnectionInstall, ConnectionProjection, ConnectionScan,
@@ -61,6 +66,14 @@ pub use definition_store::{
     DefinitionScan, DefinitionScanDiagnostic, DefinitionStoreError, StoredAdapterDefinition,
 };
 pub use digest::{OperationDigest, SemanticDigest, SourceDigest};
+pub use oauth_authority::{
+    AuthorizationGrantStatus, AuthorizationGrantV1, ExternalAccountV1,
+    OauthApplicationCredentialV1, OauthApplicationStatus, OauthApplicationV1, OauthGrantTokenV1,
+    OauthProfileV1, OauthScopeResponsePolicy,
+};
+pub use oauth_authority_store::{
+    OauthAuthoritySnapshot, OauthAuthorityStore, OauthAuthorityStoreError, OauthProfileInstall,
+};
 pub use openapi::{
     OpenApiActivation, OpenApiActivationError, OpenApiCandidate, OpenApiDiagnostic,
     OpenApiDiagnosticSeverity, OpenApiImportError, OpenApiImporter, OpenApiOperationProposal,

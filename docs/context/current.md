@@ -78,6 +78,11 @@ vertical slice or a net-negative reduction.
   the running service executes an immutable compiled registry refreshed by
   managed definition changes. The body-free SQLite projection is disposable.
   Current manifests use strict schema version 8.
+- Reusable OAuth work is active under the committed architecture plan. Reviewed
+  profiles, applications, external accounts, and grants now have separate
+  filesystem authorities. Client secrets and tokens use protected generations.
+- SQLite schema version 38 adds rebuildable public OAuth projections. It also
+  supersedes active adapter authentication requests from the replaced model.
 - The active reviewed Calendar definition has all 12 current operations,
   including date-only event creation. The 50-case live validation ledger has 50
   passing cases. Case 12 made no external change because the human told Noema
