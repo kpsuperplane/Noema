@@ -3,9 +3,7 @@ import { useMutation, useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
-import { Section } from "@astryxdesign/core/Section";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { Toolbar } from "@astryxdesign/core/Toolbar";
 import { VStack } from "@astryxdesign/core/VStack";
 import { Pencil, Wrench } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
@@ -31,6 +29,7 @@ import {
 } from "@/components/capabilities/CapabilityPolicyChoices";
 import { CapabilityToolTable, toolHintSourceDescription } from "./CapabilityToolTable";
 import { SettingsEditDialog } from "./SettingsEditDialog";
+import { SettingsDetailSection } from "./SettingsPrimitives";
 import { settingsStatusLabel } from "./settingsStatus";
 import { CapabilityIcon } from "./CapabilityIntegrationList";
 
@@ -292,11 +291,12 @@ export function CapabilityConnectionDetail({
         </HStack>
       </VStack>
 
-      <Section variant="section" padding={0} aria-labelledby="connection-policy-title" xstyle={styles.detailSection}>
-        <HStack hAlign="between" vAlign="center" gap={2} {...stylex.props(styles.policyHeader)}>
-          <h2 id="connection-policy-title" {...stylex.props(styles.heading)}>Connection policy</h2>
-          {policyBusy ? <span role="status" {...stylex.props(styles.muted)}>Saving…</span> : null}
-        </HStack>
+      <SettingsDetailSection
+        title="Connection policy"
+        titleId="connection-policy-title"
+        summary={policyBusy ? "Saving…" : undefined}
+        summaryIsStatus
+      >
         <VStack gap={2} {...stylex.props(styles.policyBody)}>
           <CapabilityPolicyChoices
             layout="responsive"
@@ -308,17 +308,13 @@ export function CapabilityConnectionDetail({
           />
           {policyError ? <p role="alert" {...stylex.props(styles.error)}>{policyError}</p> : null}
         </VStack>
-      </Section>
+      </SettingsDetailSection>
 
-      <Section variant="section" padding={0} aria-labelledby="connection-tools-title" xstyle={styles.detailSection}>
-        <Toolbar
-          label="Tool settings"
-          size="sm"
-          variant="transparent"
-          xstyle={styles.sectionHeader}
-          startContent={<h2 id="connection-tools-title" {...stylex.props(styles.heading)}>Tools</h2>}
-          endContent={<span {...stylex.props(styles.muted)}>{connection.availableToolCount} / {connection.toolCount} available</span>}
-        />
+      <SettingsDetailSection
+        title="Tools"
+        titleId="connection-tools-title"
+        summary={`${connection.availableToolCount} / ${connection.toolCount} available`}
+      >
         <CapabilityToolTable
           tools={tools}
           loading={result.loading}
@@ -327,7 +323,7 @@ export function CapabilityConnectionDetail({
           onReset={(tool) => void reset(tool)}
           onToggle={(tool) => void toggle(tool)}
         />
-      </Section>
+      </SettingsDetailSection>
 
       <VStack as="details" gap={2} {...stylex.props(styles.detailsSection)}>
         <summary {...stylex.props(styles.summary)}>Source details</summary>
@@ -485,11 +481,7 @@ const styles = stylex.create({
   serviceName: { color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.2 },
   connectionName: { margin: 0, color: "var(--foreground)", fontFamily: "var(--font-heading)", fontSize: 18, fontWeight: 650, lineHeight: 1.25, overflowWrap: "anywhere" },
   toolCount: { color: "var(--muted-foreground)", fontSize: 12 },
-  detailSection: { overflow: "hidden", borderWidth: "var(--border-width)", borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: "var(--radius-container)" },
-  sectionHeader: { paddingInline: "var(--spacing-2)" },
-  policyHeader: { padding: "var(--spacing-2) var(--spacing-3)", borderBlockEndWidth: "var(--border-width)", borderBlockEndStyle: "solid", borderBlockEndColor: "var(--border-subtle)" },
   policyBody: { padding: "var(--spacing-3)" },
-  heading: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 14, fontWeight: 650 },
   editorDescription: { margin: "var(--spacing-0)", fontSize: 13, lineHeight: 1.5, color: "var(--muted-foreground)" },
   hintRow: { paddingBlock: "var(--spacing-2)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", fontSize: 14, "@media (max-width: 520px)": { alignItems: "flex-start" } },
   hintQuestion: { fontSize: 14, lineHeight: 1.4 },

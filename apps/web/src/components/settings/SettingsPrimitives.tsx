@@ -5,7 +5,9 @@ import {
   type ListItemProps,
   type ListProps
 } from "@astryxdesign/core/List";
+import { HStack } from "@astryxdesign/core/HStack";
 import { Section, type SectionProps } from "@astryxdesign/core/Section";
+import type { ReactNode } from "react";
 
 type SettingsSectionProps = Omit<SectionProps, "padding" | "variant">;
 
@@ -27,6 +29,34 @@ export function SettingsSection({ xstyle, ...props }: SettingsSectionProps) {
       padding={3}
       xstyle={[styles.section, xstyle]}
     />
+  );
+}
+
+export function SettingsDetailSection({
+  title,
+  titleId,
+  summary,
+  summaryIsStatus = false,
+  children
+}: {
+  title: string;
+  titleId: string;
+  summary?: string;
+  summaryIsStatus?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Section variant="section" padding={0} aria-labelledby={titleId} xstyle={styles.section}>
+      <HStack hAlign="between" vAlign="center" gap={2} {...stylex.props(styles.detailHeader)}>
+        <h2 id={titleId} {...stylex.props(styles.detailTitle)}>{title}</h2>
+        {summary ? (
+          <span role={summaryIsStatus ? "status" : undefined} {...stylex.props(styles.detailSummary)}>
+            {summary}
+          </span>
+        ) : null}
+      </HStack>
+      {children}
+    </Section>
   );
 }
 
@@ -66,6 +96,9 @@ const styles = stylex.create({
     borderRadius: "var(--radius-container)",
     overflow: "hidden"
   },
+  detailHeader: { padding: "var(--spacing-2) var(--spacing-3)", borderBlockEndWidth: "var(--border-width)", borderBlockEndStyle: "solid", borderBlockEndColor: "var(--border-subtle)" },
+  detailTitle: { minWidth: 0, margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 14, fontWeight: 650 },
+  detailSummary: { flexShrink: 0, color: "var(--muted-foreground)", fontSize: 12 },
   list: {
     marginBlock: "var(--spacing-0)"
   },
