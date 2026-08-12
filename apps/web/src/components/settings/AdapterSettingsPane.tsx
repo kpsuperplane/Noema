@@ -77,7 +77,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const [replacementApplicationId, setReplacementApplicationId] = useState<string | null>(null);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<OAuthAction | null>(null);
-  const [labelGrant, setLabelGrant] = useState<Grant | null>(null);
+  const [managedGrants, setManagedGrants] = useState<Grant[] | null>(null);
   const [labelDraft, setLabelDraft] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [disconnectTarget, setDisconnectTarget] = useState<Grant[] | null>(null);
@@ -303,6 +303,11 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
         expectedConnectionRevision: selectedDescriptor.connectionRevision,
         active: selectedDescriptor.status === "suspended"
       } } }).then(refresh).catch(actionError(setError))} />
+    {selectedDefinition.connectionActions.length > 0 ? <Button type="button" size="sm" variant="secondary"
+      label={selectedDefinition.connectionActions.length === 1
+        ? connectionActionLabel(selectedDefinition, selectedDefinition.connectionActions[0], oauth)
+        : "Connect another account"}
+      onClick={() => requestConnection(selectedDefinition)} /> : null}
   </> : null;
 
   return <>
@@ -336,9 +341,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
         {oauth.grants.length > 0 ? <AccountSections oauth={oauth} definitions={definitions}
           busy={disconnectState.loading || labelState.loading}
           onOpen={(id) => void navigate({ to: "/settings/tools/apis/$connectionId", params: { connectionId: id } })}
-          onLabel={(grant) => { setLabelGrant(grant); setLabelDraft(grant.accountLabel ?? ""); }}
-          onDisconnect={setDisconnectTarget}
-          onChooseConnection={requestConnection} /> : null}
+          onManage={(grants) => { setManagedGrants(grants); setLabelDraft(grants[0]?.accountLabel ?? ""); }} /> : null}
         {availableDefinitions.length > 0 ? <SettingsSection aria-labelledby="available-api-title"><VStack gap={2}>
           <h2 id="available-api-title" {...stylex.props(styles.sectionTitle)}>Connect an API</h2>
           <SettingsList density="compact" hasDividers>
@@ -415,14 +418,16 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
         : "Replace this OAuth client document."}
       submitLabel="Replace OAuth client" onOpenChange={(open) => { if (!open) setReplacementApplicationId(null); }}
       onSubmit={replaceOauthApplication} />
-    <SettingsEditDialog title="Label account" open={labelGrant !== null} saving={labelState.loading}
-      saveLabel="Save label" error={error} onOpenChange={(open) => { if (!open) setLabelGrant(null); }}
-      onSave={() => labelGrant ? saveGrantLabel({ variables: { input: {
-        grantId: labelGrant.grantId,
-        expectedAuthorityRevision: labelGrant.authorityRevision,
+    <SettingsEditDialog title="Manage account" open={managedGrants !== null} saving={labelState.loading}
+      saveLabel="Save label" error={error} onOpenChange={(open) => { if (!open) setManagedGrants(null); }}
+      onSave={() => managedGrants?.[0] ? saveGrantLabel({ variables: { input: {
+        grantId: managedGrants[0].grantId,
+        expectedAuthorityRevision: managedGrants[0].authorityRevision,
         accountLabel: labelDraft || null
-      } } }).then(async () => { setLabelGrant(null); await refresh(); }).catch(actionError(setError)) : undefined}>
+      } } }).then(async () => { setManagedGrants(null); await refresh(); }).catch(actionError(setError)) : undefined}>
       <TextInput hasAutoFocus label="Account label" value={labelDraft} onChange={setLabelDraft} />
+      <Button type="button" variant="destructive" label="Disconnect account"
+        onClick={() => { setDisconnectTarget(managedGrants); setManagedGrants(null); }} />
     </SettingsEditDialog>
     <SettingsEditDialog title={accessConfirmation ? `Add ${accessConfirmation.definition.displayName} access?` : "Add access?"}
       open={accessConfirmation !== null} saving={oauthStartState.loading} saveLabel="Add access" error={error}
@@ -507,14 +512,12 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   </>;
 }
 
-function AccountSections({ oauth, definitions, busy, onOpen, onLabel, onDisconnect, onChooseConnection }: {
+function AccountSections({ oauth, definitions, busy, onOpen, onManage }: {
   oauth: AdapterOauthStateQuery["adapterOauthState"];
   definitions: AdapterDefinition[];
   busy: boolean;
   onOpen: (connectionId: string) => void;
-  onLabel: (grant: Grant) => void;
-  onDisconnect: (grants: Grant[]) => void;
-  onChooseConnection: (definition: AdapterDefinition) => void;
+  onManage: (grants: Grant[]) => void;
 }) {
   const providers = new Map<string, Map<string, Grant[]>>();
   for (const grant of oauth.grants) {
@@ -540,24 +543,17 @@ function AccountSections({ oauth, definitions, busy, onOpen, onLabel, onDisconne
             <span {...stylex.props(styles.muted)}>{connections.length} APIs</span>
           </VStack>
           <HStack gap={1} wrap="wrap">
-            {grants.some((grant) => grant.status !== "active")
-              ? <Badge label="Action required" variant="warning" />
-              : <Badge label="Connected" variant="success" />}
-            <Button type="button" size="sm" variant="secondary" label="Edit label" isDisabled={busy} onClick={() => onLabel(first)} />
-            <Button type="button" size="sm" variant="destructive" label="Disconnect account" isDisabled={busy}
-              onClick={() => onDisconnect(grants)} />
+            {grants.some((grant) => grant.status !== "active") ? <Badge label="Action required" variant="warning" /> : null}
+            <Button type="button" size="sm" variant="secondary" label="Manage account" isDisabled={busy}
+              onClick={() => onManage(grants)} />
           </HStack>
         </HStack>
         <SettingsList density="compact" hasDividers>
           {connections.map(({ definition, connection }) => <SettingsListItem key={connection.connectionId}
             label={definition.displayName}
             description={`${connection.operationAccess.filter((item) => item.status === "available").length}/${definition.operations.length} tools available`}
-            endContent={<HStack gap={1} vAlign="center" wrap="wrap"><Badge label={connectionStatus(connection.status)}
-              variant={connection.status === "active" ? "success" : "warning"} />
-              {definition.connectionActions.length > 0 ? <Button type="button" size="sm"
-                variant="secondary" label="Add connection"
-                onClick={() => onChooseConnection(definition)} /> : null}
-              <Button type="button" size="sm" variant="secondary" label="Manage" onClick={() => onOpen(connection.connectionId)} /></HStack>} />)}
+            onClick={() => onOpen(connection.connectionId)}
+            endContent={connection.status === "active" ? null : <Badge label={connectionStatus(connection.status)} variant="warning" />} />)}
           {connections.length === 0 ? <SettingsListItem label="No APIs attached" /> : null}
         </SettingsList>
       </VStack>;
