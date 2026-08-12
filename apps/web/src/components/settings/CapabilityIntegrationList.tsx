@@ -1,8 +1,8 @@
 import { Link } from "@tanstack/react-router";
-import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
+import { Braces, Plug } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import type { CapabilityIntegrationsQuery } from "@/generated/graphql";
@@ -28,10 +28,12 @@ export function CapabilityIntegrationList({
   primaryAction?: { label: string; onClick: () => void };
   integrationAction?: (integration: CapabilityIntegration) => ReactNode;
   isAddingConnection?: boolean;
-  onAddConnection: (integration: CapabilityIntegration) => void;
+  onAddConnection?: (integration: CapabilityIntegration) => void;
 }) {
+  const IntegrationIcon = kind === "API" ? Braces : Plug;
+  const connectionNoun = kind === "API" ? "account" : "connection";
   return (
-    <VStack gap={4}>
+    <VStack gap={3}>
       {primaryAction ? (
         <HStack hAlign="end">
           <Button
@@ -53,32 +55,35 @@ export function CapabilityIntegrationList({
         >
           <VStack gap={2}>
             <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
-              <VStack gap={1} {...stylex.props(styles.groupCopy)}>
-                <h2 id={`capability-${integration.definitionId}-title`} {...stylex.props(styles.title)}>
-                  {integration.name}
-                </h2>
-                <p {...stylex.props(styles.summary)}>{integration.sourceSummary}</p>
-              </VStack>
-              <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
-                <Badge
-                  variant="neutral"
-                  label={`${integration.connections.length} ${integration.connections.length === 1 ? "connection" : "connections"}`}
-                />
-                <Button
+              <HStack gap={2} vAlign="center" {...stylex.props(styles.groupCopy)}>
+                <HStack vAlign="center" hAlign="center" {...stylex.props(styles.iconFrame)}>
+                  <IntegrationIcon aria-hidden="true" {...stylex.props(styles.icon)} />
+                </HStack>
+                <VStack gap={0.5}>
+                  <h2 id={`capability-${integration.definitionId}-title`} {...stylex.props(styles.title)}>
+                    {integration.name}
+                  </h2>
+                  <p {...stylex.props(styles.summary)}>
+                    {integration.connections.length} {integration.connections.length === 1 ? connectionNoun : `${connectionNoun}s`}
+                  </p>
+                </VStack>
+              </HStack>
+              <HStack wrap="wrap" gap={1} vAlign="center" {...stylex.props(styles.rowControl)}>
+                {onAddConnection ? <Button
                   type="button"
                   size="sm"
                   variant="secondary"
                   label="Add connection"
                   isLoading={isAddingConnection}
                   onClick={() => onAddConnection(integration)}
-                />
+                /> : null}
                 {integrationAction?.(integration)}
               </HStack>
             </HStack>
             {integration.connections.length === 0 ? (
               <p {...stylex.props(styles.empty)}>No connection added to this definition.</p>
             ) : (
-              <SettingsList density="balanced" hasDividers>
+              <SettingsList density="compact" hasDividers>
                 {integration.connections.map((connection) => {
                   const route = kind === "API"
                     ? "/settings/tools/apis/$connectionId"
@@ -137,6 +142,15 @@ function connectionNeedsAuthorization(authStatus: string) {
 
 const styles = stylex.create({
   groupCopy: { flex: "1 1 16rem", minWidth: 0 },
+  iconFrame: {
+    width: "var(--spacing-7)",
+    height: "var(--spacing-7)",
+    flexShrink: 0,
+    borderRadius: "var(--radius-sm)",
+    backgroundColor: "var(--noema-surface-subtle)",
+    color: "var(--muted-foreground)"
+  },
+  icon: { width: "var(--spacing-4)", height: "var(--spacing-4)" },
   title: {
     margin: "var(--spacing-0)",
     fontFamily: "var(--font-heading)",

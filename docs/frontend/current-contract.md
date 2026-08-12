@@ -64,11 +64,12 @@ a separate Save button or performed in a focused dialog with explicit Save.
 
 ## API integration UX
 
-API Settings uses an account-first hierarchy. It shows required review,
-connected accounts, connected APIs, and APIs that can be connected.
+API Settings uses the same service-first list and connection detail as MCP
+Settings. Each API groups its connected accounts. The detail keeps connection
+policy and tool controls visible.
 When no API exists, it shows one route to Chat instead of empty data sections.
-OAuth client management appears in a collapsed advanced section after import.
-That section manages existing clients and never starts a proactive import.
+Account and OAuth client management appears in a collapsed Provider access
+section. That section manages existing clients and never starts an import.
 Client import occurs only when a structured API connection action requires it.
 
 Chat presents one pending human intervention at a time with queue navigation.

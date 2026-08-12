@@ -219,7 +219,7 @@ export function CapabilityConnectionDetail({
   }
 
   return (
-    <VStack gap={5}>
+    <VStack gap={3}>
       {result.error ? (
         <HStack gap={2} vAlign="center" wrap="wrap">
           <p role="alert" {...stylex.props(styles.error)}>Connection details may be out of date.</p>
