@@ -1,10 +1,9 @@
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
-import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import * as stylex from "@stylexjs/stylex";
-import { CircleStop, Download, LockKeyhole } from "lucide-react";
+import { CircleStop, Download } from "lucide-react";
 import { useState } from "react";
 import { ErrorMarker } from "../ErrorMarker";
 import { formatBytes, formatGigabytes, installationProgress } from "../settings/localModelMetadata";
@@ -95,7 +94,13 @@ export function Onboarding({
     activeChoice !== null && activeChoice !== providerKind;
 
   return (
-    <VStack as="section" {...stylex.props(styles.root)} aria-label="Noema onboarding" gap={4}>
+    <VStack
+      as="section"
+      {...stylex.props(styles.root)}
+      aria-label="Noema onboarding"
+      data-slot="provider-onboarding"
+      gap={4}
+    >
       <VStack gap={1.5} hAlign="center">
         <p {...stylex.props(styles.eyebrow)}>Choose your model provider</p>
         <h1 {...stylex.props(styles.title)}>Set up Noema</h1>
@@ -108,10 +113,7 @@ export function Onboarding({
         <Card padding={4} {...stylex.props(styles.choice)}>
           <VStack gap={3}>
             <VStack gap={1.5}>
-              <HStack justify="between" vAlign="start" gap={3}>
-                <h2 {...stylex.props(styles.choiceTitle)}>Local</h2>
-                <LockKeyhole size={20} aria-hidden="true" {...stylex.props(styles.localIcon)} />
-              </HStack>
+              <h2 {...stylex.props(styles.choiceTitle)}>Local</h2>
               <p {...stylex.props(styles.choiceDescription)}>
                 Download a curated model and keep model traffic on this machine.
               </p>
@@ -139,7 +141,7 @@ export function Onboarding({
             {progress !== null && installation?.status !== "INSTALLED" ? (
               <VStack gap={1.5}>
                 <progress {...stylex.props(styles.progress)} value={progress} max={1} />
-                <span {...stylex.props(styles.muted)}>
+                <span {...stylex.props(styles.muted, styles.progressAmount)}>
                   {formatBytes(installation?.completedBytes ?? 0)} of {formatBytes(installation?.totalBytes ?? 0)}
                 </span>
               </VStack>
@@ -171,7 +173,7 @@ export function Onboarding({
               {localSetup?.isReady && localAccount ? (
                 <Button
                   type="button"
-                  variant="primary"
+                  variant="secondary"
                   label="Continue with Local"
                   isLoading={
                     modelSetupLoading && modelSetupAccountId === localAccount.providerAccountId
@@ -197,7 +199,7 @@ export function Onboarding({
                 <p {...stylex.props(styles.connected)}>Connected.</p>
                 <Button
                   type="button"
-                  variant="primary"
+                  variant="secondary"
                   label="Continue with OpenRouter"
                   isLoading={
                     modelSetupLoading &&
@@ -213,18 +215,23 @@ export function Onboarding({
               <VStack gap={2}>
                 <Button
                   type="button"
-                  variant="primary"
+                  variant="secondary"
                   label="Connect OpenRouter"
                   isDisabled={!openRouter || choiceDisabled("openrouter") || providerSaving}
                   onClick={() => onConnect("openrouter", "OAUTH_PKCE")}
                 />
-                <Collapsible
-                  trigger="Use an API key instead"
-                  defaultIsOpen={false}
-                  isOpen={apiKeyOpen}
-                  onOpenChange={setApiKeyOpen}
-                >
-                  <VStack gap={2}>
+                <Button
+                  {...stylex.props(styles.apiKeyTrigger)}
+                  type="button"
+                  variant="ghost"
+                  size="lg"
+                  label={apiKeyOpen ? "Hide API key setup" : "Use an API key instead"}
+                  aria-controls="openrouter-api-key-setup"
+                  aria-expanded={apiKeyOpen}
+                  onClick={() => setApiKeyOpen((current) => !current)}
+                />
+                {apiKeyOpen ? (
+                  <VStack id="openrouter-api-key-setup" gap={2}>
                     <TextInput
                       label="OpenRouter API key"
                       type="password"
@@ -240,7 +247,7 @@ export function Onboarding({
                       onClick={() => onConnectOpenRouterApiKey(apiKey)}
                     />
                   </VStack>
-                </Collapsible>
+                ) : null}
               </VStack>
             )}
             {attempt?.providerKind === "openrouter" && authFailed ? (
@@ -262,7 +269,7 @@ export function Onboarding({
                 <p {...stylex.props(styles.connected)}>Connected.</p>
                 <Button
                   type="button"
-                  variant="primary"
+                  variant="secondary"
                   label="Continue with Codex"
                   isLoading={
                     modelSetupLoading && modelSetupAccountId === codexAccount.providerAccountId
@@ -356,16 +363,19 @@ const styles = stylex.create({
   choiceTitle: {
     margin: "var(--spacing-0)",
     fontFamily: "var(--font-heading)",
-    color: "var(--foreground)"
+    color: "var(--foreground)",
+    textWrap: "balance"
   },
   choiceDescription: {
     margin: "var(--spacing-0)",
-    color: "var(--muted-foreground)"
+    color: "var(--muted-foreground)",
+    textWrap: "pretty"
   },
-  localIcon: { color: "var(--pine-600)" },
   metadata: { fontFamily: "var(--font-mono)", color: "var(--muted-foreground)" },
   muted: { margin: "var(--spacing-0)", color: "var(--muted-foreground)" },
+  progressAmount: { fontVariantNumeric: "tabular-nums" },
   progress: { width: "100%", accentColor: "var(--pine-500)" },
+  apiKeyTrigger: { width: "100%", minHeight: 44 },
   connected: { margin: "var(--spacing-0)", color: "var(--pine-700)" }
 });
 

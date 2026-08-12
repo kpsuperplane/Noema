@@ -1,6 +1,6 @@
 import type React from "react";
 import { Button } from "@astryxdesign/core/Button";
-import { Card } from "@astryxdesign/core/Card";
+import { VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import { openExternalUrlForAuth } from "@/graphql/externalUrls";
 import { isTauriRuntime } from "@/graphql/transportMode";
@@ -29,8 +29,10 @@ export function AuthAttempt({
   }
 
   return (
-    <Card {...stylex.props(styles.card)} padding={4} maxWidth={560} aria-live="polite">
-      <strong>{attempt.status === "STARTING" ? "Starting login" : "Waiting for login"}</strong>
+    <VStack gap={3} {...stylex.props(styles.root)} aria-live="polite">
+      <strong {...stylex.props(styles.status)}>
+        {attempt.status === "STARTING" ? "Starting login" : "Waiting for login"}
+      </strong>
       {attempt.verificationUrl ? (
         <Button
           as="a"
@@ -44,34 +46,36 @@ export function AuthAttempt({
         </Button>
       ) : null}
       {attempt.userCode ? <code {...stylex.props(styles.userCode)}>{attempt.userCode}</code> : null}
-      {attempt.instructions ? <p>{attempt.instructions}</p> : null}
+      {attempt.instructions ? <p {...stylex.props(styles.instructions)}>{attempt.instructions}</p> : null}
       <p {...stylex.props(styles.continuation)}>Noema will continue automatically.</p>
       <Button type="button" variant="ghost" label="Cancel connection" onClick={onCancel} />
-    </Card>
+    </VStack>
   );
 }
 
 const styles = stylex.create({
-  card: {
-    display: "grid",
+  root: {
+    width: "100%",
+    maxWidth: 560,
     minWidth: 0,
-    gap: "calc(var(--spacing-3) + var(--spacing-0-5))"
   },
+  status: { textWrap: "balance" },
+  instructions: { margin: "var(--spacing-0)", textWrap: "pretty" },
   userCode: {
     width: "fit-content",
     maxWidth: "100%",
-    borderRadius: 6,
+    borderRadius: "var(--radius-element)",
     backgroundColor: "var(--surface-sunken)",
-    padding: "6px 8px",
+    padding: "var(--spacing-1-5) var(--spacing-2)",
     fontFamily: "var(--font-mono)",
-    fontSize: 18,
+    fontSize: "var(--font-size-lg)",
     lineHeight: 1.35,
     whiteSpace: "normal",
     overflowWrap: "anywhere"
   },
   continuation: {
     margin: "var(--spacing-0)",
-    fontSize: 14,
+    fontSize: "var(--font-size-base)",
     color: "var(--muted-foreground)"
   }
 });

@@ -56,6 +56,19 @@ body {
   background: var(--surface-page);
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  [data-slot="provider-onboarding"]
+    .astryx-button:not(:disabled):not([aria-disabled="true"]):active {
+    transform: scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="provider-onboarding"] .astryx-button:active {
+    transform: none;
+  }
+}
+
 @media (display-mode: standalone) {
   :root {
     --noema-mobile-viewport-height: 100vh;
