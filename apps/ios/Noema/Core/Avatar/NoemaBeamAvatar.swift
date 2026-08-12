@@ -31,11 +31,79 @@ private struct BeamTransform: Sendable {
   }
 
   func affine(origin: CGPoint) -> CGAffineTransform {
-    CGAffineTransform(translationX: origin.x + x, y: origin.y + y)
-      .rotated(by: rotation * .pi / 180)
-      .scaledBy(x: scaleX, y: scaleY)
-      .translatedBy(x: -origin.x, y: -origin.y)
+    BeamMatrix.translation(x: origin.x + x, y: origin.y + y)
+      .multiplied(by: .rotation(rotation))
+      .multiplied(by: .scale(x: scaleX, y: scaleY))
+      .multiplied(by: .translation(x: -origin.x, y: -origin.y))
+      .affine
   }
+}
+
+private struct BeamMatrix: Sendable {
+  var a: Double
+  var b: Double
+  var c: Double
+  var d: Double
+  var e: Double
+  var f: Double
+
+  static func translation(x: Double, y: Double) -> Self {
+    Self(a: 1, b: 0, c: 0, d: 1, e: x, f: y)
+  }
+
+  static func scale(x: Double, y: Double) -> Self {
+    Self(a: x, b: 0, c: 0, d: y, e: 0, f: 0)
+  }
+
+  static func rotation(_ degrees: Double, origin: CGPoint = .zero) -> Self {
+    let radians = degrees * .pi / 180
+    let rotation = Self(a: cos(radians), b: sin(radians), c: -sin(radians), d: cos(radians), e: 0, f: 0)
+    return translation(x: origin.x, y: origin.y)
+      .multiplied(by: rotation)
+      .multiplied(by: .translation(x: -origin.x, y: -origin.y))
+  }
+
+  func multiplied(by right: Self) -> Self {
+    Self(
+      a: a * right.a + c * right.b,
+      b: b * right.a + d * right.b,
+      c: a * right.c + c * right.d,
+      d: b * right.c + d * right.d,
+      e: a * right.e + c * right.f + e,
+      f: b * right.e + d * right.f + f
+    )
+  }
+
+  var inverse: Self {
+    let determinant = a * d - b * c
+    return Self(
+      a: d / determinant,
+      b: -b / determinant,
+      c: -c / determinant,
+      d: a / determinant,
+      e: (c * f - d * e) / determinant,
+      f: (b * e - a * f) / determinant
+    )
+  }
+
+  var decomposed: BeamTransform {
+    let scaleX = hypot(a, b)
+    return BeamTransform(
+      x: e.motionValue,
+      y: f.motionValue,
+      rotation: (atan2(b, a) * 180 / .pi).motionValue,
+      scaleX: scaleX.motionValue,
+      scaleY: ((a * d - b * c) / scaleX).motionValue
+    )
+  }
+
+  var affine: CGAffineTransform {
+    CGAffineTransform(a: a, b: b, c: c, d: d, tx: e, ty: f)
+  }
+}
+
+private extension Double {
+  var motionValue: Double { (self * 1_000).rounded() / 1_000 }
 }
 
 private struct BeamMotionPose: Sendable {
@@ -43,6 +111,7 @@ private struct BeamMotionPose: Sendable {
   var shadow = BeamTransform()
   var shadowOpacity = 0.24
   var body = BeamTransform()
+  var faceAnchor = BeamTransform()
   var face = BeamTransform()
   var gaze = BeamTransform()
   var mouthOpen = 0.0
@@ -54,6 +123,7 @@ private struct BeamMotionPose: Sendable {
       shadow: .interpolate(first.shadow, second.shadow, progress: progress),
       shadowOpacity: first.shadowOpacity + (second.shadowOpacity - first.shadowOpacity) * progress,
       body: .interpolate(first.body, second.body, progress: progress),
+      faceAnchor: .interpolate(first.faceAnchor, second.faceAnchor, progress: progress),
       face: .interpolate(first.face, second.face, progress: progress),
       gaze: .interpolate(first.gaze, second.gaze, progress: progress),
       mouthOpen: first.mouthOpen + (second.mouthOpen - first.mouthOpen) * progress,
@@ -74,6 +144,9 @@ private struct BeamEvent: Sendable {
 }
 
 private enum BeamMotion {
+  static let transitionDuration = 0.36
+  static let settleDuration = 0.12
+
   static func base(_ activity: NoemaAvatarActivity) -> BeamMotionPose {
     switch activity {
     case .idle:
@@ -109,21 +182,73 @@ private enum BeamMotion {
     }
   }
 
+  static func originalIdle(seed: Int, faceRotation: Double, isCircle: Bool) -> BeamMotionPose {
+    let preX = unit(seed, range: 10, place: 1)
+    let preY = unit(seed, range: 10, place: 2)
+    let wrapperX = preX < 5 ? preX + 4 : preX
+    let wrapperY = preY < 5 ? preY + 4 : preY
+    let wrapperRotation = unit(seed, range: 360)
+    let bodyRotation = isCircle
+      ? 0
+      : ((wrapperRotation + 45).truncatingRemainder(dividingBy: 90) + 90)
+        .truncatingRemainder(dividingBy: 90) - 45
+    let originalScale = 1 + unit(seed, range: 3) / 10
+    let originalFaceRotation = unit(seed, range: 10, place: 3)
+    let faceX = wrapperX > 6 ? wrapperX / 2 : unit(seed, range: 8, place: 1)
+    let faceY = wrapperY > 6 ? wrapperY / 2 : unit(seed, range: 7, place: 2)
+    let unitScale = 100.0 / 36.0
+    let bodyExpansion = 100.0 / 68.0
+
+    let roomBodyToOriginal = BeamMatrix.translation(x: -16 * bodyExpansion, y: -18 * bodyExpansion)
+      .multiplied(by: .scale(x: bodyExpansion, y: bodyExpansion))
+    let originalBody = BeamMatrix.translation(x: wrapperX * unitScale, y: wrapperY * unitScale)
+      .multiplied(by: .rotation(bodyRotation, origin: CGPoint(x: 50, y: 50)))
+      .multiplied(by: .scale(x: originalScale, y: originalScale))
+    let renderedCharacter = originalBody.multiplied(by: roomBodyToOriginal)
+    let character = BeamMatrix.translation(x: -50, y: -52)
+      .multiplied(by: renderedCharacter)
+      .multiplied(by: .translation(x: 50, y: 52))
+    let originalFace = BeamMatrix.translation(x: faceX * unitScale, y: faceY * unitScale)
+      .multiplied(by: .rotation(originalFaceRotation, origin: CGPoint(x: 50, y: 50)))
+    let currentFace = BeamMatrix.rotation(faceRotation, origin: CGPoint(x: 50, y: 52))
+    let faceAnchor = renderedCharacter.inverse
+      .multiplied(by: originalFace)
+      .multiplied(by: currentFace.inverse)
+
+    return BeamMotionPose(character: character.decomposed, faceAnchor: faceAnchor.decomposed)
+  }
+
   static func sample(
     name: String,
     activity: NoemaAvatarActivity,
-    previousActivity: NoemaAvatarActivity,
     audioLevel: Double?,
     elapsed: Double,
-    isCircle: Bool
+    isCircle: Bool,
+    transitionFrom: BeamMotionPose,
+    target: BeamMotionPose,
+    eventsEnabled: Bool,
+    duration: Double
   ) -> BeamMotionPose {
-    let target = base(activity)
-    if elapsed < 0.36 {
-      return .interpolate(base(previousActivity), target, progress: easeOut(elapsed / 0.36))
+    if elapsed < duration {
+      var pose = transitionFrom
+      let fullProgress = transitionProgress(elapsed: elapsed, duration: duration)
+      pose.character = .interpolate(transitionFrom.character, target.character, progress: fullProgress)
+      pose.shadow = .interpolate(transitionFrom.shadow, target.shadow, progress: fullProgress)
+      pose.shadowOpacity = transitionFrom.shadowOpacity + (target.shadowOpacity - transitionFrom.shadowOpacity) * fullProgress
+      pose.body = .interpolate(transitionFrom.body, target.body, progress: fullProgress)
+      pose.faceAnchor = .interpolate(transitionFrom.faceAnchor, target.faceAnchor, progress: fullProgress)
+      let faceProgress = transitionProgress(elapsed: elapsed, duration: min(duration, 0.3))
+      pose.face = .interpolate(transitionFrom.face, target.face, progress: faceProgress)
+      pose.mouthOpen = transitionFrom.mouthOpen + (target.mouthOpen - transitionFrom.mouthOpen) * faceProgress
+      let gazeProgress = transitionProgress(elapsed: elapsed, duration: min(duration, 0.17))
+      pose.gaze = .interpolate(transitionFrom.gaze, target.gaze, progress: gazeProgress)
+      pose.blink = transitionFrom.blink + (target.blink - transitionFrom.blink) * gazeProgress
+      return pose
     }
+    guard eventsEnabled else { return target }
 
     var random = NoemaSeededRandom(NoemaAvatarSeed.hash("\(name):\(activity.rawValue):beam"))
-    var remaining = max(0, elapsed - 0.48)
+    var remaining = max(0, elapsed - duration - settleDuration)
     var event = nextEvent(activity: activity, random: &random, isCircle: isCircle, base: target)
     for _ in 0..<128 {
       if remaining <= event.duration {
@@ -364,7 +489,39 @@ private enum BeamMotion {
   }
 
   private static func smooth(_ value: Double) -> Double { value * value * (3 - 2 * value) }
-  private static func easeOut(_ value: Double) -> Double { 1 - pow(1 - min(1, max(0, value)), 3) }
+
+  private static func transitionProgress(elapsed: Double, duration: Double) -> Double {
+    guard duration > 0 else { return 1 }
+    let progress = min(1, max(0, elapsed / duration))
+    var lower = 0.0
+    var upper = 1.0
+    for _ in 0..<12 {
+      let time = (lower + upper) / 2
+      let inverse = 1 - time
+      let x = 3 * inverse * inverse * time * 0.22
+        + 3 * inverse * time * time * 0.36
+        + time * time * time
+      if x < progress { lower = time } else { upper = time }
+    }
+    let time = (lower + upper) / 2
+    return 1 - pow(1 - time, 3)
+  }
+
+  private static func digit(_ number: Int, place: Int) -> Int {
+    Int(Double(number) / pow(10, Double(place))) % 10
+  }
+
+  private static func unit(_ number: Int, range: Double, place: Int? = nil) -> Double {
+    let value = Double(number).truncatingRemainder(dividingBy: range)
+    if let place, digit(number, place: place).isMultiple(of: 2) { return -value }
+    return value
+  }
+}
+
+private struct BeamMode: Equatable {
+  let name: String
+  let activity: NoemaAvatarActivity
+  let animated: Bool
 }
 
 struct NoemaBeamAvatar: View {
@@ -376,29 +533,71 @@ struct NoemaBeamAvatar: View {
   let square: Bool
 
   @State private var startedAt = Date.now
-  @State private var previousActivity: NoemaAvatarActivity = .idle
+  @State private var transitionFrom = BeamMotionPose()
+  @State private var transitionDuration = BeamMotion.transitionDuration
+  @State private var hasTransition = false
+  @State private var settling = false
+  @State private var renderedMode: BeamMode
+
+  init(
+    name: String,
+    colors: [UInt32],
+    activity: NoemaAvatarActivity,
+    audioLevel: Double?,
+    animated: Bool,
+    square: Bool
+  ) {
+    self.name = name
+    self.colors = colors
+    self.activity = activity
+    self.audioLevel = audioLevel
+    self.animated = animated
+    self.square = square
+    _renderedMode = State(initialValue: BeamMode(name: name, activity: activity, animated: animated))
+  }
+
+  private var desiredMode: BeamMode {
+    BeamMode(name: name, activity: activity, animated: animated)
+  }
 
   var body: some View {
     Group {
-      if animated {
+      if renderedMode.animated || settling {
         TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
-          canvas(elapsed: timeline.date.timeIntervalSince(startedAt))
+          canvas(mode: renderedMode, date: timeline.date)
         }
       } else {
-        canvas(elapsed: 0)
+        canvas(mode: renderedMode, date: startedAt)
       }
     }
-    .onChange(of: activity) { oldValue, _ in
-      previousActivity = oldValue
-      startedAt = .now
+    .onChange(of: desiredMode) { _, newMode in
+      let now = Date.now
+      if !renderedMode.animated && !newMode.animated {
+        hasTransition = false
+        settling = false
+        startedAt = now
+        renderedMode = newMode
+        return
+      }
+      transitionFrom = renderedPose(mode: renderedMode, date: now)
+      transitionDuration = transitionLength(from: renderedMode, to: newMode)
+      hasTransition = true
+      settling = !newMode.animated
+      startedAt = now
+      renderedMode = newMode
     }
-    .onChange(of: animated) { _, _ in startedAt = .now }
-    .onChange(of: name) { _, _ in startedAt = .now }
+    .task(id: renderedMode) {
+      guard !renderedMode.animated, settling else { return }
+      try? await Task.sleep(for: .seconds(transitionDuration))
+      guard !Task.isCancelled else { return }
+      settling = false
+      hasTransition = false
+    }
   }
 
-  private func canvas(elapsed: Double) -> some View {
+  private func canvas(mode: BeamMode, date: Date) -> some View {
     let palette = colors.isEmpty ? NoemaAvatarPalette.default : colors
-    let seed = NoemaAvatarSeed.hash(name)
+    let seed = NoemaAvatarSeed.hash(mode.name)
     let bodyColor = palette[seed % palette.count]
     let backgroundColor = palette[(seed + 13) % palette.count]
     let shadowColor = palette[(seed + 29) % palette.count]
@@ -408,16 +607,7 @@ struct NoemaBeamAvatar: View {
     let eyeSize = (3.2 + Double(seed % 3) * 0.3) * 0.8
     let mouthWidth = 7.5 + Double(seed % 4)
     let faceRotation = unit(seed, range: 4, place: 3)
-    let pose = animated
-      ? BeamMotion.sample(
-          name: name,
-          activity: activity,
-          previousActivity: previousActivity,
-          audioLevel: audioLevel,
-          elapsed: elapsed,
-          isCircle: isCircle
-        )
-      : BeamMotion.base(activity)
+    let pose = renderedPose(mode: mode, date: date)
 
     return Canvas { context, size in
       let scale = min(size.width, size.height) / 100
@@ -440,11 +630,7 @@ struct NoemaBeamAvatar: View {
       }
 
       context.drawLayer { character in
-        if !animated, activity == .idle {
-          character.concatenate(originalCharacterTransform(seed: seed, isCircle: isCircle))
-        } else {
-          character.concatenate(pose.character.affine(origin: CGPoint(x: 50, y: 52)))
-        }
+        character.concatenate(pose.character.affine(origin: CGPoint(x: 50, y: 52)))
         character.drawLayer { body in
           body.concatenate(pose.body.affine(origin: CGPoint(x: 50, y: 52)))
           let sphere = GraphicsContext.Shading.radialGradient(
@@ -471,30 +657,33 @@ struct NoemaBeamAvatar: View {
             lineWidth: 1.4
           )
 
-          body.drawLayer { face in
-            face.concatenate(CGAffineTransform(translationX: 50, y: 52).rotated(by: faceRotation * .pi / 180).translatedBy(x: -50, y: -52))
-            face.concatenate(pose.face.affine(origin: CGPoint(x: 50, y: 52)))
-            face.drawLayer { eyes in
-              eyes.concatenate(pose.gaze.affine(origin: CGPoint(x: 50, y: 48)))
-              eyes.opacity = 1 - pose.blink
-              eyes.fill(Path(ellipseIn: CGRect(x: 50 - eyeSpread - eyeSize, y: 44.88, width: eyeSize * 2, height: 6.24)), with: .color(faceColor))
-              eyes.fill(Path(ellipseIn: CGRect(x: 50 + eyeSpread - eyeSize, y: 44.88, width: eyeSize * 2, height: 6.24)), with: .color(faceColor))
+          body.drawLayer { faceAnchor in
+            faceAnchor.concatenate(pose.faceAnchor.affine(origin: .zero))
+            faceAnchor.drawLayer { face in
+              face.concatenate(BeamMatrix.rotation(faceRotation, origin: CGPoint(x: 50, y: 52)).affine)
+              face.concatenate(pose.face.affine(origin: CGPoint(x: 50, y: 52)))
+              face.drawLayer { eyes in
+                eyes.concatenate(pose.gaze.affine(origin: CGPoint(x: 50, y: 48)))
+                eyes.opacity = 1 - pose.blink
+                eyes.fill(Path(ellipseIn: CGRect(x: 50 - eyeSpread - eyeSize, y: 44.88, width: eyeSize * 2, height: 6.24)), with: .color(faceColor))
+                eyes.fill(Path(ellipseIn: CGRect(x: 50 + eyeSpread - eyeSize, y: 44.88, width: eyeSize * 2, height: 6.24)), with: .color(faceColor))
+              }
+              if pose.blink > 0 {
+                face.opacity = pose.blink
+                face.stroke(closedEye(centerX: 50 - eyeSpread), with: .color(faceColor), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                face.stroke(closedEye(centerX: 50 + eyeSpread), with: .color(faceColor), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                face.opacity = 1
+              }
+              drawMouth(
+                in: &face,
+                width: mouthWidth,
+                color: faceColor,
+                activity: mode.activity,
+                animated: mode.animated,
+                useHalfMoon: seed.isMultiple(of: 2),
+                openness: pose.mouthOpen
+              )
             }
-            if pose.blink > 0 {
-              face.opacity = pose.blink
-              face.stroke(closedEye(centerX: 50 - eyeSpread), with: .color(faceColor), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-              face.stroke(closedEye(centerX: 50 + eyeSpread), with: .color(faceColor), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-              face.opacity = 1
-            }
-            drawMouth(
-              in: &face,
-              width: mouthWidth,
-              color: faceColor,
-              activity: activity,
-              animated: animated,
-              useHalfMoon: seed.isMultiple(of: 2),
-              openness: pose.mouthOpen
-            )
           }
         }
       }
@@ -504,6 +693,35 @@ struct NoemaBeamAvatar: View {
         lineWidth: 1.2
       )
     }
+  }
+
+  private func renderedPose(mode: BeamMode, date: Date) -> BeamMotionPose {
+    let seed = NoemaAvatarSeed.hash(mode.name)
+    let isCircle = digit(seed, place: 1).isMultiple(of: 2)
+    let faceRotation = unit(seed, range: 4, place: 3)
+    let target = !mode.animated && mode.activity == .idle
+      ? BeamMotion.originalIdle(seed: seed, faceRotation: faceRotation, isCircle: isCircle)
+      : BeamMotion.base(mode.activity)
+    guard hasTransition || mode.animated else { return target }
+    return BeamMotion.sample(
+      name: mode.name,
+      activity: mode.activity,
+      audioLevel: audioLevel,
+      elapsed: date.timeIntervalSince(startedAt),
+      isCircle: isCircle,
+      transitionFrom: hasTransition ? transitionFrom : target,
+      target: target,
+      eventsEnabled: mode.animated,
+      duration: hasTransition ? transitionDuration : 0
+    )
+  }
+
+  private func transitionLength(from oldMode: BeamMode, to newMode: BeamMode) -> Double {
+    if oldMode.activity != newMode.activity || (!oldMode.animated && newMode.animated) {
+      return BeamMotion.transitionDuration
+    }
+    if oldMode.animated && !newMode.animated { return 0.32 }
+    return 0.18
   }
 
   private func drawMouth(
@@ -555,23 +773,6 @@ struct NoemaBeamAvatar: View {
     path.move(to: CGPoint(x: centerX - 3, y: 48))
     path.addQuadCurve(to: CGPoint(x: centerX + 3, y: 48), control: CGPoint(x: centerX, y: 50))
     return path
-  }
-
-  private func originalCharacterTransform(seed: Int, isCircle: Bool) -> CGAffineTransform {
-    let preX = unit(seed, range: 10, place: 1)
-    let preY = unit(seed, range: 10, place: 2)
-    let x = preX < 5 ? preX + 4 : preX
-    let y = preY < 5 ? preY + 4 : preY
-    let wrapperRotation = unit(seed, range: 360)
-    let rotation = isCircle ? 0 : ((wrapperRotation + 45).truncatingRemainder(dividingBy: 90) + 90).truncatingRemainder(dividingBy: 90) - 45
-    let originalScale = 1 + unit(seed, range: 3) / 10
-    let expansion = 100.0 / 68.0
-    let unitScale = 100.0 / 36.0
-    let roomToOriginal = CGAffineTransform(translationX: -16 * expansion, y: -18 * expansion).scaledBy(x: expansion, y: expansion)
-    let original = CGAffineTransform(translationX: x * unitScale, y: y * unitScale)
-      .rotated(by: rotation * .pi / 180)
-      .scaledBy(x: originalScale, y: originalScale)
-    return roomToOriginal.concatenating(original)
   }
 
   private func contrast(_ color: UInt32) -> Color {
