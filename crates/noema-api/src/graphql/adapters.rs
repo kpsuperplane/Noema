@@ -2271,6 +2271,23 @@ mod tests {
                 .map(|action| action.kind.as_str()),
             Some("import_application")
         );
+        let wrong_client_type = import_adapter_oauth_application(
+            &state,
+            "human:local",
+            GraphqlImportAdapterOauthApplicationInput {
+                profile_digest: noema_capability_adapters::reviewed_google_oauth_profile_digest(),
+                project_label: None,
+                client_document_base64: BASE64_STANDARD.encode(
+                    br#"{"web":{"client_id":"client-marker","client_secret":"secret-marker"}}"#,
+                ),
+            },
+        )
+        .await
+        .expect_err("wrong callback client type");
+        let message = wrong_client_type.message;
+        assert!(message.contains("requested client type"));
+        assert!(!message.contains("client-marker"));
+        assert!(!message.contains("secret-marker"));
         let setup_interventions = oauth_client_setup_interventions(&state).await;
         assert_eq!(setup_interventions.len(), 1);
         assert_eq!(setup_interventions[0].dependent_definitions.len(), 1);

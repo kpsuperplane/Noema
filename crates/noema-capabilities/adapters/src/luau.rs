@@ -159,6 +159,20 @@ fn sandbox(profile: SandboxProfile) -> mlua::Result<(Lua, TableKinds)> {
             json_to_lua(lua, &value)
         })?,
     )?;
+    let encode_table_kinds = Rc::clone(&table_kinds);
+    json.set(
+        "encode",
+        lua.create_function(move |lua, value: LuaValue| {
+            let value = lua_to_json(value, &encode_table_kinds, 0, &mut 0, &mut BTreeSet::new())
+                .map_err(|_| mlua::Error::runtime("invalid JSON value"))?;
+            let bytes = serde_json::to_vec(&value)
+                .map_err(|_| mlua::Error::runtime("invalid JSON value"))?;
+            if bytes.len() > OUTPUT_LIMIT {
+                return Err(mlua::Error::runtime("JSON output is too large"));
+            }
+            lua.create_string(bytes)
+        })?,
+    )?;
     for (name, kind) in [("array", TableKind::Array), ("object", TableKind::Object)] {
         let tags = Rc::clone(&table_kinds);
         json.set(
@@ -292,7 +306,6 @@ fn json_to_lua(lua: &Lua, value: &Value) -> mlua::Result<LuaValue> {
     })
 }
 
-#[allow(dead_code)]
 fn lua_to_json(
     value: LuaValue,
     table_kinds: &RefCell<BTreeMap<usize, (TableKind, Table)>>,
@@ -326,7 +339,6 @@ fn lua_to_json(
     }
 }
 
-#[allow(dead_code)]
 fn table_to_json(
     table: Table,
     table_kinds: &RefCell<BTreeMap<usize, (TableKind, Table)>>,

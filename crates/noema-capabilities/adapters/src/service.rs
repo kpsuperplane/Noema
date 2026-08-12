@@ -6,7 +6,7 @@ use crate::{
     AuthenticationMode, AuthorizationGrantStatus, AuthorizationGrantV1, CompiledAdapterDefinition,
     ExternalAccountV1, Oauth2CallbackMode, Oauth2ClientAuthentication, OauthApplicationStatus,
     OauthApplicationV1, OauthGrantTokenV1,
-    credential_import::setup_credential,
+    credential_import::{AdapterCredentialImportError, setup_credential},
     network::{
         AdapterBearerCredential, AdapterHttpExecutor, AdapterOAuthTokenGrant,
         AdapterOAuthTokenRequest, ReqwestAdapterHttpExecutor,
@@ -40,6 +40,29 @@ pub enum AdapterConnectionSetupError {
     /// The transient credential document does not match the reviewed schema.
     #[error("adapter credential document is invalid")]
     InvalidCredential,
+    /// The OAuth client document is not valid JSON.
+    #[error(
+        "OAuth client document is not valid JSON. Download the JSON document from the provider and try again."
+    )]
+    InvalidOauthDocumentJson,
+    /// The OAuth client document does not match the reviewed setup.
+    #[error(
+        "OAuth client document does not match this setup. Download the requested client type and try again."
+    )]
+    OauthDocumentMismatch,
+    /// The hosted OAuth client omits the exact configured redirect URI.
+    #[error(
+        "OAuth client redirect URI does not match. Add the shown redirect URI, then download the document again."
+    )]
+    OauthRedirectMismatch,
+    /// The OAuth client document exceeds the input limit.
+    #[error(
+        "OAuth client document exceeds 128 KB. Download the original JSON document and try again."
+    )]
+    OauthDocumentOversized,
+    /// The same public client identity already has different protected details.
+    #[error("An OAuth client with this client ID already exists with different client details.")]
+    OauthClientConflict,
     /// A selected reusable grant revision changed before attachment.
     #[error("adapter account state changed")]
     Conflict,
@@ -126,6 +149,25 @@ enum AdapterManagementChange {
         source_revision: String,
         enabled: bool,
     },
+}
+
+fn oauth_document_error(error: AdapterCredentialImportError) -> AdapterConnectionSetupError {
+    match error {
+        AdapterCredentialImportError::InvalidJson => {
+            AdapterConnectionSetupError::InvalidOauthDocumentJson
+        }
+        AdapterCredentialImportError::RedirectMismatch => {
+            AdapterConnectionSetupError::OauthRedirectMismatch
+        }
+        AdapterCredentialImportError::Oversized => {
+            AdapterConnectionSetupError::OauthDocumentOversized
+        }
+        AdapterCredentialImportError::Unsupported
+        | AdapterCredentialImportError::InvalidInput
+        | AdapterCredentialImportError::InvalidDocument => {
+            AdapterConnectionSetupError::OauthDocumentMismatch
+        }
+    }
 }
 
 fn compatible_definition_replacement(
@@ -1049,7 +1091,7 @@ impl AdapterCapabilityService {
             .map_err(|_| AdapterConnectionSetupError::Unavailable)?
             .ok_or(AdapterConnectionSetupError::DefinitionUnavailable)?;
         if configured_mode != callback_mode {
-            return Err(AdapterConnectionSetupError::InvalidCredential);
+            return Err(AdapterConnectionSetupError::OauthDocumentMismatch);
         }
         let profile = self
             .inner
@@ -1064,7 +1106,7 @@ impl AdapterCapabilityService {
             document,
             generation_id,
         )
-        .map_err(|_| AdapterConnectionSetupError::InvalidCredential)?;
+        .map_err(oauth_document_error)?;
         let lock = self
             .connection_lock(&format!("oauth-application:{profile_digest}:{client_id}"))
             .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
@@ -1087,7 +1129,7 @@ impl AdapterCapabilityService {
             if current_credential.client_secret == credential.client_secret {
                 return Ok(existing);
             }
-            return Err(AdapterConnectionSetupError::InvalidCredential);
+            return Err(AdapterConnectionSetupError::OauthClientConflict);
         }
         let application = OauthApplicationV1 {
             schema_version: 1,
