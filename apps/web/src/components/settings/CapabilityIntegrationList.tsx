@@ -283,12 +283,12 @@ export function CapabilityIcon({
       aria-hidden="true"
       {...stylex.props(styles.iconFrame, emphasized && styles.emphasizedIcon)}
     >
-      <CapabilityGlyph kind={kind} definitionId={definitionId} />
+      <CapabilityServiceIcon kind={kind} definitionId={definitionId} />
     </HStack>
   );
 }
 
-function CapabilityGlyph({ kind, definitionId }: { kind: "API" | "MCP"; definitionId: string }) {
+export function CapabilityServiceIcon({ kind, definitionId }: { kind: "API" | "MCP"; definitionId: string }) {
   const iconProps = stylex.props(styles.icon);
   if (kind === "MCP") return <Plug {...iconProps} />;
   const terms = definitionId

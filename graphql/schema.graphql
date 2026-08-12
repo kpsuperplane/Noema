@@ -349,6 +349,14 @@ type AdapterOauthProfile {
 }
 
 """
+One additional reviewed API included in the same OAuth authorization.
+"""
+input AdapterOauthServiceSelectionInput {
+	semanticDigest: String!
+	operationIds: [String!]!
+}
+
+"""
 Opaque browser handoff for a provider-neutral adapter OAuth attempt.
 """
 type AdapterOauthSetupAttempt {
@@ -4266,6 +4274,7 @@ input StartAdapterOauthSetupInput {
 	expectedGrantRevision: Int
 	semanticDigest: String!
 	operationIds: [String!]!
+	additionalServices: [AdapterOauthServiceSelectionInput!]
 }
 
 """

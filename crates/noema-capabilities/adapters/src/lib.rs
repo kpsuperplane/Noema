@@ -94,5 +94,6 @@ pub use service::{
     AdapterCapabilityService, AdapterConnectionSetupError, AdapterManagementError,
     AdapterManagementFence, AdapterManagementSnapshot, AdapterMigrationError,
     AdapterOAuthAttemptEvent, AdapterOAuthAttemptStatus, AdapterOAuthAuthorizationRequest,
-    AdapterOAuthSetupCompletion, AdapterOAuthSetupError, AdapterOAuthSetupStart,
+    AdapterOAuthServiceSelection, AdapterOAuthSetupCompletion, AdapterOAuthSetupError,
+    AdapterOAuthSetupStart,
 };

@@ -28,6 +28,30 @@ const ListCardAnchor = forwardRef<HTMLAnchorElement, ListCardAnchorProps>(functi
 
 export const ListCardLink = createLink(ListCardAnchor);
 
+type ListCardButtonProps = ComponentPropsWithoutRef<"button"> & {
+  selected?: boolean;
+  xstyle?: StyleXStyles;
+};
+
+export const ListCardButton = forwardRef<HTMLButtonElement, ListCardButtonProps>(function ListCardButton({
+  className,
+  selected = false,
+  style,
+  xstyle,
+  ...props
+}, ref) {
+  const cardProps = stylex.props(styles.card, styles.button, selected && styles.selected, xstyle);
+  return (
+    <button
+      {...props}
+      ref={ref}
+      type={props.type ?? "button"}
+      className={[cardProps.className, className].filter(Boolean).join(" ")}
+      style={{ ...cardProps.style, ...style }}
+    />
+  );
+});
+
 const styles = stylex.create({
   card: {
     display: "grid",
@@ -57,5 +81,10 @@ const styles = stylex.create({
     borderColor: "color-mix(in srgb, var(--noema-pine-500) 26%, var(--noema-border-subtle))",
     backgroundColor: "color-mix(in srgb, var(--noema-pine-50) 70%, var(--noema-surface-card))",
     boxShadow: "0 2px 8px color-mix(in srgb, var(--noema-pine-700) 9%, transparent)"
+  },
+  button: {
+    font: "inherit",
+    textAlign: "start",
+    cursor: "pointer"
   }
 });

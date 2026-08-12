@@ -267,6 +267,101 @@ fn grant_fixture(
     }
 }
 
+fn install_oauth_definition(
+    paths: &NoemaPaths,
+    base_digest: &str,
+    profile_digest: &str,
+    suffix: &str,
+    scope: &str,
+) -> String {
+    let store = AdapterDefinitionStore::new(paths.clone());
+    let mut value =
+        serde_json::to_value(store.load(base_digest).expect("base definition").manifest)
+            .expect("manifest value");
+    value["definition_id"] = json!(format!("definition:{suffix}"));
+    value["adapter_id"] = json!(suffix);
+    value["display_name"] = json!(format!("{suffix} fixture"));
+    value["authentication"]["profile_digest"] = json!(profile_digest);
+    value["operations"][0]["operation_id"] = json!("use_service");
+    value["operations"][0]["authorization"]["accepted_scope_sets"] = json!([[scope]]);
+    let manifest = serde_json::from_value(value).expect("manifest");
+    store
+        .install(&manifest, "https://developers.example.test/api", None, None)
+        .expect("definition")
+        .compiled
+        .semantic_digest
+        .to_string()
+}
+
+#[tokio::test]
+async fn one_oauth_attempt_unions_scopes_for_selected_services() {
+    let fixture = grant_fixture(Err(AdapterOAuthTokenError::Unavailable));
+    let additional_digest = install_oauth_definition(
+        &fixture.paths,
+        &fixture.semantic_digest,
+        &crate::reviewed_google_oauth_profile_digest(),
+        "additional_service",
+        "scope.write",
+    );
+    let started = fixture
+        .service
+        .start_oauth_authorization(
+            "human:local",
+            crate::AdapterOAuthAuthorizationRequest {
+                application_id: fixture.application_id,
+                expected_application_revision: 1,
+                grant_id: None,
+                expected_grant_revision: None,
+                semantic_digest: fixture.semantic_digest.clone(),
+                operation_ids: vec!["get_item".to_string()],
+                additional_services: vec![crate::AdapterOAuthServiceSelection {
+                    semantic_digest: additional_digest,
+                    operation_ids: vec!["use_service".to_string()],
+                }],
+                callback_mode: crate::Oauth2CallbackMode::Loopback,
+                redirect_uri: "http://localhost:43123/adapter/oauth/callback".to_string(),
+            },
+        )
+        .await
+        .expect("start authorization");
+    let authorization_url = url::Url::parse(&started.authorization_url).expect("authorization URL");
+    let scopes = authorization_url
+        .query_pairs()
+        .find(|(name, _)| name == "scope")
+        .map(|(_, value)| value.split(' ').map(str::to_string).collect::<Vec<_>>())
+        .expect("scopes");
+    assert_eq!(scopes, ["scope.read", "scope.write"]);
+}
+
+#[tokio::test]
+async fn one_oauth_attempt_rejects_a_duplicate_service_selection() {
+    let fixture = grant_fixture(Err(AdapterOAuthTokenError::Unavailable));
+    let result = fixture
+        .service
+        .start_oauth_authorization(
+            "human:local",
+            crate::AdapterOAuthAuthorizationRequest {
+                application_id: fixture.application_id,
+                expected_application_revision: 1,
+                grant_id: None,
+                expected_grant_revision: None,
+                semantic_digest: fixture.semantic_digest.clone(),
+                operation_ids: vec!["get_item".to_string()],
+                additional_services: vec![crate::AdapterOAuthServiceSelection {
+                    semantic_digest: fixture.semantic_digest.clone(),
+                    operation_ids: vec!["get_item".to_string()],
+                }],
+                callback_mode: crate::Oauth2CallbackMode::Loopback,
+                redirect_uri: "http://localhost:43123/adapter/oauth/callback".to_string(),
+            },
+        )
+        .await;
+    assert!(matches!(
+        result,
+        Err(crate::AdapterOAuthSetupError::Invalid)
+    ));
+}
+
 #[tokio::test]
 async fn two_connections_share_one_refresh_result() {
     let fixture = grant_fixture(Ok(AdapterOAuthTokenOutcome {
@@ -376,6 +471,7 @@ async fn new_authorization_without_identity_creates_another_account_grant() {
                 expected_grant_revision: None,
                 semantic_digest: fixture.semantic_digest,
                 operation_ids: vec!["get_item".to_string()],
+                additional_services: Vec::new(),
                 callback_mode: crate::Oauth2CallbackMode::Loopback,
                 redirect_uri: redirect_uri.to_string(),
             },
@@ -425,6 +521,7 @@ async fn stale_oauth_management_revisions_are_rejected() {
                 expected_grant_revision: Some(3),
                 semantic_digest: fixture.semantic_digest,
                 operation_ids: vec!["get_item".to_string()],
+                additional_services: Vec::new(),
                 callback_mode: crate::Oauth2CallbackMode::Loopback,
                 redirect_uri: "http://localhost:43123/adapter/oauth/callback".to_string(),
             },

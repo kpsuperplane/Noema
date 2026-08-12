@@ -65,7 +65,9 @@ a separate Save button or performed in a focused dialog with explicit Save.
 ## API integration UX
 
 API Settings groups connections by provider, account, then API. Provider headers
-contain access-method actions. Account headers use an action menu. OAuth is
+own account creation. The add-account dialog selects compatible services before
+it starts the provider access flow. One OAuth sign-in can authorize all selected
+services through one compatible application. Account headers use an action menu. OAuth is
 one supported access method; credential and no-auth connections keep the same
 provider hierarchy. MCP Settings keeps its service-first list. Both use the same
 connection detail. The detail keeps connection policy and tool controls visible.

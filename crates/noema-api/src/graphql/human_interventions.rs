@@ -668,6 +668,7 @@ pub(super) async fn start_adapter_authentication(
                 expected_grant_revision: Some(grant.authority_revision),
                 semantic_digest: descriptor.semantic_digest,
                 operation_ids: descriptor.allowed_operations,
+                additional_services: Vec::new(),
                 callback_mode: super::adapters::adapter_callback_mode(callback_url)?,
                 redirect_uri: callback_url.to_string(),
             },

@@ -4,10 +4,10 @@ use async_graphql::{InputObject, SimpleObject};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use noema_capability_adapters::{
     AdapterConnectionAuthenticationV1, AdapterOAuthAttemptEvent, AdapterOAuthAttemptStatus,
-    AdapterOAuthAuthorizationRequest, AdapterOAuthSetupError, AdapterOperation, AuthenticationMode,
-    AuthenticationSchemeV4, AuthorizationGrantStatus, CredentialInput, CredentialSetup,
-    LuauTransform, Oauth2CallbackMode, OauthApplicationStatus, ResponseTransform,
-    StoredAdapterDefinition,
+    AdapterOAuthAuthorizationRequest, AdapterOAuthServiceSelection, AdapterOAuthSetupError,
+    AdapterOperation, AuthenticationMode, AuthenticationSchemeV4, AuthorizationGrantStatus,
+    CredentialInput, CredentialSetup, LuauTransform, Oauth2CallbackMode, OauthApplicationStatus,
+    ResponseTransform, StoredAdapterDefinition,
 };
 #[cfg(test)]
 use noema_capability_adapters::{AdapterConnectionStore, AdapterDefinitionStore};
@@ -279,6 +279,15 @@ pub struct GraphqlStartAdapterOauthSetupInput {
     pub expected_application_revision: u64,
     pub grant_id: Option<String>,
     pub expected_grant_revision: Option<u64>,
+    pub semantic_digest: String,
+    pub operation_ids: Vec<String>,
+    pub additional_services: Option<Vec<GraphqlAdapterOauthServiceSelectionInput>>,
+}
+
+/// One additional reviewed API included in the same OAuth authorization.
+#[derive(Clone, InputObject)]
+#[graphql(name = "AdapterOauthServiceSelectionInput")]
+pub struct GraphqlAdapterOauthServiceSelectionInput {
     pub semantic_digest: String,
     pub operation_ids: Vec<String>,
 }
@@ -725,6 +734,15 @@ pub(super) async fn start_adapter_oauth_setup(
                 expected_grant_revision: input.expected_grant_revision,
                 semantic_digest: input.semantic_digest,
                 operation_ids: input.operation_ids,
+                additional_services: input
+                    .additional_services
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|selection| AdapterOAuthServiceSelection {
+                        semantic_digest: selection.semantic_digest,
+                        operation_ids: selection.operation_ids,
+                    })
+                    .collect(),
                 callback_mode,
                 redirect_uri: callback_url.to_string(),
             },
@@ -2339,6 +2357,7 @@ mod tests {
                     expected_grant_revision: None,
                     semantic_digest: reviewed.semantic_digest.clone(),
                     operation_ids: vec!["list_items".to_string()],
+                    additional_services: None,
                 },
             )
             .await
@@ -2354,6 +2373,7 @@ mod tests {
                 expected_grant_revision: None,
                 semantic_digest: reviewed.semantic_digest,
                 operation_ids: vec!["list_items".to_string()],
+                additional_services: None,
             },
         )
         .await

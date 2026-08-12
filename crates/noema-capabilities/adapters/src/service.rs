@@ -235,6 +235,14 @@ pub struct AdapterOAuthSetupStart {
     pub expires_at_epoch_seconds: u64,
 }
 
+/// One reviewed API selection within a shared OAuth request.
+pub struct AdapterOAuthServiceSelection {
+    /// Reviewed API definition included in this authorization.
+    pub semantic_digest: String,
+    /// Operations whose access must be covered.
+    pub operation_ids: Vec<String>,
+}
+
 /// Exact non-secret request for a new account or added OAuth access.
 pub struct AdapterOAuthAuthorizationRequest {
     /// Reusable OAuth application identity.
@@ -249,6 +257,8 @@ pub struct AdapterOAuthAuthorizationRequest {
     pub semantic_digest: String,
     /// Operations whose access must be covered.
     pub operation_ids: Vec<String>,
+    /// Other reviewed APIs authorized by the same application and grant.
+    pub additional_services: Vec<AdapterOAuthServiceSelection>,
     /// Callback mode registered by the application.
     pub callback_mode: Oauth2CallbackMode,
     /// Exact redirect URI for this attempt.
@@ -1550,10 +1560,38 @@ impl AdapterCapabilityService {
             .grant
             .as_ref()
             .map_or(&[][..], |grant| grant.granted_scopes.as_slice());
-        let target_scopes = current
+        let mut target_scopes = current
             .definition
             .scope_target(&request.operation_ids, granted)
             .ok_or(AdapterOAuthSetupError::Invalid)?;
+        let mut selected_digests = BTreeSet::from([request.semantic_digest.as_str()]);
+        for selection in &request.additional_services {
+            if !selected_digests.insert(&selection.semantic_digest) {
+                return Err(AdapterOAuthSetupError::Invalid);
+            }
+            let additional = self.load_oauth_grant(
+                &selection.semantic_digest,
+                &request.application_id,
+                request.grant_id.as_deref(),
+            )?;
+            if additional.application.revision != request.expected_application_revision
+                || additional
+                    .grant
+                    .as_ref()
+                    .map(|grant| grant.authority_revision)
+                    != request.expected_grant_revision
+            {
+                return Err(AdapterOAuthSetupError::Superseded);
+            }
+            target_scopes.extend(
+                additional
+                    .definition
+                    .scope_target(&selection.operation_ids, granted)
+                    .ok_or(AdapterOAuthSetupError::Invalid)?,
+            );
+        }
+        target_scopes.sort();
+        target_scopes.dedup();
         let authority = oauth_authority(human_id, &current, target_scopes.clone());
         let attempt = AdapterOAuthAttempt::start(
             &current.definition,

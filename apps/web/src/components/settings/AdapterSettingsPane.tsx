@@ -4,8 +4,9 @@ import { Button } from "@astryxdesign/core/Button";
 import { DropdownMenu, DropdownMenuItem } from "@astryxdesign/core/DropdownMenu";
 import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
+import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
 import { VStack } from "@astryxdesign/core/VStack";
-import { FileKey2, MoreHorizontal, Pause, Pencil, Play, Plus, Trash2, Unplug } from "lucide-react";
+import { Check, FileKey2, MoreHorizontal, Pause, Pencil, Play, Plus, Trash2, Unplug } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import {
@@ -31,8 +32,13 @@ import {
   type CapabilityIntegrationsQuery
 } from "@/generated/graphql";
 import { reserveExternalAuthNavigation } from "@/graphql/externalUrls";
+import { ListCardButton } from "@/components/ListCardLink";
 import { CapabilityManagementLayout } from "./CapabilityManagementLayout";
-import { CapabilityIntegrationList, type CapabilityProvider } from "./CapabilityIntegrationList";
+import {
+  CapabilityIntegrationList,
+  CapabilityServiceIcon,
+  type CapabilityProvider
+} from "./CapabilityIntegrationList";
 import { DeleteConfirmationDialog, DeleteConnectionDialog, DeleteServiceDialog } from "./DeleteConnectionDialog";
 import { AdapterDefinitionReviewDetails } from "@/components/capabilities/AdapterDefinitionReviewDetails";
 import {
@@ -48,6 +54,15 @@ type Grant = AdapterOauthStateQuery["adapterOauthState"]["grants"][number];
 type NextAction = NonNullable<AdapterDefinition["nextAction"]>;
 type ConnectionAction = AdapterDefinition["connectionActions"][number];
 type OAuthAction = NextAction | ConnectionAction;
+type PendingOAuthSetup = {
+  action: OAuthAction;
+  additionalSemanticDigests: string[];
+};
+type ProviderAddFlow = {
+  provider: CapabilityProvider;
+  applicationId: string | null;
+  selectedSemanticDigests: string[];
+};
 
 export function AdapterSettingsPane({ connectionId }: { connectionId?: string }) {
   const navigate = useNavigate();
@@ -78,7 +93,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const [applicationProfileDigest, setApplicationProfileDigest] = useState<string | null>(null);
   const [replacementApplicationId, setReplacementApplicationId] = useState<string | null>(null);
   const [attemptId, setAttemptId] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<OAuthAction | null>(null);
+  const [pendingOauthSetup, setPendingOauthSetup] = useState<PendingOAuthSetup | null>(null);
   const [renameGrants, setRenameGrants] = useState<Grant[] | null>(null);
   const [labelDraft, setLabelDraft] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -91,6 +106,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     definition: AdapterDefinition;
     action: ConnectionAction | null;
   } | null>(null);
+  const [providerAddFlow, setProviderAddFlow] = useState<ProviderAddFlow | null>(null);
   const [deleteServiceTargetId, setDeleteServiceTargetId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -107,23 +123,25 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     grantId?: string | null;
     grantRevision?: number | null;
   }) => {
-    const action = pendingAction;
+    const pending = pendingOauthSetup;
     let policyConnectionId: string | null = null;
     if (event.status === "completed" && event.grantId && event.grantRevision != null
-      && action && action.connectionId == null) {
-      const attached = await attachGrant({ variables: { input: {
-        semanticDigest: action.semanticDigest,
-        grantId: event.grantId,
-        expectedGrantRevision: event.grantRevision
-      } } });
-      const connection = attached.data?.attachAdapterOauthConnection.connections
-        .find((item) => item.grantId === event.grantId && !item.policyConfigured);
-      policyConnectionId = connection?.connectionId ?? null;
+      && pending && pending.action.connectionId == null) {
+      for (const semanticDigest of [pending.action.semanticDigest, ...pending.additionalSemanticDigests]) {
+        const attached = await attachGrant({ variables: { input: {
+          semanticDigest,
+          grantId: event.grantId,
+          expectedGrantRevision: event.grantRevision
+        } } });
+        const connection = attached.data?.attachAdapterOauthConnection.connections
+          .find((item) => item.grantId === event.grantId && !item.policyConfigured);
+        policyConnectionId ??= connection?.connectionId ?? null;
+      }
     } else if (event.status !== "completed") {
       setError(attemptFailure(event.status));
     }
     setAttemptId(null);
-    setPendingAction(null);
+    setPendingOauthSetup(null);
     await refresh();
     if (policyConnectionId) {
       void navigate({ to: "/settings/tools/apis/$connectionId", params: { connectionId: policyConnectionId } });
@@ -156,7 +174,8 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       })
     }));
   const pendingDefinitions = definitions.filter((item) => !item.reviewed);
-  const availableDefinitions = definitions.filter((item) => item.reviewed && item.connectionCount === 0);
+  const availableDefinitions = definitions.filter((item) => item.reviewed && item.connectionCount === 0
+    && !oauth?.applications.some((application) => application.profileDigest === item.oauthProfileDigest));
   const selectedConnection = integrations.flatMap((item) => item.connections)
     .find((item) => item.connectionId === connectionId) ?? null;
   const selectedDefinition = selectedConnection
@@ -189,7 +208,23 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     </VStack></SettingsSection>;
   }
 
-  async function runAction(definition: AdapterDefinition, selectedAction?: OAuthAction) {
+  const addFlowApplications = providerAddFlow
+    ? oauthApplicationsForProvider(providerAddFlow.provider, oauth)
+    : [];
+  const addFlowDefinitions = providerAddFlow
+    ? serviceDefinitionsForProvider(
+      providerAddFlow.provider,
+      definitions,
+      oauth,
+      providerAddFlow.applicationId
+    )
+    : [];
+
+  async function runAction(
+    definition: AdapterDefinition,
+    selectedAction?: OAuthAction,
+    additionalServices: Array<{ definition: AdapterDefinition; action: ConnectionAction }> = []
+  ) {
     const action = selectedAction ?? definition.nextAction;
     if (!action) return;
     setAccessConfirmation(null);
@@ -231,11 +266,18 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           grantId: action.grantId,
           expectedGrantRevision: action.expectedGrantRevision,
           semanticDigest: action.semanticDigest,
-          operationIds: action.operationIds
+          operationIds: action.operationIds,
+          additionalServices: additionalServices.map(({ definition: additionalDefinition, action: additionalAction }) => ({
+            semanticDigest: additionalDefinition.semanticDigest,
+            operationIds: additionalAction.operationIds
+          }))
         } } });
         const attempt = response.data?.startAdapterOauthSetup;
         if (!attempt) throw new Error("missing attempt");
-        setPendingAction(action);
+        setPendingOauthSetup({
+          action,
+          additionalSemanticDigests: additionalServices.map(({ definition: item }) => item.semanticDigest)
+        });
         setAttemptId(attempt.attemptId);
         await navigation.open(attempt.authorizationUrl);
         window.addEventListener("focus", () => {
@@ -268,6 +310,32 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       return;
     }
     setConnectionChoice({ definition, action: null });
+  }
+
+  async function continueProviderAddFlow() {
+    if (!providerAddFlow) return;
+    const selectedDefinitions = providerAddFlow.selectedSemanticDigests
+      .map((digest) => addFlowDefinitions.find((definition) => definition.semanticDigest === digest))
+      .filter((definition): definition is AdapterDefinition => definition != null);
+    if (providerAddFlow.applicationId) {
+      const selections = selectedDefinitions.map((definition) => ({
+        definition,
+        action: definition.connectionActions.find((action) =>
+          action.kind === "add_account" && action.applicationId === providerAddFlow.applicationId
+        )
+      })).filter((selection): selection is { definition: AdapterDefinition; action: ConnectionAction } =>
+        selection.action != null
+      );
+      const [primary, ...additional] = selections;
+      if (!primary) return;
+      await runAction(primary.definition, primary.action, additional);
+      setProviderAddFlow(null);
+      return;
+    }
+    const [definition] = selectedDefinitions;
+    if (!definition) return;
+    setProviderAddFlow(null);
+    requestConnection(definition);
   }
 
   async function importOauthApplication(submission: AdapterCredentialSubmission) {
@@ -308,21 +376,13 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     await refresh();
   }
 
-  const sourceActions = selectedDefinition && selectedDescriptor ? <>
-    {selectedDefinition.nextAction
+  const sourceActions = selectedDefinition && selectedDescriptor
+    && selectedDefinition.nextAction
       && selectedDefinition.nextAction.connectionId === selectedDescriptor.connectionId
       && ["add_access", "reconnect_account"].includes(selectedDefinition.nextAction.kind) ? (
       <Button type="button" size="sm" label={actionLabel(selectedDefinition)} isLoading={oauthStartState.loading}
         onClick={() => requestAction(selectedDefinition)} />
-    ) : null}
-    {selectedDefinition.connectionActions.length > 0 ? (
-      <IconButton size="sm" variant="ghost"
-        label={`Connect an account to ${selectedDefinition.displayName}`}
-        tooltip={`Connect an account to ${selectedDefinition.displayName}`}
-        icon={<Plus aria-hidden="true" {...stylex.props(styles.icon)} />}
-        onClick={() => requestConnection(selectedDefinition)} />
-    ) : null}
-  </> : null;
+    ) : null;
 
   return <>
     <CapabilityManagementLayout
@@ -386,11 +446,22 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
             };
           }}
           providerActions={(provider) => {
-            const applications = oauth.applications.filter(
-              (application) => oauthProviderId(application.providerDisplayName) === provider.id
-            );
-            if (applications.length === 0) return null;
+            const applications = oauthApplicationsForProvider(provider, oauth);
+            const services = serviceDefinitionsForProvider(provider, definitions, oauth);
+            if (applications.length === 0 && services.length === 0) return null;
             return <HStack gap={1} vAlign="center">
+              {services.length > 0 ? <IconButton size="sm" variant="ghost"
+                label={`Add ${provider.name} account`}
+                tooltip={`Add ${provider.name} account`}
+                icon={<Plus aria-hidden="true" {...stylex.props(styles.icon)} />}
+                onClick={() => {
+                  setError(null);
+                  setProviderAddFlow({
+                    provider,
+                    applicationId: applications[0]?.applicationId ?? null,
+                    selectedSemanticDigests: []
+                  });
+                }} /> : null}
               {applications.map((application) => {
                 const applicationName = application.projectLabel
                   ?? `${application.providerDisplayName} OAuth client`;
@@ -527,6 +598,65 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
         accountLabel: labelDraft || null
       } } }).then(async () => { setRenameGrants(null); await refresh(); }).catch(actionError(setError)) : undefined}>
       <TextInput hasAutoFocus label="Account label" value={labelDraft} onChange={setLabelDraft} />
+    </SettingsEditDialog>
+    <SettingsEditDialog
+      title={providerAddFlow ? `Add ${providerAddFlow.provider.name} account` : "Add account"}
+      open={providerAddFlow !== null}
+      saving={oauthStartState.loading}
+      saveLabel={providerAddFlow?.applicationId ? "Continue to sign in" : "Continue"}
+      saveDisabled={providerAddFlow?.selectedSemanticDigests.length === 0}
+      error={error}
+      onOpenChange={(open) => { if (!open) setProviderAddFlow(null); }}
+      onSave={() => continueProviderAddFlow().catch(actionError(setError))}
+    >
+      {providerAddFlow ? <VStack gap={3}>
+        <p {...stylex.props(styles.muted)}>
+          {providerAddFlow.applicationId
+            ? "Choose the services this account can use. You will sign in once."
+            : "Choose a service. Noema will continue with its required access method."}
+        </p>
+        {addFlowApplications.length > 1 ? <RadioList
+          label="Provider setup"
+          size="sm"
+          value={providerAddFlow.applicationId ?? ""}
+          onChange={(applicationId) => setProviderAddFlow({
+            ...providerAddFlow,
+            applicationId,
+            selectedSemanticDigests: []
+          })}
+        >
+          {addFlowApplications.map((application) => <RadioListItem
+            key={application.applicationId}
+            value={application.applicationId}
+            label={application.projectLabel ?? `${application.providerDisplayName} client`}
+          />)}
+        </RadioList> : null}
+        <VStack gap={1.5}>
+          {addFlowDefinitions.map((definition) => {
+            const selected = providerAddFlow.selectedSemanticDigests.includes(definition.semanticDigest);
+            return <ListCardButton
+              key={definition.semanticDigest}
+              selected={selected}
+              aria-pressed={selected}
+              aria-label={definition.displayName}
+              onClick={() => setProviderAddFlow({
+                ...providerAddFlow,
+                selectedSemanticDigests: providerAddFlow.applicationId
+                  ? selected
+                    ? providerAddFlow.selectedSemanticDigests.filter((digest) => digest !== definition.semanticDigest)
+                    : [...providerAddFlow.selectedSemanticDigests, definition.semanticDigest]
+                  : selected ? [] : [definition.semanticDigest]
+              })}
+            >
+              <HStack gap={2} vAlign="center">
+                <CapabilityServiceIcon kind="API" definitionId={definition.definitionId} />
+                <strong {...stylex.props(styles.serviceOptionLabel)}>{definition.displayName}</strong>
+                {selected ? <Check aria-hidden="true" {...stylex.props(styles.icon)} /> : null}
+              </HStack>
+            </ListCardButton>;
+          })}
+        </VStack>
+      </VStack> : null}
     </SettingsEditDialog>
     <SettingsEditDialog title={accessConfirmation ? `Authorize more ${accessConfirmation.definition.displayName} tools?` : "Authorize more tools?"}
       open={accessConfirmation !== null} saving={oauthStartState.loading} saveLabel="Continue to authorize" error={error}
@@ -705,6 +835,40 @@ function oauthProviderId(providerName: string) {
   return `oauth-provider:${providerName}`;
 }
 
+function oauthApplicationsForProvider(
+  provider: CapabilityProvider,
+  oauth: AdapterOauthStateQuery["adapterOauthState"]
+) {
+  return oauth.applications.filter(
+    (application) => oauthProviderId(application.providerDisplayName) === provider.id
+  );
+}
+
+function serviceDefinitionsForProvider(
+  provider: CapabilityProvider,
+  definitions: AdapterDefinition[],
+  oauth: AdapterOauthStateQuery["adapterOauthState"],
+  applicationId?: string | null
+) {
+  const applicationIds = new Set(oauthApplicationsForProvider(provider, oauth)
+    .filter((application) => applicationId == null || application.applicationId === applicationId)
+    .map((application) => application.applicationId));
+  if (applicationIds.size > 0) {
+    return definitions.filter((definition) => definition.reviewed && definition.connectionActions.some(
+      (action) => action.kind === "add_account"
+        && action.applicationId != null
+        && applicationIds.has(action.applicationId)
+    ));
+  }
+  return definitions.filter((definition) => definition.reviewed
+    && directProviderId(definition.origin) === provider.id
+    && definition.connectionActions.length > 0);
+}
+
+function directProviderId(origin: string) {
+  return `provider:${origin}`;
+}
+
 function directProvider(
   definition: AdapterDefinition | undefined,
   integration: CapabilityIntegrationsQuery["capabilityIntegrations"][number]
@@ -712,9 +876,9 @@ function directProvider(
   const origin = definition?.origin;
   if (!origin) return { id: `provider:${integration.definitionId}`, name: titleize(integration.name) };
   try {
-    return { id: `provider:${origin}`, name: new URL(origin).hostname };
+    return { id: directProviderId(origin), name: new URL(origin).hostname };
   } catch {
-    return { id: `provider:${origin}`, name: origin };
+    return { id: directProviderId(origin), name: origin };
   }
 }
 
@@ -744,6 +908,7 @@ const styles = stylex.create({
   fit: { width: "fit-content" },
   icon: { width: 16, height: 16 },
   destructiveMenuContent: { color: "var(--destructive)" },
+  serviceOptionLabel: { flexGrow: 1, minWidth: 0, fontSize: 14, lineHeight: 1.25 },
   summary: { cursor: "pointer", fontSize: 12, fontWeight: 600 },
   technicalDetails: { paddingTop: "var(--spacing-2)" },
   manifest: { maxHeight: 280, margin: "var(--spacing-2) 0 0", padding: "var(--spacing-2)", overflow: "auto", borderRadius: "var(--radius-sm)", backgroundColor: "var(--noema-surface-subtle)", fontFamily: "var(--font-mono)", fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }

@@ -23,6 +23,12 @@ export type AdapterCredentialFieldValueInput = {
   value: string;
 };
 
+/** One additional reviewed API included in the same OAuth authorization. */
+export type AdapterOauthServiceSelectionInput = {
+  operationIds: Array<string>;
+  semanticDigest: string;
+};
+
 /** Add a fresh authenticated connection to one exact MCP definition revision. */
 export type AddMcpConnectionInput = {
   authPreference?: McpSetupAuthPreference | null | undefined;
@@ -1012,6 +1018,7 @@ export type StartAdapterAuthenticationInput = {
 
 /** Start browser OAuth against one exact filesystem connection revision. */
 export type StartAdapterOauthSetupInput = {
+  additionalServices?: Array<AdapterOauthServiceSelectionInput> | null | undefined;
   applicationId: string;
   expectedApplicationRevision: number;
   expectedGrantRevision?: number | null | undefined;
