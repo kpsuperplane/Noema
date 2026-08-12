@@ -70,11 +70,16 @@ function CapabilityIntegrationListView({
           const providerTitleId = `capability-provider-${providerIndex}-title`;
           return (
             <VStack as="section" key={provider.id} gap={2} aria-labelledby={providerTitleId} {...stylex.props(styles.service)}>
-              <HStack gap={2} vAlign="center" {...stylex.props(styles.serviceHeader)}>
-                <HStack vAlign="center" hAlign="center" aria-hidden="true" {...stylex.props(styles.iconFrame)}>
+              <HStack gap={2} vAlign="center" {...stylex.props(styles.providerHeader)}>
+                <HStack
+                  vAlign="center"
+                  hAlign="center"
+                  aria-hidden="true"
+                  {...stylex.props(styles.iconFrame, styles.emphasizedIcon)}
+                >
                   <Globe2 {...stylex.props(styles.icon)} />
                 </HStack>
-                <h2 id={providerTitleId} {...stylex.props(styles.title)}>{provider.name}</h2>
+                <h2 id={providerTitleId} {...stylex.props(styles.title, styles.providerTitle)}>{provider.name}</h2>
                 {providerActions?.(provider)}
               </HStack>
               {items.map(({ integration, connection }) => (
@@ -320,10 +325,17 @@ const styles = stylex.create({
     minWidth: 0
   },
   serviceHeader: { minHeight: "var(--spacing-8)", paddingInline: "var(--spacing-1)" },
-  accountHeader: {
+  providerHeader: {
     minHeight: "var(--spacing-8)",
     paddingInline: "var(--spacing-1)",
-    marginInlineStart: "var(--spacing-2)"
+    paddingBlockEnd: "var(--spacing-1)",
+    borderBlockEndWidth: "var(--border-width)",
+    borderBlockEndStyle: "solid",
+    borderBlockEndColor: "var(--border-subtle)"
+  },
+  accountHeader: {
+    minHeight: "var(--spacing-8)",
+    paddingInline: "var(--spacing-1)"
   },
   iconFrame: {
     width: "var(--spacing-8)",
@@ -346,6 +358,7 @@ const styles = stylex.create({
     flex: 1,
     overflowWrap: "anywhere"
   },
+  providerTitle: { fontSize: 15, fontWeight: 700 },
   accountTitle: {
     margin: "var(--spacing-0)",
     color: "var(--foreground)",
