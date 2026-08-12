@@ -189,7 +189,7 @@ struct SettingsSectionCard<Content: View>: View {
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(NoemaColor.surface)
       .overlay {
-        RoundedRectangle(cornerRadius: NoemaRadius.container)
+        NoemaSuperellipse(cornerRadius: NoemaRadius.container, treatment: .container)
           .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
       }
     }
@@ -679,8 +679,8 @@ private struct WebProviderInlineRow: View {
       }
       .padding(.horizontal, NoemaSpacing.md)
       .frame(maxWidth: .infinity, minHeight: 34)
-      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-      .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
+      .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
+      .overlay { NoemaSuperellipse(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
     }
     .buttonStyle(.plain)
     .disabled(!settings.canMutate || binding.options.isEmpty)

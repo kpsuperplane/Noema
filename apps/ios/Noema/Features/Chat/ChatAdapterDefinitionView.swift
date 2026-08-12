@@ -46,7 +46,7 @@ struct AdapterOauthClientSetupInterventionCard: View {
             .textSelection(.enabled)
             .padding(NoemaSpacing.sm)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaRadius.inner))
+            .background(NoemaColor.surfaceSecondary, in: NoemaSuperellipse(cornerRadius: NoemaRadius.inner))
         }
       }
       if let errorMessage {
@@ -195,7 +195,7 @@ struct AdapterDefinitionInterventionCard: View {
             .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
           Text(redirectURI).font(NoemaFont.monoTiny).textSelection(.enabled)
             .padding(NoemaSpacing.sm).frame(maxWidth: .infinity, alignment: .leading)
-            .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaRadius.inner))
+            .background(NoemaColor.surfaceSecondary, in: NoemaSuperellipse(cornerRadius: NoemaRadius.inner))
         }
       }
       Button {
@@ -512,8 +512,8 @@ struct AdapterDefinitionInterventionCard: View {
           Text(path).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading).padding(NoemaSpacing.md)
-        .background(selected ? NoemaColor.pine50 : NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaRadius.inner))
-        .overlay { RoundedRectangle(cornerRadius: NoemaRadius.inner).stroke(selected ? NoemaColor.accent : NoemaColor.separatorSubtle, lineWidth: 1) }
+        .background(selected ? NoemaColor.pine50 : NoemaColor.surfaceSecondary, in: NoemaSuperellipse(cornerRadius: NoemaRadius.inner))
+        .overlay { NoemaSuperellipse(cornerRadius: NoemaRadius.inner).stroke(selected ? NoemaColor.accent : NoemaColor.separatorSubtle, lineWidth: 1) }
       }
       .buttonStyle(.plain).disabled(disabled || isWorking || isOffline || definition.superseded).opacity(disabled || isWorking || isOffline || definition.superseded ? 0.5 : 1)
       if let disabledReason, disabled { Text(disabledReason).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentTertiary) }

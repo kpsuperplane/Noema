@@ -49,9 +49,9 @@ extension View {
       .foregroundStyle(NoemaColor.content)
       .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
       .padding(.horizontal, NoemaSpacing.md)
-      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
       .overlay {
-        RoundedRectangle(cornerRadius: NoemaRadius.element)
+        NoemaSuperellipse(cornerRadius: NoemaRadius.element)
           .stroke(focused ? NoemaColor.pine500 : NoemaColor.separator, lineWidth: focused ? 2 : 1)
       }
   }
@@ -80,9 +80,9 @@ struct NoemaCard<Content: View>: View {
   var body: some View {
     content
       .padding(padding)
-      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: cornerRadius))
+      .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: cornerRadius, treatment: .container))
       .overlay {
-        RoundedRectangle(cornerRadius: cornerRadius)
+        NoemaSuperellipse(cornerRadius: cornerRadius, treatment: .container)
           .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
       }
   }
@@ -107,9 +107,9 @@ struct NoemaSectionSurface<Content: View>: View {
       content
     }
     .padding(NoemaSpacing.md)
-    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.container))
+    .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.container, treatment: .container))
     .overlay {
-      RoundedRectangle(cornerRadius: NoemaRadius.container)
+      NoemaSuperellipse(cornerRadius: NoemaRadius.container, treatment: .container)
         .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
     }
   }
@@ -135,7 +135,7 @@ struct NoemaStatusToken: View {
       .foregroundStyle(foreground)
       .padding(.horizontal, NoemaSpacing.compact)
       .padding(.vertical, NoemaSpacing.xxs)
-      .background(background, in: Capsule())
+      .background(background, in: NoemaSuperellipse.full)
   }
 
   private var foreground: Color {
@@ -211,8 +211,11 @@ struct NoemaDeckState: View {
     }
     .padding(NoemaSpacing.md)
     .frame(maxWidth: 420, minHeight: 72, alignment: .leading)
-    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-    .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+    .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element, treatment: .container))
+    .overlay {
+      NoemaSuperellipse(cornerRadius: NoemaRadius.element, treatment: .container)
+        .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+    }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     .padding(NoemaSpacing.lg)
   }
@@ -249,6 +252,7 @@ struct NoemaPageTrack<Content: View>: View {
 enum NoemaActionButtonVariant {
   case primary
   case secondary
+  case danger
   case ghost
 }
 
@@ -267,13 +271,13 @@ struct NoemaActionButtonStyle: ButtonStyle {
       .opacity(isEnabled ? 1 : 0.46)
   }
 
-  private var shape: RoundedRectangle {
-    RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous)
+  private var shape: NoemaSuperellipse {
+    NoemaSuperellipse(cornerRadius: NoemaRadius.element)
   }
 
   private var foreground: Color {
     switch variant {
-    case .primary: NoemaColor.white
+    case .primary, .danger: NoemaColor.white
     case .secondary, .ghost: NoemaColor.content
     }
   }
@@ -281,6 +285,7 @@ struct NoemaActionButtonStyle: ButtonStyle {
   private var background: Color {
     switch variant {
     case .primary: NoemaColor.clay600
+    case .danger: NoemaColor.danger
     case .secondary: NoemaColor.controlFill
     case .ghost: .clear
     }
@@ -297,9 +302,9 @@ struct NoemaTextFieldModifier: ViewModifier {
       .padding(.horizontal, NoemaSpacing.sm)
       .padding(.vertical, NoemaSpacing.xs)
       .frame(minHeight: 28)
-      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
+      .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
       .overlay {
-        RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous)
+        NoemaSuperellipse(cornerRadius: NoemaRadius.element)
           .stroke(NoemaColor.content.opacity(0.24), lineWidth: 1)
       }
       .opacity(isEnabled ? 1 : 0.55)
@@ -320,10 +325,10 @@ struct NoemaCheckboxToggleStyle: ToggleStyle {
       configuration.isOn.toggle()
     } label: {
       HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-        RoundedRectangle(cornerRadius: NoemaRadius.inner)
+        NoemaSuperellipse(cornerRadius: NoemaRadius.inner)
           .fill(configuration.isOn ? NoemaColor.clay600 : NoemaColor.surface)
           .overlay {
-            RoundedRectangle(cornerRadius: NoemaRadius.inner)
+            NoemaSuperellipse(cornerRadius: NoemaRadius.inner)
               .stroke(configuration.isOn ? NoemaColor.clay600 : NoemaColor.content.opacity(0.24), lineWidth: 1)
           }
           .overlay {

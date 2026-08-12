@@ -342,9 +342,9 @@ private struct OpenRouterAPIKeyFallback: View {
           .autocorrectionDisabled()
           .padding(.horizontal, NoemaSpacing.sm)
           .frame(height: 32)
-          .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .background(NoemaColor.paper100, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
           .overlay {
-            RoundedRectangle(cornerRadius: NoemaRadius.element)
+            NoemaSuperellipse(cornerRadius: NoemaRadius.element)
               .stroke(NoemaColor.separator, lineWidth: 1)
           }
         OnboardingButton(
@@ -387,7 +387,7 @@ private struct OnboardingAuthCard: View {
             .foregroundStyle(NoemaColor.content)
             .padding(.horizontal, NoemaSpacing.sm)
             .padding(.vertical, NoemaSpacing.xs)
-            .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.inner))
+            .background(NoemaColor.paper100, in: NoemaSuperellipse(cornerRadius: NoemaRadius.inner))
             .textSelection(.enabled)
         }
         if let instructions = auth.instructions {
@@ -628,9 +628,9 @@ private struct ModelSelectionMenu: View {
     }
     .padding(.horizontal, NoemaSpacing.sm)
     .frame(minHeight: 32)
-    .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+    .background(NoemaColor.paper100, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
     .overlay {
-      RoundedRectangle(cornerRadius: NoemaRadius.element)
+      NoemaSuperellipse(cornerRadius: NoemaRadius.element)
         .stroke(NoemaColor.separator, lineWidth: 1)
     }
   }
@@ -708,9 +708,9 @@ private struct OnboardingCard<Content: View>: View {
     content
       .padding(padding)
       .frame(maxWidth: .infinity, alignment: .leading)
-      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.container, style: .continuous))
+      .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.container, treatment: .container))
       .overlay {
-        RoundedRectangle(cornerRadius: NoemaRadius.container, style: .continuous)
+        NoemaSuperellipse(cornerRadius: NoemaRadius.container, treatment: .container)
           .stroke(NoemaColor.ink900.opacity(0.24), lineWidth: 1)
       }
   }
@@ -730,9 +730,9 @@ private struct OnboardingErrorMarker: View {
     .foregroundStyle(NoemaColor.red700)
     .padding(.horizontal, NoemaSpacing.sm)
     .padding(.vertical, NoemaSpacing.xs)
-    .background(NoemaColor.red100.opacity(0.45), in: RoundedRectangle(cornerRadius: NoemaRadius.inner))
+    .background(NoemaColor.red100.opacity(0.45), in: NoemaSuperellipse(cornerRadius: NoemaRadius.inner))
     .overlay {
-      RoundedRectangle(cornerRadius: NoemaRadius.inner)
+      NoemaSuperellipse(cornerRadius: NoemaRadius.inner)
         .stroke(NoemaColor.red100.opacity(0.72), lineWidth: 1)
     }
   }
@@ -782,7 +782,7 @@ private struct OnboardingButton: View {
       .frame(maxWidth: .infinity, minHeight: 32)
       .padding(.horizontal, NoemaSpacing.md)
       .foregroundStyle(foreground)
-      .background(background, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
+      .background(background, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
     }
     .buttonStyle(.plain)
     .opacity(disabled ? 0.5 : 1)

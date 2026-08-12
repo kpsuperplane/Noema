@@ -66,8 +66,11 @@ struct TasksTaskContextDock: View {
         .frame(height: 34)
       }
     }
-    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaSpacing.xxl))
-    .overlay { RoundedRectangle(cornerRadius: NoemaSpacing.xxl).stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+    .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaSpacing.xxl, treatment: .container))
+    .overlay {
+      NoemaSuperellipse(cornerRadius: NoemaSpacing.xxl, treatment: .container)
+        .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+    }
     .shadow(color: NoemaColor.ink900.opacity(0.13), radius: 14, y: 5)
   }
 }

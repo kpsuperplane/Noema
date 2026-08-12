@@ -57,7 +57,7 @@ struct NoemaDisconnectedBoundary: View {
       Text("No active Noema connection is available on this device.")
     } actions: {
       Button("Pair again", action: onReconnect)
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(NoemaActionButtonStyle(variant: .primary))
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(NoemaColor.surface)

@@ -88,8 +88,8 @@ struct SettingsInlineModelControls: View {
       }
       .padding(.horizontal, NoemaSpacing.md)
       .frame(maxWidth: .infinity, minHeight: 34)
-      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-      .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
+      .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
+      .overlay { NoemaSuperellipse(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
     }
     .buttonStyle(.plain)
     .disabled(!enabled || options.isEmpty)
@@ -119,8 +119,8 @@ struct SettingsInlineModelControls: View {
         maxWidth: usesStackedLayout ? .infinity : 108,
         minHeight: 34
       )
-      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-      .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
+      .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
+      .overlay { NoemaSuperellipse(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
     }
     .buttonStyle(.plain)
     .disabled(!enabled || profile?.reasoningEfforts.isEmpty != false || isRecommended)
@@ -137,7 +137,7 @@ struct SettingsCompactToggleStyle: ToggleStyle {
     HStack(spacing: 0) {
       configuration.label
       ZStack(alignment: configuration.isOn ? .trailing : .leading) {
-        Capsule().fill(configuration.isOn ? NoemaColor.clay600 : NoemaColor.surfaceTertiary)
+        NoemaSuperellipse.full.fill(configuration.isOn ? NoemaColor.clay600 : NoemaColor.surfaceTertiary)
         Circle().fill(NoemaColor.surface).padding(NoemaSpacing.xxs)
       }
       .frame(width: 40, height: 24)

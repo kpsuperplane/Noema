@@ -303,7 +303,7 @@ struct RuntimeDebugSheet: View {
         VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
           NoemaInlineState(message: message, symbol: "exclamationmark.triangle")
           Button("Try again") { Task { await loadProfile() } }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(NoemaActionButtonStyle(variant: .primary))
         }
       case .unavailable:
         NoemaInlineState(message: "Runtime profiling wasn’t captured for this turn or run.", symbol: "chart.xyaxis.line")
@@ -497,8 +497,8 @@ private struct RuntimeDebugTimelineRow: View {
         let start = min(max(Double(span.startOffsetMilliseconds) / Double(total), 0), 1)
         let width = min(max(Double(max(span.durationMilliseconds, 1)) / Double(total), 0.015), 1 - start)
         ZStack(alignment: .leading) {
-          Capsule().fill(NoemaColor.separatorSubtle)
-          Capsule()
+          NoemaSuperellipse.full.fill(NoemaColor.separatorSubtle)
+          NoemaSuperellipse.full
             .fill(span.category.tint)
             .frame(width: max(4, proxy.size.width * width))
             .offset(x: proxy.size.width * start)
@@ -508,7 +508,7 @@ private struct RuntimeDebugTimelineRow: View {
     }
     .padding(.vertical, NoemaSpacing.xs)
     .padding(.horizontal, NoemaSpacing.xs)
-    .background(selected ? NoemaColor.pine50 : NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.inner, style: .continuous))
+    .background(selected ? NoemaColor.pine50 : NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.inner))
   }
 }
 

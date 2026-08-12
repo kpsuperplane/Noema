@@ -333,10 +333,10 @@ private struct A2UIContent: View {
   @ViewBuilder
   private func choiceIndicator(selected: Bool, multiple: Bool) -> some View {
     if multiple {
-      RoundedRectangle(cornerRadius: NoemaRadius.inner)
+      NoemaSuperellipse(cornerRadius: NoemaRadius.inner)
         .fill(selected ? NoemaColor.clay600 : NoemaColor.surface)
         .overlay {
-          RoundedRectangle(cornerRadius: NoemaRadius.inner)
+          NoemaSuperellipse(cornerRadius: NoemaRadius.inner)
             .stroke(selected ? NoemaColor.clay600 : NoemaColor.content.opacity(0.24), lineWidth: 1)
         }
         .overlay {

@@ -49,7 +49,7 @@ struct ClientRevocationSheet: View {
           .buttonStyle(.plain)
           .font(NoemaFont.bodyEmphasized)
           .foregroundStyle(NoemaColor.white)
-          .background(NoemaColor.danger, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .background(NoemaColor.danger, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
           .opacity(settings.canMutate && !settings.isMutating ? 1 : 0.42)
           .disabled(!settings.canMutate || settings.isMutating)
         }
@@ -174,7 +174,7 @@ struct SettingsConfirmationSheet: View {
           .foregroundStyle(NoemaColor.white)
           .frame(minHeight: 32)
           .padding(.horizontal, NoemaSpacing.md)
-          .background(NoemaColor.danger, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .background(NoemaColor.danger, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
         }
       }
     }
@@ -221,7 +221,7 @@ struct SettingsMutationConfirmationSheet: View {
           .foregroundStyle(NoemaColor.white)
           .frame(minHeight: 32)
           .padding(.horizontal, NoemaSpacing.md)
-          .background(NoemaColor.danger.opacity(confirmDisabled ? 0.45 : 1), in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .background(NoemaColor.danger.opacity(confirmDisabled ? 0.45 : 1), in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
           .disabled(isSaving || confirmDisabled)
         }
       }

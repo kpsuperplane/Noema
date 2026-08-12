@@ -104,7 +104,7 @@ struct ChatTranscriptLoadingSkeleton: View {
       ChatBubbleView(lane: lane, group: .single) {
         VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
           ForEach(Array(widths.enumerated()), id: \.offset) { _, width in
-            Capsule()
+            NoemaSuperellipse.full
               .fill(lane == .human ? NoemaColor.white.opacity(0.28) : NoemaColor.ink900.opacity(0.08))
               .frame(width: width, height: 10)
           }

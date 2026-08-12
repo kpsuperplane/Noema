@@ -26,7 +26,7 @@ struct SettingsSheetActions: View {
       .buttonStyle(.plain)
       .font(NoemaFont.bodyEmphasized)
       .foregroundStyle(NoemaColor.white)
-      .background(NoemaColor.clay600, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      .background(NoemaColor.clay600, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
       .opacity(primaryDisabled ? 0.42 : 1)
       .disabled(primaryDisabled)
     }
@@ -418,7 +418,7 @@ struct CapabilityConnectionEditor: View {
               .frame(minHeight: 32)
           }
           .buttonStyle(.plain)
-          .background(NoemaColor.danger, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .background(NoemaColor.danger, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
           .disabled(isSaving || !settings.canMutate)
         }
         if let error = settings.errorMessage, !isSaving {

@@ -77,7 +77,7 @@ struct AdapterCredentialSetupSheet: View {
                 .textSelection(.enabled)
                 .padding(NoemaSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaRadius.inner))
+                .background(NoemaColor.surfaceSecondary, in: NoemaSuperellipse(cornerRadius: NoemaRadius.inner))
             }
           }
 
@@ -98,9 +98,9 @@ struct AdapterCredentialSetupSheet: View {
               }
               .padding(NoemaSpacing.md)
               .frame(maxWidth: .infinity, alignment: .leading)
-              .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+              .background(NoemaColor.surfaceSecondary, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
               .overlay {
-                RoundedRectangle(cornerRadius: NoemaRadius.element)
+                NoemaSuperellipse(cornerRadius: NoemaRadius.element)
                   .stroke(NoemaColor.separator, lineWidth: 1)
               }
             }

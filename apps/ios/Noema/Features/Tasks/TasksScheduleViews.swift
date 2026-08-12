@@ -221,8 +221,8 @@ struct TasksScheduleFields: View {
           .frame(maxWidth: .infinity, alignment: .leading)
           .padding(.horizontal, NoemaSpacing.md)
           .frame(minHeight: 42)
-          .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-          .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
+          .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
+          .overlay { NoemaSuperellipse(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
       }
       TasksSheetField("Timezone") {
         TextField("America/Los_Angeles", text: $draft.timeZone)
@@ -243,8 +243,8 @@ struct TasksScheduleFields: View {
         .tint(NoemaColor.content)
         .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
         .padding(.horizontal, NoemaSpacing.md)
-        .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-        .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
+        .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
+        .overlay { NoemaSuperellipse(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
       }
       if draft.repeatChoice == .selected { weekdayPicker }
       if draft.repeatChoice == .custom {
@@ -316,7 +316,7 @@ struct TasksScheduleFields: View {
           .font(NoemaFont.metadata.weight(.semibold))
           .foregroundStyle(selected ? NoemaColor.white : NoemaColor.contentSecondary)
           .frame(maxWidth: .infinity, minHeight: 30)
-          .background(selected ? NoemaColor.pine500 : NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .background(selected ? NoemaColor.pine500 : NoemaColor.paper100, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
           .buttonStyle(.plain)
         }
       }
@@ -473,7 +473,7 @@ struct TasksScheduleSheet: View {
         .padding(.horizontal, NoemaSpacing.md)
       }
       .buttonStyle(.plain)
-      .background(action == .unschedule ? NoemaColor.danger : NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      .background(action == .unschedule ? NoemaColor.danger : NoemaColor.pine500, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
       .opacity(canSubmit ? 1 : 0.42)
       .disabled(!canSubmit)
     }
@@ -735,7 +735,7 @@ struct TasksRecurrenceEditSheet: View {
               .foregroundStyle(NoemaColor.white)
               .frame(minHeight: 32)
               .padding(.horizontal, NoemaSpacing.md)
-              .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+              .background(NoemaColor.pine500, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
               .opacity(canSave ? 1 : 0.42)
               .disabled(!canSave)
           }

@@ -68,9 +68,9 @@ struct TasksCaptureSheet: View {
               .tint(NoemaColor.content)
               .frame(maxWidth: .infinity, minHeight: 38, maxHeight: 38, alignment: .leading)
               .padding(.horizontal, NoemaSpacing.md)
-              .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+              .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
               .overlay {
-                RoundedRectangle(cornerRadius: NoemaRadius.element)
+                NoemaSuperellipse(cornerRadius: NoemaRadius.element)
                   .stroke(NoemaColor.separator, lineWidth: 1)
               }
               .padding(.top, NoemaSpacing.xs)
@@ -128,7 +128,7 @@ struct TasksCaptureSheet: View {
             .buttonStyle(.plain)
             .font(NoemaFont.bodyEmphasized)
             .foregroundStyle(NoemaColor.white)
-            .background(NoemaColor.clay600, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+            .background(NoemaColor.clay600, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
             .opacity(canSave ? 1 : 0.42)
             .disabled(!canSave)
           }
@@ -179,9 +179,9 @@ extension View {
       .textFieldStyle(.plain)
       .padding(.horizontal, NoemaSpacing.md)
       .frame(height: height, alignment: .topLeading)
-      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
       .overlay {
-        RoundedRectangle(cornerRadius: NoemaRadius.element)
+        NoemaSuperellipse(cornerRadius: NoemaRadius.element)
           .stroke(focused ? NoemaColor.pine500 : NoemaColor.separator, lineWidth: focused ? 2 : 1)
       }
   }

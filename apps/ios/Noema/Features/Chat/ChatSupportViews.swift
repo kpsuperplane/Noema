@@ -41,11 +41,11 @@ struct TaskReferenceChip: View {
       }
       .padding(.horizontal, NoemaSpacing.sm)
       .padding(.vertical, NoemaSpacing.compact)
-      .background(NoemaColor.surface, in: Capsule())
-      .overlay { Capsule().stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+      .background(NoemaColor.surface, in: NoemaSuperellipse.full)
+      .overlay { NoemaSuperellipse.full.stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
     }
     .buttonStyle(.plain)
-    .contentShape(.interaction, Capsule().inset(by: -NoemaSpacing.sm))
+    .contentShape(.interaction, NoemaSuperellipse.full.inset(by: -NoemaSpacing.sm))
     .accessibilityLabel("Open task: \(title), \(progress)")
     .task(id: taskID) { await observeTask() }
   }
@@ -180,7 +180,7 @@ struct ChatComposer: View {
     .padding(.leading, NoemaSpacing.lg)
     .padding(.trailing, NoemaSpacing.xs)
     .padding(.vertical, 5)
-    .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+    .background(NoemaColor.pine500, in: NoemaSuperellipse(cornerRadius: 26))
     .shadow(color: NoemaColor.pine700.opacity(0.10), radius: 12, y: 5)
     .frame(idealWidth: preferredWidth, maxWidth: preferredWidth)
     .offset(y: inputFocused ? 0 : restingBottomOffset)
@@ -444,7 +444,7 @@ struct ChatInterventionsView: View {
           .disabled(model.isOffline || !hasTaskAction(attention, "ANSWER") || taskResponses[taskResponseKey(attention)]?.nilIfBlank == nil)
         }
         .padding(NoemaSpacing.xs)
-        .background(NoemaColor.pine500, in: Capsule())
+        .background(NoemaColor.pine500, in: NoemaSuperellipse.full)
         .shadow(color: NoemaColor.pine700.opacity(0.10), radius: 6, y: 3)
       }
     } else {
@@ -649,7 +649,7 @@ private struct NoemaTaskAnswerButtonStyle: ButtonStyle {
       .padding(.horizontal, NoemaSpacing.md)
       .padding(.vertical, NoemaSpacing.compact)
       .frame(minHeight: 44, alignment: .leading)
-      .background(NoemaColor.pine500.opacity(configuration.isPressed ? 0.8 : 1), in: Capsule())
+      .background(NoemaColor.pine500.opacity(configuration.isPressed ? 0.8 : 1), in: NoemaSuperellipse.full)
       .opacity(isEnabled ? 1 : 0.5)
   }
 }

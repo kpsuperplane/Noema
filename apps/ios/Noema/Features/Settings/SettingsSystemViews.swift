@@ -382,7 +382,7 @@ struct ClientsSettings: View {
               .font(NoemaFont.captionEmphasized)
               .foregroundStyle(NoemaColor.content)
               .frame(maxWidth: .infinity, minHeight: 32)
-              .background(NoemaColor.controlFill, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+              .background(NoemaColor.controlFill, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
               .buttonStyle(.plain)
               .disabled(profile == nil || settings.isStartingPairing || settings.isOffline)
             }
@@ -469,7 +469,7 @@ struct ClientsSettings: View {
           }
           .font(NoemaFont.body)
           .foregroundStyle(NoemaColor.white)
-          .background(NoemaColor.red700, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .background(NoemaColor.red700, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
           .buttonStyle(.plain)
           .disabled(!settings.canMutate)
         }

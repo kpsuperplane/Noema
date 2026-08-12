@@ -14,7 +14,7 @@ struct ToolMarkerAttachmentView: View {
           .font(.system(size: 14, weight: .semibold))
           .foregroundStyle(failed ? NoemaColor.danger : NoemaColor.blue700)
           .frame(width: 28, height: 28)
-          .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: 8))
+          .background(NoemaColor.surfaceSecondary, in: NoemaSuperellipse(cornerRadius: 8))
         Text(title)
           .font(NoemaFont.bodyEmphasized)
           .foregroundStyle(NoemaColor.content)
@@ -44,9 +44,9 @@ struct ToolMarkerAttachmentView: View {
     .padding(NoemaSpacing.md)
     .frame(maxWidth: .infinity, alignment: .leading)
     .frame(maxWidth: 520, alignment: .leading)
-    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: 8))
+    .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: 8))
     .overlay {
-      RoundedRectangle(cornerRadius: 8)
+      NoemaSuperellipse(cornerRadius: 8)
         .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
     }
     .transition(.opacity.combined(with: .move(edge: .top)))

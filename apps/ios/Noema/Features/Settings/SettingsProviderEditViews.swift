@@ -94,7 +94,7 @@ struct ProviderAccountEditor: View {
         HStack(spacing: NoemaSpacing.sm) {
           if supportsBrowserAuth, let selected {
             Button("Connect \(selected.displayName)") { startAuth(selected) }
-              .buttonStyle(.bordered)
+              .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
               .disabled(isSaving || !settings.canMutate)
           }
           Spacer(minLength: 0)
@@ -162,7 +162,7 @@ private struct ProviderAuthStatus: View {
         if let code = auth.userCode { Text("Code: \(code)").font(NoemaFont.mono).textSelection(.enabled) }
         if auth.verificationURL != nil {
           Button("Open provider sign-in") { showSafari = true }
-            .buttonStyle(.bordered)
+            .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
         }
         if auth.status == "FAILED" || auth.status == "EXPIRED" {
           Text(auth.errorMessage ?? "Sign-in failed.").font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)

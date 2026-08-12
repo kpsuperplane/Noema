@@ -243,9 +243,9 @@ private struct TasksConnectionBanner: View {
     }
     .padding(.horizontal, NoemaSpacing.md)
     .padding(.vertical, NoemaSpacing.sm)
-    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+    .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
     .overlay {
-      RoundedRectangle(cornerRadius: NoemaRadius.element)
+      NoemaSuperellipse(cornerRadius: NoemaRadius.element)
         .stroke(NoemaColor.separator.opacity(0.4), lineWidth: 0.5)
     }
     .accessibilityElement(children: .combine)
@@ -397,9 +397,9 @@ struct TasksListDeck: View {
                 }
                 .padding(NoemaSpacing.md)
                 .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-                .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+                .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
                 .overlay {
-                  RoundedRectangle(cornerRadius: NoemaRadius.element)
+                  NoemaSuperellipse(cornerRadius: NoemaRadius.element)
                     .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
                 }
               } else {
@@ -629,7 +629,7 @@ private struct TasksStateCard: View {
         Spacer(minLength: NoemaSpacing.sm)
         if let actionTitle, let action {
           Button(actionTitle, action: action)
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(NoemaActionButtonStyle(variant: .primary))
             .controlSize(.small)
         }
       }
@@ -684,9 +684,9 @@ private struct TasksTaskCard: View {
     .padding(.horizontal, NoemaSpacing.md)
     .padding(.vertical, NoemaSpacing.sm)
     .frame(minHeight: 60)
-    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+    .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
     .overlay {
-      RoundedRectangle(cornerRadius: NoemaRadius.element)
+      NoemaSuperellipse(cornerRadius: NoemaRadius.element)
         .stroke(selected ? NoemaColor.pine500.opacity(0.55) : NoemaColor.separatorSubtle, lineWidth: selected ? 1.5 : 1)
     }
     .shadow(color: NoemaColor.ink900.opacity(selected ? 0.09 : 0.04), radius: selected ? 6 : 2, y: selected ? 2 : 1)
@@ -734,8 +734,8 @@ private struct TasksStatusChip: View {
       .foregroundStyle(color)
       .padding(.horizontal, NoemaSpacing.compact)
       .padding(.vertical, NoemaSpacing.xxs)
-      .background(NoemaColor.surface, in: Capsule())
-      .overlay { Capsule().stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+      .background(NoemaColor.surface, in: NoemaSuperellipse.full)
+      .overlay { NoemaSuperellipse.full.stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
   }
 
   private var color: Color {
@@ -763,9 +763,9 @@ private struct TasksAttentionCard: View {
       if !isSelected { decision }
       TasksAttentionTaskLink(task: item.task, title: item.title, wide: wide, selectTask: selectTask)
     }
-    .clipShape(RoundedRectangle(cornerRadius: NoemaRadius.element))
+    .clipShape(NoemaSuperellipse(cornerRadius: NoemaRadius.element))
     .overlay {
-      RoundedRectangle(cornerRadius: NoemaRadius.element)
+      NoemaSuperellipse(cornerRadius: NoemaRadius.element)
         .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
     }
   }
@@ -805,7 +805,7 @@ private struct TasksAttentionCard: View {
         Button("Open review", systemImage: "arrow.up.right") {
           selectTask()
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
         .controlSize(.small)
       }
     }
@@ -820,18 +820,17 @@ private struct TasksAttentionCard: View {
     VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
       TextField("Optional note", text: $response, axis: .vertical)
         .lineLimit(2...4)
-        .textFieldStyle(.roundedBorder)
+        .noemaTextField()
       HStack(spacing: NoemaSpacing.sm) {
         Button("Decline", systemImage: "xmark") {
           submit(response.nilIfBlank ?? "Declined", approval: .declined)
         }
-        .buttonStyle(.bordered)
-        .tint(NoemaColor.danger)
+        .buttonStyle(NoemaActionButtonStyle(variant: .danger))
         .disabled(!model.isConnected || isSubmitting || !canAnswer)
         Button("Approve", systemImage: "checkmark") {
           submit(response.nilIfBlank ?? "Approved", approval: .approved)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(NoemaActionButtonStyle(variant: .primary))
         .disabled(!model.isConnected || isSubmitting || !canAnswer)
       }
     }
@@ -848,7 +847,7 @@ private struct TasksAttentionCard: View {
     }
     HStack(spacing: NoemaSpacing.sm) {
       TextField(recoveryPlaceholder, text: $response)
-        .textFieldStyle(.roundedBorder)
+        .noemaTextField()
       Button("Respond", systemImage: "arrow.up") {
         if let answer = response.nilIfBlank, canAnswer {
           submit(answer)
@@ -859,7 +858,7 @@ private struct TasksAttentionCard: View {
         }
       }
       .labelStyle(.iconOnly)
-      .buttonStyle(.borderedProminent)
+      .buttonStyle(NoemaActionButtonStyle(variant: .primary))
       .accessibilityLabel(recoveryActionLabel)
       .disabled(!model.isConnected || isSubmitting || (!canAnswer && !canRetry) || (canAnswer && !canRetry && response.nilIfBlank == nil))
     }
@@ -875,7 +874,7 @@ private struct TasksAttentionCard: View {
           .foregroundStyle(NoemaColor.white)
           .padding(.horizontal, NoemaSpacing.md)
           .frame(minHeight: 32)
-          .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .background(NoemaColor.pine500, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
           .buttonStyle(.plain)
           .disabled(!model.isConnected || isSubmitting || !canAnswer)
       }
@@ -904,7 +903,7 @@ private struct TasksAttentionCard: View {
       .padding(.trailing, NoemaSpacing.xs)
       .padding(.vertical, NoemaSpacing.xs)
       .frame(width: 240, height: 40)
-      .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: 22))
+      .background(NoemaColor.pine500, in: NoemaSuperellipse(cornerRadius: 22))
     }
     .frame(maxWidth: .infinity, alignment: .trailing)
   }

@@ -252,7 +252,7 @@ struct ArtifactReferenceView: View {
           .font(.system(size: 18))
           .foregroundStyle(NoemaColor.pine700)
           .frame(width: 32, height: 32)
-          .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
+          .background(NoemaColor.paper100, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
         VStack(alignment: .leading, spacing: 0) {
           Text(reference.title)
             .font(NoemaFont.body)
@@ -276,9 +276,9 @@ struct ArtifactReferenceView: View {
         .frame(width: 28, height: 28)
         .padding(NoemaSpacing.sm)
     }
-    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
+    .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
     .overlay {
-      RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous)
+      NoemaSuperellipse(cornerRadius: NoemaRadius.element)
         .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
     }
   }
@@ -473,15 +473,15 @@ private struct ArtifactDetailView: View {
         HStack(spacing: NoemaSpacing.sm) {
           if detail.downloadURL != nil {
             Button("Preview / download", systemImage: "arrow.down.doc") { preview(detail.downloadURL) }
-              .buttonStyle(.borderedProminent)
+              .buttonStyle(NoemaActionButtonStyle(variant: .primary))
             Button("Share", systemImage: "square.and.arrow.up") { shareURL(detail.downloadURL) }
-              .buttonStyle(.bordered)
+              .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
           }
           if let externalURL = detail.externalURL {
             Link(destination: externalURL) {
               Label("Open source", systemImage: "arrow.up.right.square")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
           }
         }
       }

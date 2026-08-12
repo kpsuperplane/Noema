@@ -37,9 +37,9 @@ struct PairingView: View {
               .font(NoemaFont.mono)
               .focused($focusedField, equals: .pairingLink)
               .padding(NoemaSpacing.md)
-              .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaSpacing.sm))
+              .background(NoemaColor.surfaceSecondary, in: NoemaSuperellipse(cornerRadius: NoemaSpacing.sm))
               .overlay {
-                RoundedRectangle(cornerRadius: NoemaSpacing.sm)
+                NoemaSuperellipse(cornerRadius: NoemaSpacing.sm)
                   .stroke(NoemaColor.separator.opacity(0.45), lineWidth: 0.5)
               }
               .onChange(of: input) { _, value in
@@ -51,12 +51,12 @@ struct PairingView: View {
                 model.ingestPairingText(UIPasteboard.general.string ?? "")
                 input = model.pairingInput
               }
-              .buttonStyle(.bordered)
+              .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
 
               Button("Scan", systemImage: "qrcode.viewfinder") {
                 scannerPresented = true
               }
-              .buttonStyle(.borderedProminent)
+              .buttonStyle(NoemaActionButtonStyle(variant: .primary))
               .disabled(!QRScannerSheet.isAvailable)
             }
             .labelStyle(.titleAndIcon)
@@ -137,14 +137,14 @@ private struct PairingConfirmation: View {
         .textInputAutocapitalization(.words)
         .focused(focusedField, equals: .displayName)
         .padding(NoemaSpacing.md)
-        .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaSpacing.sm))
+        .background(NoemaColor.surfaceSecondary, in: NoemaSuperellipse(cornerRadius: NoemaSpacing.sm))
 
       Button("Connect", systemImage: "checkmark.circle.fill", action: onConnect)
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(NoemaActionButtonStyle(variant: .primary))
         .disabled(!NoemaDisplayName.isValid(displayName))
     }
     .padding(NoemaSpacing.lg)
-    .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaSpacing.md))
+    .background(NoemaColor.surfaceSecondary, in: NoemaSuperellipse(cornerRadius: NoemaSpacing.md, treatment: .container))
     .accessibilityElement(children: .contain)
   }
 }

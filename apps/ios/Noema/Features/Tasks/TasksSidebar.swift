@@ -136,7 +136,7 @@ struct TasksProjectSheet: View {
             .padding(.horizontal, NoemaSpacing.md)
           }
           .buttonStyle(.plain)
-          .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .background(NoemaColor.pine500, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
           .opacity(canSave ? 1 : 0.42)
           .disabled(!canSave)
         }

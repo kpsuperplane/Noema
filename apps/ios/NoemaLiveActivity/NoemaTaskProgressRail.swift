@@ -17,13 +17,13 @@ struct TaskProgressRail: View {
   var body: some View {
     ZStack(alignment: .topLeading) {
       GeometryReader { geometry in
-        Capsule()
+        NoemaSuperellipse.full
           .fill(NoemaActivityPalette.track(for: appearance, colorScheme: colorScheme))
           .frame(height: 4)
           .padding(.horizontal, 20)
           .offset(y: 18)
 
-        Capsule()
+        NoemaSuperellipse.full
           .fill(PhaseStyle(state: state).color(for: appearance, colorScheme: colorScheme))
           .frame(
             width: max(0, (geometry.size.width - 40) * CGFloat(step) / 3),
@@ -175,9 +175,9 @@ private struct CurrentRailStation: View {
     .padding(.leading, 19)
     .padding(.trailing, 8)
     .frame(height: 40)
-    .background(stationSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .background(stationSurface, in: NoemaSuperellipse(cornerRadius: 12, treatment: .container))
     .overlay {
-      RoundedRectangle(cornerRadius: 12, style: .continuous)
+      NoemaSuperellipse(cornerRadius: 12, treatment: .container)
         .stroke(appearance.stationBorder(for: colorScheme), lineWidth: 1)
     }
     .overlay(alignment: .leading) {

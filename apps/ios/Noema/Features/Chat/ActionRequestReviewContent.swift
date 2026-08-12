@@ -37,7 +37,7 @@ struct ActionRequestReviewContent: View {
             .textSelection(.enabled)
             .padding(NoemaSpacing.sm)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+            .background(NoemaColor.paper100, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
         }
         .padding(.top, NoemaSpacing.xs)
       }

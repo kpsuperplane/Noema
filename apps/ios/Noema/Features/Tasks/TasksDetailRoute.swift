@@ -356,7 +356,7 @@ private struct TasksGatePanel: View {
                   .padding(.horizontal, NoemaSpacing.md)
               }
               .buttonStyle(.plain)
-              .background(NoemaColor.pine500, in: Capsule())
+              .background(NoemaColor.pine500, in: NoemaSuperellipse.full)
               .disabled(!isConnected || isSubmitting || !canAnswer)
             }
           }
@@ -372,7 +372,7 @@ private struct TasksGatePanel: View {
           HStack(spacing: NoemaSpacing.xs) {
             TextField(recoveryPlaceholder, text: $response, axis: .vertical)
               .lineLimit(1...5)
-              .textFieldStyle(.roundedBorder)
+              .noemaTextField()
             Button("Respond", systemImage: "arrow.up") {
               Task {
                 let succeeded: Bool
@@ -385,25 +385,24 @@ private struct TasksGatePanel: View {
               }
             }
             .labelStyle(.iconOnly)
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(NoemaActionButtonStyle(variant: .primary))
             .accessibilityLabel(recoveryActionLabel)
           }
           .disabled(!isConnected || isSubmitting || (!canAnswer && !canRetry) || (canAnswer && !canRetry && response.nilIfBlank == nil))
         } else if gate.kind.uppercased() == "APPROVAL" {
           TextField("Optional note", text: $response, axis: .vertical)
             .lineLimit(2...5)
-            .textFieldStyle(.roundedBorder)
+            .noemaTextField()
           HStack(spacing: NoemaSpacing.sm) {
             Button("Decline", systemImage: "xmark") {
               Task { if await answer(response.nilIfBlank ?? "Declined", .declined) { response = "" } }
             }
-            .buttonStyle(.bordered)
-            .tint(NoemaColor.danger)
+            .buttonStyle(NoemaActionButtonStyle(variant: .danger))
             .disabled(!isConnected || isSubmitting || !canAnswer)
             Button("Approve", systemImage: "checkmark") {
               Task { if await answer(response.nilIfBlank ?? "Approved", .approved) { response = "" } }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(NoemaActionButtonStyle(variant: .primary))
             .disabled(!isConnected || isSubmitting || !canAnswer)
           }
         } else {
@@ -434,7 +433,7 @@ private struct TasksGatePanel: View {
           }
           .frame(width: 238, height: 42)
           .foregroundStyle(NoemaColor.white)
-          .background(NoemaColor.pine500, in: Capsule())
+          .background(NoemaColor.pine500, in: NoemaSuperellipse.full)
           .frame(maxWidth: .infinity, alignment: .trailing)
           .padding(.trailing, NoemaSpacing.xs)
         }
@@ -446,19 +445,21 @@ private struct TasksGatePanel: View {
     .frame(maxHeight: 236)
     .background(
       NoemaColor.surface,
-      in: UnevenRoundedRectangle(
-        topLeadingRadius: NoemaSpacing.xxl,
-        bottomLeadingRadius: 0,
-        bottomTrailingRadius: 0,
-        topTrailingRadius: NoemaSpacing.xxl
+      in: NoemaSuperellipse(
+        topLeftRadius: NoemaSpacing.xxl,
+        topRightRadius: NoemaSpacing.xxl,
+        bottomRightRadius: 0,
+        bottomLeftRadius: 0,
+        treatment: .page
       )
     )
     .overlay {
-      UnevenRoundedRectangle(
-        topLeadingRadius: NoemaSpacing.xxl,
-        bottomLeadingRadius: 0,
-        bottomTrailingRadius: 0,
-        topTrailingRadius: NoemaSpacing.xxl
+      NoemaSuperellipse(
+        topLeftRadius: NoemaSpacing.xxl,
+        topRightRadius: NoemaSpacing.xxl,
+        bottomRightRadius: 0,
+        bottomLeftRadius: 0,
+        treatment: .page
       )
       .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
     }
@@ -559,9 +560,9 @@ private struct TasksInboxEditSheet: View {
               .tint(NoemaColor.content)
               .frame(maxWidth: .infinity, minHeight: 42, maxHeight: 42, alignment: .leading)
               .padding(.horizontal, NoemaSpacing.md)
-              .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+              .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
               .overlay {
-                RoundedRectangle(cornerRadius: NoemaRadius.element)
+                NoemaSuperellipse(cornerRadius: NoemaRadius.element)
                   .stroke(NoemaColor.separator, lineWidth: 1)
               }
             }
@@ -624,7 +625,7 @@ private struct TasksInboxEditSheet: View {
             .padding(.horizontal, NoemaSpacing.md)
           }
           .buttonStyle(.plain)
-          .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .background(NoemaColor.pine500, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
           .opacity(canSave ? 1 : 0.42)
           .disabled(!canSave)
         }
@@ -750,7 +751,7 @@ private struct TasksReopenSheet: View {
             .padding(.horizontal, NoemaSpacing.md)
           }
           .buttonStyle(.plain)
-          .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .background(NoemaColor.pine500, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
           .opacity(canSubmit ? 1 : 0.42)
           .disabled(!canSubmit)
         }

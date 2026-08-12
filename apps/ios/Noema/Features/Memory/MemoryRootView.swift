@@ -430,8 +430,8 @@ private struct MemoryRelatedPages: View {
           }
           .padding(NoemaSpacing.md)
           .frame(maxWidth: .infinity, minHeight: 84, alignment: .leading)
-          .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-          .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+          .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
+          .overlay { NoemaSuperellipse(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
         }
         .buttonStyle(.plain)
         }
@@ -463,7 +463,7 @@ private struct MemoryUpdateNotice: View {
           .foregroundStyle(NoemaColor.content)
           .padding(.horizontal, NoemaSpacing.md)
           .frame(minHeight: 28)
-          .background(NoemaColor.content.opacity(0.08), in: Capsule())
+          .background(NoemaColor.content.opacity(0.08), in: NoemaSuperellipse.full)
           .buttonStyle(.plain)
           .disabled(!model.canUpdate)
       }

@@ -67,7 +67,7 @@ struct TasksQueueSheet: View {
             .padding(.horizontal, NoemaSpacing.md)
           }
           .buttonStyle(.plain)
-          .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .background(NoemaColor.pine500, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
           .disabled(isSubmitting || !model.isConnected)
         }
         .padding(.horizontal, NoemaSpacing.lg)
@@ -149,7 +149,7 @@ struct TasksCancelSheet: View {
             .padding(.horizontal, NoemaSpacing.md)
           }
           .buttonStyle(.plain)
-          .background(NoemaColor.danger, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .background(NoemaColor.danger, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
           .opacity(model.isConnected ? 1 : 0.42)
           .disabled(isSubmitting || !model.isConnected)
         }
@@ -183,7 +183,7 @@ struct TasksCompletedTabBar: View {
             .padding(.horizontal, NoemaSpacing.md)
             .frame(height: 28)
             .overlay(alignment: .bottom) {
-              Capsule()
+              NoemaSuperellipse.full
                 .fill(selection == tab ? NoemaColor.accent : Color.clear)
                 .frame(height: 2)
                 .padding(.horizontal, NoemaSpacing.md)
@@ -484,8 +484,11 @@ struct TasksTranscriptSection: View {
       .padding(.horizontal, NoemaSpacing.lg)
       .padding(.vertical, NoemaSpacing.sm)
       .frame(maxWidth: human ? nil : .infinity, alignment: .leading)
-      .background(human ? NoemaColor.pine500 : NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.page, style: .continuous))
-      .clipShape(RoundedRectangle(cornerRadius: NoemaRadius.page, style: .continuous))
+      .background(
+        human ? NoemaColor.pine500 : NoemaColor.paper100,
+        in: NoemaSuperellipse(cornerRadius: NoemaRadius.page, treatment: .chat)
+      )
+      .clipShape(NoemaSuperellipse(cornerRadius: NoemaRadius.page, treatment: .chat))
   }
 
   private func runBoundary(_ run: TasksRunSnapshot, ending: Bool) -> some View {

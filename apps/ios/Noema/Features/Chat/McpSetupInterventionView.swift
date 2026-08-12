@@ -165,8 +165,8 @@ struct McpSetupInterventionCard: View {
         if selected { Image(systemName: "checkmark").foregroundStyle(NoemaColor.accent) }
       }
         .frame(maxWidth: .infinity, alignment: .leading).padding(NoemaSpacing.md)
-        .background(selected ? NoemaColor.pine50 : NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaRadius.inner))
-        .overlay { RoundedRectangle(cornerRadius: NoemaRadius.inner).stroke(selected ? NoemaColor.accent : NoemaColor.separatorSubtle, lineWidth: 1) }
+        .background(selected ? NoemaColor.pine50 : NoemaColor.surfaceSecondary, in: NoemaSuperellipse(cornerRadius: NoemaRadius.inner))
+        .overlay { NoemaSuperellipse(cornerRadius: NoemaRadius.inner).stroke(selected ? NoemaColor.accent : NoemaColor.separatorSubtle, lineWidth: 1) }
     }
     .buttonStyle(.plain).disabled(disabled || isWorking || isOffline).opacity(disabled || isWorking || isOffline ? 0.5 : 1)
   }

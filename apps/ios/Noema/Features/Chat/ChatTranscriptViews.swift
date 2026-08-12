@@ -297,126 +297,24 @@ struct ChatBubbleView<Content: View>: View {
     }
   }
 
-  private var bubbleShape: ChatBubbleShape {
-    ChatBubbleShape(lane: lane, group: group)
-  }
-}
-
-private struct ChatBubbleShape: Shape {
-  private static let exponent = pow(2.0, 1.5)
-  private static let cornerSegmentCount = 16
-
-  let lane: ChatLane
-  let group: ChatBubbleGroup
-
-  func path(in rect: CGRect) -> Path {
-    let radii = cornerRadii.scaled(to: rect.size)
-    var path = Path()
-    path.move(to: CGPoint(x: rect.minX + radii.topLeft, y: rect.minY))
-    path.addLine(to: CGPoint(x: rect.maxX - radii.topRight, y: rect.minY))
-    addCorner(
-      to: &path,
-      center: CGPoint(x: rect.maxX - radii.topRight, y: rect.minY + radii.topRight),
-      radius: radii.topRight,
-      from: -.pi / 2,
-      to: 0
-    )
-    path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radii.bottomRight))
-    addCorner(
-      to: &path,
-      center: CGPoint(x: rect.maxX - radii.bottomRight, y: rect.maxY - radii.bottomRight),
-      radius: radii.bottomRight,
-      from: 0,
-      to: .pi / 2
-    )
-    path.addLine(to: CGPoint(x: rect.minX + radii.bottomLeft, y: rect.maxY))
-    addCorner(
-      to: &path,
-      center: CGPoint(x: rect.minX + radii.bottomLeft, y: rect.maxY - radii.bottomLeft),
-      radius: radii.bottomLeft,
-      from: .pi / 2,
-      to: .pi
-    )
-    path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radii.topLeft))
-    addCorner(
-      to: &path,
-      center: CGPoint(x: rect.minX + radii.topLeft, y: rect.minY + radii.topLeft),
-      radius: radii.topLeft,
-      from: .pi,
-      to: .pi * 1.5
-    )
-    path.closeSubpath()
-    return path
-  }
-
-  private var cornerRadii: ChatCornerRadii {
+  private var bubbleShape: NoemaSuperellipse {
     let outer = NoemaRadius.page
     let inner = NoemaRadius.inner
-    return switch (lane, group) {
-    case (_, .single): ChatCornerRadii(all: outer)
-    case (.assistant, .first): ChatCornerRadii(outer, outer, outer, inner)
-    case (.assistant, .middle): ChatCornerRadii(inner, outer, outer, inner)
-    case (.assistant, .last): ChatCornerRadii(inner, outer, outer, outer)
-    case (.human, .first): ChatCornerRadii(outer, outer, inner, outer)
-    case (.human, .middle): ChatCornerRadii(outer, inner, inner, outer)
-    case (.human, .last): ChatCornerRadii(outer, inner, outer, outer)
+    let radii = switch (lane, group) {
+    case (_, .single): (outer, outer, outer, outer)
+    case (.assistant, .first): (outer, outer, outer, inner)
+    case (.assistant, .middle): (inner, outer, outer, inner)
+    case (.assistant, .last): (inner, outer, outer, outer)
+    case (.human, .first): (outer, outer, inner, outer)
+    case (.human, .middle): (outer, inner, inner, outer)
+    case (.human, .last): (outer, inner, outer, outer)
     }
-  }
-
-  private func addCorner(
-    to path: inout Path,
-    center: CGPoint,
-    radius: CGFloat,
-    from startAngle: CGFloat,
-    to endAngle: CGFloat
-  ) {
-    guard radius > 0 else { return }
-    for step in 1...Self.cornerSegmentCount {
-      let progress = CGFloat(step) / CGFloat(Self.cornerSegmentCount)
-      let angle = startAngle + (endAngle - startAngle) * progress
-      let x = signedPower(cos(angle))
-      let y = signedPower(sin(angle))
-      path.addLine(to: CGPoint(x: center.x + radius * x, y: center.y + radius * y))
-    }
-  }
-
-  private func signedPower(_ value: CGFloat) -> CGFloat {
-    value.sign == .minus
-      ? -pow(abs(value), 2 / Self.exponent)
-      : pow(value, 2 / Self.exponent)
-  }
-}
-
-private struct ChatCornerRadii {
-  let topLeft: CGFloat
-  let topRight: CGFloat
-  let bottomRight: CGFloat
-  let bottomLeft: CGFloat
-
-  init(_ topLeft: CGFloat, _ topRight: CGFloat, _ bottomRight: CGFloat, _ bottomLeft: CGFloat) {
-    self.topLeft = topLeft
-    self.topRight = topRight
-    self.bottomRight = bottomRight
-    self.bottomLeft = bottomLeft
-  }
-
-  init(all radius: CGFloat) {
-    self.init(radius, radius, radius, radius)
-  }
-
-  func scaled(to size: CGSize) -> ChatCornerRadii {
-    let scale = min(
-      1,
-      size.width / max(topLeft + topRight, 1),
-      size.width / max(bottomLeft + bottomRight, 1),
-      size.height / max(topLeft + bottomLeft, 1),
-      size.height / max(topRight + bottomRight, 1)
-    )
-    return ChatCornerRadii(
-      topLeft * scale,
-      topRight * scale,
-      bottomRight * scale,
-      bottomLeft * scale
+    return NoemaSuperellipse(
+      topLeftRadius: radii.0,
+      topRightRadius: radii.1,
+      bottomRightRadius: radii.2,
+      bottomLeftRadius: radii.3,
+      treatment: .chat
     )
   }
 }
@@ -913,10 +811,10 @@ struct ChoicePromptView: View {
               .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
               .background(
                 selected ? NoemaColor.pine50 : NoemaColor.surface,
-                in: RoundedRectangle(cornerRadius: NoemaRadius.element)
+                in: NoemaSuperellipse(cornerRadius: NoemaRadius.element)
               )
               .overlay {
-                RoundedRectangle(cornerRadius: NoemaRadius.element)
+                NoemaSuperellipse(cornerRadius: NoemaRadius.element)
                   .stroke(selected ? NoemaColor.accent.opacity(0.45) : NoemaColor.separatorSubtle, lineWidth: 1)
               }
             }

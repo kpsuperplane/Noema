@@ -137,10 +137,10 @@ struct NoemaTopRail: View {
           railLabel(for: destination)
             .frame(minWidth: 28, minHeight: 36)
             .padding(.horizontal, selection == destination ? NoemaSpacing.sm : NoemaSpacing.compact)
-            .contentShape(Capsule())
+            .contentShape(NoemaSuperellipse.full)
             .background {
               if selection == destination {
-                Capsule()
+                NoemaSuperellipse.full
                   .fill(NoemaColor.white)
                   .shadow(color: NoemaColor.pine600.opacity(0.10), radius: 4, y: 3)
                   .matchedGeometryEffect(id: "primary-navigation-selection", in: activeTabNamespace)
@@ -343,16 +343,17 @@ struct NoemaShellView: View {
     }
     .background(NoemaColor.surface)
     .clipShape(
-      UnevenRoundedRectangle(
-        topLeadingRadius: NoemaRadius.page,
-        bottomLeadingRadius: compact ? 0 : NoemaRadius.page,
-        bottomTrailingRadius: compact ? 0 : NoemaRadius.page,
-        topTrailingRadius: NoemaRadius.page
+      NoemaSuperellipse(
+        topLeftRadius: NoemaRadius.page,
+        topRightRadius: NoemaRadius.page,
+        bottomRightRadius: compact ? 0 : NoemaRadius.page,
+        bottomLeftRadius: compact ? 0 : NoemaRadius.page,
+        treatment: .page
       )
     )
     .overlay {
       if !compact {
-        RoundedRectangle(cornerRadius: NoemaRadius.page)
+        NoemaSuperellipse(cornerRadius: NoemaRadius.page, treatment: .page)
           .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
       }
     }
@@ -502,7 +503,7 @@ private struct NoemaMobileTitleNavigation: View {
         .foregroundStyle(NoemaColor.pine700)
         .padding(.horizontal, NoemaSpacing.md)
         .frame(minHeight: 36)
-        .background(NoemaColor.pine100.opacity(0.48), in: Capsule())
+        .background(NoemaColor.pine100.opacity(0.48), in: NoemaSuperellipse.full)
         .shadow(color: NoemaColor.pine700.opacity(0.06), radius: 3, y: 1)
       }
       .buttonStyle(.plain)
@@ -552,7 +553,7 @@ private struct NoemaSidebar: View {
                 .padding(.leading, 10 + CGFloat(entry.depth) * NoemaSpacing.md)
                 .padding(.trailing, 10)
                 .frame(minHeight: 34)
-                .background(entry.isSelected ? NoemaColor.pine100.opacity(0.72) : Color.clear, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+                .background(entry.isSelected ? NoemaColor.pine100.opacity(0.72) : Color.clear, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
                 .contentShape(Rectangle())
               }
               .buttonStyle(.plain)

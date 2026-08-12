@@ -24,11 +24,12 @@ struct NoemaBootView: View {
         )
         .background(NoemaColor.surface)
         .clipShape(
-          UnevenRoundedRectangle(
-            topLeadingRadius: NoemaRadius.page,
-            bottomLeadingRadius: compact ? 0 : NoemaRadius.page,
-            bottomTrailingRadius: compact ? 0 : NoemaRadius.page,
-            topTrailingRadius: NoemaRadius.page
+          NoemaSuperellipse(
+            topLeftRadius: NoemaRadius.page,
+            topRightRadius: NoemaRadius.page,
+            bottomRightRadius: compact ? 0 : NoemaRadius.page,
+            bottomLeftRadius: compact ? 0 : NoemaRadius.page,
+            treatment: .page
           )
         )
         .offset(y: deckTop)
@@ -63,7 +64,7 @@ struct NoemaBootView: View {
         .padding(.trailing, NoemaSpacing.xs)
     }
     .frame(maxWidth: 760, minHeight: 50, alignment: .trailing)
-    .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+    .background(NoemaColor.pine500, in: NoemaSuperellipse(cornerRadius: 26))
     .shadow(color: NoemaColor.pine700.opacity(0.10), radius: 12, y: 5)
     .frame(maxWidth: .infinity, alignment: .trailing)
     .accessibilityHidden(true)

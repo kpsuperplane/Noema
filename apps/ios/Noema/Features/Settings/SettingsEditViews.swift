@@ -86,9 +86,9 @@ struct SettingsPreferenceEditor: View {
             .tint(NoemaColor.content)
             .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
             .padding(.horizontal, NoemaSpacing.md)
-            .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+            .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
             .overlay {
-              RoundedRectangle(cornerRadius: NoemaRadius.element)
+              NoemaSuperellipse(cornerRadius: NoemaRadius.element)
                 .stroke(focusedField == .provider ? NoemaColor.pine500 : NoemaColor.separator, lineWidth: focusedField == .provider ? 2 : 1)
             }
             .focused($focusedField, equals: .provider)
@@ -107,8 +107,8 @@ struct SettingsPreferenceEditor: View {
             .tint(NoemaColor.content)
             .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
             .padding(.horizontal, NoemaSpacing.md)
-            .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-            .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
+            .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
+            .overlay { NoemaSuperellipse(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
           }
           if draft.selectionMode == NoemaAPI.ModelPreferenceSelectionMode.explicitProfile.rawValue,
              let option = target.options.first(where: { $0.providerAccountId == draft.providerAccountID }),
@@ -126,8 +126,8 @@ struct SettingsPreferenceEditor: View {
               .tint(NoemaColor.content)
               .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
               .padding(.horizontal, NoemaSpacing.md)
-              .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-              .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
+              .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
+              .overlay { NoemaSuperellipse(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
             }
             let profile = option.profiles.first(where: { $0.id == draft.modelProfile })
             if let profile, !profile.reasoningEfforts.isEmpty {
@@ -144,8 +144,8 @@ struct SettingsPreferenceEditor: View {
                 .tint(NoemaColor.content)
                 .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
                 .padding(.horizontal, NoemaSpacing.md)
-                .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-                .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
+                .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
+                .overlay { NoemaSuperellipse(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
               }
             }
           }
@@ -172,7 +172,7 @@ struct SettingsPreferenceEditor: View {
           .buttonStyle(.plain)
           .font(NoemaFont.bodyEmphasized)
           .foregroundStyle(NoemaColor.white)
-          .background(NoemaColor.clay600, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .background(NoemaColor.clay600, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
           .opacity(isSaving || draft.providerAccountID.isEmpty || draft.selectionMode.isEmpty || !settings.canMutate ? 0.42 : 1)
           .disabled(isSaving || draft.providerAccountID.isEmpty || draft.selectionMode.isEmpty || !settings.canMutate)
         }
