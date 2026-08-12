@@ -250,12 +250,14 @@ struct ChatInterventionsView: View {
       VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
         switch intervention {
         case let .governed(action):
-          HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-            Text(reviewLabel(action)).interventionEyebrow()
-            Spacer(minLength: NoemaSpacing.sm)
-            Text(action.taskID == nil ? "Primary conversation" : "Background task")
-              .font(NoemaFont.metadata)
-              .foregroundStyle(NoemaColor.contentTertiary)
+          if !action.isToolEnablement {
+            HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+              Text(reviewLabel(action)).interventionEyebrow()
+              Spacer(minLength: NoemaSpacing.sm)
+              Text(action.taskID == nil ? "Primary conversation" : "Background task")
+                .font(NoemaFont.metadata)
+                .foregroundStyle(NoemaColor.contentTertiary)
+            }
           }
           ActionRequestReviewContent(action: action)
           if let failureCode = action.failureCode {

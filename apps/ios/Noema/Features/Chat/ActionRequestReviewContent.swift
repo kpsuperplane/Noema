@@ -13,7 +13,7 @@ struct ActionRequestReviewContent: View {
         .font(NoemaFont.caption)
         .foregroundStyle(NoemaColor.contentSecondary)
         .fixedSize(horizontal: false, vertical: true)
-      DisclosureGroup("Review details") {
+      DisclosureGroup(action.isToolEnablement ? "Developer details" : "Review details") {
         VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
           if let serviceName = nonblank(action.serviceName) {
             detail("Service", serviceName)

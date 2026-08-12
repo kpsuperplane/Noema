@@ -45,11 +45,13 @@ struct TasksHumanInterventionsView: View {
 
   @ViewBuilder
   private func governed(_ action: GovernedActionModel, intervention: HumanIntervention) -> some View {
-    Label(reviewLabel(action.reviewRoute, readOnly: action.readOnly), systemImage: "hand.raised")
-      .font(NoemaFont.captionEmphasized)
-    Text(action.taskID == nil ? "Primary conversation" : "Background task")
-      .font(NoemaFont.caption)
-      .foregroundStyle(NoemaColor.contentTertiary)
+    if !action.isToolEnablement {
+      Label(reviewLabel(action.reviewRoute, readOnly: action.readOnly), systemImage: "hand.raised")
+        .font(NoemaFont.captionEmphasized)
+      Text(action.taskID == nil ? "Primary conversation" : "Background task")
+        .font(NoemaFont.caption)
+        .foregroundStyle(NoemaColor.contentTertiary)
+    }
     ActionRequestReviewContent(action: action)
     if let failureCode = action.failureCode {
       Text(failureCode)

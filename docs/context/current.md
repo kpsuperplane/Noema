@@ -127,7 +127,7 @@ vertical slice or a net-negative reduction.
   The native iOS renderer supports idle, listening, thinking, and speaking motion.
   Active chat and task status selects the activity. Reduced Motion keeps a stable pose.
 - Web action requests show one question and one consequence. Exact evidence
-  stays available under Review details.
+  stays under Review details, or Developer details for tool enablement.
 - Settings omit success labels when the configured control proves readiness.
   Recoverable failures keep safe cached content and provide a local Retry action.
 - Optimize total system simplicity. Follow

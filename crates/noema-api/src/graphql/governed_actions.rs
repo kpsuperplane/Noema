@@ -277,7 +277,7 @@ fn action_request_consequence(
 ) -> String {
     let target = action_request_target_name(target, capability_name);
     if capability_name.starts_with(noema_capabilities::TOOL_ENABLEMENT_PREFIX) {
-        return format!("This keeps the tool enabled for future requests in {target}.");
+        return "Noema can use this action again later.".to_string();
     }
     match behavior {
         Some(behavior) if behavior.read_only => {

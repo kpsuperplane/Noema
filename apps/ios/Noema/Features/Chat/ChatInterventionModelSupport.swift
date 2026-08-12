@@ -65,7 +65,17 @@ struct GovernedActionModel: Equatable {
   var isToolEnablement: Bool { capabilityName.hasPrefix("enable.") }
 
   var question: String {
-    if isToolEnablement { return "Enable \(String(capabilityName.dropFirst("enable.".count)))?" }
+    if isToolEnablement {
+      let toolName = String(capabilityName.dropFirst("enable.".count))
+      let operationName = toolName.split(separator: ".").last.map(String.init) ?? toolName
+      let words = operationName
+        .replacingOccurrences(of: "_", with: " ")
+        .replacingOccurrences(of: "-", with: " ")
+        .lowercased()
+      let actionName = words.prefix(1).uppercased() + String(words.dropFirst())
+      let enablementTarget = serviceName ?? targetName
+      return "Enable “\(actionName)” in \(enablementTarget)?"
+    }
     if readOnly == true { return "Share request data with \(targetName)?" }
     if destructive == true { return "Allow a destructive change in \(targetName)?" }
     return "Allow this change in \(targetName)?"
