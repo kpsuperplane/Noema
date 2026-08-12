@@ -29,7 +29,7 @@ struct AdapterCredentialSetupSheet: View {
   var body: some View {
     NoemaNativeSheet(
       title: title ?? "Connect \(serviceName)",
-      dismissTitle: "Cancel",
+      dismissControl: .text("Cancel"),
       dismissDisabled: isSubmitting,
       onDismiss: requestDismissal
     ) {

@@ -334,7 +334,7 @@ struct ArtifactVersionSheet: View {
   var body: some View {
     NoemaNativeSheet(
       title: model.detail?.title ?? selection.title,
-      dismissTitle: selection.backTitle == nil ? "Close" : "Back",
+      dismissControl: selection.backTitle == nil ? .close : .text("Back"),
       onDismiss: { dismiss() }
     ) {
       VStack(alignment: .leading, spacing: 0) {

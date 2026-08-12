@@ -6,22 +6,27 @@ private struct NoemaMobileDrawerDetent: CustomPresentationDetent {
   }
 }
 
+enum NoemaSheetDismissControl {
+  case close
+  case text(String)
+}
+
 struct NoemaNativeSheet<Content: View>: View {
   let title: String
-  let dismissTitle: String
+  let dismissControl: NoemaSheetDismissControl
   let dismissDisabled: Bool
   let onDismiss: () -> Void
   private let content: Content
 
   init(
     title: String,
-    dismissTitle: String = "Close",
+    dismissControl: NoemaSheetDismissControl = .close,
     dismissDisabled: Bool = false,
     onDismiss: @escaping () -> Void,
     @ViewBuilder content: () -> Content
   ) {
     self.title = title
-    self.dismissTitle = dismissTitle
+    self.dismissControl = dismissControl
     self.dismissDisabled = dismissDisabled
     self.onDismiss = onDismiss
     self.content = content()
@@ -34,8 +39,17 @@ struct NoemaNativeSheet<Content: View>: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
           ToolbarItem(placement: .cancellationAction) {
-            Button(dismissTitle, action: onDismiss)
+            switch dismissControl {
+            case .close:
+              Button(action: onDismiss) {
+                Image(systemName: "xmark")
+              }
+              .accessibilityLabel("Close")
               .disabled(dismissDisabled)
+            case .text(let title):
+              Button(title, action: onDismiss)
+                .disabled(dismissDisabled)
+            }
           }
         }
     }
