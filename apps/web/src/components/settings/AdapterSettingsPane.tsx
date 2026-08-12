@@ -316,6 +316,8 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       kind="API"
       connectionId={connectionId}
       defaultConnectionId={apiIntegrations[0]?.connections[0]?.connectionId}
+      title="APIs"
+      primaryAction={{ label: "Connect API", onClick: () => void navigate({ to: "/" }) }}
       startPolicyEditing={selectedDescriptor?.policyConfigured === false}
       serviceName={selectedDefinition?.displayName}
       connectionName={selectedGrant ? selectedGrant.accountLabel ?? "Unlabeled account" : undefined}

@@ -26,7 +26,6 @@ export function CapabilityIntegrationList({
   kind,
   selectedConnectionId,
   emptyMessage,
-  primaryAction,
   integrationAction,
   isAddingConnection = false,
   onAddConnection
@@ -35,7 +34,6 @@ export function CapabilityIntegrationList({
   kind: "API" | "MCP";
   selectedConnectionId?: string;
   emptyMessage: string;
-  primaryAction?: { label: string; onClick: () => void };
   integrationAction?: (integration: CapabilityIntegration) => ReactNode;
   isAddingConnection?: boolean;
   onAddConnection?: (integration: CapabilityIntegration) => void;
@@ -43,38 +41,23 @@ export function CapabilityIntegrationList({
   const connectionNoun = kind === "API" ? "account" : "connection";
   return (
     <VStack gap={2}>
-      {primaryAction ? (
-        <HStack hAlign="end">
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            label={primaryAction.label}
-            onClick={primaryAction.onClick}
-          />
-        </HStack>
-      ) : null}
       {integrations.length === 0 ? (
         <p {...stylex.props(styles.empty)}>{emptyMessage}</p>
       ) : null}
       {integrations.map((integration) => {
-        const selected = integration.connections.some(
-          (connection) => connection.connectionId === selectedConnectionId
-        );
         return (
           <Section
             key={integration.definitionId}
             variant="section"
             padding={0}
             aria-labelledby={`capability-${integration.definitionId}-title`}
-            xstyle={[styles.service, selected && styles.selectedService]}
+            xstyle={styles.service}
           >
             <VStack gap={0}>
               <HStack gap={2} vAlign="center" {...stylex.props(styles.serviceHeader)}>
                 <CapabilityIcon
                   kind={kind}
                   definitionId={integration.definitionId}
-                  emphasized={selected}
                 />
                 <VStack gap={0.5} {...stylex.props(styles.serviceCopy)}>
                   <h2 id={`capability-${integration.definitionId}-title`} {...stylex.props(styles.title)}>
@@ -188,10 +171,6 @@ const styles = stylex.create({
     borderColor: "var(--border-subtle)",
     borderRadius: "var(--radius-container)"
   },
-  selectedService: {
-    borderColor: "var(--primary)",
-    boxShadow: "0 0 0 var(--border-width) var(--primary)"
-  },
   serviceHeader: { minHeight: "var(--spacing-10)", padding: "var(--spacing-2)" },
   serviceCopy: { minWidth: 0, flex: 1 },
   iconFrame: {
@@ -230,7 +209,7 @@ const styles = stylex.create({
     ":hover": { backgroundColor: "var(--surface-raised)" },
     ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: -2 }
   },
-  selectedConnection: { backgroundColor: "var(--surface-raised)" },
+  selectedConnection: { backgroundColor: "var(--color-success-muted)" },
   connectionCopy: { minWidth: 0 },
   connectionName: { fontSize: 13, fontWeight: 650, overflowWrap: "anywhere" },
   connectionMeta: { color: "var(--muted-foreground)", fontSize: 12 },

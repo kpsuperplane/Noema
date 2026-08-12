@@ -284,6 +284,7 @@ export function CapabilityConnectionDetail({
           label="Connection policy actions"
           size="sm"
           variant="muted"
+          xstyle={styles.sectionHeader}
           startContent={<h2 id="connection-policy-title" {...stylex.props(styles.heading)}>Connection policy</h2>}
           endContent={<IconButton
             variant="ghost"
@@ -312,6 +313,7 @@ export function CapabilityConnectionDetail({
           label="Tool settings"
           size="sm"
           variant="muted"
+          xstyle={styles.sectionHeader}
           startContent={<h2 id="connection-tools-title" {...stylex.props(styles.heading)}>Tools</h2>}
           endContent={<span {...stylex.props(styles.muted)}>{connection.availableToolCount} / {connection.toolCount} available</span>}
         />
@@ -526,6 +528,7 @@ const styles = stylex.create({
   connectionName: { margin: 0, color: "var(--foreground)", fontFamily: "var(--font-heading)", fontSize: 18, fontWeight: 650, lineHeight: 1.25, overflowWrap: "anywhere" },
   toolCount: { color: "var(--muted-foreground)", fontSize: 12 },
   detailSection: { overflow: "hidden", borderWidth: "var(--border-width)", borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: "var(--radius-container)" },
+  sectionHeader: { paddingInline: "var(--spacing-2)" },
   sectionBody: { paddingInline: "var(--spacing-2)" },
   heading: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 14, fontWeight: 650 },
   editorDescription: { margin: "var(--spacing-0)", fontSize: 13, lineHeight: 1.5, color: "var(--muted-foreground)" },

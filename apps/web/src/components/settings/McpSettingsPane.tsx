@@ -309,6 +309,8 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
         kind="MCP"
         connectionId={selectedConnectionId}
         defaultConnectionId={integrations[0]?.connections[0]?.connectionId}
+        title="MCPs"
+        primaryAction={{ label: "Connect service", onClick: onOpenSetup }}
         serviceName={selectedIntegration?.name}
         list={
           <VStack {...stylex.props(styles.list)}>
@@ -317,7 +319,6 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
               kind="MCP"
               selectedConnectionId={selectedConnectionId}
               emptyMessage="No services connected."
-              primaryAction={{ label: "Connect service", onClick: onOpenSetup }}
               onAddConnection={(integration) => setAddTargetId(integration.definitionId)}
             />
           </VStack>
