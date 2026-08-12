@@ -3,9 +3,9 @@ import * as stylex from "@stylexjs/stylex";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
-import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { HStack } from "@astryxdesign/core/HStack";
 import { MoreMenu } from "@astryxdesign/core/MoreMenu";
+import { Switch } from "@astryxdesign/core/Switch";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
@@ -214,7 +214,7 @@ function AcpAgentDialog({ agent, busy, error, onClose, onCreate, onUpdate }: { a
           <TextInput hasAutoFocus isRequired label="Name" value={displayName} onChange={setDisplayName} />
           <TextInput isRequired label="Executable" value={command} placeholder="/absolute/path/to/agent" onChange={setCommand} />
           <TextArea label="Arguments" description="One argument per line" rows={4} value={argumentsText} onChange={setArgumentsText} />
-          {existing ? <CheckboxInput label="Enabled for new tasks" value={enabled} onChange={setEnabled} /> : null}
+          {existing ? <Switch label="Enabled for new tasks" value={enabled} onChange={setEnabled} /> : null}
         </VStack>
     </SettingsEditDialog>
   );

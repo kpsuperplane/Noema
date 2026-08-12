@@ -228,7 +228,7 @@ export function CapabilityConnectionDetail({
     }
   }
 
-  async function toggle(tool: ManagedTool) {
+  async function setToolEnabled(tool: ManagedTool, enabled: boolean) {
     setError(null);
     try {
       await setEnabled({ variables: { input: {
@@ -236,11 +236,11 @@ export function CapabilityConnectionDetail({
         toolId: tool.toolId,
         sourceRevision: tool.sourceRevision,
         expectedPolicyRevision: tool.policyRevision,
-        enabled: !tool.enabled
+        enabled
       } } });
       await refresh();
     } catch {
-      setError(`Could not ${tool.enabled ? "turn off" : "turn on"} ${tool.name}.`);
+      setError(`Could not ${enabled ? "turn on" : "turn off"} ${tool.name}.`);
     }
   }
 
@@ -323,7 +323,7 @@ export function CapabilityConnectionDetail({
           busy={resetState.loading || enabledState.loading}
           onEdit={beginEdit}
           onReset={(tool) => void reset(tool)}
-          onToggle={(tool) => void toggle(tool)}
+          onEnabledChange={setToolEnabled}
         />
       </SettingsDetailSection>
 
