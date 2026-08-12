@@ -43,6 +43,7 @@ import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimi
 type AdapterDefinition = AdapterDefinitionsQuery["adapterDefinitions"][number];
 type Grant = AdapterOauthStateQuery["adapterOauthState"]["grants"][number];
 type NextAction = NonNullable<AdapterDefinition["nextAction"]>;
+type ConnectionAction = AdapterDefinition["connectionActions"][number];
 
 export function AdapterSettingsPane({ connectionId }: { connectionId?: string }) {
   const navigate = useNavigate();
@@ -140,8 +141,8 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     </VStack></SettingsSection>;
   }
 
-  async function runAction(definition: AdapterDefinition) {
-    const action = definition.nextAction;
+  async function runAction(definition: AdapterDefinition, selectedAction?: ConnectionAction) {
+    const action = selectedAction ?? definition.nextAction;
     if (!action) return;
     setError(null);
     if (action.kind === "review_definition") {
@@ -267,16 +268,20 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           busy={disconnectState.loading || labelState.loading}
           onOpen={(id) => void navigate({ to: "/settings/tools/apis/$connectionId", params: { connectionId: id } })}
           onLabel={(grant) => { setLabelGrant(grant); setLabelDraft(grant.accountLabel ?? ""); }}
-          onDisconnect={setDisconnectTarget} />
+          onDisconnect={setDisconnectTarget}
+          onRunAction={(definition, action) => void runAction(definition, action).catch(actionError(setError))} />
         <SettingsSection aria-labelledby="available-api-title"><VStack gap={2}>
           <h2 id="available-api-title" {...stylex.props(styles.sectionTitle)}>Available APIs</h2>
           <SettingsList density="compact" hasDividers>
             {definitions.filter((item) => item.reviewed && item.connectionCount === 0).map((definition) => (
               <SettingsListItem key={definition.semanticDigest} label={definition.displayName}
                 description={nextActionDescription(definition)}
-                endContent={definition.nextAction ? <Button type="button" size="sm" label={actionLabel(definition)}
-                  isLoading={oauthStartState.loading || attachState.loading}
-                  onClick={() => void runAction(definition).catch(actionError(setError))} /> : null} />
+                endContent={<HStack gap={1} wrap="wrap">{definition.connectionActions.map((action) => (
+                  <Button key={connectionActionKey(action)} type="button" size="sm"
+                    label={connectionActionLabel(definition, action, oauth)}
+                    isLoading={oauthStartState.loading || attachState.loading}
+                    onClick={() => void runAction(definition, action).catch(actionError(setError))} />
+                ))}</HStack>} />
             ))}
             {definitions.every((item) => !item.reviewed || item.connectionCount > 0) ? (
               <SettingsListItem label="All reviewed APIs are connected" />
@@ -284,7 +289,12 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           </SettingsList>
         </VStack></SettingsSection>
         <SettingsSection aria-labelledby="oauth-applications-title"><VStack gap={2}>
-          <h2 id="oauth-applications-title" {...stylex.props(styles.sectionTitle)}>OAuth applications</h2>
+          <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
+            <h2 id="oauth-applications-title" {...stylex.props(styles.sectionTitle)}>OAuth applications</h2>
+            {oauth.profiles.map((profile) => <Button key={profile.profileDigest} type="button" size="sm" variant="secondary"
+              label={oauth.profiles.length === 1 ? "Use another OAuth application" : `Add ${profile.displayName} application`}
+              onClick={() => setApplicationProfileDigest(profile.profileDigest)} />)}
+          </HStack>
           <p {...stylex.props(styles.muted)}>Advanced provider setup. Secrets are never displayed.</p>
           <SettingsList density="compact" hasDividers>
             {oauth.applications.map((application) => (
@@ -376,13 +386,14 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   </>;
 }
 
-function AccountSections({ oauth, definitions, busy, onOpen, onLabel, onDisconnect }: {
+function AccountSections({ oauth, definitions, busy, onOpen, onLabel, onDisconnect, onRunAction }: {
   oauth: AdapterOauthStateQuery["adapterOauthState"];
   definitions: AdapterDefinition[];
   busy: boolean;
   onOpen: (connectionId: string) => void;
   onLabel: (grant: Grant) => void;
   onDisconnect: (grants: Grant[]) => void;
+  onRunAction: (definition: AdapterDefinition, action: ConnectionAction) => void;
 }) {
   const groups = new Map<string, Grant[]>();
   for (const grant of oauth.grants) {
@@ -414,8 +425,11 @@ function AccountSections({ oauth, definitions, busy, onOpen, onLabel, onDisconne
           {connections.map(({ definition, connection }) => <SettingsListItem key={connection.connectionId}
             label={definition.displayName}
             description={`${connection.operationAccess.filter((item) => item.status === "available").length}/${definition.operations.length} tools available`}
-            endContent={<HStack gap={1} vAlign="center"><Badge label={connectionStatus(connection.status)}
+            endContent={<HStack gap={1} vAlign="center" wrap="wrap"><Badge label={connectionStatus(connection.status)}
               variant={connection.status === "active" ? "success" : "warning"} />
+              {definition.connectionActions.map((action) => <Button key={connectionActionKey(action)} type="button" size="sm"
+                variant="secondary" label={connectionActionLabel(definition, action, oauth)}
+                onClick={() => onRunAction(definition, action)} />)}
               <Button type="button" size="sm" variant="secondary" label="Manage" onClick={() => onOpen(connection.connectionId)} /></HStack>} />)}
           {connections.length === 0 ? <SettingsListItem label="No APIs attached" /> : null}
         </SettingsList>
@@ -435,6 +449,28 @@ function actionLabel(definition: AdapterDefinition) {
   if (action === "set_up_credential") return `Connect ${definition.displayName}`;
   if (action === "review_connection_policy") return "Review connection policy";
   return "Continue";
+}
+
+function connectionActionLabel(
+  definition: AdapterDefinition,
+  action: ConnectionAction,
+  oauth: AdapterOauthStateQuery["adapterOauthState"]
+) {
+  const grant = oauth.grants.find((item) => item.grantId === action.grantId);
+  const account = grant?.accountLabel ?? (grant ? "Unlabeled account" : null);
+  if (action.kind === "attach_account") return account ? `Connect ${account}` : `Connect ${definition.displayName}`;
+  if (action.kind === "add_access") return account ? `Add access for ${account}` : `Add ${definition.displayName} access`;
+  if (action.kind === "reconnect_account") return account ? `Reconnect ${account}` : "Reconnect account";
+  if (action.kind === "add_account") {
+    const application = oauth.applications.find((item) => item.applicationId === action.applicationId);
+    return application?.projectLabel ? `Add account with ${application.projectLabel}` : "Add account";
+  }
+  if (action.kind === "import_application") return "Set up OAuth application";
+  return actionLabel(definition);
+}
+
+function connectionActionKey(action: ConnectionAction) {
+  return [action.kind, action.applicationId, action.grantId].filter(Boolean).join(":");
 }
 
 function nextActionDescription(definition: AdapterDefinition) {

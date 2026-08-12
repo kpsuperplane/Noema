@@ -220,6 +220,7 @@ pub struct GraphqlAdapterDefinition {
     pub reviewed: bool,
     pub superseded: bool,
     pub next_action: Option<GraphqlAdapterNextAction>,
+    pub connection_actions: Vec<GraphqlAdapterNextAction>,
 }
 
 /// Exact immutable pending definition selected by the local human.
@@ -463,6 +464,14 @@ pub(super) async fn adapter_definitions(
                 &connections,
                 &snapshot.oauth_authorities,
             );
+            let connection_actions = definition_connection_actions(
+                digest,
+                &definition.compiled,
+                &stored.manifest,
+                superseded,
+                &connections,
+                &snapshot.oauth_authorities,
+            );
             Ok(definition_view(
                 digest,
                 &stored,
@@ -471,6 +480,7 @@ pub(super) async fn adapter_definitions(
                 oauth_callback,
                 profile,
                 next_action,
+                connection_actions,
             ))
         })
         .collect::<async_graphql::Result<Vec<_>>>()?;
@@ -1032,6 +1042,7 @@ fn definition_view(
     oauth_callback: Option<(&str, Oauth2CallbackMode)>,
     oauth_profile: Option<&noema_capability_adapters::OauthProfileInstall>,
     next_action: Option<GraphqlAdapterNextAction>,
+    connection_actions: Vec<GraphqlAdapterNextAction>,
 ) -> GraphqlAdapterDefinition {
     let manifest = &stored.manifest;
     GraphqlAdapterDefinition {
@@ -1097,6 +1108,7 @@ fn definition_view(
         reviewed: manifest.reviewed,
         superseded,
         next_action,
+        connection_actions,
     }
 }
 
@@ -1128,6 +1140,7 @@ fn definition_next_action(
         action
             .operation_ids
             .clone_from(&connection.allowed_operations);
+        populate_grant_authority(&mut action, oauth);
         return Some(action);
     }
     if let Some(connection) = connections.iter().find(|connection| {
@@ -1155,6 +1168,7 @@ fn definition_next_action(
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect();
+        populate_grant_authority(&mut action, oauth);
         return Some(action);
     }
     if let Some(connection) = connections
@@ -1170,83 +1184,139 @@ fn definition_next_action(
     if !connections.is_empty() {
         return None;
     }
-    match &manifest.authentication {
-        AuthenticationSchemeV4::None => None,
-        AuthenticationSchemeV4::Credential(_) => {
-            Some(adapter_next_action("set_up_credential", semantic_digest))
-        }
-        AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(config) => {
-            let applications = oauth
-                .applications
-                .iter()
-                .filter(|application| {
-                    application.profile_digest == config.profile_digest
-                        && application.status == OauthApplicationStatus::Active
-                })
-                .collect::<Vec<_>>();
-            let operation_ids = manifest
-                .operations
-                .iter()
-                .map(|operation| operation.operation_id.clone())
-                .collect::<Vec<_>>();
-            for grant in oauth.grants.iter().filter(|grant| {
-                applications
-                    .iter()
-                    .any(|application| application.application_id == grant.application_id)
-            }) {
-                let application = applications
-                    .iter()
-                    .find(|application| application.application_id == grant.application_id)?;
-                if grant.status != AuthorizationGrantStatus::Active {
-                    let mut action = adapter_next_action("reconnect_account", semantic_digest);
-                    action.application_id = Some(application.application_id.clone());
-                    action.expected_application_revision = Some(application.revision);
-                    action.grant_id = Some(grant.grant_id.clone());
-                    action.expected_grant_revision = Some(grant.authority_revision);
-                    action.operation_ids.clone_from(&operation_ids);
-                    return Some(action);
-                }
-                if manifest.operations.iter().all(|operation| {
-                    operation
-                        .authorization
-                        .is_satisfied_by(&grant.granted_scopes)
-                }) {
-                    let mut action = adapter_next_action("attach_account", semantic_digest);
-                    action.application_id = Some(application.application_id.clone());
-                    action.expected_application_revision = Some(application.revision);
-                    action.grant_id = Some(grant.grant_id.clone());
-                    action.expected_grant_revision = Some(grant.authority_revision);
-                    action.operation_ids.clone_from(&operation_ids);
-                    return Some(action);
-                }
-                if let Some(target) = compiled.scope_target(&operation_ids, &grant.granted_scopes) {
-                    let granted = grant
-                        .granted_scopes
-                        .iter()
-                        .collect::<std::collections::BTreeSet<_>>();
-                    let mut action = adapter_next_action("add_access", semantic_digest);
-                    action.application_id = Some(application.application_id.clone());
-                    action.expected_application_revision = Some(application.revision);
-                    action.grant_id = Some(grant.grant_id.clone());
-                    action.expected_grant_revision = Some(grant.authority_revision);
-                    action.operation_ids.clone_from(&operation_ids);
-                    action.missing_scopes = target
-                        .into_iter()
-                        .filter(|scope| !granted.contains(scope))
-                        .collect();
-                    return Some(action);
-                }
+    definition_connection_actions(
+        semantic_digest,
+        compiled,
+        manifest,
+        superseded,
+        connections,
+        oauth,
+    )
+    .into_iter()
+    .next()
+}
+
+fn definition_connection_actions(
+    semantic_digest: &str,
+    compiled: &noema_capability_adapters::CompiledAdapterDefinition,
+    manifest: &noema_capability_adapters::AdapterManifest,
+    superseded: bool,
+    connections: &[GraphqlAdapterConnection],
+    oauth: &noema_capability_adapters::OauthAuthoritySnapshot,
+) -> Vec<GraphqlAdapterNextAction> {
+    if superseded || !manifest.reviewed {
+        return Vec::new();
+    }
+    let AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(config) = &manifest.authentication
+    else {
+        return match &manifest.authentication {
+            AuthenticationSchemeV4::Credential(_) if connections.is_empty() => {
+                vec![adapter_next_action("set_up_credential", semantic_digest)]
             }
-            if let Some(application) = applications.first() {
-                let mut action = adapter_next_action("add_account", semantic_digest);
-                action.application_id = Some(application.application_id.clone());
-                action.expected_application_revision = Some(application.revision);
-                action.operation_ids = operation_ids;
-                return Some(action);
-            }
-            Some(adapter_next_action("import_application", semantic_digest))
+            _ => Vec::new(),
+        };
+    };
+    let applications = oauth
+        .applications
+        .iter()
+        .filter(|application| {
+            application.profile_digest == config.profile_digest
+                && application.status == OauthApplicationStatus::Active
+        })
+        .collect::<Vec<_>>();
+    if applications.is_empty() {
+        return vec![adapter_next_action("import_application", semantic_digest)];
+    }
+    let connected_grants = connections
+        .iter()
+        .filter_map(|connection| connection.grant_id.as_deref())
+        .collect::<std::collections::BTreeSet<_>>();
+    let operation_ids = manifest
+        .operations
+        .iter()
+        .map(|operation| operation.operation_id.clone())
+        .collect::<Vec<_>>();
+    let mut attach = Vec::new();
+    let mut expand = Vec::new();
+    let mut reconnect = Vec::new();
+    for grant in oauth.grants.iter().filter(|grant| {
+        !connected_grants.contains(grant.grant_id.as_str())
+            && applications
+                .iter()
+                .any(|application| application.application_id == grant.application_id)
+    }) {
+        let Some(application) = applications
+            .iter()
+            .find(|application| application.application_id == grant.application_id)
+        else {
+            continue;
+        };
+        let mut action = if grant.status != AuthorizationGrantStatus::Active {
+            adapter_next_action("reconnect_account", semantic_digest)
+        } else if manifest.operations.iter().all(|operation| {
+            operation
+                .authorization
+                .is_satisfied_by(&grant.granted_scopes)
+        }) {
+            adapter_next_action("attach_account", semantic_digest)
+        } else if let Some(target) = compiled.scope_target(&operation_ids, &grant.granted_scopes) {
+            let granted = grant
+                .granted_scopes
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>();
+            let mut action = adapter_next_action("add_access", semantic_digest);
+            action.missing_scopes = target
+                .into_iter()
+                .filter(|scope| !granted.contains(scope))
+                .collect();
+            action
+        } else {
+            continue;
+        };
+        action.application_id = Some(application.application_id.clone());
+        action.expected_application_revision = Some(application.revision);
+        action.grant_id = Some(grant.grant_id.clone());
+        action.expected_grant_revision = Some(grant.authority_revision);
+        action.operation_ids.clone_from(&operation_ids);
+        match action.kind.as_str() {
+            "attach_account" => attach.push(action),
+            "add_access" => expand.push(action),
+            _ => reconnect.push(action),
         }
     }
+    let mut actions = attach;
+    actions.extend(expand);
+    actions.extend(reconnect);
+    actions.extend(applications.into_iter().map(|application| {
+        let mut action = adapter_next_action("add_account", semantic_digest);
+        action.application_id = Some(application.application_id.clone());
+        action.expected_application_revision = Some(application.revision);
+        action.operation_ids.clone_from(&operation_ids);
+        action
+    }));
+    actions
+}
+
+fn populate_grant_authority(
+    action: &mut GraphqlAdapterNextAction,
+    oauth: &noema_capability_adapters::OauthAuthoritySnapshot,
+) {
+    let Some(grant) = action
+        .grant_id
+        .as_deref()
+        .and_then(|grant_id| oauth.grants.iter().find(|grant| grant.grant_id == grant_id))
+    else {
+        return;
+    };
+    let Some(application) = oauth
+        .applications
+        .iter()
+        .find(|application| application.application_id == grant.application_id)
+    else {
+        return;
+    };
+    action.application_id = Some(application.application_id.clone());
+    action.expected_application_revision = Some(application.revision);
 }
 
 fn adapter_next_action(kind: &str, semantic_digest: &str) -> GraphqlAdapterNextAction {
@@ -1689,7 +1759,10 @@ mod tests {
     use noema_capabilities::{
         CapabilityBindingSource, CapabilityInvocation, CapabilityInvoker, ToolName,
     };
-    use noema_capability_adapters::AdapterManifest;
+    use noema_capability_adapters::{
+        AdapterCompiler, AdapterManifest, AuthorizationGrantV1, OauthApplicationV1,
+        OauthAuthoritySnapshot,
+    };
     use noema_home::NoemaPaths;
     use serde_json::json;
 
@@ -1744,6 +1817,134 @@ mod tests {
             }]
         }))
         .expect("OAuth manifest")
+    }
+
+    fn oauth_application(id: &str, profile_digest: &str) -> OauthApplicationV1 {
+        OauthApplicationV1 {
+            schema_version: 1,
+            application_id: id.to_string(),
+            profile_digest: profile_digest.to_string(),
+            callback_mode: Oauth2CallbackMode::Loopback,
+            client_id: format!("client-{id}"),
+            project_label: None,
+            credential_generation: format!("generation-{id}"),
+            revision: 1,
+            status: OauthApplicationStatus::Active,
+        }
+    }
+
+    fn oauth_grant(id: &str, application_id: &str) -> AuthorizationGrantV1 {
+        AuthorizationGrantV1 {
+            schema_version: 1,
+            grant_id: id.to_string(),
+            application_id: application_id.to_string(),
+            account_id: None,
+            account_label: Some(format!("Account {id}")),
+            audience: "google-apis".to_string(),
+            desired_scopes: vec!["https://www.googleapis.com/auth/userinfo.email".to_string()],
+            granted_scopes: vec!["https://www.googleapis.com/auth/userinfo.email".to_string()],
+            authority_revision: 1,
+            token_generation: Some(format!("token-{id}")),
+            token_revision: 1,
+            status: AuthorizationGrantStatus::Active,
+        }
+    }
+
+    fn oauth_connection(grant_id: &str, status: &str) -> GraphqlAdapterConnection {
+        GraphqlAdapterConnection {
+            connection_id: format!("connection-{grant_id}"),
+            status: status.to_string(),
+            grant_id: Some(grant_id.to_string()),
+            account_id: None,
+            connection_revision: 1,
+            credential_revision: None,
+            grant_revision: Some(1),
+            policy_revision: 1,
+            granted_scopes: Vec::new(),
+            allowed_operations: vec!["list_items".to_string()],
+            policy_configured: true,
+            operation_access: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn connection_actions_keep_existing_accounts_and_applications_selectable() {
+        let mut manifest = oauth_pending_manifest();
+        manifest.reviewed = true;
+        let compiled = AdapterCompiler::compile(&manifest).expect("reviewed OAuth manifest");
+        let profile_digest = noema_capability_adapters::reviewed_google_oauth_profile_digest();
+        let first_application = oauth_application("application-a", &profile_digest);
+        let second_application = oauth_application("application-b", &profile_digest);
+        let first_grant = oauth_grant("grant-a", &first_application.application_id);
+        let second_grant = oauth_grant("grant-b", &first_application.application_id);
+        let oauth = OauthAuthoritySnapshot {
+            profiles: Vec::new(),
+            applications: vec![first_application, second_application],
+            accounts: Vec::new(),
+            grants: vec![first_grant, second_grant],
+        };
+        let connections = vec![oauth_connection("grant-a", "active")];
+
+        let actions = definition_connection_actions(
+            compiled.semantic_digest.as_str(),
+            &compiled,
+            &manifest,
+            false,
+            &connections,
+            &oauth,
+        );
+
+        assert_eq!(
+            actions
+                .iter()
+                .map(|action| action.kind.as_str())
+                .collect::<Vec<_>>(),
+            vec!["attach_account", "add_account", "add_account"]
+        );
+        assert_eq!(actions[0].grant_id.as_deref(), Some("grant-b"));
+        assert!(
+            actions
+                .iter()
+                .all(|action| action.grant_id.as_deref() != Some("grant-a"))
+        );
+        assert_eq!(
+            actions
+                .iter()
+                .filter_map(|action| action.application_id.as_deref())
+                .collect::<Vec<_>>(),
+            vec!["application-a", "application-a", "application-b"]
+        );
+    }
+
+    #[test]
+    fn existing_grant_recovery_includes_exact_application_revision() {
+        let mut manifest = oauth_pending_manifest();
+        manifest.reviewed = true;
+        let compiled = AdapterCompiler::compile(&manifest).expect("reviewed OAuth manifest");
+        let profile_digest = noema_capability_adapters::reviewed_google_oauth_profile_digest();
+        let application = oauth_application("application-a", &profile_digest);
+        let mut grant = oauth_grant("grant-a", &application.application_id);
+        grant.status = AuthorizationGrantStatus::AuthenticationRequired;
+        let oauth = OauthAuthoritySnapshot {
+            profiles: Vec::new(),
+            applications: vec![application],
+            accounts: Vec::new(),
+            grants: vec![grant],
+        };
+
+        let action = definition_next_action(
+            compiled.semantic_digest.as_str(),
+            &compiled,
+            &manifest,
+            false,
+            &[oauth_connection("grant-a", "authentication_required")],
+            &oauth,
+        )
+        .expect("reconnect action");
+
+        assert_eq!(action.kind, "reconnect_account");
+        assert_eq!(action.application_id.as_deref(), Some("application-a"));
+        assert_eq!(action.expected_application_revision, Some(1));
     }
 
     async fn fixture() -> (crate::test_support::TestEnvironment, GraphqlState, String) {

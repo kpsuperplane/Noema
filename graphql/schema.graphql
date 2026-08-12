@@ -261,6 +261,7 @@ type AdapterDefinition {
 	reviewed: Boolean!
 	superseded: Boolean!
 	nextAction: AdapterNextAction
+	connectionActions: [AdapterNextAction!]!
 }
 
 """

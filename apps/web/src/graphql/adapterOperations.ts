@@ -50,6 +50,19 @@ const AdapterDefinitionFields = gql`
       operationIds
       missingScopes
     }
+    connectionActions {
+      kind
+      semanticDigest
+      applicationId
+      expectedApplicationRevision
+      grantId
+      expectedGrantRevision
+      connectionId
+      expectedConnectionRevision
+      expectedPolicyRevision
+      operationIds
+      missingScopes
+    }
     operations {
       operationId
       method
