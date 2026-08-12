@@ -82,12 +82,21 @@ export function ModelSetup({
 
   return (
     <VStack as="section" {...stylex.props(styles.root)} aria-label="Model setup" gap={4}>
-      <VStack gap={1.5} hAlign="center">
-        <p {...stylex.props(styles.eyebrow)}>Connected to {setup.providerDisplayName}</p>
-        <h1 {...stylex.props(styles.title)}>Review your models</h1>
-        <p {...stylex.props(styles.description)}>
-          These defaults cover chat, tasks, and supporting work. You can change them now or later.
-        </p>
+      <VStack gap={3} hAlign="center">
+        <img
+          src={`${import.meta.env.BASE_URL}pwa-512x512.png`}
+          width="64"
+          height="64"
+          alt=""
+          {...stylex.props(styles.logo)}
+        />
+        <VStack gap={1.5} hAlign="center">
+          <p {...stylex.props(styles.eyebrow)}>Connected to {setup.providerDisplayName}</p>
+          <h1 {...stylex.props(styles.title)}>Review your models</h1>
+          <p {...stylex.props(styles.description)}>
+            These defaults cover chat, tasks, and supporting work. You can change them now or later.
+          </p>
+        </VStack>
       </VStack>
 
       <VStack gap={3}>
@@ -229,11 +238,21 @@ const styles = stylex.create({
   root: {
     width: "min(100%, 720px)",
     minHeight: "100%",
+    boxSizing: "border-box",
     justifyContent: "center",
     marginInline: "auto",
+    paddingBlock: "var(--spacing-6)",
     "@media (max-width: 760px)": {
-      justifyContent: "flex-start"
+      justifyContent: "flex-start",
+      paddingBlock: "var(--spacing-4)"
     }
+  },
+  logo: {
+    display: "block",
+    flexShrink: 0,
+    borderRadius: 15,
+    boxShadow:
+      "0 2px 3px color-mix(in srgb, black 8%, transparent), 0 12px 30px color-mix(in srgb, var(--pine-500) 18%, transparent)"
   },
   eyebrow: {
     margin: 0,
