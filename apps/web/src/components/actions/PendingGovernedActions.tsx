@@ -6,7 +6,7 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
-import { Code2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Code2 } from "lucide-react";
 import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import {
@@ -116,6 +116,7 @@ export function PendingHumanInterventionsResult({
 }) {
   const interventions = result.data?.pendingHumanInterventions ?? [];
   const [dismissedAdapterSetups, setDismissedAdapterSetups] = React.useState(readDismissedAdapterSetups);
+  const [selectedChatInterventionKey, setSelectedChatInterventionKey] = React.useState<string | null>(null);
   const allowAdapterSetupDismissal = Boolean(conversationId) && placement === "chat";
   const visibleInterventions = allowAdapterSetupDismissal
     ? interventions.filter((intervention) => (
@@ -125,6 +126,12 @@ export function PendingHumanInterventionsResult({
         || !dismissedAdapterSetups.has(intervention.semanticDigest)
       ))
     : interventions;
+  const selectedChatInterventionIndex = Math.max(0, visibleInterventions.findIndex(
+    (intervention) => humanInterventionKey(intervention) === selectedChatInterventionKey
+  ));
+  const presentedInterventions = placement === "chat"
+    ? visibleInterventions.slice(selectedChatInterventionIndex, selectedChatInterventionIndex + 1)
+    : visibleInterventions;
   const dismissAdapterSetup = React.useCallback((semanticDigest: string) => {
     setDismissedAdapterSetups((current) => {
       const next = new Set(current).add(semanticDigest);
@@ -135,13 +142,50 @@ export function PendingHumanInterventionsResult({
   const stale = Boolean(result.error);
   const list = visibleInterventions.length ? (
     <HumanInterventionMotionItem key="pending-human-interventions">
-      <HumanInterventionList
-        interventions={visibleInterventions}
-        placement={placement}
-        onResolved={() => void result.refetch().catch(() => undefined)}
-        onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
-        initialAnimation={false}
-      />
+      <VStack gap={0}>
+        <HumanInterventionList
+          interventions={presentedInterventions}
+          placement={placement}
+          onResolved={() => void result.refetch().catch(() => undefined)}
+          onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
+          initialAnimation={false}
+        />
+        {placement === "chat" && visibleInterventions.length > 1 ? (
+          <HStack hAlign="between" vAlign="center" gap={1} {...stylex.props(styles.queueNavigation)}>
+            <span aria-live="polite" {...stylex.props(styles.queuePosition)}>
+              {selectedChatInterventionIndex + 1} of {visibleInterventions.length} waiting
+            </span>
+            <HStack gap={1}>
+              <IconButton
+                type="button"
+                size="sm"
+                variant="ghost"
+                label="Previous request"
+                tooltip="Previous request"
+                icon={<ChevronLeft aria-hidden="true" size={15} />}
+                isDisabled={selectedChatInterventionIndex === 0}
+                onClick={() => {
+                  const previous = visibleInterventions[selectedChatInterventionIndex - 1];
+                  if (previous) setSelectedChatInterventionKey(humanInterventionKey(previous));
+                }}
+              />
+              <IconButton
+                type="button"
+                size="sm"
+                variant="ghost"
+                label="Next request"
+                tooltip="Next request"
+                icon={<ChevronRight aria-hidden="true" size={15} />}
+                isDisabled={selectedChatInterventionIndex === visibleInterventions.length - 1}
+                onClick={() => {
+                  const next = visibleInterventions[selectedChatInterventionIndex + 1];
+                  if (next) setSelectedChatInterventionKey(humanInterventionKey(next));
+                }}
+              />
+            </HStack>
+          </HStack>
+        ) : null}
+      </VStack>
     </HumanInterventionMotionItem>
   ) : null;
   return (
@@ -887,6 +931,15 @@ const styles = stylex.create({
     padding: "var(--spacing-0)",
     marginBlockEnd: "calc(-1 * var(--human-intervention-card-overlap, var(--spacing-6)))",
     "--human-intervention-card-shadow": "var(--task-card-shadow, var(--shadow-low))"
+  },
+  queueNavigation: {
+    paddingInline: "var(--spacing-3)",
+    paddingBlockEnd: "var(--spacing-1)"
+  },
+  queuePosition: {
+    color: "var(--noema-text-muted)",
+    fontSize: 12,
+    lineHeight: 1.35
   },
   copy: {
     minWidth: 0

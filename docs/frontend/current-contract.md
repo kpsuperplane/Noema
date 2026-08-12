@@ -71,6 +71,9 @@ OAuth client management appears in a collapsed advanced section after import.
 That section manages existing clients and never starts a proactive import.
 Client import occurs only when a structured API connection action requires it.
 
+Chat presents one pending human intervention at a time with queue navigation.
+Tasks and dedicated queue surfaces can show the complete pending list.
+
 An OAuth application is reusable provider setup. An authorization grant is one
 account's access. An API connection keeps its own tool policy and lifecycle.
 

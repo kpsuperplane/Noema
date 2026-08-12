@@ -197,12 +197,36 @@ struct ChatInterventionsView: View {
   @Bindable var model: ChatModel
   @State private var browserURL: URL?
   @State private var taskResponses: [String: String] = [:]
+  @State private var selectedInterventionID: String?
 
   var body: some View {
+    let visibleInterventions = model.interventions.filter(isVisible)
+    let selectedIndex = max(
+      0,
+      visibleInterventions.firstIndex { $0.id == selectedInterventionID } ?? 0
+    )
     VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-        ForEach(model.interventions.filter(isVisible)) { intervention in
-          interventionCard(for: intervention)
+      if !visibleInterventions.isEmpty {
+        interventionCard(for: visibleInterventions[selectedIndex])
+      }
+      if visibleInterventions.count > 1 {
+        HStack(spacing: NoemaSpacing.sm) {
+          Text("\(selectedIndex + 1) of \(visibleInterventions.count) waiting")
+            .font(NoemaFont.metadata)
+            .foregroundStyle(NoemaColor.contentTertiary)
+          Spacer(minLength: NoemaSpacing.sm)
+          Button("Previous request", systemImage: "chevron.left") {
+            selectedInterventionID = visibleInterventions[selectedIndex - 1].id
+          }
+          .labelStyle(.iconOnly)
+          .buttonStyle(.borderless)
+          .disabled(selectedIndex == 0)
+          Button("Next request", systemImage: "chevron.right") {
+            selectedInterventionID = visibleInterventions[selectedIndex + 1].id
+          }
+          .labelStyle(.iconOnly)
+          .buttonStyle(.borderless)
+          .disabled(selectedIndex == visibleInterventions.count - 1)
         }
       }
     }
