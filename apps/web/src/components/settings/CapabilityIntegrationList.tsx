@@ -339,7 +339,7 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-subtle)",
     color: "var(--muted-foreground)"
   },
-  emphasizedIcon: { backgroundColor: "var(--color-success-muted)", color: "var(--primary)" },
+  emphasizedIcon: { backgroundColor: "transparent", color: "var(--primary)" },
   icon: { width: "var(--spacing-4)", height: "var(--spacing-4)" },
   title: {
     margin: "var(--spacing-0)",
