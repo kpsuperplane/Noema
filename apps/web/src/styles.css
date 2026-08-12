@@ -131,6 +131,7 @@ a[href] {
 }
 
 a[href].astryx-button,
+a[href][data-slot="list-card"],
 a[href][data-slot="shell-sidebar-control"] {
   cursor: default !important;
 }

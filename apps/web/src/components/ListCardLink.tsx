@@ -20,6 +20,7 @@ const ListCardAnchor = forwardRef<HTMLAnchorElement, ListCardAnchorProps>(functi
     <a
       {...props}
       ref={ref}
+      data-slot="list-card"
       className={[cardProps.className, className].filter(Boolean).join(" ")}
       style={{ ...cardProps.style, ...style }}
     />
