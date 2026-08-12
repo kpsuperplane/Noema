@@ -35,13 +35,13 @@ const styles = stylex.create({
     borderWidth: "var(--border-width)",
     borderStyle: "solid",
     borderColor: "var(--noema-border-subtle)",
-    borderRadius: "var(--radius-container)",
+    borderRadius: 10,
     backgroundColor: "var(--noema-surface-card)",
     paddingBlock: "var(--spacing-2)",
     paddingInline: "var(--spacing-3)",
     color: "var(--noema-text-secondary)",
     textDecoration: "none",
-    boxShadow: "var(--shadow-low)",
+    boxShadow: "0 1px 2px color-mix(in srgb, black 4%, transparent)",
     ":hover": {
       borderColor: "var(--noema-border-default)",
       backgroundColor: "var(--noema-surface-hover)"
@@ -54,7 +54,8 @@ const styles = stylex.create({
     }
   },
   selected: {
-    borderColor: "var(--noema-pine-500)",
-    boxShadow: "var(--shadow-low)"
+    borderColor: "color-mix(in srgb, var(--noema-pine-500) 26%, var(--noema-border-subtle))",
+    backgroundColor: "color-mix(in srgb, var(--noema-pine-50) 70%, var(--noema-surface-card))",
+    boxShadow: "0 2px 8px color-mix(in srgb, var(--noema-pine-700) 9%, transparent)"
   }
 });

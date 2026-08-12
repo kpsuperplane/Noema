@@ -390,9 +390,9 @@ const styles = stylex.create({
   attachedTask: {
     position: "relative",
     minWidth: 0,
-    "--human-intervention-card-radius": "var(--radius-container)",
+    "--human-intervention-card-radius": "10px",
     "--human-intervention-card-bottom-radius": "0px",
-    "--human-intervention-card-overlap": "var(--radius-container)"
+    "--human-intervention-card-overlap": "10px"
   },
   attachedTaskCard: {
     position: "relative",
