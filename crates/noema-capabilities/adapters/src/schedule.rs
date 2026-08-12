@@ -325,13 +325,16 @@ impl ScheduleStore {
     pub(crate) fn quarantine_referencing(
         &self,
         digests: &BTreeSet<String>,
+        connection_ids: &BTreeSet<String>,
     ) -> Result<(), ScheduleError> {
         let root = self.prepare_root()?;
         let quarantine_root = self.paths.adapter_quarantine_dir().join(SCHEDULES_DIR);
         create_private_dir(&self.paths.adapter_quarantine_dir())?;
         create_private_dir(&quarantine_root)?;
         for install in self.scan()? {
-            if !digests.contains(&install.schedule.semantic_digest) {
+            if !digests.contains(&install.schedule.semantic_digest)
+                && !connection_ids.contains(&install.schedule.connection_id)
+            {
                 continue;
             }
             let source = root.join(&install.schedule.schedule_id);

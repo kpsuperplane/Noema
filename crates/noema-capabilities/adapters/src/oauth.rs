@@ -63,24 +63,20 @@ pub(crate) enum AdapterOAuthError {
 pub(crate) struct AdapterOAuthAuthorityV1 {
     /// Authenticated human who initiated the attempt.
     pub(crate) human_id: String,
-    /// Exact connection identity being created or reauthenticated.
-    pub(crate) connection_id: String,
-    /// Stable external account identity when already known.
-    pub(crate) account_id: Option<String>,
-    /// Exact account surface selected by the reviewed definition.
-    pub(crate) account_kind: String,
+    /// Exact OAuth application identity.
+    pub(crate) application_id: String,
+    /// Application revision captured before redirect.
+    pub(crate) application_revision: u64,
+    /// Existing grant identity for access expansion or reconnection.
+    pub(crate) grant_id: Option<String>,
+    /// Existing grant authority revision captured before redirect.
+    pub(crate) grant_authority_revision: Option<u64>,
     /// Reviewed definition semantic digest.
     pub(crate) semantic_digest: String,
     /// Exact reviewed OAuth profile digest.
     pub(crate) profile_digest: String,
-    /// Connection descriptor revision captured before redirect.
-    pub(crate) connection_revision: u64,
-    /// Credential generation revision captured before redirect.
-    pub(crate) credential_revision: u64,
-    /// Provider-grant revision captured before redirect.
-    pub(crate) grant_revision: u64,
-    /// Reviewed operation/policy revision captured before redirect.
-    pub(crate) policy_revision: u64,
+    /// Exact target scopes selected before redirect.
+    pub(crate) target_scopes: Vec<String>,
 }
 
 impl AdapterOAuthAuthorityV1 {
@@ -91,16 +87,19 @@ impl AdapterOAuthAuthorityV1 {
     ) -> Result<(), AdapterOAuthError> {
         if self.semantic_digest != definition.semantic_digest.as_str()
             || self.profile_digest != profile_digest
-            || self.connection_revision == 0
-            || self.grant_revision == 0
-            || self.policy_revision == 0
+            || self.application_revision == 0
             || !valid_component(&self.human_id, 256)
-            || !valid_hex_id(&self.connection_id)
-            || !valid_component(&self.account_kind, 96)
+            || !valid_hex_id(&self.application_id)
             || self
-                .account_id
+                .grant_id
                 .as_deref()
-                .is_some_and(|value| !valid_component(value, 256))
+                .is_some_and(|value| !valid_hex_id(value))
+            || self.grant_id.is_some() != self.grant_authority_revision.is_some()
+            || self
+                .grant_authority_revision
+                .is_some_and(|revision| revision == 0)
+            || self.target_scopes.is_empty()
+            || !self.target_scopes.windows(2).all(|pair| pair[0] < pair[1])
             || crate::SemanticDigest::parse(self.semantic_digest.clone()).is_err()
         {
             return Err(AdapterOAuthError::InvalidInput);
@@ -434,6 +433,42 @@ impl AdapterOAuthAttemptReservation {
 }
 
 impl AdapterOAuthAttemptRegistry {
+    pub(crate) fn active_attempt_for_grant(&self, grant_id: &str) -> Option<String> {
+        self.attempts.values().find_map(|registered| {
+            if registered.authority.grant_id.as_deref() == Some(grant_id) {
+                registered
+                    .attempt
+                    .as_ref()
+                    .map(|attempt| attempt.attempt_id().to_string())
+            } else {
+                None
+            }
+        })
+    }
+
+    pub(crate) fn attempt_id_for_callback(&self, callback_url: &str) -> Option<String> {
+        let state = callback_state(callback_url).ok()?;
+        self.attempts
+            .get(&state_key(&state))?
+            .attempt
+            .as_ref()
+            .map(|attempt| attempt.attempt_id().to_string())
+    }
+
+    pub(crate) fn expire_attempt(&mut self, attempt_id: &str, now_epoch_seconds: u64) -> bool {
+        let key = self.attempts.iter().find_map(|(key, registered)| {
+            registered
+                .attempt
+                .as_ref()
+                .is_some_and(|attempt| {
+                    attempt.attempt_id() == attempt_id
+                        && now_epoch_seconds >= attempt.expires_at_epoch_seconds()
+                })
+                .then_some(*key)
+        });
+        key.is_some_and(|key| self.attempts.remove(&key).is_some())
+    }
+
     pub(crate) fn insert(
         &mut self,
         attempt: AdapterOAuthAttempt,
@@ -446,8 +481,10 @@ impl AdapterOAuthAttemptRegistry {
                 .is_none_or(|attempt| now_epoch_seconds < attempt.expires_at_epoch_seconds())
         });
         let authority = attempt.authority().clone();
-        let replacement_key = self.attempts.iter().find_map(|(key, candidate)| {
-            (candidate.authority.connection_id == authority.connection_id).then_some(*key)
+        let replacement_key = authority.grant_id.as_ref().and_then(|grant_id| {
+            self.attempts.iter().find_map(|(key, candidate)| {
+                (candidate.authority.grant_id.as_ref() == Some(grant_id)).then_some(*key)
+            })
         });
         if replacement_key
             .and_then(|key| self.attempts.get(&key))

@@ -13,8 +13,8 @@ use noema_capabilities_mcp::{
     McpServerRecord, McpSetToolEnabledCommand,
 };
 use noema_capability_adapters::{
-    AdapterManagementFence, CompiledAdapterDefinition, CompiledOperation, ConnectionInstall,
-    DefinitionInstall,
+    AdapterConnectionAuthenticationV1, AdapterManagementFence, CompiledAdapterDefinition,
+    CompiledOperation, ConnectionInstall, DefinitionInstall,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -439,10 +439,13 @@ fn api_connection(
             .unwrap_or_else(|| connection.descriptor.connection_slug.clone()),
         connection_label: connection.descriptor.connection_label.clone(),
         source_revision: connection.descriptor.semantic_digest.clone(),
-        connection_revision: connection.descriptor.revisions.connection.to_string(),
-        credential_revision: Some(connection.descriptor.revisions.credential),
-        grant_revision: Some(connection.descriptor.revisions.grant),
-        policy_revision: connection.descriptor.revisions.policy,
+        connection_revision: connection.descriptor.connection_revision.to_string(),
+        credential_revision: match connection.descriptor.authentication {
+            AdapterConnectionAuthenticationV1::Credential { revision, .. } => Some(revision),
+            _ => None,
+        },
+        grant_revision: None,
+        policy_revision: connection.descriptor.policy_revision,
         status: connection.descriptor.status.as_str().to_string(),
         health_status: connection.descriptor.status.as_str().to_string(),
         auth_status: if matches!(
@@ -475,9 +478,14 @@ fn api_connection(
         source_details: Json(json!({
             "origin": definition.origin,
             "authenticationMode": definition.authentication.mode(),
-            "scopes": definition.authentication.scopes(),
-            "grantedScopes": connection.descriptor.granted_scopes,
-            "accountKind": connection.descriptor.account_kind,
+            "operationScopes": definition.operations.iter().map(|operation| json!({
+                "operationId": operation.operation_id,
+                "acceptedScopeSets": operation.authorization.accepted_scope_sets(),
+            })).collect::<Vec<_>>(),
+            "grantId": match &connection.descriptor.authentication {
+                AdapterConnectionAuthenticationV1::OauthGrant { grant_id } => Some(grant_id),
+                _ => None,
+            },
         })),
     }
 }
@@ -543,7 +551,7 @@ fn api_tool(
         policy.open_world = human_hint(override_policy.open_world);
         policy.status = CapabilityToolPolicyStatus::Ready;
     }
-    policy.policy_revision = connection.descriptor.revisions.policy;
+    policy.policy_revision = connection.descriptor.policy_revision;
     if !enabled {
         policy.status = CapabilityToolPolicyStatus::Disabled;
     }

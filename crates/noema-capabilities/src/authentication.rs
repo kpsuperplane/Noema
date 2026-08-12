@@ -13,6 +13,8 @@ pub enum CapabilityAuthenticationAuthorityKind {
     McpServer,
     /// A declarative HTTP adapter connection.
     AdapterConnection,
+    /// A reusable OAuth authorization grant used by API connections.
+    AdapterGrant,
 }
 
 impl CapabilityAuthenticationAuthorityKind {
@@ -22,6 +24,7 @@ impl CapabilityAuthenticationAuthorityKind {
         match self {
             Self::McpServer => "mcp_server",
             Self::AdapterConnection => "adapter_connection",
+            Self::AdapterGrant => "adapter_grant",
         }
     }
 }
@@ -53,6 +56,8 @@ pub struct CapabilityAuthenticationChallenge {
     challenge_kind: CapabilityAuthenticationChallengeKind,
     authority_kind: CapabilityAuthenticationAuthorityKind,
     authority_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    destination_id: Option<String>,
     authority_revision: String,
 }
 
@@ -76,8 +81,33 @@ impl CapabilityAuthenticationChallenge {
             challenge_kind,
             authority_kind,
             authority_id,
+            destination_id: None,
             authority_revision,
         })
+    }
+
+    /// Construct a challenge whose reusable authority differs from its destination.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when an authority or destination component is invalid.
+    pub fn new_for_destination(
+        challenge_kind: CapabilityAuthenticationChallengeKind,
+        authority_kind: CapabilityAuthenticationAuthorityKind,
+        authority_id: impl Into<String>,
+        destination_id: impl Into<String>,
+        authority_revision: impl Into<String>,
+    ) -> Result<Self, CapabilityAuthenticationChallengeError> {
+        let mut challenge = Self::new(
+            challenge_kind,
+            authority_kind,
+            authority_id,
+            authority_revision,
+        )?;
+        let destination_id = destination_id.into();
+        validate_component(&destination_id)?;
+        challenge.destination_id = Some(destination_id);
+        Ok(challenge)
     }
 
     /// Return the requested authentication interaction.
@@ -98,6 +128,12 @@ impl CapabilityAuthenticationChallenge {
         &self.authority_id
     }
 
+    /// Return the concrete connection destination for this challenge.
+    #[must_use]
+    pub fn destination_id(&self) -> &str {
+        self.destination_id.as_deref().unwrap_or(&self.authority_id)
+    }
+
     /// Return the exact authority revision observed by the invoker.
     #[must_use]
     pub fn authority_revision(&self) -> &str {
@@ -114,9 +150,12 @@ impl CapabilityAuthenticationChallenge {
     ) -> bool {
         let family_matches = match self.authority_kind {
             CapabilityAuthenticationAuthorityKind::McpServer => service_id == "mcp",
-            CapabilityAuthenticationAuthorityKind::AdapterConnection => service_id == "adapter",
+            CapabilityAuthenticationAuthorityKind::AdapterConnection
+            | CapabilityAuthenticationAuthorityKind::AdapterGrant => service_id == "adapter",
         };
-        family_matches && self.authority_id == connection_id && self.authority_revision == revision
+        family_matches
+            && self.destination_id.as_deref().unwrap_or(&self.authority_id) == connection_id
+            && self.authority_revision == revision
     }
 }
 

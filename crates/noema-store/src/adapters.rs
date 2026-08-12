@@ -47,26 +47,20 @@ pub struct AdapterConnectionRecord {
     pub connection_slug: Option<String>,
     /// Exact definition content address.
     pub semantic_digest: Option<String>,
-    /// Stable external account identity when known.
-    pub account_id: Option<String>,
     /// Recognizable connection label when discovered.
     pub connection_label: Option<String>,
-    /// Reviewed account surface.
-    pub account_kind: Option<String>,
     /// Current lifecycle or blocked status.
     pub status: String,
     /// Descriptor/lifecycle revision.
     pub connection_revision: Option<u64>,
     /// Credential generation revision.
     pub credential_revision: Option<u64>,
-    /// Provider grant revision.
-    pub grant_revision: Option<u64>,
     /// Reviewed policy revision.
     pub policy_revision: Option<u64>,
     /// Current secret generation identity without its bytes.
     pub credential_generation: Option<String>,
-    /// Exact non-secret granted scope subset.
-    pub granted_scopes: Vec<String>,
+    /// Reusable OAuth grant identity when selected.
+    pub grant_id: Option<String>,
     /// Reviewed operation identities.
     pub allowed_operations: Vec<String>,
     /// Canonical descriptor path relative to `NOEMA_HOME`.
@@ -169,14 +163,15 @@ impl NoemaStore {
             for (grant, desired_scopes, granted_scopes) in &grant_scopes {
                 transaction.execute(
                     r#"INSERT INTO adapter_oauth_grants (
-                      grant_id, application_id, account_id, audience,
+                      grant_id, application_id, account_id, account_label, audience,
                       desired_scopes_json, granted_scopes_json, authority_revision,
                       token_revision, status, descriptor_relative_path
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"#,
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
                     params![
                         grant.grant_id,
                         grant.application_id,
                         grant.account_id,
+                        grant.account_label,
                         grant.audience,
                         desired_scopes,
                         granted_scopes,
@@ -298,7 +293,6 @@ impl NoemaStore {
             .map(|connection| {
                 Ok((
                     connection,
-                    serde_json::to_string(&connection.granted_scopes)?,
                     serde_json::to_string(&connection.allowed_operations)?,
                 ))
             })
@@ -307,33 +301,29 @@ impl NoemaStore {
             let transaction =
                 connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             transaction.execute("DELETE FROM adapter_connections", [])?;
-            for (adapter, granted_scopes, allowed_operations) in &rows {
+            for (adapter, allowed_operations) in &rows {
                 transaction.execute(
                     r#"
                     INSERT INTO adapter_connections (
-                      connection_id, connection_slug, semantic_digest, account_id, connection_label, account_kind,
-                      status, connection_revision, credential_revision, grant_revision,
-                      policy_revision, credential_generation, granted_scopes_json,
-                      allowed_operations_json, descriptor_relative_path,
-                      credential_relative_path, diagnostic_code
+                      connection_id, connection_slug, semantic_digest, connection_label,
+                      status, connection_revision, credential_revision, policy_revision,
+                      credential_generation, grant_id, allowed_operations_json,
+                      descriptor_relative_path, credential_relative_path, diagnostic_code
                     ) VALUES (
-                      ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17
+                      ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14
                     )
                     "#,
                     params![
                         adapter.connection_id,
                         adapter.connection_slug,
                         adapter.semantic_digest,
-                        adapter.account_id,
                         adapter.connection_label,
-                        adapter.account_kind,
                         adapter.status,
                         adapter.connection_revision,
                         adapter.credential_revision,
-                        adapter.grant_revision,
                         adapter.policy_revision,
                         adapter.credential_generation,
-                        granted_scopes,
+                        adapter.grant_id,
                         allowed_operations,
                         adapter.descriptor_relative_path,
                         adapter.credential_relative_path,
@@ -356,11 +346,10 @@ impl NoemaStore {
         self.with_connection(|connection| {
             let mut statement = connection.prepare(
                 r#"
-                SELECT connection_id, connection_slug, semantic_digest, account_id, connection_label, account_kind,
-                       status, connection_revision, credential_revision, grant_revision,
-                       policy_revision, credential_generation, granted_scopes_json,
-                       allowed_operations_json, descriptor_relative_path,
-                       credential_relative_path, diagnostic_code
+                SELECT connection_id, connection_slug, semantic_digest, connection_label,
+                       status, connection_revision, credential_revision, policy_revision,
+                       credential_generation, grant_id, allowed_operations_json,
+                       descriptor_relative_path, credential_relative_path, diagnostic_code
                 FROM adapter_connections
                 ORDER BY connection_id
                 "#,
@@ -372,19 +361,16 @@ impl NoemaStore {
                         row.get::<_, Option<String>>(1)?,
                         row.get::<_, Option<String>>(2)?,
                         row.get::<_, Option<String>>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                        row.get::<_, Option<String>>(5)?,
-                        row.get::<_, String>(6)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, Option<u64>>(5)?,
+                        row.get::<_, Option<u64>>(6)?,
                         row.get::<_, Option<u64>>(7)?,
-                        row.get::<_, Option<u64>>(8)?,
-                        row.get::<_, Option<u64>>(9)?,
-                        row.get::<_, Option<u64>>(10)?,
-                        row.get::<_, Option<String>>(11)?,
-                        row.get::<_, String>(12)?,
-                        row.get::<_, String>(13)?,
-                        row.get::<_, String>(14)?,
-                        row.get::<_, Option<String>>(15)?,
-                        row.get::<_, Option<String>>(16)?,
+                        row.get::<_, Option<String>>(8)?,
+                        row.get::<_, Option<String>>(9)?,
+                        row.get::<_, String>(10)?,
+                        row.get::<_, String>(11)?,
+                        row.get::<_, Option<String>>(12)?,
+                        row.get::<_, Option<String>>(13)?,
                     ))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -394,20 +380,17 @@ impl NoemaStore {
                         connection_id: row.0,
                         connection_slug: row.1,
                         semantic_digest: row.2,
-                        account_id: row.3,
-                        connection_label: row.4,
-                        account_kind: row.5,
-                        status: row.6,
-                        connection_revision: row.7,
-                        credential_revision: row.8,
-                        grant_revision: row.9,
-                        policy_revision: row.10,
-                        credential_generation: row.11,
-                        granted_scopes: serde_json::from_str(&row.12)?,
-                        allowed_operations: serde_json::from_str(&row.13)?,
-                        descriptor_relative_path: row.14,
-                        credential_relative_path: row.15,
-                        diagnostic_code: row.16,
+                        connection_label: row.3,
+                        status: row.4,
+                        connection_revision: row.5,
+                        credential_revision: row.6,
+                        policy_revision: row.7,
+                        credential_generation: row.8,
+                        grant_id: row.9,
+                        allowed_operations: serde_json::from_str(&row.10)?,
+                        descriptor_relative_path: row.11,
+                        credential_relative_path: row.12,
+                        diagnostic_code: row.13,
                     })
                 })
                 .collect::<Result<Vec<_>, serde_json::Error>>()
@@ -473,15 +456,7 @@ fn validate_connection_snapshot(connections: &[ConnectionProjection]) -> Result<
                 .as_deref()
                 .is_some_and(valid_digest)
             && connection
-                .account_kind
-                .as_deref()
-                .is_some_and(|kind| valid_component(kind, 96))
-            && connection
                 .connection_revision
-                .is_some_and(|revision| revision > 0)
-            && connection.credential_revision.is_some()
-            && connection
-                .grant_revision
                 .is_some_and(|revision| revision > 0)
             && connection
                 .policy_revision
@@ -491,12 +466,11 @@ fn validate_connection_snapshot(connections: &[ConnectionProjection]) -> Result<
             && connection.connection_slug.is_none()
             && connection.semantic_digest.is_none()
             && connection.connection_label.is_none()
-            && connection.account_kind.is_none()
             && connection.connection_revision.is_none()
             && connection.credential_revision.is_none()
-            && connection.grant_revision.is_none()
             && connection.policy_revision.is_none()
             && connection.credential_generation.is_none()
+            && connection.grant_id.is_none()
             && connection.credential_relative_path.is_none()
             && connection
                 .diagnostic_code
@@ -509,7 +483,6 @@ fn validate_connection_snapshot(connections: &[ConnectionProjection]) -> Result<
                 "active" | "suspended" | "authentication_required" | "blocked"
             )
             || !(valid_active || valid_blocked)
-            || !sorted_unique_text(&connection.granted_scopes, 256)
             || !sorted_unique_components(&connection.allowed_operations)
             || connection
                 .connection_label
@@ -519,6 +492,11 @@ fn validate_connection_snapshot(connections: &[ConnectionProjection]) -> Result<
                 .connection_slug
                 .as_deref()
                 .is_some_and(|slug| !slugs.insert(slug))
+            || connection
+                .grant_id
+                .as_deref()
+                .is_some_and(|grant_id| !valid_connection_id(grant_id))
+            || connection.grant_id.is_some() && connection.credential_generation.is_some()
             || !valid_credential_reference(connection)
         {
             return Err(invariant("adapter connection projection is invalid"));
@@ -539,7 +517,12 @@ fn valid_credential_reference(connection: &ConnectionProjection) -> bool {
         &connection.credential_generation,
         &connection.credential_relative_path,
     ) {
-        (None, None) => connection.credential_revision == Some(0) || connection.status == "blocked",
+        (None, None) => {
+            connection.credential_revision.is_none()
+                && (connection.grant_id.is_some()
+                    || connection.status == "blocked"
+                    || connection.status != "authentication_required")
+        }
         (Some(generation), Some(path)) => {
             valid_connection_id(generation)
                 && connection

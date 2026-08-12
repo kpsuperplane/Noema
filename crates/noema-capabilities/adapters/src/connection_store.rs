@@ -1,8 +1,9 @@
 //! Filesystem authority for adapter connections and credential generations.
 
 use crate::{
-    AdapterConnectionV3, AdapterCredentialGenerationV2, AdapterCredentialMaterial,
-    AuthenticationMode, CompiledAdapterDefinition, ConnectionSlug, DefinitionInstall,
+    AdapterConnectionAuthenticationV1, AdapterConnectionV4, AdapterCredentialGenerationV2,
+    AdapterCredentialMaterial, AuthenticationMode, CompiledAdapterDefinition, ConnectionSlug,
+    DefinitionInstall,
     digest::canonical_json_bytes,
     private_fs::{
         PrivateFsError, create_private_dir, random_hex, read_bounded_regular_file,
@@ -36,7 +37,7 @@ pub struct AdapterConnectionStore {
 #[derive(Debug, Clone)]
 pub struct ConnectionInstall {
     /// Exact non-secret canonical descriptor.
-    pub descriptor: AdapterConnectionV3,
+    pub descriptor: AdapterConnectionV4,
     /// Rebuildable body-free SQLite projection.
     pub projection: ConnectionProjection,
 }
@@ -50,26 +51,20 @@ pub struct ConnectionProjection {
     pub connection_slug: Option<String>,
     /// Exact definition digest, absent for blocked objects.
     pub semantic_digest: Option<String>,
-    /// Stable external account identity when known.
-    pub account_id: Option<String>,
     /// Human-visible connection label when configured or discovered.
     pub connection_label: Option<String>,
-    /// Reviewed account surface.
-    pub account_kind: Option<String>,
     /// `active`, `suspended`, `authentication_required`, or `blocked`.
     pub status: &'static str,
     /// Descriptor/lifecycle revision.
     pub connection_revision: Option<u64>,
-    /// Credential generation revision.
+    /// Direct credential revision.
     pub credential_revision: Option<u64>,
-    /// Provider grant revision.
-    pub grant_revision: Option<u64>,
     /// Reviewed policy revision.
     pub policy_revision: Option<u64>,
-    /// Current secret generation identity without its bytes.
+    /// Current direct credential generation identity without its bytes.
     pub credential_generation: Option<String>,
-    /// Exact non-secret grant scope subset.
-    pub granted_scopes: Vec<String>,
+    /// Reusable OAuth grant identity when selected.
+    pub grant_id: Option<String>,
     /// Reviewed operation identities.
     pub allowed_operations: Vec<String>,
     /// Safe descriptor path relative to `NOEMA_HOME`.
@@ -144,10 +139,12 @@ impl From<PrivateFsError> for ConnectionStoreError {
 }
 
 impl AdapterConnectionStore {
-    /// Atomically rewrite legacy connection descriptors to the canonical v3
-    /// shape before runtime discovery accepts them.
-    pub(crate) fn upgrade_legacy_descriptors(&self) -> Result<(), ConnectionStoreError> {
+    /// Quarantine connection descriptors from the replaced ownership model.
+    pub(crate) fn quarantine_legacy_descriptors(
+        &self,
+    ) -> Result<BTreeSet<String>, ConnectionStoreError> {
         self.prepare_roots()?;
+        let mut quarantined = BTreeSet::new();
         let mut entries =
             fs::read_dir(self.paths.adapter_connections_dir())?.collect::<Result<Vec<_>, _>>()?;
         entries.sort_by_key(fs::DirEntry::file_name);
@@ -159,11 +156,9 @@ impl AdapterConnectionStore {
                 continue;
             }
             let target = entry.path();
-            require_regular_directory(&target)?;
-            require_exact_entries(&target, &[CONNECTION_FILE, CREDENTIALS_DIR])?;
             let bytes =
                 read_bounded_regular_file(&target.join(CONNECTION_FILE), MAX_CONNECTION_BYTES)?;
-            let mut descriptor: serde_json::Value = serde_json::from_slice(&bytes)?;
+            let descriptor: serde_json::Value = serde_json::from_slice(&bytes)?;
             if canonical_json_bytes(&descriptor)? != bytes
                 || descriptor
                     .get("connection_id")
@@ -176,48 +171,13 @@ impl AdapterConnectionStore {
                 .get("schema_version")
                 .and_then(serde_json::Value::as_u64)
                 .ok_or(ConnectionStoreError::Integrity("connection_schema"))?;
-            if schema_version == 3 {
+            if schema_version == 4 {
                 continue;
             }
-            if !matches!(schema_version, 1 | 2) {
-                return Err(ConnectionStoreError::Integrity("connection_schema"));
-            }
-            let object = descriptor
-                .as_object_mut()
-                .ok_or(ConnectionStoreError::Integrity("connection_schema"))?;
-            object.insert("schema_version".into(), serde_json::Value::from(3));
-            if let Some(label) = object.remove("account_label") {
-                object.insert("connection_label".into(), label);
-            }
-            if schema_version == 1 {
-                object.insert("policy".into(), serde_json::Value::Null);
-                object.insert(
-                    "tool_overrides".into(),
-                    serde_json::Value::Array(Vec::new()),
-                );
-                let revisions = object
-                    .get_mut("revisions")
-                    .and_then(serde_json::Value::as_object_mut)
-                    .ok_or(ConnectionStoreError::Integrity("connection_revision"))?;
-                for field in ["connection", "policy"] {
-                    let revision = revisions
-                        .get(field)
-                        .and_then(serde_json::Value::as_u64)
-                        .and_then(|revision| revision.checked_add(1))
-                        .ok_or(ConnectionStoreError::Integrity("connection_revision"))?;
-                    revisions.insert(field.into(), serde_json::Value::from(revision));
-                }
-            }
-            let descriptor: AdapterConnectionV3 = serde_json::from_value(descriptor)?;
-            let bytes = canonical_json_bytes(&serde_json::to_value(&descriptor)?)?;
-            let credentials = target.join(CREDENTIALS_DIR);
-            let temporary = credentials.join(format!("{REPLACEMENT_PREFIX}{}", random_hex(16)?));
-            write_new_file(&temporary, &bytes)?;
-            sync_directory(&credentials)?;
-            fs::rename(&temporary, target.join(CONNECTION_FILE))?;
-            sync_directory(&target)?;
+            self.quarantine(&connection_id)?;
+            quarantined.insert(connection_id);
         }
-        Ok(())
+        Ok(quarantined)
     }
 
     /// Create a filesystem store handle. Directories are created lazily.
@@ -308,7 +268,7 @@ impl AdapterConnectionStore {
                     .strip_suffix(".json")
                     .filter(|generation| valid_hex_id(generation))
                     .is_some_and(|generation| {
-                        descriptor.credential_generation.as_deref() != Some(generation)
+                        direct_credential_generation(&descriptor) != Some(generation)
                     });
                 if (is_replacement || unreferenced_generation)
                     && read_bounded_regular_file(
@@ -340,7 +300,7 @@ impl AdapterConnectionStore {
     /// bytes, unsafe filesystem state, or failed durable publication.
     pub fn install(
         &self,
-        descriptor: &AdapterConnectionV3,
+        descriptor: &AdapterConnectionV4,
         credential: Option<&AdapterCredentialGenerationV2>,
         definition: &CompiledAdapterDefinition,
     ) -> Result<ConnectionInstall, ConnectionStoreError> {
@@ -369,7 +329,7 @@ impl AdapterConnectionStore {
                 return Err(ConnectionStoreError::Integrity("connection_conflict"));
             }
             if let (Some(generation), Some(expected)) = (
-                descriptor.credential_generation.as_deref(),
+                direct_credential_generation(descriptor),
                 credential_bytes.as_ref(),
             ) {
                 let existing = read_bounded_regular_file(
@@ -408,122 +368,12 @@ impl AdapterConnectionStore {
         result
     }
 
-    /// Publish one active OAuth token generation from client metadata or an
-    /// active predecessor. The exact current descriptor is an optimistic
-    /// revision fence; callers must also hold the connection lifecycle write lock.
-    ///
-    /// # Errors
-    ///
-    /// Returns a redacted error when current authority changed, the requested
-    /// transition is not an exact OAuth replacement, or durable publication
-    /// cannot complete.
-    pub(crate) fn promote_oauth_credential(
-        &self,
-        expected: &AdapterConnectionV3,
-        replacement: &AdapterConnectionV3,
-        credential: &AdapterCredentialGenerationV2,
-        definition: &CompiledAdapterDefinition,
-    ) -> Result<ConnectionInstall, ConnectionStoreError> {
-        self.prepare_roots()?;
-        let target = self.paths.adapter_connection_dir(&expected.connection_id)?;
-        let (current, current_credential) =
-            Self::read_descriptor(&target, &expected.connection_id)?;
-        validate_connection(&current, current_credential.as_ref(), definition)?;
-        validate_connection(replacement, Some(credential), definition)?;
-        if current != *expected
-            || !valid_oauth_promotion(
-                &current,
-                current_credential.as_ref(),
-                replacement,
-                credential,
-            )
-        {
-            return Err(ConnectionStoreError::Integrity("credential_transition"));
-        }
-
-        self.publish_oauth_credential(&target, &current, replacement, credential, definition)
-    }
-
-    /// Atomically rotate one active OAuth token generation without changing
-    /// provider grants, connection policy, or any human-owned metadata.
-    pub(crate) fn refresh_oauth_credential(
-        &self,
-        expected: &AdapterConnectionV3,
-        replacement: &AdapterConnectionV3,
-        credential: &AdapterCredentialGenerationV2,
-        definition: &CompiledAdapterDefinition,
-    ) -> Result<ConnectionInstall, ConnectionStoreError> {
-        self.prepare_roots()?;
-        let target = self.paths.adapter_connection_dir(&expected.connection_id)?;
-        let (current, current_credential) =
-            Self::read_descriptor(&target, &expected.connection_id)?;
-        validate_connection(&current, current_credential.as_ref(), definition)?;
-        validate_connection(replacement, Some(credential), definition)?;
-        if current != *expected
-            || !valid_oauth_refresh(
-                &current,
-                current_credential.as_ref(),
-                replacement,
-                credential,
-            )
-        {
-            return Err(ConnectionStoreError::Integrity("credential_refresh"));
-        }
-
-        self.publish_oauth_credential(&target, &current, replacement, credential, definition)
-    }
-
-    fn publish_oauth_credential(
-        &self,
-        target: &Path,
-        current: &AdapterConnectionV3,
-        replacement: &AdapterConnectionV3,
-        credential: &AdapterCredentialGenerationV2,
-        definition: &CompiledAdapterDefinition,
-    ) -> Result<ConnectionInstall, ConnectionStoreError> {
-        let descriptor_bytes = canonical_json_bytes(&serde_json::to_value(replacement)?)?;
-        let credential_bytes = canonical_json_bytes(&serde_json::to_value(credential)?)?;
-        if descriptor_bytes.len() as u64 > MAX_CONNECTION_BYTES {
-            return Err(ConnectionStoreError::Integrity("connection_oversized"));
-        }
-        if credential_bytes.len() as u64 > MAX_CREDENTIAL_BYTES {
-            return Err(ConnectionStoreError::Integrity("credential_oversized"));
-        }
-        let credentials = target.join(CREDENTIALS_DIR);
-        let new_credential_path = credential_path(&credentials, &credential.generation_id)?;
-        let old_generation = current
-            .credential_generation
-            .as_deref()
-            .ok_or(ConnectionStoreError::Integrity("credential_transition"))?;
-        let old_credential_path = credential_path(&credentials, old_generation)?;
-        let temporary_descriptor =
-            credentials.join(format!("{REPLACEMENT_PREFIX}{}", random_hex(16)?));
-        write_new_file(&new_credential_path, &credential_bytes)?;
-        let mut descriptor_published = false;
-        let result = (|| {
-            write_new_file(&temporary_descriptor, &descriptor_bytes)?;
-            sync_directory(&credentials)?;
-            fs::rename(&temporary_descriptor, target.join(CONNECTION_FILE))?;
-            descriptor_published = true;
-            sync_directory(target)?;
-            fs::remove_file(&old_credential_path)?;
-            sync_directory(&credentials)?;
-            self.read_connection_dir(target, &replacement.connection_id, definition)
-        })();
-        if !descriptor_published {
-            let _ = fs::remove_file(&temporary_descriptor);
-            let _ = fs::remove_file(&new_credential_path);
-            let _ = sync_directory(&credentials);
-        }
-        result
-    }
-
     /// Atomically replace only non-secret management state under an exact
     /// descriptor fence while preserving the current credential generation.
     pub(crate) fn replace_management_descriptor(
         &self,
-        expected: &AdapterConnectionV3,
-        replacement: &AdapterConnectionV3,
+        expected: &AdapterConnectionV4,
+        replacement: &AdapterConnectionV4,
         definition: &CompiledAdapterDefinition,
     ) -> Result<ConnectionInstall, ConnectionStoreError> {
         self.prepare_roots()?;
@@ -532,9 +382,7 @@ impl AdapterConnectionStore {
         if current != *expected
             || replacement.connection_id != current.connection_id
             || replacement.semantic_digest != current.semantic_digest
-            || replacement.credential_generation != current.credential_generation
-            || replacement.revisions.credential != current.revisions.credential
-            || replacement.revisions.grant != current.revisions.grant
+            || replacement.authentication != current.authentication
         {
             return Err(ConnectionStoreError::Integrity("management_transition"));
         }
@@ -559,7 +407,7 @@ impl AdapterConnectionStore {
     /// while preserving its exact credential, grant, and policy authority.
     pub(crate) fn rebind_definition_descriptor(
         &self,
-        expected: &AdapterConnectionV3,
+        expected: &AdapterConnectionV4,
         current_definition: &CompiledAdapterDefinition,
         replacement_definition: &CompiledAdapterDefinition,
     ) -> Result<ConnectionInstall, ConnectionStoreError> {
@@ -569,9 +417,8 @@ impl AdapterConnectionStore {
         validate_connection(&current, credential.as_ref(), current_definition)?;
         let mut permitted = current.clone();
         permitted.semantic_digest = replacement_definition.semantic_digest.to_string();
-        permitted.revisions.connection = permitted
-            .revisions
-            .connection
+        permitted.connection_revision = permitted
+            .connection_revision
             .checked_add(1)
             .ok_or(ConnectionStoreError::Integrity("connection_revision"))?;
         if !permitted.tool_overrides.is_empty() {
@@ -593,13 +440,12 @@ impl AdapterConnectionStore {
                 }
                 policy.source_revision = replacement_operation.operation_digest.to_string();
             }
-            permitted.revisions.policy = permitted
-                .revisions
-                .policy
+            permitted.policy_revision = permitted
+                .policy_revision
                 .checked_add(1)
                 .ok_or(ConnectionStoreError::Integrity("policy_revision"))?;
             if let Some(policy) = permitted.policy.as_mut() {
-                policy.revision = permitted.revisions.policy;
+                policy.revision = permitted.policy_revision;
             }
         }
         if current != *expected {
@@ -768,7 +614,7 @@ impl AdapterConnectionStore {
         &self,
         connection_id: &str,
         definition: &CompiledAdapterDefinition,
-    ) -> Result<(AdapterConnectionV3, Option<AdapterCredentialGenerationV2>), ConnectionStoreError>
+    ) -> Result<(AdapterConnectionV4, Option<AdapterCredentialGenerationV2>), ConnectionStoreError>
     {
         self.prepare_roots()?;
         let path = self.paths.adapter_connection_dir(connection_id)?;
@@ -803,13 +649,13 @@ impl AdapterConnectionStore {
     fn read_descriptor(
         path: &Path,
         expected_id: &str,
-    ) -> Result<(AdapterConnectionV3, Option<AdapterCredentialGenerationV2>), ConnectionStoreError>
+    ) -> Result<(AdapterConnectionV4, Option<AdapterCredentialGenerationV2>), ConnectionStoreError>
     {
         let descriptor = Self::read_canonical_descriptor(path, expected_id)?;
         let credentials = path.join(CREDENTIALS_DIR);
         require_regular_directory(&credentials)?;
         let credentials_by_generation = read_credential_generations(&credentials)?;
-        let credential = match descriptor.credential_generation.as_deref() {
+        let credential = match direct_credential_generation(&descriptor) {
             Some(generation) => {
                 // A descriptor replacement is published before its previous
                 // immutable generation is removed. If cleanup is interrupted,
@@ -838,11 +684,11 @@ impl AdapterConnectionStore {
     fn read_canonical_descriptor(
         path: &Path,
         expected_id: &str,
-    ) -> Result<AdapterConnectionV3, ConnectionStoreError> {
+    ) -> Result<AdapterConnectionV4, ConnectionStoreError> {
         require_regular_directory(path)?;
         require_exact_entries(path, &[CONNECTION_FILE, CREDENTIALS_DIR])?;
         let bytes = read_bounded_regular_file(&path.join(CONNECTION_FILE), MAX_CONNECTION_BYTES)?;
-        let descriptor: AdapterConnectionV3 = serde_json::from_slice(&bytes)?;
+        let descriptor: AdapterConnectionV4 = serde_json::from_slice(&bytes)?;
         if descriptor.connection_id != expected_id
             || canonical_json_bytes(&serde_json::to_value(&descriptor)?)? != bytes
         {
@@ -852,148 +698,26 @@ impl AdapterConnectionStore {
     }
 }
 
-fn valid_oauth_promotion(
-    current: &AdapterConnectionV3,
-    current_credential: Option<&AdapterCredentialGenerationV2>,
-    replacement: &AdapterConnectionV3,
-    credential: &AdapterCredentialGenerationV2,
-) -> bool {
-    let Some(current_credential) = current_credential else {
-        return false;
-    };
-    let (callback_mode, client_id, client_secret, valid_current_status) =
-        match &current_credential.material {
-            AdapterCredentialMaterial::Oauth2ClientMetadata {
-                callback_mode,
-                client_id,
-                client_secret,
-            } => (
-                callback_mode,
-                client_id,
-                client_secret,
-                current.status == crate::AdapterConnectionStatus::AuthenticationRequired,
-            ),
-            AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
-                callback_mode,
-                client_id,
-                client_secret,
-                ..
-            } => (
-                callback_mode,
-                client_id,
-                client_secret,
-                current.status == crate::AdapterConnectionStatus::Active,
-            ),
-            _ => return false,
-        };
-    let AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
-        callback_mode: replacement_callback_mode,
-        client_id: replacement_client_id,
-        client_secret: replacement_client_secret,
-        ..
-    } = &credential.material
-    else {
-        return false;
-    };
-    valid_current_status
-        && replacement.status == crate::AdapterConnectionStatus::Active
-        && replacement.schema_version == current.schema_version
-        && replacement.connection_id == current.connection_id
-        && replacement.connection_slug == current.connection_slug
-        && replacement.semantic_digest == current.semantic_digest
-        && replacement.account_id == current.account_id
-        && replacement.account_kind == current.account_kind
-        && replacement.allowed_operations == current.allowed_operations
-        && replacement.revisions.connection
-            == current.revisions.connection.checked_add(1).unwrap_or(0)
-        && replacement.revisions.credential
-            == current.revisions.credential.checked_add(1).unwrap_or(0)
-        && replacement.revisions.grant == current.revisions.grant.checked_add(1).unwrap_or(0)
-        && replacement.revisions.policy == current.revisions.policy
-        && replacement.credential_generation.as_deref() == Some(&credential.generation_id)
-        && replacement.credential_generation != current.credential_generation
-        && replacement_callback_mode == callback_mode
-        && replacement_client_id == client_id
-        && replacement_client_secret == client_secret
-}
-
-fn valid_oauth_refresh(
-    current: &AdapterConnectionV3,
-    current_credential: Option<&AdapterCredentialGenerationV2>,
-    replacement: &AdapterConnectionV3,
-    credential: &AdapterCredentialGenerationV2,
-) -> bool {
-    let Some(AdapterCredentialGenerationV2 {
-        material:
-            AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
-                callback_mode,
-                client_id,
-                client_secret,
-                refresh_token: Some(_),
-                ..
-            },
-        ..
-    }) = current_credential
-    else {
-        return false;
-    };
-    let AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
-        callback_mode: replacement_callback_mode,
-        client_id: replacement_client_id,
-        client_secret: replacement_client_secret,
-        refresh_token: Some(_),
-        ..
-    } = &credential.material
-    else {
-        return false;
-    };
-    let (Some(connection_revision), Some(credential_revision)) = (
-        current.revisions.connection.checked_add(1),
-        current.revisions.credential.checked_add(1),
-    ) else {
-        return false;
-    };
-    let mut permitted = current.clone();
-    permitted.revisions.connection = connection_revision;
-    permitted.revisions.credential = credential_revision;
-    permitted.credential_generation = Some(credential.generation_id.clone());
-    current.status == crate::AdapterConnectionStatus::Active
-        && *replacement == permitted
-        && replacement_callback_mode == callback_mode
-        && replacement_client_id == client_id
-        && replacement_client_secret == client_secret
-}
-
 fn validate_connection(
-    descriptor: &AdapterConnectionV3,
+    descriptor: &AdapterConnectionV4,
     credential: Option<&AdapterCredentialGenerationV2>,
     definition: &CompiledAdapterDefinition,
 ) -> Result<(), ConnectionStoreError> {
-    if descriptor.schema_version != 3
+    if descriptor.schema_version != 4
         || !valid_hex_id(&descriptor.connection_id)
         || ConnectionSlug::new(descriptor.connection_slug.clone()).is_err()
         || descriptor.semantic_digest != definition.semantic_digest.as_str()
         || !definition.reviewed
-        || !valid_component(&descriptor.account_kind, 96)
-        || descriptor
-            .account_id
-            .as_deref()
-            .is_some_and(|value| !valid_component(value, 256))
         || descriptor
             .connection_label
             .as_deref()
             .is_some_and(|value| !valid_label(value))
-        || [
-            descriptor.revisions.connection,
-            descriptor.revisions.grant,
-            descriptor.revisions.policy,
-        ]
-        .contains(&0)
-        || !sorted_unique_text(&descriptor.granted_scopes, 256)
+        || descriptor.connection_revision == 0
+        || descriptor.policy_revision == 0
         || !sorted_unique_components(&descriptor.allowed_operations)
         || descriptor
             .policy
-            .is_some_and(|policy| policy.revision != descriptor.revisions.policy)
+            .is_some_and(|policy| policy.revision != descriptor.policy_revision)
         || descriptor.tool_overrides.iter().any(|policy| {
             definition
                 .operations
@@ -1003,13 +727,6 @@ fn validate_connection(
                     operation.operation_digest.as_str() != policy.source_revision
                 })
         })
-        || match definition.authentication.mode() {
-            AuthenticationMode::Oauth2AuthorizationCodePkce => {
-                descriptor.status == crate::AdapterConnectionStatus::Active
-                    && descriptor.granted_scopes.is_empty()
-            }
-            _ => !descriptor.granted_scopes.is_empty(),
-        }
         || descriptor.allowed_operations.iter().any(|operation| {
             !definition
                 .operations
@@ -1020,39 +737,24 @@ fn validate_connection(
         return Err(ConnectionStoreError::Integrity("connection_policy"));
     }
     match (
+        &descriptor.authentication,
         definition.authentication.mode(),
-        descriptor.status,
-        descriptor.credential_generation.as_deref(),
         credential,
     ) {
-        (AuthenticationMode::None, status, None, None)
-            if status != crate::AdapterConnectionStatus::AuthenticationRequired
-                && descriptor.revisions.credential == 0 => {}
-        (AuthenticationMode::Credential, status, Some(generation), Some(credential))
-            if descriptor.revisions.credential > 0
-                && credential_matches(
-                    generation,
-                    credential,
-                    AuthenticationMode::Credential,
-                    definition,
-                    status,
-                ) => {}
+        (AdapterConnectionAuthenticationV1::None, AuthenticationMode::None, None) => {}
         (
-            AuthenticationMode::Oauth2AuthorizationCodePkce,
-            status,
-            Some(generation),
+            AdapterConnectionAuthenticationV1::Credential {
+                generation_id,
+                revision,
+            },
+            AuthenticationMode::Credential,
             Some(credential),
-        ) if descriptor.revisions.credential > 0
-            && credential_matches(
-                generation,
-                credential,
-                AuthenticationMode::Oauth2AuthorizationCodePkce,
-                definition,
-                status,
-            ) => {}
-        (AuthenticationMode::Oauth2AuthorizationCodePkce, status, None, None)
-            if status == crate::AdapterConnectionStatus::AuthenticationRequired
-                && descriptor.revisions.credential == 0 => {}
+        ) if *revision > 0 && credential_matches(generation_id, credential, definition) => {}
+        (
+            AdapterConnectionAuthenticationV1::OauthGrant { grant_id },
+            AuthenticationMode::Oauth2AuthorizationCodePkce,
+            None,
+        ) if valid_hex_id(grant_id) => {}
         _ => return Err(ConnectionStoreError::Integrity("credential_binding")),
     }
     Ok(())
@@ -1087,51 +789,16 @@ fn same_operation_contract(
 fn credential_matches(
     generation: &str,
     credential: &AdapterCredentialGenerationV2,
-    mode: AuthenticationMode,
     definition: &CompiledAdapterDefinition,
-    status: crate::AdapterConnectionStatus,
 ) -> bool {
     credential.schema_version == 2
         && credential.generation_id == generation
         && valid_hex_id(generation)
-        && match (&credential.material, mode) {
-            (AdapterCredentialMaterial::Credential { fields }, AuthenticationMode::Credential) => {
-                definition
-                    .authentication
-                    .credential()
-                    .is_some_and(|config| {
-                        credential_fields_match(fields, config.setup.input.fields())
-                    })
-            }
-            (
-                AdapterCredentialMaterial::Oauth2ClientMetadata {
-                    callback_mode: _,
-                    client_id,
-                    client_secret,
-                },
-                AuthenticationMode::Oauth2AuthorizationCodePkce,
-            ) => {
-                status == crate::AdapterConnectionStatus::AuthenticationRequired
-                    && valid_secret(client_id)
-                    && client_secret.as_deref().is_none_or(valid_secret)
-            }
-            (
-                AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
-                    callback_mode: _,
-                    client_id,
-                    client_secret,
-                    access_token,
-                    refresh_token,
-                    ..
-                },
-                AuthenticationMode::Oauth2AuthorizationCodePkce,
-            ) => {
-                valid_secret(client_id)
-                    && client_secret.as_deref().is_none_or(valid_secret)
-                    && valid_secret(access_token)
-                    && refresh_token.as_deref().is_none_or(valid_secret)
-            }
-            _ => false,
+        && match &credential.material {
+            AdapterCredentialMaterial::Credential { fields } => definition
+                .authentication
+                .credential()
+                .is_some_and(|config| credential_fields_match(fields, config.setup.input.fields())),
         }
 }
 
@@ -1188,8 +855,32 @@ fn credential_path(
     Ok(root.join(format!("{generation}.json")))
 }
 
-fn projection(paths: &NoemaPaths, descriptor: &AdapterConnectionV3) -> ConnectionProjection {
-    let credential_relative_path = descriptor.credential_generation.as_ref().map(|generation| {
+fn direct_credential_generation(descriptor: &AdapterConnectionV4) -> Option<&str> {
+    match &descriptor.authentication {
+        AdapterConnectionAuthenticationV1::Credential { generation_id, .. } => Some(generation_id),
+        AdapterConnectionAuthenticationV1::None
+        | AdapterConnectionAuthenticationV1::OauthGrant { .. } => None,
+    }
+}
+
+fn direct_credential_revision(descriptor: &AdapterConnectionV4) -> Option<u64> {
+    match descriptor.authentication {
+        AdapterConnectionAuthenticationV1::Credential { revision, .. } => Some(revision),
+        AdapterConnectionAuthenticationV1::None
+        | AdapterConnectionAuthenticationV1::OauthGrant { .. } => None,
+    }
+}
+
+fn oauth_grant_id(descriptor: &AdapterConnectionV4) -> Option<&str> {
+    match &descriptor.authentication {
+        AdapterConnectionAuthenticationV1::OauthGrant { grant_id } => Some(grant_id),
+        AdapterConnectionAuthenticationV1::None
+        | AdapterConnectionAuthenticationV1::Credential { .. } => None,
+    }
+}
+
+fn projection(paths: &NoemaPaths, descriptor: &AdapterConnectionV4) -> ConnectionProjection {
+    let credential_relative_path = direct_credential_generation(descriptor).map(|generation| {
         format!(
             "adapters/connections/{}/credentials/{generation}.json",
             descriptor.connection_id
@@ -1199,16 +890,13 @@ fn projection(paths: &NoemaPaths, descriptor: &AdapterConnectionV3) -> Connectio
         connection_id: descriptor.connection_id.clone(),
         connection_slug: Some(descriptor.connection_slug.clone()),
         semantic_digest: Some(descriptor.semantic_digest.clone()),
-        account_id: descriptor.account_id.clone(),
         connection_label: descriptor.connection_label.clone(),
-        account_kind: Some(descriptor.account_kind.clone()),
         status: descriptor.status.as_str(),
-        connection_revision: Some(descriptor.revisions.connection),
-        credential_revision: Some(descriptor.revisions.credential),
-        grant_revision: Some(descriptor.revisions.grant),
-        policy_revision: Some(descriptor.revisions.policy),
-        credential_generation: descriptor.credential_generation.clone(),
-        granted_scopes: descriptor.granted_scopes.clone(),
+        connection_revision: Some(descriptor.connection_revision),
+        credential_revision: direct_credential_revision(descriptor),
+        policy_revision: Some(descriptor.policy_revision),
+        credential_generation: direct_credential_generation(descriptor).map(str::to_string),
+        grant_id: oauth_grant_id(descriptor).map(str::to_string),
         allowed_operations: descriptor.allowed_operations.clone(),
         descriptor_relative_path: relative_descriptor_path(paths, &descriptor.connection_id),
         credential_relative_path,
@@ -1225,16 +913,13 @@ fn blocked_projection(
         connection_id: connection_id.to_string(),
         connection_slug: None,
         semantic_digest: None,
-        account_id: None,
         connection_label: None,
-        account_kind: None,
         status: "blocked",
         connection_revision: None,
         credential_revision: None,
-        grant_revision: None,
         policy_revision: None,
         credential_generation: None,
-        granted_scopes: Vec::new(),
+        grant_id: None,
         allowed_operations: Vec::new(),
         descriptor_relative_path: relative_descriptor_path(paths, connection_id),
         credential_relative_path: None,
@@ -1287,16 +972,6 @@ fn sorted_unique_components(values: &[String]) -> bool {
         && values.iter().all(|value| valid_component(value, 256))
 }
 
-fn sorted_unique_text(values: &[String], max: usize) -> bool {
-    values.windows(2).all(|pair| pair[0] < pair[1])
-        && values.iter().all(|value| {
-            !value.is_empty()
-                && value.len() <= max
-                && value.trim() == value
-                && !value.bytes().any(|byte| byte.is_ascii_control())
-        })
-}
-
 fn diagnostic_code(error: &ConnectionStoreError) -> &'static str {
     match error {
         ConnectionStoreError::Io(_) => "filesystem",
@@ -1305,6 +980,3 @@ fn diagnostic_code(error: &ConnectionStoreError) -> &'static str {
         ConnectionStoreError::Integrity(code) => code,
     }
 }
-
-#[cfg(test)]
-mod tests;

@@ -2,7 +2,7 @@
 
 use super::{AdapterHttpError, MAX_RESPONSE_HEADER_BYTES, checked_client};
 use crate::{
-    Oauth2ClientAuthentication,
+    Oauth2ClientAuthentication, OauthScopeResponsePolicy,
     json_limits::{parse_without_duplicate_keys, validate_json_shape},
 };
 use noema_capabilities::web::url_policy::validate_public_url;
@@ -32,6 +32,7 @@ pub(crate) struct AdapterOAuthTokenRequest {
     pub(crate) client_secret: Option<String>,
     pub(crate) grant: AdapterOAuthTokenGrant,
     pub(crate) expected_scopes: Vec<String>,
+    pub(crate) omitted_scope_policy: OauthScopeResponsePolicy,
     pub(crate) now_epoch_seconds: u64,
 }
 
@@ -169,15 +170,16 @@ where
         .iter()
         .cloned()
         .collect::<std::collections::BTreeSet<_>>();
-    let mut granted_scopes = response
-        .scopes()
-        .map(|scopes| {
-            scopes
-                .iter()
-                .map(|scope| scope.as_ref().to_string())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or(request.expected_scopes);
+    let mut granted_scopes = match response.scopes() {
+        Some(scopes) => scopes
+            .iter()
+            .map(|scope| scope.as_ref().to_string())
+            .collect::<Vec<_>>(),
+        None if request.omitted_scope_policy == OauthScopeResponsePolicy::RequestedScopes => {
+            request.expected_scopes
+        }
+        None => return Err(AdapterOAuthTokenError::InvalidResponse),
+    };
     if granted_scopes.iter().any(|scope| !valid_scope(scope)) {
         return Err(AdapterOAuthTokenError::InvalidResponse);
     }
@@ -410,6 +412,7 @@ mod tests {
                 pkce_verifier: "verifier-marker".to_string(),
             },
             expected_scopes: vec!["read".to_string(), "write".to_string()],
+            omitted_scope_policy: OauthScopeResponsePolicy::RequestedScopes,
             now_epoch_seconds: 1_000,
         }
     }
@@ -535,5 +538,20 @@ mod tests {
         assert!(body.contains("refresh_token=refresh-marker"));
         assert!(body.contains("client_secret=secret-marker"));
         assert!(!body.contains("scope="));
+    }
+
+    #[tokio::test]
+    async fn omitted_scope_requires_the_reviewed_profile_rule() {
+        let client =
+            RecordingOAuthClient::new(r#"{"access_token":"access","token_type":"Bearer"}"#);
+        let mut request = token_request(Oauth2ClientAuthentication::ClientSecretPost);
+        request.omitted_scope_policy = OauthScopeResponsePolicy::RequireScope;
+
+        assert_eq!(
+            exchange_with_client(request, &client)
+                .await
+                .expect_err("missing scope"),
+            AdapterOAuthTokenError::InvalidResponse
+        );
     }
 }

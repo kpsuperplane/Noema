@@ -30,6 +30,23 @@ pub(super) fn validate_profile(profile: &OauthProfileV1) -> Result<(), OauthAuth
     if callback_modes.len() != profile.setups.len() {
         return Err(OauthAuthorityStoreError::Integrity("profile_setup"));
     }
+    for setup in &profile.setups {
+        let crate::CredentialInput::Document { fields, .. } = &setup.setup.input else {
+            return Err(OauthAuthorityStoreError::Integrity("profile_setup"));
+        };
+        let field_ids = fields
+            .iter()
+            .map(|field| field.id.as_str())
+            .collect::<BTreeSet<_>>();
+        if !field_ids.contains("client_id")
+            || (profile.client_authentication != crate::Oauth2ClientAuthentication::None
+                && !field_ids.contains("client_secret"))
+            || (setup.callback_mode == crate::Oauth2CallbackMode::Hosted
+                && !field_ids.contains("redirect_uris"))
+        {
+            return Err(OauthAuthorityStoreError::Integrity("profile_setup"));
+        }
+    }
     Ok(())
 }
 
@@ -97,8 +114,10 @@ pub(super) fn validate_grant(
         || !valid_hex(&grant.grant_id, 32)
         || grant.application_id != application.application_id
         || grant.audience != profile.grant_audience
+        || !valid_optional_text(grant.account_label.as_deref(), 256)
+        || (grant.account_id.is_some() && grant.account_label.is_some())
         || !valid_scope_set(&grant.desired_scopes)
-        || !valid_scope_set(&grant.granted_scopes)
+        || (!grant.granted_scopes.is_empty() && !valid_scope_set(&grant.granted_scopes))
         || grant.authority_revision == 0
         || grant.token_revision == 0
         || !token_matches

@@ -1,9 +1,11 @@
 //! Adapter invocation with live filesystem authority revalidation.
 
 use crate::{
-    AdapterCapabilityService, AdapterConnectionStatus, AdapterConnectionV3,
-    AdapterCredentialGenerationV2, AdapterCredentialMaterial, AuthenticationMode,
-    CompiledAdapterDefinition, CompiledOperation, CursorBinding, PaginationPolicy,
+    AdapterCapabilityService, AdapterConnectionAuthenticationV1, AdapterConnectionStatus,
+    AdapterConnectionV4, AdapterCredentialGenerationV2, AuthenticationMode,
+    AuthorizationGrantStatus, AuthorizationGrantV1, CompiledAdapterDefinition, CompiledOperation,
+    CursorBinding, OauthApplicationCredentialV1, OauthApplicationV1, OauthGrantTokenV1,
+    OauthProfileV1, PaginationPolicy,
     catalog::{AdapterOperationAuthorityV1, canonical_name, effective_behavior},
     network::{
         AdapterBearerCredential, AdapterHttpError, AdapterHttpResponse, AdapterOAuthTokenError,
@@ -59,8 +61,12 @@ impl AdapterCapabilityService {
             return Err(CapabilityError::UnknownOperation);
         }
 
+        let lock_id = authority.grant_id.as_deref().map_or_else(
+            || authority.connection_id.clone(),
+            |grant_id| format!("oauth-grant:{grant_id}"),
+        );
         let lock = self
-            .connection_lock(&authority.connection_id)
+            .connection_lock(&lock_id)
             .map_err(|_| CapabilityError::Unavailable)?;
         let mut _guard = Some(lock.read().await);
         let mut current = {
@@ -78,7 +84,7 @@ impl AdapterCapabilityService {
             AdapterConnectionStatus::Active => {}
         }
         if current.auth_mode == AuthenticationMode::Oauth2AuthorizationCodePkce
-            && credential_needs_refresh(current.credential.as_ref(), current_epoch_seconds()?)
+            && token_needs_refresh(current.oauth_token.as_ref(), current_epoch_seconds()?)
         {
             _guard.take();
             self.refresh_oauth_if_needed(&authority, None).await?;
@@ -114,8 +120,17 @@ impl AdapterCapabilityService {
             connection_id: current.connection.connection_id.clone(),
             semantic_digest: current.definition.semantic_digest.to_string(),
             operation_id: current.operation.operation_id.clone(),
-            account_kind: current.connection.account_kind.clone(),
-            grant_revision: current.connection.revisions.grant,
+            grant_id: current.grant.as_ref().map(|grant| grant.grant_id.clone()),
+            account_id: current
+                .grant
+                .as_ref()
+                .and_then(|grant| grant.account_id.clone()),
+            grant_revision: current
+                .grant
+                .as_ref()
+                .map_or(current.connection.connection_revision, |grant| {
+                    grant.authority_revision
+                }),
             arguments_sha256,
         };
         let _cursor_guard = if continuation_reference.is_some() {
@@ -143,7 +158,7 @@ impl AdapterCapabilityService {
                 None
             }
             AuthenticationMode::Oauth2AuthorizationCodePkce => {
-                Some(self.oauth_bearer(&current, &authority)?)
+                Some(Self::oauth_bearer(&current, &authority)?)
             }
         };
         if let Some(reference) = continuation_reference.as_deref() {
@@ -182,7 +197,13 @@ impl AdapterCapabilityService {
             if current.auth_mode == AuthenticationMode::None {
                 return Err(CapabilityError::Failed);
             }
-            let used_generation = current.connection.credential_generation.clone();
+            if current.auth_mode == AuthenticationMode::Credential {
+                return Err(authentication_required(&authority, current.auth_mode));
+            }
+            let used_generation = current
+                .oauth_token
+                .as_ref()
+                .map(|token| token.generation_id.clone());
             drop(_guard.take());
             self.refresh_oauth_if_needed(&authority, used_generation.as_deref())
                 .await?;
@@ -199,7 +220,7 @@ impl AdapterCapabilityService {
                 .await
                 .map_err(|_| CapabilityError::Unavailable)??
             };
-            let bearer = self.oauth_bearer(&current, &authority)?;
+            let bearer = Self::oauth_bearer(&current, &authority)?;
             response = map_http_result(
                 self.inner
                     .http
@@ -316,8 +337,57 @@ impl AdapterCapabilityService {
             .connections
             .load_for_invocation(&authority.connection_id, &definition.compiled)
             .map_err(|_| CapabilityError::UnknownOperation)?;
-        if !authority_matches(authority, &definition.compiled, &descriptor, &operation) {
+        let (grant, oauth_token, application, application_credential, profile) =
+            match &descriptor.authentication {
+                AdapterConnectionAuthenticationV1::OauthGrant { grant_id } => {
+                    let (grant, token) = self
+                        .inner
+                        .oauth_authorities
+                        .load_grant_authority(grant_id)
+                        .map_err(|_| CapabilityError::UnknownOperation)?;
+                    let (application, application_credential) = self
+                        .inner
+                        .oauth_authorities
+                        .load_application_authority(&grant.application_id)
+                        .map_err(|_| CapabilityError::UnknownOperation)?;
+                    let profile = self
+                        .inner
+                        .oauth_authorities
+                        .load_profile(&application.profile_digest)
+                        .map_err(|_| CapabilityError::UnknownOperation)?
+                        .profile;
+                    (
+                        Some(grant),
+                        token,
+                        Some(application),
+                        Some(application_credential),
+                        Some(profile),
+                    )
+                }
+                AdapterConnectionAuthenticationV1::None
+                | AdapterConnectionAuthenticationV1::Credential { .. } => {
+                    (None, None, None, None, None)
+                }
+            };
+        if !authority_matches(
+            authority,
+            &definition.compiled,
+            &descriptor,
+            &operation,
+            grant.as_ref(),
+        ) {
             return Err(CapabilityError::UnknownOperation);
+        }
+        if grant.as_ref().is_some_and(|grant| {
+            grant.status != AuthorizationGrantStatus::Active
+                || !operation
+                    .authorization
+                    .is_satisfied_by(&grant.granted_scopes)
+        }) {
+            return Err(authentication_required(
+                authority,
+                AuthenticationMode::Oauth2AuthorizationCodePkce,
+            ));
         }
         Ok(CurrentPlan {
             auth_mode: definition.compiled.authentication.mode(),
@@ -325,6 +395,11 @@ impl AdapterCapabilityService {
             connection: descriptor,
             operation,
             credential,
+            grant,
+            oauth_token,
+            application,
+            application_credential,
+            profile,
         })
     }
 
@@ -333,8 +408,12 @@ impl AdapterCapabilityService {
         authority: &AdapterOperationAuthorityV1,
         force_generation: Option<&str>,
     ) -> Result<(), CapabilityError> {
+        let lock_id = authority.grant_id.as_deref().map_or_else(
+            || authority.connection_id.clone(),
+            |grant_id| format!("oauth-grant:{grant_id}"),
+        );
         let lock = self
-            .connection_lock(&authority.connection_id)
+            .connection_lock(&lock_id)
             .map_err(|_| CapabilityError::Unavailable)?;
         let _guard = lock.write().await;
         let current = {
@@ -357,117 +436,102 @@ impl AdapterCapabilityService {
             });
         }
         let generation_matches = force_generation.is_some_and(|generation| {
-            current.connection.credential_generation.as_deref() == Some(generation)
+            current
+                .oauth_token
+                .as_ref()
+                .map(|token| token.generation_id.as_str())
+                == Some(generation)
         });
         let now_epoch_seconds = current_epoch_seconds()?;
         if force_generation.is_some() && !generation_matches
             || force_generation.is_none()
-                && !credential_needs_refresh(current.credential.as_ref(), now_epoch_seconds)
+                && !token_needs_refresh(current.oauth_token.as_ref(), now_epoch_seconds)
         {
             return Ok(());
         }
-        let Some(AdapterCredentialGenerationV2 {
-            material:
-                AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
-                    callback_mode,
-                    client_id,
-                    client_secret,
-                    refresh_token: Some(refresh_token),
-                    ..
-                },
+        let Some(grant) = current.grant.as_ref() else {
+            return Err(authentication_required(authority, current.auth_mode));
+        };
+        let Some(OauthGrantTokenV1 {
+            refresh_token: Some(refresh_token),
             ..
-        }) = current.credential.as_ref()
+        }) = current.oauth_token.as_ref()
         else {
             return Err(authentication_required(authority, current.auth_mode));
         };
-        let config = current
-            .definition
-            .authentication
-            .oauth2()
+        let application = current
+            .application
+            .as_ref()
             .ok_or(CapabilityError::Failed)?;
-        let profile = self
-            .inner
-            .oauth_authorities
-            .load_profile(&config.profile_digest)
-            .map_err(|_| CapabilityError::Failed)?
-            .profile;
-        let token = self
+        let application_credential = current
+            .application_credential
+            .as_ref()
+            .ok_or(CapabilityError::Failed)?;
+        let profile = current.profile.as_ref().ok_or(CapabilityError::Failed)?;
+        let token_result = self
             .inner
             .http
             .exchange_oauth_token(AdapterOAuthTokenRequest {
                 token_endpoint: url::Url::parse(&profile.token_endpoint)
                     .map_err(|_| CapabilityError::Failed)?,
                 client_authentication: profile.client_authentication,
-                client_id: client_id.clone(),
-                client_secret: client_secret.clone(),
+                client_id: application.client_id.clone(),
+                client_secret: application_credential.client_secret.clone(),
                 grant: AdapterOAuthTokenGrant::RefreshToken {
                     refresh_token: refresh_token.clone(),
                 },
-                expected_scopes: current.connection.granted_scopes.clone(),
+                expected_scopes: grant.granted_scopes.clone(),
+                omitted_scope_policy: profile.omitted_scope_policy,
                 now_epoch_seconds,
             })
-            .await
-            .map_err(|error| match error {
-                AdapterOAuthTokenError::Rejected => {
-                    authentication_required(authority, current.auth_mode)
-                }
-                AdapterOAuthTokenError::Unavailable => CapabilityError::Unavailable,
-                AdapterOAuthTokenError::InvalidRequest
-                | AdapterOAuthTokenError::InvalidResponse => CapabilityError::Failed,
-            })?;
+            .await;
+        let token = match token_result {
+            Ok(token) => token,
+            Err(AdapterOAuthTokenError::Rejected) => {
+                self.inner
+                    .oauth_authorities
+                    .deactivate_grant(grant, AuthorizationGrantStatus::AuthenticationRequired)
+                    .map_err(|_| CapabilityError::Unavailable)?;
+                return Err(authentication_required(authority, current.auth_mode));
+            }
+            Err(AdapterOAuthTokenError::Unavailable) => return Err(CapabilityError::Unavailable),
+            Err(
+                AdapterOAuthTokenError::InvalidRequest | AdapterOAuthTokenError::InvalidResponse,
+            ) => {
+                return Err(CapabilityError::Failed);
+            }
+        };
         let generation_id =
             crate::private_fs::random_hex(16).map_err(|_| CapabilityError::Unavailable)?;
-        let credential = AdapterCredentialGenerationV2 {
-            schema_version: 2,
+        let grant_token = OauthGrantTokenV1 {
+            schema_version: 1,
             generation_id: generation_id.clone(),
-            material: AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
-                callback_mode: *callback_mode,
-                client_id: client_id.clone(),
-                client_secret: client_secret.clone(),
-                access_token: token.access_token,
-                refresh_token: token.refresh_token.or_else(|| Some(refresh_token.clone())),
-                expires_at_epoch_seconds: token.expires_at_epoch_seconds,
-            },
+            access_token: token.access_token,
+            refresh_token: token.refresh_token.or_else(|| Some(refresh_token.clone())),
+            expires_at_epoch_seconds: token.expires_at_epoch_seconds,
         };
-        let mut replacement = current.connection.clone();
-        replacement.revisions.connection = replacement
-            .revisions
-            .connection
+        let mut replacement = grant.clone();
+        replacement.token_revision = replacement
+            .token_revision
             .checked_add(1)
             .ok_or(CapabilityError::Unavailable)?;
-        replacement.revisions.credential = replacement
-            .revisions
-            .credential
-            .checked_add(1)
-            .ok_or(CapabilityError::Unavailable)?;
-        replacement.credential_generation = Some(generation_id);
+        replacement.token_generation = Some(generation_id);
+        replacement.granted_scopes = token.granted_scopes;
         self.inner
-            .connections
-            .refresh_oauth_credential(
-                &current.connection,
-                &replacement,
-                &credential,
-                &current.definition,
-            )
+            .oauth_authorities
+            .refresh_grant(grant, &replacement, &grant_token)
             .map_err(|_| CapabilityError::Unavailable)?;
         Ok(())
     }
 
     fn oauth_bearer(
-        &self,
         current: &CurrentPlan,
         authority: &AdapterOperationAuthorityV1,
     ) -> Result<AdapterBearerCredential, CapabilityError> {
-        let serving_mode = self
-            .inner
-            .oauth_callback_mode
-            .lock()
-            .ok()
-            .and_then(|mode| *mode);
         current
-            .credential
+            .oauth_token
             .as_ref()
-            .and_then(|credential| bearer_credential(credential, serving_mode))
+            .map(|token| AdapterBearerCredential::new(token.access_token.clone()))
             .ok_or_else(|| authentication_required(authority, current.auth_mode))
     }
 }
@@ -581,10 +645,15 @@ fn remote_failure_semantics(status: u16) -> CapabilityFailure {
 
 struct CurrentPlan {
     definition: CompiledAdapterDefinition,
-    connection: AdapterConnectionV3,
+    connection: AdapterConnectionV4,
     operation: CompiledOperation,
     auth_mode: AuthenticationMode,
     credential: Option<AdapterCredentialGenerationV2>,
+    grant: Option<AuthorizationGrantV1>,
+    oauth_token: Option<OauthGrantTokenV1>,
+    application: Option<OauthApplicationV1>,
+    application_credential: Option<OauthApplicationCredentialV1>,
+    profile: Option<OauthProfileV1>,
 }
 
 impl CurrentPlan {
@@ -599,8 +668,9 @@ impl CurrentPlan {
 fn authority_matches(
     authority: &AdapterOperationAuthorityV1,
     definition: &CompiledAdapterDefinition,
-    descriptor: &AdapterConnectionV3,
+    descriptor: &AdapterConnectionV4,
     operation: &CompiledOperation,
+    grant: Option<&AuthorizationGrantV1>,
 ) -> bool {
     canonical_name(
         &definition.adapter_id,
@@ -610,18 +680,13 @@ fn authority_matches(
     .is_ok_and(|name| name.as_str() == authority.canonical_name)
         && descriptor.connection_id == authority.connection_id
         && descriptor.connection_slug == authority.connection_slug
-        && descriptor.account_id == authority.account_id
-        && descriptor.account_kind == authority.account_kind
         && descriptor.semantic_digest == authority.semantic_digest
-        && descriptor.revisions.grant == authority.grant_revision
-        && descriptor.revisions.policy == authority.policy_revision
+        && descriptor.policy_revision == authority.policy_revision
         && descriptor
             .policy
             .is_some_and(|policy| policy.revision == authority.policy_revision)
-        && (descriptor.revisions.connection == authority.connection_revision
-            && descriptor.revisions.credential == authority.credential_revision
-            && descriptor.credential_generation == authority.credential_generation
-            || authority_matches_refresh_drift(authority, descriptor))
+        && descriptor.connection_revision == authority.connection_revision
+        && authentication_authority_matches(authority, descriptor, grant)
         && descriptor
             .allowed_operations
             .contains(&authority.operation_id)
@@ -629,44 +694,33 @@ fn authority_matches(
         && operation.token.as_str() == authority.definition_token
 }
 
-fn authority_matches_refresh_drift(
+fn authentication_authority_matches(
     authority: &AdapterOperationAuthorityV1,
-    descriptor: &AdapterConnectionV3,
+    descriptor: &AdapterConnectionV4,
+    grant: Option<&AuthorizationGrantV1>,
 ) -> bool {
-    let Some(connection_delta) = descriptor
-        .revisions
-        .connection
-        .checked_sub(authority.connection_revision)
-    else {
-        return false;
-    };
-    let Some(credential_delta) = descriptor
-        .revisions
-        .credential
-        .checked_sub(authority.credential_revision)
-    else {
-        return false;
-    };
-    descriptor.status == AdapterConnectionStatus::Active
-        && connection_delta > 0
-        && connection_delta == credential_delta
-        && descriptor.credential_generation.is_some()
-        && authority.credential_generation.is_some()
-        && descriptor.credential_generation != authority.credential_generation
+    match (&descriptor.authentication, grant) {
+        (AdapterConnectionAuthenticationV1::None, None) => {
+            authority.credential_revision.is_none() && authority.grant_id.is_none()
+        }
+        (AdapterConnectionAuthenticationV1::Credential { revision, .. }, None) => {
+            authority.credential_revision == Some(*revision) && authority.grant_id.is_none()
+        }
+        (AdapterConnectionAuthenticationV1::OauthGrant { grant_id }, Some(grant)) => {
+            authority.credential_revision.is_none()
+                && authority.grant_id.as_deref() == Some(grant_id)
+                && authority.grant_authority_revision == Some(grant.authority_revision)
+                && authority.account_id == grant.account_id
+        }
+        _ => false,
+    }
 }
 
-fn credential_needs_refresh(
-    credential: Option<&AdapterCredentialGenerationV2>,
-    now_epoch_seconds: u64,
-) -> bool {
-    let Some(AdapterCredentialGenerationV2 {
-        material:
-            AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
-                expires_at_epoch_seconds: Some(expires_at),
-                ..
-            },
+fn token_needs_refresh(token: Option<&OauthGrantTokenV1>, now_epoch_seconds: u64) -> bool {
+    let Some(OauthGrantTokenV1 {
+        expires_at_epoch_seconds: Some(expires_at),
         ..
-    }) = credential
+    }) = token
     else {
         return false;
     };
@@ -688,22 +742,6 @@ fn map_http_result(
     })
 }
 
-fn bearer_credential(
-    credential: &AdapterCredentialGenerationV2,
-    serving_mode: Option<crate::Oauth2CallbackMode>,
-) -> Option<AdapterBearerCredential> {
-    let AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
-        callback_mode,
-        access_token,
-        ..
-    } = &credential.material
-    else {
-        return None;
-    };
-    (serving_mode == Some(*callback_mode))
-        .then(|| AdapterBearerCredential::new(access_token.clone()))
-}
-
 fn authentication_required(
     authority: &AdapterOperationAuthorityV1,
     auth_mode: AuthenticationMode,
@@ -714,16 +752,23 @@ fn authentication_required(
             CapabilityAuthenticationChallengeKind::Reauthenticate
         }
     };
-    CapabilityError::AuthenticationRequired {
-        challenge: CapabilityAuthenticationChallenge::new(
+    let challenge = if let Some(grant_id) = &authority.grant_id {
+        CapabilityAuthenticationChallenge::new_for_destination(
+            challenge_kind,
+            CapabilityAuthenticationAuthorityKind::AdapterGrant,
+            grant_id.clone(),
+            authority.connection_id.clone(),
+            authority.destination_revision(),
+        )
+    } else {
+        CapabilityAuthenticationChallenge::new(
             challenge_kind,
             CapabilityAuthenticationAuthorityKind::AdapterConnection,
             authority.connection_id.clone(),
             authority.destination_revision(),
         )
-        .expect("validated adapter authority is bounded"),
+    };
+    CapabilityError::AuthenticationRequired {
+        challenge: challenge.expect("validated adapter authority is bounded"),
     }
 }
-
-#[cfg(test)]
-mod tests;

@@ -128,6 +128,40 @@ pub(super) fn publish_generation<D: serde::Serialize, S: serde::Serialize>(
     result
 }
 
+pub(super) fn publish_initial_generation<D: serde::Serialize, S: serde::Serialize>(
+    target: &Path,
+    descriptor_name: &str,
+    generations_name: &str,
+    replacement: &D,
+    new_generation: &str,
+    secret: &S,
+) -> Result<(), OauthAuthorityStoreError> {
+    let descriptor_bytes = canonical_bytes(replacement)?;
+    let secret_bytes = canonical_bytes(secret)?;
+    if secret_bytes.len() as u64 > MAX_SECRET_BYTES {
+        return Err(OauthAuthorityStoreError::Integrity("secret_oversized"));
+    }
+    let generations = target.join(generations_name);
+    let new_path = generations.join(credential_file(new_generation));
+    let temporary = generations.join(format!("{REPLACEMENT_PREFIX}{}", random_hex(16)?));
+    write_new_file(&new_path, &secret_bytes)?;
+    let mut published = false;
+    let result = (|| {
+        write_new_file(&temporary, &descriptor_bytes)?;
+        sync_directory(&generations)?;
+        fs::rename(&temporary, target.join(descriptor_name))?;
+        published = true;
+        sync_directory(target)?;
+        Ok(())
+    })();
+    if !published {
+        let _ = fs::remove_file(temporary);
+        let _ = fs::remove_file(new_path);
+        let _ = sync_directory(&generations);
+    }
+    result
+}
+
 pub(super) fn credential_file(generation: &str) -> String {
     format!("{generation}.json")
 }

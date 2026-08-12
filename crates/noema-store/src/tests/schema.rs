@@ -1047,7 +1047,7 @@ async fn version_thirteen_adds_mcp_service_description_without_losing_connection
 }
 
 #[tokio::test]
-async fn adapter_label_migrations_preserve_connection_and_converge_on_connection_label() {
+async fn adapter_label_migrations_converge_before_projection_cutover() {
     let home = TempDir::new().expect("version fourteen root");
     let config = store_config(home.path());
     fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
@@ -1079,21 +1079,26 @@ async fn adapter_label_migrations_preserve_connection_and_converge_on_connection
     store
         .with_connection(|conn| {
             assert_eq!(
-                conn.query_row(
-                    "SELECT connection_slug, connection_label FROM adapter_connections WHERE connection_id = ?1",
-                    ["a".repeat(32)],
-                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-                )?,
-                ("personal".to_string(), None)
+                conn.query_row("SELECT COUNT(*) FROM adapter_connections", [], |row| {
+                    row.get::<_, i64>(0)
+                })?,
+                0
             );
+            let table_sql: String = conn.query_row(
+                "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'adapter_connections'",
+                [],
+                |row| row.get(0),
+            )?;
+            assert!(table_sql.contains("connection_label"));
+            assert!(!table_sql.contains("account_label"));
             Ok(())
         })
         .await
-        .expect("preserved adapter connection");
+        .expect("converged adapter projection");
 }
 
 #[tokio::test]
-async fn version_fifteen_account_label_shape_is_repaired_without_losing_connection() {
+async fn version_fifteen_account_label_shape_converges_before_projection_cutover() {
     let home = TempDir::new().expect("version fifteen root");
     let config = store_config(home.path());
     fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
@@ -1130,24 +1135,22 @@ async fn version_fifteen_account_label_shape_is_repaired_without_losing_connecti
     store
         .with_connection(|conn| {
             assert_eq!(
-                conn.query_row(
-                    "SELECT connection_slug, connection_label FROM adapter_connections WHERE connection_id = ?1",
-                    ["a".repeat(32)],
-                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-                )?,
-                ("personal".to_string(), Some("me@example.com".to_string()))
+                conn.query_row("SELECT COUNT(*) FROM adapter_connections", [], |row| {
+                    row.get::<_, i64>(0)
+                })?,
+                0
             );
             let table_sql: String = conn.query_row(
                 "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'adapter_connections'",
                 [],
                 |row| row.get(0),
             )?;
-            assert!(table_sql.contains("length(CAST(connection_label AS BLOB))"));
+            assert!(table_sql.contains("connection_label TEXT"));
             assert!(!table_sql.contains("account_label"));
             Ok(())
         })
         .await
-        .expect("preserved adapter connection");
+        .expect("converged adapter projection");
 }
 
 #[tokio::test]

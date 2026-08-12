@@ -1,8 +1,8 @@
 use super::*;
 use crate::{NoemaStore, StoreConfig};
 use noema_capability_adapters::{
-    AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionStore,
-    AdapterConnectionV3, AdapterCredentialGenerationV2, AdapterCredentialMaterial,
+    AdapterConnectionAuthenticationV1, AdapterConnectionStatus, AdapterConnectionStore,
+    AdapterConnectionV4, AdapterCredentialGenerationV2, AdapterCredentialMaterial,
     AdapterDefinitionStore, AdapterManifest, AuthorizationGrantStatus, AuthorizationGrantV1,
     ExternalAccountV1, Oauth2CallbackMode, Oauth2ClientAuthentication, OauthApplicationStatus,
     OauthApplicationV1, OauthAuthoritySnapshot, OauthProfileInstall, OauthProfileV1,
@@ -12,7 +12,7 @@ use noema_home::NoemaPaths;
 
 fn fixture_manifest(authentication: serde_json::Value) -> AdapterManifest {
     serde_json::from_value(serde_json::json!({
-        "schema_version": 8,
+        "schema_version": 9,
         "definition_id": "definition:offline_fixture",
         "adapter_id": "offline_fixture",
         "definition_revision": "v1",
@@ -24,6 +24,7 @@ fn fixture_manifest(authentication: serde_json::Value) -> AdapterManifest {
             "description":"List available items.",
             "method":"GET",
             "path":"/v1/items",
+            "authorization":{"kind":"none"},
             "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry":"transport_safe_read",
             "pagination":{"kind":"none"},
@@ -86,20 +87,9 @@ async fn fresh_sqlite_rebuilds_connection_projection_without_secret_bytes() {
     let definition = definitions
         .install(
             &fixture_manifest(serde_json::json!({
-                "kind":"oauth2_authorization_code_pkce",
-                "scopes":["https://scope.example/items.read"],
-                "authorization_endpoint":"https://accounts.example.test/authorize",
-                "token_endpoint":"https://accounts.example.test/token",
-                "client_authentication":"client_secret_post",
-                "setups":[{"callback_mode":"loopback","setup":{
-                    "credential_type":"Desktop app",
-                    "setup_url":"https://developers.example.test/oauth/clients/new",
-                    "instructions":["Create a Desktop app OAuth client."],
-                    "input":{"kind":"document","media_type":"application/json","fields":[
-                        {"id":"client_id","label":"Client ID"},
-                        {"id":"client_secret","label":"Client secret"}
-                    ],"normalize":{"language":"luau","source":"return function(input) local d = json.decode(input.document) return { client_id = d.installed.client_id, client_secret = d.installed.client_secret } end"}}
-                }}]
+                "kind":"credential",
+                "setup":{"credential_type":"API token","setup_url":"https://developers.example.test/tokens","instructions":["Create an API token."],"input":{"kind":"fields","fields":[{"id":"token","label":"API token"}]}},
+                "request_auth":{"language":"luau","source":"return function(input) return { headers = { Authorization = 'Bearer ' .. input.credentials.token } } end"}
             })),
             "fixture://independent-company-b/openapi.json",
             None,
@@ -108,23 +98,19 @@ async fn fresh_sqlite_rebuilds_connection_projection_without_secret_bytes() {
         .expect("definition");
     let connection_id = "a".repeat(32);
     let generation_id = "b".repeat(32);
-    let descriptor = AdapterConnectionV3 {
-        schema_version: 3,
+    let descriptor = AdapterConnectionV4 {
+        schema_version: 4,
         connection_id: connection_id.clone(),
         connection_slug: "personal".to_string(),
         semantic_digest: definition.compiled.semantic_digest.to_string(),
-        account_id: Some("account:synthetic".to_string()),
         connection_label: Some("person@example.test".to_string()),
-        account_kind: "personal".to_string(),
         status: AdapterConnectionStatus::Active,
-        revisions: AdapterConnectionRevisions {
-            connection: 4,
-            credential: 3,
-            grant: 2,
-            policy: 7,
+        connection_revision: 4,
+        policy_revision: 7,
+        authentication: AdapterConnectionAuthenticationV1::Credential {
+            generation_id: generation_id.clone(),
+            revision: 3,
         },
-        credential_generation: Some(generation_id.clone()),
-        granted_scopes: vec!["https://scope.example/items.read".to_string()],
         allowed_operations: vec!["list".to_string()],
         policy: Some(noema_capabilities::CapabilityConnectionPolicy {
             data_sharing: noema_capabilities::CapabilityDataSharingPolicy::AllowAutomatically,
@@ -136,13 +122,11 @@ async fn fresh_sqlite_rebuilds_connection_projection_without_secret_bytes() {
     let credential = AdapterCredentialGenerationV2 {
         schema_version: 2,
         generation_id,
-        material: AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
-            callback_mode: Oauth2CallbackMode::Loopback,
-            client_id: "synthetic-client".to_string(),
-            client_secret: Some("client-secret-marker".to_string()),
-            access_token: "access-secret-marker".to_string(),
-            refresh_token: Some("refresh-secret-marker".to_string()),
-            expires_at_epoch_seconds: Some(4_000_000_000),
+        material: AdapterCredentialMaterial::Credential {
+            fields: std::collections::BTreeMap::from([(
+                "token".to_string(),
+                "access-secret-marker".to_string(),
+            )]),
         },
     };
     let connections = AdapterConnectionStore::new(paths.clone());
@@ -166,11 +150,7 @@ async fn fresh_sqlite_rebuilds_connection_projection_without_secret_bytes() {
         .expect("connections projection");
     let before = store.adapter_connections().await.expect("connections");
     let database_bytes = std::fs::read(paths.sqlite_db_path()).expect("database bytes");
-    for secret in [
-        "client-secret-marker",
-        "access-secret-marker",
-        "refresh-secret-marker",
-    ] {
+    for secret in ["access-secret-marker"] {
         assert!(
             !database_bytes
                 .windows(secret.len())
@@ -268,6 +248,7 @@ async fn sqlite_rebuilds_the_complete_public_oauth_authority_hierarchy() {
             grant_id,
             application_id,
             account_id: Some(account_id),
+            account_label: None,
             audience: "google-apis".into(),
             desired_scopes: vec!["gmail.readonly".into(), "gmail.send".into()],
             granted_scopes: vec!["gmail.readonly".into()],

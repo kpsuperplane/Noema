@@ -1,10 +1,11 @@
 //! Root-contract adapter capability service.
 
 use crate::{
-    AdapterCatalogCompiler, AdapterCompiler, AdapterConnectionRevisions, AdapterConnectionStatus,
-    AdapterConnectionStore, AdapterConnectionV3, AdapterCredentialGenerationV2,
-    AdapterCredentialMaterial, AdapterDefinitionStore, AuthenticationMode,
-    CompiledAdapterDefinition, Oauth2CallbackMode, Oauth2ClientAuthentication,
+    AdapterCatalogCompiler, AdapterCompiler, AdapterConnectionAuthenticationV1,
+    AdapterConnectionStatus, AdapterConnectionStore, AdapterConnectionV4, AdapterDefinitionStore,
+    AuthenticationMode, AuthorizationGrantStatus, AuthorizationGrantV1, CompiledAdapterDefinition,
+    ExternalAccountV1, Oauth2CallbackMode, Oauth2ClientAuthentication, OauthApplicationStatus,
+    OauthApplicationV1, OauthGrantTokenV1,
     credential_import::setup_credential,
     network::{
         AdapterBearerCredential, AdapterHttpExecutor, AdapterOAuthTokenGrant,
@@ -28,7 +29,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, broadcast};
 
 /// Safe failure from the human-owned adapter connection setup boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -39,6 +40,9 @@ pub enum AdapterConnectionSetupError {
     /// The transient credential document does not match the reviewed schema.
     #[error("adapter credential document is invalid")]
     InvalidCredential,
+    /// A selected reusable grant revision changed before attachment.
+    #[error("adapter account state changed")]
+    Conflict,
     /// Canonical setup state could not be published safely.
     #[error("adapter connection could not be created")]
     Unavailable,
@@ -170,6 +174,9 @@ pub enum AdapterMigrationError {
     /// A polling schedule could not be rebound safely.
     #[error("adapter schedule migration failed: {0}")]
     Schedule(#[from] crate::ScheduleError),
+    /// Continuation cursors could not be quarantined safely.
+    #[error("adapter cursor migration failed: {0}")]
+    Cursor(#[from] crate::DurableCursorError),
     /// Reusable OAuth authority roots could not be prepared safely.
     #[error("adapter OAuth authority migration failed: {0}")]
     OauthAuthority(#[from] crate::OauthAuthorityStoreError),
@@ -186,15 +193,71 @@ pub struct AdapterOAuthSetupStart {
     pub expires_at_epoch_seconds: u64,
 }
 
+/// Exact non-secret request for a new account or added OAuth access.
+pub struct AdapterOAuthAuthorizationRequest {
+    /// Reusable OAuth application identity.
+    pub application_id: String,
+    /// Exact application revision selected by the caller.
+    pub expected_application_revision: u64,
+    /// Existing grant for access expansion or reconnection.
+    pub grant_id: Option<String>,
+    /// Exact grant authority revision selected by the caller.
+    pub expected_grant_revision: Option<u64>,
+    /// Reviewed API definition used to calculate required scopes.
+    pub semantic_digest: String,
+    /// Operations whose access must be covered.
+    pub operation_ids: Vec<String>,
+    /// Callback mode registered by the application.
+    pub callback_mode: Oauth2CallbackMode,
+    /// Exact redirect URI for this attempt.
+    pub redirect_uri: String,
+}
+
 /// Completed OAuth publication and the attempt that authorized it.
 #[derive(Debug)]
 pub struct AdapterOAuthSetupCompletion {
     /// Process-local attempt identity used by paused capability calls.
     pub attempt_id: String,
-    /// Canonical active connection after credential replacement.
-    pub connection: crate::ConnectionInstall,
-    /// Whether this callback activated a previously unauthenticated connection.
-    pub newly_activated: bool,
+    /// Reviewed definition used to calculate requested access.
+    pub semantic_digest: String,
+    /// Canonical active authorization grant after token publication.
+    pub grant: AuthorizationGrantV1,
+    /// Stable account resolved by the reviewed profile, when available.
+    pub account: Option<ExternalAccountV1>,
+    /// Whether this callback authorized a new grant.
+    pub newly_authorized: bool,
+}
+
+/// Process-local lifecycle of one browser OAuth attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdapterOAuthAttemptStatus {
+    /// Browser authorization can continue.
+    Authorizing,
+    /// Authorization and token publication completed.
+    Completed,
+    /// The human or provider denied authorization.
+    Denied,
+    /// The bounded browser attempt expired.
+    Expired,
+    /// A newer exact-grant attempt replaced this attempt.
+    Superseded,
+    /// The attempt failed without changing current grant access.
+    Failed,
+}
+
+/// Non-secret OAuth attempt event for client recovery.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdapterOAuthAttemptEvent {
+    /// Stable process-local attempt identity.
+    pub attempt_id: String,
+    /// Exact definition that requested authorization.
+    pub semantic_digest: Option<String>,
+    /// Canonical grant produced or expanded after completion.
+    pub grant_id: Option<String>,
+    /// Exact grant authority revision after completion.
+    pub grant_revision: Option<u64>,
+    /// Current attempt lifecycle state.
+    pub status: AdapterOAuthAttemptStatus,
 }
 
 impl std::fmt::Debug for AdapterOAuthSetupStart {
@@ -224,6 +287,8 @@ pub(crate) struct AdapterCapabilityServiceInner {
     connection_locks: Mutex<BTreeMap<String, Arc<RwLock<()>>>>,
     pub(crate) cursor_lock: tokio::sync::Mutex<()>,
     oauth_attempts: Mutex<AdapterOAuthAttemptRegistry>,
+    oauth_attempt_statuses: Mutex<BTreeMap<String, AdapterOAuthAttemptEvent>>,
+    oauth_attempt_events: broadcast::Sender<AdapterOAuthAttemptEvent>,
     pub(crate) http: Arc<dyn AdapterHttpExecutor>,
 }
 
@@ -233,14 +298,13 @@ pub struct AdapterCapabilityService {
     pub(crate) inner: Arc<AdapterCapabilityServiceInner>,
 }
 
-struct LoadedOAuthConnection {
+struct LoadedOAuthGrant {
     definition: CompiledAdapterDefinition,
     profile: crate::OauthProfileV1,
     profile_digest: String,
-    descriptor: AdapterConnectionV3,
-    client_id: String,
-    client_secret: Option<String>,
-    callback_mode: Oauth2CallbackMode,
+    application: OauthApplicationV1,
+    application_credential: crate::OauthApplicationCredentialV1,
+    grant: Option<AuthorizationGrantV1>,
 }
 
 impl std::fmt::Debug for AdapterCapabilityService {
@@ -262,6 +326,7 @@ impl AdapterCapabilityService {
     fn with_http(paths: NoemaPaths, http: Arc<dyn AdapterHttpExecutor>) -> Self {
         let definitions = AdapterDefinitionStore::new(paths.clone());
         let definition_registry = definitions.scan().ok().map(Arc::new);
+        let (oauth_attempt_events, _) = broadcast::channel(64);
         Self {
             inner: Arc::new(AdapterCapabilityServiceInner {
                 definitions,
@@ -276,6 +341,8 @@ impl AdapterCapabilityService {
                 connection_locks: Mutex::new(BTreeMap::new()),
                 cursor_lock: tokio::sync::Mutex::new(()),
                 oauth_attempts: Mutex::new(AdapterOAuthAttemptRegistry::default()),
+                oauth_attempt_statuses: Mutex::new(BTreeMap::new()),
+                oauth_attempt_events,
                 http,
             }),
         }
@@ -326,6 +393,73 @@ impl AdapterCapabilityService {
     pub fn set_oauth_callback_mode(&self, mode: Oauth2CallbackMode) {
         if let Ok(mut configured) = self.inner.oauth_callback_mode.lock() {
             *configured = Some(mode);
+        }
+    }
+
+    /// Return the latest process-local lifecycle state for one OAuth attempt.
+    #[must_use]
+    pub fn oauth_attempt_status(&self, attempt_id: &str) -> Option<AdapterOAuthAttemptEvent> {
+        self.inner
+            .oauth_attempt_statuses
+            .lock()
+            .ok()?
+            .get(attempt_id)
+            .cloned()
+    }
+
+    /// Subscribe to process-local OAuth attempt lifecycle events.
+    #[must_use]
+    pub fn subscribe_oauth_attempts(&self) -> broadcast::Receiver<AdapterOAuthAttemptEvent> {
+        self.inner.oauth_attempt_events.subscribe()
+    }
+
+    fn record_oauth_attempt_status(&self, event: AdapterOAuthAttemptEvent) {
+        if let Ok(mut statuses) = self.inner.oauth_attempt_statuses.lock() {
+            if statuses.len() >= 64
+                && !statuses.contains_key(&event.attempt_id)
+                && let Some(oldest) = statuses.keys().next().cloned()
+            {
+                statuses.remove(&oldest);
+            }
+            statuses.insert(event.attempt_id.clone(), event.clone());
+        }
+        let _ = self.inner.oauth_attempt_events.send(event);
+    }
+
+    fn transition_oauth_attempt_status(
+        &self,
+        attempt_id: &str,
+        status: AdapterOAuthAttemptStatus,
+        grant_id: Option<String>,
+        grant_revision: Option<u64>,
+    ) {
+        let current = self.oauth_attempt_status(attempt_id);
+        self.record_oauth_attempt_status(AdapterOAuthAttemptEvent {
+            attempt_id: attempt_id.to_string(),
+            semantic_digest: current
+                .as_ref()
+                .and_then(|event| event.semantic_digest.clone()),
+            grant_id: grant_id
+                .or_else(|| current.as_ref().and_then(|event| event.grant_id.clone())),
+            grant_revision: grant_revision
+                .or_else(|| current.as_ref().and_then(|event| event.grant_revision)),
+            status,
+        });
+    }
+
+    fn expire_oauth_attempt(&self, attempt_id: &str, now_epoch_seconds: u64) {
+        let expired = self
+            .inner
+            .oauth_attempts
+            .lock()
+            .is_ok_and(|mut attempts| attempts.expire_attempt(attempt_id, now_epoch_seconds));
+        if expired {
+            self.transition_oauth_attempt_status(
+                attempt_id,
+                AdapterOAuthAttemptStatus::Expired,
+                None,
+                None,
+            );
         }
     }
 
@@ -709,7 +843,7 @@ impl AdapterCapabilityService {
             .iter()
             .find(|connection| connection.descriptor.connection_id == connection_id)
             .ok_or(AdapterManagementError::NotFound)?;
-        if current.descriptor.revisions.connection != expected_connection_revision
+        if current.descriptor.connection_revision != expected_connection_revision
             || current.descriptor.connection_label != expected_connection_label
         {
             return Err(AdapterManagementError::Conflict);
@@ -754,8 +888,8 @@ impl AdapterCapabilityService {
                 definition.compiled.semantic_digest.as_str() == current.descriptor.semantic_digest
             })
             .ok_or(AdapterManagementError::Unavailable)?;
-        if current.descriptor.revisions.connection != fence.expected_connection_revision
-            || current.descriptor.revisions.policy != fence.expected_policy_revision
+        if current.descriptor.connection_revision != fence.expected_connection_revision
+            || current.descriptor.policy_revision != fence.expected_policy_revision
         {
             return Err(AdapterManagementError::Conflict);
         }
@@ -812,18 +946,16 @@ impl AdapterCapabilityService {
                 }
             }
         }
-        replacement.revisions.connection = replacement
-            .revisions
-            .connection
+        replacement.connection_revision = replacement
+            .connection_revision
             .checked_add(1)
             .ok_or(AdapterManagementError::Conflict)?;
-        replacement.revisions.policy = replacement
-            .revisions
-            .policy
+        replacement.policy_revision = replacement
+            .policy_revision
             .checked_add(1)
             .ok_or(AdapterManagementError::Conflict)?;
         if let Some(policy) = replacement.policy.as_mut() {
-            policy.revision = replacement.revisions.policy;
+            policy.revision = replacement.policy_revision;
         }
         self.inner
             .connections
@@ -865,7 +997,7 @@ impl AdapterCapabilityService {
         if definition.authentication.mode() != AuthenticationMode::Credential {
             return Err(AdapterConnectionSetupError::DefinitionUnavailable);
         }
-        let credential = setup_credential(&definition, None, field_values, document, generation_id)
+        let credential = setup_credential(&definition, field_values, document, generation_id)
             .map_err(|_| AdapterConnectionSetupError::InvalidCredential)?;
         let status = AdapterConnectionStatus::Active;
         let mut allowed_operations = definition
@@ -874,23 +1006,19 @@ impl AdapterCapabilityService {
             .map(|operation| operation.operation_id.clone())
             .collect::<Vec<_>>();
         allowed_operations.sort();
-        let descriptor = AdapterConnectionV3 {
-            schema_version: 3,
+        let descriptor = AdapterConnectionV4 {
+            schema_version: 4,
             connection_id,
             connection_slug,
             semantic_digest: semantic_digest.to_string(),
-            account_id: None,
             connection_label: None,
-            account_kind: "personal".to_string(),
             status,
-            revisions: AdapterConnectionRevisions {
-                connection: 1,
-                credential: 1,
-                grant: 1,
-                policy: 1,
+            connection_revision: 1,
+            policy_revision: 1,
+            authentication: AdapterConnectionAuthenticationV1::Credential {
+                generation_id: credential.generation_id.clone(),
+                revision: 1,
             },
-            credential_generation: Some(credential.generation_id.clone()),
-            granted_scopes: Vec::new(),
             allowed_operations,
             policy: None,
             tool_overrides: Vec::new(),
@@ -899,6 +1027,378 @@ impl AdapterCapabilityService {
             .connections
             .install(&descriptor, Some(&credential), &definition)
             .map_err(|_| AdapterConnectionSetupError::Unavailable)
+    }
+
+    /// Import one reusable OAuth application from a transient client document.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe category when setup input or canonical state is invalid.
+    pub async fn import_oauth_application(
+        &self,
+        profile_digest: &str,
+        callback_mode: Oauth2CallbackMode,
+        redirect_uri: &str,
+        document: &[u8],
+        project_label: Option<String>,
+    ) -> Result<OauthApplicationV1, AdapterConnectionSetupError> {
+        let configured_mode = self
+            .inner
+            .oauth_callback_mode
+            .lock()
+            .map_err(|_| AdapterConnectionSetupError::Unavailable)?
+            .ok_or(AdapterConnectionSetupError::DefinitionUnavailable)?;
+        if configured_mode != callback_mode {
+            return Err(AdapterConnectionSetupError::InvalidCredential);
+        }
+        let profile = self
+            .inner
+            .oauth_authorities
+            .load_profile(profile_digest)
+            .map_err(|_| AdapterConnectionSetupError::DefinitionUnavailable)?;
+        let generation_id = random_hex(16).map_err(|_| AdapterConnectionSetupError::Unavailable)?;
+        let (client_id, credential) = crate::credential_import::setup_oauth_application(
+            &profile.profile,
+            callback_mode,
+            redirect_uri,
+            document,
+            generation_id,
+        )
+        .map_err(|_| AdapterConnectionSetupError::InvalidCredential)?;
+        let lock = self
+            .connection_lock(&format!("oauth-application:{profile_digest}:{client_id}"))
+            .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
+        let _guard = lock.write().await;
+        let snapshot = self
+            .inner
+            .oauth_authorities
+            .snapshot()
+            .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
+        if let Some(existing) = snapshot.applications.into_iter().find(|application| {
+            application.profile_digest == profile_digest
+                && application.callback_mode == callback_mode
+                && application.client_id == client_id
+        }) {
+            let (_, current_credential) = self
+                .inner
+                .oauth_authorities
+                .load_application_authority(&existing.application_id)
+                .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
+            if current_credential.client_secret == credential.client_secret {
+                return Ok(existing);
+            }
+            return Err(AdapterConnectionSetupError::InvalidCredential);
+        }
+        let application = OauthApplicationV1 {
+            schema_version: 1,
+            application_id: random_hex(16).map_err(|_| AdapterConnectionSetupError::Unavailable)?,
+            profile_digest: profile_digest.to_string(),
+            callback_mode,
+            client_id,
+            project_label,
+            credential_generation: credential.generation_id.clone(),
+            revision: 1,
+            status: OauthApplicationStatus::Active,
+        };
+        self.inner
+            .oauth_authorities
+            .install_application(&application, &credential)
+            .map_err(|_| AdapterConnectionSetupError::Unavailable)
+    }
+
+    /// Replace one OAuth application client document under an exact revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe category when authority changed or publication fails.
+    pub async fn replace_oauth_application(
+        &self,
+        application_id: &str,
+        expected_revision: u64,
+        redirect_uri: &str,
+        document: &[u8],
+    ) -> Result<OauthApplicationV1, AdapterManagementError> {
+        let lock = self
+            .connection_lock(&format!("oauth-application:{application_id}"))
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let _guard = lock.write().await;
+        let (current, _) = self
+            .inner
+            .oauth_authorities
+            .load_application_authority(application_id)
+            .map_err(|_| AdapterManagementError::NotFound)?;
+        if current.revision != expected_revision {
+            return Err(AdapterManagementError::Conflict);
+        }
+        let profile = self
+            .inner
+            .oauth_authorities
+            .load_profile(&current.profile_digest)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let generation_id = random_hex(16).map_err(|_| AdapterManagementError::Unavailable)?;
+        let (client_id, credential) = crate::credential_import::setup_oauth_application(
+            &profile.profile,
+            current.callback_mode,
+            redirect_uri,
+            document,
+            generation_id,
+        )
+        .map_err(|_| AdapterManagementError::Invalid)?;
+        if client_id != current.client_id {
+            return Err(AdapterManagementError::Invalid);
+        }
+        let mut replacement = current.clone();
+        replacement.credential_generation = credential.generation_id.clone();
+        replacement.revision = replacement
+            .revision
+            .checked_add(1)
+            .ok_or(AdapterManagementError::Conflict)?;
+        self.inner
+            .oauth_authorities
+            .replace_application_credential(&current, &replacement, &credential)
+            .map_err(|_| AdapterManagementError::Unavailable)
+    }
+
+    /// Disconnect one account grant while retaining its public identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe category when authority changed or publication fails.
+    pub async fn disconnect_oauth_grant(
+        &self,
+        grant_id: &str,
+        expected_authority_revision: u64,
+    ) -> Result<AuthorizationGrantV1, AdapterManagementError> {
+        let lock = self
+            .connection_lock(&format!("oauth-grant:{grant_id}"))
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let _guard = lock.write().await;
+        let (grant, _) = self
+            .inner
+            .oauth_authorities
+            .load_grant_authority(grant_id)
+            .map_err(|_| AdapterManagementError::NotFound)?;
+        if grant.authority_revision != expected_authority_revision {
+            return Err(AdapterManagementError::Conflict);
+        }
+        self.inner
+            .oauth_authorities
+            .deactivate_grant(&grant, AuthorizationGrantStatus::Revoked)
+            .map_err(|_| AdapterManagementError::Unavailable)
+    }
+
+    /// Save a human label for a grant without stable provider identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe category when authority changed or publication fails.
+    pub async fn save_oauth_grant_label(
+        &self,
+        grant_id: &str,
+        expected_authority_revision: u64,
+        account_label: Option<String>,
+    ) -> Result<AuthorizationGrantV1, AdapterManagementError> {
+        let account_label =
+            noema_capabilities::normalize_capability_connection_label(account_label)
+                .map_err(|_| AdapterManagementError::Invalid)?;
+        let lock = self
+            .connection_lock(&format!("oauth-grant:{grant_id}"))
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let _guard = lock.write().await;
+        let (grant, _) = self
+            .inner
+            .oauth_authorities
+            .load_grant_authority(grant_id)
+            .map_err(|_| AdapterManagementError::NotFound)?;
+        if grant.authority_revision != expected_authority_revision {
+            return Err(AdapterManagementError::Conflict);
+        }
+        self.inner
+            .oauth_authorities
+            .save_grant_label(&grant, account_label)
+            .map_err(|_| AdapterManagementError::Unavailable)
+    }
+
+    /// Delete one OAuth application when no grant still references it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe category when authority changed or dependencies remain.
+    pub async fn delete_oauth_application(
+        &self,
+        application_id: &str,
+        expected_revision: u64,
+    ) -> Result<bool, AdapterManagementError> {
+        let lock = self
+            .connection_lock(&format!("oauth-application:{application_id}"))
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let _guard = lock.write().await;
+        let snapshot = self
+            .inner
+            .oauth_authorities
+            .snapshot()
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let application = snapshot
+            .applications
+            .iter()
+            .find(|application| application.application_id == application_id)
+            .ok_or(AdapterManagementError::NotFound)?;
+        if application.revision != expected_revision {
+            return Err(AdapterManagementError::Conflict);
+        }
+        if snapshot
+            .grants
+            .iter()
+            .any(|grant| grant.application_id == application_id)
+        {
+            return Err(AdapterManagementError::Conflict);
+        }
+        self.inner
+            .oauth_authorities
+            .quarantine_application(application)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        Ok(true)
+    }
+
+    /// Attach one reviewed API definition to an existing OAuth grant.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe category when the definition and grant are incompatible.
+    pub async fn attach_oauth_connection(
+        &self,
+        semantic_digest: &str,
+        grant_id: &str,
+        expected_grant_revision: u64,
+    ) -> Result<crate::ConnectionInstall, AdapterConnectionSetupError> {
+        let definition = self
+            .inner
+            .definitions
+            .load(semantic_digest)
+            .map_err(|_| AdapterConnectionSetupError::DefinitionUnavailable)?;
+        let definition = AdapterCompiler::compile(&definition.manifest)
+            .map_err(|_| AdapterConnectionSetupError::DefinitionUnavailable)?;
+        let profile_digest = definition
+            .authentication
+            .oauth2()
+            .map(|oauth| oauth.profile_digest.as_str())
+            .ok_or(AdapterConnectionSetupError::DefinitionUnavailable)?;
+        let (grant, _) = self
+            .inner
+            .oauth_authorities
+            .load_grant_authority(grant_id)
+            .map_err(|_| AdapterConnectionSetupError::InvalidCredential)?;
+        if grant.authority_revision != expected_grant_revision {
+            return Err(AdapterConnectionSetupError::Conflict);
+        }
+        let application = self
+            .inner
+            .oauth_authorities
+            .load_application(&grant.application_id)
+            .map_err(|_| AdapterConnectionSetupError::InvalidCredential)?;
+        if application.profile_digest != profile_digest {
+            return Err(AdapterConnectionSetupError::InvalidCredential);
+        }
+        let lock = self
+            .connection_lock(&format!("oauth-attachment:{semantic_digest}:{grant_id}"))
+            .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
+        let _guard = lock.write().await;
+        if let Some(existing) = self
+            .management_snapshot()
+            .map_err(|_| AdapterConnectionSetupError::Unavailable)?
+            .connections
+            .connections
+            .into_iter()
+            .find(|connection| {
+                connection.descriptor.semantic_digest == semantic_digest
+                    && matches!(
+                        &connection.descriptor.authentication,
+                        AdapterConnectionAuthenticationV1::OauthGrant { grant_id: current }
+                            if current == grant_id
+                    )
+            })
+        {
+            return Ok(existing);
+        }
+        let connection_id = random_hex(16).map_err(|_| AdapterConnectionSetupError::Unavailable)?;
+        let mut allowed_operations = definition
+            .operations
+            .iter()
+            .map(|operation| operation.operation_id.clone())
+            .collect::<Vec<_>>();
+        allowed_operations.sort();
+        let descriptor = AdapterConnectionV4 {
+            schema_version: 4,
+            connection_slug: format!("personal-{}", &connection_id[..8]),
+            connection_id,
+            semantic_digest: semantic_digest.to_string(),
+            connection_label: None,
+            status: AdapterConnectionStatus::Active,
+            connection_revision: 1,
+            policy_revision: 1,
+            authentication: AdapterConnectionAuthenticationV1::OauthGrant {
+                grant_id: grant_id.to_string(),
+            },
+            allowed_operations,
+            policy: None,
+            tool_overrides: Vec::new(),
+        };
+        self.inner
+            .connections
+            .install(&descriptor, None, &definition)
+            .map_err(|_| AdapterConnectionSetupError::Unavailable)
+    }
+
+    /// Suspend or resume one connection without changing its grant.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe category when authority changed or publication fails.
+    pub async fn set_connection_active(
+        &self,
+        connection_id: &str,
+        expected_connection_revision: u64,
+        active: bool,
+    ) -> Result<crate::ConnectionInstall, AdapterManagementError> {
+        let lock = self
+            .connection_lock(connection_id)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let _guard = lock.write().await;
+        let snapshot = self.management_snapshot()?;
+        let current = snapshot
+            .connections
+            .connections
+            .iter()
+            .find(|connection| connection.descriptor.connection_id == connection_id)
+            .ok_or(AdapterManagementError::NotFound)?;
+        if current.descriptor.connection_revision != expected_connection_revision {
+            return Err(AdapterManagementError::Conflict);
+        }
+        let definition = snapshot
+            .definitions
+            .definitions
+            .iter()
+            .find(|definition| {
+                definition.compiled.semantic_digest.as_str() == current.descriptor.semantic_digest
+            })
+            .ok_or(AdapterManagementError::Unavailable)?;
+        let mut replacement = current.descriptor.clone();
+        replacement.status = if active {
+            AdapterConnectionStatus::Active
+        } else {
+            AdapterConnectionStatus::Suspended
+        };
+        if replacement.status == current.descriptor.status {
+            return Ok(current.clone());
+        }
+        replacement.connection_revision = replacement
+            .connection_revision
+            .checked_add(1)
+            .ok_or(AdapterManagementError::Conflict)?;
+        self.inner
+            .connections
+            .replace_management_descriptor(&current.descriptor, &replacement, &definition.compiled)
+            .map_err(|_| AdapterManagementError::Unavailable)
     }
 
     /// Ensure one active credential-free connection exists for a reviewed definition.
@@ -947,23 +1447,16 @@ impl AdapterCapabilityService {
             .map(|operation| operation.operation_id.clone())
             .collect::<Vec<_>>();
         allowed_operations.sort();
-        let descriptor = AdapterConnectionV3 {
-            schema_version: 3,
+        let descriptor = AdapterConnectionV4 {
+            schema_version: 4,
             connection_slug: format!("personal-{}", &connection_id[..8]),
             connection_id,
             semantic_digest: semantic_digest.to_string(),
-            account_id: None,
             connection_label: None,
-            account_kind: "personal".to_string(),
             status: AdapterConnectionStatus::Active,
-            revisions: AdapterConnectionRevisions {
-                connection: 1,
-                credential: 0,
-                grant: 1,
-                policy: 1,
-            },
-            credential_generation: None,
-            granted_scopes: Vec::new(),
+            connection_revision: 1,
+            policy_revision: 1,
+            authentication: AdapterConnectionAuthenticationV1::None,
             allowed_operations,
             policy: None,
             tool_overrides: Vec::new(),
@@ -974,84 +1467,63 @@ impl AdapterCapabilityService {
             .map_err(|_| AdapterConnectionSetupError::Unavailable)
     }
 
-    /// Start one provider-neutral authorization-code/PKCE attempt for a
-    /// filesystem-canonical connection.
+    /// Start a new-account, reconnect, or added-access OAuth attempt.
     ///
     /// # Errors
     ///
-    /// Returns a safe category when the exact connection or reviewed OAuth
-    /// authority is unavailable, the callback URI is invalid, or attempt
-    /// capacity is exhausted.
-    pub async fn start_oauth_setup(
+    /// Returns a safe category when authority or setup state is invalid.
+    pub async fn start_oauth_authorization(
         &self,
         human_id: &str,
-        connection_id: &str,
-        expected_revisions: AdapterConnectionRevisions,
-        callback_mode: Oauth2CallbackMode,
-        redirect_uri: &str,
+        request: AdapterOAuthAuthorizationRequest,
     ) -> Result<AdapterOAuthSetupStart, AdapterOAuthSetupError> {
-        self.start_oauth_setup_at(
-            human_id,
-            connection_id,
-            expected_revisions,
-            callback_mode,
-            redirect_uri,
-            epoch_seconds()?,
-        )
-        .await
-    }
-
-    async fn start_oauth_setup_at(
-        &self,
-        human_id: &str,
-        connection_id: &str,
-        expected_revisions: AdapterConnectionRevisions,
-        callback_mode: Oauth2CallbackMode,
-        redirect_uri: &str,
-        now_epoch_seconds: u64,
-    ) -> Result<AdapterOAuthSetupStart, AdapterOAuthSetupError> {
-        if !valid_connection_id(connection_id) {
-            return Err(AdapterOAuthSetupError::Invalid);
-        }
+        let now_epoch_seconds = epoch_seconds()?;
+        let lock_id = request
+            .grant_id
+            .as_deref()
+            .unwrap_or(&request.application_id);
         let lock = self
-            .connection_lock(connection_id)
+            .connection_lock(&format!("oauth-grant:{lock_id}"))
             .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
         let _guard = lock.write().await;
-        let current = self.load_oauth_connection(connection_id)?;
-        if !matches!(
-            current.descriptor.status,
-            AdapterConnectionStatus::AuthenticationRequired | AdapterConnectionStatus::Active
-        ) || current.descriptor.revisions != expected_revisions
+        let current = self.load_oauth_grant(
+            &request.semantic_digest,
+            &request.application_id,
+            request.grant_id.as_deref(),
+        )?;
+        if current.application.revision != request.expected_application_revision
+            || current.grant.as_ref().map(|grant| grant.authority_revision)
+                != request.expected_grant_revision
         {
             return Err(AdapterOAuthSetupError::Superseded);
         }
-        if current.profile.client_authentication != Oauth2ClientAuthentication::None
-            && current.client_secret.is_none()
+        if current.application.status != OauthApplicationStatus::Active
+            || current.application.callback_mode != request.callback_mode
+            || (current.profile.client_authentication != Oauth2ClientAuthentication::None
+                && current.application_credential.client_secret.is_none())
         {
             return Err(AdapterOAuthSetupError::Invalid);
         }
-        if current.callback_mode != callback_mode {
-            return Err(AdapterOAuthSetupError::Invalid);
-        }
+        let granted = current
+            .grant
+            .as_ref()
+            .map_or(&[][..], |grant| grant.granted_scopes.as_slice());
         let target_scopes = current
             .definition
-            .scope_target(
-                &current.descriptor.allowed_operations,
-                &current.descriptor.granted_scopes,
-            )
+            .scope_target(&request.operation_ids, granted)
             .ok_or(AdapterOAuthSetupError::Invalid)?;
-        let authority = oauth_authority(human_id, &current.descriptor, &current.profile_digest);
+        let authority = oauth_authority(human_id, &current, target_scopes.clone());
         let attempt = AdapterOAuthAttempt::start(
             &current.definition,
             &current.profile,
             crate::oauth::AdapterOAuthStart {
                 profile_digest: &current.profile_digest,
                 target_scopes: &target_scopes,
-                select_account: current.descriptor.account_id.is_none(),
-                client_id: &current.client_id,
+                select_account: current.grant.is_none(),
+                client_id: &current.application.client_id,
                 authority,
-                callback_mode,
-                redirect_uri,
+                callback_mode: request.callback_mode,
+                redirect_uri: &request.redirect_uri,
                 now_epoch_seconds,
                 ttl_seconds: OAUTH_ATTEMPT_TTL_SECONDS,
             },
@@ -1062,12 +1534,41 @@ impl AdapterCapabilityService {
             authorization_url: attempt.authorization_url().to_string(),
             expires_at_epoch_seconds: attempt.expires_at_epoch_seconds(),
         };
+        let superseded = request.grant_id.as_deref().and_then(|grant_id| {
+            self.inner
+                .oauth_attempts
+                .lock()
+                .ok()?
+                .active_attempt_for_grant(grant_id)
+        });
         self.inner
             .oauth_attempts
             .lock()
             .map_err(|_| AdapterOAuthSetupError::Unavailable)?
             .insert(attempt, now_epoch_seconds)
             .map_err(map_oauth_error)?;
+        if let Some(attempt_id) = superseded {
+            self.transition_oauth_attempt_status(
+                &attempt_id,
+                AdapterOAuthAttemptStatus::Superseded,
+                None,
+                None,
+            );
+        }
+        self.record_oauth_attempt_status(AdapterOAuthAttemptEvent {
+            attempt_id: started.attempt_id.clone(),
+            semantic_digest: Some(request.semantic_digest.clone()),
+            grant_id: request.grant_id.clone(),
+            grant_revision: request.expected_grant_revision,
+            status: AdapterOAuthAttemptStatus::Authorizing,
+        });
+        let service = self.clone();
+        let expiring_attempt_id = started.attempt_id.clone();
+        let expires_at = started.expires_at_epoch_seconds;
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(OAUTH_ATTEMPT_TTL_SECONDS)).await;
+            service.expire_oauth_attempt(&expiring_attempt_id, expires_at);
+        });
         Ok(started)
     }
 
@@ -1092,24 +1593,37 @@ impl AdapterCapabilityService {
         callback_url: &str,
         now_epoch_seconds: u64,
     ) -> Result<AdapterOAuthSetupCompletion, AdapterOAuthSetupError> {
-        let initiating_authority = self
-            .inner
-            .oauth_attempts
-            .lock()
-            .map_err(|_| AdapterOAuthSetupError::Unavailable)?
-            .authority_for_callback(callback_url)
-            .map_err(map_oauth_error)?;
-        let connection_id = initiating_authority.connection_id.clone();
+        let (known_attempt_id, initiating_authority) = {
+            let attempts = self
+                .inner
+                .oauth_attempts
+                .lock()
+                .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
+            (
+                attempts.attempt_id_for_callback(callback_url),
+                attempts
+                    .authority_for_callback(callback_url)
+                    .map_err(map_oauth_error)?,
+            )
+        };
+        let lock_id = initiating_authority
+            .grant_id
+            .as_deref()
+            .unwrap_or(&initiating_authority.application_id);
         let lock = self
-            .connection_lock(&connection_id)
+            .connection_lock(&format!("oauth-grant:{lock_id}"))
             .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
         let (current, reservation) = {
             let _guard = lock.write().await;
-            let current = self.load_oauth_connection(&connection_id)?;
+            let current = self.load_oauth_grant(
+                &initiating_authority.semantic_digest,
+                &initiating_authority.application_id,
+                initiating_authority.grant_id.as_deref(),
+            )?;
             let current_authority = oauth_authority(
                 &initiating_authority.human_id,
-                &current.descriptor,
-                &current.profile_digest,
+                &current,
+                initiating_authority.target_scopes.clone(),
             );
             let reservation = self
                 .inner
@@ -1117,7 +1631,21 @@ impl AdapterCapabilityService {
                 .lock()
                 .map_err(|_| AdapterOAuthSetupError::Unavailable)?
                 .reserve_for_callback(callback_url, now_epoch_seconds, &current_authority)
-                .map_err(map_oauth_error)?;
+                .map_err(map_oauth_error);
+            let reservation = match reservation {
+                Ok(reservation) => reservation,
+                Err(error) => {
+                    if let Some(attempt_id) = known_attempt_id.as_ref() {
+                        self.transition_oauth_attempt_status(
+                            attempt_id,
+                            oauth_attempt_status_for_error(error),
+                            None,
+                            None,
+                        );
+                    }
+                    return Err(error);
+                }
+            };
             (current, reservation)
         };
         let state_key = reservation.state_key();
@@ -1126,13 +1654,6 @@ impl AdapterCapabilityService {
             let code = reservation
                 .complete(callback_url, now_epoch_seconds, &initiating_authority)
                 .map_err(map_oauth_error)?;
-            let target_scopes = current
-                .definition
-                .scope_target(
-                    &current.descriptor.allowed_operations,
-                    &current.descriptor.granted_scopes,
-                )
-                .ok_or(AdapterOAuthSetupError::Unavailable)?;
             let (authorization_code, redirect_uri, pkce_verifier) = code.token_exchange_parts();
             let token = self
                 .inner
@@ -1141,97 +1662,105 @@ impl AdapterCapabilityService {
                     token_endpoint: url::Url::parse(&current.profile.token_endpoint)
                         .map_err(|_| AdapterOAuthSetupError::Unavailable)?,
                     client_authentication: current.profile.client_authentication,
-                    client_id: current.client_id.clone(),
-                    client_secret: current.client_secret.clone(),
+                    client_id: current.application.client_id.clone(),
+                    client_secret: current.application_credential.client_secret.clone(),
                     grant: AdapterOAuthTokenGrant::AuthorizationCode {
                         code: authorization_code.to_string(),
                         redirect_uri: redirect_uri.to_string(),
                         pkce_verifier: pkce_verifier.to_string(),
                     },
-                    expected_scopes: target_scopes,
+                    expected_scopes: initiating_authority.target_scopes.clone(),
+                    omitted_scope_policy: current.profile.omitted_scope_policy,
                     now_epoch_seconds,
                 })
                 .await
                 .map_err(map_oauth_token_error)?;
-            let connection_label = self
-                .probe_connection_label(&current.definition, &current.profile, &token.access_token)
+            let account_label = self
+                .probe_account_identity(&current.definition, &current.profile, &token.access_token)
                 .await;
 
             let _guard = lock.write().await;
-            let fresh = self.load_oauth_connection(&connection_id)?;
+            let fresh = self.load_oauth_grant(
+                &initiating_authority.semantic_digest,
+                &initiating_authority.application_id,
+                initiating_authority.grant_id.as_deref(),
+            )?;
             let fresh_authority = oauth_authority(
                 &initiating_authority.human_id,
-                &fresh.descriptor,
-                &fresh.profile_digest,
+                &fresh,
+                initiating_authority.target_scopes.clone(),
             );
             if !initiating_authority.matches(&fresh_authority)
-                || fresh.client_id != current.client_id
-                || fresh.client_secret != current.client_secret
-                || fresh.callback_mode != current.callback_mode
+                || fresh.application_credential != current.application_credential
             {
                 return Err(AdapterOAuthSetupError::Superseded);
             }
+            let account = self.resolve_external_account(&fresh, account_label)?;
+            let (grant, old_token, newly_authorized) = self.resolve_authorization_grant(
+                &fresh,
+                account.as_ref(),
+                &initiating_authority.target_scopes,
+            )?;
+            let refresh_token = token.refresh_token.or_else(|| {
+                (fresh.profile.preserve_refresh_token_on_expansion)
+                    .then(|| old_token.and_then(|token| token.refresh_token))
+                    .flatten()
+            });
             let generation_id = random_hex(16).map_err(|_| AdapterOAuthSetupError::Unavailable)?;
-            let newly_activated =
-                fresh.descriptor.status == AdapterConnectionStatus::AuthenticationRequired;
-            let credential = AdapterCredentialGenerationV2 {
-                schema_version: 2,
+            let grant_token = OauthGrantTokenV1 {
+                schema_version: 1,
                 generation_id: generation_id.clone(),
-                material: AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
-                    callback_mode: fresh.callback_mode,
-                    client_id: fresh.client_id,
-                    client_secret: fresh.client_secret,
-                    access_token: token.access_token,
-                    refresh_token: token.refresh_token,
-                    expires_at_epoch_seconds: token.expires_at_epoch_seconds,
-                },
+                access_token: token.access_token,
+                refresh_token,
+                expires_at_epoch_seconds: token.expires_at_epoch_seconds,
             };
-            let mut replacement = fresh.descriptor.clone();
-            replacement.status = AdapterConnectionStatus::Active;
-            replacement.revisions.connection = replacement
-                .revisions
-                .connection
-                .checked_add(1)
-                .ok_or(AdapterOAuthSetupError::Unavailable)?;
-            replacement.revisions.credential = replacement
-                .revisions
-                .credential
-                .checked_add(1)
-                .ok_or(AdapterOAuthSetupError::Unavailable)?;
-            replacement.revisions.grant = replacement
-                .revisions
-                .grant
-                .checked_add(1)
-                .ok_or(AdapterOAuthSetupError::Unavailable)?;
-            replacement.credential_generation = Some(generation_id);
+            let mut replacement = grant.clone();
+            replacement.desired_scopes = initiating_authority.target_scopes.clone();
             replacement.granted_scopes = token.granted_scopes;
-            if replacement.connection_label.is_none() && connection_label.is_some() {
-                replacement.connection_label = connection_label;
-            }
-            let connection = self
+            replacement.authority_revision = replacement
+                .authority_revision
+                .checked_add(1)
+                .ok_or(AdapterOAuthSetupError::Unavailable)?;
+            replacement.token_revision = replacement
+                .token_revision
+                .checked_add(1)
+                .ok_or(AdapterOAuthSetupError::Unavailable)?;
+            replacement.token_generation = Some(generation_id);
+            replacement.status = AuthorizationGrantStatus::Active;
+            let grant = self
                 .inner
-                .connections
-                .promote_oauth_credential(
-                    &fresh.descriptor,
-                    &replacement,
-                    &credential,
-                    &fresh.definition,
-                )
+                .oauth_authorities
+                .promote_grant(&grant, &replacement, &grant_token)
                 .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
             Ok(AdapterOAuthSetupCompletion {
-                attempt_id,
-                connection,
-                newly_activated,
+                attempt_id: attempt_id.clone(),
+                semantic_digest: initiating_authority.semantic_digest.clone(),
+                grant,
+                account,
+                newly_authorized,
             })
         }
         .await;
         if let Ok(mut attempts) = self.inner.oauth_attempts.lock() {
             attempts.finish(state_key);
         }
+        let status = result.as_ref().map_or_else(
+            |error| oauth_attempt_status_for_error(*error),
+            |_| AdapterOAuthAttemptStatus::Completed,
+        );
+        let grant_id = result
+            .as_ref()
+            .ok()
+            .map(|completion| completion.grant.grant_id.clone());
+        let grant_revision = result
+            .as_ref()
+            .ok()
+            .map(|completion| completion.grant.authority_revision);
+        self.transition_oauth_attempt_status(&attempt_id, status, grant_id, grant_revision);
         result
     }
 
-    async fn probe_connection_label(
+    async fn probe_account_identity(
         &self,
         definition: &CompiledAdapterDefinition,
         profile: &crate::OauthProfileV1,
@@ -1268,34 +1797,19 @@ impl AdapterCapabilityService {
         .flatten()
     }
 
-    fn load_oauth_connection(
+    fn load_oauth_grant(
         &self,
-        connection_id: &str,
-    ) -> Result<LoadedOAuthConnection, AdapterOAuthSetupError> {
-        let definitions = self
+        semantic_digest: &str,
+        application_id: &str,
+        grant_id: Option<&str>,
+    ) -> Result<LoadedOAuthGrant, AdapterOAuthSetupError> {
+        let definition = self
             .inner
             .definitions
-            .scan()
+            .load(semantic_digest)
             .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
-        let connections = self
-            .inner
-            .connections
-            .scan(&definitions.definitions)
+        let definition = AdapterCompiler::compile(&definition.manifest)
             .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
-        let descriptor = connections
-            .connections
-            .into_iter()
-            .find(|connection| connection.descriptor.connection_id == connection_id)
-            .map(|connection| connection.descriptor)
-            .ok_or(AdapterOAuthSetupError::Unavailable)?;
-        let definition = definitions
-            .definitions
-            .into_iter()
-            .find(|definition| {
-                definition.compiled.semantic_digest.as_str() == descriptor.semantic_digest
-            })
-            .map(|definition| definition.compiled)
-            .ok_or(AdapterOAuthSetupError::Unavailable)?;
         let profile_digest = definition
             .authentication
             .oauth2()
@@ -1307,37 +1821,133 @@ impl AdapterCapabilityService {
             .load_profile(&profile_digest)
             .map_err(|_| AdapterOAuthSetupError::Unavailable)?
             .profile;
-        let (_, credential) = self
+        let (application, application_credential) = self
             .inner
-            .connections
-            .load_for_invocation(connection_id, &definition)
+            .oauth_authorities
+            .load_application_authority(application_id)
             .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
-        let Some(credential) = credential else {
+        if application.profile_digest != profile_digest {
             return Err(AdapterOAuthSetupError::Superseded);
-        };
-        let (callback_mode, client_id, client_secret) = match credential.material {
-            AdapterCredentialMaterial::Oauth2ClientMetadata {
-                callback_mode,
-                client_id,
-                client_secret,
-            }
-            | AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
-                callback_mode,
-                client_id,
-                client_secret,
-                ..
-            } => (callback_mode, client_id, client_secret),
-            _ => return Err(AdapterOAuthSetupError::Superseded),
-        };
-        Ok(LoadedOAuthConnection {
+        }
+        let grant = grant_id
+            .map(|grant_id| {
+                self.inner
+                    .oauth_authorities
+                    .load_grant_authority(grant_id)
+                    .map(|(grant, _)| grant)
+            })
+            .transpose()
+            .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
+        if grant
+            .as_ref()
+            .is_some_and(|grant| grant.application_id != application_id)
+        {
+            return Err(AdapterOAuthSetupError::Superseded);
+        }
+        Ok(LoadedOAuthGrant {
             definition,
             profile,
             profile_digest,
-            descriptor,
-            client_id,
-            client_secret,
-            callback_mode,
+            application,
+            application_credential,
+            grant,
         })
+    }
+
+    fn resolve_external_account(
+        &self,
+        loaded: &LoadedOAuthGrant,
+        label: Option<String>,
+    ) -> Result<Option<ExternalAccountV1>, AdapterOAuthSetupError> {
+        let Some(provider_subject) = label else {
+            return loaded
+                .grant
+                .as_ref()
+                .and_then(|grant| grant.account_id.as_deref())
+                .map(|account_id| self.inner.oauth_authorities.load_account(account_id))
+                .transpose()
+                .map_err(|_| AdapterOAuthSetupError::Unavailable);
+        };
+        let snapshot = self
+            .inner
+            .oauth_authorities
+            .snapshot()
+            .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
+        if let Some(account) = snapshot.accounts.into_iter().find(|account| {
+            account.profile_digest == loaded.profile_digest
+                && account.provider_subject == provider_subject
+        }) {
+            return Ok(Some(account));
+        }
+        let account = ExternalAccountV1 {
+            schema_version: 1,
+            account_id: random_hex(16).map_err(|_| AdapterOAuthSetupError::Unavailable)?,
+            profile_digest: loaded.profile_digest.clone(),
+            provider_subject: provider_subject.clone(),
+            account_label: Some(provider_subject),
+            revision: 1,
+        };
+        self.inner
+            .oauth_authorities
+            .install_account(&account)
+            .map(Some)
+            .map_err(|_| AdapterOAuthSetupError::Unavailable)
+    }
+
+    fn resolve_authorization_grant(
+        &self,
+        loaded: &LoadedOAuthGrant,
+        account: Option<&ExternalAccountV1>,
+        target_scopes: &[String],
+    ) -> Result<(AuthorizationGrantV1, Option<OauthGrantTokenV1>, bool), AdapterOAuthSetupError>
+    {
+        if let Some(grant) = &loaded.grant {
+            let (_, token) = self
+                .inner
+                .oauth_authorities
+                .load_grant_authority(&grant.grant_id)
+                .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
+            return Ok((grant.clone(), token, false));
+        }
+        let snapshot = self
+            .inner
+            .oauth_authorities
+            .snapshot()
+            .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
+        if let Some(account) = account
+            && let Some(grant) = snapshot.grants.into_iter().find(|grant| {
+                grant.application_id == loaded.application.application_id
+                    && grant.account_id.as_deref() == Some(account.account_id.as_str())
+                    && grant.audience == loaded.profile.grant_audience
+            })
+        {
+            let (_, token) = self
+                .inner
+                .oauth_authorities
+                .load_grant_authority(&grant.grant_id)
+                .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
+            return Ok((grant, token, false));
+        }
+        let grant = AuthorizationGrantV1 {
+            schema_version: 1,
+            grant_id: random_hex(16).map_err(|_| AdapterOAuthSetupError::Unavailable)?,
+            application_id: loaded.application.application_id.clone(),
+            account_id: account.map(|account| account.account_id.clone()),
+            account_label: None,
+            audience: loaded.profile.grant_audience.clone(),
+            desired_scopes: target_scopes.to_vec(),
+            granted_scopes: Vec::new(),
+            authority_revision: 1,
+            token_generation: None,
+            token_revision: 1,
+            status: AuthorizationGrantStatus::AuthenticationRequired,
+        };
+        let grant = self
+            .inner
+            .oauth_authorities
+            .install_grant(&grant, None)
+            .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
+        Ok((grant, None, true))
     }
 
     /// Quarantine one connection under the same lifecycle fence as invocation.
@@ -1367,7 +1977,7 @@ impl AdapterCapabilityService {
         else {
             return Ok(false);
         };
-        if connection.descriptor.revisions.connection != expected_connection_revision {
+        if connection.descriptor.connection_revision != expected_connection_revision {
             return Err(crate::ConnectionStoreError::Integrity(
                 "stale_connection_revision",
             ));
@@ -1486,8 +2096,14 @@ impl AdapterCapabilityService {
             .scan(&definitions.definitions)
             .map_err(|_| CapabilityBindingSourceError::Unavailable)?;
         let diagnostic_count = connections.diagnostics.len();
-        let mut catalog = AdapterCatalogCompiler::compile(&definitions.definitions, &connections)
-            .map_err(|_| CapabilityBindingSourceError::Invalid)?;
+        let oauth = self
+            .inner
+            .oauth_authorities
+            .snapshot()
+            .map_err(|_| CapabilityBindingSourceError::Unavailable)?;
+        let mut catalog =
+            AdapterCatalogCompiler::compile(&definitions.definitions, &connections, &oauth)
+                .map_err(|_| CapabilityBindingSourceError::Invalid)?;
         let mut bindings = CapabilityCatalogBuilder::new();
         bindings
             .add(
@@ -1531,10 +2147,18 @@ impl AdapterCapabilityService {
             .map_err(|_| AdapterMigrationError::Unavailable)?;
         self.inner.connections.recover()?;
         self.inner.oauth_authorities.prepare()?;
+        self.inner
+            .oauth_authorities
+            .install_profile(&crate::reviewed_google_oauth_profile())?;
         self.inner.schedules.recover()?;
-        self.inner.connections.upgrade_legacy_descriptors()?;
+        let legacy_connections = self.inner.connections.quarantine_legacy_descriptors()?;
         let legacy = self.inner.definitions.legacy_definition_digests()?;
-        self.inner.schedules.quarantine_referencing(&legacy)?;
+        self.inner
+            .schedules
+            .quarantine_referencing(&legacy, &legacy_connections)?;
+        if !legacy_connections.is_empty() {
+            self.inner.cursors.quarantine_for_connection_cutover()?;
+        }
         self.inner.connections.quarantine_referencing(&legacy)?;
         for digest in legacy {
             self.inner.definitions.quarantine(&digest)?;
@@ -1581,20 +2205,18 @@ impl CapabilityBindingSource for AdapterCapabilityService {
 
 fn oauth_authority(
     human_id: &str,
-    descriptor: &AdapterConnectionV3,
-    profile_digest: &str,
+    loaded: &LoadedOAuthGrant,
+    target_scopes: Vec<String>,
 ) -> AdapterOAuthAuthorityV1 {
     AdapterOAuthAuthorityV1 {
         human_id: human_id.to_string(),
-        connection_id: descriptor.connection_id.clone(),
-        account_id: descriptor.account_id.clone(),
-        account_kind: descriptor.account_kind.clone(),
-        semantic_digest: descriptor.semantic_digest.clone(),
-        profile_digest: profile_digest.to_string(),
-        connection_revision: descriptor.revisions.connection,
-        credential_revision: descriptor.revisions.credential,
-        grant_revision: descriptor.revisions.grant,
-        policy_revision: descriptor.revisions.policy,
+        application_id: loaded.application.application_id.clone(),
+        application_revision: loaded.application.revision,
+        grant_id: loaded.grant.as_ref().map(|grant| grant.grant_id.clone()),
+        grant_authority_revision: loaded.grant.as_ref().map(|grant| grant.authority_revision),
+        semantic_digest: loaded.definition.semantic_digest.to_string(),
+        profile_digest: loaded.profile_digest.clone(),
+        target_scopes,
     }
 }
 
@@ -1607,6 +2229,19 @@ const fn map_oauth_error(error: AdapterOAuthError) -> AdapterOAuthSetupError {
         AdapterOAuthError::Expired => AdapterOAuthSetupError::Expired,
         AdapterOAuthError::ProviderDenied => AdapterOAuthSetupError::Denied,
         AdapterOAuthError::Unavailable => AdapterOAuthSetupError::Unavailable,
+    }
+}
+
+const fn oauth_attempt_status_for_error(
+    error: AdapterOAuthSetupError,
+) -> AdapterOAuthAttemptStatus {
+    match error {
+        AdapterOAuthSetupError::Denied => AdapterOAuthAttemptStatus::Denied,
+        AdapterOAuthSetupError::Expired => AdapterOAuthAttemptStatus::Expired,
+        AdapterOAuthSetupError::Superseded => AdapterOAuthAttemptStatus::Superseded,
+        AdapterOAuthSetupError::Invalid | AdapterOAuthSetupError::Unavailable => {
+            AdapterOAuthAttemptStatus::Failed
+        }
     }
 }
 
@@ -1628,11 +2263,4 @@ fn epoch_seconds() -> Result<u64, AdapterOAuthSetupError> {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .map_err(|_| AdapterOAuthSetupError::Unavailable)
-}
-
-fn valid_connection_id(value: &str) -> bool {
-    value.len() == 32
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }

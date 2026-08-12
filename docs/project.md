@@ -117,7 +117,7 @@ tables.
 | Active capability-authentication metadata and exact private replay arguments | SQLite metadata plus `${NOEMA_HOME}/run/capability-auth/` protected files; in-flight state is not database-rebuildable |
 | APNs provider authority, metadata, revision, and removal tombstone | `${NOEMA_HOME}/notifications/apns-provider.json` protected file; the private key never enters SQLite |
 | Client notification registrations, Tasks Live Activity projections, and durable delivery queues | SQLite; every native registration is bound to its authenticated paired client |
-| Adapter definitions, exact imported source bytes, connection configuration, and credential generations | `${NOEMA_HOME}/adapters/`; SQLite's adapter tables are disposable startup projections and never store manifest/source/credential bodies |
+| Adapter definitions, source bytes, connections, OAuth profiles, applications, accounts, grants, and protected generations | `${NOEMA_HOME}/adapters/`; SQLite adapter tables are disposable public projections |
 | Memory prose, semantic metadata, provenance, and consolidation state | `memory/human/` Markdown |
 | Verified local model weights | `${NOEMA_HOME}/models/blobs/` |
 | Human-authored docs, imported files, attachments, and durable artifacts | filesystem |

@@ -3,6 +3,7 @@
 use crate::{
     AdapterCredentialGenerationV2, AdapterCredentialMaterial, AuthenticationSchemeV4,
     CompiledAdapterDefinition, CredentialInput, CredentialSetup, Oauth2CallbackMode,
+    OauthApplicationCredentialV1, OauthProfileV1,
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -25,6 +26,51 @@ pub enum AdapterCredentialImportError {
     Oversized,
 }
 
+/// Normalize one transient OAuth client document through a reviewed profile.
+pub(crate) fn setup_oauth_application(
+    profile: &OauthProfileV1,
+    callback_mode: Oauth2CallbackMode,
+    redirect_uri: &str,
+    document: &[u8],
+    generation_id: String,
+) -> Result<(String, OauthApplicationCredentialV1), AdapterCredentialImportError> {
+    if !valid_generation_id(&generation_id) {
+        return Err(AdapterCredentialImportError::Invalid);
+    }
+    let setup = profile
+        .setups
+        .iter()
+        .find(|setup| setup.callback_mode == callback_mode)
+        .map(|setup| &setup.setup)
+        .ok_or(AdapterCredentialImportError::Unsupported)?;
+    let mut fields = normalize(setup, BTreeMap::new(), Some(document))?;
+    if let Some(redirects) = fields.remove("redirect_uris") {
+        let redirects = serde_json::from_str::<Vec<String>>(&redirects)
+            .map_err(|_| AdapterCredentialImportError::Invalid)?;
+        if callback_mode != Oauth2CallbackMode::Hosted
+            || redirects.len() > 32
+            || !redirects.iter().any(|candidate| candidate == redirect_uri)
+        {
+            return Err(AdapterCredentialImportError::Invalid);
+        }
+    } else if callback_mode == Oauth2CallbackMode::Hosted {
+        return Err(AdapterCredentialImportError::Invalid);
+    }
+    let client_id = fields
+        .get("client_id")
+        .cloned()
+        .ok_or(AdapterCredentialImportError::Invalid)?;
+    let client_secret = fields.get("client_secret").cloned();
+    Ok((
+        client_id,
+        OauthApplicationCredentialV1 {
+            schema_version: 1,
+            generation_id,
+            client_secret,
+        },
+    ))
+}
+
 /// Normalize one write-only submission into a private credential generation.
 ///
 /// # Errors
@@ -33,7 +79,6 @@ pub enum AdapterCredentialImportError {
 /// input shape, transform output, or generation identity is invalid.
 pub fn setup_credential(
     definition: &CompiledAdapterDefinition,
-    callback_mode: Option<Oauth2CallbackMode>,
     field_values: BTreeMap<String, String>,
     document: Option<&[u8]>,
     generation_id: String,
@@ -41,28 +86,14 @@ pub fn setup_credential(
     if !definition.reviewed || !valid_generation_id(&generation_id) {
         return Err(AdapterCredentialImportError::Invalid);
     }
-    let (setup, mode) = match &definition.authentication {
-        AuthenticationSchemeV4::Credential(config) if callback_mode.is_none() => {
-            (&config.setup, None)
-        }
-        AuthenticationSchemeV4::None
-        | AuthenticationSchemeV4::Credential(_)
-        | AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(_) => {
+    let setup = match &definition.authentication {
+        AuthenticationSchemeV4::Credential(config) => &config.setup,
+        AuthenticationSchemeV4::None | AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(_) => {
             return Err(AdapterCredentialImportError::Unsupported);
         }
     };
     let fields = normalize(setup, field_values, document)?;
-    let material = match mode {
-        None => AdapterCredentialMaterial::Credential { fields },
-        Some(callback_mode) => AdapterCredentialMaterial::Oauth2ClientMetadata {
-            callback_mode,
-            client_id: fields
-                .get("client_id")
-                .cloned()
-                .ok_or(AdapterCredentialImportError::Invalid)?,
-            client_secret: fields.get("client_secret").cloned(),
-        },
-    };
+    let material = AdapterCredentialMaterial::Credential { fields };
     Ok(AdapterCredentialGenerationV2 {
         schema_version: 2,
         generation_id,
@@ -185,7 +216,6 @@ mod tests {
         assert_eq!(
             setup_credential(
                 &definition,
-                Some(Oauth2CallbackMode::Hosted),
                 BTreeMap::new(),
                 Some(br#"{"web":{"client_id":"client-marker","client_secret":"secret-marker"}}"#),
                 "a".repeat(32),

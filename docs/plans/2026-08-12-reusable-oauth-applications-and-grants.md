@@ -1,7 +1,7 @@
 # Reusable OAuth Applications and Grants Plan
 
-- **Status:** Proposed
-- **Mode:** Plan only
+- **Status:** Implemented in source; native generation and live acceptance pending
+- **Mode:** Implement
 - **Date:** 2026-08-12
 - **Scope:** Native HTTP API adapters, Web, and iOS
 - **Compatibility:** Clean cutover; existing OAuth accounts require setup again
@@ -21,6 +21,11 @@ The finished system must support these outcomes:
 6. Let their connections share one compatible Google account grant.
 
 This work replaces the current OAuth ownership model. It does not add a parallel connector system.
+
+Implementation now covers the authority stores, operation scopes, runtime,
+GraphQL, Web, iOS source flows, and clean cutover. Native Apollo generation,
+native visual validation, and live Google acceptance still need macOS and human
+provider access.
 
 ## 2. Current Failure
 

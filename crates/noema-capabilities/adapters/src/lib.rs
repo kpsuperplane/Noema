@@ -30,6 +30,9 @@ mod output_schema;
 mod private_fs;
 mod request;
 mod response;
+#[cfg(test)]
+#[path = "runtime_tests.rs"]
+mod runtime_tests;
 mod schedule;
 mod service;
 mod setup;
@@ -40,9 +43,8 @@ pub use compiler::{
     ConnectionSlug, DefinitionOperationToken, SemanticChange,
 };
 pub use connection::{
-    AdapterConnectionAuthenticationV1, AdapterConnectionRevisions, AdapterConnectionStatus,
-    AdapterConnectionV3, AdapterConnectionV4, AdapterCredentialGenerationV2,
-    AdapterCredentialMaterial,
+    AdapterConnectionAuthenticationV1, AdapterConnectionStatus, AdapterConnectionV4,
+    AdapterCredentialGenerationV2, AdapterCredentialMaterial,
 };
 pub use connection_store::{
     AdapterConnectionStore, ConnectionInstall, ConnectionProjection, ConnectionScan,
@@ -69,7 +71,8 @@ pub use digest::{OperationDigest, SemanticDigest, SourceDigest};
 pub use oauth_authority::{
     AuthorizationGrantStatus, AuthorizationGrantV1, ExternalAccountV1,
     OauthApplicationCredentialV1, OauthApplicationStatus, OauthApplicationV1, OauthGrantTokenV1,
-    OauthProfileV1, OauthScopeResponsePolicy,
+    OauthProfileV1, OauthScopeResponsePolicy, reviewed_google_oauth_profile,
+    reviewed_google_oauth_profile_digest,
 };
 pub use oauth_authority_store::{
     OauthAuthoritySnapshot, OauthAuthorityStore, OauthAuthorityStoreError, OauthProfileInstall,
@@ -90,5 +93,6 @@ pub use schedule::{
 pub use service::{
     AdapterCapabilityService, AdapterConnectionSetupError, AdapterManagementError,
     AdapterManagementFence, AdapterManagementSnapshot, AdapterMigrationError,
+    AdapterOAuthAttemptEvent, AdapterOAuthAttemptStatus, AdapterOAuthAuthorizationRequest,
     AdapterOAuthSetupCompletion, AdapterOAuthSetupError, AdapterOAuthSetupStart,
 };

@@ -168,6 +168,7 @@ pub(crate) fn is_definition_template_invocation(operation: &str, token: &Operati
 
 impl AdapterCapabilityService {
     fn definition_help_payload() -> Value {
+        let google_profile_digest = crate::reviewed_google_oauth_profile_digest();
         let payload = json!({
             "instructions": [
                 "Replace every example.test value with facts supported by the official HTTPS source.",
@@ -199,7 +200,7 @@ impl AdapterCapabilityService {
                 "origin": "https://api.example.test/",
                 "authentication": {
                     "kind": "oauth2_authorization_code_pkce",
-                    "profile_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    "profile_digest": google_profile_digest
                 },
                 "operations": [{
                     "operation_id": "get_profile",
@@ -936,7 +937,7 @@ mod tests {
         assert!(output.payload["compatible_oauth2_callback_mode"].is_null());
         assert_eq!(
             output.payload["manifest_template"]["authentication"]["profile_digest"],
-            json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            json!(crate::reviewed_google_oauth_profile_digest())
         );
         assert!(output.payload["manifest_template"]["authentication"]["setups"].is_null());
     }

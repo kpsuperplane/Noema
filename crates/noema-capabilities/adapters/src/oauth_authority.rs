@@ -1,7 +1,8 @@
 //! Stored OAuth application, account, grant, and token authorities.
 
 use crate::{
-    AccountIdentityProbe, Oauth2CallbackMode, Oauth2ClientAuthentication, Oauth2CredentialSetup,
+    AccountIdentityProbe, CredentialField, CredentialInput, CredentialSetup, LuauTransform,
+    Oauth2CallbackMode, Oauth2ClientAuthentication, Oauth2CredentialSetup, SemanticDigest,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -159,6 +160,9 @@ pub struct AuthorizationGrantV1 {
     /// External account identity when a reviewed probe resolved it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
+    /// Human label used when stable provider identity is unavailable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_label: Option<String>,
     /// Exact reviewed token audience.
     pub audience: String,
     /// Exact scopes Noema currently wants.
@@ -208,4 +212,99 @@ impl std::fmt::Debug for OauthGrantTokenV1 {
             .field("expires_at_epoch_seconds", &self.expires_at_epoch_seconds)
             .finish()
     }
+}
+
+/// Return the reviewed Google OAuth profile used by Gmail and Calendar definitions.
+#[must_use]
+pub fn reviewed_google_oauth_profile() -> OauthProfileV1 {
+    OauthProfileV1 {
+        schema_version: 1,
+        profile_id: "google".to_string(),
+        display_name: "Google".to_string(),
+        authorization_endpoint: "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
+        token_endpoint: "https://oauth2.googleapis.com/token".to_string(),
+        client_authentication: Oauth2ClientAuthentication::ClientSecretPost,
+        setups: vec![
+            Oauth2CredentialSetup {
+                callback_mode: Oauth2CallbackMode::Loopback,
+                setup: CredentialSetup {
+                    credential_type: "Desktop app OAuth client".to_string(),
+                    setup_url: "https://console.cloud.google.com/apis/credentials".to_string(),
+                    instructions: vec![
+                        "Create one Desktop app OAuth client.".to_string(),
+                        "Download its JSON document.".to_string(),
+                    ],
+                    input: CredentialInput::Document {
+                        media_type: "application/json".to_string(),
+                        fields: google_client_fields(false),
+                        normalize: LuauTransform::Luau {
+                            source: "return function(input) local d = json.decode(input.document) return { client_id = d.installed.client_id, client_secret = d.installed.client_secret } end".to_string(),
+                        },
+                    },
+                },
+            },
+            Oauth2CredentialSetup {
+                callback_mode: Oauth2CallbackMode::Hosted,
+                setup: CredentialSetup {
+                    credential_type: "Web application OAuth client".to_string(),
+                    setup_url: "https://console.cloud.google.com/apis/credentials".to_string(),
+                    instructions: vec![
+                        "Create one Web application OAuth client.".to_string(),
+                        "Add the shown redirect URI.".to_string(),
+                        "Download its JSON document.".to_string(),
+                    ],
+                    input: CredentialInput::Document {
+                        media_type: "application/json".to_string(),
+                        fields: google_client_fields(true),
+                        normalize: LuauTransform::Luau {
+                            source: "return function(input) local d = json.decode(input.document) return { client_id = d.web.client_id, client_secret = d.web.client_secret, redirect_uris = json.encode(d.web.redirect_uris) } end".to_string(),
+                        },
+                    },
+                },
+            },
+        ],
+        authorization_parameters: [
+            ("access_type".to_string(), "offline".to_string()),
+            ("include_granted_scopes".to_string(), "true".to_string()),
+        ]
+        .into_iter()
+        .collect(),
+        account_selection_parameters: [("prompt".to_string(), "select_account".to_string())]
+            .into_iter()
+            .collect(),
+        grant_audience: "google-apis".to_string(),
+        omitted_scope_policy: OauthScopeResponsePolicy::RequestedScopes,
+        preserve_refresh_token_on_expansion: true,
+        account_identity: None,
+    }
+}
+
+/// Return the exact content address of the reviewed Google OAuth profile.
+#[must_use]
+pub fn reviewed_google_oauth_profile_digest() -> String {
+    let value = serde_json::to_value(reviewed_google_oauth_profile())
+        .expect("reviewed Google OAuth profile serializes");
+    let bytes = crate::digest::canonical_json_bytes(&value)
+        .expect("reviewed Google OAuth profile is canonical");
+    SemanticDigest::compute(&bytes).to_string()
+}
+
+fn google_client_fields(include_redirects: bool) -> Vec<CredentialField> {
+    let mut fields = vec![
+        CredentialField {
+            id: "client_id".to_string(),
+            label: "Client ID".to_string(),
+        },
+        CredentialField {
+            id: "client_secret".to_string(),
+            label: "Client secret".to_string(),
+        },
+    ];
+    if include_redirects {
+        fields.push(CredentialField {
+            id: "redirect_uris".to_string(),
+            label: "Registered redirect URIs".to_string(),
+        });
+    }
+    fields
 }

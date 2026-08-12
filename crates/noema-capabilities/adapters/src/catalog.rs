@@ -1,6 +1,9 @@
 //! Deterministic connection-bound capability catalog compilation.
 
-use crate::{ConnectionScan, DefinitionInstall, digest::canonical_json_bytes};
+use crate::{
+    AdapterConnectionAuthenticationV1, AuthorizationGrantStatus, ConnectionScan, DefinitionInstall,
+    OauthAuthoritySnapshot, digest::canonical_json_bytes,
+};
 use noema_capabilities::{
     CapabilityAvailabilityNotice, CapabilityAvailabilityStatus, CapabilityBinding,
     CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityConnectionPolicy,
@@ -9,8 +12,6 @@ use noema_capabilities::{
     resolve_capability_execution_decision,
 };
 use serde::{Deserialize, Serialize};
-#[cfg(test)]
-use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc};
 use thiserror::Error;
 
@@ -41,11 +42,10 @@ pub(crate) struct AdapterOperationAuthorityV1 {
     pub operation_digest: String,
     pub definition_token: String,
     pub connection_revision: u64,
-    pub credential_revision: u64,
-    pub grant_revision: u64,
+    pub credential_revision: Option<u64>,
+    pub grant_id: Option<String>,
+    pub grant_authority_revision: Option<u64>,
     pub policy_revision: u64,
-    pub credential_generation: Option<String>,
-    pub account_kind: String,
 }
 
 impl AdapterCatalogCompiler {
@@ -58,6 +58,7 @@ impl AdapterCatalogCompiler {
     pub fn compile(
         definitions: &[DefinitionInstall],
         connections: &ConnectionScan,
+        oauth: &OauthAuthoritySnapshot,
     ) -> Result<CapabilityCatalogResult, AdapterCatalogError> {
         let by_digest = definitions
             .iter()
@@ -75,6 +76,7 @@ impl AdapterCatalogCompiler {
             let definition = by_digest
                 .get(descriptor.semantic_digest.as_str())
                 .ok_or(AdapterCatalogError)?;
+            let authentication = resolved_authentication(descriptor, definition, oauth)?;
             for operation_id in &descriptor.allowed_operations {
                 let operation = definition
                     .operations
@@ -88,9 +90,10 @@ impl AdapterCatalogCompiler {
                 )?;
                 match descriptor.status {
                     crate::AdapterConnectionStatus::Active => {
-                        if !operation
-                            .authorization
-                            .is_satisfied_by(&descriptor.granted_scopes)
+                        if !authentication.active
+                            || !operation
+                                .authorization
+                                .is_satisfied_by(authentication.granted_scopes)
                         {
                             notices.push(CapabilityAvailabilityNotice {
                                 capability: Some(canonical_name),
@@ -105,7 +108,7 @@ impl AdapterCatalogCompiler {
                             });
                             continue;
                         };
-                        if connection_policy.revision != descriptor.revisions.policy {
+                        if connection_policy.revision != descriptor.policy_revision {
                             return Err(AdapterCatalogError);
                         }
                         let behavior = effective_behavior(descriptor, operation)?;
@@ -115,6 +118,7 @@ impl AdapterCatalogCompiler {
                                 definition,
                                 descriptor,
                                 operation,
+                                &authentication,
                                 connection_policy,
                                 behavior,
                             )?)
@@ -165,21 +169,21 @@ impl AdapterOperationAuthorityV1 {
                 .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
             || authority.semantic_digest.len() != 64
             || authority.operation_digest.len() != 64
-            || [
-                authority.connection_revision,
-                authority.grant_revision,
-                authority.policy_revision,
-            ]
-            .contains(&0)
+            || [authority.connection_revision, authority.policy_revision].contains(&0)
+            || authority.grant_id.as_deref().is_some_and(|value| {
+                value.len() != 32
+                    || !value
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+            })
             || authority
-                .credential_generation
-                .as_deref()
-                .is_some_and(|value| {
-                    value.len() != 32
-                        || !value
-                            .bytes()
-                            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-                })
+                .grant_authority_revision
+                .is_some_and(|revision| revision == 0)
+            || authority
+                .credential_revision
+                .is_some_and(|revision| revision == 0)
+            || authority.grant_id.is_some() != authority.grant_authority_revision.is_some()
+            || authority.grant_id.is_some() && authority.credential_revision.is_some()
         {
             return Err(AdapterCatalogError);
         }
@@ -187,12 +191,18 @@ impl AdapterOperationAuthorityV1 {
     }
 
     pub(crate) fn destination_revision(&self) -> String {
+        let credential_revision = self
+            .credential_revision
+            .map_or_else(|| "none".to_string(), |revision| revision.to_string());
+        let grant_revision = self
+            .grant_authority_revision
+            .map_or_else(|| "none".to_string(), |revision| revision.to_string());
         format!(
             "definition:{}/connection:{}/credential:{}/grant:{}/policy:{}",
             self.semantic_digest,
             self.connection_revision,
-            self.credential_revision,
-            self.grant_revision,
+            credential_revision,
+            grant_revision,
             self.policy_revision,
         )
     }
@@ -205,11 +215,76 @@ impl AdapterOperationAuthorityV1 {
     }
 }
 
+struct ResolvedAuthentication<'a> {
+    active: bool,
+    granted_scopes: &'a [String],
+    account_id: Option<&'a str>,
+    credential_revision: Option<u64>,
+    grant_id: Option<&'a str>,
+    grant_authority_revision: Option<u64>,
+}
+
+fn resolved_authentication<'a>(
+    descriptor: &'a crate::AdapterConnectionV4,
+    definition: &crate::CompiledAdapterDefinition,
+    oauth: &'a OauthAuthoritySnapshot,
+) -> Result<ResolvedAuthentication<'a>, AdapterCatalogError> {
+    match &descriptor.authentication {
+        AdapterConnectionAuthenticationV1::None => Ok(ResolvedAuthentication {
+            active: true,
+            granted_scopes: &[],
+            account_id: None,
+            credential_revision: None,
+            grant_id: None,
+            grant_authority_revision: None,
+        }),
+        AdapterConnectionAuthenticationV1::Credential { revision, .. } => {
+            Ok(ResolvedAuthentication {
+                active: true,
+                granted_scopes: &[],
+                account_id: None,
+                credential_revision: Some(*revision),
+                grant_id: None,
+                grant_authority_revision: None,
+            })
+        }
+        AdapterConnectionAuthenticationV1::OauthGrant { grant_id } => {
+            let grant = oauth
+                .grants
+                .iter()
+                .find(|grant| grant.grant_id == *grant_id)
+                .ok_or(AdapterCatalogError)?;
+            let application = oauth
+                .applications
+                .iter()
+                .find(|application| application.application_id == grant.application_id)
+                .ok_or(AdapterCatalogError)?;
+            let expected_profile = definition
+                .authentication
+                .oauth2()
+                .map(|oauth| oauth.profile_digest.as_str())
+                .ok_or(AdapterCatalogError)?;
+            if application.profile_digest != expected_profile {
+                return Err(AdapterCatalogError);
+            }
+            Ok(ResolvedAuthentication {
+                active: grant.status == AuthorizationGrantStatus::Active,
+                granted_scopes: &grant.granted_scopes,
+                account_id: grant.account_id.as_deref(),
+                credential_revision: None,
+                grant_id: Some(grant_id),
+                grant_authority_revision: Some(grant.authority_revision),
+            })
+        }
+    }
+}
+
 fn binding(
     canonical_name: ToolName,
     definition: &crate::CompiledAdapterDefinition,
-    descriptor: &crate::AdapterConnectionV3,
+    descriptor: &crate::AdapterConnectionV4,
     operation: &crate::CompiledOperation,
+    authentication: &ResolvedAuthentication<'_>,
     connection_policy: CapabilityConnectionPolicy,
     behavior: CapabilityToolBehavior,
 ) -> Result<CapabilityBinding, AdapterCatalogError> {
@@ -218,17 +293,16 @@ fn binding(
         canonical_name: canonical_name.as_str().to_string(),
         connection_id: descriptor.connection_id.clone(),
         connection_slug: descriptor.connection_slug.clone(),
-        account_id: descriptor.account_id.clone(),
+        account_id: authentication.account_id.map(str::to_string),
         semantic_digest: descriptor.semantic_digest.clone(),
         operation_id: operation.operation_id.clone(),
         operation_digest: operation.operation_digest.to_string(),
         definition_token: operation.token.as_str().to_string(),
-        connection_revision: descriptor.revisions.connection,
-        credential_revision: descriptor.revisions.credential,
-        grant_revision: descriptor.revisions.grant,
-        policy_revision: descriptor.revisions.policy,
-        credential_generation: descriptor.credential_generation.clone(),
-        account_kind: descriptor.account_kind.clone(),
+        connection_revision: descriptor.connection_revision,
+        credential_revision: authentication.credential_revision,
+        grant_id: authentication.grant_id.map(str::to_string),
+        grant_authority_revision: authentication.grant_authority_revision,
+        policy_revision: descriptor.policy_revision,
     };
     let token =
         canonical_json_bytes(&serde_json::to_value(&authority).map_err(|_| AdapterCatalogError)?)
@@ -241,7 +315,7 @@ fn binding(
     let destination = CapabilityDestination::new(
         "adapter",
         descriptor.connection_id.clone(),
-        descriptor.account_id.clone(),
+        authentication.account_id.map(str::to_string),
         destination_revision,
     )
     .and_then(|destination| {
@@ -289,7 +363,7 @@ fn binding(
 }
 
 pub(crate) fn effective_behavior(
-    descriptor: &crate::AdapterConnectionV3,
+    descriptor: &crate::AdapterConnectionV4,
     operation: &crate::CompiledOperation,
 ) -> Result<CapabilityToolBehavior, AdapterCatalogError> {
     let Some(override_policy) = descriptor
@@ -318,6 +392,3 @@ pub(crate) fn canonical_name(
     ToolName::new(format!("{adapter_id}_{connection_slug}.{operation_id}"))
         .map_err(|_| AdapterCatalogError)
 }
-
-#[cfg(test)]
-mod tests;

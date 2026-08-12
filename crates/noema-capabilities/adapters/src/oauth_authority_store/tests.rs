@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    CredentialField, CredentialInput, CredentialSetup, Oauth2CallbackMode,
+    CredentialField, CredentialInput, CredentialSetup, LuauTransform, Oauth2CallbackMode,
     Oauth2ClientAuthentication, Oauth2CredentialSetup, OauthApplicationStatus,
     OauthScopeResponsePolicy, write_new_file,
 };
@@ -21,16 +21,21 @@ fn profile() -> OauthProfileV1 {
         token_endpoint: "https://oauth2.googleapis.com/token".into(),
         client_authentication: Oauth2ClientAuthentication::None,
         setups: vec![Oauth2CredentialSetup {
-            callback_mode: Oauth2CallbackMode::Hosted,
+            callback_mode: Oauth2CallbackMode::Loopback,
             setup: CredentialSetup {
                 credential_type: "OAuth client document".into(),
                 setup_url: "https://console.cloud.google.com/apis/credentials".into(),
                 instructions: vec!["Create one Web OAuth client.".into()],
-                input: CredentialInput::Fields {
+                input: CredentialInput::Document {
+                    media_type: "application/json".into(),
                     fields: vec![CredentialField {
                         id: "client_id".into(),
                         label: "Client ID".into(),
                     }],
+                    normalize: LuauTransform::Luau {
+                        source: "return function(input) return { client_id = input.document } end"
+                            .into(),
+                    },
                 },
             },
         }],
@@ -52,7 +57,7 @@ fn application(profile_digest: &str) -> (OauthApplicationV1, OauthApplicationCre
             schema_version: 1,
             application_id: "a".repeat(32),
             profile_digest: profile_digest.into(),
-            callback_mode: Oauth2CallbackMode::Hosted,
+            callback_mode: Oauth2CallbackMode::Loopback,
             client_id: "public-client-id".into(),
             project_label: Some("Personal APIs".into()),
             credential_generation: generation_id.clone(),
@@ -91,6 +96,7 @@ fn grant(
             grant_id: id.to_string().repeat(32),
             application_id: application_id.into(),
             account_id: Some(account_id.into()),
+            account_label: None,
             audience: "google-apis".into(),
             desired_scopes: vec!["gmail.readonly".into()],
             granted_scopes: vec!["gmail.readonly".into()],

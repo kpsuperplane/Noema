@@ -65,15 +65,13 @@ fn profile() -> OauthProfileV1 {
 fn authority(definition: &CompiledAdapterDefinition) -> AdapterOAuthAuthorityV1 {
     AdapterOAuthAuthorityV1 {
         human_id: "human:local".to_string(),
-        connection_id: "a".repeat(32),
-        account_id: Some("account:synthetic".to_string()),
-        account_kind: "personal".to_string(),
+        application_id: "a".repeat(32),
+        application_revision: 1,
+        grant_id: Some("b".repeat(32)),
+        grant_authority_revision: Some(1),
         semantic_digest: definition.semantic_digest.to_string(),
         profile_digest: "a".repeat(64),
-        connection_revision: 1,
-        credential_revision: 0,
-        grant_revision: 1,
-        policy_revision: 1,
+        target_scopes: vec!["read".to_string(), "write".to_string()],
     }
 }
 
@@ -180,7 +178,7 @@ fn callback_requires_exact_state_and_revision_binding() {
     let attempt = start(&definition);
     let state = extract_state(&attempt);
     let mut current = authority(&definition);
-    current.policy_revision = 2;
+    current.grant_authority_revision = Some(2);
     assert!(matches!(
         attempt.complete(
             &callback(&format!("code=code&state={state}")),
@@ -371,7 +369,7 @@ fn attempt_registry_is_state_indexed_one_use_and_bounded() {
 
     for index in 0..MAX_ACTIVE_ATTEMPTS {
         let mut candidate_authority = authority(&definition);
-        candidate_authority.connection_id = format!("{index:032x}");
+        candidate_authority.grant_id = Some(format!("{index:032x}"));
         let candidate = start_with(
             &definition,
             candidate_authority,
@@ -383,7 +381,7 @@ fn attempt_registry_is_state_indexed_one_use_and_bounded() {
         registry.insert(candidate, 101).expect("within capacity");
     }
     let mut overflow_authority = authority(&definition);
-    overflow_authority.connection_id = "f".repeat(32);
+    overflow_authority.grant_id = Some("f".repeat(32));
     let overflow = start_with(
         &definition,
         overflow_authority,
@@ -397,7 +395,7 @@ fn attempt_registry_is_state_indexed_one_use_and_bounded() {
         Err(AdapterOAuthError::Unavailable)
     );
     let mut replacement_authority = authority(&definition);
-    replacement_authority.connection_id = format!("{:032x}", 0);
+    replacement_authority.grant_id = Some(format!("{:032x}", 0));
     let replacement = start_with(
         &definition,
         replacement_authority,

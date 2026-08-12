@@ -224,6 +224,18 @@ impl NoemaPaths {
             .join("legacy-oauth-connections")
     }
 
+    /// OAuth grants retained after disconnect or failed reauthentication.
+    #[must_use]
+    pub fn adapter_oauth_grant_quarantine_dir(&self) -> PathBuf {
+        self.adapter_quarantine_dir().join("oauth-grants")
+    }
+
+    /// OAuth applications retained after explicit deletion.
+    #[must_use]
+    pub fn adapter_oauth_application_quarantine_dir(&self) -> PathBuf {
+        self.adapter_quarantine_dir().join("oauth-applications")
+    }
+
     /// Directory for one canonical adapter definition digest.
     ///
     /// # Errors
@@ -283,6 +295,38 @@ impl NoemaPaths {
     pub fn adapter_oauth_grant_dir(&self, id: &str) -> Result<PathBuf, NoemaPathError> {
         validate_adapter_object_id(id)?;
         Ok(self.adapter_oauth_grants_dir().join(id))
+    }
+
+    /// Quarantine destination for one OAuth grant generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NoemaPathError::InvalidAdapterObjectId`] for a malformed id.
+    pub fn quarantined_adapter_oauth_grant_dir(
+        &self,
+        id: &str,
+        revision: u64,
+    ) -> Result<PathBuf, NoemaPathError> {
+        validate_adapter_object_id(id)?;
+        Ok(self
+            .adapter_oauth_grant_quarantine_dir()
+            .join(format!("{id}-r{revision}")))
+    }
+
+    /// Quarantine destination for one OAuth application revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NoemaPathError::InvalidAdapterObjectId`] for a malformed id.
+    pub fn quarantined_adapter_oauth_application_dir(
+        &self,
+        id: &str,
+        revision: u64,
+    ) -> Result<PathBuf, NoemaPathError> {
+        validate_adapter_object_id(id)?;
+        Ok(self
+            .adapter_oauth_application_quarantine_dir()
+            .join(format!("{id}-r{revision}")))
     }
 
     /// Quarantine destination for one stable adapter connection identity.

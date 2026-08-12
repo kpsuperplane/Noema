@@ -50,8 +50,10 @@ pub struct CursorBinding {
     pub semantic_digest: String,
     /// Exact operation identity.
     pub operation_id: String,
-    /// Exact reviewed account surface.
-    pub account_kind: String,
+    /// Exact reusable grant identity, when OAuth authorizes the operation.
+    pub grant_id: Option<String>,
+    /// Stable external account identity, when the reviewed provider exposes it.
+    pub account_id: Option<String>,
     /// Provider grant revision captured at issue time.
     pub grant_revision: u64,
     /// SHA-256 of the original model-controlled arguments.
@@ -231,6 +233,39 @@ impl DurableCursorStore {
         Ok(())
     }
 
+    /// Quarantine all cursor secrets created before the connection cutover.
+    pub(crate) fn quarantine_for_connection_cutover(&self) -> Result<(), DurableCursorError> {
+        let root = self.prepare_root()?;
+        let mut entries = fs::read_dir(&root)?.collect::<Result<Vec<_>, _>>()?;
+        if entries.is_empty() {
+            return Ok(());
+        }
+        if entries.len() > 4_096 {
+            return Err(DurableCursorError::Integrity("cursor_root_oversized"));
+        }
+        entries.sort_by_key(fs::DirEntry::file_name);
+        let quarantine_root = self
+            .paths
+            .adapter_quarantine_dir()
+            .join("legacy-cursor-secrets");
+        crate::private_fs::create_private_dir(&self.paths.adapter_quarantine_dir())?;
+        crate::private_fs::create_private_dir(&quarantine_root)?;
+        for entry in entries {
+            let metadata = fs::symlink_metadata(entry.path())?;
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                return Err(DurableCursorError::Integrity("cursor_file"));
+            }
+            let target = quarantine_root.join(entry.file_name());
+            if target.exists() {
+                return Err(DurableCursorError::Integrity("cursor_quarantine_conflict"));
+            }
+            fs::rename(entry.path(), target)?;
+        }
+        crate::private_fs::sync_directory(&root)?;
+        crate::private_fs::sync_directory(&quarantine_root)?;
+        Ok(())
+    }
+
     fn prepare_root(&self) -> Result<PathBuf, DurableCursorError> {
         let adapters = self.paths.adapters_dir();
         crate::private_fs::create_private_dir(&adapters)?;
@@ -254,7 +289,8 @@ fn valid_cursor_binding(binding: &CursorBinding) -> bool {
             .bytes()
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
         && valid_id(&binding.operation_id)
-        && valid_reference(&binding.account_kind)
+        && binding.grant_id.as_deref().is_none_or(valid_reference)
+        && binding.account_id.as_deref().is_none_or(valid_reference)
         && binding.arguments_sha256.len() == 64
         && binding
             .arguments_sha256

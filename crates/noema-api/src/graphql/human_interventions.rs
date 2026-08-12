@@ -8,7 +8,9 @@ use noema_capabilities_mcp::{
     McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptStatus, McpServerRecord,
     StartMcpOAuthReauthenticationCommand,
 };
-use noema_capability_adapters::AdapterConnectionRevisions;
+use noema_capability_adapters::{
+    AdapterConnectionAuthenticationV1, AdapterOAuthAuthorizationRequest,
+};
 use noema_store::{CapabilityAuthenticationRequestRecord, CapabilityAuthenticationRequestState};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -59,6 +61,7 @@ pub struct GraphqlAdapterAuthenticationIntervention {
     pub task_id: Option<String>,
     pub run_id: Option<String>,
     pub adapter_connection_id: String,
+    pub grant_id: Option<String>,
     pub service_display_name: String,
     pub capability_name: String,
     pub state: GraphqlMcpAuthenticationRequestState,
@@ -89,7 +92,7 @@ pub struct GraphqlMcpSetupIntervention {
 #[graphql(name = "HumanIntervention")]
 pub enum GraphqlHumanIntervention {
     TaskAttention(Box<GraphqlTaskAttention>),
-    GovernedAction(GraphqlGovernedAction),
+    GovernedAction(Box<GraphqlGovernedAction>),
     McpAuthentication(GraphqlMcpAuthenticationIntervention),
     AdapterAuthentication(GraphqlAdapterAuthenticationIntervention),
     McpSetup(GraphqlMcpSetupIntervention),
@@ -202,16 +205,17 @@ pub(super) async fn pending_human_interventions(
         .chain(
             actions
                 .into_iter()
-                .map(GraphqlHumanIntervention::GovernedAction)
+                .map(|action| GraphqlHumanIntervention::GovernedAction(Box::new(action)))
                 .chain(authentications.into_iter().filter_map(|request| {
                     match request.challenge.authority_kind() {
                         CapabilityAuthenticationAuthorityKind::McpServer => {
                             GraphqlMcpAuthenticationIntervention::from_mcp(request)
                                 .map(GraphqlHumanIntervention::McpAuthentication)
                         }
-                        CapabilityAuthenticationAuthorityKind::AdapterConnection => {
+                        CapabilityAuthenticationAuthorityKind::AdapterConnection
+                        | CapabilityAuthenticationAuthorityKind::AdapterGrant => {
                             let display_name = adapter_service_names
-                                .get(request.challenge.authority_id())
+                                .get(request.challenge.destination_id())
                                 .cloned();
                             GraphqlAdapterAuthenticationIntervention::from_adapter(
                                 request,
@@ -497,10 +501,9 @@ fn adapter_service_names(
     state: &GraphqlState,
     requests: &[CapabilityAuthenticationRequestRecord],
 ) -> BTreeMap<String, String> {
-    if !requests
-        .iter()
-        .any(|request| request.adapter_connection_id().is_some())
-    {
+    if !requests.iter().any(|request| {
+        request.adapter_connection_id().is_some() || request.adapter_grant_id().is_some()
+    }) {
         return BTreeMap::new();
     }
     let Ok(operations) = state.adapter_operations() else {
@@ -547,33 +550,57 @@ pub(super) async fn start_adapter_authentication(
             "API authentication request requires credential replacement",
         ));
     }
-    let connection_id = request
-        .adapter_connection_id()
-        .ok_or_else(|| async_graphql::Error::new("API authentication request is unavailable"))?;
-    let descriptor = state
+    let connection_id = request.challenge.destination_id();
+    let snapshot = state
         .adapter_operations()?
         .management_snapshot()
-        .map_err(|error| async_graphql::Error::new(error.to_string()))?
+        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+    let descriptor = snapshot
         .connections
         .connections
         .into_iter()
         .find(|connection| connection.descriptor.connection_id == connection_id)
         .map(|connection| connection.descriptor)
         .ok_or_else(|| async_graphql::Error::new("API connection is unavailable"))?;
+    let grant_id = match &descriptor.authentication {
+        AdapterConnectionAuthenticationV1::OauthGrant { grant_id } => grant_id.clone(),
+        _ => return Err(async_graphql::Error::new("API account is unavailable")),
+    };
+    if request
+        .adapter_grant_id()
+        .is_some_and(|authority| authority != grant_id)
+    {
+        return Err(async_graphql::Error::new(
+            "API authentication request is unavailable",
+        ));
+    }
+    let grant = snapshot
+        .oauth_authorities
+        .grants
+        .iter()
+        .find(|grant| grant.grant_id == grant_id)
+        .ok_or_else(|| async_graphql::Error::new("API account is unavailable"))?;
     let callback_url = state.adapter_oauth_callback_url()?;
     let attempt = state
         .adapter_operations()?
-        .start_oauth_setup(
+        .start_oauth_authorization(
             principal,
-            connection_id,
-            AdapterConnectionRevisions {
-                connection: descriptor.revisions.connection,
-                credential: descriptor.revisions.credential,
-                grant: descriptor.revisions.grant,
-                policy: descriptor.revisions.policy,
+            AdapterOAuthAuthorizationRequest {
+                application_id: grant.application_id.clone(),
+                expected_application_revision: snapshot
+                    .oauth_authorities
+                    .applications
+                    .iter()
+                    .find(|application| application.application_id == grant.application_id)
+                    .map(|application| application.revision)
+                    .ok_or_else(|| async_graphql::Error::new("OAuth application is unavailable"))?,
+                grant_id: Some(grant_id),
+                expected_grant_revision: Some(grant.authority_revision),
+                semantic_digest: descriptor.semantic_digest,
+                operation_ids: descriptor.allowed_operations,
+                callback_mode: super::adapters::adapter_callback_mode(callback_url)?,
+                redirect_uri: callback_url.to_string(),
             },
-            super::adapters::adapter_callback_mode(callback_url)?,
-            callback_url,
         )
         .await
         .map_err(|error| async_graphql::Error::new(error.to_string()))?;
@@ -607,9 +634,9 @@ pub(super) async fn skip_adapter_authentication(
             principal.to_string(),
         )
         .await?;
-    let display_name = request.adapter_connection_id().and_then(|connection_id| {
-        adapter_service_names(state, std::slice::from_ref(&request)).remove(connection_id)
-    });
+    let destination_id = request.challenge.destination_id().to_string();
+    let display_name =
+        adapter_service_names(state, std::slice::from_ref(&request)).remove(&destination_id);
     GraphqlAdapterAuthenticationIntervention::from_adapter(request, display_name)
         .ok_or_else(|| async_graphql::Error::new("API authentication request is unavailable"))
 }
@@ -727,7 +754,9 @@ async fn owned_adapter_request(
         .get_capability_authentication_request(request_id, revision)
         .await?
         .filter(|request| {
-            request.owner_human_id == principal && request.adapter_connection_id().is_some()
+            request.owner_human_id == principal
+                && (request.adapter_connection_id().is_some()
+                    || request.adapter_grant_id().is_some())
         })
         .ok_or_else(|| async_graphql::Error::new("API authentication request is unavailable"))
 }
@@ -755,7 +784,8 @@ impl GraphqlAdapterAuthenticationIntervention {
         request: CapabilityAuthenticationRequestRecord,
         display_name: Option<String>,
     ) -> Option<Self> {
-        let adapter_connection_id = request.adapter_connection_id()?.to_string();
+        let adapter_connection_id = request.challenge.destination_id().to_string();
+        let grant_id = request.adapter_grant_id().map(str::to_string);
         Some(Self {
             request_id: request.request_id,
             revision: request.revision,
@@ -763,6 +793,7 @@ impl GraphqlAdapterAuthenticationIntervention {
             task_id: request.task_id,
             run_id: request.run_id,
             adapter_connection_id,
+            grant_id,
             service_display_name: display_name.unwrap_or(request.authority_display_name),
             capability_name: request.capability_name,
             state: request.state.into(),

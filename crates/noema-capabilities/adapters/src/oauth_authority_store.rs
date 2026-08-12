@@ -6,7 +6,7 @@ use crate::{
     SemanticDigest,
     oauth_authority_fs::{
         MAX_DESCRIPTOR_BYTES, MAX_SECRET_BYTES, STAGING_DIR, canonical_bytes, credential_file,
-        install_directory, publish_generation, recover_staging,
+        install_directory, publish_generation, publish_initial_generation, recover_staging,
     },
     oauth_authority_validation::{
         valid_hex, validate_account, validate_application, validate_grant, validate_profile,
@@ -14,6 +14,7 @@ use crate::{
     private_fs::{
         PrivateFsError, create_private_dir, read_bounded_regular_file,
         require_directory_no_symlink, require_exact_entries, require_regular_directory,
+        sync_directory, write_new_file,
     },
 };
 use noema_home::NoemaPaths;
@@ -334,6 +335,168 @@ impl OauthAuthorityStore {
         self.replace_grant_generation(expected, replacement, token, true)
     }
 
+    /// Remove executable tokens and publish a non-active grant descriptor.
+    ///
+    /// The old grant directory moves to quarantine before the replacement is
+    /// installed. A failed replacement restores the old directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns a redacted error when authority changed or publication fails.
+    pub fn deactivate_grant(
+        &self,
+        expected: &AuthorizationGrantV1,
+        status: AuthorizationGrantStatus,
+    ) -> Result<AuthorizationGrantV1, OauthAuthorityStoreError> {
+        if !matches!(
+            status,
+            AuthorizationGrantStatus::AuthenticationRequired | AuthorizationGrantStatus::Revoked
+        ) {
+            return Err(OauthAuthorityStoreError::Integrity("grant_transition"));
+        }
+        self.prepare()?;
+        let target = self.paths.adapter_oauth_grant_dir(&expected.grant_id)?;
+        let (current, _) = read_grant(&target, &expected.grant_id)?;
+        if current != *expected {
+            return Err(OauthAuthorityStoreError::Integrity("grant_transition"));
+        }
+        let application = self.load_application(&current.application_id)?;
+        let profile = self.load_profile(&application.profile_digest)?;
+        let account = current
+            .account_id
+            .as_deref()
+            .map(|id| self.load_account(id))
+            .transpose()?;
+        let mut replacement = current.clone();
+        replacement.authority_revision = replacement
+            .authority_revision
+            .checked_add(1)
+            .ok_or(OauthAuthorityStoreError::Integrity("grant_transition"))?;
+        replacement.token_revision = replacement
+            .token_revision
+            .checked_add(1)
+            .ok_or(OauthAuthorityStoreError::Integrity("grant_transition"))?;
+        replacement.token_generation = None;
+        replacement.status = status;
+        validate_grant(
+            &replacement,
+            None,
+            &application,
+            account.as_ref(),
+            &profile.profile,
+        )?;
+
+        let quarantine_root = self.paths.adapter_oauth_grant_quarantine_dir();
+        create_private_dir(&self.paths.adapter_quarantine_dir())?;
+        create_private_dir(&quarantine_root)?;
+        let quarantine = self.paths.quarantined_adapter_oauth_grant_dir(
+            &expected.grant_id,
+            replacement.authority_revision,
+        )?;
+        if quarantine.exists() {
+            return Err(OauthAuthorityStoreError::Integrity(
+                "grant_quarantine_conflict",
+            ));
+        }
+        fs::rename(&target, &quarantine)?;
+        sync_directory(&self.paths.adapter_oauth_grants_dir())?;
+        sync_directory(&quarantine_root)?;
+        let descriptor = canonical_bytes(&replacement)?;
+        let publish = install_directory(
+            &self.paths.adapter_oauth_grants_dir(),
+            &target,
+            &[(GRANT_FILE, descriptor.as_slice())],
+            &[TOKENS_DIR],
+            &[],
+        );
+        if let Err(error) = publish {
+            if !target.exists() {
+                let _ = fs::rename(&quarantine, &target);
+                let _ = sync_directory(&self.paths.adapter_oauth_grants_dir());
+                let _ = sync_directory(&quarantine_root);
+            }
+            return Err(error);
+        }
+        Ok(read_grant(&target, &replacement.grant_id)?.0)
+    }
+
+    /// Replace the human label for a grant without stable account identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns a redacted error when authority changed or publication fails.
+    pub fn save_grant_label(
+        &self,
+        expected: &AuthorizationGrantV1,
+        account_label: Option<String>,
+    ) -> Result<AuthorizationGrantV1, OauthAuthorityStoreError> {
+        self.prepare()?;
+        let target = self.paths.adapter_oauth_grant_dir(&expected.grant_id)?;
+        let (current, token) = read_grant(&target, &expected.grant_id)?;
+        if current != *expected || current.account_id.is_some() {
+            return Err(OauthAuthorityStoreError::Integrity("grant_transition"));
+        }
+        let application = self.load_application(&current.application_id)?;
+        let profile = self.load_profile(&application.profile_digest)?;
+        let mut replacement = current.clone();
+        replacement.account_label = account_label;
+        validate_grant(
+            &replacement,
+            token.as_ref(),
+            &application,
+            None,
+            &profile.profile,
+        )?;
+        let descriptor = canonical_bytes(&replacement)?;
+        let tokens = target.join(TOKENS_DIR);
+        let temporary = tokens.join(format!(".descriptor-replace-{}", crate::random_hex(16)?));
+        write_new_file(&temporary, &descriptor)?;
+        sync_directory(&tokens)?;
+        if let Err(error) = fs::rename(&temporary, target.join(GRANT_FILE)) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error.into());
+        }
+        sync_directory(&target)?;
+        Ok(read_grant(&target, &replacement.grant_id)?.0)
+    }
+
+    /// Move one unreferenced OAuth application to quarantine.
+    ///
+    /// # Errors
+    ///
+    /// Returns a redacted error when authority changed or quarantine fails.
+    pub fn quarantine_application(
+        &self,
+        expected: &OauthApplicationV1,
+    ) -> Result<(), OauthAuthorityStoreError> {
+        self.prepare()?;
+        let target = self
+            .paths
+            .adapter_oauth_application_dir(&expected.application_id)?;
+        let (current, _) = read_application(&target, &expected.application_id)?;
+        if current != *expected {
+            return Err(OauthAuthorityStoreError::Integrity(
+                "application_transition",
+            ));
+        }
+        let quarantine_root = self.paths.adapter_oauth_application_quarantine_dir();
+        create_private_dir(&self.paths.adapter_quarantine_dir())?;
+        create_private_dir(&quarantine_root)?;
+        let quarantine = self.paths.quarantined_adapter_oauth_application_dir(
+            &expected.application_id,
+            expected.revision,
+        )?;
+        if quarantine.exists() {
+            return Err(OauthAuthorityStoreError::Integrity(
+                "application_quarantine_conflict",
+            ));
+        }
+        fs::rename(target, quarantine)?;
+        sync_directory(&self.paths.adapter_oauth_applications_dir())?;
+        sync_directory(&quarantine_root)?;
+        Ok(())
+    }
+
     /// Load one reviewed profile by its exact content address.
     ///
     /// # Errors
@@ -360,6 +523,15 @@ impl OauthAuthorityStore {
         let (application, _) =
             read_application(&self.paths.adapter_oauth_application_dir(id)?, id)?;
         Ok(application)
+    }
+
+    /// Load one application descriptor and its protected credential.
+    pub(crate) fn load_application_authority(
+        &self,
+        id: &str,
+    ) -> Result<(OauthApplicationV1, OauthApplicationCredentialV1), OauthAuthorityStoreError> {
+        self.prepare()?;
+        read_application(&self.paths.adapter_oauth_application_dir(id)?, id)
     }
 
     /// Load one external account descriptor.
@@ -395,8 +567,6 @@ impl OauthAuthorityStore {
         self.prepare()?;
         let target = self.paths.adapter_oauth_grant_dir(&expected.grant_id)?;
         let (current, current_token) = read_grant(&target, &expected.grant_id)?;
-        let current_token =
-            current_token.ok_or(OauthAuthorityStoreError::Integrity("grant_transition"))?;
         let application = self.load_application(&current.application_id)?;
         let profile = self.load_profile(&application.profile_digest)?;
         let account = current
@@ -422,6 +592,9 @@ impl OauthAuthorityStore {
             && replacement.token_revision == current.token_revision.checked_add(1).unwrap_or(0)
             && replacement.status == AuthorizationGrantStatus::Active;
         let exact_revision = if refresh {
+            if current_token.is_none() {
+                return Err(OauthAuthorityStoreError::Integrity("grant_transition"));
+            }
             replacement.desired_scopes == current.desired_scopes
                 && replacement.granted_scopes == current.granted_scopes
                 && replacement.authority_revision == current.authority_revision
@@ -431,15 +604,26 @@ impl OauthAuthorityStore {
         if !common || !exact_revision {
             return Err(OauthAuthorityStoreError::Integrity("grant_transition"));
         }
-        publish_generation(
-            &target,
-            GRANT_FILE,
-            TOKENS_DIR,
-            &current_token.generation_id,
-            replacement,
-            &token.generation_id,
-            token,
-        )?;
+        if let Some(current_token) = current_token {
+            publish_generation(
+                &target,
+                GRANT_FILE,
+                TOKENS_DIR,
+                &current_token.generation_id,
+                replacement,
+                &token.generation_id,
+                token,
+            )?;
+        } else {
+            publish_initial_generation(
+                &target,
+                GRANT_FILE,
+                TOKENS_DIR,
+                replacement,
+                &token.generation_id,
+                token,
+            )?;
+        }
         Ok(read_grant(&target, &replacement.grant_id)?.0)
     }
 

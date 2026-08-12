@@ -144,6 +144,13 @@ impl CapabilityAuthenticationRequestRecord {
             == CapabilityAuthenticationAuthorityKind::AdapterConnection)
             .then(|| self.challenge.authority_id())
     }
+
+    /// Return the reusable API grant authority for an OAuth request.
+    #[must_use]
+    pub fn adapter_grant_id(&self) -> Option<&str> {
+        (self.challenge.authority_kind() == CapabilityAuthenticationAuthorityKind::AdapterGrant)
+            .then(|| self.challenge.authority_id())
+    }
 }
 
 impl NoemaStore {
@@ -172,6 +179,9 @@ impl NoemaStore {
                 (Some(input.challenge.authority_id()), None)
             }
             CapabilityAuthenticationAuthorityKind::AdapterConnection => {
+                (None, Some(input.challenge.authority_id()))
+            }
+            CapabilityAuthenticationAuthorityKind::AdapterGrant => {
                 (None, Some(input.challenge.authority_id()))
             }
         };
@@ -375,7 +385,8 @@ impl NoemaStore {
                 CapabilityAuthenticationAuthorityKind::McpServer => {
                     ("mcp_server_id", request.challenge.authority_id())
                 }
-                CapabilityAuthenticationAuthorityKind::AdapterConnection => {
+                CapabilityAuthenticationAuthorityKind::AdapterConnection
+                | CapabilityAuthenticationAuthorityKind::AdapterGrant => {
                     ("adapter_connection_id", request.challenge.authority_id())
                 }
             };

@@ -62,6 +62,26 @@ Settings panes own their data loading and mutations directly unless a shared
 controller has multiple production consumers. Editing is either inline without
 a separate Save button or performed in a focused dialog with explicit Save.
 
+## API integration UX
+
+API Settings uses an account-first hierarchy. It shows pending definition
+review, provider accounts, connected APIs, available APIs, and advanced OAuth
+applications in that order.
+
+An OAuth application is reusable provider setup. An authorization grant is one
+account's access. An API connection keeps its own tool policy and lifecycle.
+
+Web and iOS use the structured server-selected next action. They do not infer
+setup work from status copy. OAuth completion uses the exact attempt event and
+foreground recovery query.
+
+Connection deletion keeps the account authorization. Account disconnection
+removes tokens and disables every dependent API. Application deletion requires
+all grants to be disconnected first.
+
+OAuth application secrets and account tokens never enter client read models.
+Exact scopes and public client metadata stay behind technical disclosure.
+
 ## UI implementation
 
 Noema is a dense task-first product surface. Follow
