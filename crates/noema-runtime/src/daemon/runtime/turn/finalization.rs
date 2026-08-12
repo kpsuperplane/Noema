@@ -661,12 +661,14 @@ pub(crate) fn memory_update_instructions(canonical: &str, correction: Option<&st
         format!("\nYour previous native tool call was rejected: {error}. Correct that failure in the replacement tool call.")
     });
     let icon_keys = noema_memory::MEMORY_PAGE_ICON_KEYS.join(", ");
+    let article_word_target = noema_memory::MEMORY_MAX_WORDS.saturating_sub(100);
     format!(
         "You are editing a compact personal encyclopedia, not recording a chronological fact list. The complete page catalog is below. Entries with body and sources are content-editable and include stable ids and exact hashes; excerpt-only entries are discovery context and must not be content-upserted, moved, overwritten, or deleted, though their icon may be changed with metadata_updates. You may create a new page when the evidence warrants one. Existing pages are: {canonical}\n\
 Call noema.submit_memory_changes exactly once through the provider's native tool channel. Do not encode the tool call or its arguments in ordinary assistant text.\n\
-Editorial contract: root.md is a biographical overview titled with the local human's name whenever known, never \"Human memory\" in that case. Begin each page with a natural human-language lead, then group related material into thematic ## sections. A developed root article must have at least two sections. Merge related claims into multi-sentence prose; never emit a sequence of one-sentence fact paragraphs, a field inventory, or a chronology of messages. Keep the root concise and create focused child pages when a domain has enough detail, rather than accumulating every fact in root.md. Do not put a # title in body because Noema generates it. Rewrite any existing page that violates this structure even when its facts remain correct.\n\
+Editorial contract: root.md is a biographical overview titled with the local human's name whenever known, never \"Human memory\" in that case. Begin each page with a natural human-language lead, then group related material into thematic ## sections. A developed root article must have at least two sections. Merge related claims into multi-sentence prose; never emit a sequence of one-sentence fact paragraphs, a field inventory, or a chronology of messages. Keep the root concise and create focused child pages when a domain has enough detail, rather than accumulating every fact in root.md. A rendered page includes its title and generated footnote definitions. It must contain at most {} Unicode words. Keep each article body at or below {article_word_target} words to leave space for generated content. Do not put a # title in body because Noema generates it. Rewrite any existing page that violates this structure even when its facts remain correct.\n\
 Icon contract: every content upsert must include exactly one semantically specific Lucide icon key from [{icon_keys}]. Preserve an existing icon when it remains the clearest fit. When only an existing page's icon should change, emit one metadata_updates entry instead of reproducing its content; use this whenever another allowed key represents the stable page subject more clearly. Treat file-text as a generic fallback and replace it whenever a more specific key fits.\n\
-Evidence contract: sources is the ordered, unique list of exact source ids. Cite its first entry as [^1], its second as [^2], and so on. Cite every source at least once. Do not write footnote definitions because Noema generates them. Assistant messages are context rather than independent evidence. Preserve stable ids, expected hashes, hierarchy, and user-authored meaning unless evidence requires a change. To move a page, retain its id and expected hash and change its path. Do not copy secrets, tokens, credentials, or private keys. Use owner human:local and scope human:local.{correction}"
+Evidence contract: sources is the ordered, unique list of exact source ids. Cite its first entry as [^1], its second as [^2], and so on. Cite every source at least once. Do not write footnote definitions because Noema generates them. Assistant messages are context rather than independent evidence. Preserve stable ids, expected hashes, hierarchy, and user-authored meaning unless evidence requires a change. To move a page, retain its id and expected hash and change its path. Do not copy secrets, tokens, credentials, or private keys. Use owner human:local and scope human:local.{correction}",
+        noema_memory::MEMORY_MAX_WORDS,
     )
 }
 
@@ -707,6 +709,18 @@ mod memory_change_set_tests {
         assert_eq!(human, "human [item:human] Human evidence");
         assert_eq!(assistant, "assistant Assistant context");
         assert!(!assistant.contains("item:assistant"));
+    }
+
+    #[test]
+    fn memory_instructions_reserve_space_below_the_page_word_limit() {
+        let instructions = memory_update_instructions("[]", None);
+        let article_word_target = noema_memory::MEMORY_MAX_WORDS.saturating_sub(100);
+
+        assert!(instructions.contains(&format!(
+            "at most {} Unicode words",
+            noema_memory::MEMORY_MAX_WORDS
+        )));
+        assert!(instructions.contains(&format!("at or below {article_word_target} words")));
     }
 
     #[test]
