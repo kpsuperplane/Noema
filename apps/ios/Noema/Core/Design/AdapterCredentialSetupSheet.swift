@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 struct AdapterCredentialSetupSheet: View {
   let serviceName: String
+  var title: String? = nil
   let setup: AdapterCredentialSetupModel
   let scopes: [String]
   var introduction = "Create the exact reviewed credential below. Noema stores only the declared private fields."
@@ -27,7 +28,7 @@ struct AdapterCredentialSetupSheet: View {
 
   var body: some View {
     NoemaNativeSheet(
-      title: "Connect \(serviceName)",
+      title: title ?? "Connect \(serviceName)",
       dismissTitle: "Cancel",
       dismissDisabled: isSubmitting,
       onDismiss: requestDismissal

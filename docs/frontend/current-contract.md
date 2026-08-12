@@ -64,9 +64,10 @@ a separate Save button or performed in a focused dialog with explicit Save.
 
 ## API integration UX
 
-API Settings uses an account-first hierarchy. It shows pending definition
-review, provider accounts, connected APIs, available APIs, and advanced OAuth
-applications in that order.
+API Settings uses an account-first hierarchy. It shows required review,
+connected accounts, connected APIs, and APIs that can be connected.
+When no API exists, it shows one route to Chat instead of empty data sections.
+OAuth client management appears in a collapsed advanced section after import.
 
 An OAuth application is reusable provider setup. An authorization grant is one
 account's access. An API connection keeps its own tool policy and lifecycle.

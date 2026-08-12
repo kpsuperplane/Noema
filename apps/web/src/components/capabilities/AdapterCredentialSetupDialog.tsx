@@ -33,6 +33,7 @@ export type AdapterCredentialSubmission = {
 };
 
 export function AdapterCredentialSetupDialog({
+  title,
   serviceName,
   setup,
   scopes,
@@ -44,6 +45,7 @@ export function AdapterCredentialSetupDialog({
   onOpenChange,
   onSubmit
 }: {
+  title?: string;
   serviceName: string;
   setup: AdapterCredentialSetup | null | undefined;
   scopes: readonly string[];
@@ -63,6 +65,7 @@ export function AdapterCredentialSetupDialog({
   const complete = isDocument
     ? document !== null
     : setup.fields.every((field) => Boolean(values[field.fieldId]));
+  const dialogTitle = title ?? `Connect ${serviceName}`;
 
   return (
     <Dialog
@@ -77,11 +80,11 @@ export function AdapterCredentialSetupDialog({
       purpose="form"
       width={660}
       maxHeight="min(780px, calc(100dvh - var(--spacing-8)))"
-      aria-label={`Add ${serviceName} credentials`}
+      aria-label={dialogTitle}
     >
       <Layout
         height="auto"
-        header={<DialogHeader title={`Connect ${serviceName}`} subtitle={setup.credentialType} onOpenChange={onOpenChange} />}
+        header={<DialogHeader title={dialogTitle} subtitle={setup.credentialType} onOpenChange={onOpenChange} />}
         content={
           <LayoutContent>
             <VStack

@@ -152,12 +152,13 @@ struct AdapterDefinitionInterventionCard: View {
       if let credentialSetup {
         AdapterCredentialSetupSheet(
           serviceName: definition.displayName,
+          title: nextAction?.kind == "import_application" ? "Import OAuth client" : nil,
           setup: credentialSetup,
           scopes: definition.scopes,
           introduction: nextAction?.kind == "import_application"
             ? "Import this provider client document once. You can reuse it for more accounts and compatible APIs."
             : "Create the exact reviewed credential below. Noema stores only the declared private fields.",
-          submitTitle: nextAction?.kind == "import_application" ? "Import application" : "Add connection",
+          submitTitle: nextAction?.kind == "import_application" ? "Import OAuth client" : "Add connection",
           onClose: { credentialSetupPresented = false },
           onSubmit: onSetup
         )
@@ -192,7 +193,7 @@ struct AdapterDefinitionInterventionCard: View {
     case "reconnect_account": return "Reconnect account"
     case "add_account": return "Add account"
     case "attach_account": return "Connect \(definition.displayName)"
-    case "import_application": return "Set up OAuth application"
+    case "import_application": return "Set up \(definition.displayName)"
     default: return "Add credentials for \(definition.displayName)"
     }
   }
@@ -200,11 +201,11 @@ struct AdapterDefinitionInterventionCard: View {
   private var context: String {
     if definition.superseded { return "A newer definition is available. Review the latest revision before changing access." }
     if definition.reviewed, policyConnection != nil { return policyStep == .sharing ? "Your account is connected. Choose when Noema may share relevant conversation details." : "Choose who may approve calls that can change, delete, or send information." }
-    if oauthSetupUnavailable { return "This OAuth application cannot use the callback for this Noema app." }
+    if oauthSetupUnavailable { return "This OAuth client cannot use the callback for this Noema app." }
     if nextAction?.kind == "attach_account" { return "Use an account that already has the required access." }
     if nextAction?.kind == "add_access" { return "Approve added access. Current account access stays available." }
-    if nextAction?.kind == "add_account" { return "Use the existing OAuth application. No new client document is required." }
-    if nextAction?.kind == "import_application" { return "Import one provider client document. You can reuse it later." }
+    if nextAction?.kind == "add_account" { return "Use the existing provider setup. No new client document is required." }
+    if nextAction?.kind == "import_application" { return "Import the provider's OAuth client document once. Noema will reuse it for compatible APIs." }
     if let credentialSetup {
       return "Create a \(credentialSetup.credentialType) using the reviewed provider instructions, then add it here."
     }

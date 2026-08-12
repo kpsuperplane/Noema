@@ -358,13 +358,20 @@ Change its hierarchy from definition-first to account-first.
 
 ### 11.1 Main view
 
-Use this information order:
+Use this information order when data exists:
 
-1. Pending definition review
+1. APIs that need review before connection
 2. Provider and account groups
 3. Connected APIs below each account
-4. Available unconnected definitions
-5. OAuth applications and raw details behind disclosure
+4. APIs that can be connected
+5. OAuth clients and raw details behind an advanced disclosure
+
+Do not show an empty section for each absent data type.
+Show one **No APIs set up** state when no current API exists.
+That state routes the person to Chat, where API setup starts.
+
+Do not use reviewed definitions as user-facing status.
+Do not show a success message when the reviewed-definition list is empty.
 
 Use dense settings rows.
 Do not wrap every account or API in a decorative card.
@@ -391,7 +398,8 @@ Existing available tools remain visible during authorization.
 
 ### 11.3 Management details
 
-Show OAuth applications as advanced provider setup.
+Call OAuth applications **OAuth clients** in user-facing copy.
+Show them as advanced provider setup only after one client exists.
 Display public client ID, callback mode, redirect URI, project label, and account count.
 
 Never display the client secret.
@@ -408,7 +416,7 @@ Connection deletion copy states that the account remains connected.
 Replace the combined setup card with one current action:
 
 - Review API definition
-- Set up OAuth application
+- Import OAuth client
 - Choose or add account
 - Add access
 - Review connection policy
@@ -434,7 +442,10 @@ On iPhone, use sequential sheets with the same information order.
 ### 12.2 Application setup
 
 Use the existing document importer only when no compatible application exists.
-Also expose **Use another OAuth application** as an advanced choice.
+Title this action **Import [provider] OAuth client**.
+
+After one client exists, expose **Import another [provider] OAuth client** in advanced setup.
+Do not expose alternate-client management in the initial empty state.
 
 Show the required redirect URI before document selection.
 Never persist selected document bytes on the device.

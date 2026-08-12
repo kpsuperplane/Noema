@@ -721,6 +721,7 @@ private struct CapabilitySettings: View {
   let settings: SettingsModel
   let kind: NoemaAPI.CapabilityIntegrationKind
   let appModel: NoemaAppModel
+  @Environment(NoemaShellCoordinator.self) private var shell
   @State private var editor: SettingsIntegrationConnection?
   @State private var addTarget: SettingsIntegration?
   @State private var pendingPolicyConnectionID: String?
@@ -799,7 +800,7 @@ private struct CapabilitySettings: View {
     .sheet(item: $disconnectGrant) { grant in
       SettingsMutationConfirmationSheet(
         title: "Disconnect \(grant.accountLabel ?? "account")?",
-        message: "This removes account tokens and disables dependent APIs. API definitions and OAuth application setup stay available.",
+        message: "This removes account tokens and disables dependent APIs. API definitions and OAuth client setup stay available.",
         confirmTitle: "Disconnect"
       ) {
         let result = await settings.disconnectAdapterGrant(grant)
@@ -811,15 +812,16 @@ private struct CapabilitySettings: View {
       if let setup = settings.adapterOAuthState?.profiles.first(where: { $0.profileDigest == application.profileDigest })?.credentialSetup {
         AdapterCredentialSetupSheet(
           serviceName: application.providerName,
+          title: "Replace \(application.providerName) OAuth client",
           setup: setup,
           scopes: [],
-          introduction: "Replace this OAuth application document. \(application.grantCount) grants across \(application.accountCount) accounts will use the new credential.",
-          submitTitle: "Replace application",
+          introduction: "Replace this OAuth client document. \(application.grantCount) grants across \(application.accountCount) accounts will use the new credential.",
+          submitTitle: "Replace OAuth client",
           onClose: { replaceApplication = nil },
           onSubmit: { submission in
             guard let document = submission.document,
                   await settings.replaceAdapterOAuthApplication(application, document: document) else {
-              throw SettingsError.server(settings.errorMessage ?? "The OAuth application could not be replaced.")
+              throw SettingsError.server(settings.errorMessage ?? "The OAuth client could not be replaced.")
             }
             await settings.loadAdapterOAuthState()
           }
@@ -830,15 +832,16 @@ private struct CapabilitySettings: View {
       if let setup = profile.credentialSetup {
         AdapterCredentialSetupSheet(
           serviceName: profile.displayName,
+          title: "Import \(profile.displayName) OAuth client",
           setup: setup,
           scopes: [],
-          introduction: "Import another provider client document. It stays separate from existing OAuth applications and accounts.",
-          submitTitle: "Import application",
+          introduction: "Import this provider client document once. Noema can reuse it for compatible APIs and accounts.",
+          submitTitle: "Import OAuth client",
           onClose: { importApplicationProfile = nil },
           onSubmit: { submission in
             guard let document = submission.document,
                   await settings.importAdapterOAuthApplication(profileDigest: profile.profileDigest, document: document) else {
-              throw SettingsError.server(settings.errorMessage ?? "The OAuth application could not be imported.")
+              throw SettingsError.server(settings.errorMessage ?? "The OAuth client could not be imported.")
             }
             await settings.loadAdapterOAuthState()
           }
@@ -850,74 +853,85 @@ private struct CapabilitySettings: View {
   @ViewBuilder
   private func apiAccountList(_ integrations: [SettingsIntegration]) -> some View {
     let pending = settings.adapterDefinitions.filter { !$0.reviewed && !$0.superseded }
+    let reviewed = settings.adapterDefinitions.filter { $0.reviewed && !$0.superseded }
+    let available = integrations.filter { $0.connections.isEmpty }
     let oauth = settings.adapterOAuthState
     let grants = oauth?.grants ?? []
     let providerGroups = Dictionary(grouping: grants, by: \.providerName)
     let providerNames = providerGroups.keys.sorted()
     VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
       if !pending.isEmpty {
-        SettingsSectionCard("Definition review") {
+        SettingsSectionCard("Review before connecting") {
           ForEach(Array(pending.enumerated()), id: \.element.id) { index, definition in
             if index > 0 { SettingsRowDivider() }
             SettingsAdapterDefinitionReview(definition: definition, settings: settings)
           }
         }
       }
-      SettingsSectionCard("Accounts") {
-        if providerGroups.isEmpty {
-          NoemaInlineState(message: "No API accounts are connected.", symbol: "person.crop.circle.badge.plus")
+      if pending.isEmpty && reviewed.isEmpty {
+        SettingsSectionCard("No APIs set up") {
+          Text("Ask Noema in Chat to add Gmail, Google Calendar, or another API. You will review access before it connects.")
+            .font(NoemaFont.body)
+            .foregroundStyle(NoemaColor.contentSecondary)
+          Button("Open Chat") { shell.requestedDestination = .chat }
+            .buttonStyle(NoemaActionButtonStyle(variant: .primary))
         }
-        ForEach(Array(providerNames.enumerated()), id: \.element) { providerIndex, providerName in
-          if providerIndex > 0 { SettingsRowDivider() }
-          SettingsRow {
-            Text(providerName).font(NoemaFont.captionEmphasized)
-          }
-          let providerGrants = providerGroups[providerName] ?? []
-          let accountGroups = Dictionary(grouping: providerGrants) { $0.accountID ?? $0.grantID }
-          ForEach(Array(accountGroups.keys.sorted().enumerated()), id: \.element) { _, accountID in
-            SettingsRowDivider(verticalPadding: NoemaSpacing.xs)
-            let accountGrants = accountGroups[accountID] ?? []
-            if let account = accountGrants.first {
-            let connectionIDs = Set(accountGrants.flatMap(\.connectionIDs))
-            let connections = integrations.flatMap(\.connections).filter { connectionIDs.contains($0.id) }
+      }
+      if !providerGroups.isEmpty {
+        SettingsSectionCard("Connected accounts") {
+          ForEach(Array(providerNames.enumerated()), id: \.element) { providerIndex, providerName in
+            if providerIndex > 0 { SettingsRowDivider() }
             SettingsRow {
-              VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-                HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-                  VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-                    Text(account.accountLabel ?? "Unlabeled account").font(NoemaFont.bodyEmphasized)
-                    Text("\(connections.count) APIs")
-                      .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
-                  }
-                  Spacer(minLength: NoemaSpacing.sm)
-                  NoemaStatusToken(
-                    text: accountGrants.contains { $0.status != "active" } ? "Action required" : "Connected",
-                    tone: accountGrants.contains { $0.status != "active" } ? .warning : .success
-                  )
-                  SettingsAction(title: "Label", symbol: "pencil", role: nil, disabled: !settings.canMutate) {
-                    labelDraft = account.accountLabel ?? ""; labelGrant = account
-                  }
-                  SettingsAction(title: "Disconnect", symbol: "link.badge.minus", role: .destructive, disabled: !settings.canMutate) {
-                    disconnectGrant = account
-                  }
-                }
-                ForEach(connections) { connection in
-                  SettingsRowDivider(verticalPadding: NoemaSpacing.xs)
-                  HStack(spacing: NoemaSpacing.sm) {
-                    VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-                      Text(connection.name).font(NoemaFont.bodyEmphasized)
-                      Text("\(connection.availableToolCount)/\(connection.toolCount) tools · \(connection.authStatus)")
-                        .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
-                    }
-                    Spacer(minLength: NoemaSpacing.sm)
-                    if let integration = integrations.first(where: { $0.connections.contains { $0.id == connection.id } }),
-                       let definition = settings.adapterDefinitions.first(where: { $0.semanticDigest == integration.sourceRevision }),
-                       !definition.connectionActions.isEmpty {
-                      SettingsAction(title: "Add connection", symbol: "person.badge.plus", role: nil, disabled: !settings.canMutate) {
-                        addTarget = integration
+              Text(providerName).font(NoemaFont.captionEmphasized)
+            }
+            let providerGrants = providerGroups[providerName] ?? []
+            let accountGroups = Dictionary(grouping: providerGrants) { $0.accountID ?? $0.grantID }
+            ForEach(Array(accountGroups.keys.sorted().enumerated()), id: \.element) { _, accountID in
+              SettingsRowDivider(verticalPadding: NoemaSpacing.xs)
+              let accountGrants = accountGroups[accountID] ?? []
+              if let account = accountGrants.first {
+                let connectionIDs = Set(accountGrants.flatMap(\.connectionIDs))
+                let connections = integrations.flatMap(\.connections).filter { connectionIDs.contains($0.id) }
+                SettingsRow {
+                  VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+                    HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+                      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+                        Text(account.accountLabel ?? "Unlabeled account").font(NoemaFont.bodyEmphasized)
+                        Text("\(connections.count) APIs")
+                          .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+                      }
+                      Spacer(minLength: NoemaSpacing.sm)
+                      NoemaStatusToken(
+                        text: accountGrants.contains { $0.status != "active" } ? "Action required" : "Connected",
+                        tone: accountGrants.contains { $0.status != "active" } ? .warning : .success
+                      )
+                      SettingsAction(title: "Label", symbol: "pencil", role: nil, disabled: !settings.canMutate) {
+                        labelDraft = account.accountLabel ?? ""; labelGrant = account
+                      }
+                      SettingsAction(title: "Disconnect", symbol: "link.badge.minus", role: .destructive, disabled: !settings.canMutate) {
+                        disconnectGrant = account
                       }
                     }
-                    SettingsAction(title: "Manage", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate) {
-                      editor = connection
+                    ForEach(connections) { connection in
+                      SettingsRowDivider(verticalPadding: NoemaSpacing.xs)
+                      HStack(spacing: NoemaSpacing.sm) {
+                        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+                          Text(connection.name).font(NoemaFont.bodyEmphasized)
+                          Text("\(connection.availableToolCount)/\(connection.toolCount) tools · \(connection.authStatus)")
+                            .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+                        }
+                        Spacer(minLength: NoemaSpacing.sm)
+                        if let integration = integrations.first(where: { $0.connections.contains { $0.id == connection.id } }),
+                           let definition = settings.adapterDefinitions.first(where: { $0.semanticDigest == integration.sourceRevision }),
+                           !definition.connectionActions.isEmpty {
+                          SettingsAction(title: "Add connection", symbol: "person.badge.plus", role: nil, disabled: !settings.canMutate) {
+                            addTarget = integration
+                          }
+                        }
+                        SettingsAction(title: "Manage", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate) {
+                          editor = connection
+                        }
+                      }
                     }
                   }
                 }
@@ -926,36 +940,38 @@ private struct CapabilitySettings: View {
           }
         }
       }
-      }
-      SettingsSectionCard("Available APIs") {
-        let available = integrations.filter { $0.connections.isEmpty }
-        if available.isEmpty {
-          NoemaInlineState(message: "All reviewed APIs are connected.", symbol: "checkmark.circle")
-        }
-        ForEach(Array(available.enumerated()), id: \.element.id) { index, integration in
-          if index > 0 { SettingsRowDivider() }
-          SettingsRow {
-            HStack(spacing: NoemaSpacing.sm) {
-              VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-                Text(integration.name).font(NoemaFont.bodyEmphasized)
-                Text(apiActionDescription(integration)).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
-              }
-              Spacer(minLength: NoemaSpacing.sm)
-              SettingsAction(title: apiActionTitle(integration), symbol: "plus", role: nil, disabled: !settings.canMutate) {
-                addTarget = integration
+      if !available.isEmpty {
+        SettingsSectionCard("Connect an API") {
+          ForEach(Array(available.enumerated()), id: \.element.id) { index, integration in
+            if index > 0 { SettingsRowDivider() }
+            SettingsRow {
+              HStack(spacing: NoemaSpacing.sm) {
+                VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+                  Text(integration.name).font(NoemaFont.bodyEmphasized)
+                  Text(apiActionDescription(integration)).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+                }
+                Spacer(minLength: NoemaSpacing.sm)
+                SettingsAction(title: apiActionTitle(integration), symbol: "plus", role: nil, disabled: !settings.canMutate) {
+                  addTarget = integration
+                }
               }
             }
           }
         }
       }
-      if let applications = oauth?.applications {
-        DisclosureGroup("OAuth applications") {
-          SettingsSectionCard(footer: "Advanced provider setup. Client secrets are never displayed.") {
+      if let applications = oauth?.applications, !applications.isEmpty {
+        DisclosureGroup("Advanced OAuth client setup") {
+          SettingsSectionCard(footer: "Client secrets are never displayed.") {
+            Text("OAuth clients hold provider setup for account authorization. Most people do not need to manage them here.")
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.contentSecondary)
             if let profiles = oauth?.profiles {
               ForEach(Array(profiles.enumerated()), id: \.element.id) { index, profile in
                 if index > 0 { SettingsRowDivider() }
                 SettingsAction(
-                  title: profiles.count == 1 ? "Use another OAuth application" : "Add \(profile.displayName) application",
+                  title: applications.contains { $0.profileDigest == profile.profileDigest }
+                    ? "Import another \(profile.displayName) OAuth client"
+                    : "Import \(profile.displayName) OAuth client",
                   symbol: "doc.badge.plus",
                   role: nil,
                   disabled: !settings.canMutate || profile.credentialSetup == nil
@@ -965,12 +981,11 @@ private struct CapabilitySettings: View {
               }
               if !profiles.isEmpty && !applications.isEmpty { SettingsRowDivider() }
             }
-            if applications.isEmpty { NoemaInlineState(message: "No OAuth applications.", symbol: "key") }
             ForEach(Array(applications.enumerated()), id: \.element.id) { index, application in
               if index > 0 { SettingsRowDivider() }
               SettingsRow {
                 VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-                  Text(application.projectLabel ?? application.providerName).font(NoemaFont.bodyEmphasized)
+                  Text(application.projectLabel ?? "\(application.providerName) OAuth client").font(NoemaFont.bodyEmphasized)
                   Text("\(application.clientID) · \(application.callbackMode) · \(application.accountCount) accounts")
                     .font(NoemaFont.monoTiny).foregroundStyle(NoemaColor.contentSecondary).textSelection(.enabled)
                   if let redirectURI = oauth?.profiles.first(where: { $0.profileDigest == application.profileDigest })?.credentialSetup?.redirectURI {
@@ -978,10 +993,10 @@ private struct CapabilitySettings: View {
                       .font(NoemaFont.monoTiny).foregroundStyle(NoemaColor.contentSecondary).textSelection(.enabled)
                   }
                   HStack(spacing: NoemaSpacing.sm) {
-                    SettingsAction(title: "Replace", symbol: "doc.badge.arrow.up", role: nil, disabled: !settings.canMutate) {
+                    SettingsAction(title: "Replace document", symbol: "doc.badge.arrow.up", role: nil, disabled: !settings.canMutate) {
                       replaceApplication = application
                     }
-                    SettingsAction(title: "Delete", symbol: "trash", role: .destructive,
+                    SettingsAction(title: "Delete client", symbol: "trash", role: .destructive,
                       disabled: !settings.canMutate || application.grantCount > 0) {
                       Task {
                         if await settings.deleteAdapterOAuthApplication(application) { await settings.loadAdapterOAuthState() }
@@ -1006,7 +1021,7 @@ private struct CapabilitySettings: View {
       settings.adapterOAuthState?.applications
         .first { $0.applicationID == action.applicationID }
         .map { "Add \($0.providerName) account" } ?? "Add account"
-    case "import_application": "Set up application"
+    case "import_application": "Set up \(integration.name)"
     default: "Connect"
     }
   }
@@ -1016,8 +1031,8 @@ private struct CapabilitySettings: View {
     switch action.kind {
     case "attach_account": "Use an account that already has the required access."
     case "add_access": "Approve added access. Current access stays available."
-    case "add_account": "Use the existing OAuth application. No new document is required."
-    case "import_application": "Import one provider client document. You can reuse it later."
+    case "add_account": "Use the existing provider setup. No new document is required."
+    case "import_application": "Import the provider's OAuth client document once. Noema will reuse it for compatible APIs."
     default: integration.sourceSummary
     }
   }
@@ -1037,7 +1052,7 @@ private struct CapabilitySettings: View {
       if kind == .api {
         let pending = settings.adapterDefinitions.filter { !$0.reviewed && !$0.superseded }
         if !pending.isEmpty {
-          SettingsSectionCard("Definition review") {
+          SettingsSectionCard("Review before connecting") {
             ForEach(Array(pending.enumerated()), id: \.element.id) { index, definition in
               if index > 0 { SettingsRowDivider() }
               SettingsAdapterDefinitionReview(definition: definition, settings: settings)

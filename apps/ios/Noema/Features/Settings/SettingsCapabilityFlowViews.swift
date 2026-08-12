@@ -34,16 +34,17 @@ struct APIConnectionSheet: View {
          let setup = definition.credentialSetup {
         AdapterCredentialSetupSheet(
           serviceName: definition.displayName,
+          title: "Import OAuth client",
           setup: setup,
           scopes: definition.scopes,
           introduction: "Import this provider client document once. You can reuse it for more accounts and compatible APIs.",
-          submitTitle: "Import application",
+          submitTitle: "Import OAuth client",
           dismissAfterSubmit: false,
           onClose: { dismiss() },
           onSubmit: { submission in
             guard let document = submission.document,
                   await settings.importAdapterOAuthApplication(profileDigest: profileDigest, document: document) else {
-              throw SettingsError.server(settings.errorMessage ?? "The OAuth application could not be imported.")
+              throw SettingsError.server(settings.errorMessage ?? "The OAuth client could not be imported.")
             }
             await refresh()
           }
@@ -94,7 +95,7 @@ struct APIConnectionSheet: View {
   private func actionChoiceSheet(definition: SettingsAdapterDefinition) -> some View {
     SettingsBottomSheet(
       title: "Connect \(definition.displayName)",
-      subtitle: "Choose the account or OAuth application for this API.",
+      subtitle: "Choose the account or provider setup for this API.",
       detent: .medium,
       onClose: { dismiss() }
     ) {
@@ -269,7 +270,7 @@ struct APIConnectionSheet: View {
       } else {
         "Add account"
       }
-    case "import_application": "Set up OAuth application"
+    case "import_application": "Set up \(definition.displayName)"
     default: actionTitle(definition, action: action)
     }
   }
@@ -279,7 +280,7 @@ struct APIConnectionSheet: View {
     case "attach_account": "Use an account that already has the required access."
     case "add_access": "This enables \(action.operationIDs.count) additional \(definition.displayName) operations. Current access stays available if you cancel or deny consent."
     case "reconnect_account": "Reconnect this account. API definitions and local policy stay unchanged."
-    default: "Use the existing OAuth application. No new client document is required."
+    default: "Use the existing provider setup. No new client document is required."
     }
   }
 
@@ -324,7 +325,7 @@ struct SettingsAdapterDefinitionReview: View {
         NoemaStatusToken(text: definition.superseded ? "Superseded" : "Needs review", tone: .warning)
       }
 
-      DisclosureGroup("Review definition", isExpanded: $detailsExpanded) {
+      DisclosureGroup("Review API details", isExpanded: $detailsExpanded) {
         VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
           authenticationDetails
           operationDetails

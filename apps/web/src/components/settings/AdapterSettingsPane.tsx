@@ -142,6 +142,8 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const definitions = (definitionsResult.data?.adapterDefinitions ?? []).filter((item) => !item.superseded);
   const oauth = oauthResult.data?.adapterOauthState;
   const integrations = integrationsResult.data?.capabilityIntegrations ?? [];
+  const pendingDefinitions = definitions.filter((item) => !item.reviewed);
+  const availableDefinitions = definitions.filter((item) => item.reviewed && item.connectionCount === 0);
   const selectedConnection = integrations.flatMap((item) => item.connections)
     .find((item) => item.connectionId === connectionId) ?? null;
   const selectedDefinition = selectedConnection
@@ -310,29 +312,37 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       startPolicyEditing={selectedDescriptor?.policyConfigured === false}
       sourceActions={sourceActions}
       list={<VStack gap={4} {...stylex.props(styles.stack)}>
-        {definitions.some((item) => !item.reviewed) ? (
+        {pendingDefinitions.length > 0 ? (
           <SettingsSection aria-labelledby="api-review-title"><VStack gap={2}>
-            <h2 id="api-review-title" {...stylex.props(styles.sectionTitle)}>Definition review</h2>
+            <h2 id="api-review-title" {...stylex.props(styles.sectionTitle)}>Review before connecting</h2>
             <SettingsList density="compact" hasDividers>
-              {definitions.filter((item) => !item.reviewed).map((definition) => (
+              {pendingDefinitions.map((definition) => (
                 <SettingsListItem key={definition.semanticDigest} label={definition.displayName}
                   description={`${humanize(definition.authenticationMode)} · ${definition.origin}`}
-                  endContent={<Button type="button" size="sm" label="Review definition" isLoading={approval.loading}
+                  endContent={<Button type="button" size="sm" label="Review API" isLoading={approval.loading}
                     onClick={() => void runAction(definition).catch(actionError(setError))} />} />
               ))}
             </SettingsList>
           </VStack></SettingsSection>
         ) : null}
-        <AccountSections oauth={oauth} definitions={definitions}
+        {definitions.length === 0 ? <SettingsSection aria-labelledby="api-empty-title"><VStack gap={2}>
+          <h2 id="api-empty-title" {...stylex.props(styles.sectionTitle)}>No APIs set up</h2>
+          <p {...stylex.props(styles.muted)}>
+            Ask Noema in Chat to add Gmail, Google Calendar, or another API. You will review access before it connects.
+          </p>
+          <Button type="button" size="sm" label="Open Chat" {...stylex.props(styles.fit)}
+            onClick={() => void navigate({ to: "/" })} />
+        </VStack></SettingsSection> : null}
+        {oauth.grants.length > 0 ? <AccountSections oauth={oauth} definitions={definitions}
           busy={disconnectState.loading || labelState.loading}
           onOpen={(id) => void navigate({ to: "/settings/tools/apis/$connectionId", params: { connectionId: id } })}
           onLabel={(grant) => { setLabelGrant(grant); setLabelDraft(grant.accountLabel ?? ""); }}
           onDisconnect={setDisconnectTarget}
-          onChooseConnection={requestConnection} />
-        <SettingsSection aria-labelledby="available-api-title"><VStack gap={2}>
-          <h2 id="available-api-title" {...stylex.props(styles.sectionTitle)}>Available APIs</h2>
+          onChooseConnection={requestConnection} /> : null}
+        {availableDefinitions.length > 0 ? <SettingsSection aria-labelledby="available-api-title"><VStack gap={2}>
+          <h2 id="available-api-title" {...stylex.props(styles.sectionTitle)}>Connect an API</h2>
           <SettingsList density="compact" hasDividers>
-            {definitions.filter((item) => item.reviewed && item.connectionCount === 0).map((definition) => (
+            {availableDefinitions.map((definition) => (
               <SettingsListItem key={definition.semanticDigest} label={definition.displayName}
                 description={nextActionDescription(definition)}
                 endContent={definition.connectionActions.length > 0 ? <Button type="button" size="sm"
@@ -342,38 +352,44 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
                   isLoading={oauthStartState.loading || attachState.loading}
                   onClick={() => requestConnection(definition)} /> : null} />
             ))}
-            {definitions.every((item) => !item.reviewed || item.connectionCount > 0) ? (
-              <SettingsListItem label="All reviewed APIs are connected" />
-            ) : null}
           </SettingsList>
-        </VStack></SettingsSection>
-        <SettingsSection aria-labelledby="oauth-applications-title"><VStack gap={2}>
-          <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
-            <h2 id="oauth-applications-title" {...stylex.props(styles.sectionTitle)}>OAuth applications</h2>
-            {oauth.profiles.map((profile) => <Button key={profile.profileDigest} type="button" size="sm" variant="secondary"
-              label={oauth.profiles.length === 1 ? "Use another OAuth application" : `Add ${profile.displayName} application`}
-              onClick={() => setApplicationProfileDigest(profile.profileDigest)} />)}
-          </HStack>
-          <p {...stylex.props(styles.muted)}>Advanced provider setup. Secrets are never displayed.</p>
-          <SettingsList density="compact" hasDividers>
-            {oauth.applications.map((application) => (
-              <SettingsListItem key={application.applicationId}
-                label={application.projectLabel ?? application.providerDisplayName}
-                description={`${application.clientId} · ${application.callbackMode} · ${oauth.profiles.find((profile) => profile.profileDigest === application.profileDigest)?.credentialSetup?.redirectUri ?? "Redirect unavailable"} · ${application.accountCount} accounts`}
-                endContent={<HStack gap={1} wrap="wrap">
-                  <Button type="button" size="sm" variant="secondary" label="Replace document"
-                    onClick={() => setReplacementApplicationId(application.applicationId)} />
-                  <Button type="button" size="sm" variant="destructive" label="Delete application"
-                    isDisabled={application.grantCount > 0} isLoading={applicationDeleteState.loading}
-                    onClick={() => void deleteApplication({ variables: { input: {
-                      applicationId: application.applicationId,
-                      expectedRevision: application.revision
-                    } } }).then(refresh).catch(actionError(setError))} />
-                </HStack>}/>
-            ))}
-            {oauth.applications.length === 0 ? <SettingsListItem label="No OAuth applications" /> : null}
-          </SettingsList>
-        </VStack></SettingsSection>
+        </VStack></SettingsSection> : null}
+        {oauth.applications.length > 0 ? (
+          <SettingsSection aria-label="Advanced OAuth client setup">
+            <details>
+              <summary {...stylex.props(styles.advancedSummary)}>Advanced OAuth client setup</summary>
+              <VStack gap={2} {...stylex.props(styles.advancedBody)}>
+                <p {...stylex.props(styles.muted)}>
+                  OAuth clients hold provider setup for account authorization. Most people do not need to manage them here.
+                </p>
+                <HStack gap={1} wrap="wrap">
+                  {oauth.profiles.map((profile) => <Button key={profile.profileDigest} type="button" size="sm" variant="secondary"
+                    label={oauth.applications.some((application) => application.profileDigest === profile.profileDigest)
+                      ? `Import another ${profile.displayName} OAuth client`
+                      : `Import ${profile.displayName} OAuth client`}
+                    onClick={() => setApplicationProfileDigest(profile.profileDigest)} />)}
+                </HStack>
+                <SettingsList density="compact" hasDividers>
+                  {oauth.applications.map((application) => (
+                    <SettingsListItem key={application.applicationId}
+                      label={application.projectLabel ?? `${application.providerDisplayName} OAuth client`}
+                      description={`${application.clientId} · ${application.callbackMode} · ${oauth.profiles.find((profile) => profile.profileDigest === application.profileDigest)?.credentialSetup?.redirectUri ?? "Redirect unavailable"} · ${application.accountCount} accounts`}
+                      endContent={<HStack gap={1} wrap="wrap">
+                        <Button type="button" size="sm" variant="secondary" label="Replace client document"
+                          onClick={() => setReplacementApplicationId(application.applicationId)} />
+                        <Button type="button" size="sm" variant="destructive" label="Delete OAuth client"
+                          isDisabled={application.grantCount > 0} isLoading={applicationDeleteState.loading}
+                          onClick={() => void deleteApplication({ variables: { input: {
+                            applicationId: application.applicationId,
+                            expectedRevision: application.revision
+                          } } }).then(refresh).catch(actionError(setError))} />
+                      </HStack>}/>
+                  ))}
+                </SettingsList>
+              </VStack>
+            </details>
+          </SettingsSection>
+        ) : null}
         {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
       </VStack>}
       definitionDetails={selectedDefinition ? <VStack gap={2}>
@@ -384,23 +400,27 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       dangerAction={selectedConnection ? <Button type="button" variant="destructive" label="Delete connection"
         icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />} onClick={() => setDeleteOpen(true)} /> : null}
     />
-    <AdapterCredentialSetupDialog serviceName={applicationProfile?.displayName ?? "OAuth application"}
+    <AdapterCredentialSetupDialog
+      title={`Import ${applicationProfile?.displayName ?? "provider"} OAuth client`}
+      serviceName={applicationProfile?.displayName ?? "OAuth client"}
       setup={applicationProfile?.credentialSetup} scopes={[]} open={applicationProfile !== null}
       submitting={applicationImportState.loading} error={error}
       intro="Import this provider client document once. You can reuse the application for more accounts and compatible APIs."
-      submitLabel="Import application" onOpenChange={(open) => { if (!open) setApplicationProfileDigest(null); }}
+      submitLabel="Import OAuth client" onOpenChange={(open) => { if (!open) setApplicationProfileDigest(null); }}
       onSubmit={importOauthApplication} />
     <AdapterCredentialSetupDialog serviceName={setupDefinition?.displayName ?? "API"}
       setup={setupDefinition?.credentialSetup} scopes={setupDefinition?.scopes ?? []}
       open={setupDefinition?.credentialSetup != null} submitting={credentialSetupState.loading} error={error}
       onOpenChange={(open) => { if (!open) setSetupDefinitionDigest(null); }} onSubmit={importDirectCredential} />
-    <AdapterCredentialSetupDialog serviceName={replacementApplication?.providerDisplayName ?? "OAuth application"}
+    <AdapterCredentialSetupDialog
+      title={`Replace ${replacementApplication?.providerDisplayName ?? "provider"} OAuth client`}
+      serviceName={replacementApplication?.providerDisplayName ?? "OAuth client"}
       setup={replacementProfile?.credentialSetup} scopes={[]} open={replacementApplication !== null}
       submitting={applicationReplaceState.loading} error={error}
       intro={replacementApplication
-        ? `Replace this OAuth application document. ${replacementApplication.grantCount} grants across ${replacementApplication.accountCount} accounts will use the new credential.`
-        : "Replace this OAuth application document."}
-      submitLabel="Replace application" onOpenChange={(open) => { if (!open) setReplacementApplicationId(null); }}
+        ? `Replace this OAuth client document. ${replacementApplication.grantCount} grants across ${replacementApplication.accountCount} accounts will use the new credential.`
+        : "Replace this OAuth client document."}
+      submitLabel="Replace OAuth client" onOpenChange={(open) => { if (!open) setReplacementApplicationId(null); }}
       onSubmit={replaceOauthApplication} />
     <SettingsEditDialog title="Label account" open={labelGrant !== null} saving={labelState.loading}
       saveLabel="Save label" error={error} onOpenChange={(open) => { if (!open) setLabelGrant(null); }}
@@ -467,7 +487,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       } } }).then(async () => { setDeleteOpen(false); await refresh(); void navigate({ to: "/settings/tools/apis" }); }).catch(actionError(setError))} />
     <DeleteConfirmationDialog
       title="Disconnect this account?"
-      message="Noema will remove its tokens and disable every API that uses this authorization. OAuth application setup remains available."
+      message="Noema will remove its tokens and disable every API that uses this authorization. OAuth client setup remains available."
       open={disconnectTarget !== null}
       submitting={disconnectState.loading}
       error={error}
@@ -512,7 +532,6 @@ function AccountSections({ oauth, definitions, busy, onOpen, onLabel, onDisconne
   }
   return <SettingsSection aria-labelledby="api-accounts-title"><VStack gap={2}>
     <h2 id="api-accounts-title" {...stylex.props(styles.sectionTitle)}>Accounts</h2>
-    {providers.size === 0 ? <p {...stylex.props(styles.muted)}>No API accounts are connected.</p> : null}
     {[...providers.entries()].map(([provider, accounts]) => <VStack key={provider} gap={1}>
       <strong {...stylex.props(styles.providerLabel)}>{provider}</strong>
       {[...accounts.values()].map((grants) => {
@@ -556,12 +575,12 @@ function AccountSections({ oauth, definitions, busy, onOpen, onLabel, onDisconne
 
 function actionLabel(definition: AdapterDefinition) {
   const action = definition.nextAction?.kind;
-  if (action === "review_definition") return "Review definition";
+  if (action === "review_definition") return "Review API";
   if (action === "attach_account") return `Connect ${definition.displayName}`;
   if (action === "add_access") return `Add ${definition.displayName} access`;
   if (action === "reconnect_account") return "Reconnect account";
   if (action === "add_account") return "Add account";
-  if (action === "import_application") return "Set up OAuth application";
+  if (action === "import_application") return `Set up ${definition.displayName}`;
   if (action === "set_up_credential") return `Connect ${definition.displayName}`;
   if (action === "review_connection_policy") return "Review connection policy";
   return "Continue";
@@ -583,7 +602,7 @@ function connectionActionLabel(
       ? `Add account with ${application.projectLabel}`
       : `Add ${application?.providerDisplayName ?? "provider"} account`;
   }
-  if (action.kind === "import_application") return "Set up OAuth application";
+  if (action.kind === "import_application") return `Set up ${definition.displayName}`;
   return actionLabel(definition);
 }
 
@@ -597,7 +616,7 @@ function connectionActionDescription(definition: AdapterDefinition, action: Conn
     return `Approve access for ${action.operationIds.length} ${definition.displayName} operations. Current access stays available.`;
   }
   if (action.kind === "reconnect_account") return "Reconnect this account before attaching the API.";
-  if (action.kind === "add_account") return "Use this OAuth application. No new client document is required.";
+  if (action.kind === "add_account") return "Use this provider setup. No new client document is required.";
   if (action.kind === "import_application") return "Import one provider client document for reuse.";
   return definition.origin;
 }
@@ -621,8 +640,8 @@ function nextActionDescription(definition: AdapterDefinition) {
   if (!action) return definition.origin;
   if (action.kind === "attach_account") return "Use an account that already has the required access.";
   if (action.kind === "add_access") return `Approve access for ${action.operationIds.length} operations. Current access stays available.`;
-  if (action.kind === "add_account") return "Use the existing OAuth application. No new client document is required.";
-  if (action.kind === "import_application") return "Import one provider client document. You can reuse it later.";
+  if (action.kind === "add_account") return "Use the existing provider setup. No new client document is required.";
+  if (action.kind === "import_application") return "Import the provider's OAuth client document once. Noema will reuse it for compatible APIs.";
   return definition.origin;
 }
 
@@ -662,6 +681,8 @@ const styles = stylex.create({
   fit: { width: "fit-content" },
   icon: { width: 16, height: 16 },
   summary: { cursor: "pointer", fontSize: 12, fontWeight: 600 },
+  advancedSummary: { cursor: "pointer", color: "var(--foreground)", fontSize: 14, fontWeight: 650 },
+  advancedBody: { paddingTop: "var(--spacing-2)" },
   technicalDetails: { paddingTop: "var(--spacing-2)" },
   manifest: { maxHeight: 280, margin: "var(--spacing-2) 0 0", padding: "var(--spacing-2)", overflow: "auto", borderRadius: "var(--radius-sm)", backgroundColor: "var(--noema-surface-subtle)", fontFamily: "var(--font-mono)", fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }
 });

@@ -406,7 +406,7 @@ struct CapabilityConnectionEditor: View {
 
         SettingsSectionCard("Connection") {
           Text(connection.kind == .api
-            ? "Remove this API binding and tool settings. The account and OAuth application stay connected."
+            ? "Remove this API binding and tool settings. The account and OAuth client stay connected."
             : "Remove this connection, its credentials, and its tool settings.")
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
@@ -467,7 +467,7 @@ struct CapabilityConnectionEditor: View {
       SettingsMutationConfirmationSheet(
         title: "Delete \(displayName)?",
         message: connection.kind == .api
-          ? "Removes this API binding and \(toolCount) tool settings. The account and OAuth application stay connected. Past activity is kept."
+          ? "Removes this API binding and \(toolCount) tool settings. The account and OAuth client stay connected. Past activity is kept."
           : "Removes the connection, sign-in details, \(toolCount) \(toolCount == 1 ? "tool" : "tools"), and tool settings. You can't undo this. Past activity is kept.",
         confirmTitle: "Delete"
       ) {

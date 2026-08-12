@@ -647,6 +647,7 @@ function AdapterDefinitionCard({
             />
           </Dialog>
           <AdapterCredentialSetupDialog
+            title={nextKind === "import_application" ? `Import ${definition.displayName} OAuth client` : undefined}
             serviceName={definition.displayName}
             setup={setup}
             scopes={definition.scopes}
@@ -659,7 +660,7 @@ function AdapterDefinitionCard({
             intro={nextKind === "import_application"
               ? "Import this provider client document once. You can reuse it for more accounts and compatible APIs."
               : undefined}
-            submitLabel={nextKind === "import_application" ? "Import application" : "Add connection"}
+            submitLabel={nextKind === "import_application" ? "Import OAuth client" : "Add connection"}
             onSubmit={importCredentials}
           />
           {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
@@ -742,7 +743,7 @@ function AdapterDefinitionCard({
             <Button
               size="sm"
               variant="primary"
-              label={nextKind === "import_application" ? "Set up OAuth application" : "Add credentials"}
+              label={nextKind === "import_application" ? `Set up ${definition.displayName}` : "Add credentials"}
               isLoading={credentialSetup.loading || applicationImport.loading}
               isDisabled={credentialSetup.loading || applicationImport.loading || oauthStart.loading || !setup}
               onClick={() => setCredentialSetupOpen(true)}
