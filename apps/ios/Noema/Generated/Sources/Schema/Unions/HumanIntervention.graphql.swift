@@ -13,6 +13,7 @@ public extension Unions {
       Objects.McpAuthenticationIntervention.self,
       Objects.AdapterAuthenticationIntervention.self,
       Objects.McpSetupIntervention.self,
+      Objects.AdapterOauthClientSetupIntervention.self,
       Objects.AdapterDefinition.self
     ]
   )

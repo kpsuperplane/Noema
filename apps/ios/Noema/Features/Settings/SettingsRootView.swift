@@ -977,7 +977,7 @@ private struct CapabilitySettings: View {
 
   private func apiActionTitle(_ integration: SettingsIntegration) -> String {
     guard let action = settings.adapterDefinitions.first(where: { $0.semanticDigest == integration.sourceRevision })?.nextAction else { return "Connect" }
-    switch action.kind {
+    return switch action.kind {
     case "attach_account": "Connect \(integration.name)"
     case "add_access": "Add access"
     case "add_account":
@@ -991,7 +991,7 @@ private struct CapabilitySettings: View {
 
   private func apiActionDescription(_ integration: SettingsIntegration) -> String {
     guard let action = settings.adapterDefinitions.first(where: { $0.semanticDigest == integration.sourceRevision })?.nextAction else { return integration.sourceSummary }
-    switch action.kind {
+    return switch action.kind {
     case "attach_account": "Use an account that already has the required access."
     case "add_access": "Approve added access. Current access stays available."
     case "add_account": "Use the existing provider setup. No new document is required."
@@ -1165,6 +1165,13 @@ private struct CapabilitySettings: View {
         }
       )
     }
+  }
+}
+
+private extension String {
+  var nilIfBlank: String? {
+    let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
   }
 }
 

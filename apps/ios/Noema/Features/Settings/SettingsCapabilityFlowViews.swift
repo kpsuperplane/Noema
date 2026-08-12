@@ -258,7 +258,7 @@ struct APIConnectionSheet: View {
   private func choiceTitle(_ definition: SettingsAdapterDefinition, action: SettingsAdapterNextAction) -> String {
     let grant = settings.adapterOAuthState?.grants.first { $0.grantID == action.grantID }
     let account = grant?.accountLabel ?? (grant == nil ? nil : "Unlabeled account")
-    switch action.kind {
+    return switch action.kind {
     case "attach_account": account.map { "Connect \($0)" } ?? "Connect \(definition.displayName)"
     case "add_access": account.map { "Add access for \($0)" } ?? "Add \(definition.displayName) access"
     case "reconnect_account": account.map { "Reconnect \($0)" } ?? "Reconnect account"

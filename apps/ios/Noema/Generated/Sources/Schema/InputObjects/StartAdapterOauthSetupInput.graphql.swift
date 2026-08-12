@@ -12,43 +12,50 @@ nonisolated public struct StartAdapterOauthSetupInput: InputObject {
   }
 
   public init(
-    connectionId: String,
-    expectedConnectionRevision: Int32,
-    expectedCredentialRevision: Int32,
-    expectedGrantRevision: Int32,
-    expectedPolicyRevision: Int32
+    applicationId: String,
+    expectedApplicationRevision: Int32,
+    grantId: GraphQLNullable<String> = nil,
+    expectedGrantRevision: GraphQLNullable<Int32> = nil,
+    semanticDigest: String,
+    operationIds: [String]
   ) {
     __data = InputDict([
-      "connectionId": connectionId,
-      "expectedConnectionRevision": expectedConnectionRevision,
-      "expectedCredentialRevision": expectedCredentialRevision,
+      "applicationId": applicationId,
+      "expectedApplicationRevision": expectedApplicationRevision,
+      "grantId": grantId,
       "expectedGrantRevision": expectedGrantRevision,
-      "expectedPolicyRevision": expectedPolicyRevision
+      "semanticDigest": semanticDigest,
+      "operationIds": operationIds
     ])
   }
 
-  public var connectionId: String {
-    get { __data["connectionId"] }
-    set { __data["connectionId"] = newValue }
+  public var applicationId: String {
+    get { __data["applicationId"] }
+    set { __data["applicationId"] = newValue }
   }
 
-  public var expectedConnectionRevision: Int32 {
-    get { __data["expectedConnectionRevision"] }
-    set { __data["expectedConnectionRevision"] = newValue }
+  public var expectedApplicationRevision: Int32 {
+    get { __data["expectedApplicationRevision"] }
+    set { __data["expectedApplicationRevision"] = newValue }
   }
 
-  public var expectedCredentialRevision: Int32 {
-    get { __data["expectedCredentialRevision"] }
-    set { __data["expectedCredentialRevision"] = newValue }
+  public var grantId: GraphQLNullable<String> {
+    get { __data["grantId"] }
+    set { __data["grantId"] = newValue }
   }
 
-  public var expectedGrantRevision: Int32 {
+  public var expectedGrantRevision: GraphQLNullable<Int32> {
     get { __data["expectedGrantRevision"] }
     set { __data["expectedGrantRevision"] = newValue }
   }
 
-  public var expectedPolicyRevision: Int32 {
-    get { __data["expectedPolicyRevision"] }
-    set { __data["expectedPolicyRevision"] = newValue }
+  public var semanticDigest: String {
+    get { __data["semanticDigest"] }
+    set { __data["semanticDigest"] = newValue }
+  }
+
+  public var operationIds: [String] {
+    get { __data["operationIds"] }
+    set { __data["operationIds"] = newValue }
   }
 }

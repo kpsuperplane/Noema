@@ -6,7 +6,7 @@
 
 nonisolated public struct SettingsAdapterDefinitionFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment SettingsAdapterDefinitionFields on AdapterDefinition { __typename semanticDigest definitionId adapterId displayName definitionRevision sourceReference origin authenticationMode scopes credentialSetup { __typename ...AdapterCredentialSetupFields } accountIdentityOperationId operations { __typename operationId method path readOnly idempotent destructive openWorld argumentNames responseTransform { __typename language sourceDigest source acceptedContentTypes outputSchemaJson } } connectionCount connections { __typename connectionId status accountKind connectionRevision credentialRevision grantRevision policyRevision grantedScopes allowedOperations policyConfigured } reviewed superseded }"#
+    #"fragment SettingsAdapterDefinitionFields on AdapterDefinition { __typename semanticDigest definitionId adapterId displayName definitionRevision sourceReference origin authenticationMode oauthProfileDigest scopes credentialSetup { __typename ...AdapterCredentialSetupFields } accountIdentityOperationId manifestJson operations { __typename operationId method path readOnly idempotent destructive openWorld argumentNames responseTransform { __typename language sourceDigest source acceptedContentTypes outputSchemaJson } } connectionCount connections { __typename connectionId status grantId accountId connectionRevision credentialRevision grantRevision policyRevision grantedScopes allowedOperations policyConfigured operationAccess { __typename operationId status missingScopes } } reviewed superseded nextAction { __typename kind semanticDigest applicationId expectedApplicationRevision grantId expectedGrantRevision connectionId expectedConnectionRevision expectedPolicyRevision operationIds missingScopes } connectionActions { __typename kind semanticDigest applicationId expectedApplicationRevision grantId expectedGrantRevision connectionId expectedConnectionRevision expectedPolicyRevision operationIds missingScopes } }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -23,14 +23,18 @@ nonisolated public struct SettingsAdapterDefinitionFields: NoemaAPI.SelectionSet
     .field("sourceReference", String.self),
     .field("origin", String.self),
     .field("authenticationMode", String.self),
+    .field("oauthProfileDigest", String?.self),
     .field("scopes", [String].self),
     .field("credentialSetup", CredentialSetup?.self),
     .field("accountIdentityOperationId", String?.self),
+    .field("manifestJson", String.self),
     .field("operations", [Operation].self),
     .field("connectionCount", Int.self),
     .field("connections", [Connection].self),
     .field("reviewed", Bool.self),
     .field("superseded", Bool.self),
+    .field("nextAction", NextAction?.self),
+    .field("connectionActions", [ConnectionAction].self),
   ] }
   @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
     SettingsAdapterDefinitionFields.self
@@ -44,14 +48,18 @@ nonisolated public struct SettingsAdapterDefinitionFields: NoemaAPI.SelectionSet
   public var sourceReference: String { __data["sourceReference"] }
   public var origin: String { __data["origin"] }
   public var authenticationMode: String { __data["authenticationMode"] }
+  public var oauthProfileDigest: String? { __data["oauthProfileDigest"] }
   public var scopes: [String] { __data["scopes"] }
   public var credentialSetup: CredentialSetup? { __data["credentialSetup"] }
   public var accountIdentityOperationId: String? { __data["accountIdentityOperationId"] }
+  public var manifestJson: String { __data["manifestJson"] }
   public var operations: [Operation] { __data["operations"] }
   public var connectionCount: Int { __data["connectionCount"] }
   public var connections: [Connection] { __data["connections"] }
   public var reviewed: Bool { __data["reviewed"] }
   public var superseded: Bool { __data["superseded"] }
+  public var nextAction: NextAction? { __data["nextAction"] }
+  public var connectionActions: [ConnectionAction] { __data["connectionActions"] }
 
   /// CredentialSetup
   ///
@@ -168,14 +176,16 @@ nonisolated public struct SettingsAdapterDefinitionFields: NoemaAPI.SelectionSet
       .field("__typename", String.self),
       .field("connectionId", String.self),
       .field("status", String.self),
-      .field("accountKind", String.self),
+      .field("grantId", String?.self),
+      .field("accountId", String?.self),
       .field("connectionRevision", Int.self),
-      .field("credentialRevision", Int.self),
-      .field("grantRevision", Int.self),
+      .field("credentialRevision", Int?.self),
+      .field("grantRevision", Int?.self),
       .field("policyRevision", Int.self),
       .field("grantedScopes", [String].self),
       .field("allowedOperations", [String].self),
       .field("policyConfigured", Bool.self),
+      .field("operationAccess", [OperationAccess].self),
     ] }
     @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
       SettingsAdapterDefinitionFields.Connection.self
@@ -183,13 +193,116 @@ nonisolated public struct SettingsAdapterDefinitionFields: NoemaAPI.SelectionSet
 
     public var connectionId: String { __data["connectionId"] }
     public var status: String { __data["status"] }
-    public var accountKind: String { __data["accountKind"] }
+    public var grantId: String? { __data["grantId"] }
+    public var accountId: String? { __data["accountId"] }
     public var connectionRevision: Int { __data["connectionRevision"] }
-    public var credentialRevision: Int { __data["credentialRevision"] }
-    public var grantRevision: Int { __data["grantRevision"] }
+    public var credentialRevision: Int? { __data["credentialRevision"] }
+    public var grantRevision: Int? { __data["grantRevision"] }
     public var policyRevision: Int { __data["policyRevision"] }
     public var grantedScopes: [String] { __data["grantedScopes"] }
     public var allowedOperations: [String] { __data["allowedOperations"] }
     public var policyConfigured: Bool { __data["policyConfigured"] }
+    public var operationAccess: [OperationAccess] { __data["operationAccess"] }
+
+    /// Connection.OperationAccess
+    ///
+    /// Parent Type: `AdapterOperationAccess`
+    nonisolated public struct OperationAccess: NoemaAPI.SelectionSet {
+      @_spi(Unsafe) public let __data: DataDict
+      @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+      @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.AdapterOperationAccess }
+      @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+        .field("__typename", String.self),
+        .field("operationId", String.self),
+        .field("status", String.self),
+        .field("missingScopes", [String].self),
+      ] }
+      @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+        SettingsAdapterDefinitionFields.Connection.OperationAccess.self
+      ] }
+
+      public var operationId: String { __data["operationId"] }
+      public var status: String { __data["status"] }
+      public var missingScopes: [String] { __data["missingScopes"] }
+    }
+  }
+
+  /// NextAction
+  ///
+  /// Parent Type: `AdapterNextAction`
+  nonisolated public struct NextAction: NoemaAPI.SelectionSet {
+    @_spi(Unsafe) public let __data: DataDict
+    @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+    @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.AdapterNextAction }
+    @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+      .field("__typename", String.self),
+      .field("kind", String.self),
+      .field("semanticDigest", String.self),
+      .field("applicationId", String?.self),
+      .field("expectedApplicationRevision", Int?.self),
+      .field("grantId", String?.self),
+      .field("expectedGrantRevision", Int?.self),
+      .field("connectionId", String?.self),
+      .field("expectedConnectionRevision", Int?.self),
+      .field("expectedPolicyRevision", Int?.self),
+      .field("operationIds", [String].self),
+      .field("missingScopes", [String].self),
+    ] }
+    @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+      SettingsAdapterDefinitionFields.NextAction.self
+    ] }
+
+    public var kind: String { __data["kind"] }
+    public var semanticDigest: String { __data["semanticDigest"] }
+    public var applicationId: String? { __data["applicationId"] }
+    public var expectedApplicationRevision: Int? { __data["expectedApplicationRevision"] }
+    public var grantId: String? { __data["grantId"] }
+    public var expectedGrantRevision: Int? { __data["expectedGrantRevision"] }
+    public var connectionId: String? { __data["connectionId"] }
+    public var expectedConnectionRevision: Int? { __data["expectedConnectionRevision"] }
+    public var expectedPolicyRevision: Int? { __data["expectedPolicyRevision"] }
+    public var operationIds: [String] { __data["operationIds"] }
+    public var missingScopes: [String] { __data["missingScopes"] }
+  }
+
+  /// ConnectionAction
+  ///
+  /// Parent Type: `AdapterNextAction`
+  nonisolated public struct ConnectionAction: NoemaAPI.SelectionSet {
+    @_spi(Unsafe) public let __data: DataDict
+    @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+    @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.AdapterNextAction }
+    @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+      .field("__typename", String.self),
+      .field("kind", String.self),
+      .field("semanticDigest", String.self),
+      .field("applicationId", String?.self),
+      .field("expectedApplicationRevision", Int?.self),
+      .field("grantId", String?.self),
+      .field("expectedGrantRevision", Int?.self),
+      .field("connectionId", String?.self),
+      .field("expectedConnectionRevision", Int?.self),
+      .field("expectedPolicyRevision", Int?.self),
+      .field("operationIds", [String].self),
+      .field("missingScopes", [String].self),
+    ] }
+    @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+      SettingsAdapterDefinitionFields.ConnectionAction.self
+    ] }
+
+    public var kind: String { __data["kind"] }
+    public var semanticDigest: String { __data["semanticDigest"] }
+    public var applicationId: String? { __data["applicationId"] }
+    public var expectedApplicationRevision: Int? { __data["expectedApplicationRevision"] }
+    public var grantId: String? { __data["grantId"] }
+    public var expectedGrantRevision: Int? { __data["expectedGrantRevision"] }
+    public var connectionId: String? { __data["connectionId"] }
+    public var expectedConnectionRevision: Int? { __data["expectedConnectionRevision"] }
+    public var expectedPolicyRevision: Int? { __data["expectedPolicyRevision"] }
+    public var operationIds: [String] { __data["operationIds"] }
+    public var missingScopes: [String] { __data["missingScopes"] }
   }
 }

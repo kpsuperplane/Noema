@@ -670,7 +670,9 @@ private extension View {
   func noemaTaskResponseField() -> some View {
     modifier(NoemaTaskResponseFieldModifier())
   }
+}
 
+extension View {
   func interventionEyebrow() -> some View {
     font(NoemaFont.taskPreview.weight(.semibold))
       .textCase(.uppercase)

@@ -433,14 +433,12 @@ extension SettingsModel {
   func adapterOAuthAttempt(attemptID: String) async -> (status: String, grantID: String?, grantRevision: Int?)? {
     guard let client else { return nil }
     do {
-      let stream = try client.fetch(
+      let response = try await client.fetch(
         query: NoemaAPI.SettingsAdapterOauthAttemptQuery(attemptId: attemptID),
-        cachePolicy: .fetchIgnoringCacheData
+        cachePolicy: .networkOnly
       )
-      for try await response in stream {
-        guard let event = response.data?.adapterOauthAttempt else { continue }
-        return (event.status, event.grantId, event.grantRevision)
-      }
+      guard let event = response.data?.adapterOauthAttempt else { return nil }
+      return (event.status, event.grantId, event.grantRevision)
     } catch {
       errorMessage = error.localizedDescription
       return nil

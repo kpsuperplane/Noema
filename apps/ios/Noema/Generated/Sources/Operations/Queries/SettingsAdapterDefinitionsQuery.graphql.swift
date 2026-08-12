@@ -54,14 +54,18 @@ nonisolated public struct SettingsAdapterDefinitionsQuery: GraphQLQuery {
       public var sourceReference: String { __data["sourceReference"] }
       public var origin: String { __data["origin"] }
       public var authenticationMode: String { __data["authenticationMode"] }
+      public var oauthProfileDigest: String? { __data["oauthProfileDigest"] }
       public var scopes: [String] { __data["scopes"] }
       public var credentialSetup: CredentialSetup? { __data["credentialSetup"] }
       public var accountIdentityOperationId: String? { __data["accountIdentityOperationId"] }
+      public var manifestJson: String { __data["manifestJson"] }
       public var operations: [Operation] { __data["operations"] }
       public var connectionCount: Int { __data["connectionCount"] }
       public var connections: [Connection] { __data["connections"] }
       public var reviewed: Bool { __data["reviewed"] }
       public var superseded: Bool { __data["superseded"] }
+      public var nextAction: NextAction? { __data["nextAction"] }
+      public var connectionActions: [ConnectionAction] { __data["connectionActions"] }
 
       public struct Fragments: FragmentContainer {
         @_spi(Unsafe) public let __data: DataDict
@@ -75,6 +79,10 @@ nonisolated public struct SettingsAdapterDefinitionsQuery: GraphQLQuery {
       public typealias Operation = SettingsAdapterDefinitionFields.Operation
 
       public typealias Connection = SettingsAdapterDefinitionFields.Connection
+
+      public typealias NextAction = SettingsAdapterDefinitionFields.NextAction
+
+      public typealias ConnectionAction = SettingsAdapterDefinitionFields.ConnectionAction
     }
   }
 }
