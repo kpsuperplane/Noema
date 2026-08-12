@@ -69,6 +69,7 @@ contain access-method actions. Account headers use an action menu. OAuth is
 one supported access method; credential and no-auth connections keep the same
 provider hierarchy. MCP Settings keeps its service-first list. Both use the same
 connection detail. The detail keeps connection policy and tool controls visible.
+Tool counts appear in the Tools section, not in list rows or the detail header.
 When no API exists, it shows one route to Chat instead of empty data sections.
 Client import occurs only when a structured API connection action requires it.
 

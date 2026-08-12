@@ -5,7 +5,7 @@ import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
-import { Pencil, Wrench } from "lucide-react";
+import { Pencil } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 import {
   CapabilityConnectionDocument,
@@ -288,13 +288,9 @@ export function CapabilityConnectionDetail({
             {dangerAction}
           </HStack>
         </HStack>
-        <HStack gap={1} vAlign="center" {...stylex.props(styles.toolCount)}>
-          <Wrench aria-hidden="true" size={14} />
-          {connection.availableToolCount} / {connection.toolCount} tools
-          {connectionIssue(connection) ? (
-            <span>· {connectionIssue(connection)}</span>
-          ) : null}
-        </HStack>
+        {connectionIssue(connection) ? (
+          <p {...stylex.props(styles.connectionIssue)}>{connectionIssue(connection)}</p>
+        ) : null}
       </VStack>
 
       <SettingsDetailSection
@@ -488,7 +484,7 @@ const styles = stylex.create({
   drawerInset: { paddingInline: "var(--spacing-3)" },
   serviceName: { color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.2 },
   connectionName: { margin: 0, color: "var(--foreground)", fontFamily: "var(--font-heading)", fontSize: 18, fontWeight: 650, lineHeight: 1.25, overflowWrap: "anywhere" },
-  toolCount: { color: "var(--muted-foreground)", fontSize: 12 },
+  connectionIssue: { margin: 0, color: "var(--muted-foreground)", fontSize: 12 },
   policyBody: { padding: "var(--spacing-3)" },
   editorDescription: { margin: "var(--spacing-0)", fontSize: 13, lineHeight: 1.5, color: "var(--muted-foreground)" },
   hintRow: { paddingBlock: "var(--spacing-2)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", fontSize: 14, "@media (max-width: 520px)": { alignItems: "flex-start" } },

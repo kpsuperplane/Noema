@@ -38,6 +38,10 @@
   corner-shape: var(--corner-shape-chat);
 }
 
+.astryx-dropdown-menu {
+  --color-overlay-hover: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
 .astryx-badge,
 .astryx-resize-handle-pill,
 .astryx-tab-indicator {

@@ -7,7 +7,6 @@ import {
   CalendarDays,
   ChevronRight,
   FileText,
-  Globe2,
   HardDrive,
   Mail,
   Plug,
@@ -71,14 +70,6 @@ function CapabilityIntegrationListView({
           return (
             <VStack as="section" key={provider.id} gap={2} aria-labelledby={providerTitleId} {...stylex.props(styles.service)}>
               <HStack gap={2} vAlign="center" {...stylex.props(styles.providerHeader)}>
-                <HStack
-                  vAlign="center"
-                  hAlign="center"
-                  aria-hidden="true"
-                  {...stylex.props(styles.iconFrame, styles.emphasizedIcon)}
-                >
-                  <Globe2 {...stylex.props(styles.icon)} />
-                </HStack>
                 <h2 id={providerTitleId} {...stylex.props(styles.title, styles.providerTitle)}>{provider.name}</h2>
                 {providerActions?.(provider)}
               </HStack>
@@ -195,6 +186,7 @@ function CapabilityConnectionCard({
   visibleSelectedConnectionId?: string;
   onSelect: (connectionId: string) => void;
 }) {
+  const description = connectionDescription(connection);
   const route = kind === "API"
     ? "/settings/tools/apis/$connectionId"
     : "/settings/tools/mcps/$connectionId";
@@ -217,10 +209,12 @@ function CapabilityConnectionCard({
         <strong {...stylex.props(styles.connectionName)}>
           {showIntegration ? integration.name : connection.name}
         </strong>
-        <HStack as="span" gap={1} vAlign="center" {...stylex.props(styles.connectionMeta)}>
-          <Wrench aria-hidden="true" {...stylex.props(styles.metaIcon)} />
-          {connectionDescription(connection)}
-        </HStack>
+        {description ? (
+          <HStack as="span" gap={1} vAlign="center" {...stylex.props(styles.connectionMeta)}>
+            <Wrench aria-hidden="true" {...stylex.props(styles.metaIcon)} />
+            {description}
+          </HStack>
+        ) : null}
       </VStack>
       <ChevronRight aria-hidden="true" {...stylex.props(styles.chevron)} />
     </ListCardLink>
@@ -313,7 +307,7 @@ function connectionDescription(connection: CapabilityIntegration["connections"][
   if (!["active", "healthy", "ready"].includes(connection.healthStatus.toLowerCase())) {
     return settingsStatusLabel(connection.healthStatus);
   }
-  return `${connection.availableToolCount} / ${connection.toolCount} tools`;
+  return null;
 }
 
 function connectionNeedsAuthorization(authStatus: string) {
