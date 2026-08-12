@@ -1,5 +1,6 @@
 import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
+import { Switch } from "@astryxdesign/core/Switch";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import {
@@ -7,8 +8,6 @@ import {
   Loader2,
   Pencil,
   RefreshCcw,
-  ToggleLeft,
-  ToggleRight,
   TriangleAlert,
   X
 } from "lucide-react";
@@ -25,14 +24,14 @@ export function CapabilityToolTable({
   busy,
   onEdit,
   onReset,
-  onToggle
+  onEnabledChange
 }: {
   tools: ManagedTool[];
   loading: boolean;
   busy: boolean;
   onEdit: (tool: ManagedTool) => void;
   onReset: (tool: ManagedTool) => void;
-  onToggle: (tool: ManagedTool) => void;
+  onEnabledChange: (tool: ManagedTool, enabled: boolean) => void | Promise<void>;
 }) {
   if (loading && tools.length === 0) {
     return (
@@ -90,16 +89,12 @@ export function CapabilityToolTable({
                   onClick={() => onReset(tool)}
                 />
               ) : null}
-              <IconButton
-                size="sm"
-                variant="ghost"
-                label={`${tool.enabled ? "Turn off" : "Turn on"} ${tool.name}`}
-                tooltip={tool.enabled ? "Turn off" : "Turn on"}
-                icon={tool.enabled
-                  ? <ToggleRight aria-hidden="true" size={18} />
-                  : <ToggleLeft aria-hidden="true" size={18} />}
+              <Switch
+                label={`Enabled for ${tool.name}`}
+                isLabelHidden
+                value={tool.enabled}
                 isDisabled={busy}
-                onClick={() => onToggle(tool)}
+                changeAction={(enabled) => onEnabledChange(tool, enabled)}
               />
             </HStack>
           </HStack>

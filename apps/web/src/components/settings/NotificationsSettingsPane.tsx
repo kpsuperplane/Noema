@@ -3,10 +3,11 @@ import { Button } from "@astryxdesign/core/Button";
 import { FileInput } from "@astryxdesign/core/FileInput";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { HStack } from "@astryxdesign/core/HStack";
+import { Switch } from "@astryxdesign/core/Switch";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
-import { Bell, BellOff, KeyRound, RefreshCw, Trash2 } from "lucide-react";
+import { KeyRound, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useWebPush } from "@/pwa/WebPushContext";
 import {
@@ -344,27 +345,24 @@ function WebPushSettings() {
   const webPush = useWebPush();
   const enabled = webPush.state === "enabled";
   const actionable = webPush.state === "enabled" || webPush.state === "disabled";
+  const loading = webPush.state === "loading";
 
   return (
     <SettingsSection title="Device notifications" titleId="notification-settings-title">
         <SettingsList density="balanced" hasDividers>
           <SettingsListItem
-            mobileEndContentFullWidth
             label={enabled ? "Notifications on" : "Notifications off"}
             description={webPush.detail}
             endContent={
-              actionable ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  label={enabled ? "Disable" : "Enable"}
-                  icon={enabled
-                    ? <BellOff aria-hidden="true" size={14} />
-                    : <Bell aria-hidden="true" size={14} />}
-                  clickAction={enabled ? webPush.disable : webPush.enable}
-                />
-              ) : null
+              <Switch
+                label="Device notifications"
+                isLabelHidden
+                value={enabled}
+                isDisabled={!actionable}
+                isLoading={loading}
+                disabledMessage={!actionable && !loading ? webPush.detail : undefined}
+                changeAction={(checked) => checked ? webPush.enable() : webPush.disable()}
+              />
             }
           />
         </SettingsList>
