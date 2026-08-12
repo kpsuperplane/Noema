@@ -72,7 +72,7 @@ export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/settings/system/notifications") {
     return { kind: "settings", section: "system-notifications" };
   }
-  if (pathname === "/settings/system/clients") {
+  if (pathname === "/settings/system/clients" || pathname.startsWith("/settings/system/clients/")) {
     return { kind: "settings", section: "system-clients" };
   }
   return { kind: "chat" };

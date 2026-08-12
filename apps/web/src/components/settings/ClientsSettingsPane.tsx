@@ -1,12 +1,18 @@
 import { useMutation, useQuery } from "@apollo/client/react";
+import { Avatar } from "@astryxdesign/core/Avatar";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { HStack } from "@astryxdesign/core/HStack";
+import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
-import { Copy, RefreshCw, Trash2 } from "lucide-react";
+import { ChevronRight, Copy, RefreshCw } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
+import { ListCardLink } from "@/components/ListCardLink";
+import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import {
   ClientsDocument,
   RevokeClientDocument,
@@ -14,9 +20,16 @@ import {
   type RevokeClientMutation,
   type RevokeClientMutationVariables
 } from "@/generated/graphql";
-import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
-import { startClientPairing, type ClientPairing } from "./clientPairing";
 import { DeleteConfirmationDialog } from "./DeleteConnectionDialog";
+import { startClientPairing, type ClientPairing } from "./clientPairing";
+import { SettingsManagementLayout } from "./SettingsManagementLayout";
+import {
+  SettingsList,
+  SettingsListItem,
+  SettingsSection,
+  SettingsSectionInset,
+  SettingsTechnicalDetails
+} from "./SettingsPrimitives";
 
 type PairedClient = ClientsQuery["clients"][number];
 
@@ -25,69 +38,229 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   timeStyle: "short"
 });
 
-export function ClientsSettingsPane() {
-  const clientsResult = useQuery<ClientsQuery>(ClientsDocument, {
-    fetchPolicy: "cache-and-network"
-  });
-  const [revokeClient, revokeResult] = useMutation<RevokeClientMutation, RevokeClientMutationVariables>(RevokeClientDocument, {
-    refetchQueries: [{ query: ClientsDocument }],
-    awaitRefetchQueries: true
-  });
+export function ClientsSettingsPane({ clientId }: { clientId?: string }) {
+  const navigate = useNavigate();
+  const desktop = useMediaQuery("(min-width: 980px)");
+  const result = useQuery<ClientsQuery>(ClientsDocument, { fetchPolicy: "cache-and-network" });
+  const [revokeClient, revokeResult] = useMutation<RevokeClientMutation, RevokeClientMutationVariables>(
+    RevokeClientDocument,
+    { refetchQueries: [{ query: ClientsDocument }], awaitRefetchQueries: true }
+  );
+  const [pairingOpen, setPairingOpen] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<PairedClient | null>(null);
+  const clients = result.data?.clients ?? [];
+  const activeClients = clients.filter((client) => client.revokedAt === null);
+  const revokedClients = clients.filter((client) => client.revokedAt !== null);
+  const selectedClient = clients.find((client) => client.clientId === clientId) ?? null;
+  const defaultClient = activeClients.find((client) => client.isCurrent)
+    ?? activeClients[0]
+    ?? revokedClients[0];
+  const loading = result.loading && !result.data;
+  const queryError = result.error ? "Paired clients could not be loaded." : null;
+  const mutationError = revokeResult.error ? "Noema could not revoke this client." : null;
 
-  return (
-    <ClientsSettingsPaneContent
-      clients={clientsResult.data?.clients ?? []}
-      loading={clientsResult.loading && !clientsResult.data}
-      error={clientsResult.error ? "Paired clients could not be loaded." : null}
-      mutationError={revokeResult.error ? "Noema could not revoke this client." : null}
-      mutationSaving={revokeResult.loading}
-      onRetry={() => void clientsResult.refetch()}
-      onRevoke={(clientId) => {
-        revokeResult.reset();
-        return revokeClient({ variables: { clientId } });
+  useEffect(() => {
+    if (!desktop || clientId || !defaultClient) return;
+    void navigate({
+      to: "/settings/system/clients/$clientId",
+      params: { clientId: defaultClient.clientId },
+      replace: true
+    });
+  }, [clientId, defaultClient, desktop, navigate]);
+
+  useEffect(() => {
+    if (loading || !clientId || selectedClient) return;
+    void navigate({ to: "/settings/system/clients", replace: true });
+  }, [clientId, loading, navigate, selectedClient]);
+
+  const revoke = async () => {
+    if (!revokeTarget) return;
+    try {
+      await revokeClient({ variables: { clientId: revokeTarget.clientId } });
+      setRevokeTarget(null);
+      void navigate({ to: "/settings/system/clients" });
+    } catch {
+      // Keep the dialog open so the local error can be retried.
+    }
+  };
+
+  return <>
+    <SettingsManagementLayout
+      title="Clients"
+      primaryAction={{ label: "Pair client", onClick: () => setPairingOpen(true) }}
+      detailOpen={clientId !== undefined}
+      detailLabel="Manage paired client"
+      onDetailOpenChange={(open) => {
+        if (!open) void navigate({ to: "/settings/system/clients" });
       }}
+      list={
+        <ClientList
+          activeClients={activeClients}
+          revokedClients={revokedClients}
+          selectedClientId={clientId}
+          loading={loading}
+          error={queryError}
+          onRetry={() => void result.refetch()}
+        />
+      }
+      detail={selectedClient ? (
+        <ClientDetail
+          client={selectedClient}
+          busy={revokeResult.loading}
+          onRevoke={() => {
+            revokeResult.reset();
+            setRevokeTarget(selectedClient);
+          }}
+        />
+      ) : clientId ? (
+        <SettingsSectionInset>
+          <p {...stylex.props(styles.mutedText)}>This paired client no longer exists.</p>
+        </SettingsSectionInset>
+      ) : undefined}
     />
+    <PairClientDialog open={pairingOpen} onOpenChange={setPairingOpen} />
+    <DeleteConfirmationDialog
+      title={revokeTarget ? `Revoke ${revokeTarget.displayName}?` : "Revoke client?"}
+      message={revokeTarget?.isCurrent
+        ? "This is the bearer credential used by the current request. Revoking it ends this client's access."
+        : "The client stops authenticating immediately. Past activity and its audit record remain."}
+      open={revokeTarget !== null}
+      submitting={revokeResult.loading}
+      error={revokeTarget ? mutationError : null}
+      confirmLabel="Revoke client"
+      onOpenChange={(open) => {
+        if (!open && !revokeResult.loading) setRevokeTarget(null);
+      }}
+      onConfirm={() => void revoke()}
+    />
+  </>;
+}
+
+function ClientList({
+  activeClients,
+  revokedClients,
+  selectedClientId,
+  loading,
+  error,
+  onRetry
+}: {
+  activeClients: readonly PairedClient[];
+  revokedClients: readonly PairedClient[];
+  selectedClientId?: string;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (loading) return <p {...stylex.props(styles.mutedText)}>Loading paired clients...</p>;
+  if (error && activeClients.length === 0 && revokedClients.length === 0) return (
+    <SettingsSection title="Paired clients" titleId="client-load-error">
+      <SettingsSectionInset>
+        <p role="alert" {...stylex.props(styles.errorText)}>{error}</p>
+        <Button type="button" size="sm" variant="secondary" label="Retry" onClick={onRetry} />
+      </SettingsSectionInset>
+    </SettingsSection>
+  );
+  return <VStack gap={4}>
+    {error ? <SettingsSection title="Paired clients" titleId="client-stale-error">
+      <SettingsSectionInset>
+        <HStack gap={2} wrap="wrap" vAlign="center">
+          <p role="alert" {...stylex.props(styles.errorText)}>{error}</p>
+          <Button type="button" size="sm" variant="secondary" label="Retry" onClick={onRetry} />
+        </HStack>
+      </SettingsSectionInset>
+    </SettingsSection> : null}
+    <VStack as="section" gap={1.5} aria-labelledby="active-clients-title">
+      <h2 id="active-clients-title" {...stylex.props(styles.groupTitle)}>Active</h2>
+      {activeClients.length > 0 ? activeClients.map((client) => (
+        <ClientCard key={client.clientId} client={client} selected={selectedClientId === client.clientId} />
+      )) : <p {...stylex.props(styles.mutedText)}>No active clients are paired.</p>}
+    </VStack>
+    {revokedClients.length > 0 ? (
+      <details open={revokedClients.some((client) => client.clientId === selectedClientId)}>
+        <summary {...stylex.props(styles.revokedSummary)}>Revoked clients</summary>
+        <VStack gap={1.5} {...stylex.props(styles.revokedList)}>
+          {revokedClients.map((client) => (
+            <ClientCard key={client.clientId} client={client} selected={selectedClientId === client.clientId} />
+          ))}
+        </VStack>
+      </details>
+    ) : null}
+  </VStack>;
+}
+
+function ClientCard({ client, selected }: { client: PairedClient; selected: boolean }) {
+  return (
+    <ListCardLink
+      to="/settings/system/clients/$clientId"
+      params={{ clientId: client.clientId }}
+      selected={selected}
+      aria-current={selected ? "page" : undefined}
+      xstyle={styles.clientCard}
+    >
+      <Avatar name={client.displayName} size="sm" tooltip={false} />
+      <VStack gap={0.5} {...stylex.props(styles.cardCopy)}>
+        <HStack gap={1} wrap="wrap" vAlign="center">
+          <strong {...stylex.props(styles.cardTitle)}>{client.displayName}</strong>
+          {client.isCurrent ? <Badge variant="info" label="Current client" /> : null}
+        </HStack>
+        <span {...stylex.props(styles.cardMeta)}>Added {formatDate(client.createdAt)}</span>
+      </VStack>
+      <ChevronRight aria-hidden="true" {...stylex.props(styles.chevron)} />
+    </ListCardLink>
   );
 }
 
-function ClientsSettingsPaneContent({
-  clients,
-  loading,
-  error,
-  mutationError,
-  mutationSaving,
-  onRetry,
-  onRevoke
-}: {
-  clients: readonly PairedClient[];
-  loading: boolean;
-  error: string | null;
-  mutationError: string | null;
-  mutationSaving: boolean;
-  onRetry: () => void;
-  onRevoke: (clientId: string) => Promise<unknown>;
-}) {
+function ClientDetail({ client, busy, onRevoke }: { client: PairedClient; busy: boolean; onRevoke: () => void }) {
+  return <>
+    <VStack gap={0.5} {...stylex.props(styles.detailHeader)}>
+      <span {...stylex.props(styles.eyebrow)}>Paired client</span>
+      <HStack gap={2} wrap="wrap" vAlign="center">
+        <h1 {...stylex.props(styles.detailTitle)}>{client.displayName}</h1>
+        {client.isCurrent ? <Badge variant="info" label="Current client" /> : null}
+      </HStack>
+    </VStack>
+    <SettingsSection title="Access" titleId="client-access">
+      <SettingsList density="balanced" hasDividers>
+        <SettingsListItem label="State" description={client.revokedAt ? "Revoked" : "Active"} />
+        <SettingsListItem label="Paired" description={formatDate(client.createdAt)} />
+      </SettingsList>
+      <SettingsTechnicalDetails>
+        <SettingsList density="compact">
+          <SettingsListItem label="Client ID" description={client.clientId} />
+          {client.revokedAt ? <SettingsListItem label="Revoked" description={formatDate(client.revokedAt)} /> : null}
+        </SettingsList>
+      </SettingsTechnicalDetails>
+    </SettingsSection>
+    {!client.revokedAt ? (
+      <SettingsSection
+        title="Lifecycle"
+        titleId="client-lifecycle"
+        action={<Button type="button" size="sm" variant="destructive" label="Revoke client" isDisabled={busy} onClick={onRevoke} />}
+      >
+        <SettingsSectionInset>
+          <p {...stylex.props(styles.mutedText)}>Revoking this client stops new authenticated requests. Its audit history remains.</p>
+        </SettingsSectionInset>
+      </SettingsSection>
+    ) : null}
+  </>;
+}
+
+function PairClientDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [pairing, setPairing] = useState<ClientPairing | null>(null);
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [pairingStarting, setPairingStarting] = useState(false);
   const [remainingMs, setRemainingMs] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
-  const [revokeTarget, setRevokeTarget] = useState<PairedClient | null>(null);
 
   useEffect(() => {
-    if (!pairing) {
-      return;
-    }
-
+    if (!pairing) return;
     const update = () => {
       const next = Math.max(0, pairing.expiresAt - Date.now());
       setRemainingMs(next);
-      if (next === 0) {
-        setPairing(null);
-      }
+      if (next === 0) setPairing(null);
     };
-
+    update();
     const timer = window.setInterval(update, 1000);
     return () => window.clearInterval(timer);
   }, [pairing]);
@@ -100,11 +273,11 @@ function ClientsSettingsPaneContent({
     setCopied(false);
     setPairingStarting(true);
     try {
-      const nextPairing = await startClientPairing();
-      setRemainingMs(Math.max(0, nextPairing.expiresAt - Date.now()));
-      setPairing(nextPairing);
+      const next = await startClientPairing();
+      setPairing(next);
+      setRemainingMs(Math.max(0, next.expiresAt - Date.now()));
     } catch (error) {
-      setPairingError(error instanceof Error ? error.message : "Client pairing could not be started.");
+      setPairingError(error instanceof Error ? error.message : "Client pairing could not start.");
     } finally {
       setPairingStarting(false);
     }
@@ -114,167 +287,63 @@ function ClientsSettingsPaneContent({
     if (!pairing) return;
     setCopyError(null);
     if (!navigator.clipboard?.writeText) {
-      setCopyError("Copy is unavailable here; select the link to copy it.");
+      setCopyError("Copy is unavailable here. Select the link to copy it.");
       return;
     }
     try {
       await navigator.clipboard.writeText(pairing.pairingUri);
       setCopied(true);
     } catch {
-      setCopyError("The link could not be copied; select it to copy manually.");
+      setCopyError("The link could not be copied. Select it to copy manually.");
     }
   };
-
-  const revoke = async () => {
-    if (!revokeTarget) return;
-    try {
-      await onRevoke(revokeTarget.clientId);
-      setRevokeTarget(null);
-    } catch {
-      // The dialog keeps the target open and renders the mutation error.
-    }
-  };
-
-  const activeClients = clients.filter((client) => client.revokedAt === null);
-  const revokedClients = clients.filter((client) => client.revokedAt !== null);
-  const pairingActive = pairing !== null;
 
   return (
-    <VStack gap={6}>
-      <SettingsSection aria-labelledby="client-pairing-title">
-        <VStack gap={2}>
-          <h2 id="client-pairing-title" {...stylex.props(styles.sectionTitle)}>
-            Pair a client
-          </h2>
-          <p {...stylex.props(styles.mutedText)}>
-            Create a short-lived link for a Noema client. The link stays in this page's memory and expires after 10 minutes.
-          </p>
-          {pairingActive ? (
-            <VStack gap={3}>
+    <Dialog isOpen={open} onOpenChange={onOpenChange} purpose="form" width={520} aria-label="Pair a client">
+      <Layout
+        height="auto"
+        header={<DialogHeader title="Pair a client" onOpenChange={onOpenChange} />}
+        content={<LayoutContent>
+          <VStack gap={3}>
+            <p {...stylex.props(styles.mutedText)}>Create a short-lived link, then scan it with a Noema client.</p>
+            {pairing ? <>
               <VStack as="figure" gap={2} hAlign="center" {...stylex.props(styles.qrFigure)}>
-                <QRCodeSVG value={pairing.pairingUri} size={200} level="M" marginSize={2} bgColor="var(--color-background-surface)" fgColor="var(--color-text-primary)" title="Scan this QR code to pair a Noema client" />
-                <figcaption {...stylex.props(styles.mutedText)}>
-                  Scan with the Noema client
-                </figcaption>
+                <QRCodeSVG
+                  value={pairing.pairingUri}
+                  size={200}
+                  level="M"
+                  marginSize={2}
+                  bgColor="var(--color-background-surface)"
+                  fgColor="var(--color-text-primary)"
+                  title="Scan this QR code to pair a Noema client"
+                />
+                <figcaption {...stylex.props(styles.mutedText)}>Scan with the Noema client</figcaption>
               </VStack>
               <HStack gap={2} wrap="wrap" vAlign="center" {...stylex.props(styles.linkRow)}>
                 <code {...stylex.props(styles.pairingLink)}>{pairing.pairingUri}</code>
-                <Button type="button" variant="secondary" size="sm" label={copied ? "Copied" : "Copy link"} icon={<Copy {...stylex.props(styles.icon)} aria-hidden="true" />} onClick={() => void copyPairingLink()} />
-              </HStack>
-              <p role="status" {...stylex.props(styles.mutedText)}>
-                Expires in {formatRemaining(remainingMs ?? 0)}
-              </p>
-              {copyError ? <p role="alert" {...stylex.props(styles.errorText)}>{copyError}</p> : null}
-            </VStack>
-          ) : (
-            <VStack gap={2}>
-              {remainingMs === 0 ? (
-                <p {...stylex.props(styles.mutedText)}>This pairing link expired. Start a new one to continue.</p>
-              ) : null}
-              {pairingError ? <p role="alert" {...stylex.props(styles.errorText)}>{pairingError}</p> : null}
-              <Button type="button" label={remainingMs === 0 || pairingError ? "Retry pairing" : "Start pairing"} icon={<RefreshCw {...stylex.props(styles.icon)} aria-hidden="true" />} isLoading={pairingStarting} onClick={() => void startPairing()} />
-            </VStack>
-          )}
-        </VStack>
-      </SettingsSection>
-
-      <SettingsSection aria-labelledby="paired-clients-title">
-        <VStack gap={3}>
-          <h2 id="paired-clients-title" {...stylex.props(styles.sectionTitle)}>
-            Paired clients
-          </h2>
-          {loading ? (
-            <p {...stylex.props(styles.mutedText)}>Loading paired clients...</p>
-          ) : error ? (
-            <VStack gap={2}>
-              <p role="alert" {...stylex.props(styles.errorText)}>{error}</p>
-              <Button type="button" variant="secondary" size="sm" label="Retry" icon={<RefreshCw {...stylex.props(styles.icon)} aria-hidden="true" />} onClick={onRetry} />
-            </VStack>
-          ) : (
-            <>
-              <ClientGroup
-                heading="Active"
-                clients={activeClients}
-                mutationSaving={mutationSaving}
-                onRevokeClick={setRevokeTarget}
-              />
-              {revokedClients.length > 0 ? (
-                <ClientGroup
-                  heading="Revoked"
-                  clients={revokedClients}
-                  mutationSaving={mutationSaving}
-                  onRevokeClick={setRevokeTarget}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  label={copied ? "Copied" : "Copy link"}
+                  icon={<Copy aria-hidden="true" size={16} />}
+                  onClick={() => void copyPairingLink()}
                 />
-              ) : null}
-            </>
-          )}
-        </VStack>
-      </SettingsSection>
-
-      <DeleteConfirmationDialog
-        title={revokeTarget ? `Revoke ${revokeTarget.displayName}?` : "Revoke client?"}
-        message={revokeTarget?.isCurrent
-          ? "This is the bearer credential used by the current request. Revoking it will end that client's access."
-          : "The client will stop authenticating immediately. Past activity and its audit record are kept."}
-        open={revokeTarget !== null}
-        submitting={mutationSaving}
-        error={revokeTarget ? mutationError : null}
-        confirmLabel="Revoke client"
-        onOpenChange={(open) => {
-          if (!open && !mutationSaving) setRevokeTarget(null);
-        }}
-        onConfirm={() => void revoke()}
+              </HStack>
+              <p role="status" {...stylex.props(styles.mutedText)}>Expires in {formatRemaining(remainingMs ?? 0)}</p>
+            </> : <Button
+              type="button"
+              label={remainingMs === 0 || pairingError ? "Retry pairing" : "Start pairing"}
+              icon={<RefreshCw aria-hidden="true" size={16} />}
+              isLoading={pairingStarting}
+              onClick={() => void startPairing()}
+            />}
+            {pairingError ? <p role="alert" {...stylex.props(styles.errorText)}>{pairingError}</p> : null}
+            {copyError ? <p role="alert" {...stylex.props(styles.errorText)}>{copyError}</p> : null}
+          </VStack>
+        </LayoutContent>}
       />
-    </VStack>
-  );
-}
-
-function ClientGroup({
-  heading,
-  clients,
-  mutationSaving,
-  onRevokeClick
-}: {
-  heading: string;
-  clients: readonly PairedClient[];
-  mutationSaving: boolean;
-  onRevokeClick: (client: PairedClient) => void;
-}) {
-  return (
-    <VStack gap={2}>
-      <h3 {...stylex.props(styles.groupTitle)}>{heading}</h3>
-      {clients.length === 0 ? (
-        <p {...stylex.props(styles.mutedText)}>No {heading.toLowerCase()} clients are paired yet.</p>
-      ) : (
-        <SettingsList density="compact" hasDividers>
-          {clients.map((client) => (
-            <SettingsListItem
-              key={client.clientId}
-              mobileEndContentFullWidth
-              label={
-                <HStack gap={2} wrap="wrap" vAlign="center">
-                  <span>{client.displayName}</span>
-                  {client.isCurrent ? <Badge variant="info" label="Current client" /> : null}
-                </HStack>
-              }
-              description={
-                <VStack gap={1}>
-                  <span>Added {formatDate(client.createdAt)}</span>
-                  {client.revokedAt ? <span>Revoked {formatDate(client.revokedAt)}</span> : null}
-                </VStack>
-              }
-              endContent={
-                client.revokedAt ? (
-                  <Badge variant="neutral" label="Revoked" />
-                ) : (
-                  <Button type="button" variant="destructive" size="sm" label="Revoke" icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />} isDisabled={mutationSaving} onClick={() => onRevokeClick(client)} />
-                )
-              }
-            />
-          ))}
-        </SettingsList>
-      )}
-    </VStack>
+    </Dialog>
   );
 }
 
@@ -291,40 +360,42 @@ function formatRemaining(valueMs: number): string {
 }
 
 const styles = stylex.create({
-  sectionTitle: {
-    margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    fontSize: 16,
-    lineHeight: 1.3,
-    color: "var(--foreground)"
-  },
   groupTitle: {
-    margin: "var(--spacing-0)",
-    fontSize: 13,
-    lineHeight: 1.3,
-    fontWeight: 600,
-    color: "var(--foreground)"
+    margin: "var(--spacing-0) var(--spacing-1)",
+    color: "var(--foreground)",
+    fontFamily: "var(--font-heading)",
+    fontSize: 15,
+    fontWeight: 700,
+    lineHeight: 1.3
   },
-  mutedText: {
-    margin: "var(--spacing-0)",
-    color: "var(--muted-foreground)",
-    fontSize: 13,
-    lineHeight: 1.5
+  clientCard: {
+    gridTemplateColumns: "auto minmax(0, 1fr) auto",
+    alignItems: "center",
+    gap: "var(--spacing-2)",
+    minHeight: "var(--spacing-12)"
   },
-  errorText: {
-    margin: "var(--spacing-0)",
-    color: "var(--destructive)",
-    fontSize: 13,
-    lineHeight: 1.5
+  cardCopy: { minWidth: 0 },
+  cardTitle: { color: "var(--foreground)", fontSize: 13, fontWeight: 650, overflowWrap: "anywhere" },
+  cardMeta: { color: "var(--muted-foreground)", fontSize: 12 },
+  chevron: { width: "var(--spacing-4)", height: "var(--spacing-4)", color: "var(--muted-foreground)" },
+  revokedSummary: { color: "var(--foreground)", fontSize: 14, fontWeight: 650 },
+  revokedList: { paddingBlockStart: "var(--spacing-2)" },
+  detailHeader: { minWidth: 0, paddingBlockEnd: "var(--spacing-3)" },
+  eyebrow: { color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.2 },
+  detailTitle: {
+    minWidth: 0,
+    margin: 0,
+    color: "var(--foreground)",
+    fontFamily: "var(--font-heading)",
+    fontSize: 18,
+    fontWeight: 650,
+    lineHeight: 1.25,
+    overflowWrap: "anywhere"
   },
-  qrFigure: {
-    margin: "var(--spacing-0)",
-    color: "var(--color-text-primary)"
-  },
-  linkRow: {
-    width: "100%",
-    minWidth: 0
-  },
+  mutedText: { margin: 0, color: "var(--muted-foreground)", fontSize: 13, lineHeight: 1.5 },
+  errorText: { margin: 0, color: "var(--destructive)", fontSize: 13, lineHeight: 1.5 },
+  qrFigure: { margin: 0, color: "var(--color-text-primary)" },
+  linkRow: { width: "100%", minWidth: 0 },
   pairingLink: {
     flex: 1,
     minWidth: 0,
@@ -333,9 +404,5 @@ const styles = stylex.create({
     fontSize: 12,
     lineHeight: 1.45,
     color: "var(--color-text-secondary)"
-  },
-  icon: {
-    width: 16,
-    height: 16
   }
 });

@@ -20,6 +20,7 @@ type SettingsSurfaceProps = {
   section: SettingsSection;
   connectionId?: string;
   providerAccountId?: string;
+  clientId?: string;
 };
 
 const settingsSectionCopy: Record<SettingsSection, { title: string }> = {
@@ -36,11 +37,12 @@ const settingsSectionCopy: Record<SettingsSection, { title: string }> = {
   "system-clients": { title: "Clients" }
 };
 
-export function SettingsSurface({ section, connectionId, providerAccountId }: SettingsSurfaceProps) {
+export function SettingsSurface({ section, connectionId, providerAccountId, clientId }: SettingsSurfaceProps) {
   const copy = settingsSectionCopy[section];
   const isManagement = section === "tools-apis"
     || section === "tools-mcps"
-    || section === "system-providers";
+    || section === "system-providers"
+    || section === "system-clients";
 
   return (
     <ShellPageLayout width={isManagement ? "fluid" : "centered"}>
@@ -60,6 +62,7 @@ export function SettingsSurface({ section, connectionId, providerAccountId }: Se
               section={section}
               connectionId={connectionId}
               providerAccountId={providerAccountId}
+              clientId={clientId}
             />
           </StackItem>
         ) : (
@@ -74,7 +77,7 @@ export function SettingsSurface({ section, connectionId, providerAccountId }: Se
   );
 }
 
-function SettingsSectionPane({ section, connectionId, providerAccountId }: SettingsSurfaceProps) {
+function SettingsSectionPane({ section, connectionId, providerAccountId, clientId }: SettingsSurfaceProps) {
   switch (section) {
     case "agents":
       return <AgentsSettingsPane />;
@@ -97,7 +100,7 @@ function SettingsSectionPane({ section, connectionId, providerAccountId }: Setti
     case "system-notifications":
       return <NotificationsSettingsPane />;
     case "system-clients":
-      return <ClientsSettingsPane />;
+      return <ClientsSettingsPane clientId={clientId} />;
   }
 }
 
