@@ -38,8 +38,14 @@
   corner-shape: var(--corner-shape-chat);
 }
 
-.astryx-dropdown-menu {
-  --color-overlay-hover: color-mix(in srgb, var(--color-accent) 10%, transparent);
+.astryx-dropdown-menu-item:not([aria-disabled="true"]):focus {
+  background-color: color-mix(in srgb, var(--color-accent) 10%, transparent) !important;
+}
+
+@media (hover: hover) {
+  .astryx-dropdown-menu-item:not([aria-disabled="true"]):hover {
+    background-color: color-mix(in srgb, var(--color-accent) 10%, transparent) !important;
+  }
 }
 
 .astryx-badge,
