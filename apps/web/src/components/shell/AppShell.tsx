@@ -983,7 +983,7 @@ const styles = stylex.create({
   primaryNavigationButton: {
     borderRadius: 999,
     cornerShape: "var(--corner-shape-full)",
-    backgroundColor: "rgb(0 0 0 / 0.25)",
+    backgroundColor: "rgb(0 0 0 / 0.1)",
     backgroundImage: "none",
     color: "var(--pine-700)",
     gap: "var(--spacing-0)",
