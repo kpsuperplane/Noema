@@ -503,7 +503,7 @@ async fn stale_oauth_management_revisions_are_rejected() {
     let fixture = grant_fixture(Err(AdapterOAuthTokenError::Unavailable));
     let attach = fixture
         .service
-        .attach_oauth_connection(&fixture.semantic_digest, &fixture.grant_id, 2)
+        .attach_oauth_connection(&fixture.semantic_digest, &fixture.grant_id, 2, None)
         .await;
     assert!(matches!(
         attach,

@@ -255,6 +255,7 @@ type AdapterDefinition {
 	credentialSetup: AdapterCredentialSetup
 	accountIdentityOperationId: String
 	operations: [AdapterOperation!]!
+	transition: AdapterDefinitionTransition!
 	manifestJson: String!
 	connectionCount: Int!
 	connections: [AdapterConnection!]!
@@ -262,6 +263,20 @@ type AdapterDefinition {
 	superseded: Boolean!
 	nextAction: AdapterNextAction
 	connectionActions: [AdapterNextAction!]!
+}
+
+"""
+Human-reviewable impact of one immutable definition revision.
+"""
+type AdapterDefinitionTransition {
+	addedOperations: [String!]!
+	changedOperations: [String!]!
+	removedOperations: [String!]!
+	authenticationChanged: Boolean!
+	affectedConnections: Int!
+	affectedSchedules: Int!
+	authenticationRequiredConnections: Int!
+	consolidatedConnections: Int!
 }
 
 """
@@ -944,6 +959,7 @@ input AttachAdapterOauthConnectionInput {
 	semanticDigest: String!
 	grantId: String!
 	expectedGrantRevision: Int!
+	replacementConnectionId: String
 }
 
 input AuthenticateAcpAgentInput {
@@ -4236,6 +4252,7 @@ Transient credential input for one exact reviewed definition.
 """
 input SetupAdapterConnectionInput {
 	semanticDigest: String!
+	replacementConnectionId: String
 	fieldValues: [AdapterCredentialFieldValueInput!]! = []
 	documentBase64: String
 }

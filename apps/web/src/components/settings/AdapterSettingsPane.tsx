@@ -126,12 +126,15 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     const pending = pendingOauthSetup;
     let policyConnectionId: string | null = null;
     if (event.status === "completed" && event.grantId && event.grantRevision != null
-      && pending && pending.action.connectionId == null) {
+      && pending && (pending.action.connectionId == null || pending.action.kind === "reconnect_account")) {
       for (const semanticDigest of [pending.action.semanticDigest, ...pending.additionalSemanticDigests]) {
         const attached = await attachGrant({ variables: { input: {
           semanticDigest,
           grantId: event.grantId,
-          expectedGrantRevision: event.grantRevision
+          expectedGrantRevision: event.grantRevision,
+          replacementConnectionId: semanticDigest === pending.action.semanticDigest
+            ? pending.action.connectionId
+            : null
         } } });
         const connection = attached.data?.attachAdapterOauthConnection.connections
           .find((item) => item.grantId === event.grantId && !item.policyConfigured);
@@ -238,7 +241,8 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       const attached = await attachGrant({ variables: { input: {
         semanticDigest: action.semanticDigest,
         grantId: action.grantId,
-        expectedGrantRevision: action.expectedGrantRevision
+        expectedGrantRevision: action.expectedGrantRevision,
+        replacementConnectionId: action.connectionId
       } } });
       await refresh();
       const connection = attached.data?.attachAdapterOauthConnection.connections
@@ -357,6 +361,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       : null;
     await setupConnection({ variables: { input: {
       semanticDigest: setupDefinition.semanticDigest,
+      replacementConnectionId: setupDefinition.nextAction?.connectionId,
       fieldValues: submission.fieldValues,
       documentBase64
     } } });

@@ -81,6 +81,16 @@ const AdapterDefinitionFields = gql`
         outputSchemaJson
       }
     }
+    transition {
+      addedOperations
+      changedOperations
+      removedOperations
+      authenticationChanged
+      affectedConnections
+      affectedSchedules
+      authenticationRequiredConnections
+      consolidatedConnections
+    }
     manifestJson
     connectionCount
     connections {

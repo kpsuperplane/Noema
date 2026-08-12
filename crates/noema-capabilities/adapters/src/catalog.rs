@@ -293,6 +293,14 @@ fn resolved_authentication<'a>(
     oauth: &'a OauthAuthoritySnapshot,
 ) -> Result<ResolvedAuthentication<'a>, AdapterCatalogError> {
     match &descriptor.authentication {
+        AdapterConnectionAuthenticationV1::Pending => Ok(ResolvedAuthentication {
+            active: false,
+            granted_scopes: &[],
+            account_id: None,
+            credential_revision: None,
+            grant_id: None,
+            grant_authority_revision: None,
+        }),
         AdapterConnectionAuthenticationV1::None => Ok(ResolvedAuthentication {
             active: true,
             granted_scopes: &[],

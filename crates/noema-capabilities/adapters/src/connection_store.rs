@@ -11,6 +11,9 @@ use crate::{
         sync_directory, write_new_file,
     },
 };
+use noema_capabilities::{
+    CapabilityConnectionPolicy, CapabilityDataSharingPolicy, CapabilityUnsafeActionPolicy,
+};
 use noema_home::NoemaPaths;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -403,8 +406,7 @@ impl AdapterConnectionStore {
         self.read_connection_dir(&target, &replacement.connection_id, definition)
     }
 
-    /// Atomically move one connection to an approved compatible definition
-    /// while preserving its exact credential, grant, and policy authority.
+    /// Move one connection to a reviewed revision while preserving valid policy.
     pub(crate) fn rebind_definition_descriptor(
         &self,
         expected: &AdapterConnectionV4,
@@ -421,25 +423,39 @@ impl AdapterConnectionStore {
             .connection_revision
             .checked_add(1)
             .ok_or(ConnectionStoreError::Integrity("connection_revision"))?;
-        if !permitted.tool_overrides.is_empty() {
-            for policy in &mut permitted.tool_overrides {
-                let current_operation = current_definition
-                    .operations
-                    .iter()
-                    .find(|operation| operation.operation_id == policy.tool_id)
-                    .ok_or(ConnectionStoreError::Integrity("definition_transition"))?;
-                let replacement_operation = replacement_definition
-                    .operations
-                    .iter()
-                    .find(|operation| operation.operation_id == policy.tool_id)
-                    .ok_or(ConnectionStoreError::Integrity("definition_transition"))?;
-                if policy.source_revision != current_operation.operation_digest.as_str()
-                    || !same_operation_contract(current_operation, replacement_operation)
-                {
-                    return Err(ConnectionStoreError::Integrity("definition_transition"));
-                }
-                policy.source_revision = replacement_operation.operation_digest.to_string();
+        permitted.allowed_operations.retain(|operation_id| {
+            replacement_definition
+                .operations
+                .iter()
+                .any(|operation| operation.operation_id == *operation_id)
+        });
+        let previous_override_count = permitted.tool_overrides.len();
+        permitted.tool_overrides.retain_mut(|policy| {
+            let Some(current_operation) = current_definition
+                .operations
+                .iter()
+                .find(|operation| operation.operation_id == policy.tool_id)
+            else {
+                return false;
+            };
+            let Some(replacement_operation) = replacement_definition
+                .operations
+                .iter()
+                .find(|operation| operation.operation_id == policy.tool_id)
+            else {
+                return false;
+            };
+            if policy.source_revision != current_operation.operation_digest.as_str()
+                || !same_operation_contract(current_operation, replacement_operation)
+            {
+                return false;
             }
+            policy.source_revision = replacement_operation.operation_digest.to_string();
+            true
+        });
+        if previous_override_count != permitted.tool_overrides.len()
+            || !permitted.tool_overrides.is_empty()
+        {
             permitted.policy_revision = permitted
                 .policy_revision
                 .checked_add(1)
@@ -466,6 +482,160 @@ impl AdapterConnectionStore {
         }
         sync_directory(&target)?;
         self.read_connection_dir(&target, &permitted.connection_id, replacement_definition)
+    }
+
+    /// Stop one connection until a breaking authentication revision is completed.
+    pub(crate) fn require_new_authentication(
+        &self,
+        expected: &AdapterConnectionV4,
+        current_definition: &CompiledAdapterDefinition,
+        replacement_definition: &CompiledAdapterDefinition,
+    ) -> Result<ConnectionInstall, ConnectionStoreError> {
+        self.prepare_roots()?;
+        let target = self.paths.adapter_connection_dir(&expected.connection_id)?;
+        let (current, credential) = Self::read_descriptor(&target, &expected.connection_id)?;
+        validate_connection(&current, credential.as_ref(), current_definition)?;
+        let mut replacement = expected.clone();
+        replacement.semantic_digest = replacement_definition.semantic_digest.to_string();
+        replacement.status = crate::AdapterConnectionStatus::AuthenticationRequired;
+        replacement.authentication = AdapterConnectionAuthenticationV1::Pending;
+        replacement.allowed_operations.clear();
+        replacement.tool_overrides.clear();
+        replacement.connection_revision = replacement
+            .connection_revision
+            .checked_add(1)
+            .ok_or(ConnectionStoreError::Integrity("connection_revision"))?;
+        replacement.policy_revision = replacement
+            .policy_revision
+            .checked_add(1)
+            .ok_or(ConnectionStoreError::Integrity("policy_revision"))?;
+        if let Some(policy) = replacement.policy.as_mut() {
+            policy.revision = replacement.policy_revision;
+        }
+        if current != *expected {
+            return Err(ConnectionStoreError::Integrity("definition_transition"));
+        }
+        validate_connection(&replacement, credential.as_ref(), replacement_definition)?;
+        let bytes = canonical_json_bytes(&serde_json::to_value(&replacement)?)?;
+        atomic_replace_connection(&target, &bytes)?;
+        self.read_connection_dir(&target, &replacement.connection_id, replacement_definition)
+    }
+
+    /// Merge two OAuth connections already bound to one reviewed definition.
+    pub(crate) fn merge_oauth_connections(
+        &self,
+        survivor_id: &str,
+        redundant_id: &str,
+        definition: &CompiledAdapterDefinition,
+    ) -> Result<ConnectionInstall, ConnectionStoreError> {
+        self.prepare_roots()?;
+        let survivor_path = self.paths.adapter_connection_dir(survivor_id)?;
+        let redundant_path = self.paths.adapter_connection_dir(redundant_id)?;
+        let (mut survivor, survivor_credential) =
+            Self::read_descriptor(&survivor_path, survivor_id)?;
+        let (redundant, redundant_credential) =
+            Self::read_descriptor(&redundant_path, redundant_id)?;
+        validate_connection(&survivor, survivor_credential.as_ref(), definition)?;
+        validate_connection(&redundant, redundant_credential.as_ref(), definition)?;
+        let same_grant = matches!(
+            (&survivor.authentication, &redundant.authentication),
+            (
+                AdapterConnectionAuthenticationV1::OauthGrant { grant_id: left },
+                AdapterConnectionAuthenticationV1::OauthGrant { grant_id: right }
+            ) if left == right
+        );
+        if !same_grant {
+            return Err(ConnectionStoreError::Integrity("connection_merge_binding"));
+        }
+        survivor
+            .allowed_operations
+            .extend(redundant.allowed_operations.iter().cloned());
+        survivor.allowed_operations.sort();
+        survivor.allowed_operations.dedup();
+        survivor.policy = stricter_policy(survivor.policy, redundant.policy);
+        survivor.status = safer_status(survivor.status, redundant.status);
+        survivor.tool_overrides.retain(|policy| {
+            redundant
+                .tool_overrides
+                .iter()
+                .find(|candidate| candidate.tool_id == policy.tool_id)
+                .is_none_or(|candidate| candidate == policy)
+        });
+        for policy in redundant.tool_overrides {
+            if !survivor
+                .tool_overrides
+                .iter()
+                .any(|candidate| candidate.tool_id == policy.tool_id)
+            {
+                survivor.tool_overrides.push(policy);
+            }
+        }
+        survivor
+            .tool_overrides
+            .sort_by(|left, right| left.tool_id.cmp(&right.tool_id));
+        survivor.connection_revision = survivor
+            .connection_revision
+            .checked_add(1)
+            .ok_or(ConnectionStoreError::Integrity("connection_revision"))?;
+        survivor.policy_revision = survivor
+            .policy_revision
+            .max(redundant.policy_revision)
+            .checked_add(1)
+            .ok_or(ConnectionStoreError::Integrity("policy_revision"))?;
+        if let Some(policy) = survivor.policy.as_mut() {
+            policy.revision = survivor.policy_revision;
+        }
+        validate_connection(&survivor, survivor_credential.as_ref(), definition)?;
+        let bytes = canonical_json_bytes(&serde_json::to_value(&survivor)?)?;
+        atomic_replace_connection(&survivor_path, &bytes)?;
+        self.read_connection_dir(&survivor_path, survivor_id, definition)
+    }
+
+    /// Replace authentication on one suspended connection without changing its identity.
+    pub(crate) fn replace_authentication(
+        &self,
+        expected: &AdapterConnectionV4,
+        authentication: AdapterConnectionAuthenticationV1,
+        credential: Option<&AdapterCredentialGenerationV2>,
+        definition: &CompiledAdapterDefinition,
+    ) -> Result<ConnectionInstall, ConnectionStoreError> {
+        self.prepare_roots()?;
+        let target = self.paths.adapter_connection_dir(&expected.connection_id)?;
+        let (current, _) = Self::read_descriptor(&target, &expected.connection_id)?;
+        if current != *expected
+            || current.status != crate::AdapterConnectionStatus::AuthenticationRequired
+            || current.semantic_digest != definition.semantic_digest.as_str()
+        {
+            return Err(ConnectionStoreError::Integrity("authentication_transition"));
+        }
+        let mut replacement = current;
+        replacement.authentication = authentication;
+        replacement.status = crate::AdapterConnectionStatus::Active;
+        replacement.allowed_operations = definition
+            .operations
+            .iter()
+            .map(|operation| operation.operation_id.clone())
+            .collect();
+        replacement.allowed_operations.sort();
+        replacement.connection_revision = replacement
+            .connection_revision
+            .checked_add(1)
+            .ok_or(ConnectionStoreError::Integrity("connection_revision"))?;
+        validate_connection(&replacement, credential, definition)?;
+        if let Some(credential) = credential {
+            let credential_bytes = canonical_json_bytes(&serde_json::to_value(credential)?)?;
+            if credential_bytes.len() as u64 > MAX_CREDENTIAL_BYTES {
+                return Err(ConnectionStoreError::Integrity("credential_oversized"));
+            }
+            write_new_file(
+                &credential_path(&target.join(CREDENTIALS_DIR), &credential.generation_id)?,
+                &credential_bytes,
+            )?;
+            sync_directory(&target.join(CREDENTIALS_DIR))?;
+        }
+        let bytes = canonical_json_bytes(&serde_json::to_value(&replacement)?)?;
+        atomic_replace_connection(&target, &bytes)?;
+        self.read_connection_dir(&target, &replacement.connection_id, definition)
     }
 
     /// Scan active connection objects against the exact compiled definitions.
@@ -736,6 +906,13 @@ fn validate_connection(
     {
         return Err(ConnectionStoreError::Integrity("connection_policy"));
     }
+    if descriptor.status == crate::AdapterConnectionStatus::AuthenticationRequired {
+        return if authentication_reference_valid(&descriptor.authentication) {
+            Ok(())
+        } else {
+            Err(ConnectionStoreError::Integrity("credential_binding"))
+        };
+    }
     match (
         &descriptor.authentication,
         definition.authentication.mode(),
@@ -758,6 +935,19 @@ fn validate_connection(
         _ => return Err(ConnectionStoreError::Integrity("credential_binding")),
     }
     Ok(())
+}
+
+fn authentication_reference_valid(authentication: &AdapterConnectionAuthenticationV1) -> bool {
+    match authentication {
+        AdapterConnectionAuthenticationV1::Pending | AdapterConnectionAuthenticationV1::None => {
+            true
+        }
+        AdapterConnectionAuthenticationV1::Credential {
+            generation_id,
+            revision,
+        } => *revision > 0 && valid_hex_id(generation_id),
+        AdapterConnectionAuthenticationV1::OauthGrant { grant_id } => valid_hex_id(grant_id),
+    }
 }
 
 fn same_operation_contract(
@@ -858,7 +1048,8 @@ fn credential_path(
 fn direct_credential_generation(descriptor: &AdapterConnectionV4) -> Option<&str> {
     match &descriptor.authentication {
         AdapterConnectionAuthenticationV1::Credential { generation_id, .. } => Some(generation_id),
-        AdapterConnectionAuthenticationV1::None
+        AdapterConnectionAuthenticationV1::Pending
+        | AdapterConnectionAuthenticationV1::None
         | AdapterConnectionAuthenticationV1::OauthGrant { .. } => None,
     }
 }
@@ -866,7 +1057,8 @@ fn direct_credential_generation(descriptor: &AdapterConnectionV4) -> Option<&str
 fn direct_credential_revision(descriptor: &AdapterConnectionV4) -> Option<u64> {
     match descriptor.authentication {
         AdapterConnectionAuthenticationV1::Credential { revision, .. } => Some(revision),
-        AdapterConnectionAuthenticationV1::None
+        AdapterConnectionAuthenticationV1::Pending
+        | AdapterConnectionAuthenticationV1::None
         | AdapterConnectionAuthenticationV1::OauthGrant { .. } => None,
     }
 }
@@ -874,7 +1066,8 @@ fn direct_credential_revision(descriptor: &AdapterConnectionV4) -> Option<u64> {
 fn oauth_grant_id(descriptor: &AdapterConnectionV4) -> Option<&str> {
     match &descriptor.authentication {
         AdapterConnectionAuthenticationV1::OauthGrant { grant_id } => Some(grant_id),
-        AdapterConnectionAuthenticationV1::None
+        AdapterConnectionAuthenticationV1::Pending
+        | AdapterConnectionAuthenticationV1::None
         | AdapterConnectionAuthenticationV1::Credential { .. } => None,
     }
 }
@@ -972,11 +1165,203 @@ fn sorted_unique_components(values: &[String]) -> bool {
         && values.iter().all(|value| valid_component(value, 256))
 }
 
+fn atomic_replace_connection(path: &Path, bytes: &[u8]) -> Result<(), ConnectionStoreError> {
+    if bytes.len() as u64 > MAX_CONNECTION_BYTES {
+        return Err(ConnectionStoreError::Integrity("connection_oversized"));
+    }
+    let credentials = path.join(CREDENTIALS_DIR);
+    let temporary = credentials.join(format!("{REPLACEMENT_PREFIX}{}", random_hex(16)?));
+    write_new_file(&temporary, bytes)?;
+    sync_directory(&credentials)?;
+    if let Err(error) = fs::rename(&temporary, path.join(CONNECTION_FILE)) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error.into());
+    }
+    sync_directory(path)?;
+    Ok(())
+}
+
+fn stricter_policy(
+    left: Option<CapabilityConnectionPolicy>,
+    right: Option<CapabilityConnectionPolicy>,
+) -> Option<CapabilityConnectionPolicy> {
+    match (left, right) {
+        (None, policy) | (policy, None) => policy,
+        (Some(left), Some(right)) => Some(CapabilityConnectionPolicy {
+            data_sharing: if matches!(
+                (left.data_sharing, right.data_sharing),
+                (
+                    CapabilityDataSharingPolicy::ReviewEveryCall,
+                    CapabilityDataSharingPolicy::ReviewEveryCall
+                        | CapabilityDataSharingPolicy::AllowAutomatically
+                ) | (
+                    CapabilityDataSharingPolicy::AllowAutomatically,
+                    CapabilityDataSharingPolicy::ReviewEveryCall
+                )
+            ) {
+                CapabilityDataSharingPolicy::ReviewEveryCall
+            } else {
+                CapabilityDataSharingPolicy::AllowAutomatically
+            },
+            unsafe_actions: match (left.unsafe_actions, right.unsafe_actions) {
+                (CapabilityUnsafeActionPolicy::AlwaysAsk, _)
+                | (_, CapabilityUnsafeActionPolicy::AlwaysAsk) => {
+                    CapabilityUnsafeActionPolicy::AlwaysAsk
+                }
+                (CapabilityUnsafeActionPolicy::ReviewerMayApprove, _)
+                | (_, CapabilityUnsafeActionPolicy::ReviewerMayApprove) => {
+                    CapabilityUnsafeActionPolicy::ReviewerMayApprove
+                }
+                _ => CapabilityUnsafeActionPolicy::NeverAsk,
+            },
+            revision: left.revision.max(right.revision),
+        }),
+    }
+}
+
+const fn safer_status(
+    left: crate::AdapterConnectionStatus,
+    right: crate::AdapterConnectionStatus,
+) -> crate::AdapterConnectionStatus {
+    use crate::AdapterConnectionStatus::{Active, AuthenticationRequired, Suspended};
+    match (left, right) {
+        (AuthenticationRequired, _) | (_, AuthenticationRequired) => AuthenticationRequired,
+        (Suspended, _) | (_, Suspended) => Suspended,
+        (Active, Active) => Active,
+    }
+}
+
 fn diagnostic_code(error: &ConnectionStoreError) -> &'static str {
     match error {
         ConnectionStoreError::Io(_) => "filesystem",
         ConnectionStoreError::Path(_) => "path",
         ConnectionStoreError::Json(_) => "json",
         ConnectionStoreError::Integrity(code) => code,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AdapterCompiler, AdapterConnectionStatus, AdapterManifest};
+    use serde_json::json;
+
+    #[test]
+    fn oauth_merge_preserves_union_and_stricter_policy() {
+        let directory = tempfile::tempdir().expect("temporary home");
+        let paths = NoemaPaths::from_noema_home(directory.path()).expect("Noema paths");
+        let manifest: AdapterManifest = serde_json::from_value(json!({
+            "schema_version": 9,
+            "definition_id": "definition:merge_fixture",
+            "adapter_id": "merge_fixture",
+            "display_name": "Merge fixture",
+            "definition_revision": "v1",
+            "reviewed": true,
+            "origin": "https://api.example.test/",
+            "authentication": {
+                "kind": "oauth2_authorization_code_pkce",
+                "profile_digest": crate::reviewed_google_oauth_profile_digest()
+            },
+            "operations": [
+                {
+                    "operation_id": "get_item",
+                    "description": "Get one item.",
+                    "method": "GET",
+                    "path": "/item",
+                    "authorization": {"kind": "oauth_scopes", "accepted_scope_sets": [["scope.read"]]},
+                    "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
+                    "retry": "transport_safe_read",
+                    "pagination": {"kind": "none"},
+                    "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
+                },
+                {
+                    "operation_id": "list_items",
+                    "description": "List items.",
+                    "method": "GET",
+                    "path": "/items",
+                    "authorization": {"kind": "oauth_scopes", "accepted_scope_sets": [["scope.read"]]},
+                    "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
+                    "retry": "transport_safe_read",
+                    "pagination": {"kind": "none"},
+                    "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
+                }
+            ]
+        }))
+        .expect("manifest");
+        let definition = AdapterCompiler::compile(&manifest).expect("definition");
+        let store = AdapterConnectionStore::new(paths.clone());
+        let grant_id = "c".repeat(32);
+        let first = AdapterConnectionV4 {
+            schema_version: 4,
+            connection_id: "a".repeat(32),
+            connection_slug: "first".to_string(),
+            semantic_digest: definition.semantic_digest.to_string(),
+            connection_label: Some("Primary".to_string()),
+            status: AdapterConnectionStatus::Active,
+            connection_revision: 1,
+            policy_revision: 1,
+            authentication: AdapterConnectionAuthenticationV1::OauthGrant {
+                grant_id: grant_id.clone(),
+            },
+            allowed_operations: vec!["list_items".to_string()],
+            policy: Some(CapabilityConnectionPolicy {
+                data_sharing: CapabilityDataSharingPolicy::AllowAutomatically,
+                unsafe_actions: CapabilityUnsafeActionPolicy::NeverAsk,
+                revision: 1,
+            }),
+            tool_overrides: Vec::new(),
+        };
+        let mut second = first.clone();
+        second.connection_id = "b".repeat(32);
+        second.connection_slug = "second".to_string();
+        second.connection_label = None;
+        second.allowed_operations = vec!["get_item".to_string()];
+        second.policy = Some(CapabilityConnectionPolicy {
+            data_sharing: CapabilityDataSharingPolicy::ReviewEveryCall,
+            unsafe_actions: CapabilityUnsafeActionPolicy::AlwaysAsk,
+            revision: 1,
+        });
+        store
+            .install(&first, None, &definition)
+            .expect("first connection");
+        store
+            .install(&second, None, &definition)
+            .expect("second connection");
+
+        let merged = store
+            .merge_oauth_connections(&first.connection_id, &second.connection_id, &definition)
+            .expect("merge connections");
+        assert_eq!(
+            merged.descriptor.allowed_operations,
+            ["get_item", "list_items"]
+        );
+        assert_eq!(
+            merged.descriptor.connection_label.as_deref(),
+            Some("Primary")
+        );
+        let policy = merged.descriptor.policy.expect("merged policy");
+        assert_eq!(
+            policy.data_sharing,
+            CapabilityDataSharingPolicy::ReviewEveryCall
+        );
+        assert_eq!(
+            policy.unsafe_actions,
+            CapabilityUnsafeActionPolicy::AlwaysAsk
+        );
+        store
+            .quarantine(&second.connection_id)
+            .expect("quarantine duplicate");
+        assert!(
+            !paths
+                .adapter_connection_dir(&second.connection_id)
+                .expect("active path")
+                .exists()
+        );
+        assert!(
+            paths
+                .quarantined_adapter_connection_dir(&second.connection_id)
+                .expect("quarantine path")
+                .exists()
+        );
     }
 }

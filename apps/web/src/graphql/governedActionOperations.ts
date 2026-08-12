@@ -206,6 +206,16 @@ export const PendingHumanInterventionsDocument = gql`
             outputSchemaJson
           }
         }
+        transition {
+          addedOperations
+          changedOperations
+          removedOperations
+          authenticationChanged
+          affectedConnections
+          affectedSchedules
+          authenticationRequiredConnections
+          consolidatedConnections
+        }
       }
     }
   }

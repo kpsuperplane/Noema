@@ -82,6 +82,13 @@ vertical slice or a net-negative reduction.
   managed definition changes. The body-free SQLite projection is disposable.
   Current manifests use strict schema version 9. OAuth definitions reference
   one exact reviewed profile. Each OAuth operation declares accepted scope sets.
+- An adapter `definition_id` is the stable service identity. A semantic digest
+  identifies one immutable revision. Reviewed revisions migrate family
+  connections and schedules before the executable registry changes.
+- Definition transitions use bounded filesystem journals. Startup resumes only
+  journaled work. Family setup rejects superseded revisions and duplicate
+  account bindings. Breaking authentication changes keep the connection ID and
+  require an exact replacement connection fence.
 - Reusable OAuth is the active adapter authorization model. Reviewed profiles,
   applications, accounts, and grants have separate filesystem authorities.
   Client secrets and tokens use protected generations.

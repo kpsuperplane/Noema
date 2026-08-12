@@ -545,6 +545,7 @@ function AdapterDefinitionCard({
       } else {
         await setupConnection({ variables: { input: {
           semanticDigest: definition.semanticDigest,
+          replacementConnectionId: definition.nextAction?.connectionId,
           fieldValues: submission.fieldValues,
           documentBase64
         } } });
@@ -578,7 +579,7 @@ function AdapterDefinitionCard({
       const attempt = response.data?.startAdapterOauthSetup;
       if (!attempt) throw new Error("Noema did not return an OAuth attempt.");
       setOauthAttemptId(attempt.attemptId);
-      setOauthAttemptNeedsAttach(action.connectionId === null);
+      setOauthAttemptNeedsAttach(action.connectionId === null || action.kind === "reconnect_account");
       setAuthorizationExpiry(attempt.expiresAtEpochSeconds);
       setAuthorizing(true);
       await navigation.open(attempt.authorizationUrl);
@@ -616,7 +617,8 @@ function AdapterDefinitionCard({
         await attachGrant({ variables: { input: {
           semanticDigest: definition.semanticDigest,
           grantId: attempt.grantId,
-          expectedGrantRevision: attempt.grantRevision
+          expectedGrantRevision: attempt.grantRevision,
+          replacementConnectionId: definition.nextAction?.connectionId
         } } });
       }
       setOauthAttemptNeedsAttach(false);
@@ -625,7 +627,7 @@ function AdapterDefinitionCard({
       setError(caught instanceof Error ? caught.message : "The authorized account could not be attached.");
       onResolved?.();
     }
-  }, [attachGrant, definition.semanticDigest, oauthAttemptNeedsAttach, onResolved]);
+  }, [attachGrant, definition.nextAction, definition.semanticDigest, oauthAttemptNeedsAttach, onResolved]);
   useSubscription(AdapterOauthAttemptEventsDocument, {
     variables: { attemptId: oauthAttemptId ?? "" },
     skip: oauthAttemptId === null,

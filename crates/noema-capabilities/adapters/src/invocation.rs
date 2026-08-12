@@ -409,7 +409,8 @@ impl AdapterCapabilityService {
                         Some(profile),
                     )
                 }
-                AdapterConnectionAuthenticationV1::None
+                AdapterConnectionAuthenticationV1::Pending
+                | AdapterConnectionAuthenticationV1::None
                 | AdapterConnectionAuthenticationV1::Credential { .. } => {
                     (None, None, None, None, None)
                 }
@@ -745,6 +746,7 @@ fn authentication_authority_matches(
     grant: Option<&AuthorizationGrantV1>,
 ) -> bool {
     match (&descriptor.authentication, grant) {
+        (AdapterConnectionAuthenticationV1::Pending, None) => false,
         (AdapterConnectionAuthenticationV1::None, None) => {
             authority.credential_revision.is_none() && authority.grant_id.is_none()
         }

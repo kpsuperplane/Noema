@@ -31,6 +31,8 @@ impl AdapterConnectionStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AdapterConnectionAuthenticationV1 {
+    /// No credential is active while a reviewed authentication change is pending.
+    Pending,
     /// The reviewed definition requires no authentication.
     None,
     /// The connection owns one direct-credential generation.

@@ -197,6 +197,20 @@ pub struct GraphqlAdapterNextAction {
     pub missing_scopes: Vec<String>,
 }
 
+/// Human-reviewable impact of one immutable definition revision.
+#[derive(Debug, Clone, SimpleObject)]
+#[graphql(name = "AdapterDefinitionTransition")]
+pub struct GraphqlAdapterDefinitionTransition {
+    pub added_operations: Vec<String>,
+    pub changed_operations: Vec<String>,
+    pub removed_operations: Vec<String>,
+    pub authentication_changed: bool,
+    pub affected_connections: i32,
+    pub affected_schedules: i32,
+    pub authentication_required_connections: i32,
+    pub consolidated_connections: i32,
+}
+
 /// One filesystem-canonical adapter definition safe to show in Settings.
 #[derive(Debug, Clone, SimpleObject)]
 #[graphql(name = "AdapterDefinition")]
@@ -214,6 +228,7 @@ pub struct GraphqlAdapterDefinition {
     pub credential_setup: Option<GraphqlAdapterCredentialSetup>,
     pub account_identity_operation_id: Option<String>,
     pub operations: Vec<GraphqlAdapterOperation>,
+    pub transition: GraphqlAdapterDefinitionTransition,
     pub manifest_json: String,
     pub connection_count: i32,
     pub connections: Vec<GraphqlAdapterConnection>,
@@ -250,6 +265,7 @@ pub struct GraphqlAdapterCredentialFieldValueInput {
 #[graphql(name = "SetupAdapterConnectionInput")]
 pub struct GraphqlSetupAdapterConnectionInput {
     pub semantic_digest: String,
+    pub replacement_connection_id: Option<String>,
     #[graphql(default)]
     pub field_values: Vec<GraphqlAdapterCredentialFieldValueInput>,
     pub document_base64: Option<String>,
@@ -317,6 +333,7 @@ pub struct GraphqlAttachAdapterOauthConnectionInput {
     pub semantic_digest: String,
     pub grant_id: String,
     pub expected_grant_revision: u64,
+    pub replacement_connection_id: Option<String>,
 }
 
 /// Disconnect one exact reusable grant revision.
@@ -481,6 +498,10 @@ pub(super) async fn adapter_definitions(
                 &connections,
                 &snapshot.oauth_authorities,
             );
+            let transition = state
+                .adapter_operations()?
+                .definition_transition(digest)
+                .map_err(|_| async_graphql::Error::new("adapter transition is unavailable"))?;
             Ok(definition_view(
                 digest,
                 &stored,
@@ -488,8 +509,7 @@ pub(super) async fn adapter_definitions(
                 connections,
                 oauth_callback,
                 profile,
-                next_action,
-                connection_actions,
+                (next_action, connection_actions, transition_view(transition)),
             ))
         })
         .collect::<async_graphql::Result<Vec<_>>>()?;
@@ -590,6 +610,7 @@ pub(super) async fn attach_adapter_oauth_connection(
             &input.semantic_digest,
             &input.grant_id,
             input.expected_grant_revision,
+            input.replacement_connection_id.as_deref(),
         )
         .await
         .map_err(|error| async_graphql::Error::new(error.to_string()))?;
@@ -916,7 +937,12 @@ pub(super) async fn setup_adapter_connection(
         .transpose()?;
     state
         .adapter_operations()?
-        .setup_connection(&input.semantic_digest, field_values, document.as_deref())
+        .setup_connection(
+            &input.semantic_digest,
+            input.replacement_connection_id.as_deref(),
+            field_values,
+            document.as_deref(),
+        )
         .await
         .map_err(|error| async_graphql::Error::new(error.to_string()))?;
     reconcile_adapter_connections(state).await?;
@@ -1056,10 +1082,14 @@ fn definition_view(
     connections: Vec<GraphqlAdapterConnection>,
     oauth_callback: Option<(&str, Oauth2CallbackMode)>,
     oauth_profile: Option<&noema_capability_adapters::OauthProfileInstall>,
-    next_action: Option<GraphqlAdapterNextAction>,
-    connection_actions: Vec<GraphqlAdapterNextAction>,
+    actions: (
+        Option<GraphqlAdapterNextAction>,
+        Vec<GraphqlAdapterNextAction>,
+        GraphqlAdapterDefinitionTransition,
+    ),
 ) -> GraphqlAdapterDefinition {
     let manifest = &stored.manifest;
+    let (next_action, connection_actions, transition) = actions;
     GraphqlAdapterDefinition {
         semantic_digest: semantic_digest.to_string(),
         definition_id: manifest.definition_id.clone(),
@@ -1116,6 +1146,7 @@ fn definition_view(
             .and_then(|profile| profile.profile.account_identity.as_ref())
             .map(|identity| identity.operation_id.clone()),
         operations: manifest.operations.iter().map(operation_view).collect(),
+        transition,
         manifest_json: serde_json::to_string_pretty(manifest)
             .unwrap_or_else(|_| "adapter definition could not be displayed".to_string()),
         connection_count: i32::try_from(connections.len()).unwrap_or(i32::MAX),
@@ -1124,6 +1155,25 @@ fn definition_view(
         superseded,
         next_action,
         connection_actions,
+    }
+}
+
+fn transition_view(
+    transition: noema_capability_adapters::AdapterDefinitionTransition,
+) -> GraphqlAdapterDefinitionTransition {
+    GraphqlAdapterDefinitionTransition {
+        added_operations: transition.added_operations,
+        changed_operations: transition.changed_operations,
+        removed_operations: transition.removed_operations,
+        authentication_changed: transition.authentication_changed,
+        affected_connections: i32::try_from(transition.affected_connections).unwrap_or(i32::MAX),
+        affected_schedules: i32::try_from(transition.affected_schedules).unwrap_or(i32::MAX),
+        authentication_required_connections: i32::try_from(
+            transition.authentication_required_connections,
+        )
+        .unwrap_or(i32::MAX),
+        consolidated_connections: i32::try_from(transition.consolidated_connections)
+            .unwrap_or(i32::MAX),
     }
 }
 
@@ -1147,14 +1197,34 @@ fn definition_next_action(
             "authentication_required" | "revoked" | "blocked"
         )
     }) {
-        let mut action = adapter_next_action("reconnect_account", semantic_digest);
+        let mut action = if connection.grant_id.is_none()
+            && manifest.authentication.mode() == AuthenticationMode::Oauth2AuthorizationCodePkce
+        {
+            definition_connection_actions(semantic_digest, compiled, manifest, false, &[], oauth)
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| adapter_next_action("reconnect_account", semantic_digest))
+        } else {
+            adapter_next_action("reconnect_account", semantic_digest)
+        };
+        if manifest.authentication.mode() == AuthenticationMode::Credential {
+            action.kind = "set_up_credential".to_string();
+        } else if action.kind != "import_application" {
+            action.kind = "reconnect_account".to_string();
+        }
         action.grant_id.clone_from(&connection.grant_id);
         action.expected_grant_revision = connection.grant_revision;
         action.connection_id = Some(connection.connection_id.clone());
         action.expected_connection_revision = Some(connection.connection_revision);
-        action
-            .operation_ids
-            .clone_from(&connection.allowed_operations);
+        action.operation_ids = if connection.allowed_operations.is_empty() {
+            manifest
+                .operations
+                .iter()
+                .map(|operation| operation.operation_id.clone())
+                .collect()
+        } else {
+            connection.allowed_operations.clone()
+        };
         populate_grant_authority(&mut action, oauth);
         return Some(action);
     }
@@ -1416,7 +1486,8 @@ fn connection_view(
             AdapterConnectionAuthenticationV1::Credential { revision, .. } => {
                 (None, None, None, Vec::new(), Some(*revision))
             }
-            AdapterConnectionAuthenticationV1::None => (None, None, None, Vec::new(), None),
+            AdapterConnectionAuthenticationV1::Pending
+            | AdapterConnectionAuthenticationV1::None => (None, None, None, Vec::new(), None),
         };
     let grant = grant_id
         .as_deref()
@@ -2239,6 +2310,156 @@ mod tests {
         .expect("approve replacement");
         assert!(!has_adapter_intervention(&state, &first.semantic_digest).await);
         assert!(has_adapter_intervention(&state, &second.semantic_digest).await);
+    }
+
+    #[tokio::test]
+    async fn breaking_revision_migrates_one_connection_without_enabling_new_tools() {
+        let (_environment, state, pending_digest) = fixture().await;
+        let first = approve_adapter_definition(
+            &state,
+            "human:local",
+            GraphqlApproveAdapterDefinitionInput {
+                semantic_digest: pending_digest,
+            },
+        )
+        .await
+        .expect("approve first definition");
+        let service = state.adapter_operations().expect("adapter operations");
+        let first_connection = first.connections.first().expect("automatic connection");
+        assert_eq!(first_connection.allowed_operations, ["list_items"]);
+
+        let mut replacement = pending_manifest();
+        replacement.definition_revision = "v2".to_string();
+        replacement.operations[0].operation_id = "get_item".to_string();
+        replacement.operations[0].description = "Get one available item.".to_string();
+        replacement.operations[0].path = "/v2/item".to_string();
+        let catalog = CapabilityBindingSource::catalog(service)
+            .await
+            .expect("adapter catalog");
+        let binding = catalog
+            .snapshot
+            .resolve("adapter.propose_definition")
+            .expect("proposal binding");
+        let proposal = CapabilityInvoker::invoke(
+            service,
+            CapabilityInvocation {
+                operation: ToolName::new("adapter.propose_definition").expect("tool name"),
+                operation_token: binding.target().operation_token().clone(),
+                arguments: json!({
+                    "source_reference": "https://developers.example.test/items-v2",
+                    "manifest_json": serde_json::to_string(&replacement).expect("manifest JSON"),
+                    "replaces_semantic_digest": first.semantic_digest,
+                }),
+                reviewed_authorization: None,
+            },
+        )
+        .await
+        .expect("replacement proposal");
+        let replacement_digest = proposal.payload["semantic_digest"]
+            .as_str()
+            .expect("replacement digest");
+        let pending = adapter_definitions(&state)
+            .await
+            .expect("definitions")
+            .into_iter()
+            .find(|definition| definition.semantic_digest == replacement_digest)
+            .expect("pending replacement");
+        assert_eq!(pending.transition.added_operations, ["get_item"]);
+        assert_eq!(pending.transition.removed_operations, ["list_items"]);
+        assert_eq!(pending.transition.affected_connections, 1);
+
+        let reviewed = approve_adapter_definition(
+            &state,
+            "human:local",
+            GraphqlApproveAdapterDefinitionInput {
+                semantic_digest: replacement_digest.to_string(),
+            },
+        )
+        .await
+        .expect("approve replacement");
+        assert_eq!(reviewed.connections.len(), 1);
+        assert_eq!(
+            reviewed.connections[0].connection_id,
+            first_connection.connection_id
+        );
+        assert!(reviewed.connections[0].allowed_operations.is_empty());
+        assert!(matches!(
+            service
+                .ensure_credential_free_connection(&first.semantic_digest)
+                .await,
+            Err(noema_capability_adapters::AdapterConnectionSetupError::DefinitionUnavailable)
+        ));
+    }
+
+    #[tokio::test]
+    async fn authentication_revision_keeps_connection_and_stops_access() {
+        let (_environment, state, pending_digest) = fixture().await;
+        let first = approve_adapter_definition(
+            &state,
+            "human:local",
+            GraphqlApproveAdapterDefinitionInput {
+                semantic_digest: pending_digest,
+            },
+        )
+        .await
+        .expect("approve first definition");
+        let first_connection = first.connections.first().expect("automatic connection");
+        let service = state.adapter_operations().expect("adapter operations");
+        let mut replacement = oauth_pending_manifest();
+        replacement.definition_id = "definition:review_fixture".to_string();
+        replacement.adapter_id = "review_fixture".to_string();
+        replacement.display_name = Some("Review fixture".to_string());
+        replacement.definition_revision = "v2".to_string();
+        let catalog = CapabilityBindingSource::catalog(service)
+            .await
+            .expect("adapter catalog");
+        let binding = catalog
+            .snapshot
+            .resolve("adapter.propose_definition")
+            .expect("proposal binding");
+        let proposal = CapabilityInvoker::invoke(
+            service,
+            CapabilityInvocation {
+                operation: ToolName::new("adapter.propose_definition").expect("tool name"),
+                operation_token: binding.target().operation_token().clone(),
+                arguments: json!({
+                    "source_reference": "https://developers.example.test/oauth-v2",
+                    "manifest_json": serde_json::to_string(&replacement).expect("manifest JSON"),
+                    "replaces_semantic_digest": first.semantic_digest,
+                }),
+                reviewed_authorization: None,
+            },
+        )
+        .await
+        .expect("authentication proposal");
+        let replacement_digest = proposal.payload["semantic_digest"]
+            .as_str()
+            .expect("replacement digest");
+        let pending = adapter_definitions(&state)
+            .await
+            .expect("definitions")
+            .into_iter()
+            .find(|definition| definition.semantic_digest == replacement_digest)
+            .expect("pending replacement");
+        assert!(pending.transition.authentication_changed);
+        assert_eq!(pending.transition.authentication_required_connections, 1);
+
+        let reviewed = approve_adapter_definition(
+            &state,
+            "human:local",
+            GraphqlApproveAdapterDefinitionInput {
+                semantic_digest: replacement_digest.to_string(),
+            },
+        )
+        .await
+        .expect("approve authentication replacement");
+        assert_eq!(reviewed.connections.len(), 1);
+        assert_eq!(
+            reviewed.connections[0].connection_id,
+            first_connection.connection_id
+        );
+        assert_eq!(reviewed.connections[0].status, "authentication_required");
+        assert!(reviewed.connections[0].allowed_operations.is_empty());
     }
 
     #[tokio::test]

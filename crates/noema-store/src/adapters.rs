@@ -459,12 +459,7 @@ fn valid_credential_reference(connection: &ConnectionProjection) -> bool {
         &connection.credential_generation,
         &connection.credential_relative_path,
     ) {
-        (None, None) => {
-            connection.credential_revision.is_none()
-                && (connection.grant_id.is_some()
-                    || connection.status == "blocked"
-                    || connection.status != "authentication_required")
-        }
+        (None, None) => connection.credential_revision.is_none(),
         (Some(generation), Some(path)) => {
             valid_connection_id(generation)
                 && connection
