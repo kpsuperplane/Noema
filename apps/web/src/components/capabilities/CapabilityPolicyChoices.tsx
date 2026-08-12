@@ -11,6 +11,7 @@ import { HStack } from "@astryxdesign/core/HStack";
 import { Grid } from "@astryxdesign/core/Grid";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
+import { ListCardButton } from "@/components/ListCardLink";
 
 export type CapabilityDataSharingPolicy = "allow_automatically" | "review_every_call";
 export type CapabilityUnsafeActionPolicy = "always_ask" | "reviewer_may_approve" | "never_ask";
@@ -162,12 +163,12 @@ function PolicyChoiceCard({
 }) {
   return (
     <VStack gap={0}>
-      <button
-        type="button"
+      <ListCardButton
         data-autofocus={hasAutoFocus || undefined}
         disabled={disabled}
         aria-pressed={selected}
-        {...stylex.props(styles.choice, selected && styles.choiceSelected)}
+        selected={selected}
+        xstyle={styles.choice}
         onClick={onClick}
       >
         <HStack
@@ -177,8 +178,8 @@ function PolicyChoiceCard({
           vAlign="center"
         >
           <HStack as="span" gap={2} vAlign="center" {...stylex.props(styles.choiceHeading)}>
-            <span {...stylex.props(styles.choiceIcon, selected && styles.choiceIconSelected)}>{icon}</span>
-            <span {...stylex.props(styles.choiceTitle, selected && styles.choiceTitleSelected)}>{title}</span>
+            <span {...stylex.props(styles.choiceIcon)}>{icon}</span>
+            <span {...stylex.props(styles.choiceTitle)}>{title}</span>
           </HStack>
           {selected ? <Check aria-hidden="true" {...stylex.props(styles.choiceCheck, styles.selectionMarker)} /> : null}
         </HStack>
@@ -191,7 +192,7 @@ function PolicyChoiceCard({
             </React.Fragment>
           ))}
         </HStack>
-      </button>
+      </ListCardButton>
       {disabled && disabledReason ? <p {...stylex.props(styles.disabledReason)}>{disabledReason}</p> : null}
     </VStack>
   );
@@ -201,13 +202,10 @@ const styles = stylex.create({
   dividedPolicyGroup: { paddingTop: "var(--spacing-4)", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--border-subtle)" },
   heading: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 16, fontWeight: 600 },
   muted: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 12 },
-  choice: { display: "grid", width: "100%", gap: "var(--spacing-2)", padding: "var(--spacing-3)", textAlign: "left", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 8, color: "var(--foreground)", backgroundColor: "var(--surface-raised)", cursor: "pointer", transitionProperty: "border-color, box-shadow", transitionDuration: "var(--motion-spring-micro-duration)", transitionTimingFunction: "var(--motion-spring-critical-easing)", ":disabled": { cursor: "not-allowed", opacity: 0.5 } },
-  choiceSelected: { borderColor: "var(--primary)", boxShadow: "inset 0 0 0 1px var(--primary)" },
+  choice: { width: "100%", gap: "var(--spacing-2)", padding: "var(--spacing-3)", color: "var(--foreground)" },
   choiceHeading: { minWidth: 0 },
   choiceIcon: { display: "inline-flex", width: 18, height: 18, flexShrink: 0, color: "var(--muted-foreground)" },
-  choiceIconSelected: { color: "var(--primary)" },
   choiceTitle: { fontSize: 14, fontWeight: 600, lineHeight: 1.4 },
-  choiceTitleSelected: { color: "var(--primary)" },
   choiceNote: { fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "var(--destructive)" },
   choiceCheck: { width: 16, height: 16, flexShrink: 0, color: "var(--primary)" },
   selectionMarker: { animationName: stylex.keyframes({ from: { opacity: 0, transform: "scale(0.6)" }, to: { opacity: 1, transform: "scale(1)" } }), animationDuration: "var(--motion-spring-micro-duration)", animationTimingFunction: "var(--motion-spring-critical-easing)" },

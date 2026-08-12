@@ -82,9 +82,5 @@ const styles = stylex.create({
     backgroundColor: "color-mix(in srgb, var(--noema-pine-50) 70%, var(--noema-surface-card))",
     boxShadow: "0 2px 8px color-mix(in srgb, var(--noema-pine-700) 9%, transparent)"
   },
-  button: {
-    font: "inherit",
-    textAlign: "start",
-    cursor: "pointer"
-  }
+  button: { font: "inherit", textAlign: "start", ":disabled": { cursor: "not-allowed", opacity: 0.5 } }
 });
