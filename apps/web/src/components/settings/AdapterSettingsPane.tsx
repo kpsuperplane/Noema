@@ -44,6 +44,7 @@ type AdapterDefinition = AdapterDefinitionsQuery["adapterDefinitions"][number];
 type Grant = AdapterOauthStateQuery["adapterOauthState"]["grants"][number];
 type NextAction = NonNullable<AdapterDefinition["nextAction"]>;
 type ConnectionAction = AdapterDefinition["connectionActions"][number];
+type OAuthAction = NextAction | ConnectionAction;
 
 export function AdapterSettingsPane({ connectionId }: { connectionId?: string }) {
   const navigate = useNavigate();
@@ -73,11 +74,15 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const [applicationProfileDigest, setApplicationProfileDigest] = useState<string | null>(null);
   const [replacementApplicationId, setReplacementApplicationId] = useState<string | null>(null);
   const [attemptId, setAttemptId] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<NextAction | null>(null);
+  const [pendingAction, setPendingAction] = useState<OAuthAction | null>(null);
   const [labelGrant, setLabelGrant] = useState<Grant | null>(null);
   const [labelDraft, setLabelDraft] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [disconnectTarget, setDisconnectTarget] = useState<Grant[] | null>(null);
+  const [accessConfirmation, setAccessConfirmation] = useState<{
+    definition: AdapterDefinition;
+    action: OAuthAction;
+  } | null>(null);
   const [deleteServiceTargetId, setDeleteServiceTargetId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -141,9 +146,10 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     </VStack></SettingsSection>;
   }
 
-  async function runAction(definition: AdapterDefinition, selectedAction?: ConnectionAction) {
+  async function runAction(definition: AdapterDefinition, selectedAction?: OAuthAction) {
     const action = selectedAction ?? definition.nextAction;
     if (!action) return;
+    setAccessConfirmation(null);
     setError(null);
     if (action.kind === "review_definition") {
       await approve({ variables: { input: { semanticDigest: action.semanticDigest } } });
@@ -192,6 +198,16 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     }
   }
 
+  function requestAction(definition: AdapterDefinition, selectedAction?: OAuthAction) {
+    const action = selectedAction ?? definition.nextAction;
+    if (!action) return;
+    if (action.kind === "add_access") {
+      setAccessConfirmation({ definition, action });
+      return;
+    }
+    void runAction(definition, selectedAction).catch(actionError(setError));
+  }
+
   async function importOauthApplication(submission: AdapterCredentialSubmission) {
     if (!applicationProfile || !submission.document) return;
     const bytes = new Uint8Array(await submission.document.arrayBuffer());
@@ -233,7 +249,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const sourceActions = selectedDefinition && selectedDescriptor ? <>
     {selectedDefinition.nextAction && ["add_access", "reconnect_account"].includes(selectedDefinition.nextAction.kind) ? (
       <Button type="button" size="sm" label={actionLabel(selectedDefinition)} isLoading={oauthStartState.loading}
-        onClick={() => void runAction(selectedDefinition).catch(actionError(setError))} />
+        onClick={() => requestAction(selectedDefinition)} />
     ) : null}
     <Button type="button" size="sm" variant="secondary"
       label={selectedDescriptor.status === "suspended" ? "Resume connection" : "Suspend connection"}
@@ -269,7 +285,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           onOpen={(id) => void navigate({ to: "/settings/tools/apis/$connectionId", params: { connectionId: id } })}
           onLabel={(grant) => { setLabelGrant(grant); setLabelDraft(grant.accountLabel ?? ""); }}
           onDisconnect={setDisconnectTarget}
-          onRunAction={(definition, action) => void runAction(definition, action).catch(actionError(setError))} />
+          onRunAction={requestAction} />
         <SettingsSection aria-labelledby="available-api-title"><VStack gap={2}>
           <h2 id="available-api-title" {...stylex.props(styles.sectionTitle)}>Available APIs</h2>
           <SettingsList density="compact" hasDividers>
@@ -280,7 +296,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
                   <Button key={connectionActionKey(action)} type="button" size="sm"
                     label={connectionActionLabel(definition, action, oauth)}
                     isLoading={oauthStartState.loading || attachState.loading}
-                    onClick={() => void runAction(definition, action).catch(actionError(setError))} />
+                    onClick={() => requestAction(definition, action)} />
                 ))}</HStack>} />
             ))}
             {definitions.every((item) => !item.reviewed || item.connectionCount > 0) ? (
@@ -349,6 +365,30 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
         accountLabel: labelDraft || null
       } } }).then(async () => { setLabelGrant(null); await refresh(); }).catch(actionError(setError)) : undefined}>
       <TextInput hasAutoFocus label="Account label" value={labelDraft} onChange={setLabelDraft} />
+    </SettingsEditDialog>
+    <SettingsEditDialog title={accessConfirmation ? `Add ${accessConfirmation.definition.displayName} access?` : "Add access?"}
+      open={accessConfirmation !== null} saving={oauthStartState.loading} saveLabel="Add access" error={error}
+      onOpenChange={(open) => { if (!open) setAccessConfirmation(null); }}
+      onSave={() => accessConfirmation
+        ? runAction(accessConfirmation.definition, accessConfirmation.action).catch(actionError(setError))
+        : undefined}>
+      {accessConfirmation ? <>
+        <p {...stylex.props(styles.muted)}>
+          This enables {accessConfirmation.action.operationIds.length} additional {accessConfirmation.definition.displayName} operations.
+          Current access stays available if you cancel or deny consent.
+        </p>
+        <details>
+          <summary {...stylex.props(styles.summary)}>Technical details</summary>
+          <VStack gap={2} {...stylex.props(styles.technicalDetails)}>
+            <strong {...stylex.props(styles.rowLabel)}>Operations</strong>
+            {accessConfirmation.action.operationIds.map((operation) => <code key={operation}>{operation}</code>)}
+            <strong {...stylex.props(styles.rowLabel)}>New OAuth scopes</strong>
+            {accessConfirmation.action.missingScopes.map((scope) => <code key={scope}>{scope}</code>)}
+            <strong {...stylex.props(styles.rowLabel)}>Dependent APIs</strong>
+            {dependentApiNames(accessConfirmation.action, oauth, definitions).map((name) => <span key={name}>{name}</span>)}
+          </VStack>
+        </details>
+      </> : null}
     </SettingsEditDialog>
     <DeleteConnectionDialog connection={selectedConnection ? { name: selectedConnection.name, toolCount: selectedConnection.toolCount } : null}
       keepsAccount
@@ -473,6 +513,20 @@ function connectionActionKey(action: ConnectionAction) {
   return [action.kind, action.applicationId, action.grantId].filter(Boolean).join(":");
 }
 
+function dependentApiNames(
+  action: OAuthAction,
+  oauth: AdapterOauthStateQuery["adapterOauthState"],
+  definitions: AdapterDefinition[]
+) {
+  const connectionIds = new Set(
+    oauth.grants.find((grant) => grant.grantId === action.grantId)?.connectionIds ?? []
+  );
+  const names = new Set(definitions.flatMap((definition) => definition.connections
+    .filter((connection) => connectionIds.has(connection.connectionId))
+    .map(() => definition.displayName)));
+  return names.size === 0 ? ["No connected APIs"] : [...names];
+}
+
 function nextActionDescription(definition: AdapterDefinition) {
   const action = definition.nextAction;
   if (!action) return definition.origin;
@@ -518,5 +572,6 @@ const styles = stylex.create({
   fit: { width: "fit-content" },
   icon: { width: 16, height: 16 },
   summary: { cursor: "pointer", fontSize: 12, fontWeight: 600 },
+  technicalDetails: { paddingTop: "var(--spacing-2)" },
   manifest: { maxHeight: 280, margin: "var(--spacing-2) 0 0", padding: "var(--spacing-2)", overflow: "auto", borderRadius: "var(--radius-sm)", backgroundColor: "var(--noema-surface-subtle)", fontFamily: "var(--font-mono)", fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }
 });
