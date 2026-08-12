@@ -89,6 +89,9 @@ vertical slice or a net-negative reduction.
   journaled work. Family setup rejects superseded revisions and duplicate
   account bindings. Breaking authentication changes keep the connection ID and
   require an exact replacement connection fence.
+- Definition proposals store their review impact with immutable revision
+  metadata. Read surfaces show only current or actionable revisions and read
+  that impact directly. Approval recalculates it under the family lock.
 - Reusable OAuth is the active adapter authorization model. Reviewed profiles,
   applications, accounts, and grants have separate filesystem authorities.
   Client secrets and tokens use protected generations.

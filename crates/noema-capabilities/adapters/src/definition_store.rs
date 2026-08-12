@@ -22,7 +22,10 @@ const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const MAX_PROVENANCE_BYTES: u64 = 64 * 1024;
 const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 
-/// Non-authoritative source provenance stored beside a canonical manifest.
+/// Immutable revision metadata stored beside a canonical manifest.
+///
+/// Source references do not grant authority. A stored transition records the
+/// proposal-time review expectation that approval must verify again.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DefinitionProvenance {
@@ -40,6 +43,9 @@ pub struct DefinitionProvenance {
     /// Exact earlier definition revisions replaced by this immutable object.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub replaces_semantic_digests: Vec<String>,
+    /// Proposal-time impact shown by read-only review surfaces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition: Option<crate::AdapterDefinitionTransition>,
 }
 
 /// Canonical definition store rooted in one `NOEMA_HOME`.
@@ -195,6 +201,7 @@ impl AdapterDefinitionStore {
             source_reference: source_reference.to_string(),
             imported_at: imported_at.map(str::to_string),
             replaces_semantic_digests: Vec::new(),
+            transition: None,
         };
         self.install_with_provenance(manifest, provenance, source)
     }

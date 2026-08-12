@@ -595,6 +595,10 @@ impl AdapterCapabilityService {
             .iter()
             .map(|operation| operation.operation_id.clone())
             .collect::<Vec<_>>();
+        let replaces = replaces.into_iter().collect::<Vec<_>>();
+        let transition = self
+            .plan_definition_transition(&proposed, &replaces)
+            .map_err(|_| CapabilityError::Unavailable)?;
         let installed = match self.inner.definitions.install_with_provenance(
             &manifest,
             DefinitionProvenance {
@@ -602,7 +606,8 @@ impl AdapterCapabilityService {
                 source_extension: None,
                 source_reference: input.source_reference.clone(),
                 imported_at: None,
-                replaces_semantic_digests: replaces.into_iter().collect(),
+                replaces_semantic_digests: replaces,
+                transition: Some(transition),
             },
             None,
         ) {

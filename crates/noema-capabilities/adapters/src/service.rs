@@ -548,24 +548,13 @@ impl AdapterCapabilityService {
         self.inner.definitions.load(semantic_digest).ok()
     }
 
-    /// Return the exact migration impact for one pending or reviewed revision.
-    ///
-    /// # Errors
-    ///
-    /// Returns a safe management error when canonical definition or dependency state is unavailable.
-    pub fn definition_transition(
+    pub(crate) fn plan_definition_transition(
         &self,
-        semantic_digest: &str,
+        replacement: &CompiledAdapterDefinition,
+        replaces_semantic_digests: &[String],
     ) -> Result<crate::AdapterDefinitionTransition, AdapterManagementError> {
-        let stored = self
-            .inner
-            .definitions
-            .load(semantic_digest)
-            .map_err(|_| AdapterManagementError::NotFound)?;
-        let replacement = AdapterCompiler::compile(&stored.manifest)
-            .map_err(|_| AdapterManagementError::Unavailable)?;
         let mut lineage = BTreeSet::new();
-        let mut unvisited = stored.provenance.replaces_semantic_digests;
+        let mut unvisited = replaces_semantic_digests.to_vec();
         let mut current = None;
         while let Some(digest) = unvisited.pop() {
             if !lineage.insert(digest.clone()) {
@@ -587,7 +576,7 @@ impl AdapterCapabilityService {
         let mut transition = current
             .as_ref()
             .map_or_else(crate::AdapterDefinitionTransition::default, |current| {
-                crate::AdapterDefinitionTransition::between(current, &replacement)
+                crate::AdapterDefinitionTransition::between(current, replacement)
             });
         let snapshot = self.management_snapshot()?;
         let affected = snapshot
@@ -731,6 +720,19 @@ impl AdapterCapabilityService {
             .connection_lock(&format!("adapter-family:{}", target.manifest.definition_id))
             .map_err(|_| AdapterManagementError::Unavailable)?;
         let _family_guard = family_lock.write().await;
+        if !target.manifest.reviewed
+            && let Some(expected) = &target.provenance.transition
+        {
+            let replacement = AdapterCompiler::compile(&target.manifest)
+                .map_err(|_| AdapterManagementError::Unavailable)?;
+            let current = self.plan_definition_transition(
+                &replacement,
+                &target.provenance.replaces_semantic_digests,
+            )?;
+            if current != *expected {
+                return Err(AdapterManagementError::Conflict);
+            }
+        }
         let mut journal = crate::transition::DefinitionTransitionJournal {
             schema_version: 1,
             definition_id: target.manifest.definition_id.clone(),

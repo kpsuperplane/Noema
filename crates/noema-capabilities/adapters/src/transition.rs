@@ -14,7 +14,8 @@ const TRANSITIONS_DIR: &str = "transitions";
 const MAX_JOURNAL_BYTES: u64 = 16 * 1024;
 
 /// Safe, public impact of replacing one reviewed adapter definition.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AdapterDefinitionTransition {
     /// Operations introduced by the replacement.
     pub added_operations: Vec<String>,

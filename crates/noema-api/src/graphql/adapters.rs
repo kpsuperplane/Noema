@@ -459,6 +459,14 @@ pub(super) async fn adapter_definitions(
         .definitions
         .definitions
         .iter()
+        .filter(|definition| {
+            let digest = definition.compiled.semantic_digest.as_str();
+            let has_connections = connections_by_digest
+                .get(digest)
+                .is_some_and(|connections| !connections.is_empty());
+            !snapshot.superseded_pending_digests.contains(digest)
+                && (has_connections || !snapshot.replaced_definition_digests.contains(digest))
+        })
         .map(|definition| {
             let digest = definition.compiled.semantic_digest.as_str();
             let stored = state
@@ -479,9 +487,7 @@ pub(super) async fn adapter_definitions(
                     .iter()
                     .find(|profile| profile.profile_digest == oauth.profile_digest)
             });
-            let superseded = snapshot.superseded_pending_digests.contains(digest)
-                || (connections.is_empty()
-                    && snapshot.replaced_definition_digests.contains(digest));
+            let superseded = false;
             let next_action = definition_next_action(
                 digest,
                 &definition.compiled,
@@ -498,10 +504,7 @@ pub(super) async fn adapter_definitions(
                 &connections,
                 &snapshot.oauth_authorities,
             );
-            let transition = state
-                .adapter_operations()?
-                .definition_transition(digest)
-                .map_err(|_| async_graphql::Error::new("adapter transition is unavailable"))?;
+            let transition = stored.provenance.transition.clone().unwrap_or_default();
             Ok(definition_view(
                 digest,
                 &stored,
@@ -2308,6 +2311,11 @@ mod tests {
         )
         .await
         .expect("approve replacement");
+        let visible = adapter_definitions(&state)
+            .await
+            .expect("visible definitions");
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].semantic_digest, second.semantic_digest);
         assert!(!has_adapter_intervention(&state, &first.semantic_digest).await);
         assert!(has_adapter_intervention(&state, &second.semantic_digest).await);
     }
