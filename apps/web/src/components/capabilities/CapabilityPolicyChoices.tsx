@@ -180,11 +180,9 @@ function PolicyChoiceCard({
             <span {...stylex.props(styles.choiceIcon, selected && styles.choiceIconSelected)}>{icon}</span>
             <span {...stylex.props(styles.choiceTitle, selected && styles.choiceTitleSelected)}>{title}</span>
           </HStack>
-          <HStack as="span" gap={2} vAlign="center" {...stylex.props(styles.choiceMeta)}>
-            {note ? <span {...stylex.props(styles.choiceNote)}>{note}</span> : null}
-            {selected ? <Check aria-hidden="true" {...stylex.props(styles.choiceCheck, styles.selectionMarker)} /> : null}
-          </HStack>
+          {selected ? <Check aria-hidden="true" {...stylex.props(styles.choiceCheck, styles.selectionMarker)} /> : null}
         </HStack>
+        {note ? <span {...stylex.props(styles.choiceNote)}>{note}</span> : null}
         <HStack as="span" gap={1} wrap="wrap" vAlign="center">
           {steps.map((pathStep, index) => (
             <React.Fragment key={pathStep}>
@@ -210,9 +208,8 @@ const styles = stylex.create({
   choiceIconSelected: { color: "var(--primary)" },
   choiceTitle: { fontSize: 14, fontWeight: 600, lineHeight: 1.4 },
   choiceTitleSelected: { color: "var(--primary)" },
-  choiceMeta: { flexShrink: 0 },
   choiceNote: { fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "var(--destructive)" },
-  choiceCheck: { width: 16, height: 16, color: "var(--primary)" },
+  choiceCheck: { width: 16, height: 16, flexShrink: 0, color: "var(--primary)" },
   selectionMarker: { animationName: stylex.keyframes({ from: { opacity: 0, transform: "scale(0.6)" }, to: { opacity: 1, transform: "scale(1)" } }), animationDuration: "var(--motion-spring-micro-duration)", animationTimingFunction: "var(--motion-spring-critical-easing)" },
   choiceStep: { fontSize: 12, fontWeight: 500, lineHeight: 1.4, color: "var(--muted-foreground)" },
   choiceArrow: { width: 12, height: 12, flexShrink: 0, color: "var(--noema-text-faint)" },
