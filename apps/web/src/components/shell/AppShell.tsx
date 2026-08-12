@@ -983,17 +983,20 @@ const styles = stylex.create({
   primaryNavigationButton: {
     borderRadius: 999,
     cornerShape: "var(--corner-shape-full)",
-    backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, var(--background))",
+    backgroundColor: "var(--pine-100)",
+    backgroundImage: "none",
     color: "var(--pine-700)",
     gap: "var(--spacing-0)",
     paddingInline: "var(--spacing-2)",
     ":hover": {
       "@media (hover: hover)": {
-        backgroundColor: "color-mix(in srgb, var(--pine-100) 84%, var(--background))"
+        backgroundColor: "color-mix(in srgb, var(--pine-500) 12%, var(--pine-100))",
+        backgroundImage: "none"
       }
     },
     ":active": {
-      backgroundColor: "color-mix(in srgb, var(--pine-100) 92%, var(--background))"
+      backgroundColor: "color-mix(in srgb, var(--pine-500) 20%, var(--pine-100))",
+      backgroundImage: "none"
     }
   },
   primaryNavigationDesktopLabel: {
