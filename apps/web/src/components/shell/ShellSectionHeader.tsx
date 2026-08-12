@@ -77,7 +77,7 @@ const styles = stylex.create({
       pointerEvents: "none",
       backgroundImage: {
         default:
-          "linear-gradient(to bottom, var(--background) 0%, color-mix(in srgb, var(--background) 99%, transparent) 25%, color-mix(in srgb, var(--background) 94%, transparent) 50%, color-mix(in srgb, var(--background) 68%, transparent) 75%, transparent 100%)",
+          "linear-gradient(to bottom, var(--background) 0%, color-mix(in srgb, var(--background) 99.8%, transparent) 60%, color-mix(in srgb, var(--background) 97%, transparent) 75%, color-mix(in srgb, var(--background) 93%, transparent) 80%, color-mix(in srgb, var(--background) 72%, transparent) 90%, transparent 100%)",
         "@media (max-width: 760px)":
           "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
       }
