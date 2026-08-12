@@ -506,11 +506,18 @@ const styles = stylex.create({
     padding: "var(--spacing-3) var(--spacing-4)",
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: "var(--border-subtle)",
+    borderColor: {
+      default: "var(--border-subtle)",
+      ":hover": "var(--border-default)"
+    },
     borderRadius: "var(--radius-container)",
     backgroundColor: {
       default: "var(--surface-raised)",
-      ":hover": "color-mix(in srgb, var(--foreground) 3%, var(--surface-raised))"
+      ":hover": "color-mix(in srgb, var(--foreground) 5%, var(--surface-raised))"
+    },
+    boxShadow: {
+      default: "none",
+      ":hover": "0 3px 10px color-mix(in srgb, black 7%, transparent)"
     },
     color: "var(--foreground)",
     font: "inherit",
