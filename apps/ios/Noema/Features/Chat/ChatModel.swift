@@ -300,6 +300,8 @@ final class ChatModel {
       isOptimistic: true
     ))
     isSending = true
+    agentStatus = "INPUT_RECEIVED"
+    defer { isSending = false }
     do {
       let input = NoemaAPI.SendConversationTurnInput(
         conversationId: conversationID,
@@ -311,7 +313,6 @@ final class ChatModel {
       if draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { draft = "" }
       isOffline = false
     } catch {
-      isSending = false
       recordMutationError(error)
     }
   }
@@ -320,6 +321,7 @@ final class ChatModel {
     guard let client, let conversationID, !optionIDs.isEmpty, !isOffline, !isSending else { return }
     isSending = true
     agentStatus = "INPUT_RECEIVED"
+    defer { isSending = false }
     do {
       let input = NoemaAPI.SendMultipleChoiceSelectionInput(
         conversationId: conversationID,
@@ -331,7 +333,6 @@ final class ChatModel {
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
       isOffline = false
     } catch {
-      isSending = false
       recordMutationError(error)
     }
   }
@@ -389,6 +390,7 @@ final class ChatModel {
     guard let client, let conversationID, let interactionID = surface.interactionID, !isOffline, !isSending else { return }
     isSending = true
     agentStatus = "INPUT_RECEIVED"
+    defer { isSending = false }
     do {
       let input = NoemaAPI.ProviderInteractionActionInput(
         conversationId: conversationID,
@@ -405,7 +407,6 @@ final class ChatModel {
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
       isOffline = false
     } catch {
-      isSending = false
       recordMutationError(error)
     }
   }
@@ -783,9 +784,8 @@ final class ChatModel {
     } else if let delta = event.asAssistantTextDeltaEvent {
       apply(delta: delta)
     } else if let status = event.asAgentStatusEvent {
-      agentStatus = String(describing: status.status)
+      agentStatus = status.status.rawValue
     } else if event.asTurnCompletedEvent != nil {
-      isSending = false
       agentStatus = "IDLE"
       for index in messages.indices {
         if case let .assistant(text, streaming) = messages[index].kind, streaming {
@@ -935,16 +935,16 @@ final class ChatModel {
     if let value = item.asUserText { return .user(value.text) }
     if let value = item.asAssistantText { return .assistant(value.text, streaming: false) }
     if let value = item.asActivity {
-      return .activity(title: value.title, summary: value.summary, status: String(describing: value.status), metadata: value.metadata.encodedString, activityKind: String(describing: value.activityKind))
+      return .activity(title: value.title, summary: value.summary, status: value.status.rawValue, metadata: value.metadata.encodedString, activityKind: value.activityKind)
     }
     if let value = item.asA2UISurface {
       return .a2ui(A2UISurfaceModel(id: value.id, interactionID: value.interactionId, surfaceID: value.surfaceId, version: value.version, revision: value.revision, interactionRevision: value.interactionRevision, lifecycle: value.lifecycle, catalogJSON: value.catalog.encodedString, snapshotJSON: value.snapshot.encodedString, hasActions: value.hasActions))
     }
     if let value = item.asMultipleChoicePrompt {
-      return .choicePrompt(prompt: value.prompt, mode: String(describing: value.selectionMode), options: value.options.map { ChoiceOption(id: $0.id, label: $0.label) })
+      return .choicePrompt(prompt: value.prompt, mode: value.selectionMode.rawValue, options: value.options.map { ChoiceOption(id: $0.id, label: $0.label) })
     }
     if let value = item.asMultipleChoiceSelection {
-      return .choiceSelection(promptItemID: value.promptItemId, mode: String(describing: value.selectionMode), options: value.selectedOptions.map { ChoiceOption(id: $0.id, label: $0.label) })
+      return .choiceSelection(promptItemID: value.promptItemId, mode: value.selectionMode.rawValue, options: value.selectedOptions.map { ChoiceOption(id: $0.id, label: $0.label) })
     }
     if let value = item.asErrorNotice { return .error(message: value.message, recoverable: value.recoverable) }
     if let value = item.asArtifactReference {
@@ -995,16 +995,16 @@ final class ChatModel {
     if let value = item.asUserText { return .user(value.text) }
     if let value = item.asAssistantText { return .assistant(value.text, streaming: false) }
     if let value = item.asActivity {
-      return .activity(title: value.title, summary: value.summary, status: String(describing: value.status), metadata: value.metadata.encodedString, activityKind: String(describing: value.activityKind))
+      return .activity(title: value.title, summary: value.summary, status: value.status.rawValue, metadata: value.metadata.encodedString, activityKind: value.activityKind)
     }
     if let value = item.asA2UISurface {
       return .a2ui(A2UISurfaceModel(id: value.id, interactionID: value.interactionId, surfaceID: value.surfaceId, version: value.version, revision: value.revision, interactionRevision: value.interactionRevision, lifecycle: value.lifecycle, catalogJSON: value.catalog.encodedString, snapshotJSON: value.snapshot.encodedString, hasActions: value.hasActions))
     }
     if let value = item.asMultipleChoicePrompt {
-      return .choicePrompt(prompt: value.prompt, mode: String(describing: value.selectionMode), options: value.options.map { ChoiceOption(id: $0.id, label: $0.label) })
+      return .choicePrompt(prompt: value.prompt, mode: value.selectionMode.rawValue, options: value.options.map { ChoiceOption(id: $0.id, label: $0.label) })
     }
     if let value = item.asMultipleChoiceSelection {
-      return .choiceSelection(promptItemID: value.promptItemId, mode: String(describing: value.selectionMode), options: value.selectedOptions.map { ChoiceOption(id: $0.id, label: $0.label) })
+      return .choiceSelection(promptItemID: value.promptItemId, mode: value.selectionMode.rawValue, options: value.selectedOptions.map { ChoiceOption(id: $0.id, label: $0.label) })
     }
     if let value = item.asErrorNotice { return .error(message: value.message, recoverable: value.recoverable) }
     if let value = item.asArtifactReference {

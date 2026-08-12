@@ -502,9 +502,9 @@ struct ChatReadyView: View {
         .padding(.horizontal, NoemaSpacing.xs)
     case .typing:
       ChatLaneRow(lane: .assistant, showAvatar: true) {
-        TypingDotsView()
-          .frame(width: 58, height: 40)
-          .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+        ChatBubbleView(lane: .assistant, group: .single) {
+          TypingDotsView()
+        }
       }
     }
   }

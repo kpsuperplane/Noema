@@ -237,7 +237,8 @@ private struct ChatMarkdownText: View {
       }
       .markdownBlockStyle(\.paragraph) { configuration in
         configuration.label
-          .markdownMargin(top: 0, bottom: 0)
+          .relativeLineSpacing(.em(0.08))
+          .markdownMargin(top: 0, bottom: NoemaSpacing.sm)
       }
   }
 }
@@ -270,7 +271,6 @@ struct ChatBubbleView<Content: View>: View {
     }
     .font(NoemaFont.body)
     .foregroundStyle(lane == .human ? NoemaColor.white : NoemaColor.content)
-    .lineSpacing(NoemaSpacing.compact)
     .padding(.horizontal, NoemaSpacing.lg)
     .padding(.vertical, NoemaSpacing.sm)
     .frame(minHeight: 40, alignment: .center)
@@ -309,16 +309,30 @@ struct ChatBubbleView<Content: View>: View {
 }
 
 struct TypingDotsView: View {
+  @State private var bouncing = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
   var body: some View {
-    HStack(spacing: NoemaSpacing.xs) {
+    HStack(spacing: NoemaSpacing.compact) {
       ForEach(0..<3, id: \.self) { index in
         Circle()
           .fill(NoemaColor.contentTertiary)
-          .frame(width: 5, height: 5)
-          .opacity(index == 1 ? 0.72 : 0.48)
+          .frame(width: 6, height: 6)
+          .opacity(0.7)
+          .offset(y: reduceMotion ? 0 : (bouncing ? -2 : 1))
+          .animation(
+            reduceMotion
+              ? nil
+              : .easeInOut(duration: 0.5)
+                .repeatForever(autoreverses: true)
+                .delay(Double(index) * 0.12),
+            value: bouncing
+          )
       }
     }
+    .frame(width: 26)
     .accessibilityLabel("Noema is typing")
+    .task { bouncing = true }
   }
 }
 
