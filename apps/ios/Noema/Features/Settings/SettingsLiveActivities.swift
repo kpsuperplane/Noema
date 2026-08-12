@@ -7,9 +7,6 @@ struct ClientLiveActivitiesSettings: View {
     SettingsSectionCard("Task Live Activities") {
       HStack(alignment: .top, spacing: NoemaSpacing.sm) {
         VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          Text(liveActivities.status?.enabled == true ? "Live Activities on" : "Live Activities off")
-            .font(NoemaFont.taskTitle)
-            .foregroundStyle(NoemaColor.content)
           Text(liveActivities.settingsDetail)
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
@@ -42,32 +39,34 @@ struct ClientLiveActivitiesSettings: View {
 
   @ViewBuilder
   private var action: some View {
-    if liveActivities.status?.enabled == true {
-      Button {
-        Task { await liveActivities.disable() }
-      } label: {
-        Label("Disable", systemImage: "rectangle.badge.xmark")
-      }
-      .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
-      .disabled(liveActivities.isWorking)
-    } else if !liveActivities.activitiesEnabled {
+    if !liveActivities.activitiesEnabled {
       Button {
         liveActivities.openSystemSettings()
       } label: {
         Label("Open Settings", systemImage: "gearshape")
       }
       .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
-    } else if liveActivities.canEnable {
-      Button {
-        Task { await liveActivities.enable() }
-      } label: {
-        HStack(spacing: NoemaSpacing.xs) {
-          if liveActivities.isWorking { ProgressView().controlSize(.small) }
-          Label("Enable", systemImage: "rectangle.inset.filled.and.person.filled")
-        }
-      }
-      .buttonStyle(NoemaActionButtonStyle(variant: .primary))
-      .disabled(liveActivities.isWorking)
+    } else {
+      Toggle(
+        "Task Live Activities",
+        isOn: Binding(
+          get: { liveActivities.status?.enabled == true },
+          set: { enabled in
+            Task {
+              if enabled {
+                await liveActivities.enable()
+              } else {
+                await liveActivities.disable()
+              }
+            }
+          }
+        )
+      )
+      .labelsHidden()
+      .toggleStyle(SettingsCompactToggleStyle())
+      .disabled(
+        liveActivities.isWorking
+          || (liveActivities.status?.enabled != true && !liveActivities.canEnable))
     }
   }
 }

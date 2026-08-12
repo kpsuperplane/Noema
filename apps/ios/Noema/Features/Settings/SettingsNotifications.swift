@@ -7,9 +7,6 @@ struct ClientNotificationsSettings: View {
     SettingsSectionCard("Device notifications") {
       HStack(alignment: .top, spacing: NoemaSpacing.sm) {
         VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          Text(notifications.status?.enabled == true ? "Notifications on" : "Notifications off")
-            .font(NoemaFont.taskTitle)
-            .foregroundStyle(NoemaColor.content)
           Text(notifications.settingsDetail)
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
@@ -24,7 +21,8 @@ struct ClientNotificationsSettings: View {
           .foregroundStyle(NoemaColor.danger)
       }
       if notifications.errorMessage != nil
-        || (notifications.status?.available == false && notifications.status?.blocker == nil) {
+        || (notifications.status?.available == false && notifications.status?.blocker == nil)
+      {
         Button {
           Task { await notifications.refresh() }
         } label: {
@@ -38,32 +36,34 @@ struct ClientNotificationsSettings: View {
 
   @ViewBuilder
   private var action: some View {
-    if notifications.status?.enabled == true {
-      Button {
-        Task { await notifications.disable() }
-      } label: {
-        Label("Disable", systemImage: "bell.slash")
-      }
-      .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
-      .disabled(notifications.isWorking)
-    } else if notifications.authorizationStatus == .denied {
+    if notifications.authorizationStatus == .denied {
       Button {
         notifications.openSystemSettings()
       } label: {
         Label("Open Settings", systemImage: "gearshape")
       }
       .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
-    } else if notifications.canEnable {
-      Button {
-        Task { await notifications.requestAuthorizationAndEnable() }
-      } label: {
-        HStack(spacing: NoemaSpacing.xs) {
-          if notifications.isWorking { ProgressView().controlSize(.small) }
-          Label("Enable", systemImage: "bell")
-        }
-      }
-      .buttonStyle(NoemaActionButtonStyle(variant: .primary))
-      .disabled(notifications.isWorking)
+    } else {
+      Toggle(
+        "Device notifications",
+        isOn: Binding(
+          get: { notifications.status?.enabled == true },
+          set: { enabled in
+            Task {
+              if enabled {
+                await notifications.requestAuthorizationAndEnable()
+              } else {
+                await notifications.disable()
+              }
+            }
+          }
+        )
+      )
+      .labelsHidden()
+      .toggleStyle(SettingsCompactToggleStyle())
+      .disabled(
+        notifications.isWorking
+          || (notifications.status?.enabled != true && !notifications.canEnable))
     }
   }
 }

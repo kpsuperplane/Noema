@@ -335,9 +335,10 @@ final class SettingsModel {
     }
   }
 
-  func installLocalModel(modelID: String, file: String?) async {
-    guard canMutate, let client else { return }
-    _ = await performMutation {
+  @discardableResult
+  func installLocalModel(modelID: String, file: String?) async -> Bool {
+    guard canMutate, let client else { return false }
+    return await performMutation {
       try await client.perform(
         mutation: NoemaAPI.SettingsInstallLocalModelMutation(
           input: NoemaAPI.InstallLocalModelInput(
@@ -512,9 +513,9 @@ final class SettingsModel {
     _ = await performMutation { try await client.perform(mutation: NoemaAPI.SettingsActivateLocalModelMutation(installationId: installationID)) }
   }
 
-  func removeLocalModel(installationID: String) async {
-    guard canMutate, let client else { return }
-    _ = await performMutation { try await client.perform(mutation: NoemaAPI.SettingsRemoveLocalModelMutation(installationId: installationID)) }
+  func removeLocalModel(installationID: String) async -> Bool {
+    guard canMutate, let client else { return false }
+    return await performMutation { try await client.perform(mutation: NoemaAPI.SettingsRemoveLocalModelMutation(installationId: installationID)) }
   }
 
   func cancelLocalModelInstall(installationID: String) async {

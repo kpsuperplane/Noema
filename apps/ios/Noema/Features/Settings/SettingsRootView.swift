@@ -7,7 +7,6 @@ struct SettingsRootView: View {
   @Environment(NoemaShellCoordinator.self) private var shell
   @State private var settings: SettingsModel
   @State private var selection: SettingsSection = .agents
-  @State private var revocationTarget: PairedClient?
   @State private var disconnectPresented = false
 
   init(model: NoemaAppModel, settings: SettingsModel) {
@@ -22,7 +21,6 @@ struct SettingsRootView: View {
       appModel: model,
       notifications: model.notifications,
       liveActivities: model.liveActivities,
-      onRevoke: { revocationTarget = $0 },
       onDisconnect: { disconnectPresented = true }
     )
     .task {
@@ -38,9 +36,6 @@ struct SettingsRootView: View {
     }
     .onAppear { installShellNavigation() }
     .onChange(of: selection) { _, _ in installShellNavigation() }
-    .sheet(item: $revocationTarget) { client in
-      ClientRevocationSheet(client: client, settings: settings, appModel: model)
-    }
     .sheet(isPresented: $disconnectPresented) {
       SettingsConfirmationSheet(
         title: "Unpair this app?",
@@ -102,7 +97,6 @@ private struct SettingsDetail: View {
   let appModel: NoemaAppModel
   let notifications: NoemaNotificationService
   let liveActivities: NoemaLiveActivityService
-  let onRevoke: (PairedClient) -> Void
   let onDisconnect: () -> Void
 
   var body: some View {
@@ -124,7 +118,7 @@ private struct SettingsDetail: View {
         ClientsSettings(
           settings: settings,
           profile: appModel.profile,
-          onRevoke: onRevoke,
+          appModel: appModel,
           onDisconnect: onDisconnect
         )
       }
@@ -172,18 +166,120 @@ struct SettingsSectionCard<Content: View>: View {
 
   var body: some View {
     NoemaOpaqueSurface {
-      VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      VStack(alignment: .leading, spacing: 0) {
         if let title {
           Text(title)
             .font(NoemaFont.sectionTitle)
             .foregroundStyle(NoemaColor.content)
+            .padding(.horizontal, NoemaSpacing.md)
+            .padding(.vertical, NoemaSpacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+          NoemaDivider()
         }
-        content
-        if let footer {
-          Text(footer)
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.contentSecondary)
+        VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+          content
+          if let footer {
+            Text(footer)
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.contentSecondary)
+          }
         }
+        .padding(NoemaSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(NoemaColor.surface)
+      .overlay {
+        NoemaSuperellipse(cornerRadius: NoemaRadius.container, treatment: .container)
+          .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+      }
+    }
+  }
+}
+
+struct SettingsGroupTitle: View {
+  let title: String
+  let actionTitle: String?
+  let actionDisabled: Bool
+  let action: (() -> Void)?
+
+  init(
+    _ title: String,
+    actionTitle: String? = nil,
+    actionDisabled: Bool = false,
+    action: (() -> Void)? = nil
+  ) {
+    self.title = title
+    self.actionTitle = actionTitle
+    self.actionDisabled = actionDisabled
+    self.action = action
+  }
+
+  var body: some View {
+    HStack(spacing: NoemaSpacing.sm) {
+      Text(title)
+        .font(NoemaFont.sectionTitle)
+        .foregroundStyle(NoemaColor.content)
+      Spacer(minLength: NoemaSpacing.sm)
+      if let actionTitle, let action {
+        SettingsAction(title: actionTitle, symbol: "plus", role: nil, disabled: actionDisabled, action: action)
+      }
+    }
+    .padding(.horizontal, NoemaSpacing.xs)
+  }
+}
+
+struct SettingsListCard: View {
+  let title: String
+  let detail: String?
+  let symbol: String
+  let status: String?
+  let statusTone: NoemaStatusToken.Tone
+  let action: () -> Void
+
+  init(
+    title: String,
+    detail: String? = nil,
+    symbol: String,
+    status: String? = nil,
+    statusTone: NoemaStatusToken.Tone = .neutral,
+    action: @escaping () -> Void
+  ) {
+    self.title = title
+    self.detail = detail
+    self.symbol = symbol
+    self.status = status
+    self.statusTone = statusTone
+    self.action = action
+  }
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: NoemaSpacing.sm) {
+        Image(systemName: symbol)
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(NoemaColor.contentSecondary)
+          .frame(width: 32, height: 32)
+          .background(NoemaColor.surfaceSecondary, in: NoemaSuperellipse(cornerRadius: NoemaRadius.inner))
+        VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+          Text(title)
+            .font(NoemaFont.bodyEmphasized)
+            .foregroundStyle(NoemaColor.content)
+            .multilineTextAlignment(.leading)
+          if let detail {
+            Text(detail)
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.contentSecondary)
+              .multilineTextAlignment(.leading)
+          }
+        }
+        Spacer(minLength: NoemaSpacing.sm)
+        if let status {
+          NoemaStatusToken(text: status, tone: statusTone)
+        }
+        Image(systemName: "chevron.right")
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.contentTertiary)
       }
       .padding(NoemaSpacing.md)
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -193,6 +289,7 @@ struct SettingsSectionCard<Content: View>: View {
           .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
       }
     }
+    .buttonStyle(.plain)
   }
 }
 
@@ -247,7 +344,7 @@ private struct AgentsSettings: View {
   var body: some View {
     let agents = settings.snapshot?.agents ?? []
     let visibleAgents = agents.filter { $0.agentId != "agent:task-executor" }
-    VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
       SettingsSectionCard("Registered agents") {
         if settings.isLoading && settings.snapshot == nil {
           NoemaInlineState(message: "Loading agents…", symbol: "arrow.triangle.2.circlepath")
@@ -507,7 +604,7 @@ private struct WebSettings: View {
   @State private var browseSaveError: String?
 
   var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
       SettingsSectionCard {
         webSectionHeader("Search")
         if let snapshot = settings.snapshot {
@@ -836,9 +933,21 @@ private struct CapabilitySettings: View {
     let available = integrations.filter { $0.connections.isEmpty }
     let oauth = settings.adapterOAuthState
     let grants = oauth?.grants ?? []
+    let grantConnectionIDs = Set(grants.flatMap(\.connectionIDs))
+    let directIntegrations = integrations.compactMap { integration -> SettingsIntegration? in
+      let connections = integration.connections.filter { !grantConnectionIDs.contains($0.id) }
+      return connections.isEmpty ? nil : SettingsIntegration(
+        id: integration.id,
+        name: integration.name,
+        sourceRevision: integration.sourceRevision,
+        reviewed: integration.reviewed,
+        sourceSummary: integration.sourceSummary,
+        connections: connections
+      )
+    }
     let providerGroups = Dictionary(grouping: grants, by: \.providerName)
     let providerNames = providerGroups.keys.sorted()
-    VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
       if !pending.isEmpty {
         SettingsSectionCard("Review before connecting") {
           ForEach(Array(pending.enumerated()), id: \.element.id) { index, definition in
@@ -857,65 +966,82 @@ private struct CapabilitySettings: View {
         }
       }
       if !providerGroups.isEmpty {
-        SettingsSectionCard("Connected accounts") {
-          ForEach(Array(providerNames.enumerated()), id: \.element) { providerIndex, providerName in
-            if providerIndex > 0 { SettingsRowDivider() }
-            SettingsRow {
-              Text(providerName).font(NoemaFont.captionEmphasized)
-            }
+        ForEach(providerNames, id: \.self) { providerName in
+          let providerIntegration = integrations.first { integration in
+            guard let definition = settings.adapterDefinitions.first(where: { $0.semanticDigest == integration.sourceRevision }),
+                  let profileDigest = definition.oauthProfileDigest else { return false }
+            return oauth?.profiles.first { $0.profileDigest == profileDigest }?.displayName == providerName
+              && !definition.connectionActions.isEmpty
+          }
+          VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+            SettingsGroupTitle(
+              providerName,
+              actionTitle: providerIntegration == nil ? nil : "Add account",
+              actionDisabled: !settings.canMutate,
+              action: providerIntegration.map { integration in { addTarget = integration } }
+            )
             let providerGrants = providerGroups[providerName] ?? []
             let accountGroups = Dictionary(grouping: providerGrants) { $0.accountID ?? $0.grantID }
-            ForEach(Array(accountGroups.keys.sorted().enumerated()), id: \.element) { _, accountID in
-              SettingsRowDivider(verticalPadding: NoemaSpacing.xs)
+            ForEach(accountGroups.keys.sorted(), id: \.self) { accountID in
               let accountGrants = accountGroups[accountID] ?? []
               if let account = accountGrants.first {
                 let connectionIDs = Set(accountGrants.flatMap(\.connectionIDs))
                 let connections = integrations.flatMap(\.connections).filter { connectionIDs.contains($0.id) }
-                SettingsRow {
-                  VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-                    HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-                      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-                        Text(account.accountLabel ?? "Unlabeled account").font(NoemaFont.bodyEmphasized)
-                        Text("\(connections.count) APIs")
-                          .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
-                      }
-                      Spacer(minLength: NoemaSpacing.sm)
+                VStack(alignment: .leading, spacing: NoemaSpacing.compact) {
+                  HStack(spacing: NoemaSpacing.sm) {
+                    Image(systemName: "person.crop.circle")
+                      .foregroundStyle(NoemaColor.contentSecondary)
+                    Text(account.accountLabel ?? "Unlabeled account").font(NoemaFont.taskTitle)
+                    Spacer(minLength: NoemaSpacing.sm)
+                    if accountGrants.contains(where: { $0.status != "active" }) {
                       NoemaStatusToken(
-                        text: accountGrants.contains { $0.status != "active" } ? "Action required" : "Connected",
-                        tone: accountGrants.contains { $0.status != "active" } ? .warning : .success
+                        text: "Action required",
+                        tone: .warning
                       )
-                      SettingsAction(title: "Label", symbol: "pencil", role: nil, disabled: !settings.canMutate) {
-                        labelDraft = account.accountLabel ?? ""; labelGrant = account
-                      }
-                      SettingsAction(title: "Disconnect", symbol: "link.badge.minus", role: .destructive, disabled: !settings.canMutate) {
-                        disconnectGrant = account
-                      }
                     }
-                    ForEach(connections) { connection in
-                      SettingsRowDivider(verticalPadding: NoemaSpacing.xs)
-                      HStack(spacing: NoemaSpacing.sm) {
-                        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-                          Text(connection.name).font(NoemaFont.bodyEmphasized)
-                          Text("\(connection.availableToolCount)/\(connection.toolCount) tools · \(connection.authStatus)")
-                            .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
-                        }
-                        Spacer(minLength: NoemaSpacing.sm)
-                        if let integration = integrations.first(where: { $0.connections.contains { $0.id == connection.id } }),
-                           let definition = settings.adapterDefinitions.first(where: { $0.semanticDigest == integration.sourceRevision }),
-                           !definition.connectionActions.isEmpty {
-                          SettingsAction(title: "Add connection", symbol: "person.badge.plus", role: nil, disabled: !settings.canMutate) {
-                            addTarget = integration
-                          }
-                        }
-                        SettingsAction(title: "Manage", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate) {
-                          editor = connection
-                        }
+                    Menu {
+                      Button("Rename") {
+                        labelDraft = account.accountLabel ?? ""
+                        labelGrant = account
                       }
+                      Button("Disconnect", role: .destructive) { disconnectGrant = account }
+                    } label: {
+                      Image(systemName: "ellipsis")
+                        .font(NoemaFont.bodyEmphasized)
+                        .foregroundStyle(NoemaColor.contentSecondary)
+                        .frame(width: 28, height: 28)
                     }
+                    .disabled(!settings.canMutate)
+                    .accessibilityLabel("Actions for \(account.accountLabel ?? "unlabeled account")")
+                  }
+                  .padding(.horizontal, NoemaSpacing.xs)
+                  ForEach(connections) { connection in
+                    SettingsListCard(
+                      title: connection.name,
+                      detail: connection.authStatus.lowercased() == "active"
+                        ? nil
+                        : connection.authStatus.replacingOccurrences(of: "_", with: " ").lowercased().capitalized,
+                      symbol: apiServiceSymbol(connection.definitionId),
+                      status: nil
+                    ) { editor = connection }
                   }
                 }
               }
             }
+          }
+        }
+      }
+      ForEach(directIntegrations) { integration in
+        VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+          SettingsGroupTitle(integration.name)
+          ForEach(integration.connections) { connection in
+            SettingsListCard(
+              title: connection.connectionLabel ?? connection.name,
+              detail: connection.authStatus.lowercased() == "active"
+                ? nil
+                : connection.authStatus.replacingOccurrences(of: "_", with: " ").lowercased().capitalized,
+              symbol: apiServiceSymbol(connection.definitionId)
+            ) { editor = connection }
           }
         }
       }
@@ -1000,6 +1126,15 @@ private struct CapabilitySettings: View {
     }
   }
 
+  private func apiServiceSymbol(_ definitionID: String) -> String {
+    let value = definitionID.lowercased()
+    if value.contains("calendar") || value.contains("schedule") { return "calendar" }
+    if value.contains("mail") || value.contains("email") { return "envelope" }
+    if value.contains("drive") || value.contains("storage") { return "externaldrive" }
+    if value.contains("doc") || value.contains("document") { return "doc.text" }
+    return "curlybraces.square"
+  }
+
   private func openPendingPolicy() {
     guard let connectionID = pendingPolicyConnectionID else { return }
     pendingPolicyConnectionID = nil
@@ -1011,7 +1146,7 @@ private struct CapabilitySettings: View {
 
   @ViewBuilder
   private func capabilityList(_ integrations: [SettingsIntegration]) -> some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
       if kind == .api {
         let pending = settings.adapterDefinitions.filter { !$0.reviewed && !$0.superseded }
         if !pending.isEmpty {
@@ -1254,7 +1389,7 @@ private struct ExecutionSettings: View {
   @State private var editor = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
       if let policy = settings.snapshot?.taskExecutionPolicy {
         SettingsSectionCard {
           HStack(spacing: NoemaSpacing.sm) {
