@@ -32,7 +32,10 @@ export function TasksToolbar({ onNewTask }: { onNewTask: () => void }) {
 
 const styles = stylex.create({
   toolbar: {
-    position: "relative"
+    position: "sticky",
+    top: 0,
+    zIndex: 3,
+    flexShrink: 0
   },
   desktopAction: {
     position: "absolute",

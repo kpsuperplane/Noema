@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useApolloClient, useSubscription } from "@apollo/client/react";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { MasterDetailLayout } from "@/components/shell/MasterDetailLayout";
 import { ShellPageLayout, ShellPageTrack } from "@/components/shell/ShellPageLayout";
@@ -64,7 +65,7 @@ export function TasksSurface({ search, selectedTaskId, onCloseTask }: {
             if (!open) onCloseTask?.();
           }}
           list={
-            <>
+            <VStack {...stylex.props(styles.listScroller)}>
               <TasksToolbar onNewTask={() => setCaptureOpen(true)} />
               {hasNotice ? (
                 <ShellPageTrack>
@@ -84,7 +85,7 @@ export function TasksSurface({ search, selectedTaskId, onCloseTask }: {
                   />
                 </ShellPageTrack>
               </section>
-            </>
+            </VStack>
           }
           detail={selectedTaskId ? (
             <ChatDetailRail
@@ -112,7 +113,8 @@ const styles = stylex.create({
       paddingTop: "var(--shell-deck-header-height)"
     }
   },
-  panel: { minHeight: 0, outline: "none", overflowY: "auto", overflowX: "hidden", scrollbarWidth: "thin" },
+  listScroller: { width: "100%", height: "100%", minHeight: 0, overflowY: "auto", overflowX: "hidden", overscrollBehavior: "contain", scrollbarWidth: "thin" },
+  panel: { minHeight: 0, outline: "none" },
   notices: { display: "grid", gap: "var(--spacing-1)", ":empty": { display: "none" } },
   live: { justifySelf: "end", paddingBlock: "calc(var(--spacing-1) - 1px)", color: "var(--noema-text-muted)", fontSize: 12, ":empty": { display: "none" } },
   refresh: { justifySelf: "start", borderWidth: 0, backgroundColor: "transparent", padding: "var(--spacing-0)", color: "var(--noema-clay-700)", font: "inherit", fontSize: 12, textDecoration: "underline", cursor: "pointer" }

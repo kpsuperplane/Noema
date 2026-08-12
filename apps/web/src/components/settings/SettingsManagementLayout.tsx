@@ -110,7 +110,7 @@ const styles = stylex.create({
     padding: "var(--spacing-4)",
     "@media (max-width: 760px)": { padding: "var(--spacing-3)" }
   },
-  toolbar: { position: "relative", flexShrink: 0 },
+  toolbar: { position: "sticky", top: 0, zIndex: 3, flexShrink: 0 },
   desktopAction: {
     position: "absolute",
     top: "var(--spacing-3)",
