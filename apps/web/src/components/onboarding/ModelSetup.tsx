@@ -239,7 +239,7 @@ const styles = stylex.create({
     width: "min(100%, 720px)",
     minHeight: "100%",
     boxSizing: "border-box",
-    justifyContent: "center",
+    justifyContent: "safe center",
     marginInline: "auto",
     paddingBlockStart: "var(--spacing-6)",
     "@media (max-width: 760px)": {
