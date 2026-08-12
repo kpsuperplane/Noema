@@ -1,7 +1,7 @@
 import { useLazyQuery, useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@astryxdesign/core/Button";
-import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
+import { DropdownMenu, DropdownMenuItem } from "@astryxdesign/core/DropdownMenu";
 import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { VStack } from "@astryxdesign/core/VStack";
@@ -435,29 +435,27 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
               hasChevron={false}
               placement="below"
               menuWidth={190}
-              items={[
-                {
-                  label: "Rename account",
-                  icon: <Pencil aria-hidden="true" {...stylex.props(styles.icon)} />,
-                  isDisabled: busy,
-                  onClick: () => {
-                    setError(null);
-                    setRenameGrants(grants);
-                    setLabelDraft(grants[0]?.accountLabel ?? "");
-                  }
-                },
-                { type: "divider" },
-                {
-                  label: "Disconnect account",
-                  icon: <Unplug aria-hidden="true" {...stylex.props(styles.icon)} />,
-                  isDisabled: busy,
-                  onClick: () => {
-                    setError(null);
-                    setDisconnectTarget(grants);
-                  }
-                }
-              ]}
-            />;
+            >
+              <DropdownMenuItem
+                label="Rename"
+                icon={<Pencil aria-hidden="true" {...stylex.props(styles.icon)} />}
+                isDisabled={busy}
+                onClick={() => {
+                  setError(null);
+                  setRenameGrants(grants);
+                  setLabelDraft(grants[0]?.accountLabel ?? "");
+                }}
+              />
+              <DropdownMenuItem
+                label={<span {...stylex.props(styles.destructiveMenuContent)}>Disconnect</span>}
+                icon={<Unplug aria-hidden="true" {...stylex.props(styles.icon, styles.destructiveMenuContent)} />}
+                isDisabled={busy}
+                onClick={() => {
+                  setError(null);
+                  setDisconnectTarget(grants);
+                }}
+              />
+            </DropdownMenu>;
           }}
         /> : null}
         {availableDefinitions.length > 0 ? <SettingsSection aria-labelledby="available-api-title"><VStack gap={2}>
@@ -745,6 +743,7 @@ const styles = stylex.create({
   error: { margin: 0, color: "var(--destructive)", fontSize: 13 },
   fit: { width: "fit-content" },
   icon: { width: 16, height: 16 },
+  destructiveMenuContent: { color: "var(--destructive)" },
   summary: { cursor: "pointer", fontSize: 12, fontWeight: 600 },
   technicalDetails: { paddingTop: "var(--spacing-2)" },
   manifest: { maxHeight: 280, margin: "var(--spacing-2) 0 0", padding: "var(--spacing-2)", overflow: "auto", borderRadius: "var(--radius-sm)", backgroundColor: "var(--noema-surface-subtle)", fontFamily: "var(--font-mono)", fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }
