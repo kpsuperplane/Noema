@@ -165,9 +165,8 @@ struct NoemaTopRail: View {
   @ViewBuilder
   private func railLabel(for destination: NoemaDestination) -> some View {
     let label = displayLabel(for: destination)
-    let isCompactInactive = breakpoint == .compact && selection != destination
     if destination == .chat {
-      HStack(spacing: NoemaSpacing.sm) {
+      HStack(spacing: 0) {
         NoemaIdentityAvatar(
           actorID: "agent:local",
           actorType: .agent,
@@ -176,29 +175,55 @@ struct NoemaTopRail: View {
         )
           .frame(width: 24, height: 24)
           .accessibilityHidden(true)
-        if !isCompactInactive {
-          Text(label)
-            .lineLimit(1)
-            .transition(.opacity.combined(with: .offset(x: -4)))
-        }
+        railText(label, active: selection == destination)
       }
       .onHover { agentAvatarHovered = $0 }
     } else {
-      HStack(spacing: NoemaSpacing.sm) {
+      HStack(spacing: 0) {
         Image(systemName: destination.symbol)
           .frame(width: 20, height: 20)
           .accessibilityHidden(true)
-        if !isCompactInactive {
-          Text(label)
-            .lineLimit(1)
-            .transition(.opacity.combined(with: .offset(x: -4)))
-        }
+        railText(label, active: selection == destination)
       }
+    }
+  }
+
+  @ViewBuilder
+  private func railText(_ label: String, active: Bool) -> some View {
+    if breakpoint == .compact {
+      NoemaExpandableRailText(label: label, expanded: active)
+    } else {
+      Text(label)
+        .lineLimit(1)
+        .padding(.leading, NoemaSpacing.sm)
+        .padding(.trailing, NoemaSpacing.xs)
     }
   }
 
   private func displayLabel(for destination: NoemaDestination) -> String {
     destination == .chat ? agentLabel : destination.title
+  }
+}
+
+private struct NoemaExpandableRailText: View {
+  let label: String
+  let expanded: Bool
+  @State private var labelWidth: CGFloat = 0
+
+  var body: some View {
+    Text(label)
+      .lineLimit(1)
+      .fixedSize()
+      .onGeometryChange(for: CGFloat.self) { geometry in
+        geometry.size.width
+      } action: { width in
+        labelWidth = width
+      }
+      .padding(.trailing, NoemaSpacing.xs)
+      .frame(width: expanded ? labelWidth + NoemaSpacing.xs : 0, alignment: .leading)
+      .clipped()
+      .padding(.leading, expanded ? NoemaSpacing.sm : 0)
+      .opacity(expanded ? 1 : 0)
   }
 }
 
