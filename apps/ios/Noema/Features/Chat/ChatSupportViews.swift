@@ -555,10 +555,6 @@ func isToolActivity(_ message: ChatMessage) -> Bool {
   return kind == "TOOL_CALL" || kind == "TOOL_RESULT"
 }
 
-func isToolEnablementActivity(_ message: ChatMessage) -> Bool {
-  nestedString(metadataObject(for: message), path: ["action", "name"])?.hasPrefix("enable.") == true
-}
-
 func sameToolGroup(_ messages: [ChatMessage], _ next: ChatMessage) -> Bool {
   guard let first = messages.first, let previous = messages.last else { return false }
   if isToolCallResultPair(previous, next) { return true }

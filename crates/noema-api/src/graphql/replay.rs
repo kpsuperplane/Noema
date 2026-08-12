@@ -21,6 +21,9 @@ pub(crate) fn web_conversation_item_from_record(
     let Some(item) = turn_transcript_item_from_record(&record)? else {
         return Ok(None);
     };
+    if !web_conversation_item_is_visible(&item) {
+        return Ok(None);
+    }
     Ok(Some(ConversationReplayItem {
         item_id: record.item_id,
         cursor: record.cursor,
@@ -28,6 +31,21 @@ pub(crate) fn web_conversation_item_from_record(
         metadata: record.metadata,
         item,
     }))
+}
+
+pub(crate) fn web_conversation_item_is_visible(item: &TurnTranscriptItem) -> bool {
+    !matches!(
+        item,
+        TurnTranscriptItem::Activity {
+            activity_kind,
+            metadata,
+            ..
+        } if matches!(activity_kind.as_str(), "tool_call" | "tool_result")
+            && metadata
+                .pointer("/action/name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| name.starts_with(noema_capabilities::TOOL_ENABLEMENT_PREFIX))
+    )
 }
 
 fn turn_transcript_item_from_record(

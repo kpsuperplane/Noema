@@ -49,7 +49,7 @@ export function renderableTranscriptEntries(
   collapseConsecutiveToolCalls = false
 ): RenderTranscriptEntry[] {
   const visibleEntries = attachTaskNotificationTasks(
-    latestA2UISurfaces(entries).filter(isVisibleTranscriptEntry)
+    latestA2UISurfaces(entries).filter((entry) => entry.type !== "activity" || entry.item.activity_kind !== "hosted_web_search")
   );
   const renderedEntries = collapseConsecutiveToolCalls
     ? collapseConsecutiveToolMarkers(groupTranscriptMarkers(visibleEntries))
@@ -58,13 +58,6 @@ export function renderableTranscriptEntries(
     renderedEntries.push({ kind: "typing", id: "typing-indicator" });
   }
   return renderedEntries;
-}
-
-function isVisibleTranscriptEntry(entry: TranscriptEntry): boolean {
-  if (entry.type !== "activity") return true;
-  if (entry.item.activity_kind === "hosted_web_search") return false;
-  const action = recordValue(entry.item.metadata)?.action;
-  return !isRecord(action) || !stringValue(action.name)?.startsWith("enable.");
 }
 
 function latestA2UISurfaces(entries: TranscriptEntry[]): TranscriptEntry[] {

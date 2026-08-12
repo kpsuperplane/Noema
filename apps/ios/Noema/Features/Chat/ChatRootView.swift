@@ -174,8 +174,7 @@ struct ChatReadyView: View {
     let taskProjection = taskReferenceProjection
     let visibleMessages = latestA2UISurfaces(model.messages).filter { message in
       guard case let .activity(_, _, _, _, activityKind) = message.kind else { return true }
-      let normalizedKind = activityKind.replacingOccurrences(of: "_", with: "").lowercased()
-      return normalizedKind != "hostedwebsearch" && !isToolEnablementActivity(message)
+      return activityKind.replacingOccurrences(of: "_", with: "").lowercased() != "hostedwebsearch"
     }
     var rows: [TimelineRow] = []
     var index = 0
