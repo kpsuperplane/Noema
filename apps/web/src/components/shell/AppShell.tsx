@@ -983,19 +983,9 @@ const styles = stylex.create({
   primaryNavigationButton: {
     borderRadius: 999,
     cornerShape: "var(--corner-shape-full)",
-    backgroundColor: "rgb(0 0 0 / 0.1)",
-    backgroundImage: "none",
     color: "var(--pine-700)",
     gap: "var(--spacing-0)",
-    paddingInline: "var(--spacing-2)",
-    ":hover": {
-      "@media (hover: hover)": {
-        backgroundImage: "none"
-      }
-    },
-    ":active": {
-      backgroundImage: "none"
-    }
+    paddingInline: "var(--spacing-2)"
   },
   primaryNavigationDesktopLabel: {
     display: "block",
