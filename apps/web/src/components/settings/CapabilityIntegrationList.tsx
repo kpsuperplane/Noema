@@ -7,27 +7,36 @@ import {
   CalendarDays,
   ChevronRight,
   FileText,
+  Globe2,
   HardDrive,
   Mail,
   Plug,
   Wrench
 } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { CapabilityIntegrationsQuery } from "@/generated/graphql";
 import { ListCardLink } from "@/components/ListCardLink";
 import { settingsStatusLabel } from "./settingsStatus";
 
 export type CapabilityIntegration = CapabilityIntegrationsQuery["capabilityIntegrations"][number];
 type CapabilityConnection = CapabilityIntegration["connections"][number];
-type CapabilityAccount = { id: string; name: string };
+export type CapabilityProvider = { id: string; name: string };
+export type CapabilityAccount = { id: string; name: string };
+type CapabilityHierarchy = { provider: CapabilityProvider; account?: CapabilityAccount };
 
 type CapabilityIntegrationListProps = {
   integrations: readonly CapabilityIntegration[];
   kind: "API" | "MCP";
   selectedConnectionId?: string;
   emptyMessage: string;
-  accountFor?: (connection: CapabilityConnection) => CapabilityAccount;
+  providers?: readonly CapabilityProvider[];
+  hierarchyFor?: (
+    connection: CapabilityConnection,
+    integration: CapabilityIntegration
+  ) => CapabilityHierarchy;
+  providerActions?: (provider: CapabilityProvider) => ReactNode;
+  accountAction?: (provider: CapabilityProvider, account: CapabilityAccount) => ReactNode;
   isAddingConnection?: boolean;
   onAddConnection?: (integration: CapabilityIntegration) => void;
 };
@@ -41,24 +50,32 @@ function CapabilityIntegrationListView({
   kind,
   selectedConnectionId,
   emptyMessage,
-  accountFor,
+  providers = [],
+  hierarchyFor,
+  providerActions,
+  accountAction,
   isAddingConnection = false,
   onAddConnection
 }: CapabilityIntegrationListProps) {
   const [visibleSelectedConnectionId, setVisibleSelectedConnectionId] = useState(selectedConnectionId);
   const selectConnection = (connectionId: string) => setVisibleSelectedConnectionId(connectionId);
 
-  if (accountFor) {
+  if (hierarchyFor) {
     return (
       <VStack gap={4}>
-        {integrations.length === 0 ? <p {...stylex.props(styles.empty)}>{emptyMessage}</p> : null}
-        {groupConnectionsByAccount(integrations, accountFor).map(({ account, items }, index) => {
-          const titleId = `capability-account-${index}-title`;
+        {integrations.length === 0 && providers.length === 0 ? (
+          <p {...stylex.props(styles.empty)}>{emptyMessage}</p>
+        ) : null}
+        {groupConnectionsByProvider(integrations, providers, hierarchyFor).map(({ provider, items, accounts }, providerIndex) => {
+          const providerTitleId = `capability-provider-${providerIndex}-title`;
           return (
-            <VStack as="section" key={account.id} gap={1.5} aria-labelledby={titleId} {...stylex.props(styles.service)}>
+            <VStack as="section" key={provider.id} gap={2} aria-labelledby={providerTitleId} {...stylex.props(styles.service)}>
               <HStack gap={2} vAlign="center" {...stylex.props(styles.serviceHeader)}>
-                <Avatar name={account.name} size="sm" tooltip={false} />
-                <h2 id={titleId} {...stylex.props(styles.title)}>{account.name}</h2>
+                <HStack vAlign="center" hAlign="center" aria-hidden="true" {...stylex.props(styles.iconFrame)}>
+                  <Globe2 {...stylex.props(styles.icon)} />
+                </HStack>
+                <h2 id={providerTitleId} {...stylex.props(styles.title)}>{provider.name}</h2>
+                {providerActions?.(provider)}
               </HStack>
               {items.map(({ integration, connection }) => (
                 <CapabilityConnectionCard
@@ -72,6 +89,33 @@ function CapabilityIntegrationListView({
                   onSelect={selectConnection}
                 />
               ))}
+              {accounts.map(({ account, items }, accountIndex) => {
+                const accountTitleId = `capability-provider-${providerIndex}-account-${accountIndex}-title`;
+                return (
+                  <VStack key={account.id} gap={1.5} aria-labelledby={accountTitleId}>
+                    <HStack gap={2} vAlign="center" {...stylex.props(styles.accountHeader)}>
+                      <Avatar name={account.name} size="sm" tooltip={false} />
+                      <h3 id={accountTitleId} {...stylex.props(styles.accountTitle)}>{account.name}</h3>
+                      {accountAction?.(provider, account)}
+                    </HStack>
+                    {items.map(({ integration, connection }) => (
+                      <CapabilityConnectionCard
+                        key={connection.connectionId}
+                        kind={kind}
+                        integration={integration}
+                        connection={connection}
+                        showIntegration
+                        selectedConnectionId={selectedConnectionId}
+                        visibleSelectedConnectionId={visibleSelectedConnectionId}
+                        onSelect={selectConnection}
+                      />
+                    ))}
+                  </VStack>
+                );
+              })}
+              {accounts.length === 0 && items.length === 0 ? (
+                <p {...stylex.props(styles.emptyConnection)}>No connected accounts</p>
+              ) : null}
             </VStack>
           );
         })}
@@ -178,23 +222,50 @@ function CapabilityConnectionCard({
   );
 }
 
-function groupConnectionsByAccount(
+function groupConnectionsByProvider(
   integrations: readonly CapabilityIntegration[],
-  accountFor: (connection: CapabilityConnection) => CapabilityAccount
+  initialProviders: readonly CapabilityProvider[],
+  hierarchyFor: (
+    connection: CapabilityConnection,
+    integration: CapabilityIntegration
+  ) => CapabilityHierarchy
 ) {
-  const groups = new Map<string, { account: CapabilityAccount; items: Array<{
+  type Item = {
     integration: CapabilityIntegration;
     connection: CapabilityConnection;
-  }> }>();
+  };
+  const providers = new Map<string, {
+    provider: CapabilityProvider;
+    items: Item[];
+    accounts: Map<string, { account: CapabilityAccount; items: Item[] }>;
+  }>();
+  for (const provider of initialProviders) {
+    providers.set(provider.id, { provider, items: [], accounts: new Map() });
+  }
   for (const integration of integrations) {
     for (const connection of integration.connections) {
-      const account = accountFor(connection);
-      const group = groups.get(account.id) ?? { account, items: [] };
-      group.items.push({ integration, connection });
-      groups.set(account.id, group);
+      const { provider, account } = hierarchyFor(connection, integration);
+      const providerGroup: {
+        provider: CapabilityProvider;
+        items: Item[];
+        accounts: Map<string, { account: CapabilityAccount; items: Item[] }>;
+      } = providers.get(provider.id) ?? { provider, items: [], accounts: new Map() };
+      if (!account) {
+        providerGroup.items.push({ integration, connection });
+        providers.set(provider.id, providerGroup);
+        continue;
+      }
+      const accountGroup = providerGroup.accounts.get(account.id) ?? { account, items: [] };
+      accountGroup.items.push({ integration, connection });
+      providerGroup.accounts.set(account.id, accountGroup);
+      providers.set(provider.id, providerGroup);
     }
   }
-  return [...groups.values()];
+  return [...providers.values()].map(({ provider, items, accounts }) => ({
+    provider,
+    items,
+    accounts: [...accounts.values()]
+  }));
 }
 
 export function CapabilityIcon({
@@ -249,6 +320,11 @@ const styles = stylex.create({
     minWidth: 0
   },
   serviceHeader: { minHeight: "var(--spacing-8)", paddingInline: "var(--spacing-1)" },
+  accountHeader: {
+    minHeight: "var(--spacing-8)",
+    paddingInline: "var(--spacing-1)",
+    marginInlineStart: "var(--spacing-2)"
+  },
   iconFrame: {
     width: "var(--spacing-8)",
     height: "var(--spacing-8)",
@@ -264,6 +340,17 @@ const styles = stylex.create({
     color: "var(--foreground)",
     fontFamily: "var(--font-heading)",
     fontSize: 14,
+    fontWeight: 650,
+    lineHeight: 1.3,
+    minWidth: 0,
+    flex: 1,
+    overflowWrap: "anywhere"
+  },
+  accountTitle: {
+    margin: "var(--spacing-0)",
+    color: "var(--foreground)",
+    fontFamily: "var(--font-heading)",
+    fontSize: 13,
     fontWeight: 650,
     lineHeight: 1.3,
     minWidth: 0,

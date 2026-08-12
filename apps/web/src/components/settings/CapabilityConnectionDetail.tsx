@@ -263,9 +263,9 @@ export function CapabilityConnectionDetail({
           <HStack gap={2} vAlign="center">
             <CapabilityIcon kind={kind} definitionId={connection.definitionId} emphasized />
             <VStack gap={0.5}>
-              <span {...stylex.props(styles.serviceName)}>{serviceName ?? kind}</span>
+              <span {...stylex.props(styles.serviceName)}>{connectionName ?? connection.name}</span>
               <h2 id="connection-summary-title" {...stylex.props(styles.connectionName)}>
-                {connectionName ?? connection.name}
+                {serviceName ?? kind}
               </h2>
             </VStack>
           </HStack>

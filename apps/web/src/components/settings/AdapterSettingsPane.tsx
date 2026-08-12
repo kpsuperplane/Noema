@@ -1,11 +1,10 @@
 import { useLazyQuery, useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { useNavigate } from "@tanstack/react-router";
-import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { VStack } from "@astryxdesign/core/VStack";
-import { ChevronRight, KeyRound, Pause, Play, Plus, Trash2 } from "lucide-react";
+import { FileKey2, Pause, Play, Plus, Settings2, Trash2 } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import {
@@ -32,7 +31,7 @@ import {
 } from "@/generated/graphql";
 import { reserveExternalAuthNavigation } from "@/graphql/externalUrls";
 import { CapabilityManagementLayout } from "./CapabilityManagementLayout";
-import { CapabilityIntegrationList } from "./CapabilityIntegrationList";
+import { CapabilityIntegrationList, type CapabilityProvider } from "./CapabilityIntegrationList";
 import { DeleteConfirmationDialog, DeleteConnectionDialog, DeleteServiceDialog } from "./DeleteConnectionDialog";
 import { AdapterDefinitionReviewDetails } from "@/components/capabilities/AdapterDefinitionReviewDetails";
 import {
@@ -148,6 +147,8 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     .filter((integration) => integration.connections.length > 0)
     .map((integration) => ({
       ...integration,
+      name: definitions.find((definition) => definition.semanticDigest === integration.sourceRevision)?.displayName
+        ?? titleize(integration.name),
       connections: integration.connections.map((connection) => {
         const grant = oauth?.grants.find((item) => item.connectionIds.includes(connection.connectionId));
         return grant ? { ...connection, name: grant.accountLabel ?? "Unlabeled account" } : connection;
@@ -170,6 +171,10 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const replacementApplication = oauth?.applications.find((item) => item.applicationId === replacementApplicationId) ?? null;
   const replacementProfile = oauth?.profiles.find((item) => item.profileDigest === replacementApplication?.profileDigest) ?? null;
   const deleteServiceTarget = integrations.find((item) => item.definitionId === deleteServiceTargetId) ?? null;
+  const providers = uniqueProviders(oauth?.applications.map((application) => ({
+    id: oauthProviderId(application.providerDisplayName),
+    name: application.providerDisplayName
+  })) ?? []);
   const loading = (definitionsResult.loading && !definitionsResult.data)
     || (oauthResult.loading && !oauthResult.data)
     || (integrationsResult.loading && !integrationsResult.data);
@@ -350,20 +355,78 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           <Button type="button" size="sm" label="Open Chat" {...stylex.props(styles.fit)}
             onClick={() => void navigate({ to: "/" })} />
         </VStack></SettingsSection> : null}
-        {apiIntegrations.length > 0 ? <CapabilityIntegrationList
+        {apiIntegrations.length > 0 || providers.length > 0 ? <CapabilityIntegrationList
           integrations={apiIntegrations}
           kind="API"
           selectedConnectionId={connectionId}
           emptyMessage="No APIs connected."
-          accountFor={(connection) => {
+          providers={providers}
+          hierarchyFor={(connection, integration) => {
             const grant = oauth.grants.find((item) => item.connectionIds.includes(connection.connectionId));
-            return grant ? {
-              id: grant.accountId ?? grant.grantId,
-              name: grant.accountLabel ?? "Unlabeled account"
-            } : {
-              id: connection.connectionId,
-              name: connection.name
+            if (grant) return {
+              provider: {
+                id: oauthProviderId(grant.providerDisplayName),
+                name: grant.providerDisplayName
+              },
+              account: {
+                id: grant.accountId ?? grant.grantId,
+                name: grant.accountLabel ?? "Unlabeled account"
+              }
             };
+            const definition = definitions.find((item) => item.semanticDigest === integration.sourceRevision);
+            const provider = directProvider(definition, integration);
+            if (definition?.authenticationMode === "none") return { provider };
+            return {
+              provider,
+              account: {
+                id: connection.connectionId,
+                name: connection.name
+              }
+            };
+          }}
+          providerActions={(provider) => {
+            const applications = oauth.applications.filter(
+              (application) => oauthProviderId(application.providerDisplayName) === provider.id
+            );
+            if (applications.length === 0) return null;
+            return <HStack gap={1} vAlign="center">
+              {applications.map((application) => {
+                const applicationName = application.projectLabel
+                  ?? `${application.providerDisplayName} OAuth client`;
+                return <HStack key={application.applicationId} gap={0.5} vAlign="center">
+                  <IconButton size="sm" variant="ghost"
+                    label={`Replace ${applicationName}`}
+                    tooltip={`Replace ${applicationName}`}
+                    icon={<FileKey2 aria-hidden="true" {...stylex.props(styles.icon)} />}
+                    onClick={() => setReplacementApplicationId(application.applicationId)} />
+                  <IconButton size="sm" variant="destructive"
+                    label={`Delete ${applicationName}`}
+                    tooltip={application.grantCount > 0
+                      ? `Disconnect its accounts before deleting ${applicationName}`
+                      : `Delete ${applicationName}`}
+                    icon={<Trash2 aria-hidden="true" {...stylex.props(styles.icon)} />}
+                    isDisabled={application.grantCount > 0}
+                    isLoading={applicationDeleteState.loading}
+                    onClick={() => void deleteApplication({ variables: { input: {
+                      applicationId: application.applicationId,
+                      expectedRevision: application.revision
+                    } } }).then(refresh).catch(actionError(setError))} />
+                </HStack>;
+              })}
+            </HStack>;
+          }}
+          accountAction={(provider, account) => {
+            const grants = oauth.grants.filter((grant) =>
+              oauthProviderId(grant.providerDisplayName) === provider.id
+              && (grant.accountId ?? grant.grantId) === account.id
+            );
+            if (grants.length === 0) return null;
+            return <IconButton size="sm" variant="ghost"
+              label={`Manage ${account.name}`}
+              tooltip={`Manage ${account.name}`}
+              icon={<Settings2 aria-hidden="true" {...stylex.props(styles.icon)} />}
+              isDisabled={disconnectState.loading || labelState.loading}
+              onClick={() => { setManagedGrants(grants); setLabelDraft(grants[0]?.accountLabel ?? ""); }} />;
           }}
         /> : null}
         {availableDefinitions.length > 0 ? <SettingsSection aria-labelledby="available-api-title"><VStack gap={2}>
@@ -381,45 +444,6 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
             ))}
           </SettingsList>
         </VStack></SettingsSection> : null}
-        {oauth.grants.length > 0 || oauth.applications.length > 0 ? (
-          <details {...stylex.props(styles.providerAccess)}>
-              <summary {...stylex.props(styles.providerAccessSummary)}>
-                <span {...stylex.props(styles.providerIcon)}>
-                  <KeyRound aria-hidden="true" {...stylex.props(styles.icon)} />
-                </span>
-                <span {...stylex.props(styles.providerCopy)}>
-                  <span>Provider access</span>
-                  <span {...stylex.props(styles.disclosureMeta)}>Accounts and OAuth clients</span>
-                </span>
-                <ChevronRight aria-hidden="true" {...stylex.props(styles.providerChevron)} />
-              </summary>
-              <VStack gap={3} {...stylex.props(styles.advancedBody)}>
-                {oauth.grants.length > 0 ? <AccountAccessRows oauth={oauth}
-                  busy={disconnectState.loading || labelState.loading}
-                  onManage={(grants) => { setManagedGrants(grants); setLabelDraft(grants[0]?.accountLabel ?? ""); }} /> : null}
-                {oauth.applications.length > 0 ? <VStack gap={1}>
-                  <h3 {...stylex.props(styles.subsectionTitle)}>OAuth clients</h3>
-                <SettingsList density="compact" hasDividers>
-                  {oauth.applications.map((application) => (
-                    <SettingsListItem key={application.applicationId}
-                      label={application.projectLabel ?? `${application.providerDisplayName} OAuth client`}
-                      description={`${application.clientId} · ${application.callbackMode} · ${oauth.profiles.find((profile) => profile.profileDigest === application.profileDigest)?.credentialSetup?.redirectUri ?? "Redirect unavailable"} · ${application.accountCount} accounts`}
-                      endContent={<HStack gap={1} wrap="wrap">
-                        <Button type="button" size="sm" variant="secondary" label="Replace client document"
-                          onClick={() => setReplacementApplicationId(application.applicationId)} />
-                        <Button type="button" size="sm" variant="destructive" label="Delete OAuth client"
-                          isDisabled={application.grantCount > 0} isLoading={applicationDeleteState.loading}
-                          onClick={() => void deleteApplication({ variables: { input: {
-                            applicationId: application.applicationId,
-                            expectedRevision: application.revision
-                          } } }).then(refresh).catch(actionError(setError))} />
-                      </HStack>}/>
-                  ))}
-                </SettingsList>
-                </VStack> : null}
-              </VStack>
-          </details>
-        ) : null}
         {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
       </VStack>}
       definitionDetails={selectedDefinition ? <VStack gap={2}>
@@ -560,46 +584,6 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   </>;
 }
 
-function AccountAccessRows({ oauth, busy, onManage }: {
-  oauth: AdapterOauthStateQuery["adapterOauthState"];
-  busy: boolean;
-  onManage: (grants: Grant[]) => void;
-}) {
-  const providers = new Map<string, Map<string, Grant[]>>();
-  for (const grant of oauth.grants) {
-    const accounts = providers.get(grant.providerDisplayName) ?? new Map<string, Grant[]>();
-    const key = grant.accountId ?? grant.grantId;
-    accounts.set(key, [...(accounts.get(key) ?? []), grant]);
-    providers.set(grant.providerDisplayName, accounts);
-  }
-  return <VStack gap={1}>
-    <h3 {...stylex.props(styles.subsectionTitle)}>Accounts</h3>
-    {[...providers.entries()].map(([provider, accounts]) => <VStack key={provider} gap={1}>
-      <strong {...stylex.props(styles.providerLabel)}>{provider}</strong>
-      {[...accounts.values()].map((grants) => {
-      const first = grants[0];
-      if (!first) return null;
-      const connectionIds = new Set(grants.flatMap((grant) => grant.connectionIds));
-      return <VStack key={first.accountId ?? first.grantId} gap={1} {...stylex.props(styles.accountGroup)}>
-        <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
-          <VStack gap={0}>
-            <strong {...stylex.props(styles.rowLabel)}>{first.accountLabel ?? "Unlabeled account"}</strong>
-            <span {...stylex.props(styles.muted)}>
-              {connectionIds.size} {connectionIds.size === 1 ? "API" : "APIs"}
-            </span>
-          </VStack>
-          <HStack gap={1} wrap="wrap">
-            {grants.some((grant) => grant.status !== "active") ? <Badge label="Action required" variant="warning" /> : null}
-            <Button type="button" size="sm" variant="secondary" label="Manage account" isDisabled={busy}
-              onClick={() => onManage(grants)} />
-          </HStack>
-        </HStack>
-      </VStack>;
-      })}
-    </VStack>)}
-  </VStack>;
-}
-
 function actionLabel(definition: AdapterDefinition) {
   const action = definition.nextAction?.kind;
   if (action === "review_definition") return "Review API";
@@ -690,7 +674,32 @@ function actionError(setError: (message: string) => void) {
   return (caught: unknown) => setError(caught instanceof Error ? caught.message : "The API account action failed.");
 }
 
+function oauthProviderId(providerName: string) {
+  return `oauth-provider:${providerName}`;
+}
+
+function directProvider(
+  definition: AdapterDefinition | undefined,
+  integration: CapabilityIntegrationsQuery["capabilityIntegrations"][number]
+): CapabilityProvider {
+  const origin = definition?.origin;
+  if (!origin) return { id: `provider:${integration.definitionId}`, name: titleize(integration.name) };
+  try {
+    return { id: `provider:${origin}`, name: new URL(origin).hostname };
+  } catch {
+    return { id: `provider:${origin}`, name: origin };
+  }
+}
+
+function uniqueProviders(providers: CapabilityProvider[]) {
+  return [...new Map(providers.map((provider) => [provider.id, provider])).values()];
+}
+
 function humanize(value: string) { return value.replaceAll("_", " "); }
+
+function titleize(value: string) {
+  return humanize(value).replace(/\b\p{L}/gu, (letter) => letter.toLocaleUpperCase());
+}
 
 function encodeBase64(bytes: Uint8Array) {
   let value = "";
@@ -702,34 +711,12 @@ const styles = stylex.create({
   stack: { display: "grid", gap: "var(--spacing-3)" },
   pageState: { padding: "var(--spacing-4)", "@media (max-width: 760px)": { padding: "var(--spacing-3)" } },
   sectionTitle: { margin: 0, fontFamily: "var(--font-heading)", fontSize: 16, lineHeight: 1.3, fontWeight: 600 },
-  accountGroup: { paddingBlock: "var(--spacing-2)", borderBlockStartWidth: "var(--border-width)", borderBlockStartStyle: "solid", borderBlockStartColor: "var(--border-subtle)" },
   rowLabel: { color: "var(--foreground)", fontWeight: 650, overflowWrap: "anywhere" },
-  providerLabel: { color: "var(--foreground)", fontSize: 13, fontWeight: 700 },
   muted: { margin: 0, color: "var(--muted-foreground)", fontSize: 13, lineHeight: 1.5 },
   error: { margin: 0, color: "var(--destructive)", fontSize: 13 },
   fit: { width: "fit-content" },
   icon: { width: 16, height: 16 },
   summary: { cursor: "pointer", fontSize: 12, fontWeight: 600 },
-  providerAccess: { minWidth: 0 },
-  providerAccessSummary: {
-    display: "grid",
-    gridTemplateColumns: "auto minmax(0, 1fr) auto",
-    alignItems: "center",
-    gap: "var(--spacing-2)",
-    minHeight: "var(--spacing-12)",
-    paddingInline: "var(--spacing-1)",
-    listStyle: "none",
-    cursor: "pointer",
-    color: "var(--foreground)",
-    fontSize: 13,
-    fontWeight: 650
-  },
-  providerIcon: { display: "inline-flex", width: "var(--spacing-8)", height: "var(--spacing-8)", alignItems: "center", justifyContent: "center", borderRadius: "var(--radius-sm)", backgroundColor: "var(--noema-surface-subtle)", color: "var(--muted-foreground)" },
-  providerCopy: { display: "inline-grid", minWidth: 0, gap: "var(--spacing-0-5)" },
-  providerChevron: { width: "var(--spacing-4)", height: "var(--spacing-4)", color: "var(--muted-foreground)" },
-  disclosureMeta: { color: "var(--muted-foreground)", fontSize: 12, fontWeight: 400 },
-  subsectionTitle: { margin: 0, color: "var(--foreground)", fontSize: 13, fontWeight: 700 },
-  advancedBody: { marginTop: "var(--spacing-1)", padding: "var(--spacing-3)", borderWidth: "var(--border-width)", borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: "var(--radius-container)", backgroundColor: "var(--surface-raised)" },
   technicalDetails: { paddingTop: "var(--spacing-2)" },
   manifest: { maxHeight: 280, margin: "var(--spacing-2) 0 0", padding: "var(--spacing-2)", overflow: "auto", borderRadius: "var(--radius-sm)", backgroundColor: "var(--noema-surface-subtle)", fontFamily: "var(--font-mono)", fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }
 });

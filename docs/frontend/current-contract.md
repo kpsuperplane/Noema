@@ -64,12 +64,12 @@ a separate Save button or performed in a focused dialog with explicit Save.
 
 ## API integration UX
 
-API Settings uses an account-first list. Each account groups its connected APIs.
-MCP Settings keeps its service-first list. Both use the same connection detail.
-The detail keeps connection policy and tool controls visible.
+API Settings groups connections by provider, account, then API. Provider headers
+contain access-method actions. Account headers contain account actions. OAuth is
+one supported access method; credential and no-auth connections keep the same
+provider hierarchy. MCP Settings keeps its service-first list. Both use the same
+connection detail. The detail keeps connection policy and tool controls visible.
 When no API exists, it shows one route to Chat instead of empty data sections.
-Account and OAuth client management appears in a collapsed Provider access
-section. That section manages existing clients and never starts an import.
 Client import occurs only when a structured API connection action requires it.
 
 Chat presents one pending human intervention at a time with queue navigation.
