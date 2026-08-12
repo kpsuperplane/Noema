@@ -1,9 +1,11 @@
 import { HStack } from "@astryxdesign/core/HStack";
 import { useMutation, useQuery } from "@apollo/client/react";
+import { Button } from "@astryxdesign/core/Button";
 import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
 import { VStack } from "@astryxdesign/core/VStack";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import * as stylex from "@stylexjs/stylex";
+import { RefreshCw } from "lucide-react";
 import {
   SaveWebFetchSummarizerPreferenceDocument,
   SaveWebToolProviderBindingDocument,
@@ -19,7 +21,14 @@ import {
 } from "@/generated/graphql";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
-import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
+import {
+  SettingsList,
+  SettingsListItem,
+  SettingsLocalFeedback,
+  SettingsRowActions,
+  SettingsSection,
+  SettingsTechnicalDetails
+} from "./SettingsPrimitives";
 import type {
   ModelPreference,
   ModelPreferenceSaveInput,
@@ -79,6 +88,7 @@ export function WebSettingsPane() {
     refetchQueries: [{ query: WebToolSettingsDocument }],
     awaitRefetchQueries: true
   });
+  const [savingToolName, setSavingToolName] = useState<string | null>(null);
   const webFetchSummarizer = webFetchResult.data?.webFetchSettings.summarizer ?? null;
   const webToolSettings = webToolResult.data?.webToolSettings ?? null;
   const loading = webFetchResult.loading && !webFetchResult.data;
@@ -90,7 +100,10 @@ export function WebSettingsPane() {
   const webToolSaving = saveWebToolResult.loading;
   const webToolSaveError = saveWebToolResult.error?.message ?? null;
   const onSaveWebFetchSummarizerPreference = (input: ModelPreferenceSaveInput) => saveWebFetchPreference({ variables: { input } });
-  const onSaveWebToolProviderBinding = (input: SaveWebToolProviderBindingInput) => saveWebToolBinding({ variables: { input } });
+  const onSaveWebToolProviderBinding = (input: SaveWebToolProviderBindingInput) => {
+    setSavingToolName(input.toolName);
+    return saveWebToolBinding({ variables: { input } });
+  };
   const search = webToolSettings?.search ?? null;
   const fetch = webToolSettings?.fetch ?? null;
   const browse = webToolSettings?.browse ?? null;
@@ -102,14 +115,11 @@ export function WebSettingsPane() {
         "WEB_FETCH_SUMMARIZER"
       )
     : null;
+  const failedToolName = savingToolName;
 
   return (
-    <VStack gap={6} {...stylex.props(styles.stack)}>
-      <SettingsSection aria-labelledby="web-search-settings-title">
-        <VStack gap={2}>
-          <h2 id="web-search-settings-title" {...stylex.props(styles.sectionTitle)}>
-            Search
-          </h2>
+    <VStack gap={4} {...stylex.props(styles.stack)}>
+      <SettingsSection title="Search" titleId="web-search-settings-title">
           <SettingsList density="balanced" hasDividers>
             <WebProviderRow
               settings={search}
@@ -119,27 +129,23 @@ export function WebSettingsPane() {
               onSave={onSaveWebToolProviderBinding}
             />
           </SettingsList>
-          {webToolSaveError ? (
-            <p role="alert" {...stylex.props(styles.saveError)}>
-              Noema could not save the search provider binding.
-            </p>
-          ) : null}
-          <VStack as="details" gap={2} {...stylex.props(styles.details)}>
-            <summary {...stylex.props(styles.summary)}>Technical details</summary>
+          {webToolError || (webToolSaveError && failedToolName === "web.search") ? <SettingsLocalFeedback>
+            {webToolError ? <HStack gap={2} wrap="wrap" vAlign="center">
+              <p role="alert" {...stylex.props(styles.mutedText)}>Search provider settings could not refresh.</p>
+              <Button type="button" size="sm" variant="secondary" label="Retry" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={() => void webToolResult.refetch()} />
+            </HStack> : null}
+            {webToolSaveError && failedToolName === "web.search" ? <p role="alert" {...stylex.props(styles.saveError)}>Noema could not save the search provider.</p> : null}
+          </SettingsLocalFeedback> : null}
+          <SettingsTechnicalDetails>
             <SettingsList density="compact">
               <SettingsListItem label="Tool" description="web.search" />
               <SettingsListItem label="Data flow" description={providerDataFlow(search)} />
               <SettingsListItem label="Citations" description={providerCapability(search, "citations")} />
             </SettingsList>
-          </VStack>
-        </VStack>
+          </SettingsTechnicalDetails>
       </SettingsSection>
 
-      <SettingsSection aria-labelledby="web-fetch-settings-title">
-        <VStack gap={2}>
-          <h2 id="web-fetch-settings-title" {...stylex.props(styles.sectionTitle)}>
-            Fetch
-          </h2>
+      <SettingsSection title="Fetch" titleId="web-fetch-settings-title">
           <SettingsList density="balanced" hasDividers>
             <WebProviderRow
               settings={fetch}
@@ -157,37 +163,30 @@ export function WebSettingsPane() {
                   : undefined
               }
               endContent={
-                <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
+                <SettingsRowActions>
                   <ModelPreferenceSelect
                     options={webFetchSummarizer?.modelOptions ?? []}
                     preference={fetchPreference}
                     useCase="WEB_FETCH_SUMMARIZER"
                     saving={saving}
                     ariaLabel="Model settings for fetch summarizer"
-                    isDisabled={Boolean(error) || !webFetchSummarizer}
+                    isDisabled={!webFetchSummarizer}
                     onSave={onSaveWebFetchSummarizerPreference}
                   />
-                </HStack>
+                </SettingsRowActions>
               }
             />
           </SettingsList>
-          {webToolSaveError || saveError ? (
-            <p role="alert" {...stylex.props(styles.saveError)}>
-              {webToolSaveError
-                ? "Noema could not save the fetch provider binding."
-                : "Noema could not save the fetch summarizer model."}
-            </p>
-          ) : null}
-          {webToolError || error ? (
-            <p {...stylex.props(styles.mutedText)}>
-              {webToolError
-                ? "Provider settings could not be loaded."
-                : "Fetch summarizer settings could not be loaded."}
-            </p>
-          ) : null}
-          {fetchWarning ? <p {...stylex.props(styles.warningText)}>{fetchWarning}</p> : null}
-          <VStack as="details" gap={2} {...stylex.props(styles.details)}>
-            <summary {...stylex.props(styles.summary)}>Technical details</summary>
+          {webToolError || error || saveError || (webToolSaveError && failedToolName === "web.fetch") || fetchWarning ? <SettingsLocalFeedback>
+            {webToolError || error ? <HStack gap={2} wrap="wrap" vAlign="center">
+              <p role="alert" {...stylex.props(styles.mutedText)}>Fetch settings could not refresh.</p>
+              <Button type="button" size="sm" variant="secondary" label="Retry" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={() => void Promise.all([webToolResult.refetch(), webFetchResult.refetch()])} />
+            </HStack> : null}
+            {webToolSaveError && failedToolName === "web.fetch" ? <p role="alert" {...stylex.props(styles.saveError)}>Noema could not save the fetch provider.</p> : null}
+            {saveError ? <p role="alert" {...stylex.props(styles.saveError)}>Noema could not save the fetch summarizer model.</p> : null}
+            {fetchWarning ? <p {...stylex.props(styles.warningText)}>{fetchWarning}</p> : null}
+          </SettingsLocalFeedback> : null}
+          <SettingsTechnicalDetails>
             <SettingsList density="compact">
               <SettingsListItem label="Tool" description="web.fetch" />
               <SettingsListItem label="Contract" description={activeProviderContract(fetch, webToolLoading, webToolError)} />
@@ -198,15 +197,10 @@ export function WebSettingsPane() {
               />
               <SettingsListItem label="Data flow" description={providerDataFlow(fetch)} />
             </SettingsList>
-          </VStack>
-        </VStack>
+          </SettingsTechnicalDetails>
       </SettingsSection>
 
-      <SettingsSection aria-labelledby="web-browse-settings-title">
-        <VStack gap={2}>
-          <h2 id="web-browse-settings-title" {...stylex.props(styles.sectionTitle)}>
-            Browse
-          </h2>
+      <SettingsSection title="Browse" titleId="web-browse-settings-title">
           <SettingsList density="balanced" hasDividers>
             <WebProviderRow
               settings={browse}
@@ -216,12 +210,14 @@ export function WebSettingsPane() {
               onSave={onSaveWebToolProviderBinding}
             />
           </SettingsList>
-          {webToolSaveError ? (
-            <p role="alert" {...stylex.props(styles.saveError)}>
-              Noema could not save the browse provider binding.
-            </p>
-          ) : null}
-          <SettingsList density="compact">
+          {webToolError || (webToolSaveError && failedToolName === "web.browse") ? <SettingsLocalFeedback>
+            {webToolError ? <HStack gap={2} wrap="wrap" vAlign="center">
+              <p role="alert" {...stylex.props(styles.mutedText)}>Browse provider settings could not refresh.</p>
+              <Button type="button" size="sm" variant="secondary" label="Retry" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={() => void webToolResult.refetch()} />
+            </HStack> : null}
+            {webToolSaveError && failedToolName === "web.browse" ? <p role="alert" {...stylex.props(styles.saveError)}>Noema could not save the browse provider.</p> : null}
+          </SettingsLocalFeedback> : null}
+          <SettingsTechnicalDetails><SettingsList density="compact">
             <SettingsListItem
               label="Session"
               description="Execution-scoped; closes after 15 minutes without successful activity."
@@ -234,8 +230,7 @@ export function WebSettingsPane() {
               label="Capabilities"
               description={`${providerCapability(browse, "jsRendering")} JavaScript rendering; ${providerCapability(browse, "authenticatedContext")} session cookies.`}
             />
-          </SettingsList>
-        </VStack>
+          </SettingsList></SettingsTechnicalDetails>
       </SettingsSection>
     </VStack>
   );
@@ -258,7 +253,7 @@ function WebProviderRow({
     providerAccountId: string;
   }) => Promise<unknown>;
 }) {
-  const unavailable = Boolean(error) || !settings;
+  const unavailable = !settings;
   return (
     <SettingsListItem
       mobileEndContentFullWidth
@@ -307,7 +302,7 @@ function WebProviderSelect({
   }, [providerOptions, settings]);
 
   return (
-    <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
+    <SettingsRowActions>
       <Selector
         isLabelHidden
         label={ariaLabel}
@@ -324,7 +319,7 @@ function WebProviderSelect({
           });
         }}
       />
-    </HStack>
+    </SettingsRowActions>
   );
 }
 
@@ -334,6 +329,7 @@ function providerDescription(
   error: string | null
 ) {
   if (loading) return "Loading provider settings...";
+  if (settings) return activeProviderLabel(settings, false, null);
   if (error) return "Provider settings could not be loaded.";
   return activeProviderLabel(settings, false, null);
 }
@@ -380,38 +376,11 @@ function providerCapability(
 
 const styles = stylex.create({
   stack: { minWidth: 0 },
-  sectionTitle: {
-    margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    fontSize: 16,
-    lineHeight: 1.3,
-    color: "var(--foreground)"
-  },
   mutedText: {
     margin: "var(--spacing-0)",
     color: "var(--muted-foreground)",
     fontSize: 13,
     lineHeight: 1.5
-  },
-  rowControl: {
-    justifyContent: "flex-end",
-    "@media (max-width: 620px)": {
-      width: "100%",
-      justifyContent: "flex-start",
-      marginInlineStart: "0"
-    }
-  },
-  details: {
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: "var(--border-subtle)",
-    paddingTop: "var(--spacing-3)"
-  },
-  summary: {
-    cursor: "pointer",
-    color: "var(--muted-foreground)",
-    fontSize: 12,
-    fontWeight: 600
   },
   saveError: {
     margin: "var(--spacing-0)",

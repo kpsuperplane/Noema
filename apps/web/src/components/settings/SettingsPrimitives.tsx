@@ -70,6 +70,16 @@ export function SettingsSectionInset({
   );
 }
 
+export function SettingsSectionBody({
+  divided = false,
+  children
+}: {
+  divided?: boolean;
+  children: ReactNode;
+}) {
+  return <VStack {...stylex.props(divided && styles.divided)}>{children}</VStack>;
+}
+
 export function SettingsTechnicalDetails({
   summary = "Technical details",
   children
@@ -90,6 +100,14 @@ export function SettingsRowActions({ children }: { children: ReactNode }) {
     <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowActions)}>
       {children}
     </HStack>
+  );
+}
+
+export function SettingsLocalFeedback({ children }: { children: ReactNode }) {
+  return (
+    <VStack gap={1} {...stylex.props(styles.feedback)}>
+      {children}
+    </VStack>
   );
 }
 
@@ -125,21 +143,30 @@ export function SettingsList({ xstyle, ...props }: ListProps) {
 
 export function SettingsListItem({
   xstyle,
+  label,
+  description,
   endContent,
   style,
   mobileEndContentFullWidth = false,
   ...props
 }: SettingsListItemProps) {
+  const fullWidthContent = mobileEndContentFullWidth ? (
+    <span {...stylex.props(styles.fullWidthContent)}>
+      <span {...stylex.props(styles.fullWidthCopy)}>
+        <span>{label}</span>
+        {description != null ? <span {...stylex.props(styles.fullWidthDescription)}>{description}</span> : null}
+      </span>
+      {endContent != null ? <span {...stylex.props(styles.fullWidthActions)}>{endContent}</span> : null}
+    </span>
+  ) : null;
   return (
     <ListItem
       {...props}
-      endContent={
-        endContent == null || !mobileEndContentFullWidth ? endContent : (
-          <span {...stylex.props(styles.endContent)}>{endContent}</span>
-        )
-      }
+      label={fullWidthContent ?? label}
+      description={mobileEndContentFullWidth ? undefined : description}
+      endContent={mobileEndContentFullWidth ? undefined : endContent}
       xstyle={[
-        mobileEndContentFullWidth ? styles.itemMobile : styles.item,
+        styles.item,
         xstyle
       ]}
       style={style}
@@ -185,6 +212,12 @@ const styles = stylex.create({
   },
   technicalSummary: { color: "var(--muted-foreground)", fontSize: 12, fontWeight: 600 },
   technicalBody: { paddingBlockStart: "var(--spacing-2)" },
+  feedback: {
+    padding: "var(--spacing-2) var(--spacing-3)",
+    borderBlockStartWidth: "var(--border-width)",
+    borderBlockStartStyle: "solid",
+    borderBlockStartColor: "var(--border-subtle)"
+  },
   rowActions: {
     justifyContent: "flex-end",
     "@media (max-width: 620px)": {
@@ -199,19 +232,30 @@ const styles = stylex.create({
     paddingInline: "var(--spacing-0)",
     flexWrap: "nowrap"
   },
-  itemMobile: {
-    paddingInline: "var(--spacing-0)",
+  fullWidthContent: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    alignItems: "center",
+    columnGap: "var(--spacing-2)",
+    minWidth: 0,
     "@media (max-width: 620px)": {
-      flexWrap: "wrap",
-      alignItems: "flex-start",
+      gridTemplateColumns: "minmax(0, 1fr)",
       rowGap: "var(--spacing-1)"
     }
   },
-  endContent: {
+  fullWidthCopy: { display: "flex", flexDirection: "column", minWidth: 0 },
+  fullWidthDescription: {
+    color: "var(--muted-foreground)",
+    fontSize: 12,
+    lineHeight: 1.4,
+    overflowWrap: "anywhere"
+  },
+  fullWidthActions: {
+    minWidth: 0,
+    justifySelf: "end",
     "@media (max-width: 620px)": {
-      width: "calc(100vw - var(--spacing-6) - var(--spacing-6) - var(--spacing-0-5) + var(--spacing-2))",
-      maxWidth: "100%",
-      minWidth: 0
+      width: "100%",
+      justifySelf: "stretch"
     }
   }
 });
