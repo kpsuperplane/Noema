@@ -206,9 +206,6 @@ struct ChatInterventionsView: View {
       visibleInterventions.firstIndex { $0.id == selectedInterventionID } ?? 0
     )
     VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      if !visibleInterventions.isEmpty {
-        interventionCard(for: visibleInterventions[selectedIndex])
-      }
       if visibleInterventions.count > 1 {
         HStack(spacing: NoemaSpacing.sm) {
           Text("\(selectedIndex + 1) of \(visibleInterventions.count) waiting")
@@ -228,6 +225,9 @@ struct ChatInterventionsView: View {
           .buttonStyle(.borderless)
           .disabled(selectedIndex == visibleInterventions.count - 1)
         }
+      }
+      if !visibleInterventions.isEmpty {
+        interventionCard(for: visibleInterventions[selectedIndex])
       }
     }
     .frame(maxWidth: 760, alignment: .leading)

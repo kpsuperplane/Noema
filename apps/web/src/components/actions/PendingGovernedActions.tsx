@@ -143,13 +143,6 @@ export function PendingHumanInterventionsResult({
   const list = visibleInterventions.length ? (
     <HumanInterventionMotionItem key="pending-human-interventions">
       <VStack gap={0}>
-        <HumanInterventionList
-          interventions={presentedInterventions}
-          placement={placement}
-          onResolved={() => void result.refetch().catch(() => undefined)}
-          onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
-          initialAnimation={false}
-        />
         {placement === "chat" && visibleInterventions.length > 1 ? (
           <HStack hAlign="between" vAlign="center" gap={1} {...stylex.props(styles.queueNavigation)}>
             <span aria-live="polite" {...stylex.props(styles.queuePosition)}>
@@ -164,6 +157,7 @@ export function PendingHumanInterventionsResult({
                 tooltip="Previous request"
                 icon={<ChevronLeft aria-hidden="true" size={15} />}
                 isDisabled={selectedChatInterventionIndex === 0}
+                xstyle={styles.queueAction}
                 onClick={() => {
                   const previous = visibleInterventions[selectedChatInterventionIndex - 1];
                   if (previous) setSelectedChatInterventionKey(humanInterventionKey(previous));
@@ -177,6 +171,7 @@ export function PendingHumanInterventionsResult({
                 tooltip="Next request"
                 icon={<ChevronRight aria-hidden="true" size={15} />}
                 isDisabled={selectedChatInterventionIndex === visibleInterventions.length - 1}
+                xstyle={styles.queueAction}
                 onClick={() => {
                   const next = visibleInterventions[selectedChatInterventionIndex + 1];
                   if (next) setSelectedChatInterventionKey(humanInterventionKey(next));
@@ -185,6 +180,13 @@ export function PendingHumanInterventionsResult({
             </HStack>
           </HStack>
         ) : null}
+        <HumanInterventionList
+          interventions={presentedInterventions}
+          placement={placement}
+          onResolved={() => void result.refetch().catch(() => undefined)}
+          onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
+          initialAnimation={false}
+        />
       </VStack>
     </HumanInterventionMotionItem>
   ) : null;
@@ -934,12 +936,23 @@ const styles = stylex.create({
   },
   queueNavigation: {
     paddingInline: "var(--spacing-3)",
-    paddingBlockEnd: "var(--spacing-1)"
+    paddingBlockStart: "var(--spacing-1)",
+    marginBlockEnd: "calc(-1 * var(--spacing-1))"
   },
   queuePosition: {
-    color: "var(--noema-text-muted)",
+    color: "var(--color-on-accent)",
     fontSize: 12,
     lineHeight: 1.35
+  },
+  queueAction: {
+    color: {
+      default: "var(--color-on-accent)",
+      ":disabled": "var(--color-on-accent)"
+    },
+    opacity: {
+      default: 1,
+      ":disabled": 0.45
+    }
   },
   copy: {
     minWidth: 0
