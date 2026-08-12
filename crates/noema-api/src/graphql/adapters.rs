@@ -980,15 +980,12 @@ pub(super) async fn reconcile_adapter_connections(
         .adapter_operations()?
         .management_snapshot()
         .map_err(|_| async_graphql::Error::new("adapter connections are unavailable"))?;
+    let connections = snapshot.connections.projections();
     let store = state.store()?;
     store
-        .reconcile_adapter_oauth_authorities(&snapshot.oauth_authorities)
+        .reconcile_complete_adapter_state(&snapshot.oauth_authorities, &connections)
         .await
-        .map_err(|_| async_graphql::Error::new("adapter OAuth index could not be updated"))?;
-    store
-        .reconcile_adapter_connections(&snapshot.connections.projections())
-        .await
-        .map_err(|_| async_graphql::Error::new("adapter connection index could not be updated"))
+        .map_err(|_| async_graphql::Error::new("adapter index could not be updated"))
 }
 
 async fn reconcile_adapter_definitions(state: &GraphqlState) -> async_graphql::Result<()> {
