@@ -43,7 +43,6 @@ function CapabilityIntegrationListView({
   isAddingConnection = false,
   onAddConnection
 }: CapabilityIntegrationListProps) {
-  const connectionNoun = kind === "API" ? "account" : "connection";
   const [visibleSelectedConnectionId, setVisibleSelectedConnectionId] = useState(selectedConnectionId);
 
   return (
@@ -62,14 +61,9 @@ function CapabilityIntegrationListView({
           >
             <HStack gap={2} vAlign="center" {...stylex.props(styles.serviceHeader)}>
               <CapabilityIcon kind={kind} definitionId={integration.definitionId} />
-              <VStack gap={0.5} {...stylex.props(styles.serviceCopy)}>
-                <h2 id={`capability-${integration.definitionId}-title`} {...stylex.props(styles.title)}>
-                  {integration.name}
-                </h2>
-                <p {...stylex.props(styles.summary)}>
-                  {integration.connections.length} {integration.connections.length === 1 ? connectionNoun : `${connectionNoun}s`}
-                </p>
-              </VStack>
+              <h2 id={`capability-${integration.definitionId}-title`} {...stylex.props(styles.title)}>
+                {integration.name}
+              </h2>
               <HStack gap={1} vAlign="center">
                 {onAddConnection ? (
                   <Button
@@ -175,7 +169,6 @@ const styles = stylex.create({
     minWidth: 0
   },
   serviceHeader: { minHeight: "var(--spacing-8)", paddingInline: "var(--spacing-1)" },
-  serviceCopy: { minWidth: 0, flex: 1 },
   iconFrame: {
     width: "var(--spacing-8)",
     height: "var(--spacing-8)",
@@ -193,9 +186,10 @@ const styles = stylex.create({
     fontSize: 14,
     fontWeight: 650,
     lineHeight: 1.3,
+    minWidth: 0,
+    flex: 1,
     overflowWrap: "anywhere"
   },
-  summary: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 12 },
   connectionRow: {
     display: "grid",
     gridTemplateColumns: "auto minmax(0, 1fr) auto",
