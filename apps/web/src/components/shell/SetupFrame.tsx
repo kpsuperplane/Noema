@@ -11,7 +11,9 @@ export function SetupFrame({ children }: { children: ReactNode }) {
       {desktop ? (
         <header aria-hidden="true" data-tauri-drag-region {...stylex.props(styles.dragRegion)} />
       ) : null}
-      <VStack as="div" {...stylex.props(styles.body)}>{children}</VStack>
+      <VStack as="div" {...stylex.props(styles.body, desktop && styles.desktopBody)}>
+        {children}
+      </VStack>
     </VStack>
   );
 }
@@ -35,28 +37,22 @@ const styles = stylex.create({
     }
   },
   dragRegion: {
-    position: "relative",
-    zIndex: 1,
-    width: "100%",
-    height: 52,
-    boxSizing: "border-box",
-    flexShrink: 0,
-    backgroundColor: "var(--background)",
-    "::after": {
-      content: "''",
-      position: "absolute",
-      top: "100%",
-      right: 0,
-      left: 0,
-      height: "var(--spacing-4)",
-      pointerEvents: "none",
-      backgroundImage:
-        "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
-    }
+    position: "absolute",
+    top: 0,
+    right: 0,
+    left: 0,
+    zIndex: 3,
+    height: "calc(var(--spacing-12) + var(--spacing-1))",
+    backgroundImage:
+      "linear-gradient(to bottom, var(--background) 0%, 80%, rgb(255 255 255 / 0) 100%)"
   },
   body: {
     flex: 1,
     minHeight: 0,
+    boxSizing: "border-box",
     overflow: "auto"
+  },
+  desktopBody: {
+    paddingBlockStart: "calc(var(--spacing-12) + var(--spacing-1))"
   }
 });
