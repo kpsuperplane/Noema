@@ -479,7 +479,7 @@ function hintLabel(value: HintKey) {
 }
 
 const styles = stylex.create({
-  connectionHeader: { paddingBlockEnd: "var(--spacing-3)", borderBlockEndWidth: "var(--border-width)", borderBlockEndStyle: "solid", borderBlockEndColor: "var(--border-subtle)" },
+  connectionHeader: { paddingBlockEnd: "var(--spacing-3)" },
   drawerConnectionHeader: { paddingBlockStart: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
   drawerInset: { paddingInline: "var(--spacing-3)" },
   serviceName: { color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.2 },
