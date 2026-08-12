@@ -95,8 +95,8 @@ export function Onboarding({
     activeChoice !== null && activeChoice !== providerKind;
 
   return (
-    <VStack as="section" {...stylex.props(styles.root)} aria-label="Noema onboarding" gap={5}>
-      <VStack gap={2} hAlign="center">
+    <VStack as="section" {...stylex.props(styles.root)} aria-label="Noema onboarding" gap={4}>
+      <VStack gap={1.5} hAlign="center">
         <p {...stylex.props(styles.eyebrow)}>Choose your model provider</p>
         <h1 {...stylex.props(styles.title)}>Set up Noema</h1>
         <p {...stylex.props(styles.description)}>
@@ -104,9 +104,9 @@ export function Onboarding({
         </p>
       </VStack>
 
-      <HStack gap={3} vAlign="stretch" {...stylex.props(styles.choices)}>
+      <VStack gap={3} {...stylex.props(styles.choices)}>
         <Card padding={4} {...stylex.props(styles.choice)}>
-          <VStack gap={3} height="100%">
+          <VStack gap={3}>
             <VStack gap={1.5}>
               <HStack justify="between" vAlign="start" gap={3}>
                 <h2 {...stylex.props(styles.choiceTitle)}>Local</h2>
@@ -147,7 +147,7 @@ export function Onboarding({
             {installation?.status === "VERIFYING" ? <p {...stylex.props(styles.muted)}>Verifying model integrity…</p> : null}
             {installation?.errorMessage ? <ErrorMarker message={installation.errorMessage} /> : null}
 
-            <VStack gap={2} {...stylex.props(styles.actions)}>
+            <VStack gap={2}>
               {recommendation && !transferActive && !localSetup?.isReady ? (
                 <Button
                   type="button"
@@ -185,7 +185,7 @@ export function Onboarding({
         </Card>
 
         <Card padding={4} {...stylex.props(styles.choice)}>
-          <VStack gap={3} height="100%">
+          <VStack gap={3}>
             <VStack gap={1.5}>
               <h2 {...stylex.props(styles.choiceTitle)}>{openRouter?.displayName ?? "OpenRouter"}</h2>
               <p {...stylex.props(styles.choiceDescription)}>
@@ -193,7 +193,7 @@ export function Onboarding({
               </p>
             </VStack>
             {openRouterAccount ? (
-              <VStack gap={2} {...stylex.props(styles.actions)}>
+              <VStack gap={2}>
                 <p {...stylex.props(styles.connected)}>Connected.</p>
                 <Button
                   type="button"
@@ -210,7 +210,7 @@ export function Onboarding({
             ) : attempt?.providerKind === "openrouter" && authPending ? (
               <AuthAttempt attempt={attempt} onCancel={onCancelProviderAuth} />
             ) : (
-              <VStack gap={2} {...stylex.props(styles.actions)}>
+              <VStack gap={2}>
                 <Button
                   type="button"
                   variant="primary"
@@ -250,7 +250,7 @@ export function Onboarding({
         </Card>
 
         <Card padding={4} {...stylex.props(styles.choice)}>
-          <VStack gap={3} height="100%">
+          <VStack gap={3}>
             <VStack gap={1.5}>
               <h2 {...stylex.props(styles.choiceTitle)}>{codex?.displayName ?? "Codex"}</h2>
               <p {...stylex.props(styles.choiceDescription)}>
@@ -258,7 +258,7 @@ export function Onboarding({
               </p>
             </VStack>
             {codexAccount ? (
-              <VStack gap={2} {...stylex.props(styles.actions)}>
+              <VStack gap={2}>
                 <p {...stylex.props(styles.connected)}>Connected.</p>
                 <Button
                   type="button"
@@ -274,7 +274,7 @@ export function Onboarding({
             ) : attempt?.providerKind === "codex" && authPending ? (
               <AuthAttempt attempt={attempt} onCancel={onCancelProviderAuth} />
             ) : (
-              <VStack gap={2} {...stylex.props(styles.actions)}>
+              <VStack gap={2}>
                 <Button
                   type="button"
                   variant="secondary"
@@ -289,7 +289,7 @@ export function Onboarding({
             ) : null}
           </VStack>
         </Card>
-      </HStack>
+      </VStack>
 
       {localSetupError ? <ErrorMarker message={localSetupError} /> : null}
       {localSaveError ? <ErrorMarker message={localSaveError} /> : null}
@@ -316,7 +316,7 @@ function RetryMessage({
 
 const styles = stylex.create({
   root: {
-    width: "min(1100px, 100%)",
+    width: "min(720px, 100%)",
     minHeight: "100%",
     justifyContent: "center",
     marginInline: "auto",
@@ -328,30 +328,29 @@ const styles = stylex.create({
   },
   eyebrow: {
     margin: "var(--spacing-0)",
-    fontFamily: "var(--font-mono)",
-    color: "var(--text-accent)",
-    textTransform: "uppercase",
-    letterSpacing: "0.1em"
+    color: "var(--muted-foreground)",
+    fontSize: "var(--font-size-sm)",
+    fontWeight: 600
   },
   title: {
     margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    color: "var(--foreground)"
+    color: "var(--foreground)",
+    fontSize: "var(--font-size-2xl)",
+    lineHeight: 1.15,
+    textWrap: "balance"
   },
   description: {
     margin: "var(--spacing-0)",
     maxWidth: 620,
     textAlign: "center",
-    color: "var(--muted-foreground)"
+    color: "var(--muted-foreground)",
+    textWrap: "pretty"
   },
   choices: {
-    width: "100%",
-    "@media (max-width: 760px)": {
-      flexDirection: "column"
-    }
+    width: "100%"
   },
   choice: {
-    flex: "1 1 0",
+    width: "100%",
     minWidth: 0
   },
   choiceTitle: {
@@ -367,8 +366,7 @@ const styles = stylex.create({
   metadata: { fontFamily: "var(--font-mono)", color: "var(--muted-foreground)" },
   muted: { margin: "var(--spacing-0)", color: "var(--muted-foreground)" },
   progress: { width: "100%", accentColor: "var(--pine-500)" },
-  connected: { margin: "var(--spacing-0)", color: "var(--pine-700)" },
-  actions: { marginTop: "auto" }
+  connected: { margin: "var(--spacing-0)", color: "var(--pine-700)" }
 });
 
 function isRetryableTerminalStatus(status: ProviderAuthAttemptView["status"]) {
