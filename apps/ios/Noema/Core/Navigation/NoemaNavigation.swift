@@ -397,6 +397,7 @@ struct NoemaShellView: View {
           .transition(.opacity)
       }
     }
+    .scrollDisabled(pageSwipeInFlight)
     .background(NoemaColor.surface)
     .clipShape(
       NoemaSuperellipse(
