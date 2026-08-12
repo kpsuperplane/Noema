@@ -39,12 +39,12 @@
 }
 
 .astryx-dropdown-menu-item:not([aria-disabled="true"]):focus {
-  background-color: color-mix(in srgb, var(--color-accent) 10%, transparent) !important;
+  background-color: var(--color-overlay-hover) !important;
 }
 
 @media (hover: hover) {
   .astryx-dropdown-menu-item:not([aria-disabled="true"]):hover {
-    background-color: color-mix(in srgb, var(--color-accent) 10%, transparent) !important;
+    background-color: var(--color-overlay-hover) !important;
   }
 }
 
