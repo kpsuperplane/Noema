@@ -983,19 +983,19 @@ const styles = stylex.create({
   primaryNavigationButton: {
     borderRadius: 999,
     cornerShape: "var(--corner-shape-full)",
-    backgroundColor: "var(--pine-100)",
+    backgroundColor: "color-mix(in srgb, var(--pine-100) 48%, var(--paper-200))",
     backgroundImage: "none",
     color: "var(--pine-700)",
     gap: "var(--spacing-0)",
     paddingInline: "var(--spacing-2)",
     ":hover": {
       "@media (hover: hover)": {
-        backgroundColor: "color-mix(in srgb, var(--pine-500) 12%, var(--pine-100))",
+        backgroundColor: "color-mix(in srgb, var(--pine-100) 56%, var(--paper-200))",
         backgroundImage: "none"
       }
     },
     ":active": {
-      backgroundColor: "color-mix(in srgb, var(--pine-500) 20%, var(--pine-100))",
+      backgroundColor: "color-mix(in srgb, var(--pine-100) 64%, var(--paper-200))",
       backgroundImage: "none"
     }
   },
