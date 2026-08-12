@@ -27,8 +27,10 @@ type ScrollToEndOptions = {
 };
 
 type TranscriptScrollerContextValue = {
+  bottomOffsetRef: React.MutableRefObject<number>;
   contentRef: React.RefObject<HTMLDivElement | null>;
   viewportRef: React.RefObject<HTMLDivElement | null>;
+  virtualSizerRef: React.RefObject<HTMLDivElement | null>;
   scrollToEnd: (options?: ScrollToEndOptions) => void;
 };
 
@@ -221,8 +223,10 @@ const styles = stylex.create({
 });
 
 export function TranscriptScrollerProvider({ children }: TranscriptScrollerProviderProps) {
+  const bottomOffsetRef = React.useRef(0);
   const contentRef = React.useRef<HTMLDivElement | null>(null);
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
+  const virtualSizerRef = React.useRef<HTMLDivElement | null>(null);
   const scrollToEnd = React.useCallback(({ behavior = "auto" }: ScrollToEndOptions = {}) => {
     const viewport = viewportRef.current;
     if (!viewport) {
@@ -230,7 +234,10 @@ export function TranscriptScrollerProvider({ children }: TranscriptScrollerProvi
     }
     viewport.scrollTo({ top: viewport.scrollHeight, behavior });
   }, []);
-  const value = React.useMemo(() => ({ contentRef, viewportRef, scrollToEnd }), [scrollToEnd]);
+  const value = React.useMemo(
+    () => ({ bottomOffsetRef, contentRef, viewportRef, virtualSizerRef, scrollToEnd }),
+    [scrollToEnd]
+  );
 
   return <TranscriptScrollerContext.Provider value={value}>{children}</TranscriptScrollerContext.Provider>;
 }
@@ -258,7 +265,7 @@ export function TranscriptScroller({
   onViewportScroll,
   "aria-label": ariaLabel
 }: TranscriptScrollerProps) {
-  const { contentRef, viewportRef, scrollToEnd } = useTranscriptScroller();
+  const { bottomOffsetRef, contentRef, viewportRef, virtualSizerRef, scrollToEnd } = useTranscriptScroller();
   const reduceMotion = useReducedMotion();
   const [stuckToBottom, setStuckToBottom] = React.useState(true);
   const [userScrolledTowardStart, setUserScrolledTowardStart] = React.useState(false);
@@ -268,8 +275,6 @@ export function TranscriptScroller({
   const [settlingPrepend, setSettlingPrepend] = React.useState(false);
   const previousToolGroupKeysRef = React.useRef<ReadonlyMap<string, React.Key>>(new Map());
   const virtualItemKeysRef = React.useRef<readonly React.Key[]>([]);
-  const virtualSizerRef = React.useRef<HTMLDivElement | null>(null);
-  const virtualBottomOffsetRef = React.useRef(0);
   const loadBeforeStatusRef = React.useRef<HTMLDivElement | null>(null);
   const nearTopLoadArmedRef = React.useRef(true);
   const requestedOldestKeyRef = React.useRef<React.Key | null>(null);
@@ -305,8 +310,8 @@ export function TranscriptScroller({
     (instance: Virtualizer<HTMLDivElement, HTMLDivElement>) => {
       const totalSize = instance.getTotalSize();
       const bottomOffset = Math.max(0, availableHeight - totalSize);
-      const previousBottomOffset = virtualBottomOffsetRef.current;
-      virtualBottomOffsetRef.current = bottomOffset;
+      const previousBottomOffset = bottomOffsetRef.current;
+      bottomOffsetRef.current = bottomOffset;
       if (bottomOffset === 0 && previousBottomOffset === 0) {
         return;
       }
@@ -321,7 +326,7 @@ export function TranscriptScroller({
         }
       }
     },
-    [availableHeight, scrollMargin]
+    [availableHeight, bottomOffsetRef, scrollMargin, virtualSizerRef]
   );
   // TanStack Virtual exposes imperative measurement functions that React Compiler cannot memoize.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -351,7 +356,7 @@ export function TranscriptScroller({
       virtualSizerRef.current = node;
       rowVirtualizer.containerRef(node);
     },
-    [rowVirtualizer]
+    [rowVirtualizer, virtualSizerRef]
   );
   const requestLoadBefore = React.useCallback(() => {
     logTranscriptScroll("load-before", {});
@@ -681,8 +686,10 @@ export function TranscriptScroller({
               }
               const viewport = viewportRef.current;
               if (viewport) {
-                userScrollAnimationRef.current = animateScrollToBottom(viewport, () => {
-                  userScrollAnimationRef.current = null;
+                userScrollAnimationRef.current = animateScrollToBottom(viewport, {
+                  onComplete: () => {
+                    userScrollAnimationRef.current = null;
+                  }
                 });
               }
             }}
