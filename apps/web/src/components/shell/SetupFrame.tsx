@@ -22,8 +22,16 @@ const styles = stylex.create({
     backgroundColor: "var(--background)"
   },
   dragRegion: {
+    position: "relative",
+    zIndex: 1,
+    width: "100%",
     height: 52,
-    flexShrink: 0
+    boxSizing: "border-box",
+    flexShrink: 0,
+    borderBlockEndWidth: 1,
+    borderBlockEndStyle: "solid",
+    borderBlockEndColor: "var(--border-subtle)",
+    backgroundColor: "var(--background)"
   },
   body: {
     flex: 1,
