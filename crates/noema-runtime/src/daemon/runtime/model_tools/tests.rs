@@ -155,6 +155,40 @@ fn mcp_catalog(availability: Option<CapabilityAvailabilityStatus>) -> Capability
             Arc::new(OmitPayloadSanitizer),
         ))
         .expect("unique MCP test binding");
+    if availability == Some(CapabilityAvailabilityStatus::Disabled) {
+        builder
+            .add(
+                CapabilityBinding::new(
+                    ToolSpec::new(
+                        "enable.mcp.mcp:docs.read",
+                        "Ask the human to enable the document reader.",
+                        json!({"type":"object","properties":{},"additionalProperties":false}),
+                    )
+                    .expect("enablement spec"),
+                    CapabilityTarget::new(
+                        InvokerKey::new("mcp"),
+                        OperationToken::new("enable-test-mcp-authority"),
+                    ),
+                    CapabilityToolBehavior {
+                        read_only: false,
+                        idempotent: true,
+                        destructive: false,
+                        open_world: false,
+                    },
+                    CapabilityExecutionDecision::HumanReview,
+                    CapabilityScope::Global,
+                    Arc::new(|arguments: &serde_json::Value| {
+                        arguments.as_object().is_some_and(serde_json::Map::is_empty)
+                    }),
+                    Arc::new(OmitPayloadSanitizer),
+                )
+                .with_destination(
+                    CapabilityDestination::new("mcp", "mcp:docs", None::<String>, "generation:v1")
+                        .expect("destination"),
+                ),
+            )
+            .expect("unique enablement binding");
+    }
     CapabilityCatalogResult {
         snapshot: builder.build(),
         availability_notices: availability
@@ -722,6 +756,17 @@ async fn transient_outages_preserve_native_catalog_during_outages() {
                 .iter()
                 .all(|tool| tool.as_str() != "mcp.mcp:docs.read")
         );
+        source.replace(mcp_catalog(Some(CapabilityAvailabilityStatus::Disabled)));
+        let disabled = build_model_tools(&store, &capability_bindings, true, capabilities)
+            .await
+            .expect("disabled tools");
+        assert!(
+            disabled.unavailable_rows.iter().any(|row| {
+                row.ends_with("status=disabled\tenable_with=enable.mcp.mcp:docs.read")
+            })
+        );
+        assert!(!disabled.tool_policy.allows_tool("mcp.mcp:docs.read"));
+        assert!(disabled.tool_policy.allows_tool("enable.mcp.mcp:docs.read"));
     }
 }
 

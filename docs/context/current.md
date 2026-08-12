@@ -59,6 +59,9 @@ vertical slice or a net-negative reduction.
 - Every capability binding owns a source input check. The shared capability
   router runs that check after it resolves the exact binding and before it
   calls the invoker. Immediate and reviewed calls use the same check.
+- A disabled API or MCP tool stays non-callable. Its safe catalog row names one
+  reviewed enablement tool when the current policy can enable it. That tool
+  always creates a human action request and reuses the current policy fences.
 - Invalid task terminal input stops before invocation. It returns the existing
   invalid-terminal result so that the task can request one corrected report. A
   second invalid report ends in recovery.
@@ -79,6 +82,13 @@ vertical slice or a net-negative reduction.
   managed definition changes. The body-free SQLite projection is disposable.
   Current manifests use strict schema version 9. OAuth definitions reference
   one exact reviewed profile. Each OAuth operation declares accepted scope sets.
+- An adapter `definition_id` is the stable service identity. A semantic digest
+  identifies one immutable revision. Reviewed revisions migrate family
+  connections and schedules before the executable registry changes.
+- Definition transitions use bounded filesystem journals. Startup resumes only
+  journaled work. Family setup rejects superseded revisions and duplicate
+  account bindings. Breaking authentication changes keep the connection ID and
+  require an exact replacement connection fence.
 - Reusable OAuth is the active adapter authorization model. Reviewed profiles,
   applications, accounts, and grants have separate filesystem authorities.
   Client secrets and tokens use protected generations.
@@ -124,7 +134,7 @@ vertical slice or a net-negative reduction.
   The native iOS renderer supports idle, listening, thinking, and speaking motion.
   Active chat and task status selects the activity. Reduced Motion keeps a stable pose.
 - Web action requests show one question and one consequence. Exact evidence
-  stays available under Review details.
+  stays under Review details, or Developer details for tool enablement.
 - Settings omit success labels when the configured control proves readiness.
   Recoverable failures keep safe cached content and provide a local Retry action.
 - Optimize total system simplicity. Follow

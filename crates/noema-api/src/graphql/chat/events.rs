@@ -48,6 +48,9 @@ pub(in crate::graphql) async fn conversation_events(
                             metadata,
                             item,
                         } => {
+                    if !crate::graphql::replay::web_conversation_item_is_visible(item.as_ref()) {
+                        continue;
+                    }
                     yield GraphqlConversationEvent::ConversationItem(
                         Box::new(GraphqlConversationItemEvent {
                             conversation_id,

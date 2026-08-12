@@ -36,6 +36,7 @@ mod runtime_tests;
 mod schedule;
 mod service;
 mod setup;
+mod transition;
 
 pub use catalog::{AdapterCatalogCompiler, AdapterCatalogError};
 pub use compiler::{
@@ -94,5 +95,7 @@ pub use service::{
     AdapterCapabilityService, AdapterConnectionSetupError, AdapterManagementError,
     AdapterManagementFence, AdapterManagementSnapshot, AdapterMigrationError,
     AdapterOAuthAttemptEvent, AdapterOAuthAttemptStatus, AdapterOAuthAuthorizationRequest,
-    AdapterOAuthSetupCompletion, AdapterOAuthSetupError, AdapterOAuthSetupStart,
+    AdapterOAuthServiceSelection, AdapterOAuthSetupCompletion, AdapterOAuthSetupError,
+    AdapterOAuthSetupStart,
 };
+pub use transition::AdapterDefinitionTransition;

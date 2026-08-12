@@ -5,9 +5,10 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { HStack } from "@astryxdesign/core/HStack";
-import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
+import { MoreMenu } from "@astryxdesign/core/MoreMenu";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
-import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import {
   AcpAgentsDocument,
   AgentsDocument,
@@ -35,7 +36,16 @@ import type {
   ModelProviderOption
 } from "./modelPreferenceTypes";
 import { agentDisplayName, selectedModelWarning } from "./agentMetadata";
-import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
+import { SettingsEditDialog } from "./SettingsEditDialog";
+import {
+  SettingsList,
+  SettingsListItem,
+  SettingsLocalFeedback,
+  SettingsRowActions,
+  SettingsSection,
+  SettingsSectionBody,
+  SettingsSectionInset
+} from "./SettingsPrimitives";
 import { settingsStatusLabel } from "./settingsStatus";
 
 export type AgentSettingsAgent = {
@@ -95,23 +105,12 @@ export function AgentsSettingsPane() {
   const visibleAgents = agents.filter((agent) => agent.agentId !== TASK_EXECUTOR_AGENT_ID);
 
   return (
-    <VStack gap={6} {...stylex.props(styles.stack)}>
-      {saveError ? (
-        <p role="alert" {...stylex.props(styles.saveError)}>
-          Noema could not save the model choice.
-        </p>
-      ) : null}
-      <SettingsSection aria-labelledby="registered-agents-title">
-        <VStack gap={2}>
-          <h2 id="registered-agents-title" {...stylex.props(styles.sectionTitle)}>
-            Registered agents
-          </h2>
+    <VStack gap={4} {...stylex.props(styles.stack)}>
+      <SettingsSection title="Agent models" titleId="registered-agents-title">
           {error ? (
-            <p role="alert" {...stylex.props(styles.mutedText)}>
-              Agent metadata could not be loaded.
-            </p>
+            <SettingsSectionInset><p role="alert" {...stylex.props(styles.mutedText)}>Agent metadata could not be loaded.</p></SettingsSectionInset>
           ) : visibleAgents.length === 0 ? (
-            <p {...stylex.props(styles.mutedText)}>No agents were found.</p>
+            <SettingsSectionInset><p {...stylex.props(styles.mutedText)}>No agents were found.</p></SettingsSectionInset>
           ) : (
             <SettingsList density="balanced" hasDividers>
               {visibleAgents.map((agent) => (
@@ -119,22 +118,23 @@ export function AgentsSettingsPane() {
               ))}
             </SettingsList>
           )}
-        </VStack>
+          {saveError ? <SettingsLocalFeedback>
+            <p role="alert" {...stylex.props(styles.saveError)}>Noema could not save the model choice.</p>
+          </SettingsLocalFeedback> : null}
       </SettingsSection>
-      <SettingsSection aria-labelledby="acp-agents-title">
-        <VStack gap={2}>
-          <HStack gap={2} justify="between" vAlign="center" wrap="wrap">
-            <VStack gap={0.5}>
-              <h2 id="acp-agents-title" {...stylex.props(styles.sectionTitle)}>ACP task executors</h2>
-              <p {...stylex.props(styles.mutedText)}>Trusted local commands Noema can launch for Executor runs.</p>
-            </VStack>
-            <Button type="button" size="sm" variant="secondary" label="Add ACP agent" onClick={() => setEditingAcpAgent("new")} />
-          </HStack>
-          {acpError ? <p role="alert" {...stylex.props(styles.saveError)}>{acpError}</p> : null}
-          {acpLoading ? <p {...stylex.props(styles.mutedText)}>Loading ACP agents...</p> : acpAgents.length === 0 ? (
-            <p {...stylex.props(styles.mutedText)}>No ACP executors are configured.</p>
+      <SettingsSection
+        title="ACP task executors"
+        titleId="acp-agents-title"
+        action={<Button type="button" size="sm" variant="secondary" label="Add ACP agent" onClick={() => setEditingAcpAgent("new")} />}
+      >
+          <SettingsSectionInset>
+            <p {...stylex.props(styles.mutedText)}>Trusted local commands Noema can launch for Executor runs.</p>
+          </SettingsSectionInset>
+          {acpError ? <SettingsLocalFeedback><p role="alert" {...stylex.props(styles.saveError)}>{acpError}</p></SettingsLocalFeedback> : null}
+          {acpLoading ? <SettingsSectionInset divided><p {...stylex.props(styles.mutedText)}>Loading ACP agents...</p></SettingsSectionInset> : acpAgents.length === 0 ? (
+            <SettingsSectionInset divided><p {...stylex.props(styles.mutedText)}>No ACP executors are configured.</p></SettingsSectionInset>
           ) : (
-            <SettingsList density="balanced" hasDividers>
+            <SettingsSectionBody divided><SettingsList density="balanced" hasDividers>
               {acpAgents.map((agent) => (
                 <SettingsListItem
                   key={agent.agentId}
@@ -142,19 +142,24 @@ export function AgentsSettingsPane() {
                   label={<HStack gap={2} vAlign="center" wrap="wrap"><span {...stylex.props(styles.rowLabel)}>{agent.displayName}</span>{!agent.enabled ? <Badge variant="neutral" label="Off" /> : null}</HStack>}
                   description={acpAgentDescription(agent)}
                   endContent={
-                    <HStack gap={1.5} wrap="wrap" justify="end">
-                      {agent.authStatus === "REQUIRED" ? acpAuthMethods(agent).map((method) => (
-                        <Button key={method.id} type="button" size="sm" variant="secondary" label={`Authenticate with ${method.name || method.id}`} aria-label={`Authenticate ${agent.displayName} with ${method.name || method.id}`} isLoading={acpBusy} isDisabled={acpBusy} onClick={() => void onAuthenticateAcpAgent({ agentId: agent.agentId, expectedRevision: agent.connectionRevision, methodId: method.id })} />
-                      )) : null}
-                      <Button type="button" size="sm" variant="secondary" label="Test" aria-label={`Test ${agent.displayName}`} isLoading={acpBusy} isDisabled={acpBusy} onClick={() => void onTestAcpAgent({ agentId: agent.agentId, expectedRevision: agent.connectionRevision })} />
-                      <Button type="button" size="sm" variant="ghost" label="Edit" aria-label={`Edit ${agent.displayName}`} isDisabled={acpBusy} onClick={() => setEditingAcpAgent(agent)} />
-                    </HStack>
+                    <MoreMenu
+                      label={`Actions for ${agent.displayName}`}
+                      size="sm"
+                      isDisabled={acpBusy}
+                      items={[
+                        ...(agent.authStatus === "REQUIRED" ? acpAuthMethods(agent) : []).map((method) => ({
+                          label: `Authenticate with ${method.name || method.id}`,
+                          onClick: () => void onAuthenticateAcpAgent({ agentId: agent.agentId, expectedRevision: agent.connectionRevision, methodId: method.id })
+                        })),
+                        { label: "Test", onClick: () => void onTestAcpAgent({ agentId: agent.agentId, expectedRevision: agent.connectionRevision }) },
+                        { label: "Edit", onClick: () => setEditingAcpAgent(agent) }
+                      ]}
+                    />
                   }
                 />
               ))}
-            </SettingsList>
+            </SettingsList></SettingsSectionBody>
           )}
-        </VStack>
       </SettingsSection>
       {error || !taskExecutor ? null : (
         <TaskModelPoolsSettings
@@ -187,19 +192,31 @@ function AcpAgentDialog({ agent, busy, error, onClose, onCreate, onUpdate }: { a
   const [argumentsText, setArgumentsText] = React.useState(existing?.arguments.join("\n") ?? "");
   const [enabled, setEnabled] = React.useState(existing?.enabled ?? true);
   if (!agent) return null;
+  const save = async () => {
+    const input = { displayName: displayName.trim(), command: command.trim(), arguments: argumentsText.split("\n").map((value) => value.trim()).filter(Boolean) };
+    await (existing ? onUpdate({ agentId: existing.agentId, expectedRevision: existing.connectionRevision, enabled, ...input }) : onCreate(input));
+    onClose();
+  };
   return (
-    <Dialog isOpen onOpenChange={(open) => !open && onClose()} purpose="form" width={540} aria-label={existing ? "Edit ACP agent" : "Add ACP agent"}>
-      <Layout height="auto" header={<DialogHeader title={existing ? "Edit ACP agent" : "Add ACP agent"} subtitle="The executable is launched directly with this exact argument array—never through a shell." onOpenChange={(open) => !open && onClose()} />} content={<LayoutContent>
-        <VStack as="form" gap={3} onSubmit={(event) => { event.preventDefault(); const input = { displayName: displayName.trim(), command: command.trim(), arguments: argumentsText.split("\n").map((value) => value.trim()).filter(Boolean) }; const request = existing ? onUpdate({ agentId: existing.agentId, expectedRevision: existing.connectionRevision, enabled, ...input }) : onCreate(input); void request.then(onClose).catch(() => undefined); }}>
-          <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Name</span><input data-autofocus required value={displayName} {...stylex.props(styles.input)} onChange={(event) => setDisplayName(event.currentTarget.value)} /></VStack>
-          <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Executable</span><input required value={command} placeholder="/absolute/path/to/agent" {...stylex.props(styles.input)} onChange={(event) => setCommand(event.currentTarget.value)} /></VStack>
-          <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Arguments (one per line)</span><textarea rows={4} value={argumentsText} {...stylex.props(styles.input, styles.textarea)} onChange={(event) => setArgumentsText(event.currentTarget.value)} /></VStack>
+    <SettingsEditDialog
+      title={existing ? "Edit ACP agent" : "Add ACP agent"}
+      open
+      saving={busy}
+      saveLabel={existing ? "Save" : "Add agent"}
+      saveDisabled={!displayName.trim() || !command.trim()}
+      error={error}
+      width={540}
+      onOpenChange={(open) => !open && onClose()}
+      onSave={save}
+    >
+        <VStack gap={3}>
+          <p {...stylex.props(styles.mutedText)}>Noema launches this executable directly with the exact argument array. It does not use a shell.</p>
+          <TextInput hasAutoFocus isRequired label="Name" value={displayName} onChange={setDisplayName} />
+          <TextInput isRequired label="Executable" value={command} placeholder="/absolute/path/to/agent" onChange={setCommand} />
+          <TextArea label="Arguments" description="One argument per line" rows={4} value={argumentsText} onChange={setArgumentsText} />
           {existing ? <CheckboxInput label="Enabled for new tasks" value={enabled} onChange={setEnabled} /> : null}
-          {error ? <p role="alert" {...stylex.props(styles.saveError)}>{error}</p> : null}
-          <HStack gap={2} justify="end"><Button type="button" size="sm" variant="ghost" label="Cancel" isDisabled={busy} onClick={onClose} /><Button type="submit" size="sm" variant="primary" label={existing ? "Save" : "Add agent"} isLoading={busy} isDisabled={busy || !displayName.trim() || !command.trim()} /></HStack>
         </VStack>
-      </LayoutContent>} />
-    </Dialog>
+    </SettingsEditDialog>
   );
 }
 
@@ -210,8 +227,7 @@ function acpAgentDescription(agent: AcpAgent): React.ReactNode {
     return settingsStatusLabel(agent.authStatus);
   }
   if (agent.healthStatus !== "HEALTHY") return settingsStatusLabel(agent.healthStatus);
-  const implementation = [agent.implementationName, agent.implementationVersion].filter(Boolean).join(" ");
-  return implementation || undefined;
+  return undefined;
 }
 
 function acpAuthMethods(agent: AcpAgent): Array<{ id: string; name: string | null }> {
@@ -245,7 +261,7 @@ function AgentRow({
       label={label}
       description={description}
       endContent={
-        <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
+        <SettingsRowActions>
           <ModelPreferenceSelect
             options={agent.modelOptions ?? []}
             preference={agent.modelPreference ?? null}
@@ -254,7 +270,7 @@ function AgentRow({
             ariaLabel={`Model settings for ${agentDisplayName(agent)}`}
             onSave={(input) => onSave({ agentId: agent.agentId, ...input })}
           />
-        </HStack>
+        </SettingsRowActions>
       }
     />
   );
@@ -262,13 +278,6 @@ function AgentRow({
 
 const styles = stylex.create({
   stack: { minWidth: 0 },
-  sectionTitle: {
-    margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    fontSize: 16,
-    lineHeight: 1.3,
-    color: "var(--foreground)"
-  },
   rowLabel: {
     color: "var(--foreground)",
     fontWeight: 650,
@@ -291,15 +300,4 @@ const styles = stylex.create({
     fontSize: 13,
     lineHeight: 1.5
   },
-  rowControl: {
-    justifyContent: "flex-end",
-    "@media (max-width: 620px)": {
-      width: "100%",
-      justifyContent: "flex-start",
-      marginInlineStart: "0"
-    }
-  },
-  field: { color: "var(--foreground)", fontSize: 13, fontWeight: 600 },
-  input: { width: "100%", minHeight: 38, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: 8, backgroundColor: "var(--background)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-2)", color: "var(--foreground)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: 2 } },
-  textarea: { resize: "vertical", lineHeight: 1.5 }
 });

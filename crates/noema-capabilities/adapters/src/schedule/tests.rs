@@ -138,3 +138,56 @@ fn scan_recovers_an_abandoned_atomic_replacement() {
     assert_eq!(store.scan().expect("recovered scan").len(), 1);
     assert!(!orphan.exists());
 }
+
+#[test]
+fn transition_moves_unchanged_schedules_and_disables_changed_tools() {
+    let directory = tempdir().expect("home");
+    let paths = NoemaPaths::from_noema_home(directory.path()).expect("paths");
+    let store = ScheduleStore::new(paths.clone());
+    let cursors = DurableCursorStore::new(paths);
+    let mut unchanged = schedule();
+    unchanged.schedule_id = "schedule-unchanged".to_string();
+    let mut changed = schedule();
+    changed.schedule_id = "schedule-changed".to_string();
+    changed.operation_id = "changed_item".to_string();
+    store
+        .install(&unchanged, &PollCheckpoint::default())
+        .expect("install unchanged");
+    store
+        .install(&changed, &PollCheckpoint::default())
+        .expect("install changed");
+
+    store
+        .migrate_connection_references(
+            &"a".repeat(64),
+            &"b".repeat(64),
+            "connection-1",
+            "connection-2",
+            &BTreeSet::from(["list_items".to_string()]),
+            &cursors,
+        )
+        .expect("migrate schedules");
+
+    let migrated = store.scan().expect("scan migrated schedules");
+    assert!(migrated.iter().all(|install| {
+        install.schedule.semantic_digest == "b".repeat(64)
+            && install.schedule.connection_id == "connection-2"
+            && install.checkpoint.full_resync_required
+    }));
+    assert!(
+        migrated
+            .iter()
+            .find(|install| install.schedule.schedule_id == "schedule-unchanged")
+            .expect("unchanged schedule")
+            .schedule
+            .enabled
+    );
+    assert!(
+        !migrated
+            .iter()
+            .find(|install| install.schedule.schedule_id == "schedule-changed")
+            .expect("changed schedule")
+            .schedule
+            .enabled
+    );
+}

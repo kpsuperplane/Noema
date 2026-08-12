@@ -3,7 +3,6 @@ import { Button } from "@astryxdesign/core/Button";
 import { FileInput } from "@astryxdesign/core/FileInput";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { HStack } from "@astryxdesign/core/HStack";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
@@ -23,7 +22,14 @@ import {
 } from "@/generated/graphql";
 import { DeleteConfirmationDialog } from "./DeleteConnectionDialog";
 import { SettingsEditDialog } from "./SettingsEditDialog";
-import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
+import {
+  SettingsList,
+  SettingsListItem,
+  SettingsLocalFeedback,
+  SettingsSection,
+  SettingsSectionInset,
+  SettingsTechnicalDetails
+} from "./SettingsPrimitives";
 
 type ApnsProviderStatus = NonNullable<ApnsProviderStatusQuery["apnsProviderStatus"]>;
 
@@ -34,7 +40,7 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 
 export function NotificationsSettingsPane() {
   return (
-    <VStack gap={3}>
+    <VStack gap={4}>
       <ApnsProviderSettings />
       <WebPushSettings />
     </VStack>
@@ -100,28 +106,23 @@ function ApnsProviderSettings() {
   };
 
   return (
-    <SettingsSection aria-labelledby="apns-provider-settings-title">
-      <VStack gap={2}>
-        <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
-          <h2 id="apns-provider-settings-title" {...stylex.props(styles.sectionTitle)}>
-            Apple Push Notifications
-          </h2>
-          {status ? (
-            <HStack gap={1} vAlign="center">
-              <StatusDot
-                variant={status.configured ? "success" : "neutral"}
-                label={status.configured ? "Configured" : "Not configured"}
-              />
-              <span {...stylex.props(styles.statusLabel)}>
-                {status.configured ? "Configured" : "Not configured"}
-              </span>
-            </HStack>
-          ) : null}
-        </HStack>
+    <SettingsSection
+      title="Apple Push Notifications"
+      titleId="apns-provider-settings-title"
+      action={<Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        label={status?.configured ? "Rotate key" : "Configure"}
+        icon={<KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />}
+        isDisabled={busy || loading}
+        onClick={openConfigure}
+      />}
+    >
         {loading ? (
-          <p {...stylex.props(styles.mutedText)}>Loading Apple push settings...</p>
+          <SettingsSectionInset><p {...stylex.props(styles.mutedText)}>Loading Apple push settings...</p></SettingsSectionInset>
         ) : queryError && !status ? (
-          <VStack gap={2}>
+          <SettingsSectionInset>
             <p role="alert" {...stylex.props(styles.errorText)}>{queryError}</p>
             <Button
               type="button"
@@ -131,19 +132,21 @@ function ApnsProviderSettings() {
               icon={<RefreshCw {...stylex.props(styles.icon)} aria-hidden="true" />}
               onClick={() => void result.refetch()}
             />
-          </VStack>
+          </SettingsSectionInset>
         ) : (
-          <ApnsProviderDetails
-            status={status}
-            busy={busy}
-            onConfigure={openConfigure}
-            onRemove={openRemove}
-          />
+          <>
+            {queryError && status ? <SettingsLocalFeedback>
+              <HStack gap={2} wrap="wrap" vAlign="center">
+                <p role="alert" {...stylex.props(styles.errorText)}>Apple push settings could not refresh.</p>
+                <Button type="button" variant="secondary" size="sm" label="Retry" icon={<RefreshCw {...stylex.props(styles.icon)} aria-hidden="true" />} onClick={() => void result.refetch()} />
+              </HStack>
+            </SettingsLocalFeedback> : null}
+            {mutationError && !configureOpen && !removeOpen ? (
+              <SettingsLocalFeedback><p role="alert" {...stylex.props(styles.errorText)}>{mutationError}</p></SettingsLocalFeedback>
+            ) : null}
+            <ApnsProviderDetails status={status} busy={busy} onRemove={openRemove} />
+          </>
         )}
-        {queryError && status ? <p role="alert" {...stylex.props(styles.errorText)}>{queryError}</p> : null}
-        {mutationError && !configureOpen && !removeOpen ? (
-          <p role="alert" {...stylex.props(styles.errorText)}>{mutationError}</p>
-        ) : null}
         <ApnsConfigureDialog
           key={configureOpen ? "open" : "closed"}
           status={status}
@@ -163,7 +166,6 @@ function ApnsProviderSettings() {
           onOpenChange={setRemoveOpen}
           onConfirm={() => void remove()}
         />
-      </VStack>
     </SettingsSection>
   );
 }
@@ -171,69 +173,41 @@ function ApnsProviderSettings() {
 function ApnsProviderDetails({
   status,
   busy,
-  onConfigure,
   onRemove
 }: {
   status: ApnsProviderStatus | null;
   busy: boolean;
-  onConfigure: () => void;
   onRemove: () => void;
 }) {
   const configured = status?.configured ?? false;
-  return (
-    <SettingsList density="balanced" hasDividers>
-      <SettingsListItem
-        mobileEndContentFullWidth
-        label={configured ? "APNs provider ready" : "No APNs provider"}
-        description={
-          configured
-            ? "Apple clients can receive server notifications."
-            : "Upload an Apple .p8 key to enable server notifications for Apple clients."
-        }
-        endContent={
-          <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              label={configured ? "Rotate key" : "Configure"}
-              icon={<KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />}
-              isDisabled={busy}
-              onClick={onConfigure}
-            />
-            {configured ? (
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                label="Remove"
-                icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
-                isDisabled={busy}
-                onClick={onRemove}
-              />
-            ) : null}
-          </HStack>
-        }
-      />
-      {configured ? (
-        <>
+  if (!configured) return <SettingsSectionInset>
+    <p {...stylex.props(styles.mutedText)}>Upload an Apple .p8 key to enable server notifications for Apple clients.</p>
+  </SettingsSectionInset>;
+  return <>
+      {status?.lastErrorCode || status?.lastErrorAt ? <SettingsList density="balanced" hasDividers>
+        <MetadataRow
+          label="Delivery needs attention"
+          value={`${status.lastErrorCode ?? "Unknown error"}${status.lastErrorAt ? ` · ${formatDate(status.lastErrorAt)}` : ""}`}
+          error
+        />
+      </SettingsList> : null}
+      <SettingsSectionInset divided>
+        <HStack gap={2} wrap="wrap" vAlign="center" hAlign="between">
+          <p {...stylex.props(styles.mutedText)}>Removing this credential stops notifications for paired Apple clients.</p>
+          <Button type="button" variant="destructive" size="sm" label="Remove" icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />} isDisabled={busy} onClick={onRemove} />
+        </HStack>
+      </SettingsSectionInset>
+      <SettingsTechnicalDetails>
+        <SettingsList density="compact">
           <MetadataRow label="Team ID" value={status?.teamId} />
           <MetadataRow label="Key ID" value={status?.keyId} />
           <MetadataRow label="Topic" value={status?.topic} />
           <MetadataRow label="Key fingerprint" value={status?.keyFingerprint} />
           <MetadataRow label="Revision" value={String(status?.revision ?? 0)} />
           <MetadataRow label="Last updated" value={formatDate(status?.updatedAt)} />
-        </>
-      ) : null}
-      {status?.lastErrorCode || status?.lastErrorAt ? (
-        <MetadataRow
-          label="Last delivery error"
-          value={`${status.lastErrorCode ?? "Unknown error"}${status.lastErrorAt ? ` · ${formatDate(status.lastErrorAt)}` : ""}`}
-          error
-        />
-      ) : null}
-    </SettingsList>
-  );
+        </SettingsList>
+      </SettingsTechnicalDetails>
+    </>;
 }
 
 function MetadataRow({
@@ -372,11 +346,7 @@ function WebPushSettings() {
   const actionable = webPush.state === "enabled" || webPush.state === "disabled";
 
   return (
-    <SettingsSection aria-labelledby="notification-settings-title">
-      <VStack gap={2}>
-        <h2 id="notification-settings-title" {...stylex.props(styles.sectionTitle)}>
-          Device notifications
-        </h2>
+    <SettingsSection title="Device notifications" titleId="notification-settings-title">
         <SettingsList density="balanced" hasDividers>
           <SettingsListItem
             mobileEndContentFullWidth
@@ -399,21 +369,13 @@ function WebPushSettings() {
           />
         </SettingsList>
         {webPush.error ? (
-          <p role="alert" {...stylex.props(styles.errorText)}>{webPush.error}</p>
+          <SettingsLocalFeedback><p role="alert" {...stylex.props(styles.errorText)}>{webPush.error}</p></SettingsLocalFeedback>
         ) : null}
-      </VStack>
     </SettingsSection>
   );
 }
 
 const styles = stylex.create({
-  sectionTitle: {
-    margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    fontSize: 16,
-    lineHeight: 1.3,
-    color: "var(--foreground)"
-  },
   mutedText: {
     margin: "var(--spacing-0)",
     color: "var(--muted-foreground)",
@@ -432,21 +394,8 @@ const styles = stylex.create({
     fontSize: 12,
     overflowWrap: "anywhere"
   },
-  statusLabel: {
-    color: "var(--foreground)",
-    fontSize: 12,
-    fontWeight: 600
-  },
   errorValue: {
     color: "var(--destructive)"
-  },
-  rowControl: {
-    justifyContent: "flex-end",
-    "@media (max-width: 620px)": {
-      width: "100%",
-      justifyContent: "flex-start",
-      marginInlineStart: "0"
-    }
   },
   icon: {
     width: 14,

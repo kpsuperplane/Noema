@@ -3,8 +3,8 @@ import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
-import { Link } from "@tanstack/react-router";
 import { AnimatePresence } from "motion/react";
+import { ListCardLink } from "@/components/ListCardLink";
 import {
   HumanInterventionList,
   HumanInterventionMotionItem,
@@ -298,16 +298,14 @@ function TaskCard({ taskId, title, note, project, status, statusLabel, timestamp
   listItem?: boolean;
   attached?: boolean;
 }) {
-  const cardStyles = stylex.props(styles.taskCard, attached && styles.attachedTaskCard);
-  const selectedCardStyles = stylex.props(styles.taskCard, attached && styles.attachedTaskCard, styles.selectedCard);
   const link = (
-    <Link
+    <ListCardLink
       to="/tasks/$taskId"
       params={{ taskId }}
       search={(current) => normalizeTasksSearch(current)}
       activeOptions={{ exact: true, includeSearch: false }}
-      activeProps={{ ...selectedCardStyles, "aria-current": "page" }}
-      {...cardStyles}
+      activeProps={{ selected: true, "aria-current": "page" }}
+      xstyle={[styles.taskCardLayout, attached && styles.attachedTaskCard]}
     >
       <div {...stylex.props(styles.cardHeading)}>
         <strong {...stylex.props(styles.cardTitle)}>{title}</strong>
@@ -323,7 +321,7 @@ function TaskCard({ taskId, title, note, project, status, statusLabel, timestamp
           </>
         ) : null}
       </HStack>
-    </Link>
+    </ListCardLink>
   );
   return listItem ? <li {...stylex.props(styles.cardListItem)}>{link}</li> : link;
 }
@@ -374,11 +372,7 @@ function ListLoadMore({ visible, loading, onLoad }: { visible: boolean; loading:
 
 const styles = stylex.create({
   dashboard: { minHeight: 0, paddingBlock: "var(--spacing-3)", "@media (max-width: 760px)": { paddingBlock: "var(--spacing-2)" } },
-  taskList: {
-    minWidth: 0,
-    "--task-card-radius": "10px",
-    "--task-card-shadow": "0 1px 2px color-mix(in srgb, black 4%, transparent)"
-  },
+  taskList: { minWidth: 0 },
   taskGroup: { minWidth: 0 },
   cards: { minWidth: 0, margin: "var(--spacing-0)", padding: "var(--spacing-0)", listStyle: "none" },
   cardListItem: { minWidth: 0, listStyle: "none" },
@@ -386,8 +380,7 @@ const styles = stylex.create({
   sectionTitle: { margin: "var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: 12, fontWeight: 650 },
   attentionTitle: { color: "var(--noema-clay-700)" },
   count: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 12, fontVariantNumeric: "tabular-nums" },
-  taskCard: { display: "grid", minWidth: 0, gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: "var(--task-card-radius)", backgroundColor: "var(--noema-surface-card)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)", color: "var(--noema-text-secondary)", textDecoration: "none", boxShadow: "var(--task-card-shadow)", ":hover": { borderColor: "var(--noema-border-default)", backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
-  selectedCard: { borderColor: "color-mix(in srgb, var(--noema-pine-500) 26%, var(--noema-border-subtle))", backgroundColor: "color-mix(in srgb, var(--noema-pine-50) 70%, var(--noema-surface-card))", boxShadow: "0 2px 8px color-mix(in srgb, var(--noema-pine-700) 9%, transparent)" },
+  taskCardLayout: { gap: "var(--spacing-1)" },
   cardHeading: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", minWidth: 0, alignItems: "baseline", gap: "var(--spacing-2)" },
   cardTitle: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 650, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
   cardTime: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 12, fontVariantNumeric: "tabular-nums" },
@@ -397,9 +390,9 @@ const styles = stylex.create({
   attachedTask: {
     position: "relative",
     minWidth: 0,
-    "--human-intervention-card-radius": "var(--task-card-radius)",
+    "--human-intervention-card-radius": "10px",
     "--human-intervention-card-bottom-radius": "0px",
-    "--human-intervention-card-overlap": "var(--task-card-radius)"
+    "--human-intervention-card-overlap": "10px"
   },
   attachedTaskCard: {
     position: "relative",

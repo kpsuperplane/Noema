@@ -340,6 +340,11 @@ fn safe_action_summary(
     behavior: CapabilityToolBehavior,
     arguments: &serde_json::Value,
 ) -> String {
+    if let Some(disabled_name) =
+        capability_name.strip_prefix(noema_capabilities::TOOL_ENABLEMENT_PREFIX)
+    {
+        return format!("Enable {disabled_name}");
+    }
     if capability_name == noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
         && let Ok(noema_capabilities::web::browse::BrowseCommand::Interact(request)) =
             noema_capabilities::web::browse::parse_command(capability_name, arguments)

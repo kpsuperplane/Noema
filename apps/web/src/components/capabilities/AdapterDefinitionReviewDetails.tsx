@@ -38,6 +38,16 @@ type ReviewDefinition = {
   accountIdentityOperationId?: string | null;
   reviewed: boolean;
   operations: readonly ReviewOperation[];
+  transition: {
+    addedOperations: readonly string[];
+    changedOperations: readonly string[];
+    removedOperations: readonly string[];
+    authenticationChanged: boolean;
+    affectedConnections: number;
+    affectedSchedules: number;
+    authenticationRequiredConnections: number;
+    consolidatedConnections: number;
+  };
 };
 
 export function AdapterDefinitionReviewDetails({ definition }: { definition: ReviewDefinition }) {
@@ -49,9 +59,47 @@ export function AdapterDefinitionReviewDetails({ definition }: { definition: Rev
   );
   const setup = definition.credentialSetup;
   const sourceIsHttps = definition.sourceReference.startsWith("https://");
+  const transition = definition.transition;
+  const hasTransition = transition.addedOperations.length > 0
+    || transition.changedOperations.length > 0
+    || transition.removedOperations.length > 0
+    || transition.authenticationChanged;
 
   return (
     <VStack gap={4}>
+      {hasTransition ? (
+        <MetadataList title={<strong {...stylex.props(styles.heading)}>Revision impact</strong>}>
+          {transition.addedOperations.length > 0 ? (
+            <MetadataListItem label="Added tools">{operationNames(transition.addedOperations)}</MetadataListItem>
+          ) : null}
+          {transition.changedOperations.length > 0 ? (
+            <MetadataListItem label="Changed tools">{operationNames(transition.changedOperations)}</MetadataListItem>
+          ) : null}
+          {transition.removedOperations.length > 0 ? (
+            <MetadataListItem label="Removed tools">{operationNames(transition.removedOperations)}</MetadataListItem>
+          ) : null}
+          <MetadataListItem label="Connections">
+            {transition.affectedConnections === 0
+              ? "No existing connections"
+              : `${transition.affectedConnections} will migrate`}
+          </MetadataListItem>
+          {transition.authenticationRequiredConnections > 0 ? (
+            <MetadataListItem label="Sign-in required">
+              {countLabel(transition.authenticationRequiredConnections, "connection")}
+            </MetadataListItem>
+          ) : null}
+          {transition.consolidatedConnections > 0 ? (
+            <MetadataListItem label="Duplicates removed">
+              {countLabel(transition.consolidatedConnections, "connection")}
+            </MetadataListItem>
+          ) : null}
+          {transition.affectedSchedules > 0 ? (
+            <MetadataListItem label="Schedules">
+              {countLabel(transition.affectedSchedules, "schedule")} checked during migration
+            </MetadataListItem>
+          ) : null}
+        </MetadataList>
+      ) : null}
       <MetadataList title={<strong {...stylex.props(styles.heading)}>Authentication</strong>}>
         <MetadataListItem label="Method">{authenticationLabel(definition.authenticationMode)}</MetadataListItem>
         <MetadataListItem label="Credential">{credentialLabel(definition.authenticationMode, setup?.credentialType)}</MetadataListItem>
@@ -177,6 +225,10 @@ function authenticationLabel(mode: string) {
   if (mode === "credential") return "Provider credential";
   if (mode === "none") return "No authentication";
   return humanize(mode);
+}
+
+function operationNames(operationIds: readonly string[]) {
+  return operationIds.map(humanize).join(", ");
 }
 
 function credentialLabel(mode: string, credentialType?: string) {

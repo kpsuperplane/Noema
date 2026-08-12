@@ -1,13 +1,18 @@
 import * as stylex from "@stylexjs/stylex";
 import { useMutation, useQuery, useSubscription } from "@apollo/client/react";
+import { Avatar } from "@astryxdesign/core/Avatar";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
-import { CircleStop, Download, Play, RefreshCw, Trash2, Upload } from "lucide-react";
-import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { ChevronRight, CircleStop, Download, Play, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ListCardLink } from "@/components/ListCardLink";
 import {
   ActivateLocalModelDocument,
   CancelLocalModelInstallDocument,
@@ -20,7 +25,7 @@ import {
   type ImportLocalModelInput,
   type LocalModelsSettingsQuery
 } from "@/generated/graphql";
-import { ErrorMarker } from "../ErrorMarker";
+import { DeleteConfirmationDialog } from "./DeleteConnectionDialog";
 import {
   formatBytes,
   formatGigabytes,
@@ -32,155 +37,445 @@ import {
   type LocalModelInstallationItem
 } from "./localModelMetadata";
 import { SettingsEditDialog } from "./SettingsEditDialog";
-import { DeleteConfirmationDialog } from "./DeleteConnectionDialog";
-import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
+import { SettingsManagementLayout } from "./SettingsManagementLayout";
+import {
+  SettingsList,
+  SettingsListItem,
+  SettingsSection,
+  SettingsSectionInset,
+  SettingsTechnicalDetails
+} from "./SettingsPrimitives";
 
 type LocalModelSetupView = LocalModelsSettingsQuery["localModelSetup"];
 type DefaultModelPreference = LocalModelsSettingsQuery["defaultModelPreference"];
 type ImportKind = "LOCAL_FILE" | "PUBLIC_GGUF";
 
-export function LocalModelsSettingsPane() {
+export function LocalModelsSettingsPane({
+  installationId,
+  modelId
+}: {
+  installationId?: string;
+  modelId?: string;
+}) {
+  const navigate = useNavigate();
+  const desktop = useMediaQuery("(min-width: 980px)");
   const result = useQuery<LocalModelsSettingsQuery>(LocalModelsSettingsDocument, {
     fetchPolicy: "cache-and-network"
   });
   const refetchQueries = [{ query: LocalModelsSettingsDocument }];
-  const [install, installResult] = useMutation(InstallLocalModelDocument, { refetchQueries, awaitRefetchQueries: true });
-  const [importModel, importResult] = useMutation(ImportLocalModelDocument, { refetchQueries, awaitRefetchQueries: true });
-  const [cancel, cancelResult] = useMutation(CancelLocalModelInstallDocument, { refetchQueries, awaitRefetchQueries: true });
-  const [remove, removeResult] = useMutation(RemoveLocalModelDocument, { refetchQueries, awaitRefetchQueries: true });
-  const [activate, activateResult] = useMutation(ActivateLocalModelDocument, { refetchQueries, awaitRefetchQueries: true });
-  const [retryRuntime, retryResult] = useMutation(RetryLocalModelRuntimeDocument, { refetchQueries, awaitRefetchQueries: true });
+  const mutationOptions = { refetchQueries, awaitRefetchQueries: true };
+  const [install, installResult] = useMutation(InstallLocalModelDocument, mutationOptions);
+  const [importModel, importResult] = useMutation(ImportLocalModelDocument, mutationOptions);
+  const [cancel, cancelResult] = useMutation(CancelLocalModelInstallDocument, mutationOptions);
+  const [remove, removeResult] = useMutation(RemoveLocalModelDocument, mutationOptions);
+  const [activate, activateResult] = useMutation(ActivateLocalModelDocument, mutationOptions);
+  const [retryRuntime, retryResult] = useMutation(RetryLocalModelRuntimeDocument, mutationOptions);
   useSubscription(LocalModelEventsDocument, { onData: () => void result.refetch() });
-  const mutationResults = [installResult, importResult, cancelResult, removeResult, activateResult, retryResult];
+
   const setup = result.data?.localModelSetup ?? null;
   const catalog = result.data?.localModelCatalog ?? [];
   const installations = result.data?.localModelInstallations ?? [];
-  const defaultPreference = result.data?.defaultModelPreference ?? null;
-  const loading = result.loading && !result.data;
-  const error = result.error?.message ?? null;
+  const selectedInstallation = installations.find((item) => item.installationId === installationId) ?? null;
+  const selectedCatalogModel = catalog.find((item) => item.modelId === modelId) ?? null;
+  const selectedInstallationModel = catalog.find((item) => item.modelId === selectedInstallation?.modelId) ?? null;
+  const mutationResults = [installResult, importResult, cancelResult, removeResult, activateResult, retryResult];
   const saving = mutationResults.some((mutation) => mutation.loading);
-  const saveError = mutationResults.find((mutation) => mutation.error)?.error?.message ?? null;
-  const onRetry = () => void result.refetch();
-  const onInstall = (modelId: string, file?: string | null) => install({ variables: { input: { modelId, file } } });
-  const onImport = (input: ImportLocalModelInput) => importModel({ variables: { input } });
-  const onCancel = (installationId: string) => cancel({ variables: { installationId } });
-  const onRemove = (installationId: string) => remove({ variables: { installationId } });
-  const onActivate = (installationId: string) => activate({ variables: { installationId } });
-  const onRetryRuntime = () => retryRuntime();
+  const mutationError = mutationResults.find((mutation) => mutation.error)?.error?.message ?? null;
+  const loading = result.loading && !result.data;
+  const queryError = result.error ? "Local model settings could not be loaded." : null;
+  const installedModelIds = new Set(installations.map((installation) => installation.modelId));
+  const available = catalog.filter((model) => !installedModelIds.has(model.modelId));
+  const activeInstallationId = installations.find((item) => item.isActive)?.installationId;
+  const setupInstallationId = installations.find(
+    (item) => item.installationId === setup?.installation?.installationId
+  )?.installationId;
+  const recommendedModelId = available.find(
+    (item) => item.modelId === setup?.recommendedModel?.modelId
+  )?.modelId;
+  const defaultInstallationId = activeInstallationId
+    ?? setupInstallationId
+    ?? (recommendedModelId ? undefined : installations[0]?.installationId);
+  const defaultModelId = activeInstallationId || setupInstallationId
+    ? undefined
+    : recommendedModelId ?? (installations[0] ? undefined : available[0]?.modelId);
   const [importOpen, setImportOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
 
-  if (loading) {
-    return <p {...stylex.props(styles.mutedText)}>Loading local models...</p>;
-  }
+  useEffect(() => {
+    if (!desktop || installationId || modelId) return;
+    if (defaultInstallationId) {
+      void navigate({
+        to: "/settings/models/installations/$installationId",
+        params: { installationId: defaultInstallationId },
+        replace: true
+      });
+      return;
+    }
+    if (!defaultModelId) return;
+    void navigate({
+      to: "/settings/models/catalog/$modelId",
+      params: { modelId: defaultModelId },
+      replace: true
+    });
+  }, [defaultInstallationId, defaultModelId, desktop, installationId, modelId, navigate]);
 
-  if (error || !setup) {
-    return (
-      <SettingsSection aria-labelledby="local-runtime-title">
-        <VStack gap={2}>
-          <h2 id="local-runtime-title" {...stylex.props(styles.sectionTitle)}>Local runtime</h2>
-          <p {...stylex.props(styles.mutedText)}>Local model settings could not be loaded.</p>
-          {error ? <ErrorMarker message={error} /> : null}
-          <Button
-            type="button"
-            variant="secondary"
-            label="Retry"
-            icon={<RefreshCw size={15} aria-hidden="true" />}
-            {...stylex.props(styles.fitButton)}
-            onClick={onRetry}
-          />
-        </VStack>
-      </SettingsSection>
-    );
-  }
+  useEffect(() => {
+    if (loading) return;
+    const invalidInstallation = installationId && !selectedInstallation;
+    const invalidCatalogModel = modelId && !selectedCatalogModel;
+    if (invalidInstallation || invalidCatalogModel) {
+      void navigate({ to: "/settings/models", replace: true });
+    }
+  }, [installationId, loading, modelId, navigate, selectedCatalogModel, selectedInstallation]);
 
-  const diskBytesByDigest = new Map<string, number>();
-  for (const installation of installations) {
-    const key = installation.sha256 ?? installation.installationId;
-    diskBytesByDigest.set(key, Math.max(diskBytesByDigest.get(key) ?? 0, installation.diskBytes));
-  }
-  const totalDiskBytes = [...diskBytesByDigest.values()].reduce((sum, bytes) => sum + bytes, 0);
-  const installedModelIds = new Set(
-    installations
-      .filter((installation) => installation.status !== "FAILED" && installation.status !== "CANCELLED")
-      .map((installation) => installation.modelId)
+  const installCatalogModel = async (model: LocalModelCatalogItem) => {
+    try {
+      const response = await install({ variables: { input: { modelId: model.modelId, file: model.selectedBuild?.file } } });
+      const created = response.data?.installLocalModel;
+      if (created) void navigate({
+        to: "/settings/models/installations/$installationId",
+        params: { installationId: created.installationId }
+      });
+    } catch {
+      // Keep the selected model visible with its local mutation error.
+    }
+  };
+
+  const importLocalModel = async (input: ImportLocalModelInput) => {
+    const response = await importModel({ variables: { input } });
+    const created = response.data?.importLocalModel;
+    setImportOpen(false);
+    if (created) void navigate({
+      to: "/settings/models/installations/$installationId",
+      params: { installationId: created.installationId }
+    });
+  };
+
+  const removeInstallation = async () => {
+    if (!selectedInstallation) return;
+    try {
+      await remove({ variables: { installationId: selectedInstallation.installationId } });
+      setRemoveOpen(false);
+      void navigate({ to: "/settings/models" });
+    } catch {
+      // Keep the confirmation open so the local error can be retried.
+    }
+  };
+
+  return <>
+    <SettingsManagementLayout
+      title="Local Models"
+      primaryAction={{ label: "Import model", onClick: () => setImportOpen(true) }}
+      detailOpen={installationId !== undefined || modelId !== undefined}
+      detailLabel="Manage local model"
+      onDetailOpenChange={(open) => {
+        if (!open) void navigate({ to: "/settings/models" });
+      }}
+      list={
+        <LocalModelList
+          installations={installations}
+          available={available}
+          selectedInstallationId={installationId}
+          selectedModelId={modelId}
+          loading={loading}
+          error={queryError}
+          onRetry={() => void result.refetch()}
+        />
+      }
+      detail={selectedInstallation && setup ? (
+        <InstallationDetail
+          installation={selectedInstallation}
+          model={selectedInstallationModel}
+          setup={setup}
+          defaultPreference={result.data?.defaultModelPreference ?? null}
+          totalDiskBytes={totalDiskBytes(installations)}
+          saving={saving}
+          error={mutationError}
+          onCancel={() => void cancel({ variables: { installationId: selectedInstallation.installationId } })}
+          onActivate={() => void activate({ variables: { installationId: selectedInstallation.installationId } })}
+          onRetryRuntime={() => void retryRuntime()}
+          onRemove={() => setRemoveOpen(true)}
+        />
+      ) : selectedCatalogModel ? (
+        <CatalogModelDetail
+          model={selectedCatalogModel}
+          saving={saving}
+          error={installResult.error?.message ?? null}
+          onInstall={() => void installCatalogModel(selectedCatalogModel)}
+        />
+      ) : installationId || modelId ? (
+        <SettingsSectionInset>
+          <p {...stylex.props(styles.mutedText)}>This local model no longer exists.</p>
+        </SettingsSectionInset>
+      ) : undefined}
+    />
+    <AdvancedImportDialog
+      open={importOpen}
+      saving={saving}
+      error={importResult.error?.message ?? null}
+      onOpenChange={setImportOpen}
+      onImport={importLocalModel}
+    />
+    <DeleteConfirmationDialog
+      title={selectedInstallation ? `Remove ${selectedInstallation.name}?` : "Remove model?"}
+      message={selectedInstallation
+        ? `This removes ${formatBytes(selectedInstallation.diskBytes)} from this device. You can install it again later.`
+        : "This removes the model from this device."}
+      confirmLabel="Remove model"
+      open={removeOpen}
+      submitting={removeResult.loading}
+      error={removeOpen ? removeResult.error?.message ?? null : null}
+      onOpenChange={(open) => {
+        if (!removeResult.loading) setRemoveOpen(open);
+      }}
+      onConfirm={() => void removeInstallation()}
+    />
+  </>;
+}
+
+function LocalModelList({
+  installations,
+  available,
+  selectedInstallationId,
+  selectedModelId,
+  loading,
+  error,
+  onRetry
+}: {
+  installations: readonly LocalModelInstallationItem[];
+  available: readonly LocalModelCatalogItem[];
+  selectedInstallationId?: string;
+  selectedModelId?: string;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (loading) return <p {...stylex.props(styles.mutedText)}>Loading local models...</p>;
+  if (error && installations.length === 0 && available.length === 0) return (
+    <SettingsSection title="Local models" titleId="local-model-load-error">
+      <SettingsSectionInset>
+        <p role="alert" {...stylex.props(styles.errorText)}>{error}</p>
+        <Button type="button" size="sm" variant="secondary" label="Retry" onClick={onRetry} />
+      </SettingsSectionInset>
+    </SettingsSection>
   );
-  const alternatives = catalog.filter((model) => !installedModelIds.has(model.modelId));
-
-  return (
-    <VStack gap={6} {...stylex.props(styles.stack)}>
-      <RuntimeSection
-        setup={setup}
-        totalDiskBytes={totalDiskBytes}
-        defaultPreference={defaultPreference}
-        saving={saving}
-        onRetryRuntime={onRetryRuntime}
-      />
-      <SettingsSection aria-labelledby="installed-models-title">
-        <VStack gap={2}>
-          <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
-            <h2 id="installed-models-title" {...stylex.props(styles.sectionTitle)}>Installed models</h2>
-            <span {...stylex.props(styles.metric)}>{formatBytes(totalDiskBytes)} on disk</span>
-          </HStack>
-          {installations.length > 0 ? (
-            <SettingsList density="balanced" hasDividers>
-              {installations.map((installation) => (
-                <InstallationRow
-                  key={installation.installationId}
-                  installation={installation}
-                  saving={saving}
-                  removeError={removeResult.error?.message ?? null}
-                  onCancel={onCancel}
-                  onRemove={onRemove}
-                  onActivate={onActivate}
-                />
-              ))}
-            </SettingsList>
-          ) : (
-            <p {...stylex.props(styles.mutedText)}>No local models are installed yet.</p>
-          )}
-        </VStack>
-      </SettingsSection>
-      <SettingsSection aria-labelledby="curated-models-title">
-        <VStack gap={2}>
-          <h2 id="curated-models-title" {...stylex.props(styles.sectionTitle)}>Curated models</h2>
-          {alternatives.length > 0 ? (
-            <SettingsList density="balanced" hasDividers>
-              {alternatives.map((model) => (
-                <CatalogRow key={model.modelId} model={model} saving={saving} onInstall={onInstall} />
-              ))}
-            </SettingsList>
-          ) : (
-            <p {...stylex.props(styles.mutedText)}>Every compatible curated model is installed.</p>
-          )}
-        </VStack>
-      </SettingsSection>
-      <SettingsSection aria-labelledby="manual-imports-title">
-        <VStack gap={2}>
-          <h2 id="manual-imports-title" {...stylex.props(styles.sectionTitle)}>Manual imports</h2>
-          <Button
-            type="button"
-            variant="secondary"
-            label="Import GGUF"
-            icon={<Upload size={15} aria-hidden="true" />}
-            isDisabled={saving}
-            {...stylex.props(styles.fitButton)}
-            onClick={() => setImportOpen(true)}
-          />
-        </VStack>
-      </SettingsSection>
-      <AdvancedImportDialog
-        open={importOpen}
-        saving={saving}
-        error={saveError}
-        onOpenChange={setImportOpen}
-        onImport={async (input) => {
-          await onImport(input);
-          setImportOpen(false);
-        }}
-      />
-      {saveError ? <ErrorMarker message={saveError} /> : null}
+  return <VStack gap={4}>
+    {error ? <SettingsSection title="Local models" titleId="local-model-stale-error">
+      <SettingsSectionInset>
+        <HStack gap={2} wrap="wrap" vAlign="center">
+          <p role="alert" {...stylex.props(styles.errorText)}>Local models could not refresh.</p>
+          <Button type="button" size="sm" variant="secondary" label="Retry" onClick={onRetry} />
+        </HStack>
+      </SettingsSectionInset>
+    </SettingsSection> : null}
+    <VStack as="section" gap={1.5} aria-labelledby="device-models-title">
+      <h2 id="device-models-title" {...stylex.props(styles.groupTitle)}>On this device</h2>
+      {installations.length > 0 ? installations.map((installation) => (
+        <InstallationCard
+          key={installation.installationId}
+          installation={installation}
+          selected={selectedInstallationId === installation.installationId}
+        />
+      )) : <p {...stylex.props(styles.mutedText)}>No local models are on this device.</p>}
     </VStack>
+    <VStack as="section" gap={1.5} aria-labelledby="available-models-title">
+      <h2 id="available-models-title" {...stylex.props(styles.groupTitle)}>Available</h2>
+      {available.length > 0 ? available.map((model) => (
+        <CatalogModelCard key={model.modelId} model={model} selected={selectedModelId === model.modelId} />
+      )) : <p {...stylex.props(styles.mutedText)}>No other curated models are available.</p>}
+    </VStack>
+  </VStack>;
+}
+
+function InstallationCard({ installation, selected }: { installation: LocalModelInstallationItem; selected: boolean }) {
+  const statusVisible = installation.isActive || installation.status !== "INSTALLED";
+  return (
+    <ListCardLink
+      to="/settings/models/installations/$installationId"
+      params={{ installationId: installation.installationId }}
+      selected={selected}
+      aria-current={selected ? "page" : undefined}
+      xstyle={styles.modelCard}
+    >
+      <Avatar name={installation.name} size="sm" tooltip={false} />
+      <VStack gap={0.5} {...stylex.props(styles.cardCopy)}>
+        <HStack gap={1} wrap="wrap" vAlign="center">
+          <strong {...stylex.props(styles.cardTitle)}>{installation.name}</strong>
+          {installation.isActive ? <Badge variant="info" label="Active model" /> : null}
+        </HStack>
+        {statusVisible && !installation.isActive ? (
+          <HStack gap={1} vAlign="center">
+            <StatusDot variant={installation.status === "FAILED" ? "error" : "neutral"} label={installationStatusLabel(installation.status)} />
+            <span {...stylex.props(installation.status === "FAILED" ? styles.errorText : styles.cardMeta)}>
+              {installationStatusLabel(installation.status)}
+            </span>
+          </HStack>
+        ) : null}
+      </VStack>
+      <ChevronRight aria-hidden="true" {...stylex.props(styles.chevron)} />
+    </ListCardLink>
   );
+}
+
+function CatalogModelCard({ model, selected }: { model: LocalModelCatalogItem; selected: boolean }) {
+  return (
+    <ListCardLink
+      to="/settings/models/catalog/$modelId"
+      params={{ modelId: model.modelId }}
+      selected={selected}
+      aria-current={selected ? "page" : undefined}
+      xstyle={styles.modelCard}
+    >
+      <Avatar name={model.name} size="sm" tooltip={false} />
+      <VStack gap={0.5} {...stylex.props(styles.cardCopy)}>
+        <HStack gap={1} wrap="wrap" vAlign="center">
+          <strong {...stylex.props(styles.cardTitle)}>{model.name}</strong>
+          {model.isRecommended ? <Badge variant="info" label="Recommended" /> : null}
+        </HStack>
+        {!model.selectedBuild ? <span {...stylex.props(styles.errorText)}>Incompatible with this device</span> : null}
+      </VStack>
+      <ChevronRight aria-hidden="true" {...stylex.props(styles.chevron)} />
+    </ListCardLink>
+  );
+}
+
+function InstallationDetail({
+  installation,
+  model,
+  setup,
+  defaultPreference,
+  totalDiskBytes,
+  saving,
+  error,
+  onCancel,
+  onActivate,
+  onRetryRuntime,
+  onRemove
+}: {
+  installation: LocalModelInstallationItem;
+  model: LocalModelCatalogItem | null;
+  setup: LocalModelSetupView;
+  defaultPreference: DefaultModelPreference;
+  totalDiskBytes: number;
+  saving: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onActivate: () => void;
+  onRetryRuntime: () => void;
+  onRemove: () => void;
+}) {
+  const transferActive = isTransferActive(installation);
+  const progress = installationProgress(installation);
+  const affectsRuntime = installation.isActive || setup.installation?.installationId === installation.installationId;
+  const installationAction = transferActive ? (
+    <Button type="button" size="sm" variant="secondary" label="Cancel" icon={<CircleStop size={15} aria-hidden="true" />} isDisabled={saving} onClick={onCancel} />
+  ) : installation.status === "INSTALLED" && !installation.isActive ? (
+    <Button type="button" size="sm" label="Use this model" icon={<Play size={15} aria-hidden="true" />} isDisabled={saving} onClick={onActivate} />
+  ) : undefined;
+  return <>
+    <VStack gap={0.5} {...stylex.props(styles.detailHeader)}>
+      <span {...stylex.props(styles.eyebrow)}>Local model</span>
+      <HStack gap={2} wrap="wrap" vAlign="center">
+        <h1 {...stylex.props(styles.detailTitle)}>{installation.name}</h1>
+        {installation.isActive ? <Badge variant="info" label="Active model" /> : null}
+      </HStack>
+      {installation.errorMessage ? <p role="alert" {...stylex.props(styles.errorText)}>{installation.errorMessage}</p> : null}
+    </VStack>
+    <SettingsSection title="Model" titleId="local-model-model">
+      <SettingsList density="balanced" hasDividers>
+        <SettingsListItem label="Hardware fit" description={model?.hardwareFit?.explanation ?? "No catalog hardware assessment is available."} />
+        <SettingsListItem label="License" description={model?.license ?? "Not reported"} />
+        <SettingsListItem label="Download" description={model?.selectedBuild ? formatGigabytes(model.selectedBuild.downloadGb) : "Imported model"} />
+      </SettingsList>
+    </SettingsSection>
+    <SettingsSection title="Installation" titleId="local-model-installation" action={installationAction}>
+      <SettingsList density="balanced" hasDividers>
+        <SettingsListItem label="State" description={installationStatusLabel(installation.status)} />
+        <SettingsListItem label="Disk usage" description={formatBytes(installation.diskBytes)} />
+      </SettingsList>
+      {progress !== null && transferActive ? <SettingsSectionInset divided>
+        <progress {...stylex.props(styles.progress)} value={progress} max={1} />
+        <span {...stylex.props(styles.mutedText)}>{formatBytes(installation.completedBytes)} of {formatBytes(installation.totalBytes ?? 0)}</span>
+      </SettingsSectionInset> : null}
+      {error ? <SettingsSectionInset divided><p role="alert" {...stylex.props(styles.errorText)}>{error}</p></SettingsSectionInset> : null}
+      <SettingsTechnicalDetails>
+        <SettingsList density="compact">
+          <SettingsListItem label="Installation ID" description={installation.installationId} />
+          <SettingsListItem label="Model ID" description={installation.modelId} />
+          <SettingsListItem label="Source" description={installation.sourceKind.replaceAll("_", " ").toLowerCase()} />
+          <SettingsListItem label="Filename" description={installation.file} />
+          {installation.sha256 ? <SettingsListItem label="Digest" description={installation.sha256} /> : null}
+          {installation.backend ? <SettingsListItem label="Backend" description={installation.backend} /> : null}
+          <SettingsListItem label="Created" description={formatDate(installation.createdAt)} />
+          <SettingsListItem label="Updated" description={formatDate(installation.updatedAt)} />
+          {installation.errorCode ? <SettingsListItem label="Error code" description={installation.errorCode} /> : null}
+        </SettingsList>
+      </SettingsTechnicalDetails>
+    </SettingsSection>
+    {affectsRuntime ? <RuntimeSection
+      setup={setup}
+      defaultPreference={defaultPreference}
+      totalDiskBytes={totalDiskBytes}
+      saving={saving}
+      onRetryRuntime={onRetryRuntime}
+    /> : null}
+    {!transferActive && !installation.isActive ? (
+      <SettingsSection
+        title="Lifecycle"
+        titleId="local-model-lifecycle"
+        action={<Button type="button" size="sm" variant="destructive" label="Remove model" icon={<Trash2 size={15} aria-hidden="true" />} isDisabled={saving} onClick={onRemove} />}
+      >
+        <SettingsSectionInset>
+          <p {...stylex.props(styles.mutedText)}>Removing this installation deletes its local data from this device.</p>
+        </SettingsSectionInset>
+      </SettingsSection>
+    ) : null}
+  </>;
+}
+
+function CatalogModelDetail({
+  model,
+  saving,
+  error,
+  onInstall
+}: {
+  model: LocalModelCatalogItem;
+  saving: boolean;
+  error: string | null;
+  onInstall: () => void;
+}) {
+  return <>
+    <VStack gap={0.5} {...stylex.props(styles.detailHeader)}>
+      <span {...stylex.props(styles.eyebrow)}>Available model</span>
+      <h1 {...stylex.props(styles.detailTitle)}>{model.name}</h1>
+      {!model.selectedBuild ? <p {...stylex.props(styles.errorText)}>This model has no compatible build for this device.</p> : null}
+    </VStack>
+    <SettingsSection
+      title="Model"
+      titleId="catalog-model"
+      action={<Button type="button" size="sm" label="Install" icon={<Download size={15} aria-hidden="true" />} isDisabled={saving || !model.selectedBuild} onClick={onInstall} />}
+    >
+      <SettingsList density="balanced" hasDividers>
+        <SettingsListItem label="Hardware fit" description={model.hardwareFit?.explanation ?? "No compatible build for this device."} />
+        <SettingsListItem label="License" description={model.license} />
+        <SettingsListItem label="Download" description={model.selectedBuild ? formatGigabytes(model.selectedBuild.downloadGb) : "Unavailable"} />
+      </SettingsList>
+      {error ? <SettingsSectionInset divided><p role="alert" {...stylex.props(styles.errorText)}>{error}</p></SettingsSectionInset> : null}
+      <SettingsTechnicalDetails>
+        <SettingsList density="compact">
+          <SettingsListItem label="Model ID" description={model.modelId} />
+          <SettingsListItem label="Repository" description={model.repo} />
+          <SettingsListItem label="Revision" description={model.revision} />
+          {model.selectedBuild ? <>
+            <SettingsListItem label="Filename" description={model.selectedBuild.file} />
+            <SettingsListItem label="Digest" description={model.selectedBuild.sha256} />
+            <SettingsListItem label="Backends" description={model.selectedBuild.backends.join(", ")} />
+          </> : null}
+          {model.compatibleBackend ? <SettingsListItem label="Selected backend" description={model.compatibleBackend} /> : null}
+        </SettingsList>
+      </SettingsTechnicalDetails>
+    </SettingsSection>
+  </>;
 }
 
 function RuntimeSection({
@@ -194,184 +489,22 @@ function RuntimeSection({
   totalDiskBytes: number;
   defaultPreference: DefaultModelPreference;
   saving: boolean;
-  onRetryRuntime: () => Promise<unknown>;
+  onRetryRuntime: () => void;
 }) {
-  const statusVariant = setup.runtimeStatus === "RUNNING"
-    ? "success"
-    : setup.runtimeStatus === "FAILED"
-      ? "error"
-      : "neutral";
   return (
-    <SettingsSection aria-labelledby="local-runtime-title">
-      <VStack gap={2}>
-        <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
-          <h2 id="local-runtime-title" {...stylex.props(styles.sectionTitle)}>Local runtime</h2>
-          <Badge variant={statusVariant} label={runtimeStatusLabel(setup.runtimeStatus)} />
-        </HStack>
-        <SettingsList density="balanced" hasDividers>
-          <SettingsListItem
-            label="Active model"
-            description={setup.installation?.name ?? "No active local model"}
-          />
-          <SettingsListItem label="Disk usage" description={formatBytes(totalDiskBytes)} />
-          <SettingsListItem
-            label="System default"
-            description={defaultPreference ? defaultPreference.modelProfile : "No system default selected"}
-          />
-        </SettingsList>
-        {setup.runtimeStatus === "FAILED" ? (
-          <Button
-            type="button"
-            variant="secondary"
-            label="Retry runtime"
-            icon={<RefreshCw size={15} aria-hidden="true" />}
-            isDisabled={saving}
-            {...stylex.props(styles.fitButton)}
-            onClick={() => void onRetryRuntime()}
-          />
-        ) : null}
-      </VStack>
+    <SettingsSection
+      title="Runtime"
+      titleId="local-model-runtime"
+      action={setup.runtimeStatus === "FAILED" ? (
+        <Button type="button" size="sm" variant="secondary" label="Retry runtime" icon={<RefreshCw size={15} aria-hidden="true" />} isDisabled={saving} onClick={onRetryRuntime} />
+      ) : undefined}
+    >
+      <SettingsList density="balanced" hasDividers>
+        <SettingsListItem label="State" description={runtimeStatusLabel(setup.runtimeStatus)} />
+        <SettingsListItem label="System default" description={defaultPreference?.modelProfile ?? "No system default selected"} />
+        <SettingsListItem label="Total disk usage" description={formatBytes(totalDiskBytes)} />
+      </SettingsList>
     </SettingsSection>
-  );
-}
-
-function InstallationRow({
-  installation,
-  saving,
-  removeError,
-  onCancel,
-  onRemove,
-  onActivate
-}: {
-  installation: LocalModelInstallationItem;
-  saving: boolean;
-  removeError: string | null;
-  onCancel: (installationId: string) => Promise<unknown>;
-  onRemove: (installationId: string) => Promise<unknown>;
-  onActivate: (installationId: string) => Promise<unknown>;
-}) {
-  const progress = installationProgress(installation);
-  const transferActive = isTransferActive(installation);
-  const [removeOpen, setRemoveOpen] = useState(false);
-  return (
-    <>
-      <SettingsListItem
-      label={
-        <HStack gap={2} vAlign="center" wrap="wrap">
-          <span {...stylex.props(styles.rowLabel)}>{installation.name}</span>
-          {installation.isActive ? <Badge variant="success" label="Active" /> : null}
-          <Badge variant={installation.status === "FAILED" ? "error" : "neutral"} label={installationStatusLabel(installation.status)} />
-        </HStack>
-      }
-      description={
-        <VStack gap={1}>
-          <span {...stylex.props(styles.monoText)}>{installation.file}</span>
-          {progress !== null && installation.status !== "INSTALLED" ? (
-            <VStack gap={1}>
-              <progress {...stylex.props(styles.progress)} value={progress} max={1} />
-              <span>{formatBytes(installation.completedBytes)} of {formatBytes(installation.totalBytes ?? 0)}</span>
-            </VStack>
-          ) : null}
-          <span>{[installation.backend, formatBytes(installation.diskBytes), installation.sourceKind.replaceAll("_", " ").toLowerCase()].filter(Boolean).join(" · ")}</span>
-          {installation.errorMessage ? <ErrorMarker message={installation.errorMessage} /> : null}
-        </VStack>
-      }
-      endContent={
-        <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
-          {transferActive ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              label="Cancel"
-              icon={<CircleStop size={15} aria-hidden="true" />}
-              isDisabled={saving}
-              onClick={() => void onCancel(installation.installationId)}
-            />
-          ) : null}
-          {installation.status === "INSTALLED" && !installation.isActive ? (
-            <Button
-              type="button"
-              size="sm"
-              label="Use this model"
-              icon={<Play size={15} aria-hidden="true" />}
-              isDisabled={saving}
-              onClick={() => void onActivate(installation.installationId)}
-            />
-          ) : null}
-          {!transferActive && !installation.isActive ? (
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              label="Remove"
-              icon={<Trash2 size={15} aria-hidden="true" />}
-              isDisabled={saving}
-              onClick={() => setRemoveOpen(true)}
-            />
-          ) : null}
-        </HStack>
-      }
-      />
-      <DeleteConfirmationDialog
-        title={`Remove ${installation.name}?`}
-        message={`Removes ${formatBytes(installation.diskBytes)} from this device. You can download it again later.`}
-        confirmLabel="Remove model"
-        open={removeOpen}
-        submitting={saving}
-        error={removeError}
-        onOpenChange={(open) => {
-          if (!saving) setRemoveOpen(open);
-        }}
-        onConfirm={() => {
-          void onRemove(installation.installationId)
-            .then(() => setRemoveOpen(false))
-            .catch(() => undefined);
-        }}
-      />
-    </>
-  );
-}
-
-function CatalogRow({
-  model,
-  saving,
-  onInstall
-}: {
-  model: LocalModelCatalogItem;
-  saving: boolean;
-  onInstall: (modelId: string, file?: string | null) => Promise<unknown>;
-}) {
-  return (
-    <SettingsListItem
-      label={
-        <HStack gap={2} vAlign="center" wrap="wrap">
-          <span {...stylex.props(styles.rowLabel)}>{model.name}</span>
-          {model.isRecommended ? <Badge variant="success" label="Recommended" /> : null}
-          <Badge variant="neutral" label={model.license} />
-        </HStack>
-      }
-      description={
-        <VStack gap={1}>
-          <span>{model.hardwareFit?.explanation ?? "No compatible build for this machine."}</span>
-          <span {...stylex.props(styles.monoText)}>
-            {[model.compatibleBackend, model.selectedBuild ? `${formatGigabytes(model.selectedBuild.downloadGb)} download` : null, model.selectedBuild?.file].filter(Boolean).join(" · ")}
-          </span>
-        </VStack>
-      }
-      endContent={
-        <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
-          <Button
-            type="button"
-            size="sm"
-            label={`Install ${model.name}`}
-            icon={<Download size={15} aria-hidden="true" />}
-            isDisabled={saving || !model.selectedBuild}
-            onClick={() => void onInstall(model.modelId, model.selectedBuild?.file)}
-          />
-        </HStack>
-      }
-    />
   );
 }
 
@@ -438,15 +571,8 @@ function AdvancedImportDialog({
       onSave={submit}
     >
       <VStack gap={3}>
-        <p {...stylex.props(styles.mutedText)}>
-          Imported models are selectable, but Noema only recommends models from its bundled catalog.
-        </p>
-        <Selector
-          label="Source"
-          options={sourceOptions}
-          value={kind}
-          onChange={(value) => setKind(value as ImportKind)}
-        />
+        <p {...stylex.props(styles.mutedText)}>Imported models are selectable. Noema recommends only models from its bundled catalog.</p>
+        <Selector label="Source" options={sourceOptions} value={kind} onChange={(value) => setKind(value as ImportKind)} />
         <TextInput hasAutoFocus label="Model name" value={name} onChange={setName} />
         {kind === "LOCAL_FILE" ? (
           <TextInput label="GGUF file path" value={localPath} placeholder="/path/to/model.gguf" onChange={setLocalPath} />
@@ -463,32 +589,50 @@ function AdvancedImportDialog({
   );
 }
 
+function totalDiskBytes(installations: readonly LocalModelInstallationItem[]) {
+  const bytesByDigest = new Map<string, number>();
+  for (const installation of installations) {
+    const key = installation.sha256 ?? installation.installationId;
+    bytesByDigest.set(key, Math.max(bytesByDigest.get(key) ?? 0, installation.diskBytes));
+  }
+  return [...bytesByDigest.values()].reduce((sum, bytes) => sum + bytes, 0);
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
 const styles = stylex.create({
-  stack: { minWidth: 0 },
-  sectionTitle: {
-    margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    fontSize: 16,
-    lineHeight: 1.3,
-    color: "var(--foreground)"
-  },
-  mutedText: {
+  groupTitle: {
     margin: "var(--spacing-0)",
     color: "var(--muted-foreground)",
+    fontFamily: "var(--font-heading)",
     fontSize: 13,
-    lineHeight: 1.5
+    fontWeight: 650,
+    lineHeight: 1.3
   },
-  rowLabel: { color: "var(--foreground)", fontWeight: 650, overflowWrap: "anywhere" },
-  metric: { color: "var(--muted-foreground)", fontFamily: "var(--font-mono)", fontSize: 12 },
-  monoText: { overflowWrap: "anywhere", fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: 1.45 },
-  rowControl: {
-    justifyContent: "flex-end",
-    "@media (max-width: 620px)": {
-      width: "100%",
-      justifyContent: "flex-start",
-      marginInlineStart: "0"
-    }
+  modelCard: {
+    gridTemplateColumns: "auto minmax(0, 1fr) auto",
+    alignItems: "center",
+    columnGap: "var(--spacing-2)"
   },
-  progress: { width: "100%", height: 6, accentColor: "var(--pine-500)" },
-  fitButton: { width: "fit-content" }
+  cardCopy: { minWidth: 0 },
+  cardTitle: { color: "var(--foreground)", fontSize: 14, overflowWrap: "anywhere" },
+  cardMeta: { color: "var(--muted-foreground)", fontSize: 12 },
+  chevron: { color: "var(--muted-foreground)", width: 16, height: 16 },
+  detailHeader: { minWidth: 0, paddingBlockEnd: "var(--spacing-1)" },
+  eyebrow: { color: "var(--muted-foreground)", fontSize: 12, fontWeight: 650 },
+  detailTitle: {
+    minWidth: 0,
+    margin: "var(--spacing-0)",
+    color: "var(--foreground)",
+    fontFamily: "var(--font-heading)",
+    fontSize: 20,
+    fontWeight: 700,
+    lineHeight: 1.2,
+    overflowWrap: "anywhere"
+  },
+  mutedText: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 13, lineHeight: 1.5 },
+  errorText: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 12, lineHeight: 1.45, overflowWrap: "anywhere" },
+  progress: { width: "100%", height: 6, accentColor: "var(--pine-500)" }
 });

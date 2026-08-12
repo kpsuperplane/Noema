@@ -1,8 +1,8 @@
 //! Rebuildable SQLite projection of filesystem-canonical adapter definitions.
 
 use noema_capability_adapters::{
-    AuthorizationGrantStatus, ConnectionProjection, DefinitionProjection, OauthApplicationStatus,
-    OauthAuthoritySnapshot,
+    AuthorizationGrantStatus, AuthorizationGrantV1, ConnectionProjection, DefinitionProjection,
+    OauthApplicationStatus, OauthAuthoritySnapshot,
 };
 use rusqlite::params;
 use std::collections::BTreeSet;
@@ -77,115 +77,12 @@ impl NoemaStore {
     /// # Errors
     ///
     /// Returns [`StoreError`] when the snapshot is invalid or SQLite fails.
-    pub async fn reconcile_adapter_oauth_authorities(
+    #[cfg(test)]
+    pub(crate) async fn reconcile_adapter_oauth_authorities(
         &self,
         snapshot: &OauthAuthoritySnapshot,
     ) -> Result<(), StoreError> {
-        validate_oauth_snapshot(snapshot)?;
-        let grant_scopes = snapshot
-            .grants
-            .iter()
-            .map(|grant| {
-                Ok((
-                    grant,
-                    serde_json::to_string(&grant.desired_scopes)?,
-                    serde_json::to_string(&grant.granted_scopes)?,
-                ))
-            })
-            .collect::<Result<Vec<_>, serde_json::Error>>()?;
-        self.with_connection(|connection| {
-            let transaction =
-                connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-            transaction.execute("DELETE FROM adapter_oauth_grants", [])?;
-            transaction.execute("DELETE FROM adapter_external_accounts", [])?;
-            transaction.execute("DELETE FROM adapter_oauth_applications", [])?;
-            transaction.execute("DELETE FROM adapter_oauth_profiles", [])?;
-            for profile in &snapshot.profiles {
-                transaction.execute(
-                    r#"INSERT INTO adapter_oauth_profiles (
-                      profile_digest, profile_id, display_name, grant_audience,
-                      descriptor_relative_path
-                    ) VALUES (?1, ?2, ?3, ?4, ?5)"#,
-                    params![
-                        profile.profile_digest,
-                        profile.profile.profile_id,
-                        profile.profile.display_name,
-                        profile.profile.grant_audience,
-                        format!(
-                            "adapters/oauth-profiles/{}/profile.json",
-                            profile.profile_digest
-                        ),
-                    ],
-                )?;
-            }
-            for application in &snapshot.applications {
-                transaction.execute(
-                    r#"INSERT INTO adapter_oauth_applications (
-                      application_id, profile_digest, callback_mode, client_id,
-                      project_label, status, revision, credential_generation,
-                      descriptor_relative_path
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
-                    params![
-                        application.application_id,
-                        application.profile_digest,
-                        callback_mode(application.callback_mode),
-                        application.client_id,
-                        application.project_label,
-                        application_status(application.status),
-                        application.revision,
-                        application.credential_generation,
-                        format!(
-                            "adapters/oauth-applications/{}/application.json",
-                            application.application_id
-                        ),
-                    ],
-                )?;
-            }
-            for account in &snapshot.accounts {
-                transaction.execute(
-                    r#"INSERT INTO adapter_external_accounts (
-                      account_id, profile_digest, provider_subject, account_label,
-                      revision, descriptor_relative_path
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)"#,
-                    params![
-                        account.account_id,
-                        account.profile_digest,
-                        account.provider_subject,
-                        account.account_label,
-                        account.revision,
-                        format!(
-                            "adapters/external-accounts/{}/account.json",
-                            account.account_id
-                        ),
-                    ],
-                )?;
-            }
-            for (grant, desired_scopes, granted_scopes) in &grant_scopes {
-                transaction.execute(
-                    r#"INSERT INTO adapter_oauth_grants (
-                      grant_id, application_id, account_id, account_label, audience,
-                      desired_scopes_json, granted_scopes_json, authority_revision,
-                      token_revision, status, descriptor_relative_path
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
-                    params![
-                        grant.grant_id,
-                        grant.application_id,
-                        grant.account_id,
-                        grant.account_label,
-                        grant.audience,
-                        desired_scopes,
-                        granted_scopes,
-                        grant.authority_revision,
-                        grant.token_revision,
-                        grant_status(grant.status),
-                        format!("adapters/oauth-grants/{}/grant.json", grant.grant_id),
-                    ],
-                )?;
-            }
-            transaction.commit()?;
-            Ok(())
-        })
-        .await
+        self.reconcile_adapter_state(Some(snapshot), None).await
     }
 
     /// Replace the rebuildable definition projection in one transaction.
@@ -283,13 +180,53 @@ impl NoemaStore {
     ///
     /// Returns [`StoreError`] when the filesystem-derived snapshot is invalid,
     /// cannot be serialized, or cannot be committed atomically.
-    pub async fn reconcile_adapter_connections(
+    #[cfg(test)]
+    pub(crate) async fn reconcile_adapter_connections(
         &self,
         connections: &[ConnectionProjection],
     ) -> Result<(), StoreError> {
-        validate_connection_snapshot(connections)?;
-        let rows = connections
-            .iter()
+        self.reconcile_adapter_state(None, Some(connections)).await
+    }
+
+    /// Replace OAuth and connection projections in one transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when either snapshot is invalid or SQLite fails.
+    pub async fn reconcile_complete_adapter_state(
+        &self,
+        oauth: &OauthAuthoritySnapshot,
+        connections: &[ConnectionProjection],
+    ) -> Result<(), StoreError> {
+        self.reconcile_adapter_state(Some(oauth), Some(connections))
+            .await
+    }
+
+    async fn reconcile_adapter_state(
+        &self,
+        oauth: Option<&OauthAuthoritySnapshot>,
+        connections: Option<&[ConnectionProjection]>,
+    ) -> Result<(), StoreError> {
+        if let Some(snapshot) = oauth {
+            validate_oauth_snapshot(snapshot)?;
+        }
+        if let Some(snapshot) = connections {
+            validate_connection_snapshot(snapshot)?;
+        }
+        let grant_scopes = oauth
+            .into_iter()
+            .flat_map(|snapshot| &snapshot.grants)
+            .map(|grant| {
+                Ok((
+                    grant,
+                    serde_json::to_string(&grant.desired_scopes)?,
+                    serde_json::to_string(&grant.granted_scopes)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, serde_json::Error>>()?;
+        let connection_rows = connections
+            .into_iter()
+            .flatten()
             .map(|connection| {
                 Ok((
                     connection,
@@ -300,8 +237,13 @@ impl NoemaStore {
         self.with_connection(|connection| {
             let transaction =
                 connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-            transaction.execute("DELETE FROM adapter_connections", [])?;
-            for (adapter, allowed_operations) in &rows {
+            if connections.is_some() {
+                transaction.execute("DELETE FROM adapter_connections", [])?;
+            }
+            if let Some(snapshot) = oauth {
+                replace_adapter_oauth_authorities(&transaction, snapshot, &grant_scopes)?;
+            }
+            for (adapter, allowed_operations) in &connection_rows {
                 transaction.execute(
                     r#"
                     INSERT INTO adapter_connections (
@@ -517,12 +459,7 @@ fn valid_credential_reference(connection: &ConnectionProjection) -> bool {
         &connection.credential_generation,
         &connection.credential_relative_path,
     ) {
-        (None, None) => {
-            connection.credential_revision.is_none()
-                && (connection.grant_id.is_some()
-                    || connection.status == "blocked"
-                    || connection.status != "authentication_required")
-        }
+        (None, None) => connection.credential_revision.is_none(),
         (Some(generation), Some(path)) => {
             valid_connection_id(generation)
                 && connection
@@ -543,6 +480,100 @@ fn valid_connection_id(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
+fn replace_adapter_oauth_authorities(
+    transaction: &rusqlite::Transaction<'_>,
+    snapshot: &OauthAuthoritySnapshot,
+    grant_scopes: &[(&AuthorizationGrantV1, String, String)],
+) -> Result<(), StoreError> {
+    transaction.execute("DELETE FROM adapter_oauth_grants", [])?;
+    transaction.execute("DELETE FROM adapter_external_accounts", [])?;
+    transaction.execute("DELETE FROM adapter_oauth_applications", [])?;
+    transaction.execute("DELETE FROM adapter_oauth_profiles", [])?;
+    for profile in &snapshot.profiles {
+        transaction.execute(
+            r#"INSERT INTO adapter_oauth_profiles (
+              profile_digest, profile_id, display_name, grant_audience,
+              descriptor_relative_path
+            ) VALUES (?1, ?2, ?3, ?4, ?5)"#,
+            params![
+                profile.profile_digest,
+                profile.profile.profile_id,
+                profile.profile.display_name,
+                profile.profile.grant_audience,
+                format!(
+                    "adapters/oauth-profiles/{}/profile.json",
+                    profile.profile_digest
+                ),
+            ],
+        )?;
+    }
+    for application in &snapshot.applications {
+        transaction.execute(
+            r#"INSERT INTO adapter_oauth_applications (
+              application_id, profile_digest, callback_mode, client_id,
+              project_label, status, revision, credential_generation,
+              descriptor_relative_path
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
+            params![
+                application.application_id,
+                application.profile_digest,
+                callback_mode(application.callback_mode),
+                application.client_id,
+                application.project_label,
+                application_status(application.status),
+                application.revision,
+                application.credential_generation,
+                format!(
+                    "adapters/oauth-applications/{}/application.json",
+                    application.application_id
+                ),
+            ],
+        )?;
+    }
+    for account in &snapshot.accounts {
+        transaction.execute(
+            r#"INSERT INTO adapter_external_accounts (
+              account_id, profile_digest, provider_subject, account_label,
+              revision, descriptor_relative_path
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)"#,
+            params![
+                account.account_id,
+                account.profile_digest,
+                account.provider_subject,
+                account.account_label,
+                account.revision,
+                format!(
+                    "adapters/external-accounts/{}/account.json",
+                    account.account_id
+                ),
+            ],
+        )?;
+    }
+    for (grant, desired_scopes, granted_scopes) in grant_scopes {
+        transaction.execute(
+            r#"INSERT INTO adapter_oauth_grants (
+              grant_id, application_id, account_id, account_label, audience,
+              desired_scopes_json, granted_scopes_json, authority_revision,
+              token_revision, status, descriptor_relative_path
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
+            params![
+                grant.grant_id,
+                grant.application_id,
+                grant.account_id,
+                grant.account_label,
+                grant.audience,
+                desired_scopes,
+                granted_scopes,
+                grant.authority_revision,
+                grant.token_revision,
+                grant_status(grant.status),
+                format!("adapters/oauth-grants/{}/grant.json", grant.grant_id),
+            ],
+        )?;
+    }
+    Ok(())
 }
 
 fn validate_oauth_snapshot(snapshot: &OauthAuthoritySnapshot) -> Result<(), StoreError> {

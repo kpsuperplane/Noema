@@ -4,9 +4,9 @@ use noema_capability_adapters::{
     AdapterConnectionAuthenticationV1, AdapterConnectionStatus, AdapterConnectionStore,
     AdapterConnectionV4, AdapterCredentialGenerationV2, AdapterCredentialMaterial,
     AdapterDefinitionStore, AdapterManifest, AuthorizationGrantStatus, AuthorizationGrantV1,
-    ExternalAccountV1, Oauth2CallbackMode, Oauth2ClientAuthentication, OauthApplicationStatus,
-    OauthApplicationV1, OauthAuthoritySnapshot, OauthProfileInstall, OauthProfileV1,
-    OauthScopeResponsePolicy,
+    ConnectionProjection, ExternalAccountV1, Oauth2CallbackMode, Oauth2ClientAuthentication,
+    OauthApplicationStatus, OauthApplicationV1, OauthAuthoritySnapshot, OauthProfileInstall,
+    OauthProfileV1, OauthScopeResponsePolicy,
 };
 use noema_home::NoemaPaths;
 
@@ -245,7 +245,7 @@ async fn sqlite_rebuilds_the_complete_public_oauth_authority_hierarchy() {
         }],
         grants: vec![AuthorizationGrantV1 {
             schema_version: 1,
-            grant_id,
+            grant_id: grant_id.clone(),
             application_id,
             account_id: Some(account_id),
             account_label: None,
@@ -265,6 +265,33 @@ async fn sqlite_rebuilds_the_complete_public_oauth_authority_hierarchy() {
         .reconcile_adapter_oauth_authorities(&snapshot)
         .await
         .expect("reconcile");
+    let connections = vec![ConnectionProjection {
+        connection_id: "1".repeat(32),
+        connection_slug: Some("personal-oauth".into()),
+        semantic_digest: Some("2".repeat(64)),
+        connection_label: Some("Personal Google".into()),
+        status: "active",
+        connection_revision: Some(1),
+        credential_revision: None,
+        policy_revision: Some(1),
+        credential_generation: None,
+        grant_id: Some(grant_id),
+        allowed_operations: vec!["list".into()],
+        descriptor_relative_path: format!(
+            "adapters/connections/{}/connection.json",
+            "1".repeat(32)
+        ),
+        credential_relative_path: None,
+        diagnostic_code: None,
+    }];
+    store
+        .reconcile_complete_adapter_state(&snapshot, &connections)
+        .await
+        .expect("first complete reconcile");
+    store
+        .reconcile_complete_adapter_state(&snapshot, &connections)
+        .await
+        .expect("rebuild with referenced grant");
     store
         .with_connection(|connection| {
             assert_eq!(
@@ -297,6 +324,17 @@ async fn sqlite_rebuilds_the_complete_public_oauth_authority_hierarchy() {
                 )?,
                 (2, "[\"gmail.readonly\"]".to_string())
             );
+            assert_eq!(
+                connection.query_row("SELECT COUNT(*) FROM adapter_connections", [], |row| {
+                    row.get::<_, usize>(0)
+                })?,
+                1
+            );
+            assert!(connection
+                .prepare("PRAGMA foreign_key_check")?
+                .query([])?
+                .next()?
+                .is_none());
             Ok(())
         })
         .await

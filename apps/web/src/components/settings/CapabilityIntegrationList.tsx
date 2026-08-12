@@ -1,69 +1,144 @@
-import { Link } from "@tanstack/react-router";
-import { Badge } from "@astryxdesign/core/Badge";
+import { Avatar } from "@astryxdesign/core/Avatar";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
+import {
+  Braces,
+  CalendarDays,
+  ChevronRight,
+  FileText,
+  HardDrive,
+  Mail,
+  Plug,
+  Wrench
+} from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { CapabilityIntegrationsQuery } from "@/generated/graphql";
-import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
+import { ListCardLink } from "@/components/ListCardLink";
 import { settingsStatusLabel } from "./settingsStatus";
 
 export type CapabilityIntegration = CapabilityIntegrationsQuery["capabilityIntegrations"][number];
+type CapabilityConnection = CapabilityIntegration["connections"][number];
+export type CapabilityProvider = { id: string; name: string };
+export type CapabilityAccount = { id: string; name: string };
+type CapabilityHierarchy = { provider: CapabilityProvider; account?: CapabilityAccount };
 
-export function CapabilityIntegrationList({
-  integrations,
-  kind,
-  selectedConnectionId,
-  emptyMessage,
-  primaryAction,
-  integrationAction,
-  isAddingConnection = false,
-  onAddConnection
-}: {
+type CapabilityIntegrationListProps = {
   integrations: readonly CapabilityIntegration[];
   kind: "API" | "MCP";
   selectedConnectionId?: string;
   emptyMessage: string;
-  primaryAction?: { label: string; onClick: () => void };
-  integrationAction?: (integration: CapabilityIntegration) => ReactNode;
+  providers?: readonly CapabilityProvider[];
+  hierarchyFor?: (
+    connection: CapabilityConnection,
+    integration: CapabilityIntegration
+  ) => CapabilityHierarchy;
+  providerActions?: (provider: CapabilityProvider) => ReactNode;
+  accountAction?: (provider: CapabilityProvider, account: CapabilityAccount) => ReactNode;
   isAddingConnection?: boolean;
-  onAddConnection: (integration: CapabilityIntegration) => void;
-}) {
+  onAddConnection?: (integration: CapabilityIntegration) => void;
+};
+
+export function CapabilityIntegrationList(props: CapabilityIntegrationListProps) {
+  return <CapabilityIntegrationListView key={props.selectedConnectionId ?? "unselected"} {...props} />;
+}
+
+function CapabilityIntegrationListView({
+  integrations,
+  kind,
+  selectedConnectionId,
+  emptyMessage,
+  providers = [],
+  hierarchyFor,
+  providerActions,
+  accountAction,
+  isAddingConnection = false,
+  onAddConnection
+}: CapabilityIntegrationListProps) {
+  const [visibleSelectedConnectionId, setVisibleSelectedConnectionId] = useState(selectedConnectionId);
+  const selectConnection = (connectionId: string) => setVisibleSelectedConnectionId(connectionId);
+
+  if (hierarchyFor) {
+    return (
+      <VStack gap={4}>
+        {integrations.length === 0 && providers.length === 0 ? (
+          <p {...stylex.props(styles.empty)}>{emptyMessage}</p>
+        ) : null}
+        {groupConnectionsByProvider(integrations, providers, hierarchyFor).map(({ provider, items, accounts }, providerIndex) => {
+          const providerTitleId = `capability-provider-${providerIndex}-title`;
+          return (
+            <VStack as="section" key={provider.id} gap={2} aria-labelledby={providerTitleId} {...stylex.props(styles.service)}>
+              <HStack gap={2} vAlign="center" {...stylex.props(styles.providerHeader)}>
+                <h2 id={providerTitleId} {...stylex.props(styles.title, styles.providerTitle)}>{provider.name}</h2>
+                {providerActions?.(provider)}
+              </HStack>
+              {items.map(({ integration, connection }) => (
+                <CapabilityConnectionCard
+                  key={connection.connectionId}
+                  kind={kind}
+                  integration={integration}
+                  connection={connection}
+                  showIntegration
+                  selectedConnectionId={selectedConnectionId}
+                  visibleSelectedConnectionId={visibleSelectedConnectionId}
+                  onSelect={selectConnection}
+                />
+              ))}
+              {accounts.map(({ account, items }, accountIndex) => {
+                const accountTitleId = `capability-provider-${providerIndex}-account-${accountIndex}-title`;
+                return (
+                  <VStack key={account.id} gap={1.5} aria-labelledby={accountTitleId}>
+                    <HStack gap={2} vAlign="center" {...stylex.props(styles.accountHeader)}>
+                      <Avatar name={account.name} size="sm" tooltip={false} />
+                      <h3 id={accountTitleId} {...stylex.props(styles.accountTitle)}>{account.name}</h3>
+                      {accountAction?.(provider, account)}
+                    </HStack>
+                    {items.map(({ integration, connection }) => (
+                      <CapabilityConnectionCard
+                        key={connection.connectionId}
+                        kind={kind}
+                        integration={integration}
+                        connection={connection}
+                        showIntegration
+                        selectedConnectionId={selectedConnectionId}
+                        visibleSelectedConnectionId={visibleSelectedConnectionId}
+                        onSelect={selectConnection}
+                      />
+                    ))}
+                  </VStack>
+                );
+              })}
+              {accounts.length === 0 && items.length === 0 ? (
+                <p {...stylex.props(styles.emptyConnection)}>No connected accounts</p>
+              ) : null}
+            </VStack>
+          );
+        })}
+      </VStack>
+    );
+  }
+
   return (
     <VStack gap={4}>
-      {primaryAction ? (
-        <HStack hAlign="end">
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            label={primaryAction.label}
-            onClick={primaryAction.onClick}
-          />
-        </HStack>
-      ) : null}
       {integrations.length === 0 ? (
         <p {...stylex.props(styles.empty)}>{emptyMessage}</p>
       ) : null}
-      {integrations.map((integration) => (
-        <SettingsSection
-          key={integration.definitionId}
-          aria-labelledby={`capability-${integration.definitionId}-title`}
-        >
-          <VStack gap={2}>
-            <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
-              <VStack gap={1} {...stylex.props(styles.groupCopy)}>
-                <h2 id={`capability-${integration.definitionId}-title`} {...stylex.props(styles.title)}>
-                  {integration.name}
-                </h2>
-                <p {...stylex.props(styles.summary)}>{integration.sourceSummary}</p>
-              </VStack>
-              <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
-                <Badge
-                  variant="neutral"
-                  label={`${integration.connections.length} ${integration.connections.length === 1 ? "connection" : "connections"}`}
-                />
+      {integrations.map((integration) => {
+        return (
+          <VStack
+            as="section"
+            key={integration.definitionId}
+            gap={1.5}
+            aria-labelledby={`capability-${integration.definitionId}-title`}
+            {...stylex.props(styles.service)}
+          >
+            <HStack gap={2} vAlign="center" {...stylex.props(styles.serviceHeader)}>
+              <CapabilityIcon kind={kind} definitionId={integration.definitionId} />
+              <h2 id={`capability-${integration.definitionId}-title`} {...stylex.props(styles.title)}>
+                {integration.name}
+              </h2>
+              {onAddConnection ? (
                 <Button
                   type="button"
                   size="sm"
@@ -72,63 +147,175 @@ export function CapabilityIntegrationList({
                   isLoading={isAddingConnection}
                   onClick={() => onAddConnection(integration)}
                 />
-                {integrationAction?.(integration)}
-              </HStack>
+              ) : null}
             </HStack>
             {integration.connections.length === 0 ? (
-              <p {...stylex.props(styles.empty)}>No connection added to this definition.</p>
-            ) : (
-              <SettingsList density="balanced" hasDividers>
-                {integration.connections.map((connection) => {
-                  const route = kind === "API"
-                    ? "/settings/tools/apis/$connectionId"
-                    : "/settings/tools/mcps/$connectionId";
-                  return (
-                    <SettingsListItem
-                      key={connection.connectionId}
-                      isSelected={selectedConnectionId === connection.connectionId}
-                      label={
-                        <Link
-                          to={route}
-                          params={{ connectionId: connection.connectionId }}
-                          aria-current={selectedConnectionId === connection.connectionId ? "page" : undefined}
-                          {...stylex.props(styles.connectionLink)}
-                        >
-                          {connection.name}
-                        </Link>
-                      }
-                      description={connectionDescription(connection)}
-                      endContent={
-                        <Link
-                          to={route}
-                          params={{ connectionId: connection.connectionId }}
-                          aria-current={selectedConnectionId === connection.connectionId ? "page" : undefined}
-                          {...stylex.props(styles.manageLabel)}
-                        >
-                          {connectionNeedsAuthorization(connection.authStatus) ? "Authorize" : "Manage"}
-                        </Link>
-                      }
-                    />
-                  );
-                })}
-              </SettingsList>
-            )}
+              <p {...stylex.props(styles.emptyConnection)}>No connections</p>
+            ) : integration.connections.map((connection) => (
+              <CapabilityConnectionCard
+                key={connection.connectionId}
+                kind={kind}
+                integration={integration}
+                connection={connection}
+                selectedConnectionId={selectedConnectionId}
+                visibleSelectedConnectionId={visibleSelectedConnectionId}
+                onSelect={selectConnection}
+              />
+            ))}
           </VStack>
-        </SettingsSection>
-      ))}
+        );
+      })}
     </VStack>
   );
 }
 
+function CapabilityConnectionCard({
+  kind,
+  integration,
+  connection,
+  showIntegration = false,
+  selectedConnectionId,
+  visibleSelectedConnectionId,
+  onSelect
+}: {
+  kind: "API" | "MCP";
+  integration: CapabilityIntegration;
+  connection: CapabilityConnection;
+  showIntegration?: boolean;
+  selectedConnectionId?: string;
+  visibleSelectedConnectionId?: string;
+  onSelect: (connectionId: string) => void;
+}) {
+  const description = connectionDescription(connection);
+  const route = kind === "API"
+    ? "/settings/tools/apis/$connectionId"
+    : "/settings/tools/mcps/$connectionId";
+  return (
+    <ListCardLink
+      to={route}
+      params={{ connectionId: connection.connectionId }}
+      selected={visibleSelectedConnectionId === connection.connectionId}
+      xstyle={styles.connectionRow}
+      aria-current={selectedConnectionId === connection.connectionId ? "page" : undefined}
+      onClick={(event) => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        onSelect(connection.connectionId);
+      }}
+    >
+      {showIntegration
+        ? <CapabilityIcon kind={kind} definitionId={integration.definitionId} />
+        : <Avatar name={connection.name} size="sm" tooltip={false} />}
+      <VStack gap={0.5} {...stylex.props(styles.connectionCopy)}>
+        <strong {...stylex.props(styles.connectionName)}>
+          {showIntegration ? integration.name : connection.name}
+        </strong>
+        {description ? (
+          <HStack as="span" gap={1} vAlign="center" {...stylex.props(styles.connectionMeta)}>
+            <Wrench aria-hidden="true" {...stylex.props(styles.metaIcon)} />
+            {description}
+          </HStack>
+        ) : null}
+      </VStack>
+      <ChevronRight aria-hidden="true" {...stylex.props(styles.chevron)} />
+    </ListCardLink>
+  );
+}
+
+function groupConnectionsByProvider(
+  integrations: readonly CapabilityIntegration[],
+  initialProviders: readonly CapabilityProvider[],
+  hierarchyFor: (
+    connection: CapabilityConnection,
+    integration: CapabilityIntegration
+  ) => CapabilityHierarchy
+) {
+  type Item = {
+    integration: CapabilityIntegration;
+    connection: CapabilityConnection;
+  };
+  const providers = new Map<string, {
+    provider: CapabilityProvider;
+    items: Item[];
+    accounts: Map<string, { account: CapabilityAccount; items: Item[] }>;
+  }>();
+  for (const provider of initialProviders) {
+    providers.set(provider.id, { provider, items: [], accounts: new Map() });
+  }
+  for (const integration of integrations) {
+    for (const connection of integration.connections) {
+      const { provider, account } = hierarchyFor(connection, integration);
+      const providerGroup: {
+        provider: CapabilityProvider;
+        items: Item[];
+        accounts: Map<string, { account: CapabilityAccount; items: Item[] }>;
+      } = providers.get(provider.id) ?? { provider, items: [], accounts: new Map() };
+      if (!account) {
+        providerGroup.items.push({ integration, connection });
+        providers.set(provider.id, providerGroup);
+        continue;
+      }
+      const accountGroup = providerGroup.accounts.get(account.id) ?? { account, items: [] };
+      accountGroup.items.push({ integration, connection });
+      providerGroup.accounts.set(account.id, accountGroup);
+      providers.set(provider.id, providerGroup);
+    }
+  }
+  return [...providers.values()].map(({ provider, items, accounts }) => ({
+    provider,
+    items,
+    accounts: [...accounts.values()]
+  }));
+}
+
+export function CapabilityIcon({
+  kind,
+  definitionId,
+  emphasized = false
+}: {
+  kind: "API" | "MCP";
+  definitionId: string;
+  emphasized?: boolean;
+}) {
+  return (
+    <HStack
+      vAlign="center"
+      hAlign="center"
+      aria-hidden="true"
+      {...stylex.props(styles.iconFrame, emphasized && styles.emphasizedIcon)}
+    >
+      <CapabilityServiceIcon kind={kind} definitionId={definitionId} />
+    </HStack>
+  );
+}
+
+export function CapabilityServiceIcon({ kind, definitionId }: { kind: "API" | "MCP"; definitionId: string }) {
+  const iconProps = stylex.props(styles.icon);
+  if (kind === "MCP") return <Plug {...iconProps} />;
+  const terms = definitionId
+    .replace(/([a-z\d])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z\d]+/)
+    .filter(Boolean);
+  const rule = API_ICON_RULES.find(({ keywords }) =>
+    terms.some((term) => keywords.some((keyword) => term === keyword || term.endsWith(keyword)))
+  );
+  const Glyph = rule?.Glyph ?? Braces;
+  return <Glyph {...iconProps} />;
+}
+
+const API_ICON_RULES = [
+  { keywords: ["calendar", "schedule"], Glyph: CalendarDays },
+  { keywords: ["doc", "docs", "document", "documents"], Glyph: FileText },
+  { keywords: ["drive", "storage"], Glyph: HardDrive },
+  { keywords: ["mail", "email", "inbox"], Glyph: Mail }
+] as const;
+
 function connectionDescription(connection: CapabilityIntegration["connections"][number]) {
-  if (connectionNeedsAuthorization(connection.authStatus)) return undefined;
+  if (connectionNeedsAuthorization(connection.authStatus)) return "Authorization required";
   if (!["active", "healthy", "ready"].includes(connection.healthStatus.toLowerCase())) {
     return settingsStatusLabel(connection.healthStatus);
   }
-  if (connection.availableToolCount !== connection.toolCount) {
-    return `${connection.availableToolCount} of ${connection.toolCount} tools available`;
-  }
-  return undefined;
+  return null;
 }
 
 function connectionNeedsAuthorization(authStatus: string) {
@@ -136,37 +323,68 @@ function connectionNeedsAuthorization(authStatus: string) {
 }
 
 const styles = stylex.create({
-  groupCopy: { flex: "1 1 16rem", minWidth: 0 },
+  service: {
+    minWidth: 0
+  },
+  serviceHeader: { minHeight: "var(--spacing-8)", paddingInline: "var(--spacing-1)" },
+  providerHeader: {
+    minHeight: "var(--spacing-8)",
+    paddingInline: "var(--spacing-1)",
+    paddingBlockEnd: "var(--spacing-1)",
+    borderBlockEndWidth: "var(--border-width)",
+    borderBlockEndStyle: "solid",
+    borderBlockEndColor: "var(--border-subtle)"
+  },
+  accountHeader: {
+    minHeight: "var(--spacing-8)",
+    paddingInline: "var(--spacing-1)"
+  },
+  iconFrame: {
+    width: "var(--spacing-8)",
+    height: "var(--spacing-8)",
+    flexShrink: 0,
+    borderRadius: "var(--radius-sm)",
+    backgroundColor: "var(--noema-surface-subtle)",
+    color: "var(--muted-foreground)"
+  },
+  emphasizedIcon: { backgroundColor: "transparent", color: "var(--primary)" },
+  icon: { width: "var(--spacing-4)", height: "var(--spacing-4)" },
   title: {
     margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    fontSize: 16,
-    fontWeight: 600,
-    color: "var(--foreground)"
-  },
-  summary: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.5 },
-  connectionLink: {
     color: "var(--foreground)",
+    fontFamily: "var(--font-heading)",
     fontSize: 14,
     fontWeight: 650,
-    textDecoration: "none",
-    overflowWrap: "anywhere",
-    ":hover": { color: "var(--text-accent)" }
+    lineHeight: 1.3,
+    minWidth: 0,
+    flex: 1,
+    overflowWrap: "anywhere"
   },
-  manageLabel: {
-    color: "var(--text-accent)",
+  providerTitle: { fontSize: 15, fontWeight: 700 },
+  accountTitle: {
+    margin: "var(--spacing-0)",
+    color: "var(--foreground)",
+    fontFamily: "var(--font-heading)",
     fontSize: 13,
-    fontWeight: 600,
-    textDecoration: "none",
-    flexShrink: 0
+    fontWeight: 650,
+    lineHeight: 1.3,
+    minWidth: 0,
+    flex: 1,
+    overflowWrap: "anywhere"
   },
-  rowControl: {
-    justifyContent: "flex-end",
-    "@media (max-width: 620px)": {
-      width: "100%",
-      justifyContent: "flex-start",
-      marginInlineStart: "0"
-    }
+  connectionRow: {
+    display: "grid",
+    gridTemplateColumns: "auto minmax(0, 1fr) auto",
+    alignItems: "center",
+    gap: "var(--spacing-2)",
+    minHeight: "var(--spacing-12)",
+    color: "var(--foreground)"
   },
-  empty: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 13, lineHeight: 1.5 }
+  connectionCopy: { minWidth: 0 },
+  connectionName: { fontSize: 13, fontWeight: 650, overflowWrap: "anywhere" },
+  connectionMeta: { color: "var(--muted-foreground)", fontSize: 12 },
+  metaIcon: { width: 12, height: 12 },
+  chevron: { width: "var(--spacing-4)", height: "var(--spacing-4)", color: "var(--muted-foreground)" },
+  empty: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 13, lineHeight: 1.5 },
+  emptyConnection: { margin: 0, paddingInline: "var(--spacing-1)", color: "var(--muted-foreground)", fontSize: 12 }
 });

@@ -378,6 +378,16 @@ query PendingChatInterventions($conversationId: String, $taskId: String, $projec
         policyConfigured
         operationAccess { operationId status missingScopes }
       }
+      transition {
+        addedOperations
+        changedOperations
+        removedOperations
+        authenticationChanged
+        affectedConnections
+        affectedSchedules
+        authenticationRequiredConnections
+        consolidatedConnections
+      }
       operations {
         operationId
         method

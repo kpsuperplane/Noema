@@ -985,7 +985,13 @@ const styles = stylex.create({
     cornerShape: "var(--corner-shape-full)",
     color: "var(--pine-700)",
     gap: "var(--spacing-0)",
-    paddingInline: "var(--spacing-2)"
+    paddingInline: "var(--spacing-2)",
+    ":hover": {
+      "@media (hover: hover)": {
+        backgroundColor: "color-mix(in srgb, var(--pine-100) 44%, transparent)",
+        backgroundImage: "none"
+      }
+    }
   },
   primaryNavigationDesktopLabel: {
     display: "block",

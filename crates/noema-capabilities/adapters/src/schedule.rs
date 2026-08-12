@@ -352,21 +352,22 @@ impl ScheduleStore {
         Ok(())
     }
 
-    /// Rebind schedules from one migrated definition and fence stale cursors.
-    pub(crate) fn migrate_definition_references(
+    /// Move schedules to one surviving connection during a definition transition.
+    pub(crate) fn migrate_connection_references(
         &self,
         old_digest: &str,
         replacement_digest: &str,
-        replacement_operations: &BTreeSet<String>,
+        old_connection_id: &str,
+        replacement_connection_id: &str,
+        unchanged_operations: &BTreeSet<String>,
         cursors: &DurableCursorStore,
     ) -> Result<(), ScheduleError> {
         let root = self.prepare_root()?;
         for install in self.scan()? {
-            if install.schedule.semantic_digest != old_digest {
+            if install.schedule.semantic_digest != old_digest
+                || install.schedule.connection_id != old_connection_id
+            {
                 continue;
-            }
-            if !replacement_operations.contains(&install.schedule.operation_id) {
-                return Err(ScheduleError::Integrity("definition_transition"));
             }
             if let Some(cursor) = &install.checkpoint.cursor {
                 cursors
@@ -386,6 +387,8 @@ impl ScheduleStore {
 
             let mut schedule = install.schedule;
             schedule.semantic_digest = replacement_digest.to_string();
+            schedule.connection_id = replacement_connection_id.to_string();
+            schedule.enabled &= unchanged_operations.contains(&schedule.operation_id);
             schedule.lease = None;
             schedule.revision = schedule
                 .revision

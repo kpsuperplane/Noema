@@ -170,25 +170,7 @@ fn oauth_document_error(error: AdapterCredentialImportError) -> AdapterConnectio
     }
 }
 
-fn compatible_definition_replacement(
-    current: &crate::CompiledAdapterDefinition,
-    replacement: &crate::CompiledAdapterDefinition,
-) -> bool {
-    current.definition_id == replacement.definition_id
-        && current.adapter_id == replacement.adapter_id
-        && compatible_authentication_replacement(
-            &current.authentication,
-            &replacement.authentication,
-        )
-        && current.operations.iter().all(|operation| {
-            replacement
-                .operations
-                .iter()
-                .any(|candidate| candidate.operation_id == operation.operation_id)
-        })
-}
-
-fn compatible_authentication_replacement(
+pub(crate) fn compatible_authentication_replacement(
     current: &crate::AuthenticationSchemeV4,
     replacement: &crate::AuthenticationSchemeV4,
 ) -> bool {
@@ -235,6 +217,14 @@ pub struct AdapterOAuthSetupStart {
     pub expires_at_epoch_seconds: u64,
 }
 
+/// One reviewed API selection within a shared OAuth request.
+pub struct AdapterOAuthServiceSelection {
+    /// Reviewed API definition included in this authorization.
+    pub semantic_digest: String,
+    /// Operations whose access must be covered.
+    pub operation_ids: Vec<String>,
+}
+
 /// Exact non-secret request for a new account or added OAuth access.
 pub struct AdapterOAuthAuthorizationRequest {
     /// Reusable OAuth application identity.
@@ -249,6 +239,8 @@ pub struct AdapterOAuthAuthorizationRequest {
     pub semantic_digest: String,
     /// Operations whose access must be covered.
     pub operation_ids: Vec<String>,
+    /// Other reviewed APIs authorized by the same application and grant.
+    pub additional_services: Vec<AdapterOAuthServiceSelection>,
     /// Callback mode registered by the application.
     pub callback_mode: Oauth2CallbackMode,
     /// Exact redirect URI for this attempt.
@@ -323,6 +315,7 @@ pub(crate) struct AdapterCapabilityServiceInner {
     pub(crate) oauth_authorities: crate::OauthAuthorityStore,
     pub(crate) cursors: crate::DurableCursorStore,
     schedules: crate::ScheduleStore,
+    transitions: crate::transition::DefinitionTransitionJournalStore,
     pub(crate) oauth_callback_mode: Mutex<Option<Oauth2CallbackMode>>,
     migration_lock: Mutex<()>,
     pub(crate) definition_lock: Mutex<()>,
@@ -376,7 +369,8 @@ impl AdapterCapabilityService {
                 connections: AdapterConnectionStore::new(paths.clone()),
                 oauth_authorities: crate::OauthAuthorityStore::new(paths.clone()),
                 cursors: crate::DurableCursorStore::new(paths.clone()),
-                schedules: crate::ScheduleStore::new(paths),
+                schedules: crate::ScheduleStore::new(paths.clone()),
+                transitions: crate::transition::DefinitionTransitionJournalStore::new(paths),
                 oauth_callback_mode: Mutex::new(None),
                 migration_lock: Mutex::new(()),
                 definition_lock: Mutex::new(()),
@@ -554,12 +548,125 @@ impl AdapterCapabilityService {
         self.inner.definitions.load(semantic_digest).ok()
     }
 
+    /// Return the exact migration impact for one pending or reviewed revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe management error when canonical definition or dependency state is unavailable.
+    pub fn definition_transition(
+        &self,
+        semantic_digest: &str,
+    ) -> Result<crate::AdapterDefinitionTransition, AdapterManagementError> {
+        let stored = self
+            .inner
+            .definitions
+            .load(semantic_digest)
+            .map_err(|_| AdapterManagementError::NotFound)?;
+        let replacement = AdapterCompiler::compile(&stored.manifest)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let mut lineage = BTreeSet::new();
+        let mut unvisited = stored.provenance.replaces_semantic_digests;
+        let mut current = None;
+        while let Some(digest) = unvisited.pop() {
+            if !lineage.insert(digest.clone()) {
+                continue;
+            }
+            let ancestor = self
+                .inner
+                .definitions
+                .load(&digest)
+                .map_err(|_| AdapterManagementError::Unavailable)?;
+            if current.is_none() && ancestor.manifest.reviewed {
+                current = Some(
+                    AdapterCompiler::compile(&ancestor.manifest)
+                        .map_err(|_| AdapterManagementError::Unavailable)?,
+                );
+            }
+            unvisited.extend(ancestor.provenance.replaces_semantic_digests);
+        }
+        let mut transition = current
+            .as_ref()
+            .map_or_else(crate::AdapterDefinitionTransition::default, |current| {
+                crate::AdapterDefinitionTransition::between(current, &replacement)
+            });
+        let snapshot = self.management_snapshot()?;
+        let affected = snapshot
+            .connections
+            .connections
+            .iter()
+            .filter(|connection| lineage.contains(&connection.descriptor.semantic_digest))
+            .collect::<Vec<_>>();
+        transition.affected_connections = affected.len();
+        transition.authentication_required_connections = affected
+            .iter()
+            .filter(|connection| {
+                snapshot
+                    .definitions
+                    .definitions
+                    .iter()
+                    .find(|definition| {
+                        definition.compiled.semantic_digest.as_str()
+                            == connection.descriptor.semantic_digest
+                    })
+                    .is_some_and(|definition| {
+                        !compatible_authentication_replacement(
+                            &definition.compiled.authentication,
+                            &replacement.authentication,
+                        )
+                    })
+            })
+            .count();
+        let mut grants = BTreeMap::<String, usize>::new();
+        for connection in affected {
+            if let AdapterConnectionAuthenticationV1::OauthGrant { grant_id } =
+                &connection.descriptor.authentication
+            {
+                *grants.entry(grant_id.clone()).or_default() += 1;
+            }
+        }
+        transition.consolidated_connections =
+            grants.values().map(|count| count.saturating_sub(1)).sum();
+        transition.affected_schedules = self
+            .inner
+            .schedules
+            .scan()
+            .map_err(|_| AdapterManagementError::Unavailable)?
+            .iter()
+            .filter(|schedule| lineage.contains(&schedule.schedule.semantic_digest))
+            .count();
+        Ok(transition)
+    }
+
+    fn definition_is_current_reviewed(&self, semantic_digest: &str) -> bool {
+        let Ok(scan) = self.inner.definitions.scan() else {
+            return false;
+        };
+        let Ok(replaced) = self.inner.definitions.replaced_by_reviewed_digests(&scan) else {
+            return false;
+        };
+        !replaced.contains(semantic_digest)
+            && scan.definitions.iter().any(|definition| {
+                definition.compiled.semantic_digest.as_str() == semantic_digest
+                    && definition.compiled.reviewed
+            })
+    }
+
     /// Publish one exact current pending definition as a reviewed immutable revision.
     ///
     /// # Errors
     ///
     /// Returns a safe category when the target is absent, stale, or cannot be published.
     pub fn review_definition(
+        &self,
+        semantic_digest: &str,
+    ) -> Result<crate::DefinitionInstall, AdapterManagementError> {
+        let reviewed = self.review_definition_without_refresh(semantic_digest)?;
+        self.refresh_definition_registry()
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        Ok(reviewed)
+    }
+
+    fn review_definition_without_refresh(
         &self,
         semantic_digest: &str,
     ) -> Result<crate::DefinitionInstall, AdapterManagementError> {
@@ -600,8 +707,6 @@ impl AdapterCapabilityService {
             .definitions
             .install_with_provenance(&reviewed, stored.provenance, source)
             .map_err(|_| AdapterManagementError::Unavailable)?;
-        self.refresh_definition_registry()
-            .map_err(|_| AdapterManagementError::Unavailable)?;
         Ok(reviewed)
     }
 
@@ -622,6 +727,23 @@ impl AdapterCapabilityService {
             .definitions
             .load(semantic_digest)
             .map_err(|_| AdapterManagementError::NotFound)?;
+        let family_lock = self
+            .connection_lock(&format!("adapter-family:{}", target.manifest.definition_id))
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let _family_guard = family_lock.write().await;
+        let mut journal = crate::transition::DefinitionTransitionJournal {
+            schema_version: 1,
+            definition_id: target.manifest.definition_id.clone(),
+            requested_digest: semantic_digest.to_string(),
+            reviewed_digest: target
+                .manifest
+                .reviewed
+                .then(|| semantic_digest.to_string()),
+        };
+        self.inner
+            .transitions
+            .save(&journal)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
         let reviewed = if target.manifest.reviewed {
             self.inner
                 .definitions
@@ -632,43 +754,80 @@ impl AdapterCapabilityService {
                 .find(|definition| definition.compiled.semantic_digest.as_str() == semantic_digest)
                 .ok_or(AdapterManagementError::NotFound)?
         } else {
-            self.review_definition(semantic_digest)?
+            self.review_definition_without_refresh(semantic_digest)?
         };
+        journal.reviewed_digest = Some(reviewed.compiled.semantic_digest.to_string());
+        self.inner
+            .transitions
+            .save(&journal)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
         let stored = self
             .inner
             .definitions
             .load(reviewed.compiled.semantic_digest.as_str())
             .map_err(|_| AdapterManagementError::Unavailable)?;
-        let mut replacement_lineage = BTreeSet::new();
-        let mut unvisited = stored.provenance.replaces_semantic_digests;
-        while let Some(replaced_digest) = unvisited.pop() {
-            if !replacement_lineage.insert(replaced_digest.clone()) {
+        let mut replacement_lineage = BTreeMap::<String, usize>::new();
+        let mut unvisited = stored
+            .provenance
+            .replaces_semantic_digests
+            .into_iter()
+            .map(|digest| (digest, 1_usize))
+            .collect::<Vec<_>>();
+        while let Some((replaced_digest, depth)) = unvisited.pop() {
+            if replacement_lineage
+                .get(&replaced_digest)
+                .is_some_and(|current| *current >= depth)
+            {
                 continue;
             }
+            replacement_lineage.insert(replaced_digest.clone(), depth);
             let ancestor = self
                 .inner
                 .definitions
                 .load(&replaced_digest)
                 .map_err(|_| AdapterManagementError::Unavailable)?;
-            unvisited.extend(ancestor.provenance.replaces_semantic_digests);
+            unvisited.extend(
+                ancestor
+                    .provenance
+                    .replaces_semantic_digests
+                    .into_iter()
+                    .map(|digest| (digest, depth.saturating_add(1))),
+            );
         }
-        for replaced_digest in replacement_lineage {
+        let snapshot = self.management_snapshot()?;
+        let mut preferred_by_grant = BTreeMap::<String, (usize, String)>::new();
+        for connection in &snapshot.connections.connections {
+            let Some(depth) = replacement_lineage.get(&connection.descriptor.semantic_digest)
+            else {
+                continue;
+            };
+            let AdapterConnectionAuthenticationV1::OauthGrant { grant_id } =
+                &connection.descriptor.authentication
+            else {
+                continue;
+            };
+            let candidate = (*depth, connection.descriptor.connection_id.clone());
+            if preferred_by_grant
+                .get(grant_id)
+                .is_none_or(|current| candidate.0 > current.0 || candidate < *current)
+            {
+                preferred_by_grant.insert(grant_id.clone(), candidate);
+            }
+        }
+        for replaced_digest in replacement_lineage.keys() {
             let current_definition = self
                 .inner
                 .definitions
-                .load(&replaced_digest)
+                .load(replaced_digest)
                 .map_err(|_| AdapterManagementError::Unavailable)?;
             let current_definition = AdapterCompiler::compile(&current_definition.manifest)
                 .map_err(|_| AdapterManagementError::Unavailable)?;
-            if !compatible_definition_replacement(&current_definition, &reviewed.compiled) {
-                continue;
-            }
             let snapshot = self.management_snapshot()?;
             let connection_ids = snapshot
                 .connections
                 .connections
                 .iter()
-                .filter(|connection| connection.descriptor.semantic_digest == replaced_digest)
+                .filter(|connection| connection.descriptor.semantic_digest == *replaced_digest)
                 .map(|connection| connection.descriptor.connection_id.clone())
                 .collect::<Vec<_>>();
             for connection_id in connection_ids {
@@ -679,10 +838,62 @@ impl AdapterCapabilityService {
                 let snapshot = self.management_snapshot()?;
                 let Some(current) = snapshot.connections.connections.iter().find(|connection| {
                     connection.descriptor.connection_id == connection_id
-                        && connection.descriptor.semantic_digest == replaced_digest
+                        && connection.descriptor.semantic_digest == *replaced_digest
                 }) else {
                     continue;
                 };
+                if !compatible_authentication_replacement(
+                    &current_definition.authentication,
+                    &reviewed.compiled.authentication,
+                ) {
+                    self.inner
+                        .connections
+                        .require_new_authentication(
+                            &current.descriptor,
+                            &current_definition,
+                            &reviewed.compiled,
+                        )
+                        .map_err(|_| AdapterManagementError::Unavailable)?;
+                    for schedule in self
+                        .inner
+                        .schedules
+                        .scan()
+                        .map_err(|_| AdapterManagementError::Unavailable)?
+                        .into_iter()
+                        .filter(|schedule| {
+                            schedule.schedule.connection_id == connection_id
+                                && schedule.schedule.semantic_digest == *replaced_digest
+                        })
+                    {
+                        self.inner
+                            .schedules
+                            .revoke(&schedule.schedule.schedule_id)
+                            .map_err(|_| AdapterManagementError::Unavailable)?;
+                    }
+                    continue;
+                }
+                let unchanged_operations = current_definition
+                    .operations
+                    .iter()
+                    .filter(|operation| {
+                        reviewed.compiled.operations.iter().any(|replacement| {
+                            replacement.operation_id == operation.operation_id
+                                && replacement.operation_digest == operation.operation_digest
+                        })
+                    })
+                    .map(|operation| operation.operation_id.clone())
+                    .collect();
+                self.inner
+                    .schedules
+                    .migrate_connection_references(
+                        replaced_digest,
+                        reviewed.compiled.semantic_digest.as_str(),
+                        &connection_id,
+                        &connection_id,
+                        &unchanged_operations,
+                        &self.inner.cursors,
+                    )
+                    .map_err(|_| AdapterManagementError::Unavailable)?;
                 self.inner
                     .connections
                     .rebind_definition_descriptor(
@@ -692,23 +903,114 @@ impl AdapterCapabilityService {
                     )
                     .map_err(|_| AdapterManagementError::Unavailable)?;
             }
-            let operations = reviewed
-                .compiled
-                .operations
-                .iter()
-                .map(|operation| operation.operation_id.clone())
-                .collect();
-            self.inner
-                .schedules
-                .migrate_definition_references(
-                    &replaced_digest,
-                    reviewed.compiled.semantic_digest.as_str(),
-                    &operations,
-                    &self.inner.cursors,
-                )
-                .map_err(|_| AdapterManagementError::Unavailable)?;
         }
+        self.consolidate_oauth_family(&reviewed.compiled, &preferred_by_grant)
+            .await?;
+        self.refresh_definition_registry()
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        self.inner
+            .transitions
+            .remove(&journal.requested_digest)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
         Ok(reviewed)
+    }
+
+    /// Resume only definition transitions that own a durable incomplete journal.
+    ///
+    /// # Errors
+    ///
+    /// Returns a migration error when a journal or its canonical adapter state cannot be recovered.
+    pub async fn resume_definition_transitions(&self) -> Result<(), AdapterMigrationError> {
+        for journal in self.inner.transitions.scan()? {
+            let digest = if let Some(reviewed_digest) = journal.reviewed_digest.as_deref() {
+                reviewed_digest.to_string()
+            } else {
+                let stored = self.inner.definitions.load(&journal.requested_digest)?;
+                let mut reviewed = stored.manifest;
+                reviewed.reviewed = true;
+                let predicted = AdapterCompiler::compile(&reviewed)
+                    .map_err(crate::DefinitionStoreError::Compile)?
+                    .semantic_digest
+                    .to_string();
+                if self.inner.definitions.load(&predicted).is_ok() {
+                    predicted
+                } else {
+                    journal.requested_digest.clone()
+                }
+            };
+            self.review_definition_and_adopt(&digest)
+                .await
+                .map_err(|_| AdapterMigrationError::Unavailable)?;
+            self.inner.transitions.remove(&journal.requested_digest)?;
+        }
+        Ok(())
+    }
+
+    async fn consolidate_oauth_family(
+        &self,
+        definition: &CompiledAdapterDefinition,
+        preferred_by_grant: &BTreeMap<String, (usize, String)>,
+    ) -> Result<(), AdapterManagementError> {
+        let snapshot = self.management_snapshot()?;
+        let mut by_grant = BTreeMap::<String, Vec<String>>::new();
+        for connection in snapshot
+            .connections
+            .connections
+            .iter()
+            .filter(|connection| {
+                connection.descriptor.semantic_digest == definition.semantic_digest.as_str()
+            })
+        {
+            if let AdapterConnectionAuthenticationV1::OauthGrant { grant_id } =
+                &connection.descriptor.authentication
+            {
+                by_grant
+                    .entry(grant_id.clone())
+                    .or_default()
+                    .push(connection.descriptor.connection_id.clone());
+            }
+        }
+        let unchanged_operations = definition
+            .operations
+            .iter()
+            .map(|operation| operation.operation_id.clone())
+            .collect();
+        for (grant_id, connection_ids) in &mut by_grant {
+            connection_ids.sort();
+            let Some(survivor_id) = preferred_by_grant
+                .get(grant_id)
+                .map(|(_, connection_id)| connection_id.clone())
+                .filter(|connection_id| connection_ids.contains(connection_id))
+                .or_else(|| connection_ids.first().cloned())
+            else {
+                continue;
+            };
+            for redundant_id in connection_ids
+                .iter()
+                .filter(|connection_id| **connection_id != survivor_id)
+            {
+                self.inner
+                    .connections
+                    .merge_oauth_connections(&survivor_id, redundant_id, definition)
+                    .map_err(|_| AdapterManagementError::Unavailable)?;
+                self.inner
+                    .schedules
+                    .migrate_connection_references(
+                        definition.semantic_digest.as_str(),
+                        definition.semantic_digest.as_str(),
+                        redundant_id,
+                        &survivor_id,
+                        &unchanged_operations,
+                        &self.inner.cursors,
+                    )
+                    .map_err(|_| AdapterManagementError::Unavailable)?;
+                self.inner
+                    .connections
+                    .quarantine(redundant_id)
+                    .map_err(|_| AdapterManagementError::Unavailable)?;
+            }
+        }
+        Ok(())
     }
 
     /// Abandon one exact current proposal while preserving reviewed revisions.
@@ -1014,11 +1316,15 @@ impl AdapterCapabilityService {
     pub async fn setup_connection(
         &self,
         semantic_digest: &str,
+        replacement_connection_id: Option<&str>,
         field_values: BTreeMap<String, String>,
         document: Option<&[u8]>,
     ) -> Result<crate::ConnectionInstall, AdapterConnectionSetupError> {
         crate::SemanticDigest::parse(semantic_digest.to_string())
             .map_err(|_| AdapterConnectionSetupError::DefinitionUnavailable)?;
+        if !self.definition_is_current_reviewed(semantic_digest) {
+            return Err(AdapterConnectionSetupError::DefinitionUnavailable);
+        }
         let stored = self
             .inner
             .definitions
@@ -1041,6 +1347,38 @@ impl AdapterCapabilityService {
         }
         let credential = setup_credential(&definition, field_values, document, generation_id)
             .map_err(|_| AdapterConnectionSetupError::InvalidCredential)?;
+        if let Some(connection_id) = replacement_connection_id {
+            let snapshot = self
+                .management_snapshot()
+                .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
+            let current = snapshot
+                .connections
+                .connections
+                .iter()
+                .find(|connection| connection.descriptor.connection_id == connection_id)
+                .ok_or(AdapterConnectionSetupError::Conflict)?;
+            let credential_revision = match &current.descriptor.authentication {
+                AdapterConnectionAuthenticationV1::Credential { revision, .. } => revision
+                    .checked_add(1)
+                    .ok_or(AdapterConnectionSetupError::Conflict)?,
+                AdapterConnectionAuthenticationV1::Pending
+                | AdapterConnectionAuthenticationV1::None
+                | AdapterConnectionAuthenticationV1::OauthGrant { .. } => 1,
+            };
+            return self
+                .inner
+                .connections
+                .replace_authentication(
+                    &current.descriptor,
+                    AdapterConnectionAuthenticationV1::Credential {
+                        generation_id: credential.generation_id.clone(),
+                        revision: credential_revision,
+                    },
+                    Some(&credential),
+                    &definition,
+                )
+                .map_err(|_| AdapterConnectionSetupError::Conflict);
+        }
         let status = AdapterConnectionStatus::Active;
         let mut allowed_operations = definition
             .operations
@@ -1312,7 +1650,11 @@ impl AdapterCapabilityService {
         semantic_digest: &str,
         grant_id: &str,
         expected_grant_revision: u64,
+        replacement_connection_id: Option<&str>,
     ) -> Result<crate::ConnectionInstall, AdapterConnectionSetupError> {
+        if !self.definition_is_current_reviewed(semantic_digest) {
+            return Err(AdapterConnectionSetupError::DefinitionUnavailable);
+        }
         let definition = self
             .inner
             .definitions
@@ -1342,24 +1684,55 @@ impl AdapterCapabilityService {
             return Err(AdapterConnectionSetupError::InvalidCredential);
         }
         let lock = self
-            .connection_lock(&format!("oauth-attachment:{semantic_digest}:{grant_id}"))
+            .connection_lock(&format!("adapter-family:{}", definition.definition_id))
             .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
         let _guard = lock.write().await;
-        if let Some(existing) = self
+        let snapshot = self
             .management_snapshot()
-            .map_err(|_| AdapterConnectionSetupError::Unavailable)?
+            .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
+        if let Some(connection_id) = replacement_connection_id {
+            let current = snapshot
+                .connections
+                .connections
+                .iter()
+                .find(|connection| connection.descriptor.connection_id == connection_id)
+                .ok_or(AdapterConnectionSetupError::Conflict)?;
+            return self
+                .inner
+                .connections
+                .replace_authentication(
+                    &current.descriptor,
+                    AdapterConnectionAuthenticationV1::OauthGrant {
+                        grant_id: grant_id.to_string(),
+                    },
+                    None,
+                    &definition,
+                )
+                .map_err(|_| AdapterConnectionSetupError::Conflict);
+        }
+        let family_digests = snapshot
+            .definitions
+            .definitions
+            .iter()
+            .filter(|candidate| candidate.compiled.definition_id == definition.definition_id)
+            .map(|candidate| candidate.compiled.semantic_digest.to_string())
+            .collect::<BTreeSet<_>>();
+        let mut matches = snapshot
             .connections
             .connections
             .into_iter()
-            .find(|connection| {
-                connection.descriptor.semantic_digest == semantic_digest
+            .filter(|connection| {
+                family_digests.contains(&connection.descriptor.semantic_digest)
                     && matches!(
                         &connection.descriptor.authentication,
                         AdapterConnectionAuthenticationV1::OauthGrant { grant_id: current }
                             if current == grant_id
                     )
-            })
-        {
+            });
+        if let Some(existing) = matches.next() {
+            if matches.next().is_some() || existing.descriptor.semantic_digest != semantic_digest {
+                return Err(AdapterConnectionSetupError::Conflict);
+            }
             return Ok(existing);
         }
         let connection_id = random_hex(16).map_err(|_| AdapterConnectionSetupError::Unavailable)?;
@@ -1455,6 +1828,9 @@ impl AdapterCapabilityService {
     ) -> Result<crate::ConnectionInstall, AdapterConnectionSetupError> {
         crate::SemanticDigest::parse(semantic_digest.to_string())
             .map_err(|_| AdapterConnectionSetupError::DefinitionUnavailable)?;
+        if !self.definition_is_current_reviewed(semantic_digest) {
+            return Err(AdapterConnectionSetupError::DefinitionUnavailable);
+        }
         let stored = self
             .inner
             .definitions
@@ -1472,14 +1848,32 @@ impl AdapterCapabilityService {
             .connection_lock(&format!("adapter-family:{}", definition.definition_id))
             .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
         let _guard = setup_lock.write().await;
-        if let Some(connection) = self
+        let snapshot = self
             .management_snapshot()
-            .map_err(|_| AdapterConnectionSetupError::Unavailable)?
+            .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
+        let family_digests = snapshot
+            .definitions
+            .definitions
+            .iter()
+            .filter(|candidate| candidate.compiled.definition_id == definition.definition_id)
+            .map(|candidate| candidate.compiled.semantic_digest.to_string())
+            .collect::<BTreeSet<_>>();
+        let mut matches = snapshot
             .connections
             .connections
             .into_iter()
-            .find(|connection| connection.descriptor.semantic_digest == semantic_digest)
-        {
+            .filter(|connection| {
+                family_digests.contains(&connection.descriptor.semantic_digest)
+                    && matches!(
+                        &connection.descriptor.authentication,
+                        AdapterConnectionAuthenticationV1::None
+                    )
+            });
+        if let Some(connection) = matches.next() {
+            if matches.next().is_some() || connection.descriptor.semantic_digest != semantic_digest
+            {
+                return Err(AdapterConnectionSetupError::Conflict);
+            }
             return Ok(connection);
         }
         let connection_id = random_hex(16).map_err(|_| AdapterConnectionSetupError::Unavailable)?;
@@ -1550,10 +1944,38 @@ impl AdapterCapabilityService {
             .grant
             .as_ref()
             .map_or(&[][..], |grant| grant.granted_scopes.as_slice());
-        let target_scopes = current
+        let mut target_scopes = current
             .definition
             .scope_target(&request.operation_ids, granted)
             .ok_or(AdapterOAuthSetupError::Invalid)?;
+        let mut selected_digests = BTreeSet::from([request.semantic_digest.as_str()]);
+        for selection in &request.additional_services {
+            if !selected_digests.insert(&selection.semantic_digest) {
+                return Err(AdapterOAuthSetupError::Invalid);
+            }
+            let additional = self.load_oauth_grant(
+                &selection.semantic_digest,
+                &request.application_id,
+                request.grant_id.as_deref(),
+            )?;
+            if additional.application.revision != request.expected_application_revision
+                || additional
+                    .grant
+                    .as_ref()
+                    .map(|grant| grant.authority_revision)
+                    != request.expected_grant_revision
+            {
+                return Err(AdapterOAuthSetupError::Superseded);
+            }
+            target_scopes.extend(
+                additional
+                    .definition
+                    .scope_target(&selection.operation_ids, granted)
+                    .ok_or(AdapterOAuthSetupError::Invalid)?,
+            );
+        }
+        target_scopes.sort();
+        target_scopes.dedup();
         let authority = oauth_authority(human_id, &current, target_scopes.clone());
         let attempt = AdapterOAuthAttempt::start(
             &current.definition,
@@ -1845,6 +2267,9 @@ impl AdapterCapabilityService {
         application_id: &str,
         grant_id: Option<&str>,
     ) -> Result<LoadedOAuthGrant, AdapterOAuthSetupError> {
+        if !self.definition_is_current_reviewed(semantic_digest) {
+            return Err(AdapterOAuthSetupError::Superseded);
+        }
         let definition = self
             .inner
             .definitions

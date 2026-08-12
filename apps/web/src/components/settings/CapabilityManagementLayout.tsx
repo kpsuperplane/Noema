@@ -1,96 +1,72 @@
 import type { ReactNode } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { VStack } from "@astryxdesign/core/VStack";
-import * as stylex from "@stylexjs/stylex";
-import { MasterDetailLayout } from "@/components/shell/MasterDetailLayout";
+import { useEffect } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { CapabilityConnectionDetail } from "./CapabilityConnectionDetail";
+import { SettingsManagementLayout } from "./SettingsManagementLayout";
 
 export function CapabilityManagementLayout({
   kind,
   connectionId,
+  defaultConnectionId,
+  title,
+  primaryAction,
   list,
-  startPolicyEditing,
+  serviceName,
+  connectionName,
   sourceActions,
   definitionDetails,
   dangerAction
 }: {
   kind: "API" | "MCP";
   connectionId?: string;
+  defaultConnectionId?: string;
+  title: string;
+  primaryAction?: { label: string; onClick: () => void };
   list: ReactNode;
-  startPolicyEditing?: boolean;
+  serviceName?: string;
+  connectionName?: string;
   sourceActions?: ReactNode;
   definitionDetails?: ReactNode;
   dangerAction?: ReactNode;
 }) {
   const hasDetail = connectionId !== undefined;
   const navigate = useNavigate();
+  const desktop = useMediaQuery("(min-width: 980px)");
   const listRoute = kind === "API" ? "/settings/tools/apis" : "/settings/tools/mcps";
 
+  useEffect(() => {
+    if (!desktop || connectionId || !defaultConnectionId) return;
+    void navigate({
+      to: kind === "API"
+        ? "/settings/tools/apis/$connectionId"
+        : "/settings/tools/mcps/$connectionId",
+      params: { connectionId: defaultConnectionId },
+      replace: true
+    });
+  }, [connectionId, defaultConnectionId, desktop, kind, navigate]);
+
   return (
-    <MasterDetailLayout
+    <SettingsManagementLayout
+      title={title}
+      primaryAction={primaryAction}
       detailOpen={hasDetail}
       detailLabel="Manage connection"
       onDetailOpenChange={(open) => {
         if (!open) void navigate({ to: listRoute });
       }}
-      list={
-        <VStack {...stylex.props(styles.scroller)}>
-          <VStack {...stylex.props(styles.listContent)}>{list}</VStack>
-        </VStack>
-      }
+      list={list}
       detail={connectionId ? (
-        <VStack {...stylex.props(styles.scroller)}>
-          <VStack gap={3} {...stylex.props(styles.detailContent)}>
-            <Link
-              to={listRoute}
-              {...stylex.props(styles.backLink)}
-            >
-              Back to connections
-            </Link>
-            <CapabilityConnectionDetail
-              kind={kind}
-              connectionId={connectionId}
-              startPolicyEditing={startPolicyEditing}
-              sourceActions={sourceActions}
-              definitionDetails={definitionDetails}
-              dangerAction={dangerAction}
-            />
-          </VStack>
-        </VStack>
+        <CapabilityConnectionDetail
+          kind={kind}
+          connectionId={connectionId}
+          serviceName={serviceName}
+          connectionName={connectionName}
+          sourceActions={sourceActions}
+          definitionDetails={definitionDetails}
+          dangerAction={dangerAction}
+        />
       ) : null}
     />
   );
 }
-
-const styles = stylex.create({
-  scroller: {
-    height: "100%",
-    minHeight: 0,
-    overflowY: "auto",
-    overflowX: "hidden",
-    overscrollBehavior: "contain",
-    scrollbarWidth: "thin"
-  },
-  listContent: {
-    minWidth: 0,
-    padding: "var(--spacing-4)",
-    "@media (max-width: 760px)": {
-      padding: "var(--spacing-3)"
-    }
-  },
-  detailContent: {
-    minWidth: 0,
-    padding: "var(--spacing-4)",
-    "@media (max-width: 760px)": {
-      padding: "var(--spacing-3)"
-    }
-  },
-  backLink: {
-    width: "fit-content",
-    color: "var(--text-accent)",
-    fontSize: 13,
-    fontWeight: 600,
-    textDecoration: "none",
-    "@media (min-width: 980px)": { display: "none" }
-  }
-});

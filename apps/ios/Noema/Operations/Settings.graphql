@@ -561,6 +561,16 @@ fragment SettingsAdapterDefinitionFields on AdapterDefinition {
         outputSchemaJson
       }
     }
+    transition {
+      addedOperations
+      changedOperations
+      removedOperations
+      authenticationChanged
+      affectedConnections
+      affectedSchedules
+      authenticationRequiredConnections
+      consolidatedConnections
+    }
     connectionCount
     connections {
       connectionId

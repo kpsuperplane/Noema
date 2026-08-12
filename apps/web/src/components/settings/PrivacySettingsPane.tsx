@@ -1,7 +1,8 @@
 import * as stylex from "@stylexjs/stylex";
 import { useMutation, useQuery } from "@apollo/client/react";
+import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
-import { VStack } from "@astryxdesign/core/VStack";
+import { RefreshCw } from "lucide-react";
 import {
   PrivacySettingsDocument,
   SaveActionReviewerPreferenceDocument,
@@ -11,7 +12,14 @@ import {
 } from "@/generated/graphql";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
-import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
+import {
+  SettingsList,
+  SettingsListItem,
+  SettingsLocalFeedback,
+  SettingsRowActions,
+  SettingsSection,
+  SettingsSectionInset
+} from "./SettingsPrimitives";
 import type { ModelPreferenceSaveInput } from "./modelPreferenceTypes";
 
 export function PrivacySettingsPane() {
@@ -37,27 +45,21 @@ export function PrivacySettingsPane() {
   const warning = reviewer
     ? selectedPreferenceWarning(preference, reviewer.modelOptions, "ACTION_REVIEWER")
     : null;
-  const unavailable = Boolean(error) || !reviewer;
+  const unavailable = !reviewer;
 
   return (
-    <SettingsSection aria-labelledby="privacy-reviewer-title">
-      <VStack gap={2}>
-        <h2 id="privacy-reviewer-title" {...stylex.props(styles.sectionTitle)}>
-          Risky action reviews
-        </h2>
+    <SettingsSection title="Risky action reviews" titleId="privacy-reviewer-title">
+      {!reviewer && !loading ? <SettingsSectionInset>
+        <p role="alert" {...stylex.props(styles.mutedText)}>Reviewer settings could not be loaded.</p>
+        <Button type="button" size="sm" variant="secondary" label="Retry" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={() => void privacyResult.refetch()} />
+      </SettingsSectionInset> :
         <SettingsList density="balanced" hasDividers>
           <SettingsListItem
             mobileEndContentFullWidth
             label="Reviewer model"
-            description={
-              loading
-                ? "Loading reviewer settings..."
-                : error
-                  ? "Reviewer settings could not be loaded."
-                  : undefined
-            }
+            description={!reviewer && loading ? "Loading reviewer settings..." : undefined}
             endContent={
-              <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
+              <SettingsRowActions>
                 <ModelPreferenceSelect
                   options={reviewer?.modelOptions ?? []}
                   preference={preference}
@@ -68,29 +70,23 @@ export function PrivacySettingsPane() {
                   isDisabled={unavailable}
                   onSave={onSaveReviewerPreference}
                 />
-              </HStack>
+              </SettingsRowActions>
             }
           />
-        </SettingsList>
-        {saveError ? (
-          <p role="alert" {...stylex.props(styles.saveError)}>
-            Noema could not save the reviewer model.
-          </p>
-        ) : null}
-        {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
-      </VStack>
+        </SettingsList>}
+        {reviewer && (error || saveError || warning) ? <SettingsLocalFeedback>
+          {error ? <HStack gap={2} wrap="wrap" vAlign="center">
+            <p role="alert" {...stylex.props(styles.mutedText)}>Reviewer settings could not refresh.</p>
+            <Button type="button" size="sm" variant="secondary" label="Retry" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={() => void privacyResult.refetch()} />
+          </HStack> : null}
+          {saveError ? <p role="alert" {...stylex.props(styles.saveError)}>Noema could not save the reviewer model.</p> : null}
+          {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
+        </SettingsLocalFeedback> : null}
     </SettingsSection>
   );
 }
 
 const styles = stylex.create({
-  sectionTitle: {
-    margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    fontSize: 16,
-    lineHeight: 1.3,
-    color: "var(--foreground)"
-  },
   mutedText: {
     margin: "var(--spacing-0)",
     color: "var(--muted-foreground)",
@@ -109,12 +105,4 @@ const styles = stylex.create({
     fontSize: 13,
     lineHeight: 1.5
   },
-  rowControl: {
-    justifyContent: "flex-end",
-    "@media (max-width: 620px)": {
-      width: "100%",
-      justifyContent: "flex-start",
-      marginInlineStart: "0"
-    }
-  }
 });

@@ -64,15 +64,22 @@ a separate Save button or performed in a focused dialog with explicit Save.
 
 ## API integration UX
 
-API Settings uses an account-first hierarchy. It shows required review,
-connected accounts, connected APIs, and APIs that can be connected.
+API Settings groups connections by provider, account, then API. Provider headers
+own account creation. The add-account dialog selects compatible services before
+it starts the provider access flow. One OAuth sign-in can authorize all selected
+services through one compatible application. Account headers use an action menu. OAuth is
+one supported access method; credential and no-auth connections keep the same
+provider hierarchy. MCP Settings keeps its service-first list. Both use the same
+connection detail. The detail keeps connection policy and tool controls visible.
+Tool counts appear in the Tools section, not in list rows or the detail header.
 When no API exists, it shows one route to Chat instead of empty data sections.
-OAuth client management appears in a collapsed advanced section after import.
-That section manages existing clients and never starts a proactive import.
 Client import occurs only when a structured API connection action requires it.
 
 Chat presents one pending human intervention at a time with queue navigation.
 Tasks and dedicated queue surfaces can show the complete pending list.
+An agent request to enable a disabled tool uses the existing action request
+card. The primary action says `Enable tool` because approval changes persistent
+tool policy. Chat omits the related internal `enable.*` call and result markers.
 
 An OAuth application is reusable provider setup. An authorization grant is one
 account's access. An API connection keeps its own tool policy and lifecycle.

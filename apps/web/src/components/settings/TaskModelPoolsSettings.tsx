@@ -1,8 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
-import { Badge } from "@astryxdesign/core/Badge";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Switch } from "@astryxdesign/core/Switch";
-import { VStack } from "@astryxdesign/core/VStack";
 import type {
   NoemaModelUseCase,
   TaskComplexity,
@@ -10,8 +8,9 @@ import type {
   TaskModelPoolsQuery
 } from "@/generated/graphql";
 import { ControlledModelPreferenceSelect } from "./ControlledModelPreferenceSelect";
+import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
 import type { ModelPreferenceSaveInput, ModelProviderOption } from "./modelPreferenceTypes";
-import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
+import { SettingsList, SettingsListItem, SettingsLocalFeedback, SettingsSection, SettingsSectionInset } from "./SettingsPrimitives";
 
 type PoolEntry = TaskModelPoolsQuery["taskModelPools"][number];
 const complexities: readonly TaskComplexity[] = ["SIMPLE", "MEDIUM", "DIFFICULT"];
@@ -33,25 +32,20 @@ export function TaskModelPoolsSettings({
   saveError: string | null;
   onUpdate: (poolEntryId: string, input: TaskModelPoolEntryInput) => Promise<unknown>;
 }) {
-  const enabledEntryCount = entries.filter((entry) => entry.enabled).length;
+  const hasUsableEntry = entries.some((entry) => entry.enabled && !selectedPreferenceWarning({
+    providerKind: entry.providerKind,
+    providerAccountId: entry.providerAccountId,
+    selectionMode: entry.selectionMode,
+    modelProfile: entry.modelProfile,
+    reasoningEffort: entry.reasoningEffort
+  }, modelOptions, complexityUseCase(entry.complexity)));
 
   return (
-    <SettingsSection aria-labelledby="task-model-pools-title">
-      <VStack gap={2}>
-        <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
-          <h2 id="task-model-pools-title" {...stylex.props(styles.sectionTitle)}>
-            Task models
-          </h2>
-          <Badge
-            variant={enabledEntryCount > 0 ? "success" : "warning"}
-            label={`${enabledEntryCount}/3 enabled`}
-          />
-        </HStack>
-        {saveError ? <p role="alert" {...stylex.props(styles.error)}>{saveError}</p> : null}
+    <SettingsSection title="Task models" titleId="task-model-pools-title">
         {loading && entries.length === 0 ? (
-          <p {...stylex.props(styles.muted)}>Loading task model pools...</p>
+          <SettingsSectionInset><p {...stylex.props(styles.muted)}>Loading task models...</p></SettingsSectionInset>
         ) : error ? (
-          <p role="alert" {...stylex.props(styles.muted)}>Task model pools could not be loaded.</p>
+          <SettingsSectionInset><p role="alert" {...stylex.props(styles.muted)}>Task models could not be loaded.</p></SettingsSectionInset>
         ) : (
           <SettingsList density="balanced" hasDividers>
             {complexities.map((complexity) => {
@@ -74,7 +68,10 @@ export function TaskModelPoolsSettings({
             })}
           </SettingsList>
         )}
-      </VStack>
+        {saveError || !hasUsableEntry ? <SettingsLocalFeedback>
+          {saveError ? <p role="alert" {...stylex.props(styles.error)}>{saveError}</p> : null}
+          {!hasUsableEntry ? <p {...stylex.props(styles.warning)}>No usable task model is enabled.</p> : null}
+        </SettingsLocalFeedback> : null}
     </SettingsSection>
   );
 }
@@ -157,14 +154,8 @@ function complexityLabel(value: TaskComplexity): string {
 }
 
 const styles = stylex.create({
-  sectionTitle: {
-    margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    fontSize: 16,
-    lineHeight: 1.3,
-    color: "var(--foreground)"
-  },
   rowLabel: { color: "var(--foreground)", fontWeight: 650 },
   muted: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 13 },
-  error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13, lineHeight: 1.45 }
+  error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13, lineHeight: 1.45 },
+  warning: { margin: "var(--spacing-0)", color: "var(--warning-foreground)", fontSize: 13, lineHeight: 1.45 }
 });

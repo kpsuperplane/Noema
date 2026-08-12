@@ -10,6 +10,9 @@ use thiserror::Error;
 #[serde(transparent)]
 pub struct ToolName(String);
 
+/// Namespace used by reviewed tools that enable one exact disabled capability.
+pub const TOOL_ENABLEMENT_PREFIX: &str = "enable.";
+
 impl ToolName {
     /// Validate and construct a canonical tool name.
     ///
@@ -54,6 +57,15 @@ impl ToolName {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// Return the reviewed enablement-tool name for one disabled capability.
+///
+/// # Errors
+///
+/// Returns [`ToolContractError::InvalidToolName`] if the composed name is invalid.
+pub fn tool_enablement_name(capability: &ToolName) -> Result<ToolName, ToolContractError> {
+    ToolName::new(format!("{TOOL_ENABLEMENT_PREFIX}{}", capability.as_str()))
 }
 
 impl fmt::Display for ToolName {

@@ -45,7 +45,7 @@ export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/settings/memory") {
     return { kind: "settings", section: "memory" };
   }
-  if (pathname === "/settings/models") {
+  if (pathname === "/settings/models" || pathname.startsWith("/settings/models/")) {
     return { kind: "settings", section: "models" };
   }
   if (pathname === "/settings" || pathname === "/settings/agents") {
@@ -66,13 +66,13 @@ export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/settings/safety/usage") {
     return { kind: "settings", section: "safety-usage" };
   }
-  if (pathname === "/settings/system/providers") {
+  if (pathname === "/settings/system/providers" || pathname.startsWith("/settings/system/providers/")) {
     return { kind: "settings", section: "system-providers" };
   }
   if (pathname === "/settings/system/notifications") {
     return { kind: "settings", section: "system-notifications" };
   }
-  if (pathname === "/settings/system/clients") {
+  if (pathname === "/settings/system/clients" || pathname.startsWith("/settings/system/clients/")) {
     return { kind: "settings", section: "system-clients" };
   }
   return { kind: "chat" };

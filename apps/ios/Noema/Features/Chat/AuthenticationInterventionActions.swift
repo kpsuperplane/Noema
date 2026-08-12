@@ -47,6 +47,7 @@ struct AuthenticationInterventionActions: View {
 
 struct GovernedInterventionActions: View {
   let disabled: Bool
+  var approveTitle = "Approve once"
   let onDecision: (String) async -> Void
 
   @State private var isWorking = false
@@ -55,7 +56,7 @@ struct GovernedInterventionActions: View {
     HStack(spacing: NoemaSpacing.xs) {
       Spacer(minLength: 0)
       Button("Decline") { decide("DECLINE") }.buttonStyle(NoemaActionButtonStyle(variant: .ghost))
-      Button("Approve once") { decide("APPROVE") }.buttonStyle(NoemaActionButtonStyle(variant: .primary))
+      Button(approveTitle) { decide("APPROVE") }.buttonStyle(NoemaActionButtonStyle(variant: .primary))
     }
     .disabled(disabled || isWorking)
   }

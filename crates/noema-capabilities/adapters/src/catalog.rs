@@ -7,9 +7,9 @@ use crate::{
 use noema_capabilities::{
     CapabilityAvailabilityNotice, CapabilityAvailabilityStatus, CapabilityBinding,
     CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityConnectionPolicy,
-    CapabilityDestination, CapabilityScope, CapabilityTarget, CapabilityToolBehavior, InvokerKey,
-    OperationToken, RedactingPayloadSanitizer, ToolName, ToolSpec,
-    resolve_capability_execution_decision,
+    CapabilityDestination, CapabilityExecutionDecision, CapabilityScope, CapabilityTarget,
+    CapabilityToolBehavior, InvokerKey, OperationToken, RedactingPayloadSanitizer, ToolName,
+    ToolSpec, resolve_capability_execution_decision, tool_enablement_name,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
@@ -77,16 +77,14 @@ impl AdapterCatalogCompiler {
                 .get(descriptor.semantic_digest.as_str())
                 .ok_or(AdapterCatalogError)?;
             let authentication = resolved_authentication(descriptor, definition, oauth)?;
-            for operation_id in &descriptor.allowed_operations {
-                let operation = definition
-                    .operations
-                    .iter()
-                    .find(|operation| operation.operation_id == *operation_id)
-                    .ok_or(AdapterCatalogError)?;
+            for operation in &definition.operations {
+                let enabled = descriptor
+                    .allowed_operations
+                    .contains(&operation.operation_id);
                 let canonical_name = canonical_name(
                     &definition.adapter_id,
                     &descriptor.connection_slug,
-                    operation_id,
+                    &operation.operation_id,
                 )?;
                 match descriptor.status {
                     crate::AdapterConnectionStatus::Active => {
@@ -95,46 +93,65 @@ impl AdapterCatalogCompiler {
                                 .authorization
                                 .is_satisfied_by(authentication.granted_scopes)
                         {
-                            notices.push(CapabilityAvailabilityNotice {
-                                capability: Some(canonical_name),
-                                status: CapabilityAvailabilityStatus::AuthenticationRequired,
-                            });
+                            if enabled {
+                                notices.push(CapabilityAvailabilityNotice {
+                                    capability: Some(canonical_name),
+                                    status: CapabilityAvailabilityStatus::AuthenticationRequired,
+                                });
+                            }
                             continue;
                         }
                         let Some(connection_policy) = descriptor.policy else {
-                            notices.push(CapabilityAvailabilityNotice {
-                                capability: Some(canonical_name),
-                                status: CapabilityAvailabilityStatus::Disabled,
-                            });
+                            if enabled {
+                                notices.push(CapabilityAvailabilityNotice {
+                                    capability: Some(canonical_name),
+                                    status: CapabilityAvailabilityStatus::Disabled,
+                                });
+                            }
                             continue;
                         };
                         if connection_policy.revision != descriptor.policy_revision {
                             return Err(AdapterCatalogError);
                         }
                         let behavior = effective_behavior(descriptor, operation)?;
-                        builder
-                            .add(binding(
-                                canonical_name,
-                                definition,
-                                descriptor,
-                                operation,
-                                &authentication,
-                                connection_policy,
-                                behavior,
-                            )?)
-                            .map_err(|_| AdapterCatalogError)?;
+                        let operation_binding = binding(
+                            canonical_name.clone(),
+                            definition,
+                            descriptor,
+                            operation,
+                            &authentication,
+                            connection_policy,
+                            behavior,
+                        )?;
+                        if enabled {
+                            builder
+                                .add(operation_binding)
+                                .map_err(|_| AdapterCatalogError)?;
+                        } else {
+                            notices.push(CapabilityAvailabilityNotice {
+                                capability: Some(canonical_name),
+                                status: CapabilityAvailabilityStatus::Disabled,
+                            });
+                            builder
+                                .add(enablement_binding(&operation_binding)?)
+                                .map_err(|_| AdapterCatalogError)?;
+                        }
                     }
                     crate::AdapterConnectionStatus::Suspended => {
-                        notices.push(CapabilityAvailabilityNotice {
-                            capability: Some(canonical_name),
-                            status: CapabilityAvailabilityStatus::Disabled,
-                        })
+                        if enabled {
+                            notices.push(CapabilityAvailabilityNotice {
+                                capability: Some(canonical_name),
+                                status: CapabilityAvailabilityStatus::Disabled,
+                            });
+                        }
                     }
                     crate::AdapterConnectionStatus::AuthenticationRequired => {
-                        notices.push(CapabilityAvailabilityNotice {
-                            capability: Some(canonical_name),
-                            status: CapabilityAvailabilityStatus::AuthenticationRequired,
-                        })
+                        if enabled {
+                            notices.push(CapabilityAvailabilityNotice {
+                                capability: Some(canonical_name),
+                                status: CapabilityAvailabilityStatus::AuthenticationRequired,
+                            });
+                        }
                     }
                 }
             }
@@ -144,6 +161,52 @@ impl AdapterCatalogCompiler {
             availability_notices: notices,
         })
     }
+}
+
+fn enablement_binding(
+    disabled: &CapabilityBinding,
+) -> Result<CapabilityBinding, AdapterCatalogError> {
+    let disabled_name = &disabled.spec().name;
+    let spec = ToolSpec::new(
+        tool_enablement_name(disabled_name)
+            .map_err(|_| AdapterCatalogError)?
+            .as_str(),
+        format!(
+            "Ask the human to enable the disabled {} tool. Use this only when that tool is required for the current request.",
+            disabled_name
+        ),
+        serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+        }),
+    )
+    .map_err(|_| AdapterCatalogError)?;
+    let mut binding = CapabilityBinding::new(
+        spec,
+        CapabilityTarget::new(
+            InvokerKey::new(ADAPTER_INVOKER_KEY),
+            disabled.target().operation_token().clone(),
+        ),
+        CapabilityToolBehavior {
+            read_only: false,
+            idempotent: true,
+            destructive: false,
+            open_world: false,
+        },
+        CapabilityExecutionDecision::HumanReview,
+        CapabilityScope::Global,
+        Arc::new(|arguments: &serde_json::Value| {
+            arguments.as_object().is_some_and(serde_json::Map::is_empty)
+        }),
+        Arc::new(RedactingPayloadSanitizer),
+    )
+    .with_destination(disabled.destination().cloned().ok_or(AdapterCatalogError)?);
+    if let Some(context) = disabled.service_context() {
+        binding = binding.with_service_context(context.clone());
+    }
+    Ok(binding)
 }
 
 impl AdapterOperationAuthorityV1 {
@@ -230,6 +293,14 @@ fn resolved_authentication<'a>(
     oauth: &'a OauthAuthoritySnapshot,
 ) -> Result<ResolvedAuthentication<'a>, AdapterCatalogError> {
     match &descriptor.authentication {
+        AdapterConnectionAuthenticationV1::Pending => Ok(ResolvedAuthentication {
+            active: false,
+            granted_scopes: &[],
+            account_id: None,
+            credential_revision: None,
+            grant_id: None,
+            grant_authority_revision: None,
+        }),
         AdapterConnectionAuthenticationV1::None => Ok(ResolvedAuthentication {
             active: true,
             granted_scopes: &[],

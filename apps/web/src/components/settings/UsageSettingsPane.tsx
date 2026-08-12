@@ -1,6 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import {
   SaveToolProgressAuditPreferenceDocument,
@@ -15,7 +14,7 @@ import {
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
 import { TaskExecutionPolicySettings, type TaskExecutionPolicyValue } from "./TaskExecutionPolicySettings";
-import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
+import { SettingsList, SettingsListItem, SettingsLocalFeedback, SettingsRowActions, SettingsSection } from "./SettingsPrimitives";
 import type { ModelPreferenceSaveInput } from "./modelPreferenceTypes";
 
 export function UsageSettingsPane() {
@@ -59,7 +58,7 @@ export function UsageSettingsPane() {
   const unavailable = Boolean(error) || !progressAudit;
 
   return (
-    <VStack gap={6} {...stylex.props(styles.stack)}>
+    <VStack gap={4} {...stylex.props(styles.stack)}>
       <TaskExecutionPolicySettings
         error={taskExecutionPolicyError}
         loading={taskExecutionPolicyLoading}
@@ -68,11 +67,7 @@ export function UsageSettingsPane() {
         saveError={taskExecutionPolicySaveError}
         saving={taskExecutionPolicySaving}
       />
-      <SettingsSection aria-labelledby="usage-progress-audit-title">
-        <VStack gap={2}>
-          <h2 id="usage-progress-audit-title" {...stylex.props(styles.sectionTitle)}>
-            Progress auditing
-          </h2>
+      <SettingsSection title="Progress auditing" titleId="usage-progress-audit-title">
           <SettingsList density="balanced" hasDividers>
             <SettingsListItem
               mobileEndContentFullWidth
@@ -85,7 +80,7 @@ export function UsageSettingsPane() {
                     : undefined
               }
               endContent={
-                <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
+                <SettingsRowActions>
                   <ModelPreferenceSelect
                     options={progressAudit?.modelOptions ?? []}
                     preference={preference}
@@ -95,17 +90,16 @@ export function UsageSettingsPane() {
                     isDisabled={unavailable}
                     onSave={onSaveToolProgressAuditPreference}
                   />
-                </HStack>
+                </SettingsRowActions>
               }
             />
           </SettingsList>
-          {saveError ? (
+          {saveError || warning ? <SettingsLocalFeedback>{saveError ? (
             <p role="alert" {...stylex.props(styles.saveError)}>
               Noema could not save the progress audit model.
             </p>
           ) : null}
-          {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
-        </VStack>
+          {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}</SettingsLocalFeedback> : null}
       </SettingsSection>
     </VStack>
   );
@@ -113,13 +107,6 @@ export function UsageSettingsPane() {
 
 const styles = stylex.create({
   stack: { minWidth: 0 },
-  sectionTitle: {
-    margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    fontSize: 16,
-    lineHeight: 1.3,
-    color: "var(--foreground)"
-  },
   mutedText: {
     margin: "var(--spacing-0)",
     color: "var(--muted-foreground)",
@@ -138,12 +125,4 @@ const styles = stylex.create({
     fontSize: 13,
     lineHeight: 1.5
   },
-  rowControl: {
-    justifyContent: "flex-end",
-    "@media (max-width: 620px)": {
-      width: "100%",
-      justifyContent: "flex-start",
-      marginInlineStart: "0"
-    }
-  }
 });

@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { KeyRound, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
@@ -272,6 +273,9 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
     servers.find((server) => server.mcpServerId === reauthServerId) ?? null;
   const selectedServer =
     servers.find((server) => server.mcpServerId === selectedConnectionId) ?? null;
+  const selectedIntegration = integrations.find((integration) =>
+    integration.connections.some((connection) => connection.connectionId === selectedConnectionId)
+  ) ?? null;
   const deleteTarget = servers.find((server) => server.mcpServerId === deleteTargetId) ?? null;
   const addTarget = integrations.find((integration) => integration.definitionId === addTargetId) ?? null;
 
@@ -305,6 +309,10 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
       <CapabilityManagementLayout
         kind="MCP"
         connectionId={selectedConnectionId}
+        defaultConnectionId={integrations[0]?.connections[0]?.connectionId}
+        title="MCPs"
+        primaryAction={{ label: "Connect service", onClick: onOpenSetup }}
+        serviceName={selectedIntegration?.name}
         list={
           <VStack {...stylex.props(styles.list)}>
             <CapabilityIntegrationList
@@ -312,7 +320,6 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
               kind="MCP"
               selectedConnectionId={selectedConnectionId}
               emptyMessage="No services connected."
-              primaryAction={{ label: "Connect service", onClick: onOpenSetup }}
               onAddConnection={(integration) => setAddTargetId(integration.definitionId)}
             />
           </VStack>
@@ -320,6 +327,7 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
         sourceActions={selectedServer && mcpServerNeedsReauth(selectedServer) ? (
           <Button
             type="button"
+            size="sm"
             variant="secondary"
             label="Reconnect"
             icon={<KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />}
@@ -327,10 +335,11 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
           />
         ) : null}
         dangerAction={selectedServer ? (
-          <Button
-            type="button"
+          <IconButton
+            size="sm"
             variant="destructive"
             label="Delete connection"
+            tooltip="Delete connection"
             icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
             isDisabled={deleteSubmitting}
             onClick={() => setDeleteTargetId(selectedServer.mcpServerId)}

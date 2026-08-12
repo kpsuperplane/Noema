@@ -2,10 +2,10 @@
 
 use crate::{
     AdapterCapabilityService, AdapterConnectionAuthenticationV1, AdapterConnectionStatus,
-    AdapterConnectionV4, AdapterCredentialGenerationV2, AuthenticationMode,
-    AuthorizationGrantStatus, AuthorizationGrantV1, CompiledAdapterDefinition, CompiledOperation,
-    CursorBinding, OauthApplicationCredentialV1, OauthApplicationV1, OauthGrantTokenV1,
-    OauthProfileV1, PaginationPolicy,
+    AdapterConnectionV4, AdapterCredentialGenerationV2, AdapterManagementError,
+    AdapterManagementFence, AuthenticationMode, AuthorizationGrantStatus, AuthorizationGrantV1,
+    CompiledAdapterDefinition, CompiledOperation, CursorBinding, OauthApplicationCredentialV1,
+    OauthApplicationV1, OauthGrantTokenV1, OauthProfileV1, PaginationPolicy,
     catalog::{AdapterOperationAuthorityV1, canonical_name, effective_behavior},
     network::{
         AdapterBearerCredential, AdapterHttpError, AdapterHttpResponse, AdapterOAuthTokenError,
@@ -18,7 +18,7 @@ use noema_capabilities::{
     CapabilityAuthenticationChallengeKind, CapabilityError, CapabilityExecutionDecision,
     CapabilityFailure, CapabilityFailureKind, CapabilityFuture, CapabilityInvocation,
     CapabilityInvoker, CapabilityOutput, CapabilityRecovery, resolve_capability_execution_decision,
-    sanitize_standard_credentials_with_additional_names,
+    sanitize_standard_credentials_with_additional_names, tool_enablement_name,
 };
 use serde_json::{Value, json};
 use std::{
@@ -57,6 +57,11 @@ impl AdapterCapabilityService {
         let authority =
             AdapterOperationAuthorityV1::from_operation_token(&invocation.operation_token)
                 .map_err(|_| CapabilityError::UnknownOperation)?;
+        let disabled_name = noema_capabilities::ToolName::new(&authority.canonical_name)
+            .map_err(|_| CapabilityError::UnknownOperation)?;
+        if tool_enablement_name(&disabled_name).is_ok_and(|name| name == invocation.operation) {
+            return self.enable_disabled_tool(invocation, authority).await;
+        }
         if invocation.operation.as_str() != authority.canonical_name {
             return Err(CapabilityError::UnknownOperation);
         }
@@ -310,6 +315,46 @@ impl AdapterCapabilityService {
         ))
     }
 
+    async fn enable_disabled_tool(
+        &self,
+        invocation: CapabilityInvocation,
+        authority: AdapterOperationAuthorityV1,
+    ) -> Result<CapabilityOutput, CapabilityError> {
+        if !invocation
+            .arguments
+            .as_object()
+            .is_some_and(serde_json::Map::is_empty)
+        {
+            return Err(CapabilityError::InvalidArguments);
+        }
+        let Some(authorization) = invocation.reviewed_authorization.as_ref() else {
+            return Err(CapabilityError::Denied);
+        };
+        if !authorization.matches_arguments(&invocation.arguments) {
+            return Err(CapabilityError::Denied);
+        }
+        self.set_management_tool_enabled(
+            AdapterManagementFence {
+                connection_id: authority.connection_id.clone(),
+                expected_connection_revision: authority.connection_revision,
+                expected_policy_revision: authority.policy_revision,
+            },
+            authority.operation_id.clone(),
+            authority.operation_digest.clone(),
+            true,
+        )
+        .await
+        .map_err(|error| match error {
+            AdapterManagementError::Unavailable => CapabilityError::Unavailable,
+            AdapterManagementError::NotFound
+            | AdapterManagementError::Invalid
+            | AdapterManagementError::Conflict => CapabilityError::UnknownOperation,
+        })?;
+        Ok(CapabilityOutput::success(json!({
+            "enabled_capability": authority.canonical_name
+        })))
+    }
+
     fn current_plan_with_credential(
         &self,
         authority: &AdapterOperationAuthorityV1,
@@ -364,7 +409,8 @@ impl AdapterCapabilityService {
                         Some(profile),
                     )
                 }
-                AdapterConnectionAuthenticationV1::None
+                AdapterConnectionAuthenticationV1::Pending
+                | AdapterConnectionAuthenticationV1::None
                 | AdapterConnectionAuthenticationV1::Credential { .. } => {
                     (None, None, None, None, None)
                 }
@@ -700,6 +746,7 @@ fn authentication_authority_matches(
     grant: Option<&AuthorizationGrantV1>,
 ) -> bool {
     match (&descriptor.authentication, grant) {
+        (AdapterConnectionAuthenticationV1::Pending, None) => false,
         (AdapterConnectionAuthenticationV1::None, None) => {
             authority.credential_revision.is_none() && authority.grant_id.is_none()
         }

@@ -1,7 +1,8 @@
 import * as stylex from "@stylexjs/stylex";
 import { useMutation, useQuery } from "@apollo/client/react";
+import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
-import { VStack } from "@astryxdesign/core/VStack";
+import { RefreshCw } from "lucide-react";
 import {
   MemorySettingsDocument,
   SaveMemoryModelPreferenceDocument,
@@ -16,7 +17,14 @@ import type {
   ModelPreferenceSaveInput,
   ModelProviderOption
 } from "./modelPreferenceTypes";
-import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
+import {
+  SettingsList,
+  SettingsListItem,
+  SettingsLocalFeedback,
+  SettingsRowActions,
+  SettingsSection,
+  SettingsSectionInset
+} from "./SettingsPrimitives";
 
 type NativeMemorySettings = MemorySettingsQuery["memorySettings"];
 
@@ -39,44 +47,24 @@ export function MemorySettingsPane() {
   const onSave = (input: ModelPreferenceSaveInput) => savePreference({
     variables: { input: { ...input, reasoningEffort: input.reasoningEffort ?? null } }
   });
-  if (loading) {
-    return <p {...stylex.props(styles.mutedText)}>Loading memory settings...</p>;
-  }
-
-  if (error || !settings) {
-    return (
-      <SettingsSection aria-labelledby="memory-settings-title">
-        <VStack gap={2}>
-          <h2 id="memory-settings-title" {...stylex.props(styles.sectionTitle)}>
-            Background updates
-          </h2>
-          <p {...stylex.props(styles.mutedText)}>
-            The model choices for native memory updates could not be loaded.
-          </p>
-        </VStack>
-      </SettingsSection>
-    );
-  }
-
-  const preference = toPreference(settings.modelPreference);
-  const options = settings.modelOptions.map(toProviderOption);
-  const warning = selectedPreferenceWarning(preference, options, "MEMORY_CONSOLIDATION");
+  const preference = settings ? toPreference(settings.modelPreference) : null;
+  const options = settings?.modelOptions.map(toProviderOption) ?? [];
+  const warning = settings ? selectedPreferenceWarning(preference, options, "MEMORY_CONSOLIDATION") : null;
 
   return (
-    <SettingsSection aria-labelledby="memory-settings-title">
-      <VStack gap={2}>
-        <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
-          <h2 id="memory-settings-title" {...stylex.props(styles.sectionTitle)}>
-            Background updates
-          </h2>
-          <span {...stylex.props(styles.scope)}>Local human only</span>
-        </HStack>
+    <SettingsSection title="Background updates" titleId="memory-settings-title" summary="Local human only">
+      {loading ? <SettingsSectionInset><p {...stylex.props(styles.mutedText)}>Loading memory settings...</p></SettingsSectionInset> : !settings ? (
+        <SettingsSectionInset>
+          <p role="alert" {...stylex.props(styles.mutedText)}>The model choices for native memory updates could not be loaded.</p>
+          <Button type="button" size="sm" variant="secondary" label="Retry" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={() => void settingsResult.refetch()} />
+        </SettingsSectionInset>
+      ) : <>
         <SettingsList density="balanced" hasDividers>
           <SettingsListItem
             mobileEndContentFullWidth
             label="Consolidation model"
             endContent={
-              <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
+              <SettingsRowActions>
                 <ModelPreferenceSelect
                   options={options}
                   preference={preference}
@@ -85,17 +73,19 @@ export function MemorySettingsPane() {
                   ariaLabel="Model settings for native memory updates"
                   onSave={onSave}
                 />
-              </HStack>
+              </SettingsRowActions>
             }
           />
-        </SettingsList>
-      {saveError ? (
-        <p role="alert" {...stylex.props(styles.saveError)}>
-          Noema could not save the memory update model.
-        </p>
-      ) : null}
-      {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
-      </VStack>
+      </SettingsList>
+      {error || saveError || warning ? <SettingsLocalFeedback>
+        {error ? <HStack gap={2} wrap="wrap" vAlign="center">
+          <p role="alert" {...stylex.props(styles.mutedText)}>Memory settings could not refresh.</p>
+          <Button type="button" size="sm" variant="secondary" label="Retry" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={() => void settingsResult.refetch()} />
+        </HStack> : null}
+        {saveError ? <p role="alert" {...stylex.props(styles.saveError)}>Noema could not save the memory update model.</p> : null}
+        {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
+      </SettingsLocalFeedback> : null}
+      </>}
     </SettingsSection>
   );
 }
@@ -131,17 +121,6 @@ function toProviderOption(value: NonNullable<NativeMemorySettings>["modelOptions
 }
 
 const styles = stylex.create({
-  sectionTitle: {
-    margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    fontSize: 16,
-    lineHeight: 1.3,
-    color: "var(--foreground)"
-  },
-  scope: {
-    color: "var(--muted-foreground)",
-    fontSize: 12
-  },
   mutedText: {
     margin: "var(--spacing-0)",
     color: "var(--muted-foreground)",
@@ -160,12 +139,4 @@ const styles = stylex.create({
     fontSize: 13,
     lineHeight: 1.5
   },
-  rowControl: {
-    justifyContent: "flex-end",
-    "@media (max-width: 620px)": {
-      width: "100%",
-      justifyContent: "flex-start",
-      marginInlineStart: "0"
-    }
-  }
 });

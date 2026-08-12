@@ -103,16 +103,17 @@ async fn assemble_services(
     let configured_reasoning_effort = provider.reasoning_effort();
     let adapter_service = AdapterCapabilityService::new(paths.clone());
     adapter_service.prepare_filesystem()?;
+    adapter_service.resume_definition_transitions().await?;
     let store = NoemaStore::open(&StoreConfig::new(paths.sqlite_db_path())).await?;
     let adapter_snapshot = adapter_service.management_snapshot()?;
     store
         .reconcile_adapter_definitions(&adapter_snapshot.definitions.projections())
         .await?;
     store
-        .reconcile_adapter_oauth_authorities(&adapter_snapshot.oauth_authorities)
-        .await?;
-    store
-        .reconcile_adapter_connections(&adapter_snapshot.connections.projections())
+        .reconcile_complete_adapter_state(
+            &adapter_snapshot.oauth_authorities,
+            &adapter_snapshot.connections.projections(),
+        )
         .await?;
     let provider_registry: ProviderRegistryHandle = Arc::new(ProviderRegistry::new());
     let codex_oauth = match &provider {

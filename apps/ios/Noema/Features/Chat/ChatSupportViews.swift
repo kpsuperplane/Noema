@@ -250,12 +250,14 @@ struct ChatInterventionsView: View {
       VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
         switch intervention {
         case let .governed(action):
-          HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-            Text(reviewLabel(action)).interventionEyebrow()
-            Spacer(minLength: NoemaSpacing.sm)
-            Text(action.taskID == nil ? "Primary conversation" : "Background task")
-              .font(NoemaFont.metadata)
-              .foregroundStyle(NoemaColor.contentTertiary)
+          if !action.isToolEnablement {
+            HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+              Text(reviewLabel(action)).interventionEyebrow()
+              Spacer(minLength: NoemaSpacing.sm)
+              Text(action.taskID == nil ? "Primary conversation" : "Background task")
+                .font(NoemaFont.metadata)
+                .foregroundStyle(NoemaColor.contentTertiary)
+            }
           }
           ActionRequestReviewContent(action: action)
           if let failureCode = action.failureCode {
@@ -264,7 +266,10 @@ struct ChatInterventionsView: View {
               .foregroundStyle(NoemaColor.danger)
           }
           interventionError(action.actionID)
-          GovernedInterventionActions(disabled: model.isOffline) {
+          GovernedInterventionActions(
+            disabled: model.isOffline,
+            approveTitle: action.isToolEnablement ? "Enable tool" : "Approve once"
+          ) {
             await model.resolve(intervention, decision: $0)
           }
         case let .mcpAuth(auth):

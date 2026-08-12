@@ -1,10 +1,13 @@
 import * as React from "react";
 import { useMutation } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { Markdown } from "@astryxdesign/core/Markdown";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
+import { Code2 } from "lucide-react";
 import {
   ResolveGovernedActionDocument,
   SkipAdapterAuthenticationDocument,
@@ -19,6 +22,7 @@ import { useMcpOAuthController } from "@/components/mcp/useMcpOAuthController";
 import { reserveExternalAuthNavigation } from "@/graphql/externalUrls";
 import { mcpOAuthRedirectUri } from "@/graphql/mcpOAuthCallback";
 import { TaskActions } from "@/components/tasks/TaskActions";
+import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { HumanInterventionCard } from "./HumanInterventionCard";
 
 type PendingHumanIntervention = PendingHumanInterventionsQuery["pendingHumanInterventions"][number];
@@ -79,7 +83,9 @@ export function GovernedActionCard({
   const [resolveAction, resolution] = useMutation(ResolveGovernedActionDocument);
   const [error, setError] = React.useState<string | null>(null);
   const [pendingDecision, setPendingDecision] = React.useState<GovernedActionDecision | null>(null);
+  const [developerDetailsOpen, setDeveloperDetailsOpen] = React.useState(false);
   const browserPreview = parseBrowserActionPreview(action.arguments);
+  const toolEnablement = toolEnablementTarget(action.capabilityName);
   const browserSessionEnded = action.browserSessionAvailable === false;
   const decide = async (decision: GovernedActionDecision) => {
     setError(null);
@@ -103,12 +109,23 @@ export function GovernedActionCard({
   };
   return (
     <HumanInterventionCard
-      label={reviewLabel(action.reviewRoute, action.behavior?.readOnly)}
-      meta={action.taskId ? "Background task" : "Primary conversation"}
+      label={toolEnablement ? undefined : reviewLabel(action.reviewRoute, action.behavior?.readOnly)}
+      meta={toolEnablement ? undefined : action.taskId ? "Background task" : "Primary conversation"}
       title={browserPreview ? browserActionTitle(browserPreview) : actionRequestTitle(action)}
       error={error}
       actions={(
         <>
+          {toolEnablement ? (
+            <IconButton
+              type="button"
+              size="sm"
+              variant="ghost"
+              label={`Developer details for ${actionTargetName(action)}`}
+              tooltip="Developer details"
+              icon={<Code2 aria-hidden="true" size={15} />}
+              onClick={() => setDeveloperDetailsOpen(true)}
+            />
+          ) : null}
           <Button
             size="sm"
             variant="ghost"
@@ -120,7 +137,7 @@ export function GovernedActionCard({
           <Button
             size="sm"
             variant="primary"
-            label={browserSessionEnded ? "Session ended" : "Approve once"}
+            label={browserSessionEnded ? "Session ended" : toolEnablement ? "Enable tool" : "Approve once"}
             isLoading={pendingDecision === "APPROVE"}
             isDisabled={resolution.loading || browserSessionEnded}
             onClick={() => void decide("APPROVE")}
@@ -128,6 +145,27 @@ export function GovernedActionCard({
         </>
       )}
     >
+      {toolEnablement ? (
+        <Dialog
+          isOpen={developerDetailsOpen}
+          onOpenChange={setDeveloperDetailsOpen}
+          purpose="info"
+          width={680}
+          aria-label={`Developer details for ${actionTargetName(action)}`}
+        >
+          <Layout
+            height="auto"
+            header={(
+              <DialogHeader
+                title="Developer details"
+                subtitle={actionTargetName(action)}
+                onOpenChange={setDeveloperDetailsOpen}
+              />
+            )}
+            content={<LayoutContent><ActionRequestDetails action={action} /></LayoutContent>}
+          />
+        </Dialog>
+      ) : null}
       <VStack gap={2}>
         {browserSessionEnded ? (
           <span {...stylex.props(styles.sessionEnded)}>
@@ -139,26 +177,14 @@ export function GovernedActionCard({
         ) : (
           <VStack gap={2}>
             <span {...stylex.props(styles.consequence)}>{action.consequence}</span>
-            <details {...stylex.props(styles.details)}>
-              <summary>Review details</summary>
-              <VStack gap={2} className={stylex.props(styles.reviewDetails).className}>
-                <MetadataList columns="single" label={{ position: "top" }}>
-                  {action.target?.serviceName ? (
-                    <MetadataListItem label="Service">{action.target.serviceName}</MetadataListItem>
-                  ) : null}
-                  {action.target?.connectionLabel ? (
-                    <MetadataListItem label="Account">{action.target.connectionLabel}</MetadataListItem>
-                  ) : null}
-                  {action.disclosure ? (
-                    <MetadataListItem label="Shared content">{action.disclosure.contentSummary}</MetadataListItem>
-                  ) : null}
-                  <MetadataListItem label="Effect">{actionBehaviorEvidence(action)}</MetadataListItem>
-                </MetadataList>
-                <span {...stylex.props(styles.capability)}>{action.capabilityName}</span>
-                <pre {...stylex.props(styles.arguments)}>{formatArguments(action.arguments)}</pre>
-                {action.assessment ? <AssessmentDetails assessment={action.assessment} /> : null}
-              </VStack>
-            </details>
+            {!toolEnablement ? (
+              <details {...stylex.props(styles.details)}>
+                <summary>Review details</summary>
+                <VStack gap={2} className={stylex.props(styles.reviewDetails).className}>
+                  <ActionRequestDetails action={action} />
+                </VStack>
+              </details>
+            ) : null}
           </VStack>
         )}
         {browserPreview && action.assessment ? <AssessmentDetails assessment={action.assessment} /> : null}
@@ -168,10 +194,25 @@ export function GovernedActionCard({
 }
 
 function actionRequestTitle(action: PendingGovernedAction) {
+  const toolName = toolEnablementTarget(action.capabilityName);
+  if (toolName) {
+    const serviceName = action.target?.serviceName || actionTargetName(action);
+    return `Enable “${toolActionLabel(toolName)}” in ${serviceName}?`;
+  }
   const target = actionTargetName(action);
   if (action.behavior?.readOnly) return `Share request data with ${target}?`;
   if (action.behavior?.destructive) return `Allow a destructive change in ${target}?`;
   return `Allow this change in ${target}?`;
+}
+
+function toolActionLabel(toolName: string) {
+  const operationName = toolName.split(".").at(-1) ?? toolName;
+  const words = operationName.replace(/[_:\s-]+/g, " ").trim().toLowerCase();
+  return words.replace(/^./, (character) => character.toUpperCase());
+}
+
+function toolEnablementTarget(capabilityName: string) {
+  return capabilityName.startsWith("enable.") ? capabilityName.slice("enable.".length) : null;
 }
 
 function actionTargetName(action: PendingGovernedAction) {
@@ -190,6 +231,28 @@ function actionBehaviorEvidence(action: PendingGovernedAction) {
     behavior.openWorld ? "External system" : null,
     behavior.idempotent ? "Safe to repeat" : "May repeat the effect"
   ].filter(Boolean).join(" · ");
+}
+
+function ActionRequestDetails({ action }: { action: PendingGovernedAction }) {
+  return (
+    <VStack gap={2}>
+      <MetadataList columns="single" label={{ position: "top" }}>
+        {action.target?.serviceName ? (
+          <MetadataListItem label="Service">{action.target.serviceName}</MetadataListItem>
+        ) : null}
+        {action.target?.connectionLabel ? (
+          <MetadataListItem label="Account">{action.target.connectionLabel}</MetadataListItem>
+        ) : null}
+        {action.disclosure ? (
+          <MetadataListItem label="Shared content">{action.disclosure.contentSummary}</MetadataListItem>
+        ) : null}
+        <MetadataListItem label="Effect">{actionBehaviorEvidence(action)}</MetadataListItem>
+      </MetadataList>
+      <span {...stylex.props(styles.capability)}>{action.capabilityName}</span>
+      <pre {...stylex.props(styles.arguments)}>{formatArguments(action.arguments)}</pre>
+      {action.assessment ? <AssessmentDetails assessment={action.assessment} /> : null}
+    </VStack>
+  );
 }
 
 function AssessmentDetails({

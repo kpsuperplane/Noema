@@ -255,6 +255,7 @@ type AdapterDefinition {
 	credentialSetup: AdapterCredentialSetup
 	accountIdentityOperationId: String
 	operations: [AdapterOperation!]!
+	transition: AdapterDefinitionTransition!
 	manifestJson: String!
 	connectionCount: Int!
 	connections: [AdapterConnection!]!
@@ -262,6 +263,20 @@ type AdapterDefinition {
 	superseded: Boolean!
 	nextAction: AdapterNextAction
 	connectionActions: [AdapterNextAction!]!
+}
+
+"""
+Human-reviewable impact of one immutable definition revision.
+"""
+type AdapterDefinitionTransition {
+	addedOperations: [String!]!
+	changedOperations: [String!]!
+	removedOperations: [String!]!
+	authenticationChanged: Boolean!
+	affectedConnections: Int!
+	affectedSchedules: Int!
+	authenticationRequiredConnections: Int!
+	consolidatedConnections: Int!
 }
 
 """
@@ -346,6 +361,14 @@ type AdapterOauthProfile {
 	displayName: String!
 	grantAudience: String!
 	credentialSetup: AdapterCredentialSetup
+}
+
+"""
+One additional reviewed API included in the same OAuth authorization.
+"""
+input AdapterOauthServiceSelectionInput {
+	semanticDigest: String!
+	operationIds: [String!]!
 }
 
 """
@@ -936,6 +959,7 @@ input AttachAdapterOauthConnectionInput {
 	semanticDigest: String!
 	grantId: String!
 	expectedGrantRevision: Int!
+	replacementConnectionId: String
 }
 
 input AuthenticateAcpAgentInput {
@@ -4228,6 +4252,7 @@ Transient credential input for one exact reviewed definition.
 """
 input SetupAdapterConnectionInput {
 	semanticDigest: String!
+	replacementConnectionId: String
 	fieldValues: [AdapterCredentialFieldValueInput!]! = []
 	documentBase64: String
 }
@@ -4266,6 +4291,7 @@ input StartAdapterOauthSetupInput {
 	expectedGrantRevision: Int
 	semanticDigest: String!
 	operationIds: [String!]!
+	additionalServices: [AdapterOauthServiceSelectionInput!]
 }
 
 """
