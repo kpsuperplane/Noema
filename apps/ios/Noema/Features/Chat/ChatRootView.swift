@@ -562,15 +562,8 @@ struct ChatReadyView: View {
       return false
     }
     if hasLiveStream { return (.idle, true) }
-    let normalized = model.agentStatus.replacingOccurrences(of: "_", with: "").lowercased()
-    switch normalized {
-    case "inputreceived", "waitingforpreviousturncompletion", "interrupting":
-      return (.listening, true)
-    case "thinking", "toolrunning":
-      return (.thinking, true)
-    default:
-      return (.idle, false)
-    }
+    let activity = noemaAvatarActivity(agentStatus: model.agentStatus)
+    return (activity, activity != .idle)
   }
 
   private func bubbleGroup(row: TimelineRow, previous: TimelineRow?, next: TimelineRow?) -> ChatBubbleGroup {

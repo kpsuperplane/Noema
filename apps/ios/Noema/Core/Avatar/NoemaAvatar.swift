@@ -121,6 +121,18 @@ func noemaTaskRunAvatarMotion(status: String) -> (activity: NoemaAvatarActivity,
   }
 }
 
+func noemaAvatarActivity(agentStatus: String) -> NoemaAvatarActivity {
+  let normalized = agentStatus.replacingOccurrences(of: "_", with: "").lowercased()
+  switch normalized {
+  case "inputreceived", "waitingforpreviousturncompletion", "interrupting":
+    return .listening
+  case "thinking", "toolrunning":
+    return .thinking
+  default:
+    return .idle
+  }
+}
+
 struct NoemaSeededRandom {
   private var state: UInt32
 

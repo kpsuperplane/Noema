@@ -124,6 +124,8 @@ struct NoemaTopRail: View {
   @Binding var selection: NoemaDestination
   let breakpoint: NoemaBreakpoint
   let agentLabel: String
+  var agentAvatarActivity: NoemaAvatarActivity = .idle
+  @State private var agentAvatarHovered = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
@@ -166,7 +168,13 @@ struct NoemaTopRail: View {
     let isCompactInactive = breakpoint == .compact && selection != destination
     if destination == .chat {
       HStack(spacing: NoemaSpacing.sm) {
-        NoemaAgentMark()
+        NoemaIdentityAvatar(
+          actorID: "agent:local",
+          actorType: .agent,
+          activity: agentAvatarActivity,
+          animated: agentAvatarHovered || agentAvatarActivity != .idle
+        )
+          .frame(width: 24, height: 24)
           .accessibilityHidden(true)
         if !isCompactInactive {
           Text(label)
@@ -174,6 +182,7 @@ struct NoemaTopRail: View {
             .transition(.opacity.combined(with: .offset(x: -4)))
         }
       }
+      .onHover { agentAvatarHovered = $0 }
     } else {
       HStack(spacing: NoemaSpacing.sm) {
         Image(systemName: destination.symbol)
@@ -277,7 +286,12 @@ struct NoemaShellView: View {
           .zIndex(30)
 
         if !coordinator.primaryNavigationHidden {
-          NoemaTopRail(selection: $selection, breakpoint: breakpoint, agentLabel: coordinator.primaryAgentLabel)
+          NoemaTopRail(
+            selection: $selection,
+            breakpoint: breakpoint,
+            agentLabel: coordinator.primaryAgentLabel,
+            agentAvatarActivity: shellAgentAvatarActivity
+          )
             .padding(.top, safeTop)
             .zIndex(40)
         }
@@ -307,6 +321,12 @@ struct NoemaShellView: View {
       .onChange(of: model.pendingTaskID) { _, _ in routePendingTask() }
     }
     .environment(coordinator)
+  }
+
+  private var shellAgentAvatarActivity: NoemaAvatarActivity {
+    let runtimeActivity = noemaAvatarActivity(agentStatus: chat.agentStatus)
+    if runtimeActivity == .idle, !chat.draft.isEmpty { return .listening }
+    return runtimeActivity
   }
 
   @ViewBuilder
