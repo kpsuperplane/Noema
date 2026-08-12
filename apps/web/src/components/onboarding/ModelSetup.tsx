@@ -140,7 +140,7 @@ export function ModelSetup({
       </VStack>
 
       {error ? <ErrorMarker message={error} /> : null}
-      <HStack justify="end" gap={2} wrap="wrap">
+      <HStack justify="end" gap={2} wrap="wrap" {...stylex.props(styles.actions)}>
         <Button
           type="button"
           variant="secondary"
@@ -242,10 +242,14 @@ const styles = stylex.create({
     justifyContent: "center",
     marginInline: "auto",
     paddingBlockStart: "var(--spacing-6)",
-    paddingBlockEnd: "var(--spacing-12)",
     "@media (max-width: 760px)": {
       justifyContent: "flex-start",
-      paddingBlockStart: "var(--spacing-4)",
+      paddingBlockStart: "var(--spacing-4)"
+    }
+  },
+  actions: {
+    paddingBlockEnd: "var(--spacing-12)",
+    "@media (max-width: 760px)": {
       paddingBlockEnd: "var(--spacing-8)"
     }
   },
