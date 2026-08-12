@@ -1,10 +1,11 @@
 import { useLazyQuery, useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@astryxdesign/core/Button";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { VStack } from "@astryxdesign/core/VStack";
-import { FileKey2, Pause, Play, Plus, Settings2, Trash2 } from "lucide-react";
+import { FileKey2, MoreHorizontal, Pause, Pencil, Play, Plus, Trash2, Unplug } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import {
@@ -78,7 +79,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const [replacementApplicationId, setReplacementApplicationId] = useState<string | null>(null);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<OAuthAction | null>(null);
-  const [managedGrants, setManagedGrants] = useState<Grant[] | null>(null);
+  const [renameGrants, setRenameGrants] = useState<Grant[] | null>(null);
   const [labelDraft, setLabelDraft] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [disconnectTarget, setDisconnectTarget] = useState<Grant[] | null>(null);
@@ -421,12 +422,42 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
               && (grant.accountId ?? grant.grantId) === account.id
             );
             if (grants.length === 0) return null;
-            return <IconButton size="sm" variant="ghost"
-              label={`Manage ${account.name}`}
-              tooltip={`Manage ${account.name}`}
-              icon={<Settings2 aria-hidden="true" {...stylex.props(styles.icon)} />}
-              isDisabled={disconnectState.loading || labelState.loading}
-              onClick={() => { setManagedGrants(grants); setLabelDraft(grants[0]?.accountLabel ?? ""); }} />;
+            const busy = disconnectState.loading || labelState.loading;
+            return <DropdownMenu
+              button={{
+                label: `Actions for ${account.name}`,
+                icon: <MoreHorizontal aria-hidden="true" {...stylex.props(styles.icon)} />,
+                isIconOnly: true,
+                size: "sm",
+                variant: "ghost",
+                isDisabled: busy
+              }}
+              hasChevron={false}
+              placement="below"
+              menuWidth={190}
+              items={[
+                {
+                  label: "Rename account",
+                  icon: <Pencil aria-hidden="true" {...stylex.props(styles.icon)} />,
+                  isDisabled: busy,
+                  onClick: () => {
+                    setError(null);
+                    setRenameGrants(grants);
+                    setLabelDraft(grants[0]?.accountLabel ?? "");
+                  }
+                },
+                { type: "divider" },
+                {
+                  label: "Disconnect account",
+                  icon: <Unplug aria-hidden="true" {...stylex.props(styles.icon)} />,
+                  isDisabled: busy,
+                  onClick: () => {
+                    setError(null);
+                    setDisconnectTarget(grants);
+                  }
+                }
+              ]}
+            />;
           }}
         /> : null}
         {availableDefinitions.length > 0 ? <SettingsSection aria-labelledby="available-api-title"><VStack gap={2}>
@@ -490,16 +521,14 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
         : "Replace this OAuth client document."}
       submitLabel="Replace OAuth client" onOpenChange={(open) => { if (!open) setReplacementApplicationId(null); }}
       onSubmit={replaceOauthApplication} />
-    <SettingsEditDialog title="Manage account" open={managedGrants !== null} saving={labelState.loading}
-      saveLabel="Save label" error={error} onOpenChange={(open) => { if (!open) setManagedGrants(null); }}
-      onSave={() => managedGrants?.[0] ? saveGrantLabel({ variables: { input: {
-        grantId: managedGrants[0].grantId,
-        expectedAuthorityRevision: managedGrants[0].authorityRevision,
+    <SettingsEditDialog title="Rename account" open={renameGrants !== null} saving={labelState.loading}
+      saveLabel="Save label" error={error} onOpenChange={(open) => { if (!open) setRenameGrants(null); }}
+      onSave={() => renameGrants?.[0] ? saveGrantLabel({ variables: { input: {
+        grantId: renameGrants[0].grantId,
+        expectedAuthorityRevision: renameGrants[0].authorityRevision,
         accountLabel: labelDraft || null
-      } } }).then(async () => { setManagedGrants(null); await refresh(); }).catch(actionError(setError)) : undefined}>
+      } } }).then(async () => { setRenameGrants(null); await refresh(); }).catch(actionError(setError)) : undefined}>
       <TextInput hasAutoFocus label="Account label" value={labelDraft} onChange={setLabelDraft} />
-      <Button type="button" variant="destructive" label="Disconnect account"
-        onClick={() => { setDisconnectTarget(managedGrants); setManagedGrants(null); }} />
     </SettingsEditDialog>
     <SettingsEditDialog title={accessConfirmation ? `Authorize more ${accessConfirmation.definition.displayName} tools?` : "Authorize more tools?"}
       open={accessConfirmation !== null} saving={oauthStartState.loading} saveLabel="Continue to authorize" error={error}
