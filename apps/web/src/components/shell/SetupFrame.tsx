@@ -18,8 +18,21 @@ export function SetupFrame({ children }: { children: ReactNode }) {
 
 const styles = stylex.create({
   root: {
+    position: "relative",
     overflow: "hidden",
-    backgroundColor: "var(--background)"
+    backgroundColor: "var(--background)",
+    "::after": {
+      content: "''",
+      position: "absolute",
+      right: 0,
+      bottom: 0,
+      left: 0,
+      zIndex: 2,
+      height: "var(--spacing-12)",
+      pointerEvents: "none",
+      backgroundImage:
+        "linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 0.38) 50%, var(--background) 100%)"
+    }
   },
   dragRegion: {
     position: "relative",
@@ -28,10 +41,18 @@ const styles = stylex.create({
     height: 52,
     boxSizing: "border-box",
     flexShrink: 0,
-    borderBlockEndWidth: 1,
-    borderBlockEndStyle: "solid",
-    borderBlockEndColor: "var(--border-subtle)",
-    backgroundColor: "var(--background)"
+    backgroundColor: "var(--background)",
+    "::after": {
+      content: "''",
+      position: "absolute",
+      top: "100%",
+      right: 0,
+      left: 0,
+      height: "var(--spacing-4)",
+      pointerEvents: "none",
+      backgroundImage:
+        "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
+    }
   },
   body: {
     flex: 1,
