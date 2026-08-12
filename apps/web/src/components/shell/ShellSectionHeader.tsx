@@ -57,16 +57,30 @@ const styles = stylex.create({
     zIndex: 3,
     width: "100%",
     flexShrink: 0,
-    backgroundColor: "var(--background)",
+    backgroundColor: {
+      default: "transparent",
+      "@media (max-width: 760px)": "var(--background)"
+    },
     "::after": {
       content: "''",
       position: "absolute",
-      top: "100%",
+      top: {
+        default: 0,
+        "@media (max-width: 760px)": "100%"
+      },
       right: 0,
       left: 0,
-      height: "var(--spacing-4)",
+      height: {
+        default: "100%",
+        "@media (max-width: 760px)": "var(--spacing-4)"
+      },
       pointerEvents: "none",
-      backgroundImage: "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
+      backgroundImage: {
+        default:
+          "linear-gradient(to bottom, var(--background) 0%, color-mix(in srgb, var(--background) 90%, transparent) 20%, color-mix(in srgb, var(--background) 65%, transparent) 40%, color-mix(in srgb, var(--background) 35%, transparent) 60%, color-mix(in srgb, var(--background) 10%, transparent) 80%, transparent 100%)",
+        "@media (max-width: 760px)":
+          "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
+      }
     }
   },
   mobileTitleOnlyHeader: {
@@ -75,6 +89,8 @@ const styles = stylex.create({
     }
   },
   content: {
+    position: "relative",
+    zIndex: 1,
     paddingBlock: "var(--spacing-3) var(--spacing-2)",
     "@media (max-width: 760px)": {
       paddingBlock: "var(--spacing-2)"
