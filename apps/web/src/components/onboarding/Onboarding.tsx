@@ -106,7 +106,7 @@ export function Onboarding({
       gap={6}
     >
       <img
-        src="/assets/noema-mark.svg"
+        src={`${import.meta.env.BASE_URL}noema-mark.svg`}
         width="64"
         height="64"
         alt=""
@@ -116,8 +116,7 @@ export function Onboarding({
       {visibleProviderKind === null ? (
         <VStack gap={4} {...stylex.props(styles.stage)}>
           <VStack gap={1.5} hAlign="center">
-            <p {...stylex.props(styles.eyebrow)}>Welcome to Noema</p>
-            <h1 {...stylex.props(styles.title)}>Choose how Noema runs</h1>
+            <h1 {...stylex.props(styles.title)}>Welcome to Noema</h1>
             <p {...stylex.props(styles.description)}>
               Pick one provider to start. You can add the others later.
             </p>
