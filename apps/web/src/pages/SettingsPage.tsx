@@ -13,7 +13,10 @@ import { ShellPageLayout, ShellPageTrack } from "@/components/shell/ShellPageLay
 import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
 import type { SettingsSection } from "@/app/routes";
 import { StackItem } from "@astryxdesign/core/Stack";
+import { Button } from "@astryxdesign/core/Button";
 import { VStack } from "@astryxdesign/core/VStack";
+import { useNavigate } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 
 type SettingsSurfaceProps = {
@@ -38,6 +41,7 @@ const settingsSectionCopy: Record<SettingsSection, { title: string }> = {
 export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps) {
   const copy = settingsSectionCopy[section];
   const isIntegrationManagement = section === "tools-apis" || section === "tools-mcps";
+  const navigate = useNavigate();
 
   return (
     <ShellPageLayout width={isIntegrationManagement ? "fluid" : "centered"}>
@@ -50,6 +54,16 @@ export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps)
         <ShellSectionHeader
           title={copy.title}
           titleId="settings-surface-title"
+          actions={section === "tools-apis" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              label="Connect API"
+              icon={<Plus aria-hidden="true" size={16} />}
+              onClick={() => void navigate({ to: "/" })}
+            />
+          ) : undefined}
         />
         {isIntegrationManagement ? (
           <StackItem size="fill" {...stylex.props(styles.integrationContent)}>

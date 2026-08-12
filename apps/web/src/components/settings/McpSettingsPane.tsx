@@ -272,6 +272,9 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
     servers.find((server) => server.mcpServerId === reauthServerId) ?? null;
   const selectedServer =
     servers.find((server) => server.mcpServerId === selectedConnectionId) ?? null;
+  const selectedIntegration = integrations.find((integration) =>
+    integration.connections.some((connection) => connection.connectionId === selectedConnectionId)
+  ) ?? null;
   const deleteTarget = servers.find((server) => server.mcpServerId === deleteTargetId) ?? null;
   const addTarget = integrations.find((integration) => integration.definitionId === addTargetId) ?? null;
 
@@ -305,6 +308,8 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
       <CapabilityManagementLayout
         kind="MCP"
         connectionId={selectedConnectionId}
+        defaultConnectionId={integrations[0]?.connections[0]?.connectionId}
+        serviceName={selectedIntegration?.name}
         list={
           <VStack {...stylex.props(styles.list)}>
             <CapabilityIntegrationList
@@ -320,6 +325,7 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
         sourceActions={selectedServer && mcpServerNeedsReauth(selectedServer) ? (
           <Button
             type="button"
+            size="sm"
             variant="secondary"
             label="Reconnect"
             icon={<KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />}

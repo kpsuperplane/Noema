@@ -3,8 +3,9 @@ import { useNavigate } from "@tanstack/react-router";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { VStack } from "@astryxdesign/core/VStack";
-import { KeyRound, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, KeyRound, Plus, Trash2 } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import {
@@ -149,7 +150,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       ...integration,
       connections: integration.connections.map((connection) => {
         const grant = oauth?.grants.find((item) => item.connectionIds.includes(connection.connectionId));
-        return grant?.accountLabel ? { ...connection, name: grant.accountLabel } : connection;
+        return grant ? { ...connection, name: grant.accountLabel ?? "Unlabeled account" } : connection;
       })
     }));
   const pendingDefinitions = definitions.filter((item) => !item.reviewed);
@@ -161,6 +162,9 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     : null;
   const selectedDescriptor = selectedDefinition?.connections
     .find((item) => item.connectionId === connectionId) ?? null;
+  const selectedGrant = selectedConnection
+    ? oauth?.grants.find((grant) => grant.connectionIds.includes(selectedConnection.connectionId)) ?? null
+    : null;
   const setupDefinition = definitions.find((item) => item.semanticDigest === setupDefinitionDigest) ?? null;
   const applicationProfile = oauth?.profiles.find((item) => item.profileDigest === applicationProfileDigest) ?? null;
   const replacementApplication = oauth?.applications.find((item) => item.applicationId === replacementApplicationId) ?? null;
@@ -305,26 +309,16 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       <Button type="button" size="sm" label={actionLabel(selectedDefinition)} isLoading={oauthStartState.loading}
         onClick={() => requestAction(selectedDefinition)} />
     ) : null}
-    <Button type="button" size="sm" variant="secondary"
-      label={selectedDescriptor.status === "suspended" ? "Resume connection" : "Suspend connection"}
-      isLoading={connectionState.loading}
-      onClick={() => void setConnectionActive({ variables: { input: {
-        connectionId: selectedDescriptor.connectionId,
-        expectedConnectionRevision: selectedDescriptor.connectionRevision,
-        active: selectedDescriptor.status === "suspended"
-      } } }).then(refresh).catch(actionError(setError))} />
-    {selectedDefinition.connectionActions.length > 0 ? <Button type="button" size="sm" variant="secondary"
-      label={selectedDefinition.connectionActions.length === 1
-        ? connectionActionLabel(selectedDefinition, selectedDefinition.connectionActions[0], oauth)
-        : "Connect another account"}
-      onClick={() => requestConnection(selectedDefinition)} /> : null}
   </> : null;
 
   return <>
     <CapabilityManagementLayout
       kind="API"
       connectionId={connectionId}
+      defaultConnectionId={apiIntegrations[0]?.connections[0]?.connectionId}
       startPolicyEditing={selectedDescriptor?.policyConfigured === false}
+      serviceName={selectedDefinition?.displayName}
+      connectionName={selectedGrant ? selectedGrant.accountLabel ?? "Unlabeled account" : undefined}
       sourceActions={sourceActions}
       list={<VStack gap={3} {...stylex.props(styles.stack)}>
         {pendingDefinitions.length > 0 ? (
@@ -356,7 +350,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           integrationAction={(integration) => {
             const definition = definitions.find((item) => item.semanticDigest === integration.sourceRevision);
             if (!definition || definition.connectionActions.length === 0) return null;
-            return <Button type="button" size="sm" variant="secondary" isIconOnly
+            return <IconButton size="sm" variant="ghost"
               label={`Connect another account to ${integration.name}`}
               tooltip={`Connect another account to ${integration.name}`}
               icon={<Plus aria-hidden="true" {...stylex.props(styles.icon)} />}
@@ -379,12 +373,16 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           </SettingsList>
         </VStack></SettingsSection> : null}
         {oauth.grants.length > 0 || oauth.applications.length > 0 ? (
-          <SettingsSection aria-label="Provider access">
-            <details>
+          <details {...stylex.props(styles.providerAccess)}>
               <summary {...stylex.props(styles.providerAccessSummary)}>
-                <KeyRound aria-hidden="true" {...stylex.props(styles.icon)} />
-                <span>Provider access</span>
-                <span {...stylex.props(styles.disclosureMeta)}>Accounts and OAuth clients</span>
+                <span {...stylex.props(styles.providerIcon)}>
+                  <KeyRound aria-hidden="true" {...stylex.props(styles.icon)} />
+                </span>
+                <span {...stylex.props(styles.providerCopy)}>
+                  <span>Provider access</span>
+                  <span {...stylex.props(styles.disclosureMeta)}>Accounts and OAuth clients</span>
+                </span>
+                <ChevronRight aria-hidden="true" {...stylex.props(styles.providerChevron)} />
               </summary>
               <VStack gap={3} {...stylex.props(styles.advancedBody)}>
                 {oauth.grants.length > 0 ? <AccountAccessRows oauth={oauth}
@@ -411,8 +409,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
                 </SettingsList>
                 </VStack> : null}
               </VStack>
-            </details>
-          </SettingsSection>
+          </details>
         ) : null}
         {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
       </VStack>}
@@ -421,8 +418,18 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
         <details><summary {...stylex.props(styles.summary)}>Canonical definition</summary>
           <pre {...stylex.props(styles.manifest)}>{selectedDefinition.manifestJson}</pre></details>
       </VStack> : null}
-      dangerAction={selectedConnection ? <Button type="button" variant="destructive" label="Delete connection"
-        icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />} onClick={() => setDeleteOpen(true)} /> : null}
+      dangerAction={selectedConnection && selectedDescriptor ? <>
+        <Button type="button" size="sm" variant="ghost"
+          label={selectedDescriptor.status === "suspended" ? "Resume connection" : "Suspend connection"}
+          isLoading={connectionState.loading}
+          onClick={() => void setConnectionActive({ variables: { input: {
+            connectionId: selectedDescriptor.connectionId,
+            expectedConnectionRevision: selectedDescriptor.connectionRevision,
+            active: selectedDescriptor.status === "suspended"
+          } } }).then(refresh).catch(actionError(setError))} />
+        <Button type="button" size="sm" variant="destructive" label="Delete connection"
+          icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />} onClick={() => setDeleteOpen(true)} />
+      </> : null}
     />
     <AdapterCredentialSetupDialog
       title="Import OAuth client"
@@ -690,18 +697,26 @@ const styles = stylex.create({
   fit: { width: "fit-content" },
   icon: { width: 16, height: 16 },
   summary: { cursor: "pointer", fontSize: 12, fontWeight: 600 },
+  providerAccess: { minWidth: 0 },
   providerAccessSummary: {
-    display: "flex",
+    display: "grid",
+    gridTemplateColumns: "auto minmax(0, 1fr) auto",
     alignItems: "center",
     gap: "var(--spacing-2)",
+    minHeight: "var(--spacing-12)",
+    paddingInline: "var(--spacing-1)",
+    listStyle: "none",
     cursor: "pointer",
     color: "var(--foreground)",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: 650
   },
-  disclosureMeta: { marginInlineStart: "auto", color: "var(--muted-foreground)", fontSize: 12, fontWeight: 400 },
+  providerIcon: { display: "inline-flex", width: "var(--spacing-8)", height: "var(--spacing-8)", alignItems: "center", justifyContent: "center", borderRadius: "var(--radius-sm)", backgroundColor: "var(--noema-surface-subtle)", color: "var(--muted-foreground)" },
+  providerCopy: { display: "inline-grid", minWidth: 0, gap: "var(--spacing-0-5)" },
+  providerChevron: { width: "var(--spacing-4)", height: "var(--spacing-4)", color: "var(--muted-foreground)" },
+  disclosureMeta: { color: "var(--muted-foreground)", fontSize: 12, fontWeight: 400 },
   subsectionTitle: { margin: 0, color: "var(--foreground)", fontSize: 13, fontWeight: 700 },
-  advancedBody: { paddingTop: "var(--spacing-2)" },
+  advancedBody: { marginTop: "var(--spacing-1)", padding: "var(--spacing-3)", borderWidth: "var(--border-width)", borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: "var(--radius-container)", backgroundColor: "var(--surface-raised)" },
   technicalDetails: { paddingTop: "var(--spacing-2)" },
   manifest: { maxHeight: 280, margin: "var(--spacing-2) 0 0", padding: "var(--spacing-2)", overflow: "auto", borderRadius: "var(--radius-sm)", backgroundColor: "var(--noema-surface-subtle)", fontFamily: "var(--font-mono)", fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }
 });

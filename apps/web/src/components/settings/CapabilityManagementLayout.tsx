@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
+import { useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { MasterDetailLayout } from "@/components/shell/MasterDetailLayout";
@@ -8,23 +10,41 @@ import { CapabilityConnectionDetail } from "./CapabilityConnectionDetail";
 export function CapabilityManagementLayout({
   kind,
   connectionId,
+  defaultConnectionId,
   list,
   startPolicyEditing,
+  serviceName,
+  connectionName,
   sourceActions,
   definitionDetails,
   dangerAction
 }: {
   kind: "API" | "MCP";
   connectionId?: string;
+  defaultConnectionId?: string;
   list: ReactNode;
   startPolicyEditing?: boolean;
+  serviceName?: string;
+  connectionName?: string;
   sourceActions?: ReactNode;
   definitionDetails?: ReactNode;
   dangerAction?: ReactNode;
 }) {
   const hasDetail = connectionId !== undefined;
   const navigate = useNavigate();
+  const desktop = useMediaQuery("(min-width: 980px)");
   const listRoute = kind === "API" ? "/settings/tools/apis" : "/settings/tools/mcps";
+
+  useEffect(() => {
+    if (!desktop || connectionId || !defaultConnectionId) return;
+    void navigate({
+      to: kind === "API"
+        ? "/settings/tools/apis/$connectionId"
+        : "/settings/tools/mcps/$connectionId",
+      params: { connectionId: defaultConnectionId },
+      replace: true
+    });
+  }, [connectionId, defaultConnectionId, desktop, kind, navigate]);
 
   return (
     <MasterDetailLayout
@@ -51,6 +71,8 @@ export function CapabilityManagementLayout({
               kind={kind}
               connectionId={connectionId}
               startPolicyEditing={startPolicyEditing}
+              serviceName={serviceName}
+              connectionName={connectionName}
               sourceActions={sourceActions}
               definitionDetails={definitionDetails}
               dangerAction={dangerAction}

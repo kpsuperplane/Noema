@@ -2,8 +2,12 @@ import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { Section } from "@astryxdesign/core/Section";
 import { TextInput } from "@astryxdesign/core/TextInput";
+import { Toolbar } from "@astryxdesign/core/Toolbar";
 import { VStack } from "@astryxdesign/core/VStack";
+import { Pencil, Wrench } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 import {
   CapabilityConnectionDocument,
@@ -27,8 +31,9 @@ import {
 } from "@/components/capabilities/CapabilityPolicyChoices";
 import { CapabilityToolTable, toolHintSourceDescription } from "./CapabilityToolTable";
 import { SettingsEditDialog } from "./SettingsEditDialog";
-import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
+import { SettingsList, SettingsListItem } from "./SettingsPrimitives";
 import { settingsStatusLabel } from "./settingsStatus";
+import { CapabilityIcon } from "./CapabilityIntegrationList";
 
 type ManagedTool = CapabilityConnectionQuery["capabilityTools"][number];
 type HintKey = "readOnly" | "idempotent" | "destructive" | "openWorld";
@@ -38,6 +43,8 @@ export function CapabilityConnectionDetail({
   kind,
   connectionId,
   startPolicyEditing = false,
+  serviceName,
+  connectionName,
   sourceActions,
   definitionDetails,
   dangerAction
@@ -45,6 +52,8 @@ export function CapabilityConnectionDetail({
   kind: "API" | "MCP";
   connectionId: string;
   startPolicyEditing?: boolean;
+  serviceName?: string;
+  connectionName?: string;
   sourceActions?: React.ReactNode;
   definitionDetails?: React.ReactNode;
   dangerAction?: React.ReactNode;
@@ -232,21 +241,25 @@ export function CapabilityConnectionDetail({
           />
         </HStack>
       ) : null}
-      <SettingsSection aria-labelledby="connection-summary-title">
-        <HStack hAlign="between" vAlign="center" gap={2}>
-          <VStack gap={1}>
-            <h2 id="connection-summary-title" {...stylex.props(styles.heading)}>{connection.name}</h2>
-            {connectionIssue(connection) ? (
-              <p {...stylex.props(styles.muted)}>{connectionIssue(connection)}</p>
-            ) : null}
-          </VStack>
-          <HStack gap={1} vAlign="center">
+      <VStack gap={2} {...stylex.props(styles.connectionHeader)}>
+        <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
+          <HStack gap={2} vAlign="center">
+            <CapabilityIcon kind={kind} definitionId={connection.definitionId} emphasized />
+            <VStack gap={0.5}>
+              <span {...stylex.props(styles.serviceName)}>{serviceName ?? kind}</span>
+              <h2 id="connection-summary-title" {...stylex.props(styles.connectionName)}>
+                {connectionName ?? connection.name}
+              </h2>
+            </VStack>
+          </HStack>
+          <HStack gap={1} vAlign="center" wrap="wrap">
             {!renaming ? (
-              <Button
-                type="button"
-                variant="secondary"
+              <IconButton
+                variant="ghost"
                 size="sm"
-                label="Rename"
+                label="Rename connection"
+                tooltip="Rename connection"
+                icon={<Pencil aria-hidden="true" size={16} />}
                 onClick={() => {
                   setError(null);
                   setLabelDraft(connection.connectionLabel ?? "");
@@ -254,38 +267,54 @@ export function CapabilityConnectionDetail({
                 }}
               />
             ) : null}
+            {sourceActions}
           </HStack>
         </HStack>
-        {sourceActions ? <HStack gap={1} wrap="wrap" vAlign="center">{sourceActions}</HStack> : null}
-      </SettingsSection>
+        <HStack gap={1} vAlign="center" {...stylex.props(styles.toolCount)}>
+          <Wrench aria-hidden="true" size={14} />
+          {connection.availableToolCount} / {connection.toolCount} tools
+          {connectionIssue(connection) ? (
+            <span>· {connectionIssue(connection)}</span>
+          ) : null}
+        </HStack>
+      </VStack>
 
-      <SettingsSection aria-labelledby="connection-policy-title">
-        <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
-          <h2 id="connection-policy-title" {...stylex.props(styles.heading)}>Connection policy</h2>
-          <Button
-            type="button"
-            variant="secondary"
+      <Section variant="section" padding={0} aria-labelledby="connection-policy-title" xstyle={styles.detailSection}>
+        <Toolbar
+          label="Connection policy actions"
+          size="sm"
+          variant="muted"
+          startContent={<h2 id="connection-policy-title" {...stylex.props(styles.heading)}>Connection policy</h2>}
+          endContent={<IconButton
+            variant="ghost"
             size="sm"
-            label="Edit policy"
+            label="Edit connection policy"
+            tooltip="Edit connection policy"
+            icon={<Pencil aria-hidden="true" size={16} />}
             onClick={() => {
               setError(null);
               setSharing(sharing);
               setUnsafeActions(unsafeActions);
               setPolicyEditing(true);
             }}
-          />
-        </HStack>
-        <SettingsList density="compact">
-          <SettingsListItem label="Data sharing" description={sharingLabel(sharing)} />
-          <SettingsListItem label="Risky actions" description={unsafeActionLabel(unsafeActions)} />
-        </SettingsList>
-      </SettingsSection>
+          />}
+        />
+        <VStack {...stylex.props(styles.sectionBody)}>
+          <SettingsList density="compact" hasDividers>
+            <SettingsListItem label="Data sharing" description={sharingLabel(sharing)} />
+            <SettingsListItem label="Risky actions" description={unsafeActionLabel(unsafeActions)} />
+          </SettingsList>
+        </VStack>
+      </Section>
 
-      <SettingsSection aria-labelledby="connection-tools-title">
-        <HStack hAlign="between" vAlign="center" gap={2}>
-          <h2 id="connection-tools-title" {...stylex.props(styles.heading)}>Tools</h2>
-          <span {...stylex.props(styles.muted)}>{connection.availableToolCount}/{connection.toolCount} available</span>
-        </HStack>
+      <Section variant="section" padding={0} aria-labelledby="connection-tools-title" xstyle={styles.detailSection}>
+        <Toolbar
+          label="Tool settings"
+          size="sm"
+          variant="muted"
+          startContent={<h2 id="connection-tools-title" {...stylex.props(styles.heading)}>Tools</h2>}
+          endContent={<span {...stylex.props(styles.muted)}>{connection.availableToolCount} / {connection.toolCount} available</span>}
+        />
         <CapabilityToolTable
           tools={tools}
           loading={result.loading}
@@ -294,7 +323,7 @@ export function CapabilityConnectionDetail({
           onReset={(tool) => void reset(tool)}
           onToggle={(tool) => void toggle(tool)}
         />
-      </SettingsSection>
+      </Section>
 
       <VStack as="details" gap={2} {...stylex.props(styles.detailsSection)}>
         <summary {...stylex.props(styles.summary)}>Source details</summary>
@@ -308,11 +337,9 @@ export function CapabilityConnectionDetail({
         }, null, 2)}</pre>
       </VStack>
       {dangerAction ? (
-        <SettingsSection aria-labelledby="connection-danger-title">
-          <h2 id="connection-danger-title" {...stylex.props(styles.heading)}>Connection</h2>
-          <p {...stylex.props(styles.muted)}>Remove this connection, its credentials, and its tool settings.</p>
-          <HStack gap={1} wrap="wrap" vAlign="center">{dangerAction}</HStack>
-        </SettingsSection>
+        <HStack gap={1} wrap="wrap" vAlign="center" {...stylex.props(styles.connectionActions)}>
+          {dangerAction}
+        </HStack>
       ) : null}
       {error && !renaming && !policyEditing && !editingTool ? (
         <p role="alert" {...stylex.props(styles.error)}>{error}</p>
@@ -494,7 +521,13 @@ function unsafeActionLabel(value: CapabilityUnsafeActionPolicy) {
 }
 
 const styles = stylex.create({
-  heading: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 16, fontWeight: 600 },
+  connectionHeader: { paddingBlockEnd: "var(--spacing-3)", borderBlockEndWidth: "var(--border-width)", borderBlockEndStyle: "solid", borderBlockEndColor: "var(--border-subtle)" },
+  serviceName: { color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.2 },
+  connectionName: { margin: 0, color: "var(--foreground)", fontFamily: "var(--font-heading)", fontSize: 18, fontWeight: 650, lineHeight: 1.25, overflowWrap: "anywhere" },
+  toolCount: { color: "var(--muted-foreground)", fontSize: 12 },
+  detailSection: { overflow: "hidden", borderWidth: "var(--border-width)", borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: "var(--radius-container)" },
+  sectionBody: { paddingInline: "var(--spacing-2)" },
+  heading: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 14, fontWeight: 650 },
   editorDescription: { margin: "var(--spacing-0)", fontSize: 13, lineHeight: 1.5, color: "var(--muted-foreground)" },
   hintRow: { paddingBlock: "var(--spacing-2)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", fontSize: 14, "@media (max-width: 520px)": { alignItems: "flex-start" } },
   hintQuestion: { fontSize: 14, lineHeight: 1.4 },
@@ -507,6 +540,7 @@ const styles = stylex.create({
   muted: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 12 },
   summary: { cursor: "pointer", fontSize: 13, fontWeight: 600 },
   detailsSection: { minWidth: 0 },
+  connectionActions: { paddingBlockStart: "var(--spacing-1)" },
   detailHeading: { fontSize: 12 },
   details: { margin: "var(--spacing-0)", overflowX: "auto", fontFamily: "var(--font-mono)", fontSize: 12 },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 }
