@@ -298,6 +298,23 @@ async fn live_activity_end_delivery_dismisses_and_allows_a_new_session() {
         "dismissed"
     );
     store
+        .register_client_live_activities(
+            "client:live",
+            &[1, 2, 3],
+            ApnsEnvironment::Production,
+            &[],
+        )
+        .await
+        .expect("refresh registration");
+    let dismissed = store
+        .client_task_activity("client:live")
+        .await
+        .expect("read refreshed activity")
+        .expect("refreshed activity");
+    assert_eq!(dismissed.lifecycle, "dismissed");
+    assert_eq!(dismissed.task_session_id, starting.task_session_id);
+    assert_eq!(dismissed.activity_id, starting.activity_id);
+    store
         .ensure_client_task_activity_session("client:live")
         .await
         .expect("create next session");

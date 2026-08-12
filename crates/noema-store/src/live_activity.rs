@@ -183,12 +183,7 @@ impl NoemaStore {
                         !active_activity_ids.contains(activity_id)
                     })
             });
-            if existing
-                .as_ref()
-                .is_none_or(|activity| activity.lifecycle == "dismissed")
-                || replace_failed_start
-                || replace_missing_active
-            {
+            if existing.is_none() || replace_failed_start || replace_missing_active {
                 if replace_missing_active {
                     transaction.execute(
                         "UPDATE live_activity_deliveries SET status = 'suppressed', last_error_code = 'activity_missing', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND status = 'pending'",
