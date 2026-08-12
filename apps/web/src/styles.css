@@ -38,11 +38,7 @@
   corner-shape: var(--corner-shape-chat);
 }
 
-.astryx-dropdown-menu-item:not([aria-disabled="true"]):focus:not(:focus-visible) {
-  background-color: transparent !important;
-}
-
-.astryx-dropdown-menu-item:not([aria-disabled="true"]):focus-visible {
+.astryx-dropdown-menu-item:not([aria-disabled="true"]):focus {
   background-color: var(--color-overlay-hover) !important;
 }
 
@@ -52,7 +48,7 @@
   }
 
   .astryx-dropdown-menu:has(.astryx-dropdown-menu-item:hover)
-    .astryx-dropdown-menu-item:focus-visible:not(:hover) {
+    .astryx-dropdown-menu-item:focus:not(:hover) {
     background-color: transparent !important;
   }
 }
