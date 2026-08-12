@@ -7,7 +7,10 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { VStack } from "@astryxdesign/core/VStack";
 import { Plus } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
-import { MasterDetailLayout } from "@/components/shell/MasterDetailLayout";
+import {
+  MasterDetailLayout,
+  useDetailPanePresentation
+} from "@/components/shell/MasterDetailLayout";
 import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
 import { CapabilityConnectionDetail } from "./CapabilityConnectionDetail";
 
@@ -67,13 +70,7 @@ export function CapabilityManagementLayout({
       }
       detail={connectionId ? (
         <VStack {...stylex.props(styles.scroller)}>
-          <VStack gap={3} {...stylex.props(styles.detailContent)}>
-            <Link
-              to={listRoute}
-              {...stylex.props(styles.backLink)}
-            >
-              Back to connections
-            </Link>
+          <CapabilityDetailContent listRoute={listRoute}>
             <CapabilityConnectionDetail
               kind={kind}
               connectionId={connectionId}
@@ -83,10 +80,28 @@ export function CapabilityManagementLayout({
               definitionDetails={definitionDetails}
               dangerAction={dangerAction}
             />
-          </VStack>
+          </CapabilityDetailContent>
         </VStack>
       ) : null}
     />
+  );
+}
+
+function CapabilityDetailContent({
+  listRoute,
+  children
+}: {
+  listRoute: "/settings/tools/apis" | "/settings/tools/mcps";
+  children: ReactNode;
+}) {
+  const isDrawer = useDetailPanePresentation() === "drawer";
+  return (
+    <VStack gap={3} {...stylex.props(styles.detailContent, isDrawer && styles.drawerDetailContent)}>
+      {!isDrawer ? (
+        <Link to={listRoute} {...stylex.props(styles.backLink)}>Back to connections</Link>
+      ) : null}
+      {children}
+    </VStack>
   );
 }
 
@@ -126,6 +141,7 @@ function IntegrationToolbar({
 
 const styles = stylex.create({
   scroller: {
+    width: "100%",
     height: "100%",
     minHeight: 0,
     overflowY: "auto",
@@ -164,11 +180,9 @@ const styles = stylex.create({
   },
   detailContent: {
     minWidth: 0,
-    padding: "var(--spacing-4)",
-    "@media (max-width: 760px)": {
-      padding: "var(--spacing-3)"
-    }
+    padding: "var(--spacing-4)"
   },
+  drawerDetailContent: { padding: "var(--spacing-0)" },
   backLink: {
     width: "fit-content",
     color: "var(--text-accent)",

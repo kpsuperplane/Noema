@@ -27,6 +27,7 @@ import {
   type CapabilityDataSharingPolicy,
   type CapabilityUnsafeActionPolicy
 } from "@/components/capabilities/CapabilityPolicyChoices";
+import { useDetailPanePresentation } from "@/components/shell/MasterDetailLayout";
 import { CapabilityToolTable, toolHintSourceDescription } from "./CapabilityToolTable";
 import { SettingsEditDialog } from "./SettingsEditDialog";
 import { SettingsDetailSection } from "./SettingsPrimitives";
@@ -54,6 +55,7 @@ export function CapabilityConnectionDetail({
   definitionDetails?: React.ReactNode;
   dangerAction?: React.ReactNode;
 }) {
+  const isDrawer = useDetailPanePresentation() === "drawer";
   const reference = { kind, connectionId } as const;
   const result = useQuery<CapabilityConnectionQuery>(CapabilityConnectionDocument, {
     variables: { ref: reference },
@@ -88,10 +90,12 @@ export function CapabilityConnectionDetail({
   const policySaving = React.useRef(false);
   const editingTool = tools.find((tool) => tool.toolId === editing) ?? null;
 
-  if (result.loading && !result.data) return <p {...stylex.props(styles.muted)}>Loading connection…</p>;
+  if (result.loading && !result.data) {
+    return <p {...stylex.props(styles.muted, isDrawer && styles.drawerInset)}>Loading connection…</p>;
+  }
   if (result.error && !connection) {
     return (
-      <HStack gap={2} vAlign="center" wrap="wrap">
+      <HStack gap={2} vAlign="center" wrap="wrap" {...stylex.props(isDrawer && styles.drawerInset)}>
         <p role="alert" {...stylex.props(styles.error)}>Connection could not load.</p>
         <Button
           type="button"
@@ -103,7 +107,9 @@ export function CapabilityConnectionDetail({
       </HStack>
     );
   }
-  if (!connection) return <p {...stylex.props(styles.muted)}>This connection no longer exists.</p>;
+  if (!connection) {
+    return <p {...stylex.props(styles.muted, isDrawer && styles.drawerInset)}>This connection no longer exists.</p>;
+  }
   const sharing = (sharingDraft ?? connection.dataSharingPolicy ?? "allow_automatically") as CapabilityDataSharingPolicy;
   const unsafeActions = (unsafeActionsDraft ?? connection.unsafeActionPolicy ?? "reviewer_may_approve") as CapabilityUnsafeActionPolicy;
 
@@ -241,7 +247,7 @@ export function CapabilityConnectionDetail({
   return (
     <VStack gap={3}>
       {result.error ? (
-        <HStack gap={2} vAlign="center" wrap="wrap">
+        <HStack gap={2} vAlign="center" wrap="wrap" {...stylex.props(isDrawer && styles.drawerInset)}>
           <p role="alert" {...stylex.props(styles.error)}>Connection details may be out of date.</p>
           <Button
             type="button"
@@ -252,7 +258,7 @@ export function CapabilityConnectionDetail({
           />
         </HStack>
       ) : null}
-      <VStack gap={2} {...stylex.props(styles.connectionHeader)}>
+      <VStack gap={2} {...stylex.props(styles.connectionHeader, isDrawer && styles.drawerConnectionHeader)}>
         <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
           <HStack gap={2} vAlign="center">
             <CapabilityIcon kind={kind} definitionId={connection.definitionId} emphasized />
@@ -325,7 +331,7 @@ export function CapabilityConnectionDetail({
         />
       </SettingsDetailSection>
 
-      <VStack as="details" gap={2} {...stylex.props(styles.detailsSection)}>
+      <VStack as="details" gap={2} {...stylex.props(styles.detailsSection, isDrawer && styles.drawerInset)}>
         <summary {...stylex.props(styles.summary)}>Source details</summary>
         {definitionDetails}
         <strong {...stylex.props(styles.detailHeading)}>Connection metadata</strong>
@@ -337,7 +343,7 @@ export function CapabilityConnectionDetail({
         }, null, 2)}</pre>
       </VStack>
       {error && !renaming && !editingTool ? (
-        <p role="alert" {...stylex.props(styles.error)}>{error}</p>
+        <p role="alert" {...stylex.props(styles.error, isDrawer && styles.drawerInset)}>{error}</p>
       ) : null}
       <SettingsEditDialog
         title="Rename connection"
@@ -478,6 +484,8 @@ function hintLabel(value: HintKey) {
 
 const styles = stylex.create({
   connectionHeader: { paddingBlockEnd: "var(--spacing-3)", borderBlockEndWidth: "var(--border-width)", borderBlockEndStyle: "solid", borderBlockEndColor: "var(--border-subtle)" },
+  drawerConnectionHeader: { paddingBlockStart: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
+  drawerInset: { paddingInline: "var(--spacing-3)" },
   serviceName: { color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.2 },
   connectionName: { margin: 0, color: "var(--foreground)", fontFamily: "var(--font-heading)", fontSize: 18, fontWeight: 650, lineHeight: 1.25, overflowWrap: "anywhere" },
   toolCount: { color: "var(--muted-foreground)", fontSize: 12 },
