@@ -38,13 +38,22 @@
   corner-shape: var(--corner-shape-chat);
 }
 
-.astryx-dropdown-menu-item:not([aria-disabled="true"]):focus {
+.astryx-dropdown-menu-item:not([aria-disabled="true"]):focus:not(:focus-visible) {
+  background-color: transparent !important;
+}
+
+.astryx-dropdown-menu-item:not([aria-disabled="true"]):focus-visible {
   background-color: var(--color-overlay-hover) !important;
 }
 
 @media (hover: hover) {
   .astryx-dropdown-menu-item:not([aria-disabled="true"]):hover {
     background-color: var(--color-overlay-hover) !important;
+  }
+
+  .astryx-dropdown-menu:has(.astryx-dropdown-menu-item:hover)
+    .astryx-dropdown-menu-item:focus-visible:not(:hover) {
+    background-color: transparent !important;
   }
 }
 
