@@ -132,6 +132,6 @@ const styles = stylex.create({
       boxShadow: "var(--shadow-med)"
     }
   },
-  detailContent: { minWidth: 0, padding: "var(--spacing-4)" },
-  drawerDetailContent: { padding: "var(--spacing-0)" }
+  detailContent: { minWidth: 0, paddingBlock: "var(--spacing-4)", paddingInline: "var(--spacing-4)" },
+  drawerDetailContent: { paddingBlock: "var(--spacing-0)", paddingInline: "var(--spacing-2)" }
 });

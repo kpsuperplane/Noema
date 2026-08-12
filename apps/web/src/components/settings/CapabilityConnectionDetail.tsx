@@ -91,11 +91,11 @@ export function CapabilityConnectionDetail({
   const editingTool = tools.find((tool) => tool.toolId === editing) ?? null;
 
   if (result.loading && !result.data) {
-    return <p {...stylex.props(styles.muted, isDrawer && styles.drawerInset)}>Loading connection…</p>;
+    return <p {...stylex.props(styles.muted)}>Loading connection…</p>;
   }
   if (result.error && !connection) {
     return (
-      <HStack gap={2} vAlign="center" wrap="wrap" {...stylex.props(isDrawer && styles.drawerInset)}>
+      <HStack gap={2} vAlign="center" wrap="wrap">
         <p role="alert" {...stylex.props(styles.error)}>Connection could not load.</p>
         <Button
           type="button"
@@ -108,7 +108,7 @@ export function CapabilityConnectionDetail({
     );
   }
   if (!connection) {
-    return <p {...stylex.props(styles.muted, isDrawer && styles.drawerInset)}>This connection no longer exists.</p>;
+    return <p {...stylex.props(styles.muted)}>This connection no longer exists.</p>;
   }
   const sharing = (sharingDraft ?? connection.dataSharingPolicy ?? "allow_automatically") as CapabilityDataSharingPolicy;
   const unsafeActions = (unsafeActionsDraft ?? connection.unsafeActionPolicy ?? "reviewer_may_approve") as CapabilityUnsafeActionPolicy;
@@ -247,7 +247,7 @@ export function CapabilityConnectionDetail({
   return (
     <VStack gap={3}>
       {result.error ? (
-        <HStack gap={2} vAlign="center" wrap="wrap" {...stylex.props(isDrawer && styles.drawerInset)}>
+        <HStack gap={2} vAlign="center" wrap="wrap">
           <p role="alert" {...stylex.props(styles.error)}>Connection details may be out of date.</p>
           <Button
             type="button"
@@ -327,7 +327,7 @@ export function CapabilityConnectionDetail({
         />
       </SettingsDetailSection>
 
-      <VStack as="details" gap={2} {...stylex.props(styles.detailsSection, isDrawer && styles.drawerInset)}>
+      <VStack as="details" gap={2} {...stylex.props(styles.detailsSection)}>
         <summary {...stylex.props(styles.summary)}>Source details</summary>
         {definitionDetails}
         <strong {...stylex.props(styles.detailHeading)}>Connection metadata</strong>
@@ -339,7 +339,7 @@ export function CapabilityConnectionDetail({
         }, null, 2)}</pre>
       </VStack>
       {error && !renaming && !editingTool ? (
-        <p role="alert" {...stylex.props(styles.error, isDrawer && styles.drawerInset)}>{error}</p>
+        <p role="alert" {...stylex.props(styles.error)}>{error}</p>
       ) : null}
       <SettingsEditDialog
         title="Rename connection"
@@ -480,8 +480,7 @@ function hintLabel(value: HintKey) {
 
 const styles = stylex.create({
   connectionHeader: { paddingBlockEnd: "var(--spacing-3)" },
-  drawerConnectionHeader: { paddingBlockStart: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
-  drawerInset: { paddingInline: "var(--spacing-3)" },
+  drawerConnectionHeader: { paddingBlockStart: "var(--spacing-2)" },
   serviceName: { color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.2 },
   connectionName: { margin: 0, color: "var(--foreground)", fontFamily: "var(--font-heading)", fontSize: 18, fontWeight: 650, lineHeight: 1.25, overflowWrap: "anywhere" },
   connectionIssue: { margin: 0, color: "var(--muted-foreground)", fontSize: 12 },
