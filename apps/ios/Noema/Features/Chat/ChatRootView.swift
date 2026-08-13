@@ -410,6 +410,7 @@ struct ChatReadyView: View {
         ChatComposer(
           model: model,
           autoFocus: shellCoordinator.activeDestination == .chat
+            && !shellCoordinator.pageSwipeInFlight
         )
           .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 760, alignment: .trailing)
       }

@@ -96,6 +96,7 @@ final class NoemaShellCoordinator {
   var requestedDestination: NoemaDestination?
   var requestedTaskID: String?
   var activeSurfaceAtTop = true
+  var pageSwipeInFlight = false
   private(set) var activeDestination: NoemaDestination = .chat
   private var secondaryNavigation: [NoemaDestination: NoemaSecondaryNavigation] = [:]
 
@@ -306,7 +307,6 @@ struct NoemaShellView: View {
   @State private var navigationDragMayOpen = false
   @State private var pageDragOffset: CGFloat = 0
   @State private var pageDragTarget: NoemaDestination?
-  @State private var pageSwipeInFlight = false
   @State private var pageSwipeGeneration = 0
   @State private var shellDragAxis: NoemaShellDragAxis?
   @State private var measuredMobileRevealHeight: CGFloat = 0
@@ -438,12 +438,12 @@ struct NoemaShellView: View {
         destinationPage(destination, compact: compact, safeBottom: safeBottom)
           .frame(width: width)
           .offset(x: pageOffset(for: destination, width: width))
-          .allowsHitTesting(destination == selection && !pageSwipeInFlight)
+          .allowsHitTesting(destination == selection && !coordinator.pageSwipeInFlight)
           .accessibilityHidden(destination != selection)
           .transition(.opacity)
       }
     }
-    .scrollDisabled(pageSwipeInFlight)
+    .scrollDisabled(coordinator.pageSwipeInFlight)
     .background(NoemaColor.surface)
     .clipShape(
       NoemaSuperellipse(
@@ -465,8 +465,8 @@ struct NoemaShellView: View {
       NoemaHorizontalSwipeGesture(
         enabled: compact && !navigationOpen,
         changed: { translation in
-          if !pageSwipeInFlight {
-            pageSwipeInFlight = true
+          if !coordinator.pageSwipeInFlight {
+            coordinator.pageSwipeInFlight = true
             pageSwipeGeneration += 1
           }
           updatePageSwipe(translation: translation, width: width)
@@ -640,7 +640,7 @@ struct NoemaShellView: View {
         await Task.yield()
         guard pageSwipeGeneration == generation else { return }
         pageDragTarget = nil
-        pageSwipeInFlight = false
+        coordinator.pageSwipeInFlight = false
       }
     }
   }
@@ -673,7 +673,7 @@ struct NoemaShellView: View {
     withAnimation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion)) {
       pageDragOffset = 0
       pageDragTarget = nil
-      pageSwipeInFlight = false
+      coordinator.pageSwipeInFlight = false
       selection = destination
     }
   }
