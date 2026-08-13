@@ -62,11 +62,15 @@ impl RuntimeActor {
             background_tool_instructions(&request.instructions, &model_tools),
             &request.instance_name,
         );
-        let mut context = ContinuationContext::new(&request.input);
+        let initial_provider_input = task_initial_provider_input(
+            &request.input,
+            request.runtime_environment.as_deref(),
+        );
+        let mut context = ContinuationContext::from_provider_input(initial_provider_input.clone());
         let initial_request = GenerateRequest {
             conversation_id: Some(conversation_id.clone()),
             model: provider_selection.model_profile.clone(),
-            input: GenerateInput::Text(request.input.clone()),
+            input: initial_provider_input.clone(),
             instructions: Some(tool_instructions),
             options: GenerateOptions {
                 hosted_web_search: model_tools.hosted_web_search(),
@@ -255,7 +259,7 @@ impl RuntimeActor {
                 tool_capabilities: capabilities,
                 initial_model_tools: model_tools.clone(),
                 continuation_model_tools: model_tools.clone(),
-                initial_provider_input: GenerateInput::Text(request.input.clone()),
+                initial_provider_input: initial_provider_input.clone(),
             };
             let mut results = Vec::with_capacity(calls.len());
             for (call_index, call) in calls.iter().enumerate() {

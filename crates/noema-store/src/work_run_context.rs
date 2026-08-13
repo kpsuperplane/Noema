@@ -9,7 +9,7 @@ use noema_tasks::{
     WorkspaceContextSnapshot,
 };
 use noema_workspaces::{ProjectRecord, WorkspaceRecord};
-use rusqlite::{Row, Transaction, params};
+use rusqlite::{OptionalExtension, Row, Transaction, params};
 
 use crate::{
     NoemaStore, StoreError,
@@ -77,6 +77,8 @@ pub(super) fn load_work_run_execution_context_tx(
         load_task(transaction, &run.task_id)?.ok_or_else(|| StoreError::InvariantViolation {
             message: format!("run {} references missing task {}", run.run_id, run.task_id),
         })?;
+    let source_runtime_environment =
+        load_source_runtime_environment(transaction, &task.provenance)?;
     validate_run_task_fence(&run, &task)?;
     ensure_context_text(&task.title, "task.title")?;
     ensure_context_text(&task.description_markdown, "task.description_markdown")?;
@@ -186,6 +188,7 @@ pub(super) fn load_work_run_execution_context_tx(
     Ok(Some(WorkRunExecutionContext {
         run,
         task,
+        source_runtime_environment,
         workflow,
         stage,
         contract,
@@ -198,6 +201,46 @@ pub(super) fn load_work_run_execution_context_tx(
         latest_review,
         lineage,
     }))
+}
+
+fn load_source_runtime_environment(
+    transaction: &Transaction<'_>,
+    provenance: &noema_tasks::TaskProvenance,
+) -> Result<Option<String>, StoreError> {
+    let (Some(conversation_id), Some(item_id)) = (
+        provenance.conversation_id.as_deref(),
+        provenance.item_id.as_deref(),
+    ) else {
+        return Ok(None);
+    };
+    transaction
+        .query_row(
+            r#"
+            SELECT context.content_text
+            FROM conversation_items AS source
+            JOIN conversation_items AS context
+              ON context.conversation_id = source.conversation_id
+             AND context.sequence_index < source.sequence_index
+            WHERE source.item_id = ?1
+              AND source.conversation_id = ?2
+              AND source.deleted_at IS NULL
+              AND context.deleted_at IS NULL
+              AND context.kind = 'model_context_update'
+              AND context.status = 'completed'
+              AND context.content_text IS NOT NULL
+              AND json_extract(
+                    context.payload_json,
+                    '$.model_context_update.section_id'
+                  ) = 'runtime.environment'
+            ORDER BY context.sequence_index DESC
+            LIMIT 1
+            "#,
+            params![item_id, conversation_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .map(|value| bounded_text(value, "task.source_runtime_environment"))
+        .transpose()
 }
 
 fn review_id_for_run<'a>(
@@ -641,4 +684,57 @@ fn ensure_context_text(value: &str, field: &'static str) -> Result<(), StoreErro
 fn bounded_text(value: String, field: &'static str) -> Result<String, StoreError> {
     ensure_context_text(&value, field)?;
     Ok(value)
+}
+
+#[cfg(test)]
+mod source_runtime_environment_tests {
+    use noema_tasks::{TaskProvenance, TaskSourceKind};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn task_source_keeps_the_last_runtime_environment_before_the_human_item() {
+        let store = crate::tests::test_store().await;
+        let environment = r"NOEMA_MODEL_CONTEXT_UPDATE\ncurrent_date: 2026-08-12";
+        let provenance = TaskProvenance {
+            source_kind: TaskSourceKind::ChatDelegate,
+            conversation_id: Some("conversation:test".to_string()),
+            turn_id: Some("turn:test".to_string()),
+            item_id: Some("item:human".to_string()),
+            source_tool_call_id: None,
+            created_by_actor_id: "actor:agent:primary".to_string(),
+        };
+
+        let found = store
+            .with_connection(move |connection| {
+                connection.execute_batch(
+                    r#"
+                    INSERT INTO conversation_items
+                      (item_id, conversation_id, sequence_index, kind, status,
+                       author_actor_id, content_text, payload_json)
+                    VALUES
+                      ('item:old-environment', 'conversation:test', 1,
+                       'model_context_update', 'completed', 'agent:primary',
+                       'NOEMA_MODEL_CONTEXT_UPDATE\ncurrent_date: 2026-08-11',
+                       '{"model_context_update":{"section_id":"runtime.environment"}}'),
+                      ('item:environment', 'conversation:test', 2,
+                       'model_context_update', 'completed', 'agent:primary',
+                       'NOEMA_MODEL_CONTEXT_UPDATE\ncurrent_date: 2026-08-12',
+                       '{"model_context_update":{"section_id":"runtime.environment"}}'),
+                      ('item:human', 'conversation:test', 3, 'user_text',
+                       'completed', 'human:local', 'Find tonight''s concert.', '{}'),
+                      ('item:later-environment', 'conversation:test', 4,
+                       'model_context_update', 'completed', 'agent:primary',
+                       'NOEMA_MODEL_CONTEXT_UPDATE\ncurrent_date: 2026-08-13',
+                       '{"model_context_update":{"section_id":"runtime.environment"}}');
+                    "#,
+                )?;
+                let transaction = connection.transaction()?;
+                load_source_runtime_environment(&transaction, &provenance)
+            })
+            .await
+            .expect("source environment");
+
+        assert_eq!(found.as_deref(), Some(environment));
+    }
 }

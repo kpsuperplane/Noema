@@ -63,15 +63,24 @@ fn input_message_texts(input: &GenerateInput) -> Vec<String> {
         GenerateInput::Text(text) => vec![text.clone()],
         GenerateInput::Messages(messages) => messages
             .iter()
-            .filter(|message| message.role != noema_providers::GenerateMessageRole::Developer)
+            .filter(|message| {
+                matches!(
+                    message.role,
+                    noema_providers::GenerateMessageRole::User
+                        | noema_providers::GenerateMessageRole::Assistant
+                )
+            })
             .map(|message| message.content.clone())
             .collect(),
         GenerateInput::Items(items) => items
             .iter()
             .filter_map(|item| match item {
                 GenerateInputItem::Message(message)
-                    if message.role != noema_providers::GenerateMessageRole::Developer =>
-                {
+                    if matches!(
+                        message.role,
+                        noema_providers::GenerateMessageRole::User
+                            | noema_providers::GenerateMessageRole::Assistant
+                    ) => {
                     Some(message.content.clone())
                 }
                 GenerateInputItem::Message(_) => None,
@@ -87,7 +96,11 @@ fn input_message_texts(input: &GenerateInput) -> Vec<String> {
 fn latest_model_context_section(input: &GenerateInput, section_id: &str) -> Option<String> {
     let mut latest = None;
     for message in input_messages(input) {
-        if message.role != noema_providers::GenerateMessageRole::Developer {
+        if !matches!(
+            message.role,
+            noema_providers::GenerateMessageRole::System
+                | noema_providers::GenerateMessageRole::Developer
+        ) {
             continue;
         }
         let Some(envelope) = message

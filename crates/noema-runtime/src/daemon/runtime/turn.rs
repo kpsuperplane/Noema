@@ -200,7 +200,7 @@ pub(super) fn current_runtime_environment(cwd: Option<&str>) -> RuntimeEnvironme
     current_runtime_environment_with_timezone(cwd, None)
 }
 
-fn current_runtime_environment_with_timezone(
+pub(crate) fn current_runtime_environment_with_timezone(
     cwd: Option<&str>,
     client_time_zone: Option<&str>,
 ) -> RuntimeEnvironmentContext {

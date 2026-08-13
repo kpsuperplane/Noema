@@ -458,6 +458,7 @@ fn fixture_work_context(
     WorkRunExecutionContext {
         run,
         task,
+        source_runtime_environment: None,
         workflow,
         stage,
         contract,

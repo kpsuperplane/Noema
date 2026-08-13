@@ -251,7 +251,7 @@ impl RuntimeActor {
                 budget: planned_context.budget,
                 mode: super::context_compaction::CompactionMode::Foreground,
             };
-            let compaction_result = if planned_context.context.transcript_items.is_empty() {
+            let compaction_result = if shortening_active_summary {
                 super::context_compaction::compact_active_summary_smaller(compaction_request).await
             } else {
                 super::context_compaction::compact_context_with_retry(compaction_request).await

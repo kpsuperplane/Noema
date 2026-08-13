@@ -80,7 +80,7 @@ impl RuntimeEnvironmentContext {
         }
     }
 
-    fn render(&self) -> String {
+    pub(crate) fn render(&self) -> String {
         let cwd = self
             .cwd
             .as_deref()

@@ -97,7 +97,7 @@ async fn foreground_compaction_does_not_recompact_model_context_updates() {
     let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(CapturingProvider {
-        context_window_tokens: Some(5_500),
+        context_window_tokens: Some(6_500),
         ..CapturingProvider::default()
     });
     let runtime = RuntimeHandle::spawn_with_provider_kind(

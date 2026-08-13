@@ -24,6 +24,8 @@ pub struct WorkRunExecutionContext {
     pub run: AgentRunRecord,
     /// Current task projection fenced by `run.task_generation`.
     pub task: TaskRecord,
+    /// Runtime environment saved immediately before the task's source human item.
+    pub source_runtime_environment: Option<String>,
     /// Workflow definition and stage that describe the current task stage.
     pub workflow: WorkflowDefinition,
     /// Current workflow stage.

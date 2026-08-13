@@ -520,8 +520,8 @@ fn render_compaction_transcript(items: &[ConversationItemRecord]) -> String {
             let (role, text) = match input_item {
                 noema_providers::GenerateInputItem::Message(message) => {
                     let role = match message.role {
-                        noema_providers::GenerateMessageRole::System => "System",
-                        noema_providers::GenerateMessageRole::Developer => return None,
+                        noema_providers::GenerateMessageRole::System
+                        | noema_providers::GenerateMessageRole::Developer => return None,
                         noema_providers::GenerateMessageRole::User => "User",
                         noema_providers::GenerateMessageRole::Assistant => "Noema",
                     };

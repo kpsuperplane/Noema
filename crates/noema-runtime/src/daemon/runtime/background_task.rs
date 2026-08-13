@@ -18,9 +18,9 @@ use crate::{
     },
 };
 use noema_providers::{
-    GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, NoemaAllowedTools,
-    NoemaAllowedToolsMode, NoemaToolChoice, ProviderError, ProviderResponseContinuation,
-    ProviderSelectionSnapshot, ProviderToolCapabilities, TokenUsage,
+    GenerateInput, GenerateMessage, GenerateMessageRole, GenerateOptions, GenerateRequest,
+    GenerateResponse, NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderError,
+    ProviderResponseContinuation, ProviderSelectionSnapshot, ProviderToolCapabilities, TokenUsage,
 };
 
 use super::{
@@ -72,6 +72,8 @@ pub(crate) struct BackgroundTaskGenerateRequest {
     pub execution_policy: noema_tasks::TaskExecutionPolicy,
     /// User/task prompt supplied to the provider.
     pub input: String,
+    /// Exact local runtime environment that governs relative-date reasoning.
+    pub runtime_environment: Option<String>,
     /// System instructions for the executor or reviewer contract.
     pub instructions: String,
     /// Run-specific terminal payload contract derived from admitted task state.
@@ -95,6 +97,24 @@ impl BackgroundTaskGenerateRequest {
             contract_id: self.contract_id.clone(),
         }
     }
+}
+
+fn task_initial_provider_input(input: &str, runtime_environment: Option<&str>) -> GenerateInput {
+    runtime_environment.map_or_else(
+        || GenerateInput::Text(input.to_string()),
+        |environment| {
+            GenerateInput::Messages(vec![
+                GenerateMessage {
+                    role: GenerateMessageRole::System,
+                    content: environment.to_string(),
+                },
+                GenerateMessage {
+                    role: GenerateMessageRole::User,
+                    content: input.to_string(),
+                },
+            ])
+        },
+    )
 }
 
 include!("background_task/generate.rs");
@@ -176,6 +196,17 @@ fn binding_snapshot_for_specs(
 mod tests {
     use super::super::local_tool_results::LocalToolKind;
     use super::*;
+
+    #[test]
+    fn task_runtime_environment_has_system_authority() {
+        let GenerateInput::Messages(messages) =
+            task_initial_provider_input("Find tonight's event.", Some("current_date: 2026-08-12"))
+        else {
+            panic!("expected messages");
+        };
+        assert_eq!(messages[0].role, GenerateMessageRole::System);
+        assert_eq!(messages[1].role, GenerateMessageRole::User);
+    }
 
     #[test]
     fn compaction_provider_error_is_preserved_for_task_failure_finalization() {

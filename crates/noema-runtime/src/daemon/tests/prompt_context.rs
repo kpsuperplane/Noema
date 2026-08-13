@@ -3,7 +3,7 @@ async fn compacted_summary_is_replayed_as_input_checkpoint_not_instruction_text(
     let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(CapturingProvider {
-        context_window_tokens: Some(5_500),
+        context_window_tokens: Some(20_000),
         ..CapturingProvider::default()
     });
     let runtime = RuntimeHandle::spawn_with_provider_kind(
@@ -327,7 +327,13 @@ async fn prompt_context_sends_prior_transcript_as_provider_messages() {
     };
     let context_updates = messages
         .iter()
-        .filter(|message| message.role == noema_providers::GenerateMessageRole::Developer)
+        .filter(|message| {
+            matches!(
+                message.role,
+                noema_providers::GenerateMessageRole::System
+                    | noema_providers::GenerateMessageRole::Developer
+            )
+        })
         .collect::<Vec<_>>();
     assert_eq!(context_updates.len(), 3);
     assert!(
@@ -337,7 +343,13 @@ async fn prompt_context_sends_prior_transcript_as_provider_messages() {
     );
     let observed = messages
         .iter()
-        .filter(|message| message.role != noema_providers::GenerateMessageRole::Developer)
+        .filter(|message| {
+            matches!(
+                message.role,
+                noema_providers::GenerateMessageRole::User
+                    | noema_providers::GenerateMessageRole::Assistant
+            )
+        })
         .map(|message| (message.role, message.content.as_str()))
         .collect::<Vec<_>>();
     assert_eq!(

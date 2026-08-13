@@ -77,12 +77,14 @@ pub(super) async fn execute_run(
         return Ok(());
     }
     let prompt = build_task_role_prompt(&context);
+    let runtime_environment = task_runtime_environment(&context);
     let mut generated = generate_once(
         &services.runtime,
         run,
         fence,
         cancellation,
         prompt,
+        runtime_environment,
         &services.subscriptions,
     )
     .await?;
@@ -304,9 +306,17 @@ async fn generate_once(
     fence: &WorkRunFence,
     cancellation: &CancellationToken,
     prompt: TaskRolePrompt,
+    runtime_environment: Option<String>,
     subscriptions: &RuntimeEventRegistry,
 ) -> Result<BackgroundTaskGenerateResult, RuntimeError> {
-    let request = background_task_generate_request(run, fence, cancellation, prompt, subscriptions);
+    let request = background_task_generate_request(
+        run,
+        fence,
+        cancellation,
+        prompt,
+        runtime_environment,
+        subscriptions,
+    );
     runtime.generate_background_task(request).await
 }
 
@@ -362,6 +372,7 @@ fn background_task_generate_request(
     fence: &WorkRunFence,
     cancellation: &CancellationToken,
     prompt: TaskRolePrompt,
+    runtime_environment: Option<String>,
     subscriptions: &RuntimeEventRegistry,
 ) -> BackgroundTaskGenerateRequest {
     BackgroundTaskGenerateRequest {
@@ -377,10 +388,26 @@ fn background_task_generate_request(
         provider_selection: run.model.clone(),
         execution_policy: run.execution_policy,
         input: prompt.input,
+        runtime_environment,
         instructions: prompt.instructions.to_string(),
         terminal_contract: prompt.terminal_contract,
         runtime_events: subscriptions.clone(),
     }
+}
+
+fn task_runtime_environment(context: &WorkRunExecutionContext) -> Option<String> {
+    context.task.schedule_time_zone.as_deref().map_or_else(
+        || context.source_runtime_environment.clone(),
+        |time_zone| {
+            Some(
+                crate::daemon::runtime::turn::current_runtime_environment_with_timezone(
+                    None,
+                    Some(time_zone),
+                )
+                .render(),
+            )
+        },
+    )
 }
 
 #[cfg(test)]

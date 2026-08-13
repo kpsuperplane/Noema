@@ -389,9 +389,19 @@ pub(super) fn input_item_from_transcript_item(
         ConversationItemKind::ToolCall => tool_call_input_item(item),
         ConversationItemKind::ToolResult => tool_result_input_item(item),
         ConversationItemKind::Reasoning => reasoning_input_item(item),
-        ConversationItemKind::ModelContextUpdate => {
-            text_message_item(item, GenerateMessageRole::Developer)
-        }
+        ConversationItemKind::ModelContextUpdate => text_message_item(
+            item,
+            if item
+                .payload_json
+                .pointer("/model_context_update/section_id")
+                .and_then(Value::as_str)
+                == Some("runtime.environment")
+            {
+                GenerateMessageRole::System
+            } else {
+                GenerateMessageRole::Developer
+            },
+        ),
         ConversationItemKind::TaskReference => work_notification_message_item(item),
         ConversationItemKind::Activity
         | ConversationItemKind::A2UICard
@@ -871,7 +881,7 @@ mod tests {
     }
 
     #[test]
-    fn model_context_updates_replay_as_developer_messages() {
+    fn runtime_environment_replays_as_a_system_message() {
         let item = ConversationItemRecord {
             item_id: "item:model-context".to_string(),
             conversation_id: "conversation:1".to_string(),
@@ -880,10 +890,10 @@ mod tests {
             cursor: "conversation_item:3".to_string(),
             kind: ConversationItemKind::ModelContextUpdate,
             status: ConversationItemStatus::Completed,
-            content_text: Some(
-                "NOEMA_MODEL_CONTEXT_UPDATE\n{\"section_id\":\"runtime.environment\"}".to_string(),
-            ),
-            payload_json: serde_json::json!({}),
+            content_text: Some("NOEMA_MODEL_CONTEXT_UPDATE".to_string()),
+            payload_json: serde_json::json!({
+                "model_context_update": {"section_id": "runtime.environment"}
+            }),
             metadata: serde_json::json!({}),
         };
 
@@ -892,7 +902,6 @@ mod tests {
             panic!("expected model context message");
         };
 
-        assert_eq!(message.role, GenerateMessageRole::Developer);
-        assert!(message.content.starts_with("NOEMA_MODEL_CONTEXT_UPDATE"));
+        assert_eq!(message.role, GenerateMessageRole::System);
     }
 }
