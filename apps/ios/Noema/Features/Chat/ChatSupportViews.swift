@@ -143,8 +143,7 @@ struct ChatComposer: View {
     if voiceInput.isEngaged { return 760 }
     let content = model.draft.isEmpty ? placeholder : model.draft
     let longestLine = content.split(whereSeparator: \.isNewline).map(\.count).max() ?? 0
-    let voiceControls = voiceControlSize + NoemaSpacing.sm
-    return min(760, max(200 + voiceControls, CGFloat(longestLine) * 7 + 94 + voiceControls))
+    return min(760, max(200, CGFloat(longestLine) * 7 + 94))
   }
 
   private var placeholder: String {
@@ -155,7 +154,11 @@ struct ChatComposer: View {
   }
 
   private var canSend: Bool {
-    isSendEnabled && !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.isSending && !model.isOffline
+    isSendEnabled && hasDraft && !model.isSending && !model.isOffline
+  }
+
+  private var hasDraft: Bool {
+    !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   private var canUseVoice: Bool {
@@ -176,7 +179,6 @@ struct ChatComposer: View {
       if voiceInput.showsCancel { cancelButton }
       composerSurface
         .layoutPriority(1)
-      microphoneButton
     }
     .coordinateSpace(name: chatVoiceCoordinateSpace)
     .frame(idealWidth: preferredWidth, maxWidth: preferredWidth)
@@ -252,29 +254,40 @@ struct ChatComposer: View {
         Task { await model.send() }
       }
 
-      if !voiceInput.isEngaged {
-        Button {
-          Task { await model.send() }
-        } label: {
-          Image(systemName: "paperplane")
-            .font(NoemaFont.bodyEmphasized)
-            .foregroundStyle(canSend ? NoemaColor.pine500 : NoemaColor.pine500.opacity(0.7))
-            .frame(width: 40, height: 40)
-            .background(NoemaColor.white, in: NoemaSuperellipse(cornerRadius: 26))
-        }
-        .buttonStyle(.plain)
-        .disabled(!canSend)
-        .accessibilityLabel("Send message")
-      }
+      composerActionButton
     }
     .padding(.leading, NoemaSpacing.lg)
-    .padding(.trailing, voiceInput.isEngaged ? NoemaSpacing.lg : NoemaSpacing.xs)
+    .padding(.trailing, NoemaSpacing.xs)
     .padding(.vertical, 5)
     .frame(minHeight: voiceControlSize)
     .background {
       NoemaSuperellipse(cornerRadius: 26)
         .fill(NoemaColor.pine500)
         .shadow(color: NoemaColor.white, radius: NoemaSpacing.md)
+    }
+  }
+
+  @ViewBuilder
+  private var composerActionButton: some View {
+    if hasDraft, !voiceInput.isEngaged {
+      Button {
+        Task { await model.send() }
+      } label: {
+        composerActionLabel(symbol: "paperplane", enabled: canSend)
+      }
+      .buttonStyle(.plain)
+      .disabled(!canSend)
+      .accessibilityLabel("Send message")
+    } else {
+      composerActionLabel(symbol: voiceInput.isRecording ? "paperplane" : "mic.fill", enabled: canUseVoice)
+        .contentShape(.interaction, NoemaSuperellipse(cornerRadius: 26))
+        .gesture(microphoneGesture)
+        .disabled(!canUseVoice)
+        .accessibilityElement()
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(voiceInput.isEngaged ? "Stop and send voice input" : "Start voice input")
+        .accessibilityHint("Double-tap to toggle voice input. Touch and hold to speak until release.")
+        .accessibilityAction { voiceInput.accessibilityActivate(originalDraft: model.draft) }
     }
   }
 
@@ -300,30 +313,14 @@ struct ChatComposer: View {
     }
   }
 
-  private var microphoneButton: some View {
-    Image(systemName: voiceInput.isRecording ? "paperplane" : "mic.fill")
+  private func composerActionLabel(symbol: String, enabled: Bool) -> some View {
+    Image(systemName: symbol)
       .font(NoemaFont.bodyEmphasized)
-      .foregroundStyle(NoemaColor.white)
+      .foregroundStyle(NoemaColor.pine500.opacity(enabled ? 1 : 0.7))
       .symbolEffect(.pulse, options: .repeating, isActive: voiceInput.isRecording && !reduceMotion)
-      .frame(width: voiceControlSize, height: voiceControlSize)
-      .background(
-        voiceInput.isEngaged ? NoemaColor.pine600 : NoemaColor.pine500,
-        in: NoemaSuperellipse(cornerRadius: 26)
-      )
-      .overlay {
-        NoemaSuperellipse(cornerRadius: 26)
-          .stroke(NoemaColor.pine100.opacity(voiceInput.isRecording ? 1 : 0), lineWidth: 2)
-      }
+      .frame(width: 40, height: 40)
+      .background(NoemaColor.white, in: NoemaSuperellipse(cornerRadius: 26))
       .scaleEffect(microphonePressed ? 0.94 : 1)
-      .opacity(canUseVoice ? 1 : 0.46)
-      .contentShape(.interaction, NoemaSuperellipse(cornerRadius: 26))
-      .gesture(microphoneGesture)
-      .disabled(!canUseVoice)
-      .accessibilityElement()
-      .accessibilityAddTraits(.isButton)
-      .accessibilityLabel(voiceInput.isEngaged ? "Stop and send voice input" : "Start voice input")
-      .accessibilityHint("Double-tap to toggle voice input. Touch and hold to speak until release.")
-      .accessibilityAction { voiceInput.accessibilityActivate(originalDraft: model.draft) }
       .animation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion), value: microphonePressed)
   }
 
