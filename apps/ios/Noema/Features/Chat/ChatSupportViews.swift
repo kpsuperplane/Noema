@@ -210,11 +210,12 @@ struct ChatComposer: View {
   }
 
   var body: some View {
-    ZStack {
+    ZStack(alignment: .bottomTrailing) {
       composerRow
       cancelOverlay
       composerActionOverlay
     }
+    .fixedSize(horizontal: false, vertical: true)
     .coordinateSpace(name: chatVoiceCoordinateSpace)
     .frame(maxWidth: composerMaxWidth)
     .offset(y: inputFocused ? 0 : restingBottomOffset)
@@ -292,7 +293,7 @@ struct ChatComposer: View {
 
   private var composerActionOverlay: some View {
     composerActionButton
-      .padding(.trailing, NoemaSpacing.xs)
+      .padding([.trailing, .bottom], NoemaSpacing.xs)
       .frame(maxWidth: .infinity, alignment: .trailing)
       .zIndex(2)
   }
@@ -319,7 +320,7 @@ struct ChatComposer: View {
     }
     .padding(.leading, NoemaSpacing.lg)
     .padding(.trailing, NoemaSpacing.xs + 40 + NoemaSpacing.sm)
-    .padding(.vertical, 5)
+    .padding(.vertical, NoemaSpacing.lg)
     .frame(maxWidth: .infinity, alignment: .leading)
     .frame(minHeight: voiceControlSize)
     .background {
@@ -332,6 +333,7 @@ struct ChatComposer: View {
   private var composerActionButton: some View {
     ZStack {
       composerActionLabel(symbol: composerActionSymbol, enabled: composerActionEnabled)
+        .allowsHitTesting(false)
       composerActionHitTarget
     }
   }
