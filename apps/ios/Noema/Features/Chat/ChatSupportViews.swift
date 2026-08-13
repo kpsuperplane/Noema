@@ -1,8 +1,12 @@
+import AVFoundation
 import Foundation
 import Apollo
 import MarkdownUI
 import NoemaAPI
 import SwiftUI
+import UIKit
+
+private let chatVoiceCoordinateSpace = "chat-voice-composer"
 
 struct TaskReferenceChip: View {
   let client: ApolloClient?
@@ -124,12 +128,25 @@ struct ChatComposer: View {
   var placeholderOverride: String?
   var autoFocus = false
   var restingBottomOffset: CGFloat = 0
+  @State private var voiceInput = ChatVoiceInput()
+  @State private var cancelFrame = CGRect.zero
+  @State private var microphoneLocation = CGPoint.zero
+  @State private var microphonePressed = false
+  @State private var holdTask: Task<Void, Never>?
   @FocusState private var inputFocused: Bool
+  @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  private let voiceControlSize: CGFloat = 50
 
   private var preferredWidth: CGFloat {
-    let content = model.draft.isEmpty ? placeholder : model.draft
+    let content = voiceInput.isEngaged
+      ? (voiceInput.previewText.isEmpty ? voiceInput.previewPlaceholder : voiceInput.previewText)
+      : (model.draft.isEmpty ? placeholder : model.draft)
     let longestLine = content.split(whereSeparator: \.isNewline).map(\.count).max() ?? 0
-    return min(760, max(200, CGFloat(longestLine) * 7 + 94))
+    let voiceControls = voiceControlSize + NoemaSpacing.sm
+      + (voiceInput.showsCancel ? voiceControlSize + NoemaSpacing.sm : 0)
+    return min(760, max(200 + voiceControls, CGFloat(longestLine) * 7 + 94 + voiceControls))
   }
 
   private var placeholder: String {
@@ -143,59 +160,226 @@ struct ChatComposer: View {
     isSendEnabled && !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.isSending && !model.isOffline
   }
 
+  private var canUseVoice: Bool {
+    voiceInput.showsCancel || (isEditable && isSendEnabled && !model.isSending && !model.isOffline)
+  }
+
   var body: some View {
     HStack(alignment: .center, spacing: NoemaSpacing.sm) {
-      TextField(
-        "",
-        text: $model.draft,
-        prompt: Text(placeholder).foregroundStyle(NoemaColor.white.opacity(0.72)),
-        axis: .vertical
-      )
-      .font(NoemaFont.composer)
-      .foregroundStyle(NoemaColor.white)
-      .tint(NoemaColor.white)
-      .lineLimit(1...5)
-      .fixedSize(horizontal: false, vertical: true)
-      .textFieldStyle(.plain)
-      .focused($inputFocused)
-      .disabled(!isEditable)
-      .onSubmit {
-        guard canSend else { return }
-        Task { await model.send() }
-      }
-
-      Button {
-        Task { await model.send() }
-      } label: {
-        Image(systemName: "paperplane")
-          .font(NoemaFont.bodyEmphasized)
-          .foregroundStyle(canSend ? NoemaColor.pine500 : NoemaColor.pine500.opacity(0.7))
-          .frame(width: 40, height: 40)
-          .background(NoemaColor.white, in: NoemaSuperellipse(cornerRadius: 26))
-      }
-      .buttonStyle(.plain)
-      .disabled(!canSend)
-      .accessibilityLabel("Send message")
+      if voiceInput.showsCancel { cancelButton }
+      composerSurface
+        .layoutPriority(1)
+      microphoneButton
     }
-    .padding(.leading, NoemaSpacing.lg)
-    .padding(.trailing, NoemaSpacing.xs)
-    .padding(.vertical, 5)
-    .background {
-      NoemaSuperellipse(cornerRadius: 26)
-        .fill(NoemaColor.pine500)
-        .shadow(color: NoemaColor.white, radius: NoemaSpacing.md)
-    }
+    .coordinateSpace(name: chatVoiceCoordinateSpace)
     .frame(idealWidth: preferredWidth, maxWidth: preferredWidth)
     .offset(y: inputFocused ? 0 : restingBottomOffset)
     .padding(.bottom, inputFocused ? NoemaSpacing.sm : 0)
+    .animation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion), value: voiceInput.showsCancel)
     .task(id: autoFocus) {
-      guard autoFocus, isEditable else { return }
+      guard autoFocus, isEditable, !voiceInput.isEngaged else { return }
       await Task.yield()
       inputFocused = true
     }
     .onChange(of: autoFocus) { _, active in
       if !active { inputFocused = false }
     }
+    .onChange(of: voiceInput.isEngaged) { _, engaged in
+      model.isVoiceInputActive = engaged
+      if engaged { inputFocused = false }
+    }
+    .onChange(of: voiceInput.completionGeneration) { _, _ in consumeVoiceCompletion() }
+    .onChange(of: scenePhase) { _, phase in
+      if phase != .active { preserveAndStopVoiceInput() }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { notification in
+      let value = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+      if value == AVAudioSession.InterruptionType.began.rawValue {
+        preserveAndStopVoiceInput(message: "Voice input stopped because another audio session began.")
+      }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { notification in
+      let value = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+      if value == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue {
+        preserveAndStopVoiceInput(message: "Voice input stopped because the microphone route changed.")
+      }
+    }
+    .onDisappear {
+      preserveAndStopVoiceInput()
+      model.isVoiceInputActive = false
+    }
+    .alert(item: Binding(
+      get: { voiceInput.alert },
+      set: { if $0 == nil { voiceInput.clearAlert() } }
+    )) { alert in
+      if alert.offersSettings {
+        return Alert(
+          title: Text("Voice input unavailable"),
+          message: Text(alert.message),
+          primaryButton: .default(Text("Open Settings"), action: openSettings),
+          secondaryButton: .cancel()
+        )
+      }
+      return Alert(title: Text("Voice input unavailable"), message: Text(alert.message))
+    }
+  }
+
+  private var composerSurface: some View {
+    HStack(alignment: .center, spacing: NoemaSpacing.sm) {
+      if voiceInput.isEngaged {
+        Text(voiceInput.previewText.isEmpty ? voiceInput.previewPlaceholder : voiceInput.previewText)
+          .font(NoemaFont.composer)
+          .foregroundStyle(voiceInput.previewText.isEmpty ? NoemaColor.white.opacity(0.72) : NoemaColor.white)
+          .lineLimit(1...5)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .accessibilityLabel(voiceInput.previewText.isEmpty ? voiceInput.previewPlaceholder : voiceInput.previewText)
+      } else {
+        TextField(
+          "",
+          text: $model.draft,
+          prompt: Text(placeholder).foregroundStyle(NoemaColor.white.opacity(0.72)),
+          axis: .vertical
+        )
+        .font(NoemaFont.composer)
+        .foregroundStyle(NoemaColor.white)
+        .tint(NoemaColor.white)
+        .lineLimit(1...5)
+        .fixedSize(horizontal: false, vertical: true)
+        .textFieldStyle(.plain)
+        .focused($inputFocused)
+        .disabled(!isEditable)
+        .onSubmit {
+          guard canSend else { return }
+          Task { await model.send() }
+        }
+
+        Button {
+          Task { await model.send() }
+        } label: {
+          Image(systemName: "paperplane")
+            .font(NoemaFont.bodyEmphasized)
+            .foregroundStyle(canSend ? NoemaColor.pine500 : NoemaColor.pine500.opacity(0.7))
+            .frame(width: 40, height: 40)
+            .background(NoemaColor.white, in: NoemaSuperellipse(cornerRadius: 26))
+        }
+        .buttonStyle(.plain)
+        .disabled(!canSend)
+        .accessibilityLabel("Send message")
+      }
+    }
+    .padding(.leading, NoemaSpacing.lg)
+    .padding(.trailing, voiceInput.isEngaged ? NoemaSpacing.lg : NoemaSpacing.xs)
+    .padding(.vertical, 5)
+    .background {
+      NoemaSuperellipse(cornerRadius: 26)
+        .fill(NoemaColor.pine500)
+        .shadow(color: NoemaColor.white, radius: NoemaSpacing.md)
+    }
+    .frame(minHeight: voiceControlSize)
+  }
+
+  private var cancelButton: some View {
+    Button { voiceInput.cancel() } label: {
+      Image(systemName: "xmark")
+        .font(NoemaFont.bodyEmphasized)
+        .foregroundStyle(NoemaColor.white)
+        .frame(width: voiceControlSize, height: voiceControlSize)
+        .background(NoemaColor.red700.opacity(voiceInput.cancelTargeted ? 1 : 0.82), in: NoemaSuperellipse(cornerRadius: 26))
+        .overlay {
+          NoemaSuperellipse(cornerRadius: 26)
+            .stroke(NoemaColor.white.opacity(voiceInput.cancelTargeted ? 0.9 : 0), lineWidth: 2)
+        }
+        .scaleEffect(voiceInput.cancelTargeted ? 1.06 : 1)
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Cancel voice input")
+    .onGeometryChange(for: CGRect.self) { proxy in
+      proxy.frame(in: .named(chatVoiceCoordinateSpace))
+    } action: { frame in
+      cancelFrame = frame
+    }
+  }
+
+  private var microphoneButton: some View {
+    Image(systemName: "mic.fill")
+      .font(NoemaFont.bodyEmphasized)
+      .foregroundStyle(NoemaColor.white)
+      .symbolEffect(.pulse, options: .repeating, isActive: voiceInput.isRecording && !reduceMotion)
+      .frame(width: voiceControlSize, height: voiceControlSize)
+      .background(
+        voiceInput.isEngaged ? NoemaColor.pine600 : NoemaColor.pine500,
+        in: NoemaSuperellipse(cornerRadius: 26)
+      )
+      .overlay {
+        NoemaSuperellipse(cornerRadius: 26)
+          .stroke(NoemaColor.pine100.opacity(voiceInput.isRecording ? 1 : 0), lineWidth: 2)
+      }
+      .scaleEffect(microphonePressed ? 0.94 : 1)
+      .opacity(canUseVoice ? 1 : 0.46)
+      .contentShape(.interaction, NoemaSuperellipse(cornerRadius: 26))
+      .gesture(microphoneGesture)
+      .disabled(!canUseVoice)
+      .accessibilityElement()
+      .accessibilityAddTraits(.isButton)
+      .accessibilityLabel(voiceInput.isEngaged ? "Stop and send voice input" : "Start voice input")
+      .accessibilityHint("Double-tap to toggle voice input. Touch and hold to speak until release.")
+      .accessibilityAction { voiceInput.accessibilityActivate(originalDraft: model.draft) }
+      .animation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion), value: microphonePressed)
+  }
+
+  private var microphoneGesture: some Gesture {
+    DragGesture(minimumDistance: 0, coordinateSpace: .named(chatVoiceCoordinateSpace))
+      .onChanged { value in
+        guard canUseVoice else { return }
+        if !microphonePressed {
+          microphonePressed = true
+          inputFocused = false
+          voiceInput.pressBegan(originalDraft: model.draft)
+          holdTask?.cancel()
+          holdTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled, microphonePressed else { return }
+            if voiceInput.holdThresholdReached() {
+              voiceInput.setCancelTargeted(cancelFrame.contains(microphoneLocation))
+              UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
+          }
+        }
+        microphoneLocation = value.location
+        voiceInput.setCancelTargeted(cancelFrame.contains(value.location))
+      }
+      .onEnded { value in
+        holdTask?.cancel()
+        holdTask = nil
+        guard microphonePressed else { return }
+        let overCancel = cancelFrame.contains(value.location)
+        microphonePressed = false
+        microphoneLocation = .zero
+        voiceInput.pressEnded(overCancel: overCancel)
+      }
+  }
+
+  private func consumeVoiceCompletion() {
+    guard let completion = voiceInput.takeCompletion() else { return }
+    model.isVoiceInputActive = false
+    switch completion {
+    case let .send(text):
+      model.draft = text
+      Task { await model.send() }
+    case let .keepDraft(text, _), let .restoreDraft(text):
+      model.draft = text
+    }
+  }
+
+  private func preserveAndStopVoiceInput(message: String? = nil) {
+    guard voiceInput.showsCancel else { return }
+    model.draft = voiceInput.currentDraft
+    voiceInput.forceStop(message: message)
+  }
+
+  private func openSettings() {
+    guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+    UIApplication.shared.open(url)
   }
 }
 

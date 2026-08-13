@@ -115,6 +115,7 @@ final class ChatModel {
   private(set) var interventionErrors: [String: String] = [:]
   private(set) var dismissedAdapterSetupDigests = Set<String>()
   var draft = ""
+  var isVoiceInputActive = false
 
   func dismissAdapterSetup(_ definition: AdapterDefinitionModel) {
     dismissedAdapterSetupDigests.insert(definition.semanticDigest)

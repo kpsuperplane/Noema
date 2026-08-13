@@ -426,7 +426,7 @@ struct NoemaShellView: View {
 
   private var shellAgentAvatarActivity: NoemaAvatarActivity {
     let runtimeActivity = noemaAvatarActivity(agentStatus: chat.agentStatus)
-    if runtimeActivity == .idle, !chat.draft.isEmpty { return .listening }
+    if runtimeActivity == .idle, chat.isVoiceInputActive || !chat.draft.isEmpty { return .listening }
     return runtimeActivity
   }
 
