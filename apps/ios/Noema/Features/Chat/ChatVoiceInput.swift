@@ -221,10 +221,9 @@ final class ChatVoiceInput {
     try Task.checkCancellation()
     guard generation == sessionGeneration else { return }
 
-    let audioSession = AVAudioSession.sharedInstance()
-    try audioSession.setCategory(.record, mode: .measurement)
-    try audioSession.setActive(true)
-    guard audioSession.isInputAvailable else { throw ChatVoiceInputError.audioUnavailable }
+    guard try await Self.activateAudioSession() else {
+      throw ChatVoiceInputError.audioUnavailable
+    }
 
     let engine = AVAudioEngine()
     let inputNode = engine.inputNode
@@ -263,6 +262,16 @@ final class ChatVoiceInput {
     engine.prepare()
     try engine.start()
     state = .recording(mode)
+  }
+
+  private nonisolated static func activateAudioSession() async throws -> Bool {
+    try await Task.detached(priority: .userInitiated) {
+      let audioSession = AVAudioSession.sharedInstance()
+      try audioSession.setCategory(.record, mode: .measurement)
+      try audioSession.setAllowHapticsAndSystemSoundsDuringRecording(true)
+      try audioSession.setActive(true)
+      return audioSession.isInputAvailable
+    }.value
   }
 
   private func resultTask<Results: AsyncSequence>(

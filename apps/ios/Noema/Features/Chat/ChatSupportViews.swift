@@ -295,7 +295,10 @@ struct ChatComposer: View {
   }
 
   private var cancelButton: some View {
-    Button { voiceInput.cancel() } label: {
+    Button {
+      cancelFeedback.impactOccurred(intensity: 1)
+      voiceInput.cancel()
+    } label: {
       Image(systemName: "xmark")
         .font(NoemaFont.bodyEmphasized)
         .foregroundStyle(NoemaColor.white)
@@ -310,6 +313,7 @@ struct ChatComposer: View {
     }
     .buttonStyle(.plain)
     .accessibilityLabel("Cancel voice input")
+    .onAppear { cancelFeedback.prepare() }
     .onGeometryChange(for: CGRect.self) { proxy in
       proxy.frame(in: .named(chatVoiceCoordinateSpace))
     } action: { frame in
