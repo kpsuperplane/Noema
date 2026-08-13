@@ -4,8 +4,9 @@ use std::collections::HashSet;
 
 use super::{ResponsesDiagnosticContext, tools::ResponsesToolNameMap};
 use crate::{
-    GenerateCitation, GenerateHostedWebSearch, GenerateReasoningItem, GenerateResponse,
-    GenerateResponseItem, GenerateWebSource, ProviderError, ProviderToolTransport, TokenUsage,
+    AssistantTextPhase, GenerateCitation, GenerateHostedWebSearch, GenerateReasoningItem,
+    GenerateResponse, GenerateResponseItem, GenerateWebSource, ProviderError,
+    ProviderToolTransport, TokenUsage,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -44,10 +45,10 @@ impl ResponsesResponse {
                     .to_string(),
             });
         }
-        let text = match self.output_text() {
-            Ok(text) => text,
+        let responses = match self.output_messages() {
+            Ok(responses) => responses,
             Err(ProviderError::MalformedResponse { .. }) if !native_tool_calls.is_empty() => {
-                String::new()
+                Vec::new()
             }
             Err(error @ ProviderError::MalformedResponse { .. }) => {
                 let payload = self.raw.clone().unwrap_or_else(|| {
@@ -64,10 +65,6 @@ impl ResponsesResponse {
             Err(error) => return Err(error),
         };
 
-        let responses = (!text.is_empty())
-            .then_some(GenerateResponseItem::Text { phase: None, text })
-            .into_iter()
-            .collect();
         Ok(self.generate_response(responses, native_tool_calls, diagnostics))
     }
 
@@ -100,26 +97,48 @@ impl ResponsesResponse {
     /// Returns [`ProviderError::MalformedResponse`] when the response contains
     /// no text, or [`ProviderError::ApiError`] when the only textual payload is
     /// a refusal.
+    #[cfg(test)]
     pub fn output_text(&self) -> Result<String, ProviderError> {
-        let mut output = String::new();
+        Ok(self
+            .output_messages()?
+            .into_iter()
+            .map(|item| match item {
+                GenerateResponseItem::Text { text, .. } => text,
+            })
+            .collect())
+    }
+
+    fn output_messages(&self) -> Result<Vec<GenerateResponseItem>, ProviderError> {
+        let mut messages = Vec::new();
         let mut refusals = Vec::new();
 
         for item in &self.output {
-            let ResponsesOutputItem::Message { content } = item else {
+            let ResponsesOutputItem::Message { phase, content } = item else {
                 continue;
             };
 
+            let mut text = String::new();
             for content_item in content {
                 match content_item {
-                    ResponsesContent::OutputText { text, .. } => output.push_str(text),
+                    ResponsesContent::OutputText {
+                        text: content_text, ..
+                    } => text.push_str(content_text),
                     ResponsesContent::Refusal { refusal } => refusals.push(refusal.as_str()),
                     ResponsesContent::Other => {}
                 }
             }
+            if !text.is_empty() {
+                let phase = match phase.as_deref() {
+                    Some("commentary") => Some(AssistantTextPhase::Commentary),
+                    Some("final_answer") => Some(AssistantTextPhase::FinalAnswer),
+                    _ => None,
+                };
+                messages.push(GenerateResponseItem::Text { phase, text });
+            }
         }
 
-        if !output.is_empty() {
-            return Ok(output);
+        if !messages.is_empty() {
+            return Ok(messages);
         }
 
         if !refusals.is_empty() {
@@ -257,7 +276,7 @@ impl ResponsesResponse {
         let mut seen = std::collections::HashSet::new();
         let mut citations = Vec::new();
         for item in &self.output {
-            let ResponsesOutputItem::Message { content } = item else {
+            let ResponsesOutputItem::Message { content, .. } = item else {
                 continue;
             };
             for content_item in content {
@@ -413,7 +432,11 @@ fn web_source(url: &str, title: Option<&str>) -> Option<GenerateWebSource> {
 #[serde(tag = "type")]
 enum ResponsesOutputItem {
     #[serde(rename = "message")]
-    Message { content: Vec<ResponsesContent> },
+    Message {
+        #[serde(default)]
+        phase: Option<String>,
+        content: Vec<ResponsesContent>,
+    },
     #[serde(rename = "function_call")]
     FunctionCall {
         id: Option<String>,
@@ -508,5 +531,42 @@ impl From<ResponsesUsage> for TokenUsage {
             total_tokens: value.total,
             cached_input_tokens: value.input_details.map(|details| details.cached_tokens),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finalization_preserves_distinct_provider_messages() {
+        let response: ResponsesResponse = serde_json::from_value(serde_json::json!({
+            "id": "response:test",
+            "model": "test-model",
+            "output": [
+                {
+                    "type": "message",
+                    "phase": "commentary",
+                    "content": [{"type": "output_text", "text": "Nice"}]
+                },
+                {
+                    "type": "message",
+                    "phase": "final_answer",
+                    "content": [{"type": "output_text", "text": "Want to go Saturday?"}]
+                }
+            ]
+        }))
+        .expect("responses payload");
+
+        let generated = response
+            .finalize(
+                &ResponsesToolNameMap::default(),
+                ProviderToolTransport::None,
+                &ResponsesDiagnosticContext::new(None, "test", "test-model", None),
+            )
+            .expect("generated response");
+
+        assert_eq!(generated.responses.len(), 2);
+        assert_eq!(generated.assistant_text(), "NiceWant to go Saturday?");
     }
 }

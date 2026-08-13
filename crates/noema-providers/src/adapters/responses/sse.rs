@@ -4,13 +4,13 @@ use super::{ResponsesDiagnosticContext, ResponsesResponse, ResponsesUsage};
 use crate::response_support::sse::{SseEvent, next_sse_event_boundary, parse_sse_event_bytes};
 use crate::{GenerateStreamEvent, ProviderError};
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 pub(crate) struct SseAccumulator {
     diagnostics: ResponsesDiagnosticContext,
     pending: Vec<u8>,
-    output_values: Vec<Value>,
-    output_text: String,
+    output_values: BTreeMap<usize, Value>,
+    output_text: BTreeMap<usize, String>,
     response_id: Option<String>,
     model: Option<String>,
     usage: Option<ResponsesUsage>,
@@ -23,8 +23,8 @@ impl SseAccumulator {
         Self {
             diagnostics,
             pending: Vec::new(),
-            output_values: Vec::new(),
-            output_text: String::new(),
+            output_values: BTreeMap::new(),
+            output_text: BTreeMap::new(),
             response_id: None,
             model: None,
             usage: None,
@@ -83,42 +83,57 @@ impl SseAccumulator {
             });
         }
 
-        if !self.output_text.is_empty() {
-            let mut replaced = false;
-            for item in &mut self.output_values {
-                if item.get("type").and_then(Value::as_str) != Some("message") {
-                    continue;
-                }
-                let Some(content) = item.get_mut("content").and_then(Value::as_array_mut) else {
-                    continue;
-                };
-                let Some(output_text) = content
+        let mut reconciled_messages = HashSet::new();
+        for (output_index, text) in std::mem::take(&mut self.output_text) {
+            let message_index = self
+                .output_values
+                .get(&output_index)
+                .filter(|item| item.get("type").and_then(Value::as_str) == Some("message"))
+                .map(|_| output_index)
+                .or_else(|| {
+                    self.output_values.iter().find_map(|(index, item)| {
+                        (item.get("type").and_then(Value::as_str) == Some("message")
+                            && !reconciled_messages.contains(index))
+                        .then_some(*index)
+                    })
+                });
+            let replaced_index = message_index.and_then(|index| {
+                let output_text = self
+                    .output_values
+                    .get_mut(&index)?
+                    .get_mut("content")?
+                    .as_array_mut()?
                     .iter_mut()
-                    .find(|part| part.get("type").and_then(Value::as_str) == Some("output_text"))
-                else {
-                    continue;
-                };
-                if let Some(object) = output_text.as_object_mut() {
-                    object.insert("text".to_string(), Value::String(self.output_text.clone()));
-                    replaced = true;
-                    break;
-                }
-            }
-            if !replaced {
-                self.output_values.push(serde_json::json!({
-                    "type": "message",
-                    "content": [{"type": "output_text", "text": self.output_text}]
-                }));
+                    .find(|part| part.get("type").and_then(Value::as_str) == Some("output_text"))?
+                    .as_object_mut()?;
+                output_text.insert("text".to_string(), Value::String(text.clone()));
+                Some(index)
+            });
+            if let Some(index) = replaced_index {
+                reconciled_messages.insert(index);
+            } else {
+                let output_index = (output_index..)
+                    .find(|index| !self.output_values.contains_key(index))
+                    .expect("usize output index space cannot be exhausted");
+                self.output_values.insert(
+                    output_index,
+                    serde_json::json!({
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": text}]
+                    }),
+                );
             }
         }
 
         let response_id = self.response_id.clone();
         let model = self.model.clone();
-        let output_values = self.output_values.clone();
+        let output_values = std::mem::take(&mut self.output_values)
+            .into_values()
+            .collect::<Vec<_>>();
         let response = ResponsesResponse::from_stream_parts(
             self.response_id.clone(),
             self.model.clone(),
-            self.output_values.clone(),
+            output_values.clone(),
             self.usage.clone(),
         );
         if let Err(error) = &response {
@@ -175,16 +190,33 @@ impl SseAccumulator {
         match event_type {
             "response.output_text.delta" => {
                 if let Some(delta) = value.get("delta").and_then(Value::as_str) {
-                    self.output_text.push_str(delta);
+                    let output_index = value
+                        .get("output_index")
+                        .and_then(Value::as_u64)
+                        .and_then(|index| usize::try_from(index).ok())
+                        .unwrap_or_default();
+                    self.output_text
+                        .entry(output_index)
+                        .or_default()
+                        .push_str(delta);
                     on_event(GenerateStreamEvent::AssistantTextDelta {
-                        response_index: 0,
+                        response_index: output_index,
                         delta: delta.to_string(),
                     });
                 }
             }
             "response.output_item.done" => {
                 if let Some(item) = value.get("item") {
-                    self.output_values.push(item.clone());
+                    let output_index = value
+                        .get("output_index")
+                        .and_then(Value::as_u64)
+                        .and_then(|index| usize::try_from(index).ok())
+                        .unwrap_or_else(|| {
+                            (0..)
+                                .find(|index| !self.output_values.contains_key(index))
+                                .expect("usize output index space cannot be exhausted")
+                        });
+                    self.output_values.insert(output_index, item.clone());
                 }
             }
             "response.output_item.added"
@@ -224,7 +256,7 @@ impl SseAccumulator {
                     if self.output_values.is_empty()
                         && let Some(items) = response.get("output").and_then(Value::as_array)
                     {
-                        self.output_values.extend(items.iter().cloned());
+                        self.output_values.extend(items.iter().cloned().enumerate());
                     }
                 }
             }
@@ -379,6 +411,67 @@ mod tests {
         assert_eq!(
             response.output_text().expect("output text"),
             "Searching memory."
+        );
+    }
+
+    #[test]
+    fn streamed_messages_keep_boundaries_without_repeating_done_text() {
+        let mut events = Vec::new();
+        let mut accumulator = SseAccumulator::new(test_diagnostics());
+        accumulator
+            .push_chunk(
+                "event: response.output_text.delta\n\
+                 data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"Got it\"}\n\
+                 \n\
+                 event: response.output_item.done\n\
+                 data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"phase\":\"commentary\",\"content\":[{\"type\":\"output_text\",\"text\":\"Got it\"}]}}\n\
+                 \n\
+                 event: response.output_text.delta\n\
+                 data: {\"type\":\"response.output_text.delta\",\"output_index\":1,\"delta\":\"What time works?\"}\n\
+                 \n\
+                 event: response.output_item.done\n\
+                 data: {\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":{\"type\":\"message\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"What time works?\"}]}}\n\
+                 \n\
+                 event: response.completed\n\
+                 data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"status\":\"completed\"}}\n\
+                 \n",
+                &mut |event| events.push(event),
+            )
+            .expect("two streamed messages");
+
+        assert_eq!(
+            events,
+            vec![
+                GenerateStreamEvent::AssistantTextDelta {
+                    response_index: 0,
+                    delta: "Got it".to_string(),
+                },
+                GenerateStreamEvent::AssistantTextDelta {
+                    response_index: 1,
+                    delta: "What time works?".to_string(),
+                },
+            ]
+        );
+        let response = accumulator.finish(&mut |_| {}).expect("response");
+        let generated = response
+            .finalize(
+                &super::super::tools::ResponsesToolNameMap::default(),
+                crate::ProviderToolTransport::None,
+                &test_diagnostics(),
+            )
+            .expect("normalized response");
+        assert_eq!(
+            generated.responses,
+            vec![
+                crate::GenerateResponseItem::Text {
+                    phase: Some(crate::AssistantTextPhase::Commentary),
+                    text: "Got it".to_string(),
+                },
+                crate::GenerateResponseItem::Text {
+                    phase: Some(crate::AssistantTextPhase::FinalAnswer),
+                    text: "What time works?".to_string(),
+                },
+            ]
         );
     }
 
