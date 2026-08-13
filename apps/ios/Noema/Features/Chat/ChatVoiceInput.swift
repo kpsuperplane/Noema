@@ -244,7 +244,7 @@ final class ChatVoiceInput {
     inputContinuation = continuation
     audioEngine = engine
 
-    inputNode.installTap(onBus: 0, bufferSize: 1_024, format: inputFormat) { [weak self] buffer, _ in
+    let audioTap: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { [weak self] buffer, _ in
       do {
         let converted = try converter.convert(buffer)
         continuation.yield(AnalyzerInput(buffer: converted))
@@ -254,6 +254,7 @@ final class ChatVoiceInput {
         }
       }
     }
+    inputNode.installTap(onBus: 0, bufferSize: 1_024, format: inputFormat, block: audioTap)
     tapInstalled = true
 
     try await analyzer.start(inputSequence: inputSequence)
