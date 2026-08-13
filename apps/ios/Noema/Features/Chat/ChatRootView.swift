@@ -82,7 +82,7 @@ private struct ChatLoadingView: View {
           isSendEnabled: false
         )
           .frame(maxWidth: 760, alignment: .trailing)
-          .padding(.horizontal, NoemaSpacing.xl)
+          .padding(.horizontal, NoemaSpacing.md)
           .padding(.bottom, NoemaSpacing.sm)
           .frame(maxWidth: .infinity)
       }
@@ -92,6 +92,8 @@ private struct ChatLoadingView: View {
 }
 
 struct ChatTranscriptLoadingSkeleton: View {
+  var horizontalPadding = NoemaSpacing.md
+
   var body: some View {
     VStack(spacing: 18) {
       Spacer(minLength: NoemaSpacing.xxl)
@@ -100,7 +102,7 @@ struct ChatTranscriptLoadingSkeleton: View {
       skeletonBubble(lane: .assistant, widths: [243, 187, 96])
     }
     .frame(maxWidth: 760, maxHeight: .infinity)
-    .padding(.horizontal, NoemaSpacing.xl)
+    .padding(.horizontal, horizontalPadding)
     .padding(.top, 64)
     .padding(.bottom, 96)
   }
@@ -268,7 +270,7 @@ struct ChatReadyView: View {
   private var transcriptSurface: some View {
     ScrollViewReader { proxy in
       ScrollView {
-        NoemaPageTrack(maxWidth: 760, horizontalPadding: 22) {
+        NoemaPageTrack(maxWidth: 760, horizontalPadding: NoemaSpacing.md) {
           LazyVStack(alignment: .leading, spacing: 0) {
             if model.messages.isEmpty {
               if model.isOffline {
@@ -279,7 +281,7 @@ struct ChatReadyView: View {
                 )
                 .containerRelativeFrame(.vertical, alignment: .center)
               } else if !model.hasLoadedTranscript {
-                ChatTranscriptLoadingSkeleton()
+                ChatTranscriptLoadingSkeleton(horizontalPadding: 0)
                   .containerRelativeFrame(.vertical, alignment: .bottom)
               }
             }
@@ -409,7 +411,7 @@ struct ChatReadyView: View {
         )
           .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 760, alignment: .trailing)
       }
-      .padding(.horizontal, NoemaSpacing.xl)
+      .padding(.horizontal, NoemaSpacing.md)
       .padding(.bottom, horizontalSizeClass == .compact ? 0 : NoemaSpacing.sm)
       .frame(maxWidth: .infinity)
       .overlay(alignment: .top) {

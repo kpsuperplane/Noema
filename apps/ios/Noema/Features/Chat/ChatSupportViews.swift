@@ -180,8 +180,11 @@ struct ChatComposer: View {
     .padding(.leading, NoemaSpacing.lg)
     .padding(.trailing, NoemaSpacing.xs)
     .padding(.vertical, 5)
-    .background(NoemaColor.pine500, in: NoemaSuperellipse(cornerRadius: 26))
-    .shadow(color: NoemaColor.white, radius: NoemaSpacing.md)
+    .background {
+      NoemaSuperellipse(cornerRadius: 26)
+        .fill(NoemaColor.pine500)
+        .shadow(color: NoemaColor.white, radius: NoemaSpacing.md)
+    }
     .frame(idealWidth: preferredWidth, maxWidth: preferredWidth)
     .offset(y: inputFocused ? 0 : restingBottomOffset)
     .padding(.bottom, inputFocused ? NoemaSpacing.sm : 0)
