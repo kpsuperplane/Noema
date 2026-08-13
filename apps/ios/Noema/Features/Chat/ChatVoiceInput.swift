@@ -120,8 +120,7 @@ final class ChatVoiceInput {
 
   var previewPlaceholder: String {
     switch state {
-    case .preparing: "Preparing voice input…"
-    case .recording: "Listening…"
+    case .preparing, .recording: "Listening…"
     case .finalizing: "Finishing dictation…"
     case .idle, .failed: "Listening…"
     }
