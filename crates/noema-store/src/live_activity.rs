@@ -739,11 +739,11 @@ fn record_live_activity_observation_tx(
         return Err(invalid("Live Activity snapshot is too large"));
     }
     transaction.execute(
-        "DELETE FROM client_live_activity_observations WHERE created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days')",
+        "DELETE FROM live_activity_observations WHERE created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days')",
         [],
     )?;
     transaction.execute(
-        "INSERT INTO client_live_activity_observations (observation_id, client_id, event, activity_id, active_activity_ids_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO live_activity_observations (observation_id, client_id, event, activity_id, active_activity_ids_json) VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
             allocate_id("live_activity_observation"),
             client_id,

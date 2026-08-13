@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 41;
+pub const STORE_SCHEMA_VERSION: usize = 42;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1185,8 +1185,16 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(ADAPTER_CONNECTION_GRANTS_SQL),
         M::up(ADAPTER_GRANT_LABEL_SQL),
         M::up(LIVE_ACTIVITY_DIAGNOSTICS_SQL),
+        M::up(LIVE_ACTIVITY_OBSERVATIONS_RENAME_SQL),
     ])
 }
+
+const LIVE_ACTIVITY_OBSERVATIONS_RENAME_SQL: &str = r#"
+ALTER TABLE client_live_activity_observations RENAME TO live_activity_observations;
+DROP INDEX client_live_activity_observations_timeline;
+CREATE INDEX live_activity_observations_timeline
+ON live_activity_observations(client_id, created_at, observation_id);
+"#;
 
 /// Bounded client acknowledgements and the APNs identifier needed to correlate
 /// one Live Activity delivery with Apple device logs.

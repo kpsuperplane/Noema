@@ -40,7 +40,7 @@ async fn live_activity_client_callbacks_form_a_secret_free_timeline() {
     let observations = store
         .with_connection(|connection| {
             let mut statement = connection.prepare(
-                "SELECT event, activity_id, active_activity_ids_json FROM client_live_activity_observations WHERE client_id = ?1 ORDER BY rowid",
+                "SELECT event, activity_id, active_activity_ids_json FROM live_activity_observations WHERE client_id = ?1 ORDER BY rowid",
             )?;
             let rows = statement.query_map(["client:timeline"], |row| {
                 Ok((

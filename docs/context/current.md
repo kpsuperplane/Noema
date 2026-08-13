@@ -106,7 +106,7 @@ vertical slice or a net-negative reduction.
   policy editor. Added-access decisions show operations before exact scopes.
 - Chat projects OAuth client setup by profile. One intervention lists every
   reviewed API that can reuse the imported client.
-- SQLite schema version 41 has rebuildable public OAuth projections and grant
+- SQLite schema version 42 has rebuildable public OAuth projections and grant
   labels. It supersedes authentication requests from the replaced model.
 - The active reviewed Calendar definition has all 12 current operations,
   including date-only event creation. The 50-case live validation ledger has 50
