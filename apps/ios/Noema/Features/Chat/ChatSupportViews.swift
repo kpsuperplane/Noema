@@ -210,15 +210,8 @@ struct ChatComposer: View {
   }
 
   var body: some View {
-    HStack(alignment: .center, spacing: NoemaSpacing.sm) {
-      if voiceInput.showsCancel {
-        cancelButton
-          .transition(.asymmetric(
-            insertion: .offset(x: -composerMaxWidth).combined(with: .opacity),
-            removal: .opacity
-          ))
-          .zIndex(1)
-      }
+    HStack(alignment: .center, spacing: 0) {
+      cancelSlot
       composerSurface
         .layoutPriority(1)
     }
@@ -273,6 +266,19 @@ struct ChatComposer: View {
       }
       return Alert(title: Text("Voice input unavailable"), message: Text(alert.message))
     }
+  }
+
+  private var cancelSlot: some View {
+    cancelButton
+      .offset(x: voiceInput.showsCancel ? 0 : -composerMaxWidth)
+      .opacity(voiceInput.showsCancel ? 1 : 0)
+      .frame(
+        width: voiceInput.showsCancel ? voiceControlSize + NoemaSpacing.sm : 0,
+        alignment: .leading
+      )
+      .allowsHitTesting(voiceInput.showsCancel)
+      .accessibilityHidden(!voiceInput.showsCancel)
+      .zIndex(1)
   }
 
   private var composerSurface: some View {
