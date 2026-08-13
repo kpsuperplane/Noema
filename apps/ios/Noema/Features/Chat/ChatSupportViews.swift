@@ -210,17 +210,15 @@ struct ChatComposer: View {
   }
 
   var body: some View {
-    HStack(alignment: .center, spacing: 0) {
-      cancelSlot
-      composerSurface
-        .layoutPriority(1)
+    ZStack {
+      composerRow
+      cancelOverlay
+      composerActionOverlay
     }
-    .geometryGroup()
     .coordinateSpace(name: chatVoiceCoordinateSpace)
-    .frame(idealWidth: preferredWidth, maxWidth: preferredWidth)
+    .frame(maxWidth: composerMaxWidth)
     .offset(y: inputFocused ? 0 : restingBottomOffset)
     .padding(.bottom, inputFocused ? NoemaSpacing.sm : 0)
-    .animation(composerTransitionAnimation, value: voiceInput.showsCancel)
     .task(id: autoFocus) {
       guard autoFocus, isEditable, !voiceInput.isEngaged else { return }
       await Task.yield()
@@ -268,17 +266,35 @@ struct ChatComposer: View {
     }
   }
 
-  private var cancelSlot: some View {
-    cancelButton
-      .offset(x: voiceInput.showsCancel ? 0 : -composerMaxWidth)
-      .opacity(voiceInput.showsCancel ? 1 : 0)
-      .frame(
-        width: voiceInput.showsCancel ? voiceControlSize + NoemaSpacing.sm : 0,
-        alignment: .leading
+  private var composerRow: some View {
+    HStack(alignment: .center, spacing: 0) {
+      Color.clear.frame(
+        width: voiceInput.showsCancel ? voiceControlSize + NoemaSpacing.sm : 0
       )
+      composerSurface
+        .layoutPriority(1)
+    }
+    .geometryGroup()
+    .frame(idealWidth: preferredWidth, maxWidth: preferredWidth)
+    .animation(composerTransitionAnimation, value: voiceInput.showsCancel)
+    .frame(maxWidth: .infinity, alignment: .trailing)
+  }
+
+  private var cancelOverlay: some View {
+    cancelButton
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .offset(x: voiceInput.showsCancel ? 0 : -composerMaxWidth)
       .allowsHitTesting(voiceInput.showsCancel)
       .accessibilityHidden(!voiceInput.showsCancel)
       .zIndex(1)
+      .animation(composerTransitionAnimation, value: voiceInput.showsCancel)
+  }
+
+  private var composerActionOverlay: some View {
+    composerActionButton
+      .padding(.trailing, NoemaSpacing.xs)
+      .frame(maxWidth: .infinity, alignment: .trailing)
+      .zIndex(2)
   }
 
   private var composerSurface: some View {
@@ -311,10 +327,6 @@ struct ChatComposer: View {
         .fill(NoemaColor.pine500)
         .shadow(color: NoemaColor.white, radius: NoemaSpacing.md)
     }
-    .overlay(alignment: .trailing) {
-      composerActionButton.padding(.trailing, NoemaSpacing.xs)
-    }
-    .geometryGroup()
   }
 
   private var composerActionButton: some View {
