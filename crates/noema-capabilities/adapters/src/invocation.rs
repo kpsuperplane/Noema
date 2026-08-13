@@ -547,6 +547,17 @@ impl AdapterCapabilityService {
                 return Err(CapabilityError::Failed);
             }
         };
+        if !current
+            .operation
+            .authorization
+            .is_satisfied_by(&token.granted_scopes)
+        {
+            self.inner
+                .oauth_authorities
+                .deactivate_grant(grant, AuthorizationGrantStatus::AuthenticationRequired)
+                .map_err(|_| CapabilityError::Unavailable)?;
+            return Err(authentication_required(authority, current.auth_mode));
+        }
         let generation_id =
             crate::private_fs::random_hex(16).map_err(|_| CapabilityError::Unavailable)?;
         let grant_token = OauthGrantTokenV1 {
@@ -562,7 +573,6 @@ impl AdapterCapabilityService {
             .checked_add(1)
             .ok_or(CapabilityError::Unavailable)?;
         replacement.token_generation = Some(generation_id);
-        replacement.granted_scopes = token.granted_scopes;
         self.inner
             .oauth_authorities
             .refresh_grant(grant, &replacement, &grant_token)

@@ -203,8 +203,8 @@ fn grant_fixture(
                 account_id: None,
                 account_label: Some("Personal Google".to_string()),
                 audience: "google-apis".to_string(),
-                desired_scopes: vec!["scope.read".to_string()],
-                granted_scopes: vec!["scope.read".to_string()],
+                desired_scopes: vec!["scope.extra".to_string(), "scope.read".to_string()],
+                granted_scopes: vec!["scope.extra".to_string(), "scope.read".to_string()],
                 authority_revision: 3,
                 token_generation: Some(token_generation.clone()),
                 token_revision: 4,
@@ -396,6 +396,52 @@ async fn two_connections_share_one_refresh_result() {
         fixture.http.bearers.lock().expect("bearers").as_slice(),
         ["fresh-access", "fresh-access"]
     );
+    let (grant, _) = OauthAuthorityStore::new(fixture.paths)
+        .load_grant_authority(&fixture.grant_id)
+        .expect("refreshed grant");
+    assert_eq!(grant.granted_scopes, ["scope.extra", "scope.read"]);
+    assert_eq!(grant.token_revision, 5);
+}
+
+#[tokio::test]
+async fn refresh_without_the_called_scope_requires_authentication() {
+    let fixture = grant_fixture(Ok(AdapterOAuthTokenOutcome {
+        access_token: "fresh-access".to_string(),
+        refresh_token: None,
+        expires_at_epoch_seconds: Some(u64::MAX - 1),
+        granted_scopes: vec!["scope.extra".to_string()],
+    }));
+    let catalog = CapabilityBindingSource::catalog(&fixture.service)
+        .await
+        .expect("catalog");
+    let binding = catalog
+        .snapshot
+        .iter()
+        .find(|binding| binding.destination().is_some())
+        .expect("binding");
+    let error = CapabilityInvoker::invoke(
+        &fixture.service,
+        CapabilityInvocation {
+            operation: binding.spec().name.clone(),
+            operation_token: binding.target().operation_token().clone(),
+            arguments: json!({}),
+            reviewed_authorization: None,
+        },
+    )
+    .await
+    .expect_err("authentication required");
+    assert!(matches!(
+        error,
+        CapabilityError::AuthenticationRequired { .. }
+    ));
+    let (grant, token) = OauthAuthorityStore::new(fixture.paths)
+        .load_grant_authority(&fixture.grant_id)
+        .expect("inactive grant");
+    assert_eq!(
+        grant.status,
+        AuthorizationGrantStatus::AuthenticationRequired
+    );
+    assert!(token.is_none());
 }
 
 #[tokio::test]

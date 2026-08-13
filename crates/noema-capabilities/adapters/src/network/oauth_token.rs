@@ -130,6 +130,7 @@ where
                 .map_err(|_| AdapterOAuthTokenError::InvalidRequest)?,
         )
         .set_auth_type(auth_type);
+    let is_refresh = matches!(&request.grant, AdapterOAuthTokenGrant::RefreshToken { .. });
     let response: BasicTokenResponse = match request.grant {
         AdapterOAuthTokenGrant::AuthorizationCode {
             code,
@@ -184,8 +185,16 @@ where
         return Err(AdapterOAuthTokenError::InvalidResponse);
     }
     granted_scopes.sort();
-    let granted = granted_scopes.iter().cloned().collect();
-    if granted_scopes.windows(2).any(|pair| pair[0] == pair[1]) || !requested.is_subset(&granted) {
+    let granted = granted_scopes
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let scope_change_is_valid = if is_refresh {
+        granted.is_subset(&requested)
+    } else {
+        requested.is_subset(&granted)
+    };
+    if granted_scopes.windows(2).any(|pair| pair[0] == pair[1]) || !scope_change_is_valid {
         return Err(AdapterOAuthTokenError::InvalidResponse);
     }
     let expires_at_epoch_seconds = response
@@ -519,15 +528,16 @@ mod tests {
     #[tokio::test]
     async fn refresh_uses_the_reviewed_client_auth_without_requesting_new_scopes() {
         let client = RecordingOAuthClient::new(
-            r#"{"access_token":"fresh-access","token_type":"Bearer","expires_in":3600}"#,
+            r#"{"access_token":"fresh-access","token_type":"Bearer","expires_in":3600,"scope":"read"}"#,
         );
         let mut request = token_request(Oauth2ClientAuthentication::ClientSecretPost);
         request.grant = AdapterOAuthTokenGrant::RefreshToken {
             refresh_token: "refresh-marker".to_string(),
         };
-        exchange_with_client(request, &client)
+        let token = exchange_with_client(request, &client)
             .await
             .expect("refresh exchange");
+        assert_eq!(token.granted_scopes, ["read"]);
         let (_, body) = client
             .recorded
             .lock()
@@ -538,6 +548,20 @@ mod tests {
         assert!(body.contains("refresh_token=refresh-marker"));
         assert!(body.contains("client_secret=secret-marker"));
         assert!(!body.contains("scope="));
+
+        let client = RecordingOAuthClient::new(
+            r#"{"access_token":"fresh-access","token_type":"Bearer","scope":"read unknown"}"#,
+        );
+        let mut request = token_request(Oauth2ClientAuthentication::ClientSecretPost);
+        request.grant = AdapterOAuthTokenGrant::RefreshToken {
+            refresh_token: "refresh-marker".to_string(),
+        };
+        assert_eq!(
+            exchange_with_client(request, &client)
+                .await
+                .expect_err("unexpected scope expansion"),
+            AdapterOAuthTokenError::InvalidResponse
+        );
     }
 
     #[tokio::test]
