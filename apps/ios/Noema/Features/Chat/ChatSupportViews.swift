@@ -133,6 +133,7 @@ struct ChatComposer: View {
   @State private var microphoneLocation = CGPoint.zero
   @State private var microphonePressed = false
   @State private var holdTask: Task<Void, Never>?
+  @State private var cancelFeedback = UIImpactFeedbackGenerator(style: .rigid)
   @FocusState private var inputFocused: Bool
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -307,9 +308,6 @@ struct ChatComposer: View {
     }
     .buttonStyle(.plain)
     .accessibilityLabel("Cancel voice input")
-    .sensoryFeedback(.selection, trigger: voiceInput.cancelTargeted) { oldValue, newValue in
-      !oldValue && newValue
-    }
     .onGeometryChange(for: CGRect.self) { proxy in
       proxy.frame(in: .named(chatVoiceCoordinateSpace))
     } action: { frame in
@@ -340,13 +338,14 @@ struct ChatComposer: View {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled, microphonePressed else { return }
             if voiceInput.holdThresholdReached() {
-              voiceInput.setCancelTargeted(cancelFrame.contains(microphoneLocation))
+              cancelFeedback.prepare()
+              updateCancelTarget(cancelFrame.contains(microphoneLocation))
               UIImpactFeedbackGenerator(style: .light).impactOccurred()
             }
           }
         }
         microphoneLocation = value.location
-        voiceInput.setCancelTargeted(cancelFrame.contains(value.location))
+        updateCancelTarget(cancelFrame.contains(value.location))
       }
       .onEnded { value in
         holdTask?.cancel()
@@ -357,6 +356,16 @@ struct ChatComposer: View {
         microphoneLocation = .zero
         voiceInput.pressEnded(overCancel: overCancel)
       }
+  }
+
+  private func updateCancelTarget(_ targeted: Bool) {
+    let wasTargeted = voiceInput.cancelTargeted
+    voiceInput.setCancelTargeted(targeted)
+    if !wasTargeted, voiceInput.cancelTargeted {
+      cancelFeedback.impactOccurred(intensity: 1)
+    } else if wasTargeted, !voiceInput.cancelTargeted {
+      cancelFeedback.prepare()
+    }
   }
 
   private func consumeVoiceCompletion() {
