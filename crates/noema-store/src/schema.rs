@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 40;
+pub const STORE_SCHEMA_VERSION: usize = 42;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1184,8 +1184,45 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(ADAPTER_OAUTH_AUTHORITIES_SQL),
         M::up(ADAPTER_CONNECTION_GRANTS_SQL),
         M::up(ADAPTER_GRANT_LABEL_SQL),
+        M::up(LIVE_ACTIVITY_DIAGNOSTICS_SQL),
+        M::up(LIVE_ACTIVITY_OBSERVATIONS_RENAME_SQL),
     ])
 }
+
+const LIVE_ACTIVITY_OBSERVATIONS_RENAME_SQL: &str = r#"
+ALTER TABLE client_live_activity_observations RENAME TO live_activity_observations;
+DROP INDEX client_live_activity_observations_timeline;
+CREATE INDEX live_activity_observations_timeline
+ON live_activity_observations(client_id, created_at, observation_id);
+"#;
+
+/// Bounded client acknowledgements and the APNs identifier needed to correlate
+/// one Live Activity delivery with Apple device logs.
+const LIVE_ACTIVITY_DIAGNOSTICS_SQL: &str = r#"
+ALTER TABLE live_activity_deliveries
+ADD COLUMN apns_id TEXT
+  CHECK (apns_id IS NULL OR (trim(apns_id) <> '' AND length(apns_id) <= 128));
+
+CREATE TABLE client_live_activity_observations (
+  observation_id TEXT PRIMARY KEY NOT NULL
+    CHECK (observation_id GLOB 'live_activity_observation:*' AND length(observation_id) <= 256),
+  client_id TEXT NOT NULL,
+  event TEXT NOT NULL CHECK (event IN ('snapshot', 'update_token', 'dismissed')),
+  activity_id TEXT
+    CHECK (activity_id IS NULL OR (activity_id GLOB 'live_activity:*' AND length(activity_id) <= 256)),
+  active_activity_ids_json TEXT NOT NULL DEFAULT '[]'
+    CHECK (json_valid(active_activity_ids_json)
+      AND json_type(active_activity_ids_json) = 'array'
+      AND length(CAST(active_activity_ids_json AS BLOB)) <= 4096),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (client_id) REFERENCES clients(client_id) ON DELETE CASCADE,
+  CHECK ((event = 'snapshot' AND activity_id IS NULL)
+    OR (event <> 'snapshot' AND activity_id IS NOT NULL AND active_activity_ids_json = '[]'))
+);
+
+CREATE INDEX client_live_activity_observations_timeline
+ON client_live_activity_observations(client_id, created_at, observation_id);
+"#;
 
 const ADAPTER_GRANT_LABEL_SQL: &str = r#"
 ALTER TABLE adapter_oauth_grants ADD COLUMN account_label TEXT;

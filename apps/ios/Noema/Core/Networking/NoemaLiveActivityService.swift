@@ -22,6 +22,8 @@ final class NoemaLiveActivityService {
   private(set) var errorMessage: String?
   private(set) var activitiesEnabled = ActivityAuthorizationInfo().areActivitiesEnabled
   private(set) var isEnabled = false
+  private(set) var diagnosticMessage: String?
+  private(set) var isRunningDiagnostic = false
 
   private var client: ApolloClient?
   private var profile: NoemaProfile?
@@ -29,11 +31,13 @@ final class NoemaLiveActivityService {
   private var pushToStartTask: Task<Void, Never>?
   private var registrationTask: Task<Void, Never>?
   private var registrationGeneration = 0
+  private var registrationPending = false
   private var statusGeneration = 0
   private var activityUpdatesTask: Task<Void, Never>?
   private var updateTokenTasks: [String: Task<Void, Never>] = [:]
   private var activityStateTasks: [String: Task<Void, Never>] = [:]
   private var endingActivityIDs = Set<String>()
+  private var diagnosticActivity: Activity<NoemaTasksActivityAttributes>?
 
   var settingsDetail: String {
     if let blocker = status?.blocker, !blocker.isEmpty { return blocker }
@@ -54,7 +58,18 @@ final class NoemaLiveActivityService {
     return !matchingActivities(for: profile).isEmpty
   }
 
+  var canRunDiagnostic: Bool {
+    profile != nil && client != nil && activitiesEnabled && isEnabled
+      && status?.available == true && !isWorking && !isRunningDiagnostic
+  }
+
+  var hasDiagnosticActivity: Bool { diagnosticActivity != nil }
+
   func configure(profile: NoemaProfile?, client: ApolloClient?) async {
+    trace(
+      "configured",
+      fields: ["paired": String(profile != nil), "hasClient": String(client != nil)]
+    )
     statusGeneration &+= 1
     await cancelRegistration()
     stopObservers()
@@ -67,6 +82,7 @@ final class NoemaLiveActivityService {
     self.client = client
     status = nil
     errorMessage = nil
+    diagnosticMessage = nil
     pushToStartToken = nil
     isEnabled = false
     guard profile != nil, client != nil else { return }
@@ -78,6 +94,13 @@ final class NoemaLiveActivityService {
     statusGeneration &+= 1
     let generation = statusGeneration
     activitiesEnabled = ActivityAuthorizationInfo().areActivitiesEnabled
+    trace(
+      "authorization_snapshot",
+      fields: [
+        "activitiesEnabled": String(activitiesEnabled),
+        "activityCount": String(Activity<NoemaTasksActivityAttributes>.activities.count)
+      ]
+    )
     guard let client else { return }
     isLoading = true
     defer { isLoading = false }
@@ -96,6 +119,15 @@ final class NoemaLiveActivityService {
         registered: value.registered,
         environment: value.environment?.rawValue
       )
+      trace(
+        "status_loaded",
+        fields: [
+          "available": String(value.available),
+          "enabled": String(value.enabled),
+          "registered": String(value.registered),
+          "environment": value.environment?.rawValue ?? "none"
+        ]
+      )
       errorMessage = nil
       guard value.available, value.enabled, activitiesEnabled else {
         await cancelRegistration()
@@ -111,6 +143,7 @@ final class NoemaLiveActivityService {
     } catch {
       guard generation == statusGeneration else { return }
       errorMessage = "Live Activity status could not be loaded."
+      trace("status_failed", error: error)
     }
   }
 
@@ -199,8 +232,66 @@ final class NoemaLiveActivityService {
   }
 
   func scenePhaseChanged(_ active: Bool) {
+    trace("scene_phase_changed", fields: ["active": String(active)])
     guard active else { return }
     Task { await refresh() }
+  }
+
+  func toggleDiagnostic() async {
+    if let diagnosticActivity {
+      isRunningDiagnostic = true
+      defer { isRunningDiagnostic = false }
+      await end(diagnosticActivity, notifyServer: false)
+      self.diagnosticActivity = nil
+      diagnosticMessage = "The test Live Activity ended."
+      trace(
+        "diagnostic_ended",
+        fields: ["activityId": diagnosticActivity.attributes.activityId]
+      )
+      return
+    }
+    guard canRunDiagnostic, let profile else { return }
+    isRunningDiagnostic = true
+    defer { isRunningDiagnostic = false }
+    let now = Date().timeIntervalSince1970
+    let attributes = NoemaTasksActivityAttributes(
+      activityId: "live_activity:diagnostic:\(UUID().uuidString.lowercased())",
+      clientId: profile.clientId,
+      serverOrigin: profile.origin.absoluteString
+    )
+    let state = NoemaTasksActivityAttributes.ContentState(
+      focusTaskId: "task:diagnostic",
+      focusTitle: "Noema Live Activity test",
+      projectName: nil,
+      agentName: "Noema",
+      phase: .working,
+      statusLabel: "Testing",
+      activeTaskCount: 1,
+      startedAtEpoch: now,
+      updatedAtEpoch: now,
+      updateLabel: "This test bypasses APNs."
+    )
+    do {
+      let activity = try Activity.request(
+        attributes: attributes,
+        content: ActivityContent(state: state, staleDate: Date().addingTimeInterval(300)),
+        pushType: nil
+      )
+      diagnosticActivity = activity
+      diagnosticMessage = "A test Live Activity started. Check the Lock Screen or Dynamic Island."
+      trace(
+        "diagnostic_started",
+        fields: [
+          "activityId": attributes.activityId,
+          "localActivityId": activity.id,
+          "state": Self.activityStateName(activity.activityState)
+        ]
+      )
+      observe(activity)
+    } catch {
+      diagnosticMessage = "The test Live Activity could not start."
+      trace("diagnostic_failed", error: error)
+    }
   }
 
   private func applyStatus(
@@ -223,6 +314,9 @@ final class NoemaLiveActivityService {
   private func readPushToStartToken() {
     if let token = Activity<NoemaTasksActivityAttributes>.pushToStartToken {
       pushToStartToken = token
+      trace("push_to_start_token_read", fields: ["available": "true"])
+    } else {
+      trace("push_to_start_token_read", fields: ["available": "false"])
     }
   }
 
@@ -232,6 +326,7 @@ final class NoemaLiveActivityService {
       for await token in Activity<NoemaTasksActivityAttributes>.pushToStartTokenUpdates {
         guard !Task.isCancelled else { return }
         self?.pushToStartToken = token
+        self?.trace("push_to_start_token_changed", fields: ["available": "true"])
         self?.scheduleRegistration()
       }
     }
@@ -253,9 +348,13 @@ final class NoemaLiveActivityService {
   }
 
   private func scheduleRegistration() {
-    guard registrationTask == nil, client != nil, let token = pushToStartToken,
-          isEnabled,
+    guard client != nil, let token = pushToStartToken, isEnabled,
           status?.available == true else { return }
+    guard registrationTask == nil else {
+      registrationPending = true
+      return
+    }
+    registrationPending = false
     registrationGeneration &+= 1
     let generation = registrationGeneration
     registrationTask = Task { [weak self] in
@@ -270,21 +369,35 @@ final class NoemaLiveActivityService {
     task?.cancel()
     await task?.value
     registrationTask = nil
+    registrationPending = false
   }
 
   private func registrationEnded(generation: Int, token: Data) {
     guard generation == registrationGeneration else { return }
     registrationTask = nil
-    if pushToStartToken != token { scheduleRegistration() }
+    if registrationPending || pushToStartToken != token {
+      registrationPending = false
+      scheduleRegistration()
+    }
   }
 
   private func performRegistration(token: Data, generation: Int) async {
     guard let client, let profile, isEnabled, status?.available == true else { return }
     do {
       let activeActivityIds = matchingActivities(for: profile)
-        .filter { $0.activityState == .active || $0.activityState == .stale }
+        .filter {
+          ($0.activityState == .active || $0.activityState == .stale)
+            && !Self.isDiagnosticActivity($0)
+        }
         .map(\.attributes.activityId)
         .sorted()
+      trace(
+        "registration_started",
+        fields: [
+          "activeActivityCount": String(activeActivityIds.count),
+          "activeActivityIds": activeActivityIds.joined(separator: ",")
+        ]
+      )
       let input = NoemaAPI.RegisterClientLiveActivitiesInput(
         pushToStartToken: token.base64URLEncoded,
         environment: GraphQLEnum(Self.apnsEnvironment),
@@ -307,10 +420,18 @@ final class NoemaLiveActivityService {
         environment: value.environment?.rawValue
       )
       errorMessage = nil
+      trace(
+        "registration_finished",
+        fields: [
+          "registered": String(value.registered),
+          "activeActivityCount": String(activeActivityIds.count)
+        ]
+      )
     } catch {
       guard isEnabled, generation == registrationGeneration else { return }
       isEnabled = status?.enabled == true
       errorMessage = "Noema could not register Live Activities on this device."
+      trace("registration_failed", error: error)
     }
   }
 
@@ -348,6 +469,17 @@ final class NoemaLiveActivityService {
       observe(canonical)
       return
     }
+    trace(
+      "activity_observed",
+      fields: [
+        "activityId": activity.attributes.activityId,
+        "localActivityId": activity.id,
+        "state": Self.activityStateName(activity.activityState)
+      ]
+    )
+    if !Self.isDiagnosticActivity(activity) {
+      scheduleRegistration()
+    }
     let activityID = activity.id
     if updateTokenTasks[activityID] == nil {
       updateTokenTasks[activityID] = Task { [weak self] in
@@ -365,6 +497,14 @@ final class NoemaLiveActivityService {
     activityStateTasks[activityID] = Task { [weak self] in
       for await state in activity.activityStateUpdates {
         guard !Task.isCancelled else { return }
+        self?.trace(
+          "activity_state_changed",
+          fields: [
+            "activityId": activity.attributes.activityId,
+            "localActivityId": activity.id,
+            "state": Self.activityStateName(state)
+          ]
+        )
         if state == .dismissed {
           await self?.activityWasDismissed(activity)
           return
@@ -378,6 +518,13 @@ final class NoemaLiveActivityService {
     _ token: Data,
     activity: Activity<NoemaTasksActivityAttributes>
   ) async {
+    trace(
+      "update_token_observed",
+      fields: [
+        "activityId": activity.attributes.activityId,
+        "localActivityId": activity.id
+      ]
+    )
     guard let client, status?.available == true, status?.enabled == true else { return }
     do {
       let input = NoemaAPI.RegisterClientLiveActivityUpdateInput(
@@ -389,11 +536,24 @@ final class NoemaLiveActivityService {
       )
       if let message = response.errors?.first?.message { throw LiveActivityError.server(message) }
       guard response.data?.registerClientLiveActivityUpdate == true else {
+        trace(
+          "update_token_rejected",
+          fields: ["activityId": activity.attributes.activityId]
+        )
         await end(activity, notifyServer: false)
         return
       }
+      trace(
+        "update_token_registered",
+        fields: ["activityId": activity.attributes.activityId]
+      )
     } catch {
       errorMessage = "Noema could not register Live Activity updates."
+      trace(
+        "update_token_registration_failed",
+        error: error,
+        fields: ["activityId": activity.attributes.activityId]
+      )
     }
   }
 
@@ -401,13 +561,27 @@ final class NoemaLiveActivityService {
     updateTokenTasks[activity.id]?.cancel()
     updateTokenTasks[activity.id] = nil
     activityStateTasks[activity.id] = nil
+    if diagnosticActivity?.id == activity.id {
+      diagnosticActivity = nil
+      diagnosticMessage = "The test Live Activity was dismissed."
+      return
+    }
     guard !endingActivityIDs.contains(activity.id), let client else { return }
     do {
       let response = try await client.perform(
         mutation: NoemaAPI.DismissClientLiveActivityMutation(activityId: activity.attributes.activityId)
       )
       if let message = response.errors?.first?.message { throw LiveActivityError.server(message) }
+      trace(
+        "dismissal_reported",
+        fields: ["activityId": activity.attributes.activityId]
+      )
     } catch {
+      trace(
+        "dismissal_report_failed",
+        error: error,
+        fields: ["activityId": activity.attributes.activityId]
+      )
       // The activity is already dismissed locally; the next status refresh reconciles the server.
     }
   }
@@ -432,11 +606,23 @@ final class NoemaLiveActivityService {
       )
     }
     await activity.end(nil, dismissalPolicy: .immediate)
+    trace(
+      "activity_ended_locally",
+      fields: [
+        "activityId": serverActivityID,
+        "localActivityId": localActivityID,
+        "reported": String(notifyServer)
+      ]
+    )
     updateTokenTasks[localActivityID]?.cancel()
     updateTokenTasks[localActivityID] = nil
     activityStateTasks[localActivityID]?.cancel()
     activityStateTasks[localActivityID] = nil
     endingActivityIDs.remove(localActivityID)
+    if diagnosticActivity?.id == localActivityID {
+      diagnosticActivity = nil
+      diagnosticMessage = "The test Live Activity ended."
+    }
   }
 
   private func matchingActivities(for profile: NoemaProfile) -> [Activity<NoemaTasksActivityAttributes>] {
@@ -466,6 +652,39 @@ final class NoemaLiveActivityService {
     #else
     .production
     #endif
+  }
+
+  private func trace(_ event: String, fields: [String: String] = [:]) {
+    NoemaDiagnosticTrace.shared.record(category: "live_activity", event: event, fields: fields)
+  }
+
+  private func trace(
+    _ event: String,
+    error: Error,
+    fields: [String: String] = [:]
+  ) {
+    NoemaDiagnosticTrace.shared.record(
+      category: "live_activity",
+      event: event,
+      error: error,
+      fields: fields
+    )
+  }
+
+  private static func activityStateName(_ state: ActivityState) -> String {
+    switch state {
+    case .active: "active"
+    case .dismissed: "dismissed"
+    case .ended: "ended"
+    case .stale: "stale"
+    @unknown default: "unknown"
+    }
+  }
+
+  private static func isDiagnosticActivity(
+    _ activity: Activity<NoemaTasksActivityAttributes>
+  ) -> Bool {
+    activity.attributes.activityId.hasPrefix("live_activity:diagnostic:")
   }
 }
 
