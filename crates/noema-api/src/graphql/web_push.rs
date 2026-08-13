@@ -1152,8 +1152,8 @@ impl NotificationCoordinator {
         else {
             return;
         };
-        let projection = live_projection(&self.inner.store).await.ok().flatten();
-        self.apply_live_target(target, projection).await;
+        let projection = live_projection(&self.inner.store).await;
+        self.apply_live_projection(target, &projection).await;
     }
     async fn reconcile_live_activities(&self) {
         let _guard = self.inner.live_activity_mutation.lock().await;
@@ -1163,9 +1163,9 @@ impl NotificationCoordinator {
         let Some(targets) = self.live_activity_targets().await else {
             return;
         };
-        let projection = live_projection(&self.inner.store).await.ok().flatten();
+        let projection = live_projection(&self.inner.store).await;
         for target in targets {
-            self.apply_live_target(target, projection.clone()).await;
+            self.apply_live_projection(target, &projection).await;
         }
         self.reconcile_task_alerts().await;
     }
@@ -1300,6 +1300,17 @@ impl NotificationCoordinator {
             }
             return;
         }
+    }
+
+    async fn apply_live_projection(
+        &self,
+        target: LiveActivityTarget,
+        projection: &std::result::Result<Option<LiveProjection>, noema_store::StoreError>,
+    ) {
+        let Ok(projection) = projection else {
+            return;
+        };
+        self.apply_live_target(target, projection.clone()).await;
     }
     async fn reconcile_task_alerts(&self) {
         let Ok(mut checkpoint) = self.inner.store.notification_task_checkpoint().await else {
@@ -2405,6 +2416,66 @@ mod tests {
             .await
             .expect("finish reconciliation")
             .expect("join reconciliation");
+    }
+    #[tokio::test]
+    async fn live_activity_projection_error_keeps_starting_activity() {
+        let root = tempfile::tempdir().expect("home");
+        let store = crate::test_support::test_store().await;
+        store
+            .insert_client("client:one", LOCAL_HUMAN_ID, "iPhone", [1; 32])
+            .await
+            .expect("insert client");
+        store
+            .register_client_live_activities(
+                "client:one",
+                &[2; 32],
+                ApnsEnvironment::Development,
+                &[],
+            )
+            .await
+            .expect("register Live Activities");
+        let target = store
+            .live_activity_targets()
+            .await
+            .expect("load targets")
+            .pop()
+            .expect("registered target");
+        let coordinator = NotificationCoordinator::new_with_paths(
+            store.clone(),
+            "https://noema.example".to_string(),
+            NoemaPaths::from_noema_home(root.path()).expect("paths"),
+        )
+        .await
+        .expect("initialize notifications");
+        let projection = Err(noema_store::StoreError::InvariantViolation {
+            message: "temporary projection failure".to_string(),
+        });
+
+        coordinator.apply_live_projection(target, &projection).await;
+
+        let activity = store
+            .client_task_activity("client:one")
+            .await
+            .expect("load activity")
+            .expect("starting activity");
+        assert_eq!(activity.lifecycle, "starting");
+        assert!(!activity.suppressed);
+
+        let target = store
+            .live_activity_targets()
+            .await
+            .expect("reload targets")
+            .pop()
+            .expect("registered target");
+        coordinator.apply_live_projection(target, &Ok(None)).await;
+
+        let activity = store
+            .client_task_activity("client:one")
+            .await
+            .expect("reload activity")
+            .expect("dismissed activity");
+        assert_eq!(activity.lifecycle, "dismissed");
+        assert!(activity.suppressed);
     }
     #[test]
     fn live_activity_update_labels_track_real_run_progress() {
