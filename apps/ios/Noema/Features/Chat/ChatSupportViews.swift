@@ -171,7 +171,7 @@ struct ChatComposer: View {
           .font(NoemaFont.bodyEmphasized)
           .foregroundStyle(canSend ? NoemaColor.pine500 : NoemaColor.pine500.opacity(0.7))
           .frame(width: 40, height: 40)
-          .background(NoemaColor.white, in: Circle())
+          .background(NoemaColor.white, in: NoemaSuperellipse.full)
       }
       .buttonStyle(.plain)
       .disabled(!canSend)
