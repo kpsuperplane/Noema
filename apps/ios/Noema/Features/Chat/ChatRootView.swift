@@ -226,11 +226,14 @@ struct ChatReadyView: View {
     guard let lastUserIndex = messages.lastIndex(where: { if case .user = $0.kind { return true }; return false }) else {
       return false
     }
-    let hasAssistantAfterUser = messages.suffix(from: messages.index(after: lastUserIndex)).contains {
-      if case .assistant = $0.kind { return true }
-      return false
+    var hasCompletedAssistant = false
+    for message in messages.suffix(from: messages.index(after: lastUserIndex)) {
+      if case let .assistant(_, streaming) = message.kind {
+        if streaming { return true }
+        hasCompletedAssistant = true
+      }
     }
-    guard !hasAssistantAfterUser else { return false }
+    guard !hasCompletedAssistant else { return false }
     let normalized = model.agentStatus.replacingOccurrences(of: "_", with: "").lowercased()
     let active = ["inputreceived", "thinking", "toolrunning", "waitingforpreviousturncompletion", "interrupting"].contains(normalized)
     return model.isSending || active

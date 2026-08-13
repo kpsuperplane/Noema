@@ -155,7 +155,7 @@ struct ChatMessageView: View {
           ChatMarkdownText(text: text, color: NoemaColor.white, assistant: false)
         }
       }
-    case let .assistant(text, streaming):
+    case let .assistant(text, _):
       let minimumContentWidth: CGFloat? = !attachedTaskIDs.isEmpty && text.count > 30 ? 247 : nil
       let citations = ProviderCitation.from(metadata: message.metadata)
       ChatLaneRow(
@@ -170,10 +170,6 @@ struct ChatMessageView: View {
             ProviderCitationLinks(citations: citations)
             ForEach(attachedTaskIDs, id: \.self) { taskID in
               TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
-            }
-            if streaming {
-              TypingDotsView()
-                .padding(.top, NoemaSpacing.xs)
             }
           }
           .padding(.vertical, attachedTaskIDs.isEmpty ? 0 : 3)
