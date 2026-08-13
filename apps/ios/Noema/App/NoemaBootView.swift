@@ -61,7 +61,7 @@ struct NoemaBootView: View {
         .font(NoemaFont.bodyEmphasized)
         .foregroundStyle(NoemaColor.pine500.opacity(0.7))
         .frame(width: 40, height: 40)
-        .background(NoemaColor.white, in: NoemaSuperellipse.full)
+        .background(NoemaColor.white, in: NoemaSuperellipse(cornerRadius: 26))
         .padding(.trailing, NoemaSpacing.xs)
     }
     .frame(maxWidth: 760, minHeight: 50, alignment: .trailing)
