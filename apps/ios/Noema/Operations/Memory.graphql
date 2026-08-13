@@ -7,10 +7,13 @@ query MemoryTree {
       icon
       body
       hash
-      sources
-      sourceReferences {
-        source
-        excerpt
+      citations {
+        sources {
+          source
+          kind
+          excerpt
+          createdAt
+        }
       }
       parent
       ancestors {
@@ -55,10 +58,13 @@ query MemoryPage($pageId: String!) {
     icon
     body
     hash
-    sources
-    sourceReferences {
-      source
-      excerpt
+    citations {
+      sources {
+        source
+        kind
+        excerpt
+        createdAt
+      }
     }
     parent
     ancestors {
@@ -86,10 +92,13 @@ subscription MemoryEvents {
       icon
       body
       hash
-      sources
-      sourceReferences {
-        source
-        excerpt
+      citations {
+        sources {
+          source
+          kind
+          excerpt
+          createdAt
+        }
       }
       parent
       ancestors {
