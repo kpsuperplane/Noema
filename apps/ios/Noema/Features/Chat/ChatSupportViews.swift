@@ -144,8 +144,18 @@ struct ChatComposer: View {
   private var preferredWidth: CGFloat {
     if voiceInput.showsCancel { return composerMaxWidth }
     let content = model.draft.isEmpty ? placeholder : model.draft
-    let longestLine = content.split(whereSeparator: \.isNewline).map(\.count).max() ?? 0
-    return min(composerMaxWidth, max(200, CGFloat(longestLine) * 7 + 94))
+    let font = UIFontMetrics(forTextStyle: .body).scaledFont(
+      for: UIFont(name: "HankenGrotesk-Regular", size: 16) ?? .systemFont(ofSize: 16)
+    )
+    let textWidth = content.components(separatedBy: .newlines).map { line in
+      (line as NSString).size(withAttributes: [.font: font]).width
+    }.max() ?? 0
+    let horizontalChrome = NoemaSpacing.lg + composerTextTrailingPadding + NoemaSpacing.compact
+    return min(composerMaxWidth, max(200, ceil(textWidth) + horizontalChrome))
+  }
+
+  private var composerTextTrailingPadding: CGFloat {
+    NoemaSpacing.xs + 40 + NoemaSpacing.sm
   }
 
   private var placeholder: String {
@@ -318,7 +328,7 @@ struct ChatComposer: View {
       Task { await model.send() }
     }
     .padding(.leading, NoemaSpacing.lg)
-    .padding(.trailing, NoemaSpacing.xs + 40 + NoemaSpacing.sm)
+    .padding(.trailing, composerTextTrailingPadding)
     .padding(.vertical, NoemaSpacing.lg - 1)
     .frame(maxWidth: .infinity, alignment: .leading)
     .frame(minHeight: voiceControlSize)
