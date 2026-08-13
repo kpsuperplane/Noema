@@ -28,6 +28,7 @@ final class NoemaAppModel {
   private let pairingService: PairingService
   private var graphQL: NoemaGraphQLClient?
   private var registrationCleanupComplete = false
+  private var subscriptionLifecycleTask: Task<Void, Never>?
 
   init() {
     let store = KeychainProfileStore()
@@ -225,14 +226,19 @@ final class NoemaAppModel {
     notifications.scenePhaseChanged(phase == .active)
     liveActivities.scenePhaseChanged(phase == .active)
     guard let graphQL else { return }
+    subscriptionLifecycleTask?.cancel()
     switch phase {
     case .background, .inactive:
-      Task { await graphQL.pauseSubscriptions() }
+      subscriptionLifecycleTask = Task {
+        guard !Task.isCancelled else { return }
+        await graphQL.pauseSubscriptions()
+      }
     case .active:
-      Task {
+      subscriptionLifecycleTask = Task {
         let startedAt = ProcessInfo.processInfo.systemUptime
         NoemaDiagnosticTrace.shared.record(category: "graphql", event: "foreground_recovery_started")
         await graphQL.resumeSubscriptionsAndRecover()
+        guard !Task.isCancelled else { return }
         recoveryGeneration &+= 1
         NoemaDiagnosticTrace.shared.record(
           category: "graphql",

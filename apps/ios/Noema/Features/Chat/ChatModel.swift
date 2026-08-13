@@ -143,11 +143,13 @@ final class ChatModel {
   let profile: NoemaProfile?
   let onboarding: OnboardingModel?
   private var subscriptionTask: Task<Void, Never>?
+  private var transcriptRefreshTask: Task<Bool, Never>?
   private var knownItemIDs = Set<String>()
   private var knownCursors = Set<String>()
   private var streamingIndex: [String: Int] = [:]
   private var subscriptionRetryAttempt = 0
   private var started = false
+  private var isRecoveringConnection = false
 
   private var dismissalStorageKey: String? {
     profile.map { "dev.noema.app.ios.dismissed-adapter-setup.\($0.origin.absoluteString)" }
@@ -213,7 +215,7 @@ final class ChatModel {
       let primary = try await loadPrimaryConversation(client: client)
       conversationID = primary.conversationId
       providerName = primary.provider
-      await loadLatest(client: client)
+      _ = await loadLatest(client: client)
       if case .failed = phase { return }
       phase = .ready
       await refreshInterventions(client: client)
@@ -240,18 +242,24 @@ final class ChatModel {
     await start()
   }
 
-  /// Refetches durable transcript state before accepting a resumed live stream.
-  /// The app shell calls this after the shared WebSocket transport resumes.
+  /// Refetches durable transcript state after the shared WebSocket transport resumes.
   func recoverConnection() async {
-    guard phase == .ready, let client, let conversationID else { return }
+    guard phase == .ready,
+          !isRecoveringConnection,
+          let client,
+          conversationID != nil else { return }
+    isRecoveringConnection = true
+    defer { isRecoveringConnection = false }
     NoemaDiagnosticTrace.shared.record(category: "chat", event: "recovery_started")
-    await loadLatest(client: client)
+    guard await loadLatest(client: client) else {
+      NoemaDiagnosticTrace.shared.record(category: "chat", event: "recovery_stopped_offline")
+      return
+    }
     await refreshInterventions(client: client)
     guard !isOffline else {
       NoemaDiagnosticTrace.shared.record(category: "chat", event: "recovery_stopped_offline")
       return
     }
-    startSubscription(client: client, conversationID: conversationID)
     NoemaDiagnosticTrace.shared.record(category: "chat", event: "recovery_finished")
   }
 
@@ -656,38 +664,51 @@ final class ChatModel {
     }
   }
 
-  private func loadLatest(client: ApolloClient) async {
-    guard let conversationID else { return }
+  private func loadLatest(client: ApolloClient) async -> Bool {
+    if let transcriptRefreshTask { return await transcriptRefreshTask.value }
+    let task = Task { [weak self] in
+      guard let self else { return false }
+      return await fetchLatest(client: client)
+    }
+    transcriptRefreshTask = task
+    let refreshed = await task.value
+    transcriptRefreshTask = nil
+    return refreshed
+  }
+
+  private func fetchLatest(client: ApolloClient) async -> Bool {
+    guard let conversationID else { return false }
     let startedAt = ProcessInfo.processInfo.systemUptime
     NoemaDiagnosticTrace.shared.record(category: "chat", event: "transcript_refresh_started")
     do {
       let input = NoemaAPI.ConversationTranscriptPageInput(conversationId: conversationID, cursor: .none, limit: 80)
-      let stream = try client.fetch(
+      let response = try await client.fetch(
         query: NoemaAPI.ConversationTranscriptPageQuery(input: input),
-        cachePolicy: .cacheAndNetwork
+        cachePolicy: .networkOnly
       )
-      for try await response in stream {
-        NoemaDiagnosticTrace.shared.record(
-          category: "chat",
-          event: "transcript_response",
-          fields: [
-            "source": String(describing: response.source),
-            "hasData": String(response.data != nil),
-            "errorCount": String(response.errors?.count ?? 0),
-            "durationMilliseconds": String(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))
-          ]
-        )
-        guard let page = response.data?.conversationTranscriptPage else { continue }
-        applyLatest(page)
-        if response.source == .server { isOffline = false }
-        phase = .ready
-      }
+      NoemaDiagnosticTrace.shared.record(
+        category: "chat",
+        event: "transcript_response",
+        fields: [
+          "source": String(describing: response.source),
+          "hasData": String(response.data != nil),
+          "errorCount": String(response.errors?.count ?? 0),
+          "durationMilliseconds": String(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))
+        ]
+      )
+      if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
+      guard let page = response.data?.conversationTranscriptPage else { throw ChatModelError.emptyResponse }
+      applyLatest(page)
+      isOffline = false
+      phase = .ready
       NoemaDiagnosticTrace.shared.record(category: "chat", event: "transcript_refresh_finished")
+      return true
     } catch {
       NoemaDiagnosticTrace.shared.record(category: "chat", event: "transcript_refresh_failed", error: error)
       errorMessage = error.localizedDescription
       isOffline = true
       if !hasLoadedTranscript { phase = .failed(error.localizedDescription) }
+      return false
     }
   }
 
@@ -725,13 +746,16 @@ final class ChatModel {
         let stream = try client.subscribe(subscription: NoemaAPI.ConversationEventsSubscription(conversationId: conversationID))
         var connected = false
         for try await response in stream {
+          guard let event = response.data?.conversationEvents else {
+            if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
+            continue
+          }
           if !connected {
             connected = true
             NoemaDiagnosticTrace.shared.record(category: "chat", event: "subscription_connected")
           }
           self?.subscriptionRetryAttempt = 0
           self?.isOffline = false
-          guard let event = response.data?.conversationEvents else { continue }
           await self?.apply(event)
         }
         guard !Task.isCancelled else { return }
@@ -768,7 +792,7 @@ final class ChatModel {
 
   private func recoverSubscription() async {
     guard phase == .ready, let client else { return }
-    await loadLatest(client: client)
+    _ = await loadLatest(client: client)
     if let conversationID { startSubscription(client: client, conversationID: conversationID) }
   }
 
@@ -795,7 +819,7 @@ final class ChatModel {
       }
       rebuildIndexes()
     } else if event.asSubscriptionReadyEvent != nil {
-      if let client { await loadLatest(client: client) }
+      if let client { _ = await loadLatest(client: client) }
     } else if event.asHumanInterventionsChangedEvent != nil {
       if let client { await refreshInterventions(client: client) }
     }
