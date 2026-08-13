@@ -18,7 +18,7 @@ struct ChatLaneRow<Content: View>: View {
     showAvatar: Bool,
     avatarActivity: NoemaAvatarActivity = .idle,
     avatarAnimated: Bool = false,
-    compactContentInset: CGFloat = NoemaSpacing.sm,
+    compactContentInset: CGFloat = 0,
     @ViewBuilder content: () -> Content
   ) {
     self.lane = lane
