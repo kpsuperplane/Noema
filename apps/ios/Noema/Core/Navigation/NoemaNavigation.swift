@@ -632,7 +632,7 @@ struct NoemaShellView: View {
   private func settlePageSwipe() {
     let generation = pageSwipeGeneration
     Task { @MainActor in
-      if !reduceMotion { try? await Task.sleep(for: .milliseconds(135)) }
+      if !reduceMotion { try? await Task.sleep(for: .milliseconds(235)) }
       guard pageSwipeGeneration == generation else { return }
       coordinator.chatFocusDeferred = false
     }
