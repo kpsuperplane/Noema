@@ -276,38 +276,39 @@ struct ChatComposer: View {
   }
 
   private var composerSurface: some View {
-    HStack(alignment: .center, spacing: NoemaSpacing.sm) {
-      TextField(
-        "",
-        text: composerText,
-        prompt: Text(voiceInput.isEngaged ? voiceInput.previewPlaceholder : placeholder)
-          .foregroundStyle(NoemaColor.white.opacity(0.72)),
-        axis: .vertical
-      )
-      .font(NoemaFont.composer)
-      .foregroundStyle(NoemaColor.white)
-      .tint(NoemaColor.white)
-      .lineLimit(1...5)
-      .fixedSize(horizontal: false, vertical: true)
-      .textFieldStyle(.plain)
-      .focused($inputFocused)
-      .disabled(!isEditable)
-      .onSubmit {
-        guard canSend, !voiceInput.isEngaged else { return }
-        Task { await model.send() }
-      }
-
-      composerActionButton
+    TextField(
+      "",
+      text: composerText,
+      prompt: Text(voiceInput.isEngaged ? voiceInput.previewPlaceholder : placeholder)
+        .foregroundStyle(NoemaColor.white.opacity(0.72)),
+      axis: .vertical
+    )
+    .font(NoemaFont.composer)
+    .foregroundStyle(NoemaColor.white)
+    .tint(NoemaColor.white)
+    .lineLimit(1...5)
+    .fixedSize(horizontal: false, vertical: true)
+    .textFieldStyle(.plain)
+    .focused($inputFocused)
+    .disabled(!isEditable)
+    .onSubmit {
+      guard canSend, !voiceInput.isEngaged else { return }
+      Task { await model.send() }
     }
     .padding(.leading, NoemaSpacing.lg)
-    .padding(.trailing, NoemaSpacing.xs)
+    .padding(.trailing, NoemaSpacing.xs + 40 + NoemaSpacing.sm)
     .padding(.vertical, 5)
+    .frame(maxWidth: .infinity, alignment: .leading)
     .frame(minHeight: voiceControlSize)
     .background {
       NoemaSuperellipse(cornerRadius: 26)
         .fill(NoemaColor.pine500)
         .shadow(color: NoemaColor.white, radius: NoemaSpacing.md)
     }
+    .overlay(alignment: .trailing) {
+      composerActionButton.padding(.trailing, NoemaSpacing.xs)
+    }
+    .geometryGroup()
   }
 
   private var composerActionButton: some View {
