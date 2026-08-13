@@ -15,26 +15,23 @@ struct TaskProgressRail: View {
   }
 
   var body: some View {
-    ZStack(alignment: .topLeading) {
-      GeometryReader { geometry in
-        NoemaSuperellipse.full
-          .fill(NoemaActivityPalette.track(for: appearance, colorScheme: colorScheme))
+    railContent
+      .background(alignment: .top) {
+        HStack(spacing: 0) {
+          ForEach(1...3, id: \.self) { segment in
+            Rectangle()
+              .fill(
+                segment <= step
+                  ? PhaseStyle(state: state).color(for: appearance, colorScheme: colorScheme)
+                  : NoemaActivityPalette.track(for: appearance, colorScheme: colorScheme)
+              )
+          }
+        }
           .frame(height: 4)
+          .clipShape(NoemaSuperellipse.full)
           .padding(.horizontal, 20)
           .offset(y: 18)
-
-        NoemaSuperellipse.full
-          .fill(PhaseStyle(state: state).color(for: appearance, colorScheme: colorScheme))
-          .frame(
-            width: max(0, (geometry.size.width - 40) * CGFloat(step) / 3),
-            height: 4
-          )
-          .offset(x: 20, y: 18)
       }
-      .frame(height: 24)
-
-      railContent
-    }
     .frame(height: 52)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(accessibilityLabel)

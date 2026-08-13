@@ -161,6 +161,7 @@ private struct ActivityHeaderStatus: View {
         } else if let startedAtEpoch = state.startedAtEpoch {
           Text(Date(timeIntervalSince1970: startedAtEpoch), style: .timer)
             .foregroundStyle(appearance.secondary)
+            .frame(width: appearance == .island ? 42 : 54, alignment: .trailing)
         } else {
           Text("Starting")
             .foregroundStyle(appearance.secondary)
@@ -382,6 +383,7 @@ private struct CompactTrailingStatus: View {
       } else if let startedAtEpoch = state.startedAtEpoch {
         Text(Date(timeIntervalSince1970: startedAtEpoch), style: .timer)
           .foregroundStyle(NoemaActivityPalette.islandPrimary)
+          .frame(width: 42, alignment: .trailing)
           .accessibilityLabel("Elapsed time")
           .accessibilityValue(Text(Date(timeIntervalSince1970: startedAtEpoch), style: .timer))
       } else {
