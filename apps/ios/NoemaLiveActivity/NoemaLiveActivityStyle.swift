@@ -48,7 +48,7 @@ enum ActivityAppearance {
   func surface(for colorScheme: ColorScheme) -> Color {
     if self == .island { return .black }
     return colorScheme == .dark
-      ? Color(red: 0.078, green: 0.082, blue: 0.080)
+      ? NoemaActivityPalette.lockSurface
       : Color.white
   }
 
@@ -62,6 +62,7 @@ enum ActivityAppearance {
 }
 
 enum NoemaActivityPalette {
+  static let lockSurface = Color(red: 0.078, green: 0.082, blue: 0.080)
   static let islandPrimary = Color.white
   static let islandSecondary = Color(red: 0.710, green: 0.741, blue: 0.725)
   static let islandTertiary = Color(red: 0.573, green: 0.612, blue: 0.592)

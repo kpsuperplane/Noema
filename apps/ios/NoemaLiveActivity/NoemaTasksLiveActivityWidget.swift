@@ -27,7 +27,8 @@ struct NoemaTasksLiveActivityWidget: Widget {
         activityID: context.attributes.activityId
       )
         .widgetURL(taskURL(for: context.state))
-        .activityBackgroundTint(nil)
+        .environment(\.colorScheme, .dark)
+        .activityBackgroundTint(NoemaActivityPalette.lockSurface)
         .activitySystemActionForegroundColor(nil)
     } dynamicIsland: { context in
       DynamicIsland {
@@ -35,7 +36,7 @@ struct NoemaTasksLiveActivityWidget: Widget {
           ActivityIdentity(state: context.state, appearance: .island)
             .frame(maxWidth: 112, minHeight: 22, alignment: .leading)
         }
-        .contentMargins(.leading, 18)
+        .contentMargins(.leading, 24)
 
         DynamicIslandExpandedRegion(.trailing) {
           ActivityHeaderStatus(state: context.state, appearance: .island)
@@ -59,8 +60,8 @@ struct NoemaTasksLiveActivityWidget: Widget {
         CompactAgentMark(state: context.state, size: 17)
       }
       .keylineTint(PhaseStyle(state: context.state).color(for: .island))
-      .contentMargins(.leading, 6, for: .compactLeading)
-      .contentMargins(.trailing, 6, for: .compactTrailing)
+      .contentMargins(.leading, 8, for: .compactLeading)
+      .contentMargins(.trailing, 2, for: .compactTrailing)
       .widgetURL(taskURL(for: context.state))
     }
   }
@@ -89,15 +90,17 @@ private struct NoemaTasksLockScreenView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      HStack(alignment: .center, spacing: 12) {
+      HStack(alignment: .firstTextBaseline, spacing: 12) {
         ActivityIdentity(state: state, appearance: .lockScreen)
-          .frame(maxWidth: .infinity, alignment: .leading)
+        Spacer(minLength: 12)
         ActivityHeaderStatus(state: state, appearance: .lockScreen)
           .fixedSize()
       }
+      .frame(maxWidth: .infinity)
       ActivityBody(state: state, appearance: .lockScreen)
     }
-    .padding(.horizontal, 16)
+    .padding(.leading, 16)
+    .padding(.trailing, 16)
     .padding(.vertical, 14)
   }
 }
@@ -117,10 +120,16 @@ private struct ActivityIdentity: View {
     return agentName
   }
 
+  private var showsAgentMark: Bool {
+    state.activeTaskCount > 1 || state.requiresAttention == true
+  }
+
   var body: some View {
     HStack(spacing: appearance == .island ? 6 : 7) {
-      NoemaAgentMark(size: appearance == .island ? 18 : 22)
-        .accessibilityHidden(true)
+      if showsAgentMark {
+        NoemaAgentMark(size: appearance == .island ? 18 : 22)
+          .accessibilityHidden(true)
+      }
       Text(label)
         .font((appearance == .island ? Font.caption2 : .caption).weight(.semibold))
         .foregroundStyle(appearance.primary)
@@ -161,6 +170,7 @@ private struct ActivityHeaderStatus: View {
         } else if let startedAtEpoch = state.startedAtEpoch {
           Text(Date(timeIntervalSince1970: startedAtEpoch), style: .timer)
             .foregroundStyle(appearance.secondary)
+            .multilineTextAlignment(.trailing)
             .frame(width: appearance == .island ? 42 : 54, alignment: .trailing)
         } else {
           Text("Starting")
@@ -383,6 +393,7 @@ private struct CompactTrailingStatus: View {
       } else if let startedAtEpoch = state.startedAtEpoch {
         Text(Date(timeIntervalSince1970: startedAtEpoch), style: .timer)
           .foregroundStyle(NoemaActivityPalette.islandPrimary)
+          .multilineTextAlignment(.trailing)
           .frame(width: 42, alignment: .trailing)
           .accessibilityLabel("Elapsed time")
           .accessibilityValue(Text(Date(timeIntervalSince1970: startedAtEpoch), style: .timer))
