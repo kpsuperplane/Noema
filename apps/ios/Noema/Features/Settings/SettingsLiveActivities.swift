@@ -20,6 +20,18 @@ struct ClientLiveActivitiesSettings: View {
           .font(NoemaFont.caption)
           .foregroundStyle(NoemaColor.contentSecondary)
       }
+      if liveActivities.isEnabled, liveActivities.activitiesEnabled {
+        Button(liveActivities.hasDiagnosticActivity ? "End local test" : "Start local test") {
+          Task { await liveActivities.toggleDiagnostic() }
+        }
+        .buttonStyle(NoemaActionButtonStyle(variant: .ghost))
+        .disabled(!liveActivities.canRunDiagnostic)
+      }
+      if let diagnosticMessage = liveActivities.diagnosticMessage {
+        Text(diagnosticMessage)
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.contentSecondary)
+      }
       if let errorMessage = liveActivities.errorMessage {
         Text(errorMessage)
           .font(NoemaFont.caption)

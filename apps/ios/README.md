@@ -61,3 +61,8 @@ does not share the paired credential or run GraphQL requests.
 Enable Push Notifications for `dev.noema.app.ios` before a signed device build.
 Configure the server APNs provider in browser Settings. Live Activity pushes use
 the fixed topic `dev.noema.app.ios.push-type.liveactivity`.
+
+Settings → Notifications includes a local Live Activity test when the feature
+is enabled. The test bypasses APNs and does not affect server reconciliation.
+Real ActivityKit sessions report snapshots through the existing paired-client
+registration. Device traces include states and identifiers, but never tokens.

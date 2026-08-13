@@ -132,6 +132,13 @@ impl NoemaStore {
         }
         self.with_connection(|connection| {
             let transaction = connection.transaction()?;
+            record_live_activity_observation_tx(
+                &transaction,
+                client_id,
+                "snapshot",
+                None,
+                active_activity_ids,
+            )?;
             let old_clients = {
                 let mut statement = transaction.prepare(
                     "SELECT client_id FROM client_live_activity_registrations WHERE environment = ?1 AND push_to_start_token = ?2 AND client_id <> ?3",
@@ -309,7 +316,8 @@ impl NoemaStore {
         validate_activity_id(activity_id)?;
         validate_token(client_id, token)?;
         self.with_connection(|connection| {
-            let changed = connection.execute(
+            let transaction = connection.transaction()?;
+            let changed = transaction.execute(
                 r#"UPDATE client_task_activities
                    SET activity_id = ?2, update_token = ?3, lifecycle = 'active',
                        suppressed = 0, dismissed_at = NULL,
@@ -322,6 +330,16 @@ impl NoemaStore {
                      )"#,
                 params![client_id, activity_id, token],
             )?;
+            if changed == 1 {
+                record_live_activity_observation_tx(
+                    &transaction,
+                    client_id,
+                    "update_token",
+                    Some(activity_id),
+                    &[],
+                )?;
+            }
+            transaction.commit()?;
             Ok(changed == 1)
         })
         .await
@@ -354,6 +372,13 @@ impl NoemaStore {
                 params![client_id, activity_id, user_requested, user_marker],
             )?;
             if changed == 1 {
+                record_live_activity_observation_tx(
+                    &transaction,
+                    client_id,
+                    "dismissed",
+                    Some(activity_id),
+                    &[],
+                )?;
                 transaction.execute(
                     "UPDATE live_activity_deliveries SET status = 'suppressed', last_error_code = 'activity_dismissed', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND activity_id = ?2 AND event <> 'end' AND status = 'pending'",
                     params![client_id, activity_id],
@@ -429,7 +454,7 @@ impl NoemaStore {
         self.with_connection(|connection| {
             let transaction = connection.transaction()?;
             transaction.execute(
-                "DELETE FROM live_activity_deliveries WHERE event = 'end' AND created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-600 seconds')",
+                "DELETE FROM live_activity_deliveries WHERE status <> 'pending' AND created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days')",
                 [],
             )?;
             transaction.execute(
@@ -444,6 +469,7 @@ impl NoemaStore {
                 )
                 .optional()?;
             let Some((client_id, delivery_key)) = key else {
+                transaction.commit()?;
                 return Ok(None);
             };
             transaction.execute(
@@ -465,12 +491,18 @@ impl NoemaStore {
         delivery: &ClaimedLiveActivityDelivery,
         disposition: &str,
         error_code: Option<&str>,
+        apns_id: Option<&str>,
     ) -> Result<(), StoreError> {
         if !matches!(
             disposition,
             "delivered" | "suppressed" | "failed" | "retry" | "invalid_token"
         ) {
             return Err(invalid("invalid Live Activity delivery disposition"));
+        }
+        if apns_id.is_some_and(|value| {
+            value.is_empty() || value.len() > 128 || value.trim() != value || !value.is_ascii()
+        }) {
+            return Err(invalid("invalid Live Activity APNs identifier"));
         }
         self.with_connection(|connection| {
             let transaction = connection.transaction()?;
@@ -487,7 +519,13 @@ impl NoemaStore {
                             params![delivery.client_id, delivery.token],
                         )?;
                     }
-                    terminal_delivery_tx(&transaction, delivery, "failed", Some("invalid_device_token"))?;
+                    terminal_delivery_tx(
+                        &transaction,
+                        delivery,
+                        "failed",
+                        Some("invalid_device_token"),
+                        apns_id,
+                    )?;
                 }
                 "retry" => {
                     let attempt: u32 = transaction.query_row(
@@ -502,11 +540,17 @@ impl NoemaStore {
                     };
                     let status = if attempt >= 4 { "failed" } else { "pending" };
                     transaction.execute(
-                        "UPDATE live_activity_deliveries SET status = ?3, available_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || ?4 || ' seconds'), last_error_code = ?5, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND delivery_key = ?2 AND status = 'pending' AND token = ?6",
-                        params![delivery.client_id, delivery.delivery_key, status, delay, error_code, delivery.token],
+                        "UPDATE live_activity_deliveries SET status = ?3, available_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || ?4 || ' seconds'), last_error_code = ?5, apns_id = COALESCE(?7, apns_id), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND delivery_key = ?2 AND status = 'pending' AND token = ?6",
+                        params![delivery.client_id, delivery.delivery_key, status, delay, error_code, delivery.token, apns_id],
                     )?;
                 }
-                _ => terminal_delivery_tx(&transaction, delivery, disposition, error_code)?,
+                _ => terminal_delivery_tx(
+                    &transaction,
+                    delivery,
+                    disposition,
+                    error_code,
+                    apns_id,
+                )?,
             }
             if disposition == "delivered" && delivery.event == LiveActivityEvent::End {
                 transaction.execute(
@@ -674,10 +718,39 @@ fn terminal_delivery_tx(
     delivery: &ClaimedLiveActivityDelivery,
     status: &str,
     error_code: Option<&str>,
+    apns_id: Option<&str>,
 ) -> Result<(), StoreError> {
     transaction.execute(
-        "UPDATE live_activity_deliveries SET status = ?3, last_error_code = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND delivery_key = ?2 AND status = 'pending' AND token = ?5",
-        params![delivery.client_id, delivery.delivery_key, status, error_code, delivery.token],
+        "UPDATE live_activity_deliveries SET status = ?3, last_error_code = ?4, apns_id = COALESCE(?6, apns_id), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND delivery_key = ?2 AND status = 'pending' AND token = ?5",
+        params![delivery.client_id, delivery.delivery_key, status, error_code, delivery.token, apns_id],
+    )?;
+    Ok(())
+}
+
+fn record_live_activity_observation_tx(
+    transaction: &Transaction<'_>,
+    client_id: &str,
+    event: &str,
+    activity_id: Option<&str>,
+    active_activity_ids: &[String],
+) -> Result<(), StoreError> {
+    let activity_ids_json = serde_json::to_string(active_activity_ids)?;
+    if activity_ids_json.len() > 4096 {
+        return Err(invalid("Live Activity snapshot is too large"));
+    }
+    transaction.execute(
+        "DELETE FROM client_live_activity_observations WHERE created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days')",
+        [],
+    )?;
+    transaction.execute(
+        "INSERT INTO client_live_activity_observations (observation_id, client_id, event, activity_id, active_activity_ids_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            allocate_id("live_activity_observation"),
+            client_id,
+            event,
+            activity_id,
+            activity_ids_json,
+        ],
     )?;
     Ok(())
 }

@@ -446,6 +446,56 @@ async fn live_activity_migration_upgrades_v35_and_converges_with_fresh_schema() 
 }
 
 #[tokio::test]
+async fn live_activity_diagnostics_upgrade_v40_and_converge_with_fresh_schema() {
+    let upgrade_home = TempDir::new().expect("v40 migration root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    let mut connection = Connection::open(&upgrade_config.path).expect("v40 database");
+    store_migrations()
+        .to_version(&mut connection, 40)
+        .expect("construct v40 schema");
+    drop(connection);
+
+    let upgraded = NoemaStore::open(&upgrade_config)
+        .await
+        .expect("upgrade v40 database");
+    upgraded
+        .with_connection(|connection| {
+            let delivery_columns = connection
+                .prepare("PRAGMA table_info(live_activity_deliveries)")?
+                .query_map([], |row| row.get::<_, String>(1))?
+                .collect::<Result<Vec<_>, _>>()?;
+            assert!(delivery_columns.iter().any(|column| column == "apns_id"));
+            assert!(schema_object_exists(
+                connection,
+                "table",
+                "client_live_activity_observations"
+            )?);
+            assert_eq!(
+                connection.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?,
+                STORE_SCHEMA_VERSION
+            );
+            Ok(())
+        })
+        .await
+        .expect("inspect upgraded v41 schema");
+    drop(upgraded);
+
+    let fresh_home = TempDir::new().expect("fresh v41 root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(
+        NoemaStore::open(&fresh_config)
+            .await
+            .expect("create fresh v41 schema"),
+    );
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
+    );
+}
+
+#[tokio::test]
 async fn task_schedules_upgrade_v27_without_losing_tasks_and_match_fresh_schema() {
     let upgrade_home = TempDir::new().expect("schedule upgrade root");
     let upgrade_config = store_config(upgrade_home.path());

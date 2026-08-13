@@ -732,11 +732,16 @@ impl NotificationCoordinator {
                 let _ = self
                     .inner
                     .store
-                    .finish_live_activity_delivery(&delivery, "suppressed", Some("stale_start"))
+                    .finish_live_activity_delivery(
+                        &delivery,
+                        "suppressed",
+                        Some("stale_start"),
+                        None,
+                    )
                     .await;
                 continue;
             }
-            let (revision, result) = self.send_live_activity(delivery.clone()).await;
+            let (revision, result, apns_id) = self.send_live_activity(delivery.clone()).await;
             let transport_error = matches!(&result, Err(ApnsSendError::Transport(_)));
             let (mut disposition, code) = delivery_disposition_apns(result);
             if delivery.event == LiveActivityEvent::Start && transport_error {
@@ -750,7 +755,7 @@ impl NotificationCoordinator {
             let _ = self
                 .inner
                 .store
-                .finish_live_activity_delivery(&delivery, disposition, code)
+                .finish_live_activity_delivery(&delivery, disposition, code, apns_id.as_deref())
                 .await;
         }
         while let Ok(Some(delivery)) = self.inner.store.claim_due_apns_delivery().await {
@@ -768,7 +773,7 @@ impl NotificationCoordinator {
                     .await;
                 continue;
             }
-            let (revision, result) = self.send_apns(delivery.clone()).await;
+            let (revision, result, _) = self.send_apns(delivery.clone()).await;
             let (disposition, code) = delivery_disposition_apns(result);
             if let Some(code) = code
                 && matches!(disposition, "failed" | "retry")
@@ -931,16 +936,24 @@ impl NotificationCoordinator {
     ) -> (
         Option<u64>,
         std::result::Result<reqwest::StatusCode, ApnsSendError>,
+        Option<String>,
     ) {
         let credential = match read_apns_credential(&self.inner.paths) {
             Ok(credential) => credential,
-            Err(_) => return (None, Err(ApnsSendError::Transport("provider_unavailable"))),
+            Err(_) => {
+                return (
+                    None,
+                    Err(ApnsSendError::Transport("provider_unavailable")),
+                    None,
+                );
+            }
         };
         let revision = Some(credential.revision);
         if !credential.configured {
             return (
                 revision,
                 Err(ApnsSendError::Provider("provider_unconfigured")),
+                None,
             );
         }
         let mut payload = serde_json::json!({
@@ -958,9 +971,9 @@ impl NotificationCoordinator {
         }
         let token = match self.apns_jwt(&credential) {
             Ok(token) => token,
-            Err(error) => return (revision, Err(error)),
+            Err(error) => return (revision, Err(error), None),
         };
-        let result = self
+        let (result, apns_id) = self
             .send_apns_request(
                 delivery.client.environment,
                 &delivery.client.device_token,
@@ -973,7 +986,7 @@ impl NotificationCoordinator {
                 &payload,
             )
             .await;
-        (revision, result)
+        (revision, result, apns_id)
     }
     async fn send_live_activity(
         &self,
@@ -981,23 +994,31 @@ impl NotificationCoordinator {
     ) -> (
         Option<u64>,
         std::result::Result<reqwest::StatusCode, ApnsSendError>,
+        Option<String>,
     ) {
         let credential = match read_apns_credential(&self.inner.paths) {
             Ok(credential) => credential,
-            Err(_) => return (None, Err(ApnsSendError::Transport("provider_unavailable"))),
+            Err(_) => {
+                return (
+                    None,
+                    Err(ApnsSendError::Transport("provider_unavailable")),
+                    None,
+                );
+            }
         };
         let revision = Some(credential.revision);
         if !credential.configured {
             return (
                 revision,
                 Err(ApnsSendError::Provider("provider_unconfigured")),
+                None,
             );
         }
         let token = match self.apns_jwt(&credential) {
             Ok(token) => token,
-            Err(error) => return (revision, Err(error)),
+            Err(error) => return (revision, Err(error), None),
         };
-        let result = self
+        let (result, apns_id) = self
             .send_apns_request(
                 delivery.environment,
                 &delivery.token,
@@ -1010,7 +1031,7 @@ impl NotificationCoordinator {
                 &delivery.payload,
             )
             .await;
-        (revision, result)
+        (revision, result, apns_id)
     }
     fn apns_jwt(&self, credential: &ApnsCredential) -> std::result::Result<String, ApnsSendError> {
         let team_id = credential
@@ -1061,7 +1082,10 @@ impl NotificationCoordinator {
         created_at: &str,
         jwt: &str,
         payload: &serde_json::Value,
-    ) -> std::result::Result<reqwest::StatusCode, ApnsSendError> {
+    ) -> (
+        std::result::Result<reqwest::StatusCode, ApnsSendError>,
+        Option<String>,
+    ) {
         let token_hex = device_token
             .iter()
             .map(|byte| format!("{byte:02x}"))
@@ -1073,16 +1097,19 @@ impl NotificationCoordinator {
         let expiration = if ttl_seconds == 0 {
             "0".to_string()
         } else {
-            let created_at = chrono::DateTime::parse_from_rfc3339(created_at)
-                .map_err(|_| ApnsSendError::Provider("invalid_delivery_time"))?
-                .timestamp();
+            let created_at = match chrono::DateTime::parse_from_rfc3339(created_at) {
+                Ok(value) => value.timestamp(),
+                Err(_) => {
+                    return (Err(ApnsSendError::Provider("invalid_delivery_time")), None);
+                }
+            };
             let expiration = created_at.saturating_add(i64::from(ttl_seconds));
             if expiration <= chrono::Utc::now().timestamp() {
-                return Err(ApnsSendError::Provider("delivery_expired"));
+                return (Err(ApnsSendError::Provider("delivery_expired")), None);
             }
             expiration.to_string()
         };
-        let response = self
+        let response = match self
             .inner
             .apns_client
             .post(format!("https://{host}/3/device/{token_hex}"))
@@ -1094,7 +1121,18 @@ impl NotificationCoordinator {
             .json(payload)
             .send()
             .await
-            .map_err(|_| ApnsSendError::Transport("transport_unavailable"))?;
+        {
+            Ok(response) => response,
+            Err(_) => {
+                return (Err(ApnsSendError::Transport("transport_unavailable")), None);
+            }
+        };
+        let apns_id = response
+            .headers()
+            .get("apns-id")
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !value.is_empty() && value.len() <= 128 && value.is_ascii())
+            .map(str::to_owned);
         let status = response.status();
         if matches!(status.as_u16(), 400 | 410) {
             let reason = response
@@ -1117,10 +1155,10 @@ impl NotificationCoordinator {
                 reason.as_str(),
                 "BadDeviceToken" | "DeviceTokenNotForTopic" | "Unregistered"
             ) {
-                return Err(ApnsSendError::InvalidToken);
+                return (Err(ApnsSendError::InvalidToken), apns_id);
             }
         }
-        Ok(status)
+        (Ok(status), apns_id)
     }
     async fn record_apns_error(
         &self,

@@ -1,6 +1,186 @@
 use super::test_store;
 use crate::{ApnsEnvironment, LiveActivityEvent, NewLiveActivityDelivery};
 use serde_json::json;
+
+#[tokio::test]
+async fn live_activity_client_callbacks_form_a_secret_free_timeline() {
+    let store = test_store().await;
+    store
+        .insert_client("client:timeline", "human:local", "Phone", [1; 32])
+        .await
+        .expect("insert client");
+    store
+        .register_client_live_activities(
+            "client:timeline",
+            &[1, 2, 3],
+            ApnsEnvironment::Development,
+            &["live_activity:observed:test".to_string()],
+        )
+        .await
+        .expect("register snapshot");
+    let activity = store
+        .client_task_activity("client:timeline")
+        .await
+        .expect("read activity")
+        .expect("starting activity");
+    let activity_id = activity.activity_id.expect("activity id");
+    assert!(
+        store
+            .register_client_live_activity_update("client:timeline", &activity_id, &[4, 5, 6],)
+            .await
+            .expect("register update token")
+    );
+    assert!(
+        store
+            .dismiss_client_live_activity("client:timeline", &activity_id, true)
+            .await
+            .expect("dismiss activity")
+    );
+
+    let observations = store
+        .with_connection(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT event, activity_id, active_activity_ids_json FROM client_live_activity_observations WHERE client_id = ?1 ORDER BY rowid",
+            )?;
+            let rows = statement.query_map(["client:timeline"], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(crate::StoreError::Sqlite)
+        })
+        .await
+        .expect("read observations");
+    assert_eq!(
+        observations,
+        vec![
+            (
+                "snapshot".to_string(),
+                None,
+                "[\"live_activity:observed:test\"]".to_string(),
+            ),
+            (
+                "update_token".to_string(),
+                Some(activity_id.clone()),
+                "[]".to_string(),
+            ),
+            ("dismissed".to_string(), Some(activity_id), "[]".to_string(),),
+        ]
+    );
+    assert!(!format!("{observations:?}").contains("1, 2, 3"));
+    assert!(!format!("{observations:?}").contains("4, 5, 6"));
+}
+
+#[tokio::test]
+async fn terminal_live_activity_delivery_keeps_apns_id_for_thirty_days() {
+    let store = test_store().await;
+    store
+        .insert_client("client:delivery", "human:local", "Phone", [1; 32])
+        .await
+        .expect("insert client");
+    store
+        .register_client_live_activities(
+            "client:delivery",
+            &[1, 2, 3],
+            ApnsEnvironment::Production,
+            &[],
+        )
+        .await
+        .expect("register Live Activities");
+    let activity = store
+        .client_task_activity("client:delivery")
+        .await
+        .expect("read activity")
+        .expect("activity");
+    store
+        .queue_live_activity_delivery(NewLiveActivityDelivery {
+            client_id: "client:delivery".to_string(),
+            delivery_key: "live:start:retention".to_string(),
+            activity_id: activity.activity_id,
+            token: vec![1, 2, 3],
+            environment: ApnsEnvironment::Production,
+            event: LiveActivityEvent::Start,
+            payload: json!({"aps":{"event":"start"}}),
+            urgency: "high".to_string(),
+            ttl_seconds: 600,
+        })
+        .await
+        .expect("queue delivery");
+    let delivery = store
+        .claim_due_live_activity_delivery()
+        .await
+        .expect("claim delivery")
+        .expect("delivery");
+    store
+        .finish_live_activity_delivery(&delivery, "delivered", None, Some("apns-retained"))
+        .await
+        .expect("finish delivery");
+    store
+        .with_connection(|connection| {
+            connection.execute(
+                "UPDATE live_activity_deliveries SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-29 days') WHERE client_id = 'client:delivery'",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("age recent delivery");
+    assert!(
+        store
+            .claim_due_live_activity_delivery()
+            .await
+            .expect("run recent retention")
+            .is_none()
+    );
+    let apns_id = store
+        .with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT apns_id FROM live_activity_deliveries WHERE client_id = 'client:delivery'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .map_err(crate::StoreError::Sqlite)
+        })
+        .await
+        .expect("read APNs identifier");
+    assert_eq!(apns_id, "apns-retained");
+
+    store
+        .with_connection(|connection| {
+            let changed = connection.execute(
+                "UPDATE live_activity_deliveries SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-31 days') WHERE client_id = 'client:delivery'",
+                [],
+            )?;
+            assert_eq!(changed, 1);
+            Ok(())
+        })
+        .await
+        .expect("age expired delivery");
+    assert!(
+        store
+            .claim_due_live_activity_delivery()
+            .await
+            .expect("run expired retention")
+            .is_none()
+    );
+    let count = store
+        .with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM live_activity_deliveries WHERE client_id = 'client:delivery'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(crate::StoreError::Sqlite)
+        })
+        .await
+        .expect("count retained deliveries");
+    assert_eq!(count, 0);
+}
 #[tokio::test]
 async fn live_registration_binds_to_active_client_and_redacts_tokens() {
     let store = test_store().await;
@@ -305,7 +485,7 @@ async fn live_activity_end_delivery_dismisses_and_allows_a_new_session() {
         .expect("start delivery");
     assert_eq!(start.event, LiveActivityEvent::Start);
     store
-        .finish_live_activity_delivery(&start, "delivered", None)
+        .finish_live_activity_delivery(&start, "delivered", None, Some("apns-start"))
         .await
         .expect("finish start");
     store
@@ -355,7 +535,7 @@ async fn live_activity_end_delivery_dismisses_and_allows_a_new_session() {
         .expect("end delivery");
     assert_eq!(end.event, LiveActivityEvent::End);
     store
-        .finish_live_activity_delivery(&end, "delivered", None)
+        .finish_live_activity_delivery(&end, "delivered", None, Some("apns-end"))
         .await
         .expect("finish end");
     assert_eq!(
@@ -417,7 +597,7 @@ async fn live_activity_end_delivery_dismisses_and_allows_a_new_session() {
         .expect("claim second start")
         .expect("second start delivery");
     store
-        .finish_live_activity_delivery(&second_start, "invalid_token", None)
+        .finish_live_activity_delivery(&second_start, "invalid_token", None, None)
         .await
         .expect("finish invalid start");
     store

@@ -1,4 +1,5 @@
 import ActivityKit
+import OSLog
 import SwiftUI
 import WidgetKit
 
@@ -10,9 +11,21 @@ struct NoemaLiveActivityBundle: WidgetBundle {
 }
 
 struct NoemaTasksLiveActivityWidget: Widget {
+  private static let logger = Logger(
+    subsystem: "dev.noema.app.ios.liveactivity",
+    category: "LiveActivity"
+  )
+
+  init() {
+    Self.logger.notice("widget_configuration_loaded")
+  }
+
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: NoemaTasksActivityAttributes.self) { context in
-      NoemaTasksLockScreenView(state: context.state)
+      NoemaTasksLockScreenView(
+        state: context.state,
+        activityID: context.attributes.activityId
+      )
         .widgetURL(taskURL(for: context.state))
         .activityBackgroundTint(nil)
         .activitySystemActionForegroundColor(nil)
@@ -62,7 +75,17 @@ struct NoemaTasksLiveActivityWidget: Widget {
 }
 
 private struct NoemaTasksLockScreenView: View {
+  private static let logger = Logger(
+    subsystem: "dev.noema.app.ios.liveactivity",
+    category: "LiveActivity"
+  )
+
   let state: NoemaTasksActivityAttributes.ContentState
+
+  init(state: NoemaTasksActivityAttributes.ContentState, activityID: String) {
+    self.state = state
+    Self.logger.notice("lock_screen_view_built activityId=\(activityID, privacy: .public)")
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {

@@ -5,7 +5,7 @@ import OSLog
 /// A bounded, device-local trace for short-lived connectivity investigations.
 ///
 /// Entries contain lifecycle and transport metadata only. They never contain
-/// origins, client identifiers, credentials, GraphQL variables, or content.
+/// credentials, notification tokens, GraphQL variables, or product content.
 final class NoemaDiagnosticTrace: @unchecked Sendable {
   static let shared = NoemaDiagnosticTrace()
 
@@ -55,7 +55,13 @@ final class NoemaDiagnosticTrace: @unchecked Sendable {
   }
 
   func record(category: String, event: String, fields: [String: String] = [:]) {
-    logger.notice("\(category, privacy: .public).\(event, privacy: .public)")
+    let details = fields
+      .sorted { $0.key < $1.key }
+      .map { "\($0.key)=\($0.value)" }
+      .joined(separator: " ")
+    logger.notice(
+      "\(category, privacy: .public).\(event, privacy: .public) \(details, privacy: .public)"
+    )
     let timestamp = Date()
     let uptime = ProcessInfo.processInfo.systemUptime
     ioQueue.async { [self] in
