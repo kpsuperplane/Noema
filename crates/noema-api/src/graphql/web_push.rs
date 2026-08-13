@@ -1222,8 +1222,23 @@ impl NotificationCoordinator {
                 if activity.lifecycle == "ending" {
                     return;
                 }
-                if activity.lifecycle == "dismissed" && activity.latest_projection_signature != "" {
-                    return;
+                if activity.lifecycle == "dismissed"
+                    && !activity.latest_projection_signature.is_empty()
+                {
+                    if activity
+                        .latest_projection_signature
+                        .bytes()
+                        .all(|byte| byte == b'0')
+                        || activity.focused_task_id.as_deref()
+                            == Some(projection.focus_task_id.as_str())
+                    {
+                        return;
+                    }
+                    let _ = self
+                        .inner
+                        .store
+                        .clear_client_task_activity_dismissal(&target.registration.client_id)
+                        .await;
                 }
                 let client_id = target.registration.client_id.clone();
                 if self
@@ -2406,7 +2421,7 @@ mod tests {
             .expect("join reconciliation");
     }
     #[tokio::test]
-    async fn live_activity_unavailable_projection_keeps_starting_activity() {
+    async fn live_activity_reconciliation_keeps_inflight_and_replaces_old_focus() {
         let root = tempfile::tempdir().expect("home");
         let store = crate::test_support::test_store().await;
         store
@@ -2463,6 +2478,54 @@ mod tests {
             .expect("reload activity")
             .expect("starting activity");
         assert_eq!(activity.lifecycle, "starting");
+        assert!(!activity.suppressed);
+
+        store
+            .update_client_task_activity_projection(
+                "client:one",
+                &json!({"focusTaskId":"task:old"}),
+                &"a".repeat(64),
+                Some("task:old"),
+            )
+            .await
+            .expect("save old projection");
+        store
+            .dismiss_client_live_activity(
+                "client:one",
+                activity.activity_id.as_deref().expect("activity id"),
+                false,
+            )
+            .await
+            .expect("dismiss old activity");
+        let old_session = activity.task_session_id;
+        let target = store
+            .live_activity_targets()
+            .await
+            .expect("reload dismissed target")
+            .pop()
+            .expect("dismissed target");
+        let projection = LiveProjection {
+            content: json!({
+                "focusTaskId": "task:new",
+                "focusTitle": "New task",
+                "updatedAtEpoch": 1.0,
+            }),
+            signature: "b".repeat(64),
+            focus_task_id: "task:new".to_string(),
+        };
+
+        coordinator
+            .apply_live_projection(target, &Ok(Some(projection)))
+            .await;
+
+        let activity = store
+            .client_task_activity("client:one")
+            .await
+            .expect("load replacement")
+            .expect("replacement activity");
+        assert_eq!(activity.lifecycle, "starting");
+        assert_eq!(activity.focused_task_id.as_deref(), Some("task:new"));
+        assert_ne!(activity.task_session_id, old_session);
         assert!(!activity.suppressed);
     }
     #[test]

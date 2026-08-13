@@ -59,7 +59,7 @@ final class NoemaLiveActivityService {
   func configure(profile: NoemaProfile?, client: ApolloClient?) async {
     statusGeneration &+= 1
     await cancelRegistration()
-    await stopObservers()
+    stopObservers()
     if let profile {
       await endActivitiesNotMatching(profile)
     } else {
@@ -100,7 +100,7 @@ final class NoemaLiveActivityService {
       errorMessage = nil
       guard value.available, value.enabled, activitiesEnabled else {
         await cancelRegistration()
-        await stopObservers()
+        stopObservers()
         await endActivities(for: profile, notifyServer: false)
         return
       }
@@ -141,7 +141,7 @@ final class NoemaLiveActivityService {
     statusGeneration &+= 1
     desiredEnabled = false
     await cancelRegistration()
-    await stopObservers()
+    stopObservers()
     var succeeded = true
     if let client {
       do {
@@ -175,7 +175,7 @@ final class NoemaLiveActivityService {
     statusGeneration &+= 1
     desiredEnabled = false
     await cancelRegistration()
-    await stopObservers()
+    stopObservers()
     await endAllActivities()
     pushToStartToken = nil
     status = nil
@@ -225,7 +225,7 @@ final class NoemaLiveActivityService {
     }
   }
 
-  private func stopObservers() async {
+  private func stopObservers() {
     let tasks = [pushToStartTask, activityUpdatesTask]
       .compactMap { $0 } + Array(updateTokenTasks.values) + Array(activityStateTasks.values)
     tasks.forEach { $0.cancel() }
@@ -233,7 +233,6 @@ final class NoemaLiveActivityService {
     activityUpdatesTask = nil
     updateTokenTasks.removeAll()
     activityStateTasks.removeAll()
-    for task in tasks { await task.value }
   }
 
   private func registerPushToStartTokenIfPossible() async {
