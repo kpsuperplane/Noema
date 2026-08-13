@@ -577,9 +577,10 @@ async fn unavailable_capability_remains_unadvertised_and_denied() {
         .await;
     assert!(!forged.success, "unadvertised forged call must fail");
     assert_eq!(
-        forged.payload["error"], "capability operation is unavailable",
+        forged.payload["error"], "unknown_operation",
         "unadvertised forged call must expose only the sanitized failure"
     );
+    assert_eq!(forged.payload["recovery"], "stop");
     assert_eq!(forged.persisted.arguments, None);
     assert_eq!(forged.persisted.output, None);
     assert!(forged.requires_provider_continuation);
@@ -617,13 +618,24 @@ async fn advertised_capability_failure_is_sanitized_and_continues_to_provider() 
     assert!(!result.success);
     assert_eq!(
         result.payload,
-        json!({"error": "capability invocation failed"})
+        json!({
+            "error": "failed",
+            "message": "capability invocation failed",
+            "recovery": "retry_later"
+        })
     );
     assert_eq!(
         result.persisted.arguments,
         Some(json!({"document_id": "document:1", "api_key": "[REDACTED]"}))
     );
-    assert_eq!(result.persisted.output, Some(json!({"error": "failed"})));
+    assert_eq!(
+        result.persisted.output,
+        Some(json!({
+            "error": "failed",
+            "message": "capability invocation failed",
+            "recovery": "retry_later"
+        }))
+    );
     assert!(result.requires_provider_continuation);
 }
 
@@ -906,9 +918,9 @@ async fn forged_background_call_is_unknown_and_omits_persistence() {
 
     assert!(!result.success);
     assert_eq!(
-        result.payload["error"],
-        "capability operation is unavailable"
+        result.payload["error"], "unknown_operation"
     );
+    assert_eq!(result.payload["recovery"], "stop");
     assert_eq!(result.persisted.arguments, None);
     assert_eq!(result.persisted.output, None);
 }
@@ -935,12 +947,20 @@ async fn known_background_call_denied_by_role_policy_uses_binding_persistence() 
         .await;
 
     assert!(!result.success);
-    assert_eq!(result.payload["error"], "capability invocation was denied");
+    assert_eq!(result.payload["error"], "denied");
+    assert_eq!(result.payload["recovery"], "stop");
     assert_eq!(
         result.persisted.arguments,
         Some(json!({"query": "safe", "api_key": "[REDACTED]"}))
     );
-    assert_eq!(result.persisted.output, Some(json!({"error": "denied"})));
+    assert_eq!(
+        result.persisted.output,
+        Some(json!({
+            "error": "denied",
+            "message": "capability invocation was denied",
+            "recovery": "stop"
+        }))
+    );
 }
 
 async fn ensure_provider_account_without_web_capabilities(

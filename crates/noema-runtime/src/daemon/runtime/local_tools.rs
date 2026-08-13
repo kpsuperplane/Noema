@@ -969,7 +969,7 @@ fn gateway_failure_result(
         call,
         LocalToolKind::Gateway,
         false,
-        json!({"error": failure.error.to_string()}),
+        failure.error.model_payload(),
         requires_provider_continuation,
     )
     .with_persisted(failure.persisted);

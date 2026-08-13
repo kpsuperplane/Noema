@@ -178,7 +178,7 @@ impl CapabilityDispatchFailure {
         Self {
             persisted: PersistedCapabilityPayload {
                 arguments: binding.persist_arguments(arguments),
-                output: binding.persist_output(&error.safe_payload()),
+                output: binding.persist_output(&error.model_payload()),
             },
             error,
         }
@@ -459,7 +459,7 @@ impl<'a> CapabilityRegistryRouter<'a> {
             return Err(CapabilityDispatchFailure {
                 persisted: PersistedCapabilityPayload {
                     arguments: persisted_arguments,
-                    output: binding.persist_output(&error.safe_payload()),
+                    output: binding.persist_output(&error.model_payload()),
                 },
                 error,
             });
@@ -486,7 +486,7 @@ impl<'a> CapabilityRegistryRouter<'a> {
             Err(error) => Err(CapabilityDispatchFailure {
                 persisted: PersistedCapabilityPayload {
                     arguments: persisted_arguments,
-                    output: binding.persist_output(&error.safe_payload()),
+                    output: binding.persist_output(&error.model_payload()),
                 },
                 error,
             }),
@@ -543,8 +543,24 @@ fn arguments_sha256(arguments: &Value) -> String {
 }
 
 impl CapabilityError {
-    fn safe_payload(&self) -> Value {
-        serde_json::json!({"error": self.safe_code()})
+    /// Return safe model feedback with the next permitted recovery step.
+    #[must_use]
+    pub fn model_payload(&self) -> Value {
+        let recovery = match self {
+            Self::InvalidArguments => CapabilityRecovery::CorrectArguments,
+            Self::UnknownOperation
+            | Self::Denied
+            | Self::AuthenticationRequired { .. }
+            | Self::OutcomeUncertain => CapabilityRecovery::Stop,
+            Self::UnknownInvoker | Self::Unavailable | Self::Failed => {
+                CapabilityRecovery::RetryLater
+            }
+        };
+        serde_json::json!({
+            "error": self.safe_code(),
+            "message": self.to_string(),
+            "recovery": recovery.as_str(),
+        })
     }
 
     const fn safe_code(&self) -> &'static str {
@@ -913,7 +929,11 @@ mod tests {
         );
         assert_eq!(
             redacted.persisted.output,
-            Some(json!({"error":"unavailable"}))
+            Some(json!({
+                "error":"unavailable",
+                "message":"capability is unavailable",
+                "recovery":"retry_later"
+            }))
         );
     }
 
