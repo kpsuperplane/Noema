@@ -224,15 +224,18 @@ final class ChatVoiceInput {
     let audioSession = AVAudioSession.sharedInstance()
     try audioSession.setCategory(.record, mode: .measurement)
     try audioSession.setActive(true)
+    guard audioSession.isInputAvailable else { throw ChatVoiceInputError.audioUnavailable }
 
     let engine = AVAudioEngine()
     let inputNode = engine.inputNode
     let inputFormat = inputNode.outputFormat(forBus: 0)
-    guard inputFormat.sampleRate > 0,
+    guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
           let analyzerFormat = await SpeechAnalyzer.bestAvailableAudioFormat(
             compatibleWith: modules,
             considering: inputFormat
           ) else { throw ChatVoiceInputError.audioUnavailable }
+    try Task.checkCancellation()
+    guard generation == sessionGeneration, state == .preparing else { throw CancellationError() }
 
     let converter = try ChatVoiceAudioConverter(inputFormat: inputFormat, outputFormat: analyzerFormat)
     let (inputSequence, continuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
@@ -254,9 +257,10 @@ final class ChatVoiceInput {
     tapInstalled = true
 
     try await analyzer.start(inputSequence: inputSequence)
+    try Task.checkCancellation()
+    guard generation == sessionGeneration, state == .preparing else { throw CancellationError() }
     engine.prepare()
     try engine.start()
-    guard generation == sessionGeneration, !Task.isCancelled, state == .preparing else { return }
     state = .recording(mode)
   }
 

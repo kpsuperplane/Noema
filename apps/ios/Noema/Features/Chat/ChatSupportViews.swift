@@ -186,7 +186,6 @@ struct ChatComposer: View {
     }
     .onChange(of: voiceInput.isEngaged) { _, engaged in
       model.isVoiceInputActive = engaged
-      if engaged { inputFocused = false }
     }
     .onChange(of: voiceInput.completionGeneration) { _, _ in consumeVoiceCompletion() }
     .onChange(of: scenePhase) { _, phase in
@@ -226,14 +225,7 @@ struct ChatComposer: View {
 
   private var composerSurface: some View {
     HStack(alignment: .center, spacing: NoemaSpacing.sm) {
-      if voiceInput.isEngaged {
-        Text(voiceInput.previewText.isEmpty ? voiceInput.previewPlaceholder : voiceInput.previewText)
-          .font(NoemaFont.composer)
-          .foregroundStyle(voiceInput.previewText.isEmpty ? NoemaColor.white.opacity(0.72) : NoemaColor.white)
-          .lineLimit(1...5)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .accessibilityLabel(voiceInput.previewText.isEmpty ? voiceInput.previewPlaceholder : voiceInput.previewText)
-      } else {
+      ZStack(alignment: .leading) {
         TextField(
           "",
           text: $model.draft,
@@ -248,11 +240,25 @@ struct ChatComposer: View {
         .textFieldStyle(.plain)
         .focused($inputFocused)
         .disabled(!isEditable)
+        .opacity(voiceInput.isEngaged ? 0 : 1)
+        .allowsHitTesting(!voiceInput.isEngaged)
+        .accessibilityHidden(voiceInput.isEngaged)
         .onSubmit {
           guard canSend else { return }
           Task { await model.send() }
         }
 
+        if voiceInput.isEngaged {
+          Text(voiceInput.previewText.isEmpty ? voiceInput.previewPlaceholder : voiceInput.previewText)
+            .font(NoemaFont.composer)
+            .foregroundStyle(voiceInput.previewText.isEmpty ? NoemaColor.white.opacity(0.72) : NoemaColor.white)
+            .lineLimit(1...5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel(voiceInput.previewText.isEmpty ? voiceInput.previewPlaceholder : voiceInput.previewText)
+        }
+      }
+
+      if !voiceInput.isEngaged {
         Button {
           Task { await model.send() }
         } label: {
@@ -333,7 +339,6 @@ struct ChatComposer: View {
         guard canUseVoice else { return }
         if !microphonePressed {
           microphonePressed = true
-          inputFocused = false
           voiceInput.pressBegan(originalDraft: model.draft)
           holdTask?.cancel()
           holdTask = Task { @MainActor in
