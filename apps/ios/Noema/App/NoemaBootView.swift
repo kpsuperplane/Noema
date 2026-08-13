@@ -15,7 +15,7 @@ struct NoemaBootView: View {
         VStack(spacing: 0) {
           ChatTranscriptLoadingSkeleton()
           bootComposer
-            .padding(.horizontal, NoemaSpacing.xl)
+            .padding(.horizontal, NoemaSpacing.md)
             .padding(.bottom, proxy.safeAreaInsets.bottom + NoemaSpacing.sm)
         }
         .frame(
@@ -57,14 +57,14 @@ struct NoemaBootView: View {
         .foregroundStyle(NoemaColor.white.opacity(0.72))
         .padding(.leading, NoemaSpacing.lg)
       Spacer(minLength: NoemaSpacing.md)
-      Image(systemName: "paperplane")
+      Image(systemName: "mic.fill")
         .font(NoemaFont.bodyEmphasized)
         .foregroundStyle(NoemaColor.pine500.opacity(0.7))
         .frame(width: 40, height: 40)
         .background(NoemaColor.white, in: NoemaSuperellipse(cornerRadius: 26))
-        .padding(.trailing, NoemaSpacing.xs)
+        .padding(.trailing, NoemaSpacing.xs + 1)
     }
-    .frame(maxWidth: 760, minHeight: 50, alignment: .trailing)
+    .frame(maxWidth: 200, minHeight: 50, alignment: .trailing)
     .background(NoemaColor.pine500, in: NoemaSuperellipse(cornerRadius: 26))
     .shadow(color: NoemaColor.pine700.opacity(0.10), radius: 12, y: 5)
     .frame(maxWidth: .infinity, alignment: .trailing)
