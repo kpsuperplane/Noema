@@ -747,7 +747,9 @@ fn memory_consolidation(response: &GenerateResponse) -> Result<(), String> {
         icon: "user".to_string(),
         body: "Kevin enjoys outdoor activities.".to_string(),
         hash: "hash-root".to_string(),
-        sources: vec!["item:existing".to_string()],
+        citations: vec![noema_memory::MemoryCitation {
+            sources: vec!["item:existing".to_string()],
+        }],
         parent: None,
         ancestors: Vec::new(),
         children: Vec::new(),
@@ -771,8 +773,9 @@ fn memory_consolidation(response: &GenerateResponse) -> Result<(), String> {
         .ok_or_else(|| "memory consolidation did not update root.md".to_string())?;
     if !contains_any(&upsert.body, &["skyward-19"])
         || !upsert
-            .sources
+            .citations
             .iter()
+            .flat_map(|citation| &citation.sources)
             .any(|source| source == "item:evaluation-memory")
     {
         return Err("memory consolidation omitted the supplied human evidence".to_string());
@@ -1250,8 +1253,8 @@ mod tests {
                     "path": "root.md",
                     "title": "Kevin",
                     "icon": "user",
-                    "body": "Kevin's preferred aircraft call sign is SKYWARD-19.[^call-sign]\n\n[^call-sign]: item:evaluation-memory",
-                    "sources": ["item:evaluation-memory"]
+                    "body": "Kevin's preferred aircraft call sign is SKYWARD-19.[^1]",
+                    "citations": [{"sources": ["item:evaluation-memory"]}]
                 }],
                 "metadata_updates": [],
                 "deletes": []
@@ -1268,8 +1271,8 @@ mod tests {
                     "path": "root.md",
                     "title": "Kevin",
                     "icon": "user",
-                    "body": "Kevin's preferred aircraft call sign is SKYWARD-19.",
-                    "sources": ["item:invented"]
+                    "body": "Kevin's preferred aircraft call sign is SKYWARD-19.[^1]",
+                    "citations": [{"sources": ["item:invented"]}]
                 }],
                 "metadata_updates": [],
                 "deletes": []

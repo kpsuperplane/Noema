@@ -9,7 +9,8 @@ import type { ReactNode } from "react";
 import { memoryPageUrlPath } from "@/app/routes";
 import { ShellPageLayout, ShellPageSubtitle, ShellPageTrack } from "@/components/shell/ShellPageLayout";
 import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
-import { buildMemoryArticle, memoryHeadingId } from "@/pages/memoryArticleModel";
+import type { GraphqlNativeMemorySourceKind } from "@/generated/graphql";
+import { buildMemoryArticle, memoryHeadingId, type MemoryCitationGroup } from "@/pages/memoryArticleModel";
 import { styles } from "@/pages/memoryPageStyles";
 import { MemoryUpdateControl } from "@/pages/MemoryUpdateControl";
 
@@ -18,18 +19,24 @@ interface MemoryArticlePage {
   id: string;
   title: string;
   body: string;
-  sourceReferences: Array<{ source: string; excerpt: string | null }>;
+  citations: Array<{ sources: Array<{ source: string; kind: GraphqlNativeMemorySourceKind; excerpt: string | null; createdAt: string | null }> }>;
   children: Array<{ id: string; path: string; title: string; excerpt: string }>;
 }
 
-const articleComponents: MarkdownComponents = {
-  citation: ArticleCitation,
+const baseArticleComponents: MarkdownComponents = {
   heading: ArticleHeading,
   paragraph: ArticleParagraph
 };
 
 export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
-  const article = buildMemoryArticle(page.body, page.sourceReferences);
+  const article = buildMemoryArticle(page.body, page.citations);
+  const articleComponents: MarkdownComponents = {
+    ...baseArticleComponents,
+    citation: (props) => {
+      const index = Number(props.source.url);
+      return <ArticleCitation {...props} citation={article.citationGroups[index]} />;
+    }
+  };
   const hasContents = article.outline.length > 0 || page.children.length > 0;
   return (
     <ShellPageLayout width="centered">
@@ -112,15 +119,21 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
   );
 }
 
-function ArticleCitation({ source, number }: { source: { title?: string }; number: number; variant: "label" | "number" }) {
-  const excerpt = source.title ?? "The source conversation message is no longer available.";
+function ArticleCitation({ citation, number }: { citation?: MemoryCitationGroup; source: { title?: string; url?: string }; number: number; variant: "label" | "number" }) {
+  const sources = citation?.sources ?? [];
   return (
     <sup {...stylex.props(styles.citation)}>
       <HoverCard
         content={(
           <span {...stylex.props(styles.citationCard)}>
-            <span {...stylex.props(styles.citationExcerpt)}>&ldquo;{excerpt}&rdquo;</span>
-            <span {...stylex.props(styles.citationContext)}>Your message in the primary conversation</span>
+            <strong {...stylex.props(styles.citationTitle)}>Why Noema remembers this</strong>
+            {sources.map((source) => (
+              <span key={source.source} {...stylex.props(styles.citationSource)}>
+                <span {...stylex.props(styles.citationExcerpt)}>&ldquo;{source.excerpt ?? "This source is no longer available."}&rdquo;</span>
+                <span {...stylex.props(styles.citationContext)}>{evidenceKindLabel(source.kind)}{source.createdAt ? ` · ${formatEvidenceDate(source.createdAt)}` : ""}</span>
+                <span {...stylex.props(styles.citationReference)}>{source.source}</span>
+              </span>
+            ))}
           </span>
         )}
         placement="above"
@@ -132,6 +145,20 @@ function ArticleCitation({ source, number }: { source: { title?: string }; numbe
       </HoverCard>
     </sup>
   );
+}
+
+function evidenceKindLabel(kind: GraphqlNativeMemorySourceKind): string {
+  switch (kind) {
+    case "HUMAN_MESSAGE": return "Human message";
+    case "TOOL_RESULT": return "Tool result";
+    case "UNAVAILABLE": return "Unavailable source";
+  }
+}
+
+function formatEvidenceDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 function ArticleHeading({ level, children }: { level: 1 | 2 | 3 | 4 | 5 | 6; children: ReactNode }) {

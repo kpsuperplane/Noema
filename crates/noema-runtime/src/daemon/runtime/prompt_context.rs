@@ -577,6 +577,7 @@ mod tests {
             content_text: None,
             payload_json: serde_json::json!({"metadata": {"action": action}}),
             metadata: serde_json::json!({"provider": "codex"}),
+            created_at: String::new(),
         }
     }
 
@@ -717,6 +718,7 @@ mod tests {
                     }
                 }),
                 metadata: route_metadata.clone(),
+                created_at: String::new(),
             };
             let assistant = ConversationItemRecord {
                 item_id: "assistant".to_string(),
@@ -729,6 +731,7 @@ mod tests {
                 content_text: Some("Checking the service.".to_string()),
                 payload_json: serde_json::json!({}),
                 metadata: serde_json::json!({}),
+                created_at: String::new(),
             };
             let mut call = persisted_tool_item(
                 "call",
@@ -815,6 +818,7 @@ mod tests {
                 }
             }),
             metadata: serde_json::json!({}),
+            created_at: String::new(),
         };
 
         let Some(GenerateInputItem::ToolCall(call)) = input_item_from_transcript_item(&item) else {
@@ -847,6 +851,7 @@ mod tests {
                     "gate_id": "gate:1"
                 }
             }),
+            created_at: String::new(),
         };
 
         let Some(GenerateInputItem::Message(message)) = input_item_from_transcript_item(&item)
@@ -875,6 +880,7 @@ mod tests {
                 "task_id": "task:1"
             }),
             metadata: serde_json::json!({"source": "background_task_status"}),
+            created_at: String::new(),
         };
 
         assert!(input_item_from_transcript_item(&item).is_none());
@@ -895,6 +901,7 @@ mod tests {
                 "model_context_update": {"section_id": "runtime.environment"}
             }),
             metadata: serde_json::json!({}),
+            created_at: String::new(),
         };
 
         let Some(GenerateInputItem::Message(message)) = input_item_from_transcript_item(&item)

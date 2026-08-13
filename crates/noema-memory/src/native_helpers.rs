@@ -10,8 +10,8 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::{
-    MEMORY_MAX_WORDS, MEMORY_PAGE_ICON_KEYS, MemoryChangeSet, MemoryState, NativeMemoryError,
-    ROOT_PAGE_PATH,
+    MEMORY_MAX_WORDS, MEMORY_PAGE_ICON_KEYS, MemoryChangeSet, MemoryCitation, MemoryState,
+    NativeMemoryError, ROOT_PAGE_PATH,
 };
 
 #[derive(Debug)]
@@ -22,7 +22,7 @@ pub(super) struct ParsedPage {
     pub(super) body: String,
     pub(super) hash: String,
     pub(super) created_at: String,
-    pub(super) sources: Vec<String>,
+    pub(super) citations: Vec<MemoryCitation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,34 +81,47 @@ pub(super) fn split_frontmatter(
     ))
 }
 
-pub(super) fn source_manifest(content: &str) -> Vec<String> {
-    let mut in_frontmatter = false;
-    let mut in_sources = false;
-    let mut sources = Vec::new();
+pub(super) fn split_article_citations(
+    content: &str,
+) -> Result<(String, Vec<MemoryCitation>), NativeMemoryError> {
+    let mut article = Vec::new();
+    let mut definitions = BTreeMap::new();
     for line in content.lines() {
-        if line == "---" {
-            if in_frontmatter {
-                break;
-            }
-            in_frontmatter = true;
+        let Some((label, targets)) = line
+            .strip_prefix("[^")
+            .and_then(|line| line.split_once("]:"))
+        else {
+            article.push(line);
             continue;
-        }
-        if !in_frontmatter {
-            continue;
-        }
-        if line == "sources:" {
-            in_sources = true;
-            continue;
-        }
-        if in_sources {
-            if let Some(source) = line.strip_prefix("  - ") {
-                sources.push(source.to_string());
-            } else {
-                in_sources = false;
-            }
+        };
+        let index = label.parse::<usize>().map_err(|_| {
+            NativeMemoryError::InvalidPage(format!("citation label {label} is not numeric"))
+        })?;
+        let sources = targets
+            .split_whitespace()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        if index == 0 || sources.is_empty() || definitions.insert(index, sources).is_some() {
+            return Err(NativeMemoryError::InvalidPage(format!(
+                "invalid or duplicate citation definition {label}"
+            )));
         }
     }
-    sources
+    let citations = definitions
+        .into_iter()
+        .enumerate()
+        .map(|(offset, (index, sources))| {
+            if index != offset + 1 {
+                return Err(NativeMemoryError::InvalidPage(
+                    "citation definitions must use consecutive numeric labels".to_string(),
+                ));
+            }
+            Ok(MemoryCitation { sources })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let article = article.join("\n").trim().to_string();
+    validate_citations(&article, &citations)?;
+    Ok((article, citations))
 }
 
 pub(super) fn validate_change_set(changes: &MemoryChangeSet) -> Result<(), NativeMemoryError> {
@@ -142,9 +155,6 @@ pub(super) fn validate_change_set(changes: &MemoryChangeSet) -> Result<(), Nativ
                 )));
             }
         }
-        for source in &change.sources {
-            validate_frontmatter_value("source", source)?;
-        }
         if change.body.lines().any(|line| line.starts_with("# ")) {
             return Err(NativeMemoryError::InvalidChangeSet(format!(
                 "body for {path} must not repeat the generated title heading"
@@ -152,7 +162,7 @@ pub(super) fn validate_change_set(changes: &MemoryChangeSet) -> Result<(), Nativ
         }
         validate_page_content(&change.body)?;
         validate_article_structure(&path, &change.body)?;
-        validate_citations(&change.body, &change.sources)?;
+        validate_citations(&change.body, &change.citations)?;
     }
     for path in &changes.deletes {
         let path = normalize_page_path(path)?;
@@ -193,9 +203,8 @@ fn validate_frontmatter_value(label: &str, value: &str) -> Result<(), NativeMemo
     Ok(())
 }
 
-fn validate_citations(body: &str, sources: &[String]) -> Result<(), NativeMemoryError> {
+fn validate_citations(body: &str, citations: &[MemoryCitation]) -> Result<(), NativeMemoryError> {
     let mut references = BTreeSet::new();
-    let mut definitions = BTreeMap::new();
     let mut remainder = body;
     while let Some(start) = remainder.find("[^") {
         remainder = &remainder[start + 2..];
@@ -205,48 +214,48 @@ fn validate_citations(body: &str, sources: &[String]) -> Result<(), NativeMemory
             ));
         };
         let label = &remainder[..end];
-        if label.is_empty() || label.chars().any(char::is_whitespace) {
+        let index = label.parse::<usize>().map_err(|_| {
+            NativeMemoryError::InvalidChangeSet(
+                "footnote labels must be positive numeric indexes".to_string(),
+            )
+        })?;
+        if index == 0 {
             return Err(NativeMemoryError::InvalidChangeSet(
-                "footnote labels must be non-empty and contain no whitespace".to_string(),
+                "footnote indexes start at 1".to_string(),
             ));
         }
         remainder = &remainder[end + 1..];
-        if let Some(definition) = remainder.strip_prefix(':') {
-            let source = definition
-                .lines()
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .trim_matches('`')
-                .trim();
-            if source.is_empty()
-                || definitions
-                    .insert(label.to_string(), source.to_string())
-                    .is_some()
-            {
-                return Err(NativeMemoryError::InvalidChangeSet(format!(
-                    "invalid or duplicate footnote definition {label}"
-                )));
-            }
-        } else {
-            references.insert(label.to_string());
+        if remainder.starts_with(':') {
+            return Err(NativeMemoryError::InvalidChangeSet(
+                "memory changes must omit generated citation definitions".to_string(),
+            ));
         }
+        references.insert(index);
     }
-
-    let definition_labels = definitions.keys().cloned().collect::<BTreeSet<_>>();
-    if references != definition_labels {
+    let expected = (1..=citations.len()).collect::<BTreeSet<_>>();
+    if references != expected {
         return Err(NativeMemoryError::InvalidChangeSet(
-            "every footnote citation must have exactly one definition, and every definition must be cited"
-                .to_string(),
+            "every citation group must have one matching numeric marker".to_string(),
         ));
     }
-    let manifest = sources.iter().cloned().collect::<BTreeSet<_>>();
-    if manifest.len() != sources.len()
-        || definitions.values().cloned().collect::<BTreeSet<_>>() != manifest
-    {
-        return Err(NativeMemoryError::InvalidChangeSet(
-            "the source manifest must exactly match footnote definition targets".to_string(),
-        ));
+    for citation in citations {
+        let mut seen = BTreeSet::new();
+        if citation.sources.is_empty() {
+            return Err(NativeMemoryError::InvalidChangeSet(
+                "citation groups must contain evidence".to_string(),
+            ));
+        }
+        for source in &citation.sources {
+            if source.trim() != source
+                || source.is_empty()
+                || source.chars().any(char::is_whitespace)
+                || !seen.insert(source)
+            {
+                return Err(NativeMemoryError::InvalidChangeSet(
+                    "citation sources must be unique non-whitespace identifiers".to_string(),
+                ));
+            }
+        }
     }
     Ok(())
 }

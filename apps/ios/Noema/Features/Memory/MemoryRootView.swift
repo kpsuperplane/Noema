@@ -147,7 +147,7 @@ private struct MemoryArticleView: View {
 
   @ViewBuilder
   private func articleContent(_ article: MemoryArticle, scrollTo: @escaping (String) -> Void) -> some View {
-    let prepared = MemoryMarkdown.prepare(body: article.body, sources: article.sources)
+    let prepared = MemoryMarkdown.prepare(body: article.body, citations: article.citations)
     let sections = MemoryMarkdown.sections(prepared.content)
     let hasContents = !prepared.outline.isEmpty || !article.children.isEmpty
     VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
@@ -207,9 +207,8 @@ private struct MemoryArticleView: View {
 
   private func citation(number: String) -> MemoryCitation? {
     guard let index = Int(number).map({ $0 - 1 }), index >= 0, let article = model.article else { return nil }
-    let citations = MemoryMarkdown.prepare(body: article.body, sources: article.sources).citations
-    guard citations.indices.contains(index) else { return nil }
-    return citations[index]
+    guard article.citations.indices.contains(index) else { return nil }
+    return article.citations[index]
   }
 }
 
@@ -380,23 +379,48 @@ private struct MemoryCitationSheet: View {
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
-    NoemaNativeSheet(title: "Source", onDismiss: { dismiss() }) {
+    NoemaNativeSheet(title: "Why Noema remembers this", onDismiss: { dismiss() }) {
       ScrollView {
-        VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-          Text("“\(citation.excerpt ?? "The source conversation message is no longer available.")”")
-            .font(NoemaFont.article)
-            .foregroundStyle(NoemaColor.content)
-            .fixedSize(horizontal: false, vertical: true)
-          Text("Your message in the primary conversation")
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.contentSecondary)
+        VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+          ForEach(citation.sources) { source in
+            VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+              Text("“\(source.excerpt ?? "This source is no longer available.")”")
+                .font(NoemaFont.article)
+                .foregroundStyle(NoemaColor.content)
+                .fixedSize(horizontal: false, vertical: true)
+              Text(sourceMetadata(source))
+                .font(NoemaFont.caption)
+                .foregroundStyle(NoemaColor.contentSecondary)
+              Text(source.id)
+                .font(NoemaFont.caption.monospaced())
+                .foregroundStyle(NoemaColor.contentTertiary)
+                .textSelection(.enabled)
+            }
+            if source.id != citation.sources.last?.id {
+              Divider()
+            }
+          }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(NoemaSpacing.lg)
       }
     }
-    .presentationDetents([.height(210), .medium])
+    .presentationDetents([.medium, .large])
     .presentationDragIndicator(.visible)
+  }
+
+  private func sourceMetadata(_ source: MemorySource) -> String {
+    guard let createdAt = source.createdAt, let date = evidenceDate(createdAt) else {
+      return source.kind.label
+    }
+    return "\(source.kind.label) · \(date)"
+  }
+
+  private func evidenceDate(_ value: String) -> String? {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let date = formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    return date?.formatted(date: .abbreviated, time: .shortened)
   }
 }
 
@@ -518,11 +542,6 @@ private struct MemoryUpdateNotice: View {
   }
 }
 
-private struct MemoryCitation: Identifiable {
-  let id: String
-  let excerpt: String?
-}
-
 private struct MemoryOutlineItem: Identifiable {
   let id: String
   let label: String
@@ -535,46 +554,17 @@ private struct MemoryMarkdownSection: Identifiable {
 }
 
 private enum MemoryMarkdown {
-  static func prepare(body: String, sources: [MemorySource]) -> (content: String, outline: [MemoryOutlineItem], citations: [MemoryCitation]) {
-    var definitions: [String: String] = [:]
-    let contentLines = body.components(separatedBy: .newlines).filter { line in
-      guard line.hasPrefix("[^"), let close = line.firstIndex(of: "]") else { return true }
-      let labelStart = line.index(line.startIndex, offsetBy: 2)
-      let label = String(line[labelStart..<close])
-      let afterClose = line.index(after: close)
-      guard afterClose < line.endIndex, line[afterClose] == ":" else { return true }
-      let value = String(line[line.index(after: afterClose)...])
-        .trimmingCharacters(in: .whitespaces)
-        .trimmingCharacters(in: CharacterSet(charactersIn: "`"))
-      definitions[label] = value
-      return false
-    }
-
-    var content = contentLines.joined(separator: "\n")
-    var citations: [MemoryCitation] = []
-    var numberBySource: [String: Int] = [:]
-    let expression = try? NSRegularExpression(pattern: #"\[\^([^\]]+)\]"#)
-    let originalRange = NSRange(content.startIndex..<content.endIndex, in: content)
-    let orderedLabels = expression?.matches(in: content, range: originalRange).compactMap { match -> String? in
-      guard let range = Range(match.range(at: 1), in: content) else { return nil }
-      return String(content[range])
-    } ?? []
-    for label in orderedLabels {
-      guard let source = definitions[label] else { continue }
-      let token = "[^\(label)]"
-      guard content.contains(token), let reference = sources.first(where: { $0.id == source }) else { continue }
-      if numberBySource[source] == nil {
-        citations.append(MemoryCitation(id: reference.id, excerpt: reference.excerpt))
-        numberBySource[source] = citations.count
+  static func prepare(body: String, citations: [MemoryCitation]) -> (content: String, outline: [MemoryOutlineItem]) {
+    var content = body
+    for citation in citations {
+      let token = "[^\(citation.id)]"
+      if content.contains(token) {
+        let number = citation.id
+        content = content.replacingOccurrences(
+          of: token,
+          with: " [\\[\(number)\\]](noema-citation://\(number))"
+        )
       }
-      let number = numberBySource[source] ?? citations.count
-      content = content.replacingOccurrences(
-        of: token,
-        with: " [\\[\(number)\\]](noema-citation://\(number))"
-      )
-    }
-    if citations.isEmpty {
-      citations = sources.map { MemoryCitation(id: $0.id, excerpt: $0.excerpt) }
     }
 
     let outline = content.components(separatedBy: .newlines).compactMap { line -> MemoryOutlineItem? in
@@ -584,7 +574,7 @@ private enum MemoryMarkdown {
       guard !label.isEmpty else { return nil }
       return MemoryOutlineItem(id: memoryHeadingID(label), label: label, level: hashes.count)
     }
-    return (content.trimmingCharacters(in: .whitespacesAndNewlines), outline: outline, citations: citations)
+    return (content.trimmingCharacters(in: .whitespacesAndNewlines), outline: outline)
   }
 
   static func sections(_ content: String) -> [MemoryMarkdownSection] {

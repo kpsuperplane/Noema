@@ -136,6 +136,8 @@ pub struct ConversationItemRecord {
     pub payload_json: Value,
     /// Additional structured metadata.
     pub metadata: Value,
+    /// Durable creation timestamp.
+    pub created_at: String,
 }
 
 /// Bounded visible conversation item page returned to product replay callers.

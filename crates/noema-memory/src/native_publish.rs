@@ -164,6 +164,18 @@ impl NativeMemory {
     ) -> Result<String, NativeMemoryError> {
         let title = change.title.trim();
         let body = change.body.trim();
+        let definitions = change
+            .citations
+            .iter()
+            .enumerate()
+            .map(|(index, citation)| format!("[^{}]: {}", index + 1, citation.sources.join(" ")))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let body = if definitions.is_empty() {
+            body.to_string()
+        } else {
+            format!("{body}\n\n{definitions}")
+        };
         let rendered_body = format!("# {title}\n\n{body}");
         validate_page_content(&rendered_body)?;
         let now = timestamp_now();
@@ -205,20 +217,8 @@ impl NativeMemory {
                 "expected hash provided for new page {path}"
             )));
         }
-        let source_lines = if change.sources.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "sources:\n{}",
-                change
-                    .sources
-                    .iter()
-                    .map(|source| format!("  - {source}\n"))
-                    .collect::<String>()
-            )
-        };
         Ok(format!(
-            "---\nschema: noema.memory.page/v1\nid: {id}\nowner: {MEMORY_OWNER}\nscope: {MEMORY_SCOPE}\ntitle: {}\nicon: {}\ncreated_at: {created_at}\nupdated_at: {now}\n{source_lines}---\n\n# {}\n\n{}\n",
+            "---\nschema: noema.memory.page/v2\nid: {id}\nowner: {MEMORY_OWNER}\nscope: {MEMORY_SCOPE}\ntitle: {}\nicon: {}\ncreated_at: {created_at}\nupdated_at: {now}\n---\n\n# {}\n\n{}\n",
             title, change.icon, title, body,
         ))
     }

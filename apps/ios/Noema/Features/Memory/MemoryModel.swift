@@ -4,9 +4,38 @@ import Foundation
 import Observation
 import NoemaAPI
 
+enum MemorySourceKind: Hashable {
+  case humanMessage
+  case toolResult
+  case unavailable
+
+  init(graphQLValue: String) {
+    switch graphQLValue {
+    case "HUMAN_MESSAGE": self = .humanMessage
+    case "TOOL_RESULT": self = .toolResult
+    default: self = .unavailable
+    }
+  }
+
+  var label: String {
+    switch self {
+    case .humanMessage: "Human message"
+    case .toolResult: "Tool result"
+    case .unavailable: "Unavailable source"
+    }
+  }
+}
+
 struct MemorySource: Identifiable, Hashable {
   let id: String
+  let kind: MemorySourceKind
   let excerpt: String?
+  let createdAt: String?
+}
+
+struct MemoryCitation: Identifiable, Hashable {
+  let id: Int
+  let sources: [MemorySource]
 }
 
 struct MemoryPageRef: Identifiable, Hashable {
@@ -25,7 +54,7 @@ struct MemoryArticle: Identifiable, Hashable {
   let icon: String
   let body: String
   let hash: String
-  let sources: [MemorySource]
+  let citations: [MemoryCitation]
   let parent: String?
   let ancestors: [MemoryPageRef]
   let children: [MemoryPageRef]
@@ -256,7 +285,19 @@ final class MemoryModel {
       icon: value.icon,
       body: value.body,
       hash: value.hash,
-      sources: value.sourceReferences.map { MemorySource(id: $0.source, excerpt: $0.excerpt) },
+      citations: value.citations.enumerated().map { index, citation in
+        MemoryCitation(
+          id: index + 1,
+          sources: citation.sources.map {
+            MemorySource(
+              id: $0.source,
+              kind: MemorySourceKind(graphQLValue: $0.kind.rawValue),
+              excerpt: $0.excerpt,
+              createdAt: $0.createdAt
+            )
+          }
+        )
+      },
       parent: value.parent,
       ancestors: value.ancestors.map(Self.pageRef(from:)),
       children: value.children.map(Self.pageRef(from:))
@@ -271,7 +312,19 @@ final class MemoryModel {
       icon: value.icon,
       body: value.body,
       hash: value.hash,
-      sources: value.sourceReferences.map { MemorySource(id: $0.source, excerpt: $0.excerpt) },
+      citations: value.citations.enumerated().map { index, citation in
+        MemoryCitation(
+          id: index + 1,
+          sources: citation.sources.map {
+            MemorySource(
+              id: $0.source,
+              kind: MemorySourceKind(graphQLValue: $0.kind.rawValue),
+              excerpt: $0.excerpt,
+              createdAt: $0.createdAt
+            )
+          }
+        )
+      },
       parent: value.parent,
       ancestors: value.ancestors.map(Self.pageRef(from:)),
       children: value.children.map(Self.pageRef(from:))
@@ -306,7 +359,19 @@ final class MemoryModel {
       icon: value.icon,
       body: value.body,
       hash: value.hash,
-      sources: value.sourceReferences.map { MemorySource(id: $0.source, excerpt: $0.excerpt) },
+      citations: value.citations.enumerated().map { index, citation in
+        MemoryCitation(
+          id: index + 1,
+          sources: citation.sources.map {
+            MemorySource(
+              id: $0.source,
+              kind: MemorySourceKind(graphQLValue: $0.kind.rawValue),
+              excerpt: $0.excerpt,
+              createdAt: $0.createdAt
+            )
+          }
+        )
+      },
       parent: value.parent,
       ancestors: value.ancestors.map(Self.pageRef(from:)),
       children: value.children.map(Self.pageRef(from:))

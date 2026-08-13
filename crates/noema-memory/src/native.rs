@@ -60,9 +60,6 @@ pub const MEMORY_PAGE_ICON_KEYS: &[&str] = &[
     "notebook-pen",
 ];
 
-const ROOT_PAGE_FALLBACK_ICON: &str = "user";
-const PAGE_FALLBACK_ICON: &str = "file-text";
-
 /// Model-visible page read tool name.
 pub const READ_MEMORY_PAGE_TOOL_NAME: &str = "read_memory_page";
 /// Model-visible native lexical search tool name.
@@ -126,8 +123,15 @@ pub struct MemoryPageChange {
     pub icon: String,
     /// Markdown page body, excluding frontmatter.
     pub body: String,
-    /// Source item identifiers cited by the page.
+    /// Evidence groups cited by numeric markers in the page body.
     #[serde(default)]
+    pub citations: Vec<MemoryCitation>,
+}
+
+/// Exact evidence sources shown under one inline citation marker.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryCitation {
+    /// Durable source identifiers supporting the nearby claim.
     pub sources: Vec<String>,
 }
 
@@ -157,8 +161,8 @@ pub struct MemoryPage {
     pub body: String,
     /// SHA-256 hash of the canonical page bytes.
     pub hash: String,
-    /// Canonical conversation-item sources from frontmatter.
-    pub sources: Vec<String>,
+    /// Ordered evidence groups derived from generated footnote definitions.
+    pub citations: Vec<MemoryCitation>,
     /// Parent page path, when this page is nested below another page.
     pub parent: Option<String>,
     /// Ordered ancestor references from the nearest root-level page downward.
@@ -282,9 +286,9 @@ impl NativeMemory {
                 expected_hash: None,
                 path: ROOT_PAGE_PATH.to_string(),
                 title: "Human memory".to_string(),
-                icon: ROOT_PAGE_FALLBACK_ICON.to_string(),
+                icon: "user".to_string(),
                 body: String::new(),
-                sources: Vec::new(),
+                citations: Vec::new(),
             };
             self.write_page(&change)?;
         }
@@ -390,7 +394,7 @@ impl NativeMemory {
             icon: parsed.icon,
             body: parsed.body,
             hash: parsed.hash,
-            sources: parsed.sources,
+            citations: parsed.citations,
             parent,
             ancestors,
             children,
@@ -571,7 +575,7 @@ impl NativeMemory {
     fn parse_page(&self, path: &str) -> Result<ParsedPage, NativeMemoryError> {
         let content = fs::read_to_string(self.root().join(path))?;
         let (frontmatter, body) = split_frontmatter(&content)?;
-        if frontmatter.get("schema").map(String::as_str) != Some("noema.memory.page/v1")
+        if frontmatter.get("schema").map(String::as_str) != Some("noema.memory.page/v2")
             || frontmatter.get("owner").map(String::as_str) != Some(MEMORY_OWNER)
             || frontmatter.get("scope").map(String::as_str) != Some(MEMORY_SCOPE)
         {
@@ -582,24 +586,11 @@ impl NativeMemory {
         let title = frontmatter
             .get("title")
             .cloned()
-            .or_else(|| {
-                body.lines()
-                    .find_map(|line| line.strip_prefix("# ").map(str::to_string))
-            })
-            .unwrap_or_else(|| {
-                Path::new(path)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or(path)
-                    .to_string()
-            });
-        let icon = frontmatter.get("icon").cloned().unwrap_or_else(|| {
-            if path == ROOT_PAGE_PATH {
-                ROOT_PAGE_FALLBACK_ICON.to_string()
-            } else {
-                PAGE_FALLBACK_ICON.to_string()
-            }
-        });
+            .ok_or_else(|| NativeMemoryError::InvalidPage(format!("{path} has no title")))?;
+        let icon = frontmatter
+            .get("icon")
+            .cloned()
+            .ok_or_else(|| NativeMemoryError::InvalidPage(format!("{path} has no icon")))?;
         if !MEMORY_PAGE_ICON_KEYS.contains(&icon.as_str()) {
             return Err(NativeMemoryError::InvalidPage(format!(
                 "{path} has unsupported icon {icon}"
@@ -611,14 +602,13 @@ impl NativeMemory {
             .strip_prefix(&generated_heading)
             .filter(|rest| rest.is_empty() || rest.starts_with('\n'))
             .unwrap_or(body)
-            .trim()
-            .to_string();
+            .trim();
+        let (body, citations) = split_article_citations(body)?;
         let id = frontmatter
             .get("id")
             .cloned()
             .ok_or_else(|| NativeMemoryError::InvalidPage(format!("{path} has no id")))?;
         let created_at = frontmatter.get("created_at").cloned().unwrap_or_default();
-        let sources = source_manifest(&content);
         Ok(ParsedPage {
             id,
             title,
@@ -626,7 +616,7 @@ impl NativeMemory {
             body,
             hash: hash_content(content.as_bytes()),
             created_at,
-            sources,
+            citations,
         })
     }
 

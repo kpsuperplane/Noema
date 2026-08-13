@@ -39,6 +39,15 @@ impl MarkdownMessageDeltaSplitter {
             return;
         }
 
+        if self.fence.is_none() && content.trim().is_empty() {
+            self.leading.clear();
+            if self.segment_has_content {
+                self.segment_index = self.segment_index.saturating_add(1);
+                self.segment_has_content = false;
+            }
+            return;
+        }
+
         self.update_fence(content);
         if !self.segment_has_content && content.trim().is_empty() {
             self.leading.push_str(&line);
@@ -105,14 +114,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn exact_delimiters_split_across_chunks_but_fenced_rules_do_not() {
+    fn bubble_boundaries_split_across_chunks_but_fenced_rules_do_not() {
         let cases = [
             ("one\n---\ntwo", vec!["one", "two"]),
+            ("one\n\ntwo", vec!["one", "two"]),
             ("---\n\none\n---\n---\n\ntwo\n---", vec!["one", "two"]),
             (
                 "```md\n---\n```\n---\nafter",
                 vec!["```md\n---\n```", "after"],
             ),
+            ("```md\none\n\ntwo\n```", vec!["```md\none\n\ntwo\n```"]),
             ("~~~\n---\n~~~\n---\nafter", vec!["~~~\n---\n~~~", "after"]),
             ("before\n----\nafter", vec!["before\n----\nafter"]),
         ];

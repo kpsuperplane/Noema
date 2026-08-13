@@ -24,7 +24,9 @@ vertical slice or a net-negative reduction.
   `db/noema.sqlite3` is the only structured authority and is opened only by the
   server. Schema changes append immutable forward-only migrations.
 - Native Markdown under `memory/human/` is the durable human-memory authority;
-  SQLite FTS is rebuildable. Documented iconless-page reads remain supported.
+  SQLite FTS is rebuildable. Version-two pages store claim-level evidence
+  groups in generated footnotes. One visible citation can resolve several
+  exact human-message or tool-result sources.
 - Durable chat is reconstructed from conversation items. Live daemon and
   subscription state is coordination state only.
 - Hosted Codex search requests include ordered action sources. The runtime

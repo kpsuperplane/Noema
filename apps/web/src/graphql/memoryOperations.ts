@@ -39,9 +39,13 @@ export const MemoryTreeDocument = gql`
         icon
         body
         hash
-        sourceReferences {
-          source
-          excerpt
+        citations {
+          sources {
+            source
+            kind
+            excerpt
+            createdAt
+          }
         }
         parent
         children {
@@ -81,9 +85,13 @@ export const MemoryPageDocument = gql`
       icon
       body
       hash
-      sourceReferences {
-        source
-        excerpt
+      citations {
+        sources {
+          source
+          kind
+          excerpt
+          createdAt
+        }
       }
       ancestors {
         id
@@ -112,9 +120,13 @@ export const MemoryEventsDocument = gql`
         icon
         body
         hash
-        sourceReferences {
-          source
-          excerpt
+        citations {
+          sources {
+            source
+            kind
+            excerpt
+            createdAt
+          }
         }
         parent
         children {
