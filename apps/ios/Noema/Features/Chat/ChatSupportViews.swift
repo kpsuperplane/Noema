@@ -301,7 +301,7 @@ struct ChatComposer: View {
   }
 
   private var microphoneButton: some View {
-    Image(systemName: "mic.fill")
+    Image(systemName: voiceInput.isRecording ? "paperplane" : "mic.fill")
       .font(NoemaFont.bodyEmphasized)
       .foregroundStyle(NoemaColor.white)
       .symbolEffect(.pulse, options: .repeating, isActive: voiceInput.isRecording && !reduceMotion)
