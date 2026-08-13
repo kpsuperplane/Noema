@@ -85,7 +85,6 @@ private struct ChatLoadingView: View {
           .padding(.horizontal, NoemaSpacing.xl)
           .padding(.bottom, NoemaSpacing.sm)
           .frame(maxWidth: .infinity)
-          .background(NoemaColor.surface)
       }
       .accessibilityElement(children: .contain)
       .accessibilityLabel("Loading chat")
@@ -326,7 +325,7 @@ struct ChatReadyView: View {
             }
 
             Color.clear
-              .frame(height: NoemaSpacing.xxl + NoemaSpacing.xxl)
+              .frame(height: NoemaSpacing.md)
               .id("chat-bottom")
           }
           .padding(.top, NoemaSpacing.xxl + NoemaSpacing.xl + NoemaSpacing.compact)
@@ -413,41 +412,26 @@ struct ChatReadyView: View {
       .padding(.horizontal, NoemaSpacing.xl)
       .padding(.bottom, horizontalSizeClass == .compact ? 0 : NoemaSpacing.sm)
       .frame(maxWidth: .infinity)
-      .background(NoemaColor.surface)
       .overlay(alignment: .top) {
-        ZStack(alignment: .top) {
-          LinearGradient(
-            colors: [NoemaColor.surface.opacity(0), NoemaColor.surface],
-            startPoint: .top,
-            endPoint: .bottom
-          )
-          .frame(height: 48)
-          .offset(y: -48)
-          .allowsHitTesting(false)
-          .zIndex(0)
-
-          if !followBottom && !model.messages.isEmpty {
-            Button {
-              followBottom = true
-              scrollToBottomRequest += 1
-            } label: {
-              Image(systemName: "arrow.down")
-                .font(.system(size: 16, weight: .regular))
-                .foregroundStyle(NoemaColor.content)
-                .frame(width: 32, height: 32)
-                .background(NoemaColor.surface, in: Circle())
-                .overlay {
-                  Circle()
-                    .stroke(NoemaColor.separator, lineWidth: 1)
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Scroll to end")
-            .offset(y: -(32 + NoemaSpacing.sm + 2))
-            .zIndex(3)
+        if !followBottom && !model.messages.isEmpty {
+          Button {
+            followBottom = true
+            scrollToBottomRequest += 1
+          } label: {
+            Image(systemName: "arrow.down")
+              .font(.system(size: 16, weight: .regular))
+              .foregroundStyle(NoemaColor.content)
+              .frame(width: 32, height: 32)
+              .background(NoemaColor.surface, in: Circle())
+              .overlay {
+                Circle()
+                  .stroke(NoemaColor.separator, lineWidth: 1)
+              }
           }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Scroll to end")
+          .offset(y: -(32 + NoemaSpacing.sm + 2))
         }
-        .frame(maxWidth: .infinity)
       }
     }
   }
