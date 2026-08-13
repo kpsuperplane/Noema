@@ -194,6 +194,76 @@ async fn live_registration_binds_to_active_client_and_redacts_tokens() {
 }
 
 #[tokio::test]
+async fn disabling_live_activities_clears_a_dismissed_session() {
+    let store = test_store().await;
+    store
+        .insert_client("client:live", "human:local", "Phone", [2; 32])
+        .await
+        .expect("insert client");
+    store
+        .register_client_live_activities(
+            "client:live",
+            &[1, 2, 3],
+            ApnsEnvironment::Production,
+            &[],
+        )
+        .await
+        .expect("register Live Activities");
+    let activity = store
+        .client_task_activity("client:live")
+        .await
+        .expect("read activity")
+        .expect("starting activity");
+    store
+        .update_client_task_activity_projection(
+            "client:live",
+            &json!({"focusTaskId":"task:one"}),
+            &"a".repeat(64),
+            Some("task:one"),
+        )
+        .await
+        .expect("save projection");
+    store
+        .dismiss_client_live_activity(
+            "client:live",
+            activity.activity_id.as_deref().expect("activity id"),
+            false,
+        )
+        .await
+        .expect("dismiss activity");
+
+    store
+        .disable_client_live_activities("client:live")
+        .await
+        .expect("disable Live Activities");
+
+    let activity = store
+        .client_task_activity("client:live")
+        .await
+        .expect("reload activity")
+        .expect("dismissed activity");
+    assert_eq!(activity.lifecycle, "dismissed");
+    assert!(activity.latest_projection_signature.is_empty());
+    assert!(activity.focused_task_id.is_none());
+
+    store
+        .register_client_live_activities(
+            "client:live",
+            &[1, 2, 3],
+            ApnsEnvironment::Production,
+            &[],
+        )
+        .await
+        .expect("enable Live Activities");
+    assert!(
+        store
+            .ensure_client_task_activity_session("client:live")
+            .await
+            .expect("create replacement session")
+    );
+}
+
+#[tokio::test]
 async fn live_activity_end_delivery_dismisses_and_allows_a_new_session() {
     let store = test_store().await;
     store

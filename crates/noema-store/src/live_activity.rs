@@ -221,7 +221,7 @@ impl NoemaStore {
                 return Err(invalid("paired client is unavailable for Live Activity disablement"));
             }
             let activity_changed = transaction.execute(
-                "UPDATE client_task_activities SET lifecycle = 'dismissed', suppressed = 1, latest_projection_json = '{}', latest_projection_signature = '', focused_task_id = NULL, dismissed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND lifecycle <> 'dismissed'",
+                "UPDATE client_task_activities SET lifecycle = 'dismissed', suppressed = 1, latest_projection_json = '{}', latest_projection_signature = '', focused_task_id = NULL, dismissed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1",
                 [client_id],
             )?;
             transaction.execute(
