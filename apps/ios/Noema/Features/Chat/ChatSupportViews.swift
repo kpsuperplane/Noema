@@ -139,13 +139,14 @@ struct ChatComposer: View {
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+  private let composerMaxWidth: CGFloat = 760
   private let voiceControlSize: CGFloat = 50
 
   private var preferredWidth: CGFloat {
-    if voiceInput.isEngaged { return 760 }
+    if voiceInput.showsCancel { return composerMaxWidth }
     let content = model.draft.isEmpty ? placeholder : model.draft
     let longestLine = content.split(whereSeparator: \.isNewline).map(\.count).max() ?? 0
-    return min(760, max(200, CGFloat(longestLine) * 7 + 94))
+    return min(composerMaxWidth, max(200, CGFloat(longestLine) * 7 + 94))
   }
 
   private var placeholder: String {
@@ -163,6 +164,19 @@ struct ChatComposer: View {
     !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
+  private var composerActionSends: Bool {
+    hasDraft && !voiceInput.isEngaged
+  }
+
+  private var composerActionSymbol: String {
+    if composerActionSends || voiceInput.isRecording { return "paperplane" }
+    return "mic.fill"
+  }
+
+  private var composerActionEnabled: Bool {
+    composerActionSends ? canSend : canUseVoice
+  }
+
   private var canUseVoice: Bool {
     voiceInput.showsCancel || (isEditable && isSendEnabled && !model.isSending && !model.isOffline)
   }
@@ -172,6 +186,18 @@ struct ChatComposer: View {
     return voiceInput.showsCancel
       ? NoemaSpring.surface
       : NoemaSpring.surface.speed(0.8)
+  }
+
+  private var composerActionIconTransition: AnyTransition {
+    guard !reduceMotion else { return .identity }
+    return .asymmetric(
+      insertion: .scale(scale: 0.25)
+        .combined(with: .opacity)
+        .animation(NoemaSpring.micro.delay(0.07)),
+      removal: .scale(scale: 0.25)
+        .combined(with: .opacity)
+        .animation(.easeOut(duration: 0.07))
+    )
   }
 
   private var composerText: Binding<String> {
@@ -185,7 +211,14 @@ struct ChatComposer: View {
 
   var body: some View {
     HStack(alignment: .center, spacing: NoemaSpacing.sm) {
-      if voiceInput.showsCancel { cancelButton.zIndex(1) }
+      if voiceInput.showsCancel {
+        cancelButton
+          .transition(.asymmetric(
+            insertion: .offset(x: -composerMaxWidth).combined(with: .opacity),
+            removal: .opacity
+          ))
+          .zIndex(1)
+      }
       composerSurface
         .layoutPriority(1)
     }
@@ -277,19 +310,28 @@ struct ChatComposer: View {
     }
   }
 
-  @ViewBuilder
   private var composerActionButton: some View {
-    if hasDraft, !voiceInput.isEngaged {
+    ZStack {
+      composerActionLabel(symbol: composerActionSymbol, enabled: composerActionEnabled)
+      composerActionHitTarget
+    }
+  }
+
+  @ViewBuilder
+  private var composerActionHitTarget: some View {
+    if composerActionSends {
       Button {
         Task { await model.send() }
       } label: {
-        composerActionLabel(symbol: "paperplane", enabled: canSend)
+        Color.clear.frame(width: 40, height: 40)
       }
       .buttonStyle(.plain)
+      .contentShape(.interaction, NoemaSuperellipse(cornerRadius: 26))
       .disabled(!canSend)
       .accessibilityLabel("Send message")
     } else {
-      composerActionLabel(symbol: voiceInput.isRecording ? "paperplane" : "mic.fill", enabled: canUseVoice)
+      Color.clear
+        .frame(width: 40, height: 40)
         .contentShape(.interaction, NoemaSuperellipse(cornerRadius: 26))
         .gesture(microphoneGesture)
         .disabled(!canUseVoice)
@@ -329,14 +371,19 @@ struct ChatComposer: View {
   }
 
   private func composerActionLabel(symbol: String, enabled: Bool) -> some View {
-    Image(systemName: symbol)
-      .font(NoemaFont.bodyEmphasized)
-      .foregroundStyle(NoemaColor.pine500.opacity(enabled ? 1 : 0.7))
-      .symbolEffect(.pulse, options: .repeating, isActive: voiceInput.isRecording && !reduceMotion)
-      .frame(width: 40, height: 40)
-      .background(NoemaColor.white, in: NoemaSuperellipse(cornerRadius: 26))
-      .scaleEffect(microphonePressed ? 0.94 : 1)
-      .animation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion), value: microphonePressed)
+    ZStack {
+      Image(systemName: symbol)
+        .id(symbol)
+        .transition(composerActionIconTransition)
+        .symbolEffect(.pulse, options: .repeating, isActive: voiceInput.isRecording && !reduceMotion)
+    }
+    .font(NoemaFont.bodyEmphasized)
+    .foregroundStyle(NoemaColor.pine500.opacity(enabled ? 1 : 0.7))
+    .animation(reduceMotion ? nil : NoemaSpring.micro, value: symbol)
+    .frame(width: 40, height: 40)
+    .background(NoemaColor.white, in: NoemaSuperellipse(cornerRadius: 26))
+    .scaleEffect(microphonePressed ? 0.94 : 1)
+    .animation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion), value: microphonePressed)
   }
 
   private var microphoneGesture: some Gesture {
