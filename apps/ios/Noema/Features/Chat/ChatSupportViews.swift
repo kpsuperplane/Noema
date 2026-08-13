@@ -176,7 +176,7 @@ struct ChatComposer: View {
 
   var body: some View {
     HStack(alignment: .center, spacing: NoemaSpacing.sm) {
-      if voiceInput.showsCancel { cancelButton }
+      if voiceInput.showsCancel { cancelButton.zIndex(1) }
       composerSurface
         .layoutPriority(1)
     }
@@ -295,17 +295,24 @@ struct ChatComposer: View {
     Button { voiceInput.cancel() } label: {
       Image(systemName: "xmark")
         .font(NoemaFont.bodyEmphasized)
-        .foregroundStyle(NoemaColor.white)
+        .foregroundStyle(voiceInput.cancelTargeted ? NoemaColor.red700 : NoemaColor.white)
         .frame(width: voiceControlSize, height: voiceControlSize)
-        .background(NoemaColor.red700.opacity(voiceInput.cancelTargeted ? 1 : 0.82), in: NoemaSuperellipse(cornerRadius: 26))
+        .background(
+          voiceInput.cancelTargeted ? NoemaColor.white : NoemaColor.red700.opacity(0.82),
+          in: NoemaSuperellipse(cornerRadius: 26)
+        )
         .overlay {
           NoemaSuperellipse(cornerRadius: 26)
-            .stroke(NoemaColor.white.opacity(voiceInput.cancelTargeted ? 0.9 : 0), lineWidth: 2)
+            .stroke(NoemaColor.red700.opacity(voiceInput.cancelTargeted ? 1 : 0), lineWidth: 2)
         }
         .scaleEffect(voiceInput.cancelTargeted ? 1.06 : 1)
+        .animation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion), value: voiceInput.cancelTargeted)
     }
     .buttonStyle(.plain)
     .accessibilityLabel("Cancel voice input")
+    .sensoryFeedback(.selection, trigger: voiceInput.cancelTargeted) { oldValue, newValue in
+      !oldValue && newValue
+    }
     .onGeometryChange(for: CGRect.self) { proxy in
       proxy.frame(in: .named(chatVoiceCoordinateSpace))
     } action: { frame in
