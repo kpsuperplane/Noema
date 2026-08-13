@@ -49,6 +49,8 @@ final class NoemaLiveActivityService {
     status?.available == true && status?.enabled == false && activitiesEnabled && !isWorking
   }
 
+  var isEnabled: Bool { desiredEnabled }
+
   var hasRunningActivity: Bool {
     guard let profile else { return false }
     return !matchingActivities(for: profile).isEmpty
@@ -121,7 +123,10 @@ final class NoemaLiveActivityService {
     defer { isWorking = false }
     errorMessage = nil
     activitiesEnabled = ActivityAuthorizationInfo().areActivitiesEnabled
-    guard activitiesEnabled else { return }
+    guard activitiesEnabled else {
+      desiredEnabled = false
+      return
+    }
     readPushToStartToken()
     startTokenObserver()
     startActivityObserver()
@@ -153,10 +158,12 @@ final class NoemaLiveActivityService {
         errorMessage = nil
       } catch {
         succeeded = false
+        desiredEnabled = status?.enabled == true
         errorMessage = "Noema must reach the paired server before Live Activities can be removed."
       }
     } else {
       succeeded = false
+      desiredEnabled = status?.enabled == true
       errorMessage = "Noema must reach the paired server before Live Activities can be removed."
     }
     await endActivities(for: profile, notifyServer: false)
@@ -290,6 +297,8 @@ final class NoemaLiveActivityService {
       )
       errorMessage = nil
     } catch {
+      guard desiredEnabled, generation == registrationGeneration else { return }
+      desiredEnabled = status?.enabled == true
       errorMessage = "Noema could not register Live Activities on this device."
     }
   }

@@ -50,7 +50,7 @@ struct ClientLiveActivitiesSettings: View {
       Toggle(
         "Task Live Activities",
         isOn: Binding(
-          get: { liveActivities.status?.enabled == true },
+          get: { liveActivities.isEnabled },
           set: { enabled in
             Task {
               if enabled {
@@ -66,7 +66,7 @@ struct ClientLiveActivitiesSettings: View {
       .toggleStyle(SettingsCompactToggleStyle())
       .disabled(
         liveActivities.isWorking
-          || (liveActivities.status?.enabled != true && !liveActivities.canEnable))
+          || (!liveActivities.isEnabled && !liveActivities.canEnable))
     }
   }
 }
