@@ -140,12 +140,10 @@ struct ChatComposer: View {
   private let voiceControlSize: CGFloat = 50
 
   private var preferredWidth: CGFloat {
-    let content = voiceInput.isEngaged
-      ? (voiceInput.previewText.isEmpty ? voiceInput.previewPlaceholder : voiceInput.previewText)
-      : (model.draft.isEmpty ? placeholder : model.draft)
+    if voiceInput.isEngaged { return 760 }
+    let content = model.draft.isEmpty ? placeholder : model.draft
     let longestLine = content.split(whereSeparator: \.isNewline).map(\.count).max() ?? 0
     let voiceControls = voiceControlSize + NoemaSpacing.sm
-      + (voiceInput.showsCancel ? voiceControlSize + NoemaSpacing.sm : 0)
     return min(760, max(200 + voiceControls, CGFloat(longestLine) * 7 + 94 + voiceControls))
   }
 
