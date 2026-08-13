@@ -48,7 +48,7 @@ struct ClientLiveActivitiesSettings: View {
       .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
     } else {
       Toggle(
-        "Task Live Activities",
+        "",
         isOn: Binding(
           get: { liveActivities.isEnabled },
           set: { enabled in
@@ -63,6 +63,7 @@ struct ClientLiveActivitiesSettings: View {
         )
       )
       .labelsHidden()
+      .accessibilityLabel("Task Live Activities")
       .toggleStyle(SettingsCompactToggleStyle())
       .disabled(
         liveActivities.isWorking

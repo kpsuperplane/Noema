@@ -45,7 +45,7 @@ struct ClientNotificationsSettings: View {
       .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
     } else {
       Toggle(
-        "Device notifications",
+        "",
         isOn: Binding(
           get: { notifications.status?.enabled == true },
           set: { enabled in
@@ -60,6 +60,7 @@ struct ClientNotificationsSettings: View {
         )
       )
       .labelsHidden()
+      .accessibilityLabel("Device notifications")
       .toggleStyle(SettingsCompactToggleStyle())
       .disabled(
         notifications.isWorking
