@@ -409,8 +409,7 @@ struct ChatReadyView: View {
         }
         ChatComposer(
           model: model,
-          autoFocus: shellCoordinator.activeDestination == .chat,
-          restingBottomOffset: horizontalSizeClass == .compact ? 12 : 0
+          autoFocus: shellCoordinator.activeDestination == .chat
         )
           .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 760, alignment: .trailing)
       }

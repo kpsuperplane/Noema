@@ -127,7 +127,6 @@ struct ChatComposer: View {
   var isSendEnabled = true
   var placeholderOverride: String?
   var autoFocus = false
-  var restingBottomOffset: CGFloat = 0
   @State private var voiceInput = ChatVoiceInput()
   @State private var cancelFrame = CGRect.zero
   @State private var microphoneLocation = CGPoint.zero
@@ -218,7 +217,6 @@ struct ChatComposer: View {
     .fixedSize(horizontal: false, vertical: true)
     .coordinateSpace(name: chatVoiceCoordinateSpace)
     .frame(maxWidth: composerMaxWidth)
-    .offset(y: inputFocused ? 0 : restingBottomOffset)
     .padding(.bottom, inputFocused ? NoemaSpacing.sm : 0)
     .task(id: autoFocus) {
       guard autoFocus, isEditable, !voiceInput.isEngaged else { return }
