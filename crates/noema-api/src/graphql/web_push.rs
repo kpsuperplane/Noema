@@ -2196,6 +2196,7 @@ mod tests {
             content_text: Some("  Ready   for you.  ".to_string()),
             payload_json: json!({}),
             metadata: json!({"phase": phase}),
+            created_at: String::new(),
         }
     }
     #[tokio::test]

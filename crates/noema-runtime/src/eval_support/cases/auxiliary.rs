@@ -171,7 +171,9 @@ fn memory_consolidation_request(model_id: &str) -> Result<GenerateRequest, Strin
         icon: "user".to_string(),
         body: "Kevin enjoys outdoor activities.".to_string(),
         hash: "hash-root".to_string(),
-        sources: vec!["item:existing".to_string()],
+        citations: vec![noema_memory::MemoryCitation {
+            sources: vec!["item:existing".to_string()],
+        }],
         parent: None,
         ancestors: Vec::new(),
         children: Vec::new(),

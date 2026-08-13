@@ -739,6 +739,7 @@ mod tests {
             content_text: Some(text.to_string()),
             payload_json,
             metadata: serde_json::json!({}),
+            created_at: String::new(),
         }
     }
 

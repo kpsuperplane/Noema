@@ -51,7 +51,7 @@
                         title: "Career".to_string(),
                         icon: "briefcase-business".to_string(),
                         body: "Engineering career.".to_string(),
-                        sources: vec![],
+                        citations: vec![],
                     },
                     noema_memory::MemoryPageChange {
                         id: None,
@@ -60,7 +60,7 @@
                         title: "Learning".to_string(),
                         icon: "graduation-cap".to_string(),
                         body: "Technical learning.".to_string(),
-                        sources: vec![],
+                        citations: vec![],
                     },
                 ],
                 deletes: vec![],

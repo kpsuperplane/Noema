@@ -1,8 +1,9 @@
 //! GraphQL adapters for the native Markdown memory tree.
 
-use async_graphql::{InputObject, Result, SimpleObject};
+use async_graphql::{Enum, InputObject, Result, SimpleObject};
 use futures_util::Stream;
-use noema_memory::{MemoryPage, MemoryPageRef, NativeMemoryError};
+use noema_conversations::ConversationItemKind;
+use noema_memory::{MemoryCitation, MemoryPage, MemoryPageRef, NativeMemoryError};
 use noema_store::AuxiliaryModelTask;
 
 use super::{
@@ -32,8 +33,7 @@ pub struct GraphqlNativeMemoryPage {
     pub icon: String,
     pub body: String,
     pub hash: String,
-    pub sources: Vec<String>,
-    pub source_references: Vec<GraphqlNativeMemorySourceReference>,
+    pub citations: Vec<GraphqlNativeMemoryCitation>,
     pub parent: Option<String>,
     pub ancestors: Vec<GraphqlNativeMemoryPageRef>,
     pub children: Vec<GraphqlNativeMemoryPageRef>,
@@ -42,7 +42,21 @@ pub struct GraphqlNativeMemoryPage {
 #[derive(Clone, Debug, SimpleObject)]
 pub struct GraphqlNativeMemorySourceReference {
     pub source: String,
+    pub kind: GraphqlNativeMemorySourceKind,
     pub excerpt: Option<String>,
+    pub created_at: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+pub enum GraphqlNativeMemorySourceKind {
+    HumanMessage,
+    ToolResult,
+    Unavailable,
+}
+
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlNativeMemoryCitation {
+    pub sources: Vec<GraphqlNativeMemorySourceReference>,
 }
 
 #[derive(Clone, Debug, SimpleObject)]
@@ -252,7 +266,7 @@ async fn update_status(
 }
 
 async fn page(state: &GraphqlState, page: MemoryPage) -> Result<GraphqlNativeMemoryPage> {
-    let source_references = source_references(state.store()?, &page.sources).await?;
+    let citations = citations(state.store()?, &page.citations).await?;
     Ok(GraphqlNativeMemoryPage {
         id: page.id,
         path: page.path,
@@ -260,32 +274,72 @@ async fn page(state: &GraphqlState, page: MemoryPage) -> Result<GraphqlNativeMem
         icon: page.icon,
         body: page.body,
         hash: page.hash,
-        sources: page.sources,
-        source_references,
+        citations,
         parent: page.parent,
         ancestors: page.ancestors.into_iter().map(child).collect(),
         children: page.children.into_iter().map(child).collect(),
     })
 }
 
-async fn source_references(
+async fn citations(
     store: &noema_store::NoemaStore,
-    sources: &[String],
-) -> Result<Vec<GraphqlNativeMemorySourceReference>> {
-    let mut references = Vec::with_capacity(sources.len());
-    for source in sources {
-        let excerpt = store
-            .get_visible_conversation_item(source)
-            .await
-            .map_err(graphql_error)?
-            .and_then(|item| item.content_text)
-            .map(|text| bounded_reference_excerpt(&text));
-        references.push(GraphqlNativeMemorySourceReference {
-            source: source.clone(),
-            excerpt,
-        });
+    citations: &[MemoryCitation],
+) -> Result<Vec<GraphqlNativeMemoryCitation>> {
+    let mut result = Vec::with_capacity(citations.len());
+    for citation in citations {
+        let mut sources = Vec::with_capacity(citation.sources.len());
+        for source in &citation.sources {
+            let item = store
+                .get_visible_conversation_item(source)
+                .await
+                .map_err(graphql_error)?;
+            let (kind, excerpt, created_at) = item.map_or_else(
+                || (GraphqlNativeMemorySourceKind::Unavailable, None, None),
+                |item| {
+                    let (kind, text) = match item.kind {
+                        ConversationItemKind::UserText => (
+                            GraphqlNativeMemorySourceKind::HumanMessage,
+                            item.content_text,
+                        ),
+                        ConversationItemKind::ToolResult => (
+                            GraphqlNativeMemorySourceKind::ToolResult,
+                            item.payload_json
+                                .pointer("/metadata/action/payload")
+                                .map(serde_json::Value::to_string),
+                        ),
+                        ConversationItemKind::Activity
+                            if item
+                                .payload_json
+                                .get("activity_kind")
+                                .and_then(serde_json::Value::as_str)
+                                == Some("tool_result") =>
+                        {
+                            (
+                                GraphqlNativeMemorySourceKind::ToolResult,
+                                item.payload_json
+                                    .pointer("/metadata/action/payload")
+                                    .map(serde_json::Value::to_string),
+                            )
+                        }
+                        _ => (GraphqlNativeMemorySourceKind::Unavailable, None),
+                    };
+                    (
+                        kind,
+                        text.map(|text| bounded_reference_excerpt(&text)),
+                        Some(item.created_at),
+                    )
+                },
+            );
+            sources.push(GraphqlNativeMemorySourceReference {
+                source: source.clone(),
+                kind,
+                excerpt,
+                created_at,
+            });
+        }
+        result.push(GraphqlNativeMemoryCitation { sources });
     }
-    Ok(references)
+    Ok(result)
 }
 
 fn bounded_reference_excerpt(text: &str) -> String {

@@ -21,6 +21,7 @@ fn replay_record(
         content_text: content_text.map(str::to_string),
         payload_json,
         metadata: json!({"boundary": "preserved"}),
+        created_at: String::new(),
     }
 }
 

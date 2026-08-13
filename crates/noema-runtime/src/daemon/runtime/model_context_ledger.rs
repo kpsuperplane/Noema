@@ -150,6 +150,7 @@ mod tests {
             content_text: Some(update.model_visible_content()),
             payload_json: json!({ UPDATE_PAYLOAD_KEY: update }),
             metadata: json!({}),
+            created_at: String::new(),
         }
     }
 

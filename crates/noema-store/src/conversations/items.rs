@@ -117,9 +117,9 @@ impl NoemaStore {
         .await
     }
 
-    /// Capture one finite conversation head and its completed text evidence in
-    /// a single SQLite snapshot. Human text is evidence; assistant text is
-    /// bounded context for the memory model.
+    /// Capture one finite conversation head and its completed memory context in
+    /// a single SQLite snapshot. Human text and exact tool results are evidence;
+    /// assistant text is bounded context for the memory model.
     ///
     /// # Errors
     ///
@@ -145,7 +145,10 @@ impl NoemaStore {
                   AND sequence_index > ?2
                   AND sequence_index <= ?3
                   AND status = 'completed'
-                  AND kind IN ('user_text', 'assistant_text')
+                  AND (kind IN ('user_text', 'assistant_text', 'tool_result')
+                    OR (kind = 'activity'
+                      AND json_extract(metadata_json, '$.source') = 'provider_action'
+                      AND json_extract(payload_json, '$.activity_kind') = 'tool_result'))
                 ORDER BY sequence_index ASC
                 "#,
                 params![conversation_id, last_consolidated_sequence, captured_head_sequence],
@@ -270,40 +273,24 @@ impl NoemaStore {
                 Ok((next_sequence, true))
             })
             .await?;
-        if !inserted {
-            let existing = self
-                .with_connection(|conn| {
-                    collect_conversation_item_rows(
-                        conn,
-                        "WHERE item_id = ?1 LIMIT 1",
-                        params![item_id],
-                    )?
-                    .into_iter()
-                    .next()
-                    .map(conversation_item_from_row)
-                    .transpose()?
-                    .ok_or_else(|| StoreError::InvariantViolation {
-                        message: "idempotent conversation item disappeared".to_string(),
-                    })
+        let record = self
+            .with_connection(|conn| {
+                collect_conversation_item_rows(
+                    conn,
+                    "WHERE item_id = ?1 LIMIT 1",
+                    params![item_id],
+                )?
+                .into_iter()
+                .next()
+                .map(conversation_item_from_row)
+                .transpose()?
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: "conversation item disappeared after append".to_string(),
                 })
-                .await?;
-            return Ok((existing, false));
-        }
-        Ok((
-            ConversationItemRecord {
-                item_id: item_id.clone(),
-                conversation_id: item.conversation_id,
-                turn_id: item.turn_id,
-                sequence_index,
-                cursor: conversation_item_cursor(sequence_index),
-                kind: item.kind,
-                status: item.status,
-                content_text: item.content_text,
-                payload_json: item.payload_json,
-                metadata: item.metadata,
-            },
-            true,
-        ))
+            })
+            .await?;
+        debug_assert_eq!(record.sequence_index, sequence_index);
+        Ok((record, inserted))
     }
 
     /// List conversation items in replay order.
@@ -549,7 +536,7 @@ pub struct MemoryConversationSourceRange {
     pub conversation_id: String,
     /// Maximum sequence index captured before reading rows.
     pub captured_head_sequence: i64,
-    /// Completed user and assistant text items in sequence order.
+    /// Completed human text, assistant context, and tool evidence in sequence order.
     pub items: Vec<ConversationItemRecord>,
 }
 
@@ -565,7 +552,7 @@ where
         format!(
             r#"
             SELECT item_id, conversation_id, turn_id, kind, status, content_text,
-              payload_json, metadata_json, sequence_index
+              payload_json, metadata_json, sequence_index, created_at
             FROM conversation_items
             {clause}
             "#
@@ -623,6 +610,7 @@ struct ConversationItemRow {
     content_text: Option<String>,
     payload_json: String,
     metadata_json: String,
+    created_at: String,
 }
 
 fn conversation_item_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConversationItemRow> {
@@ -636,6 +624,7 @@ fn conversation_item_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Conversati
         payload_json: row.get(6)?,
         metadata_json: row.get(7)?,
         sequence_index: row.get(8)?,
+        created_at: row.get(9)?,
     })
 }
 
@@ -677,5 +666,6 @@ fn conversation_item_from_row(
         content_text: row.content_text,
         payload_json: deserialize_json(row.payload_json)?,
         metadata: deserialize_json(row.metadata_json)?,
+        created_at: row.created_at,
     })
 }

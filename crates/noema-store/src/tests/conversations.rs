@@ -199,19 +199,27 @@ async fn memory_source_range_captures_one_conversation_head_and_resumes_after_it
         ))
         .await
         .expect("second item");
+    store
+        .append_conversation_item(append(
+            noema_conversations::ConversationItemKind::ToolResult,
+            noema_conversations::ActorRef::new("agent:primary").expect("agent actor"),
+            "tool evidence",
+        ))
+        .await
+        .expect("tool result");
 
     let first = store
         .capture_memory_source_range(&conversation.conversation_id, 0)
         .await
         .expect("first source range");
-    assert_eq!(first.captured_head_sequence, 2);
+    assert_eq!(first.captured_head_sequence, 3);
     assert_eq!(
         first
             .items
             .iter()
             .map(|item| item.sequence_index)
             .collect::<Vec<_>>(),
-        vec![1, 2]
+        vec![1, 2, 3]
     );
 
     store
@@ -227,7 +235,7 @@ async fn memory_source_range_captures_one_conversation_head_and_resumes_after_it
         .await
         .expect("resumed source range");
 
-    assert_eq!(resumed.captured_head_sequence, 3);
+    assert_eq!(resumed.captured_head_sequence, 4);
     assert_eq!(resumed.items.len(), 1);
     assert_eq!(resumed.items[0].content_text.as_deref(), Some("later"));
 }

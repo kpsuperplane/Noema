@@ -120,6 +120,10 @@ surface abstraction.
 The web app uses Astryx and StyleX. Generated GraphQL types are the client
 contract; do not add hand-maintained mirrors for generated query shapes.
 
+Memory articles keep prose primary. One numeric citation represents one nearby
+claim. Its hover or focus card shows every exact evidence source with type,
+date, excerpt, and identifier.
+
 ## Validation
 
 For frontend changes, run `bun run lint` and `bun run build` from `apps/web`.

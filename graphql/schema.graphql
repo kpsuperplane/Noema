@@ -1658,6 +1658,10 @@ enum GovernedRisk {
 	CRITICAL
 }
 
+type GraphqlNativeMemoryCitation {
+	sources: [GraphqlNativeMemorySourceReference!]!
+}
+
 type GraphqlNativeMemoryPage {
 	id: String!
 	path: String!
@@ -1665,8 +1669,7 @@ type GraphqlNativeMemoryPage {
 	icon: String!
 	body: String!
 	hash: String!
-	sources: [String!]!
-	sourceReferences: [GraphqlNativeMemorySourceReference!]!
+	citations: [GraphqlNativeMemoryCitation!]!
 	parent: String
 	ancestors: [GraphqlNativeMemoryPageRef!]!
 	children: [GraphqlNativeMemoryPageRef!]!
@@ -1694,9 +1697,17 @@ type GraphqlNativeMemorySettings {
 	modelOptions: [AgentModelProviderOption!]!
 }
 
+enum GraphqlNativeMemorySourceKind {
+	HUMAN_MESSAGE
+	TOOL_RESULT
+	UNAVAILABLE
+}
+
 type GraphqlNativeMemorySourceReference {
 	source: String!
+	kind: GraphqlNativeMemorySourceKind!
 	excerpt: String
+	createdAt: String
 }
 
 type GraphqlNativeMemoryTree {

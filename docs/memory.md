@@ -17,23 +17,30 @@ Current authorities:
 Current implementation direction:
 
 - One Markdown tree under `memory/human/` is the durable memory authority for
-  `human:local`; page frontmatter owns semantic metadata and the filesystem
-  hierarchy owns parent-child structure.
+  `human:local`; page frontmatter owns semantic metadata, generated footnotes
+  own evidence groups, and the filesystem hierarchy owns parent-child structure.
 - Page frontmatter stores a model-chosen Lucide `icon` key alongside the title.
-  New and updated pages require a supported key; legacy iconless pages remain
-  unchanged and read as `user` for `root.md` or `file-text` for child pages.
+  Every page requires a supported key.
 - Each file is written as a compact Wikipedia-style article: one generated
   title, a concise lead, coherent prose under distinct sections, inline
   footnotes, and collected source definitions. The root is the human's
   biographical overview; child files are focused topic articles. A developed
   root must contain at least two thematic sections and cannot publish as an
   unsectioned fact inventory.
-- The update model supplies ordered source identifiers and matching numeric
-  references. The runtime validates those identifiers, generates every
-  footnote definition, and derives the stored source manifest from that list.
-- Article citations render as superscript reference numbers whose hover/focus
-  cards resolve to a bounded excerpt of the cited human message. Raw item ids
-  remain implementation detail and there is no separate references appendix.
+- The update model supplies ordered citation groups and matching numeric
+  references. Each group contains the smallest direct set of exact evidence
+  identifiers for one nearby claim. The runtime validates those identifiers
+  and generates every footnote definition.
+- Human messages and exact saved tool results can provide evidence. Assistant
+  messages remain context and cannot become evidence.
+- Current connector state, tool counts, temporary failures, task history,
+  project validation, and external research stay with their live objects,
+  Tasks, projects, documents, or artifacts. Human memory stores stable human
+  facts, preferences, relationships, and durable decisions.
+- Article citations render as superscript reference numbers. Each hover or
+  focus card shows the evidence type, date, bounded excerpt, and exact source
+  identifier for every source in that citation group. There is no separate
+  references appendix.
 - Filesystem-derived child pages appear as compact Related Articles cards using
   their lead excerpts. Each card is a real link to the filesystem-derived
   `/memory/<article-path>` route; stable ids and relative paths remain valid API
@@ -62,12 +69,21 @@ Current implementation direction:
 - Direct editing, page history, private memory, additional scopes, and vectors
   are not part of this slice.
 
-Canonical page frontmatter keeps the existing schema version:
+Canonical page frontmatter uses schema version 2:
 
 ```yaml
-schema: noema.memory.page/v1
+schema: noema.memory.page/v2
 title: Career
 icon: briefcase-business
+```
+
+Generated evidence definitions follow the article. One marker can have several
+exact sources:
+
+```markdown
+Kevin prefers default reminders. [^1]
+
+[^1]: item:human-message item:tool-result
 ```
 
 Older broad memory proposals should be treated as historical target context only
