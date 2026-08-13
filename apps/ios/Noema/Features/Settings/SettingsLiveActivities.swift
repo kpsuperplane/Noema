@@ -51,15 +51,7 @@ struct ClientLiveActivitiesSettings: View {
         "",
         isOn: Binding(
           get: { liveActivities.isEnabled },
-          set: { enabled in
-            Task {
-              if enabled {
-                await liveActivities.enable()
-              } else {
-                await liveActivities.disable()
-              }
-            }
-          }
+          set: { liveActivities.setEnabled($0) }
         )
       )
       .labelsHidden()

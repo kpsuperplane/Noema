@@ -21,6 +21,7 @@ final class NoemaLiveActivityService {
   private(set) var isWorking = false
   private(set) var errorMessage: String?
   private(set) var activitiesEnabled = ActivityAuthorizationInfo().areActivitiesEnabled
+  private(set) var isEnabled = false
 
   private var client: ApolloClient?
   private var profile: NoemaProfile?
@@ -29,7 +30,6 @@ final class NoemaLiveActivityService {
   private var registrationTask: Task<Void, Never>?
   private var registrationGeneration = 0
   private var statusGeneration = 0
-  private var desiredEnabled = false
   private var activityUpdatesTask: Task<Void, Never>?
   private var updateTokenTasks: [String: Task<Void, Never>] = [:]
   private var activityStateTasks: [String: Task<Void, Never>] = [:]
@@ -48,8 +48,6 @@ final class NoemaLiveActivityService {
   var canEnable: Bool {
     status?.available == true && status?.enabled == false && activitiesEnabled && !isWorking
   }
-
-  var isEnabled: Bool { desiredEnabled }
 
   var hasRunningActivity: Bool {
     guard let profile else { return false }
@@ -70,12 +68,13 @@ final class NoemaLiveActivityService {
     status = nil
     errorMessage = nil
     pushToStartToken = nil
-    desiredEnabled = false
+    isEnabled = false
     guard profile != nil, client != nil else { return }
     await refresh()
   }
 
   func refresh() async {
+    guard !isWorking else { return }
     statusGeneration &+= 1
     let generation = statusGeneration
     activitiesEnabled = ActivityAuthorizationInfo().areActivitiesEnabled
@@ -115,16 +114,29 @@ final class NoemaLiveActivityService {
     }
   }
 
-  func enable() async {
-    guard canEnable else { return }
+  func setEnabled(_ enabled: Bool) {
+    guard enabled != isEnabled, !isWorking else { return }
+    if enabled {
+      guard canEnable else { return }
+      isEnabled = true
+      isWorking = true
+      statusGeneration &+= 1
+      Task { await finishEnabling() }
+    } else {
+      isEnabled = false
+      isWorking = true
+      statusGeneration &+= 1
+      Task { await disable() }
+    }
+  }
+
+  private func finishEnabling() async {
     statusGeneration &+= 1
-    desiredEnabled = true
-    isWorking = true
     defer { isWorking = false }
     errorMessage = nil
     activitiesEnabled = ActivityAuthorizationInfo().areActivitiesEnabled
     guard activitiesEnabled else {
-      desiredEnabled = false
+      isEnabled = false
       return
     }
     readPushToStartToken()
@@ -139,7 +151,7 @@ final class NoemaLiveActivityService {
     isWorking = true
     defer { isWorking = false }
     statusGeneration &+= 1
-    desiredEnabled = false
+    isEnabled = false
     await cancelRegistration()
     stopObservers()
     var succeeded = true
@@ -158,12 +170,12 @@ final class NoemaLiveActivityService {
         errorMessage = nil
       } catch {
         succeeded = false
-        desiredEnabled = status?.enabled == true
+        isEnabled = status?.enabled == true
         errorMessage = "Noema must reach the paired server before Live Activities can be removed."
       }
     } else {
       succeeded = false
-      desiredEnabled = status?.enabled == true
+      isEnabled = status?.enabled == true
       errorMessage = "Noema must reach the paired server before Live Activities can be removed."
     }
     await endActivities(for: profile, notifyServer: false)
@@ -173,7 +185,7 @@ final class NoemaLiveActivityService {
 
   func clearLocalActivities() async {
     statusGeneration &+= 1
-    desiredEnabled = false
+    isEnabled = false
     await cancelRegistration()
     stopObservers()
     await endAllActivities()
@@ -198,7 +210,7 @@ final class NoemaLiveActivityService {
     registered: Bool,
     environment: String?
   ) {
-    desiredEnabled = enabled
+    isEnabled = enabled
     status = ClientLiveActivityStatusModel(
       available: available,
       blocker: blocker,
@@ -242,7 +254,7 @@ final class NoemaLiveActivityService {
 
   private func scheduleRegistration() {
     guard registrationTask == nil, client != nil, let token = pushToStartToken,
-          desiredEnabled,
+          isEnabled,
           status?.available == true else { return }
     registrationGeneration &+= 1
     let generation = registrationGeneration
@@ -267,7 +279,7 @@ final class NoemaLiveActivityService {
   }
 
   private func performRegistration(token: Data, generation: Int) async {
-    guard let client, let profile, desiredEnabled, status?.available == true else { return }
+    guard let client, let profile, isEnabled, status?.available == true else { return }
     do {
       let activeActivityIds = matchingActivities(for: profile)
         .filter { $0.activityState == .active || $0.activityState == .stale }
@@ -286,7 +298,7 @@ final class NoemaLiveActivityService {
       guard value.environment?.rawValue == Self.apnsEnvironment.rawValue else {
         throw LiveActivityError.server("The server expects a different APNs environment.")
       }
-      guard desiredEnabled, generation == registrationGeneration else { return }
+      guard isEnabled, generation == registrationGeneration else { return }
       applyStatus(
         available: value.available,
         blocker: value.blocker,
@@ -296,8 +308,8 @@ final class NoemaLiveActivityService {
       )
       errorMessage = nil
     } catch {
-      guard desiredEnabled, generation == registrationGeneration else { return }
-      desiredEnabled = status?.enabled == true
+      guard isEnabled, generation == registrationGeneration else { return }
+      isEnabled = status?.enabled == true
       errorMessage = "Noema could not register Live Activities on this device."
     }
   }
