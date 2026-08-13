@@ -110,6 +110,8 @@ vertical slice or a net-negative reduction.
 - Browser auth is local-human WebAuthn; paired clients use independently
   revocable bearer credentials. Installed PWA behavior follows
   [../frontend/pwa.md](../frontend/pwa.md).
+- The Tauri app defaults to its embedded host and can pair with one remote
+  HTTPS server. Rust owns its bearer, transport, recovery, and local return.
 - Each interactive browser session runs in a bounded child process. A browser
   worker crash ends its session without stopping Noema.
 - The iOS client stores normalized GraphQL reads in a protected per-client

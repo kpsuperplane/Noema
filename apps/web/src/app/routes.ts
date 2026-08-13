@@ -9,6 +9,7 @@ export type SettingsSection =
   | "safety-usage"
   | "system-providers"
   | "system-notifications"
+  | "system-desktop"
   | "system-clients";
 
 export type AppRoute =
@@ -33,6 +34,7 @@ export type AppPath =
   | "/settings/safety/usage"
   | "/settings/system/providers"
   | "/settings/system/notifications"
+  | "/settings/system/desktop"
   | "/settings/system/clients";
 
 export function routeFromPathname(pathname: string): AppRoute {
@@ -45,7 +47,10 @@ export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/settings/memory") {
     return { kind: "settings", section: "memory" };
   }
-  if (pathname === "/settings/models" || pathname.startsWith("/settings/models/")) {
+  if (
+    pathname === "/settings/models" ||
+    pathname.startsWith("/settings/models/")
+  ) {
     return { kind: "settings", section: "models" };
   }
   if (pathname === "/settings" || pathname === "/settings/agents") {
@@ -54,10 +59,16 @@ export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/settings/tools/web") {
     return { kind: "settings", section: "tools-web" };
   }
-  if (pathname === "/settings/tools/apis" || pathname.startsWith("/settings/tools/apis/")) {
+  if (
+    pathname === "/settings/tools/apis" ||
+    pathname.startsWith("/settings/tools/apis/")
+  ) {
     return { kind: "settings", section: "tools-apis" };
   }
-  if (pathname === "/settings/tools/mcps" || pathname.startsWith("/settings/tools/mcps/")) {
+  if (
+    pathname === "/settings/tools/mcps" ||
+    pathname.startsWith("/settings/tools/mcps/")
+  ) {
     return { kind: "settings", section: "tools-mcps" };
   }
   if (pathname === "/settings/safety/privacy") {
@@ -66,13 +77,22 @@ export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/settings/safety/usage") {
     return { kind: "settings", section: "safety-usage" };
   }
-  if (pathname === "/settings/system/providers" || pathname.startsWith("/settings/system/providers/")) {
+  if (
+    pathname === "/settings/system/providers" ||
+    pathname.startsWith("/settings/system/providers/")
+  ) {
     return { kind: "settings", section: "system-providers" };
   }
   if (pathname === "/settings/system/notifications") {
     return { kind: "settings", section: "system-notifications" };
   }
-  if (pathname === "/settings/system/clients" || pathname.startsWith("/settings/system/clients/")) {
+  if (pathname === "/settings/system/desktop") {
+    return { kind: "settings", section: "system-desktop" };
+  }
+  if (
+    pathname === "/settings/system/clients" ||
+    pathname.startsWith("/settings/system/clients/")
+  ) {
     return { kind: "settings", section: "system-clients" };
   }
   return { kind: "chat" };
@@ -115,6 +135,8 @@ export function pathForRoute(route: AppRoute): AppPath {
         return "/settings/system/providers";
       case "system-notifications":
         return "/settings/system/notifications";
+      case "system-desktop":
+        return "/settings/system/desktop";
       case "system-clients":
         return "/settings/system/clients";
     }
@@ -133,13 +155,19 @@ export function pageSurfaceKeyForPathname(pathname: string): string {
   return route.kind === "memory" ? pathname : pathForRoute(route);
 }
 
-export function pathnamesSharePageSurface(currentPathname: string, nextPathname: string): boolean {
-  return pageSurfaceKeyForPathname(currentPathname) === pageSurfaceKeyForPathname(nextPathname);
+export function pathnamesSharePageSurface(
+  currentPathname: string,
+  nextPathname: string,
+): boolean {
+  return (
+    pageSurfaceKeyForPathname(currentPathname) ===
+    pageSurfaceKeyForPathname(nextPathname)
+  );
 }
 
 export function shouldReplaceHistoryEntryForNavigation(
   currentRoute: AppRoute,
-  nextRoute: AppRoute
+  nextRoute: AppRoute,
 ) {
   return currentRoute.kind === "settings" && nextRoute.kind === "settings";
 }

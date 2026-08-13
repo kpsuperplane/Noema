@@ -10,14 +10,20 @@ import {
   Gauge,
   Globe,
   ListTodo,
+  Laptop,
   MessageCircle,
   PlugZap,
   ServerCog,
   ShieldCheck,
-  Smartphone
+  Smartphone,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { AppRoute, NonSettingsAppRoute, SettingsSection } from "@/app/routes";
+import type {
+  AppRoute,
+  NonSettingsAppRoute,
+  SettingsSection,
+} from "@/app/routes";
+import { isTauriRuntime } from "@/graphql/transportMode";
 
 export type ShellMenuLevelId = "settings" | "tasks";
 
@@ -36,6 +42,7 @@ export type ShellMenuItemId =
   | "settings.safety.usage"
   | "settings.system.providers"
   | "settings.system.notifications"
+  | "settings.system.desktop"
   | "settings.system.clients"
   | "tasks.workspace.personal"
   | "tasks.projects.archived"
@@ -78,8 +85,7 @@ export type ShellTaskProject = {
 };
 
 export type ShellBreadcrumb =
-  | { current: string; parent?: undefined }
-  | { parent: string; current: string };
+  { current: string; parent?: undefined } | { parent: string; current: string };
 
 export type ShellSettingsSection = {
   section: SettingsSection;
@@ -92,19 +98,48 @@ export type ShellSettingsEntry =
   | { kind: "section"; item: ShellSettingsSection }
   | { kind: "group"; label: string };
 
+const desktopSettingsEntries: ShellSettingsEntry[] = isTauriRuntime()
+  ? [
+      {
+        kind: "section",
+        item: {
+          section: "system-desktop",
+          itemId: "settings.system.desktop",
+          label: "Desktop",
+          icon: Laptop,
+        },
+      },
+    ]
+  : [];
+
 export const shellSettingsEntries: ShellSettingsEntry[] = [
   {
     kind: "section",
-    item: { section: "agents", itemId: "settings.agents", label: "Agents", icon: Bot }
+    item: {
+      section: "agents",
+      itemId: "settings.agents",
+      label: "Agents",
+      icon: Bot,
+    },
   },
   {
     kind: "section",
-    item: { section: "memory", itemId: "settings.memory", label: "Memory", icon: Brain }
+    item: {
+      section: "memory",
+      itemId: "settings.memory",
+      label: "Memory",
+      icon: Brain,
+    },
   },
   { kind: "group", label: "Tools" },
   {
     kind: "section",
-    item: { section: "tools-web", itemId: "settings.tools.web", label: "Web", icon: Globe }
+    item: {
+      section: "tools-web",
+      itemId: "settings.tools.web",
+      label: "Web",
+      icon: Globe,
+    },
   },
   {
     kind: "section",
@@ -112,12 +147,17 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
       section: "tools-apis",
       itemId: "settings.tools.apis",
       label: "APIs",
-      icon: Cable
-    }
+      icon: Cable,
+    },
   },
   {
     kind: "section",
-    item: { section: "tools-mcps", itemId: "settings.tools.mcps", label: "MCPs", icon: PlugZap }
+    item: {
+      section: "tools-mcps",
+      itemId: "settings.tools.mcps",
+      label: "MCPs",
+      icon: PlugZap,
+    },
   },
   { kind: "group", label: "Safety" },
   {
@@ -126,8 +166,8 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
       section: "safety-privacy",
       itemId: "settings.safety.privacy",
       label: "Privacy",
-      icon: ShieldCheck
-    }
+      icon: ShieldCheck,
+    },
   },
   {
     kind: "section",
@@ -135,8 +175,8 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
       section: "safety-usage",
       itemId: "settings.safety.usage",
       label: "Execution",
-      icon: Gauge
-    }
+      icon: Gauge,
+    },
   },
   { kind: "group", label: "System" },
   {
@@ -145,8 +185,8 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
       section: "models",
       itemId: "settings.models",
       label: "Local Models",
-      icon: Cpu
-    }
+      icon: Cpu,
+    },
   },
   {
     kind: "section",
@@ -154,8 +194,8 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
       section: "system-providers",
       itemId: "settings.system.providers",
       label: "Providers",
-      icon: ServerCog
-    }
+      icon: ServerCog,
+    },
   },
   {
     kind: "section",
@@ -163,26 +203,27 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
       section: "system-notifications",
       itemId: "settings.system.notifications",
       label: "Notifications",
-      icon: Bell
-    }
+      icon: Bell,
+    },
   },
+  ...desktopSettingsEntries,
   {
     kind: "section",
     item: {
       section: "system-clients",
       itemId: "settings.system.clients",
       label: "Clients",
-      icon: Smartphone
-    }
-  }
+      icon: Smartphone,
+    },
+  },
 ];
 
 export const shellSettingsSections = shellSettingsEntries.flatMap((entry) =>
-  entry.kind === "section" ? [entry.item] : []
+  entry.kind === "section" ? [entry.item] : [],
 );
 
 export function activeL0ItemId(
-  route: NonSettingsAppRoute
+  route: NonSettingsAppRoute,
 ): Extract<ShellMenuItemId, "chat" | "tasks" | "memory"> {
   if (route.kind === "tasks") {
     return "tasks";
@@ -195,44 +236,48 @@ export const shellPrimaryItems: ShellMenuItem[] = [
     itemId: "chat",
     label: "Chat",
     route: { kind: "chat" },
-    icon: MessageCircle
+    icon: MessageCircle,
   },
   {
     itemId: "tasks",
     label: "Tasks",
     route: { kind: "tasks" },
-    icon: ListTodo
+    icon: ListTodo,
   },
   {
     itemId: "memory",
     label: "Memory",
     route: { kind: "memory" },
-    icon: Brain
-  }
+    icon: Brain,
+  },
 ];
 
 export function adjacentPrimaryRoute(
   route: AppRoute,
-  direction: "previous" | "next"
+  direction: "previous" | "next",
 ): AppRoute | null {
   const primaryRoutes: AppRoute[] = [
-    ...shellPrimaryItems.flatMap((item) => item.route ? [item.route] : []),
-    { kind: "settings", section: "agents" }
+    ...shellPrimaryItems.flatMap((item) => (item.route ? [item.route] : [])),
+    { kind: "settings", section: "agents" },
   ];
-  const currentIndex = primaryRoutes.findIndex((candidate) => candidate.kind === route.kind);
+  const currentIndex = primaryRoutes.findIndex(
+    (candidate) => candidate.kind === route.kind,
+  );
   const nextIndex = currentIndex + (direction === "next" ? 1 : -1);
   return primaryRoutes[nextIndex] ?? null;
 }
 
-export function settingsItemIdForSection(section: SettingsSection): ShellMenuItemId {
+export function settingsItemIdForSection(
+  section: SettingsSection,
+): ShellMenuItemId {
   return (
-    shellSettingsSections.find((candidate) => candidate.section === section)?.itemId ??
-    "settings.agents"
+    shellSettingsSections.find((candidate) => candidate.section === section)
+      ?.itemId ?? "settings.agents"
   );
 }
 
 export function shellMenuLevelForRoute(
-  route: Extract<AppRoute, { kind: "settings" }>
+  route: Extract<AppRoute, { kind: "settings" }>,
 ): ShellMenuLevel {
   return {
     levelId: "settings",
@@ -249,20 +294,21 @@ export function shellMenuLevelForRoute(
           itemId: entry.item.itemId,
           label: entry.item.label,
           route: { kind: "settings", section: entry.item.section },
-          icon: entry.item.icon
-        }
+          icon: entry.item.icon,
+        },
       };
-    })
+    }),
   };
 }
 
 export function tasksMenuLevelForProjects(
   projects: readonly ShellTaskProject[],
-  projectId?: string
+  projectId?: string,
 ): ShellMenuLevel {
-  const activeItemId = projectId && projects.some((project) => project.projectId === projectId)
-    ? projectItemId(projectId)
-    : "tasks.workspace.personal";
+  const activeItemId =
+    projectId && projects.some((project) => project.projectId === projectId)
+      ? projectItemId(projectId)
+      : "tasks.workspace.personal";
 
   return {
     levelId: "tasks",
@@ -276,31 +322,42 @@ export function tasksMenuLevelForProjects(
           itemId: "tasks.workspace.personal",
           label: "Personal",
           route: { kind: "tasks" },
-          icon: BriefcaseBusiness
-        }
+          icon: BriefcaseBusiness,
+        },
       },
-      ...(projects.length > 0 ? [
-        ...projects.filter((project) => !project.archivedAt).map((project) => ({
-          kind: "item" as const,
-          item: {
-            itemId: projectItemId(project.projectId),
-            label: project.name,
-            route: { kind: "tasks" as const, projectId: project.projectId },
-            icon: Folder,
-            depth: 1 as const
-          }
-        })),
-        ...(projects.some((project) => project.archivedAt) ? [{
-          kind: "item" as const,
-          item: {
-            itemId: "tasks.projects.archived" as const,
-            label: "Archived",
-            icon: Archive,
-            pinned: true
-          }
-        }] : [])
-      ] : [])
-    ]
+      ...(projects.length > 0
+        ? [
+            ...projects
+              .filter((project) => !project.archivedAt)
+              .map((project) => ({
+                kind: "item" as const,
+                item: {
+                  itemId: projectItemId(project.projectId),
+                  label: project.name,
+                  route: {
+                    kind: "tasks" as const,
+                    projectId: project.projectId,
+                  },
+                  icon: Folder,
+                  depth: 1 as const,
+                },
+              })),
+            ...(projects.some((project) => project.archivedAt)
+              ? [
+                  {
+                    kind: "item" as const,
+                    item: {
+                      itemId: "tasks.projects.archived" as const,
+                      label: "Archived",
+                      icon: Archive,
+                      pinned: true,
+                    },
+                  },
+                ]
+              : []),
+          ]
+        : []),
+    ],
   };
 }
 
@@ -311,8 +368,8 @@ function projectItemId(projectId: string): `tasks.project.${string}` {
 export function breadcrumbForRoute(route: AppRoute): ShellBreadcrumb {
   if (route.kind === "settings") {
     const current =
-      shellSettingsSections.find((section) => section.section === route.section)?.label ??
-      "Agents";
+      shellSettingsSections.find((section) => section.section === route.section)
+        ?.label ?? "Agents";
     return { parent: "Settings", current };
   }
 

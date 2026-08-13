@@ -34,8 +34,8 @@ NOEMA_HOME=.noema-dev cargo dev
 
 The first-party product API is GraphQL. The local web UI uses `/graphql` for
 queries and mutations plus `/graphql/ws` for subscriptions. The desktop app
-uses the same GraphQL schema through Tauri commands and events instead of a
-local HTTP server.
+uses Tauri commands and events for both its embedded schema and authenticated
+HTTPS connections to a paired remote server.
 
 `noema-host` owns configuration, startup, composition, and dependency-ordered
 shutdown. During startup it uses `noema-home` to initialize `${NOEMA_HOME}`,
@@ -241,6 +241,25 @@ cd crates/noema-desktop && bun run build:no-bundle
 
 The current desktop bundle is developer-only; signing, notarization, updates,
 and clean-machine distribution validation remain future release work.
+
+### Connect the desktop app to a server
+
+The desktop app uses its embedded local Noema instance by default. To connect
+it to a server, create a ten-minute pairing link under **Settings > System >
+Clients**. Open that link with the installed desktop app, or paste it under
+**Settings > System > Desktop**.
+
+Remote connections require the server's exact `https` public origin and an
+operating-system-trusted certificate. Noema rejects HTTP, localhost, IP-address
+origins, redirects, and custom certificate authorities. The bearer credential
+stays in the operating system credential store.
+
+The desktop app keeps one active remote server. **Use local Noema** revokes the
+remote client, removes its credential, and restarts the embedded instance.
+Noema also restarts after successful pairing to clear server-specific UI state.
+If remote startup fails, retry the connection or return to local mode. If the
+server is unavailable, **Forget this server** cannot revoke its client. Revoke
+that client later from another authenticated client.
 
 Use the Rust desktop crate for desktop-side validation:
 

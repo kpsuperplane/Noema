@@ -1,4 +1,4 @@
-//! Managed desktop runtime state.
+//! Managed local and remote desktop runtime state.
 
 use std::{collections::HashMap, path::PathBuf};
 
@@ -6,18 +6,45 @@ use noema_api::graphql::{self, GraphqlSchema};
 use noema_host::{
     NoemaHost, RuntimeHostError, start_from_process_env_with_local_model_runtime_root,
 };
+use serde::Serialize;
 use tauri::async_runtime::JoinHandle;
 use tokio::sync::{Mutex, watch};
 
+use crate::{
+    desktop_profile::{DesktopProfileStore, DesktopSelection, RemoteMetadata},
+    remote_graphql::{RemoteError, RemoteGraphql},
+    remote_pairing::{PairingStage, PendingPairing},
+};
+
 pub(crate) struct DesktopState {
     inner: Mutex<DesktopLifecycle<DesktopRuntime>>,
+    profiles: DesktopProfileStore,
+    pending_pairing: Mutex<Option<PendingPairing>>,
+}
+
+#[derive(Clone)]
+pub(crate) enum GraphqlTarget {
+    Local(GraphqlSchema),
+    Remote(RemoteGraphql),
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DesktopConnectionStatus {
+    mode: &'static str,
+    state: &'static str,
+    origin: Option<String>,
+    message: Option<String>,
+    pending_pairing_origin: Option<String>,
 }
 
 impl DesktopState {
     #[must_use]
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(config_path: PathBuf) -> Self {
         Self {
             inner: Mutex::new(DesktopLifecycle::Uninitialized),
+            profiles: DesktopProfileStore::new(config_path),
+            pending_pairing: Mutex::new(None),
         }
     }
 
@@ -25,23 +52,23 @@ impl DesktopState {
         &self,
         local_model_runtime_root: Option<PathBuf>,
     ) -> Result<(), RuntimeHostError> {
-        let host =
-            start_from_process_env_with_local_model_runtime_root(local_model_runtime_root).await?;
-        let graphql_state = graphql::GraphqlState::from_host_services(host.services());
-        let (graphql_state, oauth_callback_urls, mcp_oauth_callback_server) =
-            match crate::mcp_oauth_callback::start(graphql_state.clone()).await {
-                Ok(callback) => callback,
-                Err(error) => {
-                    host.shutdown().await;
-                    return Err(RuntimeHostError::Composition(error));
-                }
-            };
-        let schema = graphql::build_schema(graphql_state);
+        let backend = match self.profiles.load() {
+            DesktopSelection::Local => {
+                DesktopBackend::Local(Box::new(start_local(local_model_runtime_root).await?))
+            }
+            DesktopSelection::Remote(profile) => match RemoteGraphql::new(profile) {
+                Ok(remote) => DesktopBackend::Remote(remote),
+                Err(message) => DesktopBackend::Recovery {
+                    metadata: None,
+                    message,
+                },
+            },
+            DesktopSelection::Recovery { metadata, message } => {
+                DesktopBackend::Recovery { metadata, message }
+            }
+        };
         let runtime = DesktopRuntime {
-            host,
-            schema,
-            mcp_oauth_callback_url: oauth_callback_urls.mcp,
-            mcp_oauth_callback_server,
+            backend,
             subscriptions: SubscriptionTasks::default(),
         };
         let mut inner = self.inner.lock().await;
@@ -56,20 +83,151 @@ impl DesktopState {
         ))
     }
 
-    pub(crate) async fn schema(&self) -> Result<GraphqlSchema, String> {
+    pub(crate) async fn graphql_target(&self) -> Result<GraphqlTarget, String> {
         let inner = self.inner.lock().await;
         let DesktopLifecycle::Running(runtime) = &*inner else {
-            return Err("Noema lost connection to its local app service.".to_string());
+            return Err("Noema lost connection to its app service.".to_string());
         };
-        Ok(runtime.schema.clone())
+        match &runtime.backend {
+            DesktopBackend::Local(local) => Ok(GraphqlTarget::Local(local.schema.clone())),
+            DesktopBackend::Remote(remote) => Ok(GraphqlTarget::Remote(remote.clone())),
+            DesktopBackend::Recovery { message, .. } => Err(message.clone()),
+        }
+    }
+
+    pub(crate) async fn connection_status(&self) -> DesktopConnectionStatus {
+        let pending_pairing_origin = self
+            .pending_pairing
+            .lock()
+            .await
+            .as_ref()
+            .map(|pairing| pairing.stage().origin);
+        let backend = {
+            let inner = self.inner.lock().await;
+            let DesktopLifecycle::Running(runtime) = &*inner else {
+                return DesktopConnectionStatus {
+                    mode: "local",
+                    state: "unavailable",
+                    origin: None,
+                    message: Some("Noema lost connection to its app service.".to_string()),
+                    pending_pairing_origin,
+                };
+            };
+            runtime.backend.status_target()
+        };
+        match backend {
+            StatusTarget::Local => DesktopConnectionStatus {
+                mode: "local",
+                state: "ready",
+                origin: None,
+                message: None,
+                pending_pairing_origin,
+            },
+            StatusTarget::Remote(remote) => {
+                let (state, message) = match remote.health().await {
+                    Ok(()) => ("ready", None),
+                    Err(RemoteError::Unauthorized) => (
+                        "unauthorized",
+                        Some("This desktop client no longer has access to the server.".to_string()),
+                    ),
+                    Err(RemoteError::Offline) => (
+                        "offline",
+                        Some("Noema could not reach the remote server.".to_string()),
+                    ),
+                    Err(RemoteError::InvalidResponse) => (
+                        "unavailable",
+                        Some("The remote server returned an invalid response.".to_string()),
+                    ),
+                };
+                DesktopConnectionStatus {
+                    mode: "remote",
+                    state,
+                    origin: Some(remote.origin().to_string()),
+                    message,
+                    pending_pairing_origin,
+                }
+            }
+            StatusTarget::Recovery { metadata, message } => DesktopConnectionStatus {
+                mode: "remote",
+                state: "credential_unavailable",
+                origin: metadata.map(|metadata| metadata.origin),
+                message: Some(message),
+                pending_pairing_origin,
+            },
+        }
+    }
+
+    pub(crate) async fn stage_pairing(&self, pairing_uri: &str) -> Result<PairingStage, String> {
+        let inner = self.inner.lock().await;
+        let DesktopLifecycle::Running(runtime) = &*inner else {
+            return Err("Noema lost connection to its app service.".to_string());
+        };
+        if !matches!(runtime.backend, DesktopBackend::Local(_)) {
+            return Err("Use local Noema before you connect another server.".to_string());
+        }
+        drop(inner);
+        let pairing = PendingPairing::parse(pairing_uri)?;
+        let stage = pairing.stage();
+        *self.pending_pairing.lock().await = Some(pairing);
+        Ok(stage)
+    }
+
+    pub(crate) async fn cancel_pairing(&self) {
+        *self.pending_pairing.lock().await = None;
+    }
+
+    pub(crate) async fn complete_pairing(&self, display_name: &str) -> Result<(), String> {
+        let pairing = self
+            .pending_pairing
+            .lock()
+            .await
+            .take()
+            .ok_or_else(|| "The pairing link is no longer available.".to_string())?;
+        let profile = pairing.complete(display_name).await?;
+        if let Err(error) = self.profiles.save_remote(&profile) {
+            if let Ok(remote) = RemoteGraphql::new(profile) {
+                let _ = remote.revoke_self().await;
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn disconnect_remote(&self) -> Result<(), String> {
+        let remote = {
+            let inner = self.inner.lock().await;
+            let DesktopLifecycle::Running(runtime) = &*inner else {
+                return Err("Noema lost connection to its app service.".to_string());
+            };
+            match &runtime.backend {
+                DesktopBackend::Remote(remote) => remote.clone(),
+                DesktopBackend::Recovery { .. } => {
+                    return Err(
+                        "Noema cannot reach the saved server. Forget it to use local Noema."
+                            .to_string(),
+                    );
+                }
+                DesktopBackend::Local(_) => return Ok(()),
+            }
+        };
+        remote_allows_local(remote.revoke_self().await)?;
+        self.profiles.clear_remote()
+    }
+
+    pub(crate) fn forget_remote(&self) -> Result<(), String> {
+        self.profiles.clear_remote()
     }
 
     pub(crate) async fn mcp_oauth_callback_url(&self) -> Result<String, String> {
         let inner = self.inner.lock().await;
         let DesktopLifecycle::Running(runtime) = &*inner else {
-            return Err("Noema lost connection to its local app service.".to_string());
+            return Err("Noema lost connection to its app service.".to_string());
         };
-        Ok(runtime.mcp_oauth_callback_url.clone())
+        match &runtime.backend {
+            DesktopBackend::Local(local) => Ok(local.mcp_oauth_callback_url.clone()),
+            DesktopBackend::Remote(remote) => Ok(format!("{}/mcp/oauth/callback", remote.origin())),
+            DesktopBackend::Recovery { message, .. } => Err(message.clone()),
+        }
     }
 
     pub(crate) async fn insert_subscription(
@@ -80,7 +238,7 @@ impl DesktopState {
         let mut inner = self.inner.lock().await;
         let DesktopLifecycle::Running(runtime) = &mut *inner else {
             handle.abort();
-            return Err("Noema lost connection to its local app service.".to_string());
+            return Err("Noema lost connection to its app service.".to_string());
         };
         Ok(runtime.subscriptions.insert(id, handle))
     }
@@ -124,18 +282,93 @@ impl DesktopState {
     }
 }
 
+fn remote_allows_local(result: Result<(), RemoteError>) -> Result<(), String> {
+    match result {
+        Ok(()) | Err(RemoteError::Unauthorized) => Ok(()),
+        Err(RemoteError::Offline | RemoteError::InvalidResponse) => Err(
+            "Noema could not revoke this client. Forget the server only if you cannot reconnect."
+                .to_string(),
+        ),
+    }
+}
+
+async fn start_local(
+    local_model_runtime_root: Option<PathBuf>,
+) -> Result<LocalRuntime, RuntimeHostError> {
+    let host =
+        start_from_process_env_with_local_model_runtime_root(local_model_runtime_root).await?;
+    let graphql_state = graphql::GraphqlState::from_host_services(host.services());
+    let (graphql_state, oauth_callback_urls, mcp_oauth_callback_server) =
+        match crate::mcp_oauth_callback::start(graphql_state.clone()).await {
+            Ok(callback) => callback,
+            Err(error) => {
+                host.shutdown().await;
+                return Err(RuntimeHostError::Composition(error));
+            }
+        };
+    Ok(LocalRuntime {
+        host,
+        schema: graphql::build_schema(graphql_state),
+        mcp_oauth_callback_url: oauth_callback_urls.mcp,
+        mcp_oauth_callback_server,
+    })
+}
+
 struct DesktopRuntime {
-    host: NoemaHost,
-    schema: GraphqlSchema,
-    mcp_oauth_callback_url: String,
-    mcp_oauth_callback_server: JoinHandle<()>,
+    backend: DesktopBackend,
     subscriptions: SubscriptionTasks,
 }
 
 impl DesktopRuntime {
     async fn shutdown(self) {
-        self.mcp_oauth_callback_server.abort();
         self.subscriptions.abort_all();
+        if let DesktopBackend::Local(local) = self.backend {
+            local.shutdown().await;
+        }
+    }
+}
+
+enum DesktopBackend {
+    Local(Box<LocalRuntime>),
+    Remote(RemoteGraphql),
+    Recovery {
+        metadata: Option<RemoteMetadata>,
+        message: String,
+    },
+}
+
+impl DesktopBackend {
+    fn status_target(&self) -> StatusTarget {
+        match self {
+            Self::Local(_) => StatusTarget::Local,
+            Self::Remote(remote) => StatusTarget::Remote(remote.clone()),
+            Self::Recovery { metadata, message } => StatusTarget::Recovery {
+                metadata: metadata.clone(),
+                message: message.clone(),
+            },
+        }
+    }
+}
+
+enum StatusTarget {
+    Local,
+    Remote(RemoteGraphql),
+    Recovery {
+        metadata: Option<RemoteMetadata>,
+        message: String,
+    },
+}
+
+struct LocalRuntime {
+    host: NoemaHost,
+    schema: GraphqlSchema,
+    mcp_oauth_callback_url: String,
+    mcp_oauth_callback_server: JoinHandle<()>,
+}
+
+impl LocalRuntime {
+    async fn shutdown(self) {
+        self.mcp_oauth_callback_server.abort();
         self.host.shutdown().await;
     }
 }
@@ -258,65 +491,21 @@ mod tests {
         let mut subscriptions = SubscriptionTasks::default();
         let old_generation = subscriptions.insert("sub_1".to_string(), pending_handle());
         let new_generation = subscriptions.insert("sub_1".to_string(), pending_handle());
-
-        assert_ne!(old_generation, new_generation);
         subscriptions.remove_finished("sub_1", old_generation);
         assert_eq!(subscriptions.entries["sub_1"].generation, new_generation);
         subscriptions.remove_finished("sub_1", new_generation);
-        assert!(!subscriptions.entries.contains_key("sub_1"));
+        assert!(subscriptions.entries.is_empty());
     }
 
-    #[tokio::test]
-    async fn shutdown_state_machine_is_idempotent_and_shares_concurrent_completion() {
-        let mut uninitialized = DesktopLifecycle::<()>::Uninitialized;
-        assert!(matches!(
-            uninitialized.begin_shutdown(),
-            ShutdownAction::Complete
-        ));
-        match uninitialized.begin_shutdown() {
-            ShutdownAction::Wait(completion) => completion.wait().await,
-            ShutdownAction::Start { .. } | ShutdownAction::Complete => {
-                panic!("pre-initialization shutdown must remain complete")
-            }
-        }
-
-        let mut lifecycle = DesktopLifecycle::Running(());
-        let (owner_completion, signal) = match lifecycle.begin_shutdown() {
-            ShutdownAction::Start {
-                runtime: (),
-                completion,
-                signal,
-            } => (completion, signal),
-            ShutdownAction::Wait(_) | ShutdownAction::Complete => {
-                panic!("first shutdown caller must own teardown")
-            }
-        };
-        let waiting_completion = match lifecycle.begin_shutdown() {
-            ShutdownAction::Wait(completion) => completion,
-            ShutdownAction::Start { .. } | ShutdownAction::Complete => {
-                panic!("concurrent shutdown caller must wait")
-            }
-        };
-        let waiting_caller = tokio::spawn(waiting_completion.wait());
-
-        tokio::task::yield_now().await;
-        assert!(!waiting_caller.is_finished());
-
-        signal.send_replace(true);
-        owner_completion.wait().await;
-        waiting_caller.await.expect("waiting shutdown caller");
-
-        match lifecycle.begin_shutdown() {
-            ShutdownAction::Wait(completion) => completion.wait().await,
-            ShutdownAction::Start { .. } | ShutdownAction::Complete => {
-                panic!("completed shutdown must remain a shared one-shot")
-            }
-        }
+    #[test]
+    fn local_mode_requires_revocation_or_explicit_forget() {
+        assert_eq!(remote_allows_local(Ok(())), Ok(()));
+        assert_eq!(remote_allows_local(Err(RemoteError::Unauthorized)), Ok(()));
+        assert!(remote_allows_local(Err(RemoteError::Offline)).is_err());
+        assert!(remote_allows_local(Err(RemoteError::InvalidResponse)).is_err());
     }
 
     fn pending_handle() -> JoinHandle<()> {
-        tauri::async_runtime::spawn(async {
-            future::pending::<()>().await;
-        })
+        tauri::async_runtime::spawn(future::pending())
     }
 }

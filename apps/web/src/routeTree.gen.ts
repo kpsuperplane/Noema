@@ -26,6 +26,7 @@ import { Route as SettingsToolsMcpsRouteImport } from './routes/settings/tools/m
 import { Route as SettingsToolsApisRouteImport } from './routes/settings/tools/apis'
 import { Route as SettingsSystemProvidersRouteImport } from './routes/settings/system/providers'
 import { Route as SettingsSystemNotificationsRouteImport } from './routes/settings/system/notifications'
+import { Route as SettingsSystemDesktopRouteImport } from './routes/settings/system/desktop'
 import { Route as SettingsSystemClientsRouteImport } from './routes/settings/system/clients'
 import { Route as SettingsSafetyUsageRouteImport } from './routes/settings/safety/usage'
 import { Route as SettingsSafetyPrivacyRouteImport } from './routes/settings/safety/privacy'
@@ -122,6 +123,11 @@ const SettingsSystemNotificationsRoute =
     path: '/system/notifications',
     getParentRoute: () => SettingsRoute,
   } as any)
+const SettingsSystemDesktopRoute = SettingsSystemDesktopRouteImport.update({
+  id: '/system/desktop',
+  path: '/system/desktop',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsSystemClientsRoute = SettingsSystemClientsRouteImport.update({
   id: '/system/clients',
   path: '/system/clients',
@@ -190,6 +196,7 @@ export interface FileRoutesByFullPath {
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/clients': typeof SettingsSystemClientsRoute
+  '/settings/system/desktop': typeof SettingsSystemDesktopRoute
   '/settings/system/notifications': typeof SettingsSystemNotificationsRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/apis': typeof SettingsToolsApisRoute
@@ -215,6 +222,7 @@ export interface FileRoutesByTo {
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/clients': typeof SettingsSystemClientsRoute
+  '/settings/system/desktop': typeof SettingsSystemDesktopRoute
   '/settings/system/notifications': typeof SettingsSystemNotificationsRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/apis': typeof SettingsToolsApisRoute
@@ -244,6 +252,7 @@ export interface FileRoutesById {
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/clients': typeof SettingsSystemClientsRoute
+  '/settings/system/desktop': typeof SettingsSystemDesktopRoute
   '/settings/system/notifications': typeof SettingsSystemNotificationsRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/apis': typeof SettingsToolsApisRoute
@@ -274,6 +283,7 @@ export interface FileRouteTypes {
     | '/settings/safety/privacy'
     | '/settings/safety/usage'
     | '/settings/system/clients'
+    | '/settings/system/desktop'
     | '/settings/system/notifications'
     | '/settings/system/providers'
     | '/settings/tools/apis'
@@ -299,6 +309,7 @@ export interface FileRouteTypes {
     | '/settings/safety/privacy'
     | '/settings/safety/usage'
     | '/settings/system/clients'
+    | '/settings/system/desktop'
     | '/settings/system/notifications'
     | '/settings/system/providers'
     | '/settings/tools/apis'
@@ -327,6 +338,7 @@ export interface FileRouteTypes {
     | '/settings/safety/privacy'
     | '/settings/safety/usage'
     | '/settings/system/clients'
+    | '/settings/system/desktop'
     | '/settings/system/notifications'
     | '/settings/system/providers'
     | '/settings/tools/apis'
@@ -468,6 +480,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsSystemNotificationsRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/system/desktop': {
+      id: '/settings/system/desktop'
+      path: '/system/desktop'
+      fullPath: '/settings/system/desktop'
+      preLoaderRoute: typeof SettingsSystemDesktopRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/system/clients': {
       id: '/settings/system/clients'
       path: '/system/clients'
@@ -570,6 +589,7 @@ interface SettingsRouteChildren {
   SettingsSafetyPrivacyRoute: typeof SettingsSafetyPrivacyRoute
   SettingsSafetyUsageRoute: typeof SettingsSafetyUsageRoute
   SettingsSystemClientsRoute: typeof SettingsSystemClientsRoute
+  SettingsSystemDesktopRoute: typeof SettingsSystemDesktopRoute
   SettingsSystemNotificationsRoute: typeof SettingsSystemNotificationsRoute
   SettingsSystemProvidersRoute: typeof SettingsSystemProvidersRoute
   SettingsToolsApisRoute: typeof SettingsToolsApisRoute
@@ -589,6 +609,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsSafetyPrivacyRoute: SettingsSafetyPrivacyRoute,
   SettingsSafetyUsageRoute: SettingsSafetyUsageRoute,
   SettingsSystemClientsRoute: SettingsSystemClientsRoute,
+  SettingsSystemDesktopRoute: SettingsSystemDesktopRoute,
   SettingsSystemNotificationsRoute: SettingsSystemNotificationsRoute,
   SettingsSystemProvidersRoute: SettingsSystemProvidersRoute,
   SettingsToolsApisRoute: SettingsToolsApisRoute,

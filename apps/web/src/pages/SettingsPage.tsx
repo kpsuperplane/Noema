@@ -9,7 +9,11 @@ import { PrivacySettingsPane } from "@/components/settings/PrivacySettingsPane";
 import { UsageSettingsPane } from "@/components/settings/UsageSettingsPane";
 import { WebSettingsPane } from "@/components/settings/WebSettingsPane";
 import { NotificationsSettingsPane } from "@/components/settings/NotificationsSettingsPane";
-import { ShellPageLayout, ShellPageTrack } from "@/components/shell/ShellPageLayout";
+import { DesktopSettingsPane } from "@/components/settings/DesktopSettingsPane";
+import {
+  ShellPageLayout,
+  ShellPageTrack,
+} from "@/components/shell/ShellPageLayout";
 import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
 import type { SettingsSection } from "@/app/routes";
 import { StackItem } from "@astryxdesign/core/Stack";
@@ -36,7 +40,8 @@ const settingsSectionCopy: Record<SettingsSection, { title: string }> = {
   "safety-usage": { title: "Execution" },
   "system-providers": { title: "Providers" },
   "system-notifications": { title: "Notifications" },
-  "system-clients": { title: "Clients" }
+  "system-desktop": { title: "Desktop" },
+  "system-clients": { title: "Clients" },
 };
 
 export function SettingsSurface({
@@ -45,27 +50,33 @@ export function SettingsSurface({
   providerAccountId,
   clientId,
   installationId,
-  modelId
+  modelId,
 }: SettingsSurfaceProps) {
   const copy = settingsSectionCopy[section];
-  const isManagement = section === "tools-apis"
-    || section === "tools-mcps"
-    || section === "system-providers"
-    || section === "system-clients"
-    || section === "models";
+  const isManagement =
+    section === "tools-apis" ||
+    section === "tools-mcps" ||
+    section === "system-providers" ||
+    section === "system-clients" ||
+    section === "models";
 
   return (
     <ShellPageLayout width={isManagement ? "fluid" : "centered"}>
       <VStack
         as="section"
         data-slot="settings-surface"
-        {...stylex.props(styles.surface, isManagement && styles.managementSurface)}
+        {...stylex.props(
+          styles.surface,
+          isManagement && styles.managementSurface,
+        )}
         aria-labelledby="settings-surface-title"
       >
-        {!isManagement ? <ShellSectionHeader
-          title={copy.title}
-          titleId="settings-surface-title"
-        /> : null}
+        {!isManagement ? (
+          <ShellSectionHeader
+            title={copy.title}
+            titleId="settings-surface-title"
+          />
+        ) : null}
         {isManagement ? (
           <StackItem size="fill" {...stylex.props(styles.managementContent)}>
             <SettingsSectionPane
@@ -80,7 +91,10 @@ export function SettingsSurface({
         ) : (
           <ShellPageTrack>
             <VStack {...stylex.props(styles.content)}>
-              <SettingsSectionPane section={section} connectionId={connectionId} />
+              <SettingsSectionPane
+                section={section}
+                connectionId={connectionId}
+              />
             </VStack>
           </ShellPageTrack>
         )}
@@ -95,13 +109,18 @@ function SettingsSectionPane({
   providerAccountId,
   clientId,
   installationId,
-  modelId
+  modelId,
 }: SettingsSurfaceProps) {
   switch (section) {
     case "agents":
       return <AgentsSettingsPane />;
     case "models":
-      return <LocalModelsSettingsPane installationId={installationId} modelId={modelId} />;
+      return (
+        <LocalModelsSettingsPane
+          installationId={installationId}
+          modelId={modelId}
+        />
+      );
     case "memory":
       return <MemorySettingsPane />;
     case "tools-web":
@@ -118,6 +137,8 @@ function SettingsSectionPane({
       return <ProvidersSettingsPane providerAccountId={providerAccountId} />;
     case "system-notifications":
       return <NotificationsSettingsPane />;
+    case "system-desktop":
+      return <DesktopSettingsPane />;
     case "system-clients":
       return <ClientsSettingsPane clientId={clientId} />;
   }
@@ -131,20 +152,20 @@ const styles = stylex.create({
     overflowY: "auto",
     overscrollBehavior: "contain",
     "@media (max-width: 760px)": {
-      paddingTop: "var(--shell-deck-header-height)"
-    }
+      paddingTop: "var(--shell-deck-header-height)",
+    },
   },
   managementSurface: {
-    overflow: "hidden"
+    overflow: "hidden",
   },
   managementContent: {
     minHeight: 0,
-    overflow: "hidden"
+    overflow: "hidden",
   },
   content: {
     paddingBlock: "var(--spacing-2) var(--spacing-4)",
     "@media (max-width: 760px)": {
-      paddingBlock: "var(--spacing-2) var(--spacing-3)"
-    }
-  }
+      paddingBlock: "var(--spacing-2) var(--spacing-3)",
+    },
+  },
 });

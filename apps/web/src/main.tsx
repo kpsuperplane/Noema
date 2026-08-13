@@ -6,6 +6,7 @@ import { createApolloClient } from "./graphql/client";
 import { MotionRoot } from "./motion/MotionRoot";
 import { router } from "./router";
 import { AuthGate } from "./auth/AuthGate";
+import { DesktopConnectionGate } from "./desktop/DesktopConnectionGate";
 import "./styles.css";
 
 const apolloClient = await createApolloClient();
@@ -13,11 +14,13 @@ const apolloClient = await createApolloClient();
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <MotionRoot>
-      <ApolloProvider client={apolloClient}>
-        <AuthGate>
-          <RouterProvider router={router} />
-        </AuthGate>
-      </ApolloProvider>
+      <DesktopConnectionGate>
+        <ApolloProvider client={apolloClient}>
+          <AuthGate>
+            <RouterProvider router={router} />
+          </AuthGate>
+        </ApolloProvider>
+      </DesktopConnectionGate>
     </MotionRoot>
-  </React.StrictMode>
+  </React.StrictMode>,
 );

@@ -24,6 +24,7 @@ and Settings. The current settings roots are:
 - `/settings/safety/usage`
 - `/settings/system/providers`
 - `/settings/system/notifications`
+- `/settings/system/desktop` in the Tauri desktop app only
 - `/settings/system/clients`
 
 Unknown paths fall back to Chat. Do not document proposed routes as current or
@@ -41,6 +42,8 @@ add disabled navigation merely to reserve future information architecture.
   transcript or task authority.
 - Browser code never receives credential material. Provider-auth redirects and
   callbacks remain server-governed flows.
+- Tauri keeps remote bearer credentials in the operating system credential
+  store. Its webview receives connection state and the validated server origin.
 
 ## Interaction contracts
 
@@ -61,6 +64,12 @@ fences required by the runtime.
 Settings panes own their data loading and mutations directly unless a shared
 controller has multiple production consumers. Editing is either inline without
 a separate Save button or performed in a focused dialog with explicit Save.
+
+The desktop app runs one embedded local instance or one paired remote server.
+Remote mode uses HTTPS GraphQL and authenticated `graphql-transport-ws` through
+the existing Tauri IPC contract. Returning to local mode revokes and removes
+the remote client before restart. Failed remote startup replaces the product
+surface with retry, local-mode, and confirmed forget recovery actions.
 
 ## API integration UX
 
