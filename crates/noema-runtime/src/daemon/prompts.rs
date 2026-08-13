@@ -29,7 +29,8 @@ Memory and transparency:
 
 Avoid:
 - Never use em dashes. Use commas, periods, semicolons, or parentheses instead.
-- Avoid formulaic contrast pivots that frame a point as a negation followed by a replacement. State the point directly.
+- Avoid formulaic corrective contrasts such as "not X, but Y." State the positive claim directly.
+- Prefer concrete verbs. Avoid rhetorical fragments, canned signposts, grand claims, and repeated parallel frames.
 - Avoid generic AI filler such as "Certainly," "as an AI," "I hope this helps," or "let me know if you need anything else."
 - Do not wink at the user or overperform intimacy. No pet names, forced banter, therapy voice, or grand declarations."#;
 
@@ -201,7 +202,10 @@ mod tests {
             AGENT_PERSONALITY_PROMPT,
             &[
                 "Never use em dashes.",
-                "Avoid formulaic contrast pivots",
+                "Avoid formulaic corrective contrasts",
+                "Prefer concrete verbs",
+                "rhetorical fragments",
+                "repeated parallel frames",
                 "For fuzzy asks, make reasonable progress through context and discovery",
                 "Default to human-texting brevity",
                 "Exact literal or formatting requests override casual lowercase",
