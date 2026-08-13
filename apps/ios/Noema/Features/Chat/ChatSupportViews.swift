@@ -295,15 +295,12 @@ struct ChatComposer: View {
     Button { voiceInput.cancel() } label: {
       Image(systemName: "xmark")
         .font(NoemaFont.bodyEmphasized)
-        .foregroundStyle(voiceInput.cancelTargeted ? NoemaColor.red700 : NoemaColor.white)
+        .foregroundStyle(NoemaColor.white)
         .frame(width: voiceControlSize, height: voiceControlSize)
-        .background(
-          voiceInput.cancelTargeted ? NoemaColor.white : NoemaColor.red700.opacity(0.82),
-          in: NoemaSuperellipse(cornerRadius: 26)
-        )
+        .background(NoemaColor.red700.opacity(voiceInput.cancelTargeted ? 1 : 0.82), in: NoemaSuperellipse(cornerRadius: 26))
         .overlay {
           NoemaSuperellipse(cornerRadius: 26)
-            .stroke(NoemaColor.red700.opacity(voiceInput.cancelTargeted ? 1 : 0), lineWidth: 2)
+            .stroke(NoemaColor.white.opacity(voiceInput.cancelTargeted ? 0.9 : 0), lineWidth: 2)
         }
         .scaleEffect(voiceInput.cancelTargeted ? 1.06 : 1)
         .animation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion), value: voiceInput.cancelTargeted)
