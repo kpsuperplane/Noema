@@ -293,7 +293,7 @@ struct ChatComposer: View {
 
   private var composerActionOverlay: some View {
     composerActionButton
-      .padding(.trailing, NoemaSpacing.xs)
+      .padding(.trailing, NoemaSpacing.xs + 1)
       .padding(.vertical, NoemaSpacing.compact - 1)
       .frame(maxWidth: .infinity, alignment: .trailing)
       .zIndex(2)
