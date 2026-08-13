@@ -388,6 +388,7 @@ private struct ChatMarkdownBulletMarker: View {
     }
     .frame(width: width, height: NoemaSpacing.xl)
     .offset(x: assistant ? -NoemaSpacing.xxs : 0)
+    .padding(.leading, assistant ? NoemaSpacing.sm + NoemaSpacing.xxs : 0)
   }
 }
 
