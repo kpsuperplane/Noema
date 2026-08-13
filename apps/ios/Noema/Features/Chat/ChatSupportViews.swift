@@ -182,10 +182,12 @@ struct ChatComposer: View {
       composerSurface
         .layoutPriority(1)
     }
+    .geometryGroup()
     .coordinateSpace(name: chatVoiceCoordinateSpace)
     .frame(idealWidth: preferredWidth, maxWidth: preferredWidth)
     .offset(y: inputFocused ? 0 : restingBottomOffset)
     .padding(.bottom, inputFocused ? NoemaSpacing.sm : 0)
+    .animation(NoemaMotion.animation(NoemaSpring.surface, reduceMotion: reduceMotion), value: voiceInput.showsCancel)
     .task(id: autoFocus) {
       guard autoFocus, isEditable, !voiceInput.isEngaged else { return }
       await Task.yield()
