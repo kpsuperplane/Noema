@@ -323,7 +323,7 @@ struct ChatComposer: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .frame(minHeight: voiceControlSize)
     .background {
-      NoemaSuperellipse(cornerRadius: 26)
+      NoemaSuperellipse.composer
         .fill(NoemaColor.pine500)
         .shadow(color: NoemaColor.white, radius: NoemaSpacing.md)
     }
@@ -349,7 +349,7 @@ struct ChatComposer: View {
   private var microphoneHitTarget: some View {
     Color.clear
       .frame(width: 40, height: 40)
-      .contentShape(.interaction, NoemaSuperellipse(cornerRadius: 26))
+      .contentShape(.interaction, NoemaSuperellipse.composer)
       .gesture(microphoneGesture)
       .disabled(!canUseVoice)
       .accessibilityElement()
@@ -368,9 +368,12 @@ struct ChatComposer: View {
         .font(NoemaFont.bodyEmphasized)
         .foregroundStyle(NoemaColor.white)
         .frame(width: voiceControlSize, height: voiceControlSize)
-        .background(NoemaColor.red700.opacity(voiceInput.cancelTargeted ? 1 : 0.82), in: NoemaSuperellipse(cornerRadius: 26))
+        .background(
+          NoemaColor.red700.opacity(voiceInput.cancelTargeted ? 1 : 0.82),
+          in: NoemaSuperellipse.composer
+        )
         .overlay {
-          NoemaSuperellipse(cornerRadius: 26)
+          NoemaSuperellipse.composer
             .stroke(NoemaColor.white.opacity(voiceInput.cancelTargeted ? 0.9 : 0), lineWidth: 2)
         }
         .scaleEffect(voiceInput.cancelTargeted ? 1.06 : 1)
@@ -397,7 +400,7 @@ struct ChatComposer: View {
     .foregroundStyle(NoemaColor.pine500.opacity(enabled ? 1 : 0.7))
     .animation(reduceMotion ? nil : NoemaSpring.micro, value: symbol)
     .frame(width: 40, height: 40)
-    .background(NoemaColor.white, in: NoemaSuperellipse(cornerRadius: 26))
+    .background(NoemaColor.white, in: NoemaSuperellipse.composer)
     .scaleEffect(microphonePressed ? 0.94 : 1)
     .animation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion), value: microphonePressed)
   }

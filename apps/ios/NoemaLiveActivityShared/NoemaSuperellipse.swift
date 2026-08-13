@@ -51,6 +51,10 @@ struct NoemaSuperellipse: InsettableShape {
     NoemaSuperellipse(cornerRadius: fullRadius, treatment: .full)
   }
 
+  static var composer: NoemaSuperellipse {
+    NoemaSuperellipse(cornerRadius: 30, treatment: .full)
+  }
+
   func path(in rect: CGRect) -> Path {
     let insetRect = rect.insetBy(dx: insetAmount, dy: insetAmount)
     let radii = cornerRadii.inset(by: insetAmount).scaled(to: insetRect.size)

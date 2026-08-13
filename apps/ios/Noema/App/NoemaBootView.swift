@@ -61,11 +61,11 @@ struct NoemaBootView: View {
         .font(NoemaFont.bodyEmphasized)
         .foregroundStyle(NoemaColor.pine500.opacity(0.7))
         .frame(width: 40, height: 40)
-        .background(NoemaColor.white, in: NoemaSuperellipse(cornerRadius: 26))
+        .background(NoemaColor.white, in: NoemaSuperellipse.composer)
         .padding(.trailing, NoemaSpacing.xs + 1)
     }
     .frame(maxWidth: 200, minHeight: 50, alignment: .trailing)
-    .background(NoemaColor.pine500, in: NoemaSuperellipse(cornerRadius: 26))
+    .background(NoemaColor.pine500, in: NoemaSuperellipse.composer)
     .shadow(color: NoemaColor.pine700.opacity(0.10), radius: 12, y: 5)
     .frame(maxWidth: .infinity, alignment: .trailing)
     .accessibilityHidden(true)
