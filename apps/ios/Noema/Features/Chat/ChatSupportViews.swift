@@ -294,7 +294,7 @@ struct ChatComposer: View {
   private var composerActionOverlay: some View {
     composerActionButton
       .padding(.trailing, NoemaSpacing.xs)
-      .padding(.vertical, NoemaSpacing.compact)
+      .padding(.vertical, NoemaSpacing.compact - 1)
       .frame(maxWidth: .infinity, alignment: .trailing)
       .zIndex(2)
   }
@@ -321,7 +321,7 @@ struct ChatComposer: View {
     }
     .padding(.leading, NoemaSpacing.lg)
     .padding(.trailing, NoemaSpacing.xs + 40 + NoemaSpacing.sm)
-    .padding(.vertical, NoemaSpacing.lg)
+    .padding(.vertical, NoemaSpacing.lg - 1)
     .frame(maxWidth: .infinity, alignment: .leading)
     .frame(minHeight: voiceControlSize)
     .background {
