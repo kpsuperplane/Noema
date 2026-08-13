@@ -28,6 +28,47 @@ struct ChatVoiceInputAlert: Identifiable, Equatable {
   let offersSettings: Bool
 }
 
+private actor ChatVoiceAudioSession {
+  static let shared = ChatVoiceAudioSession()
+
+  func activate() throws -> Bool {
+    let session = AVAudioSession.sharedInstance()
+    try session.setCategory(.record, mode: .measurement)
+    try session.setAllowHapticsAndSystemSoundsDuringRecording(true)
+    try session.setActive(true)
+    return session.isInputAvailable
+  }
+
+  func deactivate() {
+    try? AVAudioSession.sharedInstance().setActive(
+      false,
+      options: .notifyOthersOnDeactivation
+    )
+  }
+}
+
+private actor ChatVoiceAudioCapture {
+  private let engine: AVAudioEngine
+  private var tapInstalled = true
+
+  init(engine: AVAudioEngine) {
+    self.engine = engine
+  }
+
+  func start() throws {
+    engine.prepare()
+    try engine.start()
+  }
+
+  func stop() {
+    if tapInstalled {
+      engine.inputNode.removeTap(onBus: 0)
+      tapInstalled = false
+    }
+    engine.stop()
+  }
+}
+
 @MainActor
 @Observable
 final class ChatVoiceInput {
@@ -48,8 +89,7 @@ final class ChatVoiceInput {
   @ObservationIgnored private var resultsTask: Task<Void, Never>?
   @ObservationIgnored private var analyzer: SpeechAnalyzer?
   @ObservationIgnored private var inputContinuation: AsyncStream<AnalyzerInput>.Continuation?
-  @ObservationIgnored private var audioEngine: AVAudioEngine?
-  @ObservationIgnored private var tapInstalled = false
+  @ObservationIgnored private var audioCapture: ChatVoiceAudioCapture?
 
   var isEngaged: Bool {
     switch state {
@@ -206,7 +246,7 @@ final class ChatVoiceInput {
       return
     } catch {
       guard generation == sessionGeneration else { return }
-      failPreparation(error)
+      await failPreparation(error)
     }
   }
 
@@ -221,7 +261,7 @@ final class ChatVoiceInput {
     try Task.checkCancellation()
     guard generation == sessionGeneration else { return }
 
-    guard try await Self.activateAudioSession() else {
+    guard try await ChatVoiceAudioSession.shared.activate() else {
       throw ChatVoiceInputError.audioUnavailable
     }
 
@@ -239,9 +279,10 @@ final class ChatVoiceInput {
     let converter = try ChatVoiceAudioConverter(inputFormat: inputFormat, outputFormat: analyzerFormat)
     let (inputSequence, continuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
     let analyzer = SpeechAnalyzer(modules: modules)
+    let capture = ChatVoiceAudioCapture(engine: engine)
     self.analyzer = analyzer
     inputContinuation = continuation
-    audioEngine = engine
+    audioCapture = capture
 
     let audioTap: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { [weak self] buffer, _ in
       do {
@@ -254,24 +295,14 @@ final class ChatVoiceInput {
       }
     }
     inputNode.installTap(onBus: 0, bufferSize: 1_024, format: inputFormat, block: audioTap)
-    tapInstalled = true
 
     try await analyzer.start(inputSequence: inputSequence)
     try Task.checkCancellation()
     guard generation == sessionGeneration, state == .preparing else { throw CancellationError() }
-    engine.prepare()
-    try engine.start()
+    try await capture.start()
+    try Task.checkCancellation()
+    guard generation == sessionGeneration, state == .preparing else { throw CancellationError() }
     state = .recording(mode)
-  }
-
-  private nonisolated static func activateAudioSession() async throws -> Bool {
-    try await Task.detached(priority: .userInitiated) {
-      let audioSession = AVAudioSession.sharedInstance()
-      try audioSession.setCategory(.record, mode: .measurement)
-      try audioSession.setAllowHapticsAndSystemSoundsDuringRecording(true)
-      try audioSession.setActive(true)
-      return audioSession.isInputAvailable
-    }.value
   }
 
   private func resultTask<Results: AsyncSequence>(
@@ -319,7 +350,7 @@ final class ChatVoiceInput {
   }
 
   private func finishPipeline(_ kind: FinishKind, generation: Int) async {
-    stopAudioCapture()
+    await stopAudioCapture()
     inputContinuation?.finish()
 
     var finishError: Error?
@@ -340,7 +371,7 @@ final class ChatVoiceInput {
     guard generation == sessionGeneration else { return }
     let dictated = Self.join(finalizedText, volatileText)
     let combined = Self.join(originalDraft, dictated)
-    tearDown()
+    await tearDown()
 
     switch kind {
     case .restore:
@@ -358,7 +389,7 @@ final class ChatVoiceInput {
     }
   }
 
-  private func failPreparation(_ error: Error) {
+  private func failPreparation(_ error: Error) async {
     let message = Self.failureMessage(error)
     let permissionError = (error as? ChatVoiceInputError).map {
       $0 == .microphonePermission || $0 == .speechPermission
@@ -367,7 +398,7 @@ final class ChatVoiceInput {
       message: message,
       offersSettings: permissionError
     )
-    tearDown()
+    await tearDown()
     publish(.keepDraft(originalDraft, error: message))
     state = .failed
   }
@@ -383,29 +414,26 @@ final class ChatVoiceInput {
     state = .idle
   }
 
-  private func stopAudioCapture() {
-    if tapInstalled {
-      audioEngine?.inputNode.removeTap(onBus: 0)
-      tapInstalled = false
-    }
-    audioEngine?.stop()
+  private func stopAudioCapture() async {
+    let capture = audioCapture
+    audioCapture = nil
+    await capture?.stop()
   }
 
-  private func tearDown() {
-    stopAudioCapture()
+  private func tearDown() async {
+    await stopAudioCapture()
     inputContinuation?.finish()
     preparationTask?.cancel()
     resultsTask?.cancel()
-    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     analyzer = nil
     inputContinuation = nil
-    audioEngine = nil
     preparationTask = nil
     resultsTask = nil
     finishingTask = nil
     pressing = false
     cancelTargeted = false
     sessionGeneration &+= 1
+    await ChatVoiceAudioSession.shared.deactivate()
   }
 
   private func requestMicrophonePermission() async -> Bool {

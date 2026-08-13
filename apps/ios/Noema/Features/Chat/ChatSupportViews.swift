@@ -167,6 +167,13 @@ struct ChatComposer: View {
     voiceInput.showsCancel || (isEditable && isSendEnabled && !model.isSending && !model.isOffline)
   }
 
+  private var composerTransitionAnimation: Animation? {
+    guard !reduceMotion else { return nil }
+    return voiceInput.showsCancel
+      ? NoemaSpring.surface
+      : NoemaSpring.surface.speed(0.8)
+  }
+
   private var composerText: Binding<String> {
     let displayedText = voiceInput.isEngaged ? voiceInput.previewText : model.draft
     return Binding {
@@ -187,7 +194,7 @@ struct ChatComposer: View {
     .frame(idealWidth: preferredWidth, maxWidth: preferredWidth)
     .offset(y: inputFocused ? 0 : restingBottomOffset)
     .padding(.bottom, inputFocused ? NoemaSpacing.sm : 0)
-    .animation(NoemaMotion.animation(NoemaSpring.surface, reduceMotion: reduceMotion), value: voiceInput.showsCancel)
+    .animation(composerTransitionAnimation, value: voiceInput.showsCancel)
     .task(id: autoFocus) {
       guard autoFocus, isEditable, !voiceInput.isEngaged else { return }
       await Task.yield()
