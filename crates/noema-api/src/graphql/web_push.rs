@@ -1205,18 +1205,6 @@ impl NotificationCoordinator {
                         activity.activity_id.as_deref(),
                     )
                     .await;
-            } else if activity.lifecycle == "starting"
-                && let Some(activity_id) = activity.activity_id.as_deref()
-            {
-                let _ = self
-                    .inner
-                    .store
-                    .dismiss_client_live_activity(
-                        &target.registration.client_id,
-                        activity_id,
-                        false,
-                    )
-                    .await;
             } else if activity.lifecycle == "dismissed" {
                 let _ = self
                     .inner
@@ -2418,7 +2406,7 @@ mod tests {
             .expect("join reconciliation");
     }
     #[tokio::test]
-    async fn live_activity_projection_error_keeps_starting_activity() {
+    async fn live_activity_unavailable_projection_keeps_starting_activity() {
         let root = tempfile::tempdir().expect("home");
         let store = crate::test_support::test_store().await;
         store
@@ -2473,9 +2461,9 @@ mod tests {
             .client_task_activity("client:one")
             .await
             .expect("reload activity")
-            .expect("dismissed activity");
-        assert_eq!(activity.lifecycle, "dismissed");
-        assert!(activity.suppressed);
+            .expect("starting activity");
+        assert_eq!(activity.lifecycle, "starting");
+        assert!(!activity.suppressed);
     }
     #[test]
     fn live_activity_update_labels_track_real_run_progress() {
