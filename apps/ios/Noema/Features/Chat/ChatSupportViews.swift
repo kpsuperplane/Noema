@@ -217,7 +217,7 @@ struct ChatComposer: View {
     .fixedSize(horizontal: false, vertical: true)
     .coordinateSpace(name: chatVoiceCoordinateSpace)
     .frame(maxWidth: composerMaxWidth)
-    .padding(.bottom, inputFocused ? NoemaSpacing.sm : 0)
+    .padding(.bottom, inputFocused ? NoemaSpacing.sm : NoemaSpacing.xs)
     .task(id: autoFocus) {
       guard autoFocus, isEditable, !voiceInput.isEngaged else { return }
       await Task.yield()
