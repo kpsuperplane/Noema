@@ -133,6 +133,7 @@ struct ChatComposer: View {
   @State private var microphoneLocation = CGPoint.zero
   @State private var microphonePressed = false
   @State private var holdTask: Task<Void, Never>?
+  @State private var voicePressFeedback = UIImpactFeedbackGenerator(style: .light)
   @State private var cancelFeedback = UIImpactFeedbackGenerator(style: .rigid)
   @FocusState private var inputFocused: Bool
   @Environment(\.scenePhase) private var scenePhase
@@ -331,6 +332,7 @@ struct ChatComposer: View {
         guard canUseVoice else { return }
         if !microphonePressed {
           microphonePressed = true
+          voicePressFeedback.impactOccurred(intensity: 0.8)
           voiceInput.pressBegan(originalDraft: model.draft)
           holdTask?.cancel()
           holdTask = Task { @MainActor in
