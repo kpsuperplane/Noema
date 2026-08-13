@@ -636,11 +636,11 @@ struct NoemaShellView: View {
       pageDragOffset = 0
     } completion: {
       guard pageSwipeGeneration == generation else { return }
+      coordinator.pageSwipeInFlight = false
       Task { @MainActor in
         await Task.yield()
         guard pageSwipeGeneration == generation else { return }
         pageDragTarget = nil
-        coordinator.pageSwipeInFlight = false
       }
     }
   }
