@@ -81,10 +81,10 @@ private struct ChatLoadingView: View {
           isEditable: model.conversationID != nil,
           isSendEnabled: false
         )
-          .frame(maxWidth: 760, alignment: .trailing)
+          .frame(width: 200, alignment: .trailing)
           .padding(.horizontal, NoemaSpacing.md)
           .padding(.bottom, NoemaSpacing.sm)
-          .frame(maxWidth: .infinity)
+          .frame(maxWidth: .infinity, alignment: .trailing)
       }
       .accessibilityElement(children: .contain)
       .accessibilityLabel("Loading chat")

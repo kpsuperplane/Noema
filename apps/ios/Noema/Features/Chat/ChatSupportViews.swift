@@ -293,7 +293,8 @@ struct ChatComposer: View {
 
   private var composerActionOverlay: some View {
     composerActionButton
-      .padding([.trailing, .bottom], NoemaSpacing.xs)
+      .padding(.trailing, NoemaSpacing.xs)
+      .padding(.vertical, NoemaSpacing.compact)
       .frame(maxWidth: .infinity, alignment: .trailing)
       .zIndex(2)
   }
@@ -332,36 +333,32 @@ struct ChatComposer: View {
 
   private var composerActionButton: some View {
     ZStack {
-      composerActionLabel(symbol: composerActionSymbol, enabled: composerActionEnabled)
-        .allowsHitTesting(false)
-      composerActionHitTarget
+      Button {
+        guard composerActionSends else { return }
+        Task { await model.send() }
+      } label: {
+        composerActionLabel(symbol: composerActionSymbol, enabled: composerActionEnabled)
+      }
+      .buttonStyle(.plain)
+      .disabled(composerActionSends && !canSend)
+      .accessibilityHidden(!composerActionSends)
+      .accessibilityLabel("Send message")
+
+      if !composerActionSends { microphoneHitTarget }
     }
   }
 
-  @ViewBuilder
-  private var composerActionHitTarget: some View {
-    if composerActionSends {
-      Button {
-        Task { await model.send() }
-      } label: {
-        Color.clear.frame(width: 40, height: 40)
-      }
-      .buttonStyle(.plain)
+  private var microphoneHitTarget: some View {
+    Color.clear
+      .frame(width: 40, height: 40)
       .contentShape(.interaction, NoemaSuperellipse(cornerRadius: 26))
-      .disabled(!canSend)
-      .accessibilityLabel("Send message")
-    } else {
-      Color.clear
-        .frame(width: 40, height: 40)
-        .contentShape(.interaction, NoemaSuperellipse(cornerRadius: 26))
-        .gesture(microphoneGesture)
-        .disabled(!canUseVoice)
-        .accessibilityElement()
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(voiceInput.isEngaged ? "Stop and send voice input" : "Start voice input")
-        .accessibilityHint("Double-tap to toggle voice input. Touch and hold to speak until release.")
-        .accessibilityAction { voiceInput.accessibilityActivate(originalDraft: model.draft) }
-    }
+      .gesture(microphoneGesture)
+      .disabled(!canUseVoice)
+      .accessibilityElement()
+      .accessibilityAddTraits(.isButton)
+      .accessibilityLabel(voiceInput.isEngaged ? "Stop and send voice input" : "Start voice input")
+      .accessibilityHint("Double-tap to toggle voice input. Touch and hold to speak until release.")
+      .accessibilityAction { voiceInput.accessibilityActivate(originalDraft: model.draft) }
   }
 
   private var cancelButton: some View {
