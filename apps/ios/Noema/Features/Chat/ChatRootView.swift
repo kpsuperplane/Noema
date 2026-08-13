@@ -72,6 +72,7 @@ struct ChatRootView: View {
 
 private struct ChatLoadingView: View {
   @Bindable var model: ChatModel
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   var body: some View {
     ChatTranscriptLoadingSkeleton()
@@ -82,6 +83,7 @@ private struct ChatLoadingView: View {
           isSendEnabled: false
         )
           .frame(width: 200, alignment: .trailing)
+          .padding(.horizontal, horizontalSizeClass == .compact ? NoemaSpacing.sm : 0)
           .padding(.horizontal, NoemaSpacing.md)
           .padding(.bottom, NoemaSpacing.sm)
           .frame(maxWidth: .infinity, alignment: .trailing)
@@ -413,6 +415,7 @@ struct ChatReadyView: View {
           restingBottomOffset: horizontalSizeClass == .compact ? 12 : 0
         )
           .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 760, alignment: .trailing)
+          .padding(.horizontal, horizontalSizeClass == .compact ? NoemaSpacing.sm : 0)
       }
       .padding(.horizontal, NoemaSpacing.md)
       .padding(.bottom, horizontalSizeClass == .compact ? 0 : NoemaSpacing.sm)
