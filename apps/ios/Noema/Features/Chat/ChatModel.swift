@@ -248,6 +248,7 @@ final class ChatModel {
           !isRecoveringConnection,
           let client,
           conversationID != nil else { return }
+    agentStatus = "IDLE"
     isRecoveringConnection = true
     defer { isRecoveringConnection = false }
     NoemaDiagnosticTrace.shared.record(category: "chat", event: "recovery_started")
