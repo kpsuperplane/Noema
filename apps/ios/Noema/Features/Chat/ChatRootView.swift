@@ -139,6 +139,11 @@ struct ChatFailureView: View {
   }
 }
 
+private struct ChatScrollGeometry: Equatable {
+  let isAtBottom: Bool
+  let containerHeight: CGFloat
+}
+
 struct ChatReadyView: View {
   @Bindable var model: ChatModel
   let notifications: NoemaNotificationService
@@ -329,12 +334,21 @@ struct ChatReadyView: View {
       }
       .defaultScrollAnchor(.bottom)
       .scrollDismissesKeyboard(.interactively)
-      .onScrollGeometryChange(for: Bool.self) { geometry in
+      .onScrollGeometryChange(for: ChatScrollGeometry.self) { geometry in
         let bottomDistance = geometry.contentSize.height
           - (geometry.contentOffset.y + geometry.containerSize.height)
-        return bottomDistance <= NoemaSpacing.sm
-      } action: { _, isAtBottom in
-        followBottom = isAtBottom
+        return ChatScrollGeometry(
+          isAtBottom: bottomDistance <= NoemaSpacing.sm,
+          containerHeight: geometry.containerSize.height
+        )
+      } action: { oldGeometry, newGeometry in
+        if newGeometry.isAtBottom {
+          followBottom = true
+        } else if followBottom, oldGeometry.containerHeight != newGeometry.containerHeight {
+          proxy.scrollTo("chat-bottom", anchor: .bottom)
+        } else {
+          followBottom = false
+        }
       }
       .overlay(alignment: .top) {
         LinearGradient(
