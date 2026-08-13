@@ -164,6 +164,15 @@ struct ChatComposer: View {
     voiceInput.showsCancel || (isEditable && isSendEnabled && !model.isSending && !model.isOffline)
   }
 
+  private var composerText: Binding<String> {
+    let displayedText = voiceInput.isEngaged ? voiceInput.previewText : model.draft
+    return Binding {
+      displayedText
+    } set: { text in
+      if !voiceInput.isEngaged { model.draft = text }
+    }
+  }
+
   var body: some View {
     HStack(alignment: .center, spacing: NoemaSpacing.sm) {
       if voiceInput.showsCancel { cancelButton }
@@ -225,37 +234,24 @@ struct ChatComposer: View {
 
   private var composerSurface: some View {
     HStack(alignment: .center, spacing: NoemaSpacing.sm) {
-      ZStack(alignment: .leading) {
-        TextField(
-          "",
-          text: $model.draft,
-          prompt: Text(placeholder).foregroundStyle(NoemaColor.white.opacity(0.72)),
-          axis: .vertical
-        )
-        .font(NoemaFont.composer)
-        .foregroundStyle(NoemaColor.white)
-        .tint(NoemaColor.white)
-        .lineLimit(1...5)
-        .fixedSize(horizontal: false, vertical: true)
-        .textFieldStyle(.plain)
-        .focused($inputFocused)
-        .disabled(!isEditable)
-        .opacity(voiceInput.isEngaged ? 0 : 1)
-        .allowsHitTesting(!voiceInput.isEngaged)
-        .accessibilityHidden(voiceInput.isEngaged)
-        .onSubmit {
-          guard canSend else { return }
-          Task { await model.send() }
-        }
-
-        if voiceInput.isEngaged {
-          Text(voiceInput.previewText.isEmpty ? voiceInput.previewPlaceholder : voiceInput.previewText)
-            .font(NoemaFont.composer)
-            .foregroundStyle(voiceInput.previewText.isEmpty ? NoemaColor.white.opacity(0.72) : NoemaColor.white)
-            .lineLimit(1...5)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel(voiceInput.previewText.isEmpty ? voiceInput.previewPlaceholder : voiceInput.previewText)
-        }
+      TextField(
+        "",
+        text: composerText,
+        prompt: Text(voiceInput.isEngaged ? voiceInput.previewPlaceholder : placeholder)
+          .foregroundStyle(NoemaColor.white.opacity(0.72)),
+        axis: .vertical
+      )
+      .font(NoemaFont.composer)
+      .foregroundStyle(NoemaColor.white)
+      .tint(NoemaColor.white)
+      .lineLimit(1...5)
+      .fixedSize(horizontal: false, vertical: true)
+      .textFieldStyle(.plain)
+      .focused($inputFocused)
+      .disabled(!isEditable)
+      .onSubmit {
+        guard canSend, !voiceInput.isEngaged else { return }
+        Task { await model.send() }
       }
 
       if !voiceInput.isEngaged {
@@ -276,12 +272,12 @@ struct ChatComposer: View {
     .padding(.leading, NoemaSpacing.lg)
     .padding(.trailing, voiceInput.isEngaged ? NoemaSpacing.lg : NoemaSpacing.xs)
     .padding(.vertical, 5)
+    .frame(minHeight: voiceControlSize)
     .background {
       NoemaSuperellipse(cornerRadius: 26)
         .fill(NoemaColor.pine500)
         .shadow(color: NoemaColor.white, radius: NoemaSpacing.md)
     }
-    .frame(minHeight: voiceControlSize)
   }
 
   private var cancelButton: some View {

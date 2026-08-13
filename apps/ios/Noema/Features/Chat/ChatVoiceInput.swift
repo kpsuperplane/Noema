@@ -38,8 +38,8 @@ final class ChatVoiceInput {
 
   @ObservationIgnored private var completion: ChatVoiceInputCompletion?
   @ObservationIgnored private var originalDraft = ""
-  @ObservationIgnored private var finalizedText = ""
-  @ObservationIgnored private var volatileText = ""
+  private var finalizedText = ""
+  private var volatileText = ""
   @ObservationIgnored private var mode: ChatVoiceInputMode = .toggle
   @ObservationIgnored private var pressing = false
   @ObservationIgnored private var sessionGeneration = 0
