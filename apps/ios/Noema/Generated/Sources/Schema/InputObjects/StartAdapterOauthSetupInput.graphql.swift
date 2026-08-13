@@ -17,7 +17,8 @@ nonisolated public struct StartAdapterOauthSetupInput: InputObject {
     grantId: GraphQLNullable<String> = nil,
     expectedGrantRevision: GraphQLNullable<Int32> = nil,
     semanticDigest: String,
-    operationIds: [String]
+    operationIds: [String],
+    additionalServices: GraphQLNullable<[AdapterOauthServiceSelectionInput]> = nil
   ) {
     __data = InputDict([
       "applicationId": applicationId,
@@ -25,7 +26,8 @@ nonisolated public struct StartAdapterOauthSetupInput: InputObject {
       "grantId": grantId,
       "expectedGrantRevision": expectedGrantRevision,
       "semanticDigest": semanticDigest,
-      "operationIds": operationIds
+      "operationIds": operationIds,
+      "additionalServices": additionalServices
     ])
   }
 
@@ -57,5 +59,10 @@ nonisolated public struct StartAdapterOauthSetupInput: InputObject {
   public var operationIds: [String] {
     get { __data["operationIds"] }
     set { __data["operationIds"] = newValue }
+  }
+
+  public var additionalServices: GraphQLNullable<[AdapterOauthServiceSelectionInput]> {
+    get { __data["additionalServices"] }
+    set { __data["additionalServices"] = newValue }
   }
 }

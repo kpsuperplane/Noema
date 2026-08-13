@@ -8,7 +8,7 @@ nonisolated public struct MemoryEventsSubscription: GraphQLSubscription {
   public static let operationName: String = "MemoryEvents"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"subscription MemoryEvents { memoryEvents { __typename root { __typename id path title icon body hash sources sourceReferences { __typename source excerpt } parent ancestors { __typename id path title } children { __typename id path title icon excerpt hash } } pages { __typename id path title icon excerpt hash } pendingCount updateStatus { __typename state active lastConsolidatedSequence lastConsolidatedItem error updatedAt } } }"#
+      #"subscription MemoryEvents { memoryEvents { __typename root { __typename id path title icon body hash citations { __typename sources { __typename source kind excerpt createdAt } } parent ancestors { __typename id path title } children { __typename id path title icon excerpt hash } } pages { __typename id path title icon excerpt hash } pendingCount updateStatus { __typename state active lastConsolidatedSequence lastConsolidatedItem error updatedAt } } }"#
     ))
 
   public init() {}
@@ -68,8 +68,7 @@ nonisolated public struct MemoryEventsSubscription: GraphQLSubscription {
           .field("icon", String.self),
           .field("body", String.self),
           .field("hash", String.self),
-          .field("sources", [String].self),
-          .field("sourceReferences", [SourceReference].self),
+          .field("citations", [Citation].self),
           .field("parent", String?.self),
           .field("ancestors", [Ancestor].self),
           .field("children", [Child].self),
@@ -84,31 +83,53 @@ nonisolated public struct MemoryEventsSubscription: GraphQLSubscription {
         public var icon: String { __data["icon"] }
         public var body: String { __data["body"] }
         public var hash: String { __data["hash"] }
-        public var sources: [String] { __data["sources"] }
-        public var sourceReferences: [SourceReference] { __data["sourceReferences"] }
+        public var citations: [Citation] { __data["citations"] }
         public var parent: String? { __data["parent"] }
         public var ancestors: [Ancestor] { __data["ancestors"] }
         public var children: [Child] { __data["children"] }
 
-        /// MemoryEvents.Root.SourceReference
+        /// MemoryEvents.Root.Citation
         ///
-        /// Parent Type: `GraphqlNativeMemorySourceReference`
-        nonisolated public struct SourceReference: NoemaAPI.SelectionSet {
+        /// Parent Type: `GraphqlNativeMemoryCitation`
+        nonisolated public struct Citation: NoemaAPI.SelectionSet {
           @_spi(Unsafe) public let __data: DataDict
           @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
 
-          @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.GraphqlNativeMemorySourceReference }
+          @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.GraphqlNativeMemoryCitation }
           @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
             .field("__typename", String.self),
-            .field("source", String.self),
-            .field("excerpt", String?.self),
+            .field("sources", [Source].self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-            MemoryEventsSubscription.Data.MemoryEvents.Root.SourceReference.self
+            MemoryEventsSubscription.Data.MemoryEvents.Root.Citation.self
           ] }
 
-          public var source: String { __data["source"] }
-          public var excerpt: String? { __data["excerpt"] }
+          public var sources: [Source] { __data["sources"] }
+
+          /// MemoryEvents.Root.Citation.Source
+          ///
+          /// Parent Type: `GraphqlNativeMemorySourceReference`
+          nonisolated public struct Source: NoemaAPI.SelectionSet {
+            @_spi(Unsafe) public let __data: DataDict
+            @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+            @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.GraphqlNativeMemorySourceReference }
+            @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+              .field("__typename", String.self),
+              .field("source", String.self),
+              .field("kind", GraphQLEnum<NoemaAPI.GraphqlNativeMemorySourceKind>.self),
+              .field("excerpt", String?.self),
+              .field("createdAt", String?.self),
+            ] }
+            @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+              MemoryEventsSubscription.Data.MemoryEvents.Root.Citation.Source.self
+            ] }
+
+            public var source: String { __data["source"] }
+            public var kind: GraphQLEnum<NoemaAPI.GraphqlNativeMemorySourceKind> { __data["kind"] }
+            public var excerpt: String? { __data["excerpt"] }
+            public var createdAt: String? { __data["createdAt"] }
+          }
         }
 
         /// MemoryEvents.Root.Ancestor

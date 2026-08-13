@@ -60,6 +60,7 @@ nonisolated public struct SettingsAdapterDefinitionsQuery: GraphQLQuery {
       public var accountIdentityOperationId: String? { __data["accountIdentityOperationId"] }
       public var manifestJson: String { __data["manifestJson"] }
       public var operations: [Operation] { __data["operations"] }
+      public var transition: Transition { __data["transition"] }
       public var connectionCount: Int { __data["connectionCount"] }
       public var connections: [Connection] { __data["connections"] }
       public var reviewed: Bool { __data["reviewed"] }
@@ -77,6 +78,8 @@ nonisolated public struct SettingsAdapterDefinitionsQuery: GraphQLQuery {
       public typealias CredentialSetup = SettingsAdapterDefinitionFields.CredentialSetup
 
       public typealias Operation = SettingsAdapterDefinitionFields.Operation
+
+      public typealias Transition = SettingsAdapterDefinitionFields.Transition
 
       public typealias Connection = SettingsAdapterDefinitionFields.Connection
 

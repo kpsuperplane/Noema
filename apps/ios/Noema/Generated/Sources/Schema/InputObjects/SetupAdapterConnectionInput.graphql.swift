@@ -13,11 +13,13 @@ nonisolated public struct SetupAdapterConnectionInput: InputObject {
 
   public init(
     semanticDigest: String,
+    replacementConnectionId: GraphQLNullable<String> = nil,
     fieldValues: [AdapterCredentialFieldValueInput]? = nil,
     documentBase64: GraphQLNullable<String> = nil
   ) {
     __data = InputDict([
       "semanticDigest": semanticDigest,
+      "replacementConnectionId": replacementConnectionId,
       "fieldValues": fieldValues ?? GraphQLNullable.none,
       "documentBase64": documentBase64
     ])
@@ -26,6 +28,11 @@ nonisolated public struct SetupAdapterConnectionInput: InputObject {
   public var semanticDigest: String {
     get { __data["semanticDigest"] }
     set { __data["semanticDigest"] = newValue }
+  }
+
+  public var replacementConnectionId: GraphQLNullable<String> {
+    get { __data["replacementConnectionId"] }
+    set { __data["replacementConnectionId"] = newValue }
   }
 
   public var fieldValues: [AdapterCredentialFieldValueInput]? {

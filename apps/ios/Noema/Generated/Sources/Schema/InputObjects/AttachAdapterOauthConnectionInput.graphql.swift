@@ -14,12 +14,14 @@ nonisolated public struct AttachAdapterOauthConnectionInput: InputObject {
   public init(
     semanticDigest: String,
     grantId: String,
-    expectedGrantRevision: Int32
+    expectedGrantRevision: Int32,
+    replacementConnectionId: GraphQLNullable<String> = nil
   ) {
     __data = InputDict([
       "semanticDigest": semanticDigest,
       "grantId": grantId,
-      "expectedGrantRevision": expectedGrantRevision
+      "expectedGrantRevision": expectedGrantRevision,
+      "replacementConnectionId": replacementConnectionId
     ])
   }
 
@@ -36,5 +38,10 @@ nonisolated public struct AttachAdapterOauthConnectionInput: InputObject {
   public var expectedGrantRevision: Int32 {
     get { __data["expectedGrantRevision"] }
     set { __data["expectedGrantRevision"] = newValue }
+  }
+
+  public var replacementConnectionId: GraphQLNullable<String> {
+    get { __data["replacementConnectionId"] }
+    set { __data["replacementConnectionId"] = newValue }
   }
 }
