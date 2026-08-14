@@ -148,7 +148,7 @@ private struct TasksSurface: View {
       .item(
         id: "tasks.workspace.personal",
         label: model.workspace?.name ?? "Personal",
-        symbol: "briefcase",
+        icon: .briefcaseBusiness,
         selected: model.selectedProjectId == nil,
         action: {
           Task { await model.selectProject(nil) }
@@ -162,7 +162,7 @@ private struct TasksSurface: View {
         .item(
           id: "tasks.project.\(project.id)",
           label: project.name,
-          symbol: "folder",
+          icon: .folder,
           depth: 1,
           selected: model.selectedProjectId == project.id,
           action: {
@@ -178,7 +178,7 @@ private struct TasksSurface: View {
         .item(
           id: "tasks.project.archived.\(project.id)",
           label: project.name,
-          symbol: "archivebox",
+          icon: .archive,
           depth: 1,
           selected: model.selectedProjectId == project.id,
           action: {
@@ -192,27 +192,27 @@ private struct TasksSurface: View {
     entries.append(.item(
       id: "tasks.project.new",
       label: "New project",
-      symbol: "folder.badge.plus",
+      icon: .folderPlus,
       action: { createProjectPresented = true }
     ))
     if let selectedProject = model.projects.first(where: { $0.id == model.selectedProjectId }) {
       entries.append(.item(
         id: "tasks.project.edit",
-          label: "Edit \(selectedProject.name)",
-        symbol: "pencil",
+        label: "Edit \(selectedProject.name)",
+        icon: .pencil,
         action: { projectEditor = selectedProject }
       ))
       entries.append(.item(
         id: "tasks.project.archive",
         label: selectedProject.archivedAt == nil ? "Archive project" : "Reopen project",
-        symbol: selectedProject.archivedAt == nil ? "archivebox" : "arrow.uturn.backward",
+        icon: selectedProject.archivedAt == nil ? .archive : .undo2,
         action: { projectEditor = selectedProject }
       ))
     }
 
     shellCoordinator.show(NoemaSecondaryNavigation(
       title: model.workspace?.name ?? "Personal",
-      symbol: "briefcase",
+      icon: .briefcaseBusiness,
       entries: entries
     ), for: .tasks)
   }

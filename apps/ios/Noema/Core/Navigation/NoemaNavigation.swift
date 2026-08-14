@@ -34,12 +34,12 @@ enum NoemaDestination: String, CaseIterable, Identifiable {
     }
   }
 
-  var symbol: String {
+  var icon: NoemaIcon.Name {
     switch self {
-    case .chat: "bubble.left"
-    case .tasks: "checklist"
-    case .memory: "brain"
-    case .settings: "gearshape"
+    case .chat: .messageCircle
+    case .tasks: .listTodo
+    case .memory: .brain
+    case .settings: .settings
     }
   }
 }
@@ -50,7 +50,7 @@ struct NoemaSidebarEntry: Identifiable {
   let id: String
   let kind: Kind
   let label: String
-  var symbol: String?
+  var icon: NoemaIcon.Name?
   var depth = 0
   var isSelected = false
   var isPinned = false
@@ -63,7 +63,7 @@ struct NoemaSidebarEntry: Identifiable {
   static func item(
     id: String,
     label: String,
-    symbol: String,
+    icon: NoemaIcon.Name,
     depth: Int = 0,
     selected: Bool = false,
     pinned: Bool = false,
@@ -73,7 +73,7 @@ struct NoemaSidebarEntry: Identifiable {
       id: id,
       kind: .item,
       label: label,
-      symbol: symbol,
+      icon: icon,
       depth: depth,
       isSelected: selected,
       isPinned: pinned,
@@ -84,7 +84,7 @@ struct NoemaSidebarEntry: Identifiable {
 
 struct NoemaSecondaryNavigation {
   let title: String
-  let symbol: String
+  let icon: NoemaIcon.Name
   let entries: [NoemaSidebarEntry]
 }
 
@@ -187,9 +187,8 @@ struct NoemaTopRail: View {
       .onHover { agentAvatarHovered = $0 }
     } else {
       HStack(spacing: 0) {
-        Image(systemName: destination.symbol)
+        NoemaIcon(destination.icon, size: 20)
           .frame(width: 20, height: 20)
-          .accessibilityHidden(true)
         railText(label, expansion: expansion)
       }
     }
@@ -714,23 +713,23 @@ struct NoemaShellView: View {
     case .tasks:
       NoemaSecondaryNavigation(
         title: "Personal",
-        symbol: "briefcase",
+        icon: .briefcaseBusiness,
         entries: [
-          .item(id: "personal", label: "Personal", symbol: "briefcase", selected: true) {}
+          .item(id: "personal", label: "Personal", icon: .briefcaseBusiness, selected: true) {}
         ]
       )
     case .memory:
       NoemaSecondaryNavigation(
         title: "Memory",
-        symbol: "brain",
+        icon: .brain,
         entries: [
-          .item(id: "memory-root", label: "Memory", symbol: "brain", selected: true) {}
+          .item(id: "memory-root", label: "Memory", icon: .brain, selected: true) {}
         ]
       )
     case .settings:
       NoemaSecondaryNavigation(
         title: "Agents",
-        symbol: "person.2",
+        icon: .bot,
         entries: Self.settingsEntries
       )
     }
@@ -738,20 +737,20 @@ struct NoemaShellView: View {
 
   private static var settingsEntries: [NoemaSidebarEntry] {
     [
-      .item(id: "agents", label: "Agents", symbol: "person.2", selected: true) {},
-      .item(id: "memory", label: "Memory", symbol: "brain") {},
+      .item(id: "agents", label: "Agents", icon: .bot, selected: true) {},
+      .item(id: "memory", label: "Memory", icon: .brain) {},
       .group("Tools"),
-      .item(id: "web", label: "Web", symbol: "globe") {},
-      .item(id: "apis", label: "APIs", symbol: "cable.connector") {},
-      .item(id: "mcps", label: "MCPs", symbol: "bolt.horizontal.circle") {},
+      .item(id: "web", label: "Web", icon: .globe) {},
+      .item(id: "apis", label: "APIs", icon: .cable) {},
+      .item(id: "mcps", label: "MCPs", icon: .plugZap) {},
       .group("Safety"),
-      .item(id: "privacy", label: "Privacy", symbol: "hand.raised") {},
-      .item(id: "execution", label: "Execution", symbol: "gauge.with.dots.needle.67percent") {},
+      .item(id: "privacy", label: "Privacy", icon: .shieldCheck) {},
+      .item(id: "execution", label: "Execution", icon: .gauge) {},
       .group("System"),
-      .item(id: "models", label: "Local Models", symbol: "cpu") {},
-      .item(id: "providers", label: "Providers", symbol: "server.rack") {},
-      .item(id: "notifications", label: "Notifications", symbol: "bell") {},
-      .item(id: "clients", label: "Clients", symbol: "iphone") {}
+      .item(id: "models", label: "Local Models", icon: .cpu) {},
+      .item(id: "providers", label: "Providers", icon: .serverCog) {},
+      .item(id: "notifications", label: "Notifications", icon: .bell) {},
+      .item(id: "clients", label: "Clients", icon: .smartphone) {}
     ]
   }
 }
@@ -770,7 +769,7 @@ private struct NoemaMobileTitleNavigation: View {
       )
       Button(action: toggle) {
         HStack(spacing: NoemaSpacing.sm) {
-          Image(systemName: navigation.symbol)
+          NoemaIcon(navigation.icon)
           Text(navigation.title).lineLimit(1)
           Image(systemName: "chevron.down")
             .font(.system(size: 12, weight: .semibold))
@@ -817,10 +816,9 @@ private struct NoemaSidebar: View {
                 if compact { close() }
               } label: {
                 HStack(spacing: 10) {
-                  if let symbol = entry.symbol {
-                    Image(systemName: symbol)
+                  if let icon = entry.icon {
+                    NoemaIcon(icon)
                       .frame(width: 18)
-                      .accessibilityHidden(true)
                   }
                   Text(entry.label).lineLimit(1)
                   Spacer(minLength: 0)

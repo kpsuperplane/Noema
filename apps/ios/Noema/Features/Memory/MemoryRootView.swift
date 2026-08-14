@@ -44,7 +44,7 @@ struct MemoryRootView: View {
     let model = memory
     shell.show(NoemaSecondaryNavigation(
       title: memory.article?.title ?? root.title,
-      symbol: memorySymbol(memory.article?.icon ?? root.icon),
+      icon: memoryIcon(memory.article?.icon ?? root.icon),
       entries: memoryEntries(root: root, pages: model.pages, selectedPageID: model.selectedPageID) { pageID in
         Task { await model.select(pageID: pageID) }
       }
@@ -79,7 +79,7 @@ struct MemoryRootView: View {
       let entry = NoemaSidebarEntry.item(
         id: "memory-\(page.id)",
         label: page.title,
-        symbol: memorySymbol(page.icon),
+        icon: memoryIcon(page.icon),
         depth: depth,
         selected: selectedPageID == page.id,
         pinned: depth == 0
@@ -616,36 +616,6 @@ private func memoryHeadingID(_ label: String) -> String {
   return value.isEmpty ? "section" : value
 }
 
-private func memorySymbol(_ key: String) -> String {
-  switch key {
-  case "brain": "brain"
-  case "file-text": "doc.text"
-  case "user": "person"
-  case "users": "person.2"
-  case "heart": "heart"
-  case "house": "house"
-  case "briefcase-business": "briefcase"
-  case "graduation-cap": "graduationcap"
-  case "book-open": "book"
-  case "lightbulb": "lightbulb"
-  case "target": "target"
-  case "calendar-days": "calendar"
-  case "map-pin": "mappin"
-  case "plane": "airplane"
-  case "heart-pulse": "heart.text.square"
-  case "dumbbell": "figure.strengthtraining.traditional"
-  case "utensils": "fork.knife"
-  case "music": "music.note"
-  case "palette": "paintpalette"
-  case "camera": "camera"
-  case "gamepad-2": "gamecontroller"
-  case "mountain": "mountain.2"
-  case "paw-print": "pawprint"
-  case "code-2": "chevron.left.forwardslash.chevron.right"
-  case "wallet-cards": "wallet.pass"
-  case "sparkles": "sparkles"
-  case "compass": "safari"
-  case "notebook-pen": "note.text"
-  default: "doc.text"
-  }
+private func memoryIcon(_ key: String) -> NoemaIcon.Name {
+  NoemaIcon.Name(rawValue: key) ?? .fileText
 }

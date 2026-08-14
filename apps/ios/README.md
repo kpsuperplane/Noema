@@ -27,6 +27,18 @@ apollo-ios-cli generate --path apollo-codegen-config.json
 Regeneration should leave the worktree clean unless the shared schema or native
 operation documents changed. Do not edit files under `Noema/Generated` by hand.
 
+## Generate the shared icons
+
+The web package pins the static Lucide source used to generate iOS vector
+assets and the typed Swift icon names.
+
+```sh
+cd apps/web
+bun run gen:ios-icons
+```
+
+Do not edit `NoemaIcon+Generated.swift` or the `Lucide` asset group by hand.
+
 ## Build
 
 ```sh

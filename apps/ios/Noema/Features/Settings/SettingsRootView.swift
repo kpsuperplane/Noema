@@ -56,36 +56,35 @@ struct SettingsRootView: View {
   }
 
   private func installShellNavigation() {
-    let actions: [(SettingsSection, String, String)] = [
-      (.agents, "Agents", "person.2"),
-      (.memory, "Memory", "brain"),
-      (.web, "Web", "globe"),
-      (.apis, "APIs", "cable.connector"),
-      (.mcps, "MCPs", "bolt.horizontal.circle"),
-      (.privacy, "Privacy", "hand.raised"),
-      (.execution, "Execution", "gauge.with.dots.needle.67percent"),
-      (.localModels, "Local Models", "cpu"),
-      (.providers, "Providers", "server.rack"),
-      (.notifications, "Notifications", "bell"),
-      (.clients, "Clients", "iphone")
+    let sections: [SettingsSection] = [
+      .agents,
+      .memory,
+      .web,
+      .apis,
+      .mcps,
+      .privacy,
+      .execution,
+      .localModels,
+      .providers,
+      .notifications,
+      .clients
     ]
     var entries: [NoemaSidebarEntry] = []
-    for (index, value) in actions.enumerated() {
+    for (index, section) in sections.enumerated() {
       if index == 2 { entries.append(.group("Tools")) }
       if index == 5 { entries.append(.group("Safety")) }
       if index == 7 { entries.append(.group("System")) }
-      let section = value.0
       entries.append(.item(
         id: "settings-\(section.rawValue)",
-        label: value.1,
-        symbol: value.2,
+        label: section.title,
+        icon: section.icon,
         selected: selection == section
       ) {
         selection = section
       })
     }
     shell.show(
-      NoemaSecondaryNavigation(title: selection.title, symbol: selection.symbol, entries: entries),
+      NoemaSecondaryNavigation(title: selection.title, icon: selection.icon, entries: entries),
       for: .settings
     )
   }

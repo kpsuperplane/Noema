@@ -121,20 +121,19 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     }
   }
 
-  var symbol: String {
+  var icon: NoemaIcon.Name {
     switch self {
-    case .agents: "person.2"
-    case .memory: "books.vertical"
-    case .web: "globe"
-    case .apis: "rectangle.connected.to.line.below"
-    case .mcps: "puzzlepiece.extension"
-    case .privacy: "hand.raised"
-    case .usage: "chart.bar"
-    case .execution: "gauge.with.dots.needle.67percent"
-    case .localModels: "cpu"
-    case .providers: "server.rack"
-    case .notifications: "bell"
-    case .clients: "iphone.and.arrow.forward"
+    case .agents: .bot
+    case .memory: .brain
+    case .web: .globe
+    case .apis: .cable
+    case .mcps: .plugZap
+    case .privacy: .shieldCheck
+    case .usage, .execution: .gauge
+    case .localModels: .cpu
+    case .providers: .serverCog
+    case .notifications: .bell
+    case .clients: .smartphone
     }
   }
 }
