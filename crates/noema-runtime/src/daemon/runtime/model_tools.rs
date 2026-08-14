@@ -11,6 +11,9 @@ use crate::{
         artifact_tool::artifact_create_local_file_tool_spec,
         task_artifact_tool::{TASK_READ_ARTIFACT_TOOL, task_read_artifact_tool_spec},
         task_run_context::TaskTerminalContract,
+        task_submission_evidence_tool::{
+            TASK_READ_SUBMISSION_EVIDENCE_TOOL, task_read_submission_evidence_tool_spec,
+        },
         task_tool::{
             TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_LIST_TOOL, TASK_REPORT_BLOCKED_TOOL,
             TASK_SUBMIT_PLAN_TOOL, TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL,
@@ -286,6 +289,9 @@ fn role_builtin_tool_specs(
         ExecutionRole::TaskReviewer => vec![task_submit_review_tool_spec(criterion_ids)?],
         ExecutionRole::PrimaryConversation => Vec::new(),
     };
+    if role == ExecutionRole::TaskReviewer {
+        tools.push(task_read_submission_evidence_tool_spec()?);
+    }
     if role != ExecutionRole::TaskPlanner {
         tools.extend(builtin_tool_specs(include_agent_name_tool)?);
     }
@@ -461,9 +467,11 @@ fn builtin_tool_access_class(role: ExecutionRole, name: &str) -> ToolAccessClass
     match name {
         // This tool is read-only and can be safely used by executor/reviewer
         // roles once their scope context is supplied by the task runtime.
-        "search_memory" | "read_memory_page" | TASK_LIST_TOOL | TASK_READ_ARTIFACT_TOOL => {
-            ToolAccessClass::ReadOnly
-        }
+        "search_memory"
+        | "read_memory_page"
+        | TASK_LIST_TOOL
+        | TASK_READ_ARTIFACT_TOOL
+        | TASK_READ_SUBMISSION_EVIDENCE_TOOL => ToolAccessClass::ReadOnly,
         "artifact.create_local_file"
             if matches!(
                 role,

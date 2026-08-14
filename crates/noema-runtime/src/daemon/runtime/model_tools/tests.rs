@@ -823,9 +823,19 @@ async fn background_roles_expose_read_tools_and_terminal_contracts_for_native_to
             if role == ExecutionRole::TaskExecutor {
                 assert!(tools.tool_policy.allows_tool("artifact.create_local_file"));
                 assert!(tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
+                assert!(
+                    !tools
+                        .tool_policy
+                        .allows_tool(TASK_READ_SUBMISSION_EVIDENCE_TOOL)
+                );
             } else {
                 assert!(!tools.tool_policy.allows_tool("artifact.create_local_file"));
                 assert!(!tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
+                assert!(
+                    tools
+                        .tool_policy
+                        .allows_tool(TASK_READ_SUBMISSION_EVIDENCE_TOOL)
+                );
             }
             assert!(!tools.tool_policy.allows_tool("task.delegate"));
         }

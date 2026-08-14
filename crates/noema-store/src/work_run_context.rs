@@ -3,10 +3,9 @@
 use std::collections::HashSet;
 
 use noema_tasks::{
-    AgentRunItemRecord, AgentRunItemStatus, AgentRunRecord, ProjectContextSnapshot, RunKind,
-    RunStatus, TaskExecutionContract, TaskGateRecord, TaskMessageKind, TaskMessageRecord,
-    TaskRecord, TaskReviewRecord, TaskReviewVerdict, TaskSubmissionRecord,
-    WorkspaceContextSnapshot,
+    AgentRunItemRecord, AgentRunRecord, ProjectContextSnapshot, RunKind, RunStatus,
+    TaskExecutionContract, TaskGateRecord, TaskMessageKind, TaskMessageRecord, TaskRecord,
+    TaskReviewRecord, TaskReviewVerdict, TaskSubmissionRecord, WorkspaceContextSnapshot,
 };
 use noema_workspaces::{ProjectRecord, WorkspaceRecord};
 use rusqlite::{OptionalExtension, Row, Transaction, params};
@@ -173,7 +172,7 @@ pub(super) fn load_work_run_execution_context_tx(
     )?;
 
     let lineage = if run.run_kind == RunKind::Reviewer {
-        load_submitted_run_items(
+        validate_submitted_run(
             transaction,
             &run,
             latest_submission
@@ -181,7 +180,8 @@ pub(super) fn load_work_run_execution_context_tx(
                 .ok_or_else(|| StoreError::InvariantViolation {
                     message: format!("reviewer run {} has no submission", run.run_id),
                 })?,
-        )?
+        )?;
+        Vec::new()
     } else {
         load_lineage_items(transaction, &run)?
     };
@@ -500,11 +500,11 @@ fn validate_review_link(
     Ok(())
 }
 
-fn load_submitted_run_items(
+fn validate_submitted_run(
     transaction: &Transaction<'_>,
     reviewer_run: &AgentRunRecord,
     submission: &TaskSubmissionRecord,
-) -> Result<Vec<AgentRunItemRecord>, StoreError> {
+) -> Result<(), StoreError> {
     let executor_run = load_run_tx(transaction, &submission.executor_run_id)?.ok_or_else(|| {
         StoreError::InvariantViolation {
             message: format!(
@@ -527,16 +527,12 @@ fn load_submitted_run_items(
             ),
         });
     }
-    let mut statement = transaction.prepare("SELECT item_id, run_id, sequence_index, round_index, kind, status, correlation_id, parent_item_id, content_text, payload_json, created_at, updated_at FROM agent_run_items WHERE run_id = ?1 AND kind <> 'context_checkpoint' ORDER BY sequence_index, item_id")?;
-    let items = statement
-        .query_map([executor_run.run_id.as_str()], decode_run_item)?
-        .collect::<Result<Vec<_>, _>>()?;
-    if items.iter().any(|item| {
-        matches!(
-            item.status,
-            AgentRunItemStatus::Pending | AgentRunItemStatus::Running
-        )
-    }) {
+    let has_active_items: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM agent_run_items WHERE run_id = ?1 AND kind <> 'context_checkpoint' AND status IN ('pending', 'running'))",
+        [executor_run.run_id.as_str()],
+        |row| row.get(0),
+    )?;
+    if has_active_items {
         return Err(StoreError::InvariantViolation {
             message: format!(
                 "executor run {} still has active review evidence",
@@ -544,7 +540,7 @@ fn load_submitted_run_items(
             ),
         });
     }
-    Ok(items)
+    Ok(())
 }
 
 fn load_lineage_items(

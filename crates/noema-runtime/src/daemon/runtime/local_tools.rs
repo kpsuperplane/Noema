@@ -34,6 +34,10 @@ use crate::daemon::{
     task_artifact_tool::{
         TaskArtifactReadContext, execute_task_read_artifact, is_task_read_artifact_tool,
     },
+    task_submission_evidence_tool::{
+        TaskSubmissionEvidenceContext, execute_task_read_submission_evidence,
+        is_task_read_submission_evidence_tool,
+    },
     task_tool::{
         TASK_LIST_TOOL, TaskDelegateRuntimeContext, execute_primary_task_tool,
         execute_scoped_task_list_tool, is_primary_task_tool, is_task_report_blocked_tool,
@@ -464,6 +468,26 @@ impl RuntimeActor {
                     .await
                 }
                 _ => Err("task artifact context is unavailable".to_string()),
+            };
+            let (success, payload) = match result {
+                Ok(payload) => (true, payload),
+                Err(error) => (false, json!({"error": error})),
+            };
+            LocalToolResult::from_call(call, LocalToolKind::Gateway, success, payload, true)
+        } else if is_task_read_submission_evidence_tool(&call.name) {
+            let result = match (&turn.task_id, &turn.task_run_id) {
+                (Some(task_id), Some(run_id)) => {
+                    execute_task_read_submission_evidence(
+                        &self.store,
+                        &TaskSubmissionEvidenceContext {
+                            task_id: task_id.clone(),
+                            run_id: run_id.clone(),
+                        },
+                        &call.payload,
+                    )
+                    .await
+                }
+                _ => Err("submission evidence context is unavailable".to_string()),
             };
             let (success, payload) = match result {
                 Ok(payload) => (true, payload),

@@ -7,7 +7,7 @@ use crate::{
 use noema_capabilities::{
     CapabilityBinding, CapabilityError, CapabilityExecutionDecision, CapabilityOutput,
     CapabilityScope, CapabilityTarget, CapabilityToolBehavior, InvokerKey, OperationToken,
-    RedactingPayloadSanitizer, ToolSpec,
+    PayloadSanitizer, RedactingPayloadSanitizer, ToolSpec, sanitize_standard_credentials,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -139,6 +139,11 @@ fn setup_binding(
         .map_err(|_| crate::AdapterCatalogError)?;
     let input_check: Arc<dyn noema_capabilities::ToolInputCheck> =
         Arc::new(move |arguments: &Value| validator.is_valid(arguments));
+    let sanitizer: Arc<dyn PayloadSanitizer> = if token == PROPOSE_DEFINITION_TOKEN {
+        Arc::new(ProposalPayloadSanitizer)
+    } else {
+        Arc::new(RedactingPayloadSanitizer)
+    };
     Ok(CapabilityBinding::new(
         spec,
         CapabilityTarget::new(
@@ -154,8 +159,25 @@ fn setup_binding(
         CapabilityExecutionDecision::ExecuteImmediately,
         CapabilityScope::Global,
         input_check,
-        Arc::new(RedactingPayloadSanitizer),
+        sanitizer,
     ))
+}
+
+#[derive(Debug)]
+struct ProposalPayloadSanitizer;
+
+impl PayloadSanitizer for ProposalPayloadSanitizer {
+    fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
+        Some(sanitize_standard_credentials(arguments))
+    }
+
+    fn persist_output(&self, output: &Value) -> Option<Value> {
+        let mut output = sanitize_standard_credentials(output);
+        if let Some(object) = output.as_object_mut() {
+            object.remove("definition_help");
+        }
+        Some(output)
+    }
 }
 
 pub(crate) fn is_proposal_invocation(operation: &str, token: &OperationToken) -> bool {
@@ -923,7 +945,11 @@ mod tests {
             Some(json!({"marker": "draft", "api_key": "[REDACTED]"}))
         );
         assert_eq!(
-            binding.persist_output(&json!({"marker": "result", "access_token": "private"})),
+            binding.persist_output(&json!({
+                "marker": "result",
+                "access_token": "private",
+                "definition_help": {"manifest_template": "large repair guidance"}
+            })),
             Some(json!({"marker": "result", "access_token": "[REDACTED]"}))
         );
     }

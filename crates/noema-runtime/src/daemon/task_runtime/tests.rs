@@ -204,11 +204,28 @@ fn execution_failure_uses_typed_semantics() {
     let invariant = RuntimeError::from(noema_store::StoreError::InvariantViolation {
         message: "deterministic context fault".to_string(),
     });
+    let invalid_context = RuntimeError::from(noema_store::StoreError::Work(
+        noema_tasks::WorkDomainError::InvalidInput {
+            field: "run.context_checkpoint",
+            message: "deterministic context fault".to_string(),
+        },
+    ));
+    let other_invalid_input = RuntimeError::from(noema_store::StoreError::Work(
+        noema_tasks::WorkDomainError::InvalidInput {
+            field: "other.input",
+            message: "retry through the existing runtime policy".to_string(),
+        },
+    ));
     let classify = super::execution_failure;
     assert_eq!(classify(&uncertain), ("unsafe_effect_uncertain", false));
     assert_eq!(classify(&wording), ("work_runtime_failed", true));
     assert_eq!(classify(&terminal), ("work_terminal_invalid", false));
     assert_eq!(classify(&invariant), ("invariant_fault", false));
+    assert_eq!(classify(&invalid_context), ("invariant_fault", false));
+    assert_eq!(
+        classify(&other_invalid_input),
+        ("work_runtime_failed", true)
+    );
 }
 
 struct ProviderSettlement {

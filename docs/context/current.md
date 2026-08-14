@@ -52,9 +52,13 @@ vertical slice or a net-negative reduction.
   spans. A saved final tool result decides its matching call state. Other active
   items use the run result. An interrupted run uses `failed` for child items
   because that item vocabulary has no `interrupted` value.
-- A reviewer context includes all final saved items from the executor run named
-  by the exact submission. It keeps saved IDs, statuses, content, and payloads.
-  It fails instead of dropping evidence when the checkpoint is too large.
+- A reviewer checkpoint keeps the contract and exact submission. It does not
+  copy the executor transcript. The reviewer-only
+  `task.read_submission_evidence` tool lists bounded item metadata. It reads one
+  exact saved item from the submitted executor run when the review needs it.
+- Saved local tool results do not repeat their input arguments. Adapter
+  proposal results omit static definition help because the adapter definition
+  remains the source authority.
 - A first executor run gets no prior review. A correction executor must load
   the exact saved `triggering_review_id`. It does not use the task's latest
   review pointer as a replacement.

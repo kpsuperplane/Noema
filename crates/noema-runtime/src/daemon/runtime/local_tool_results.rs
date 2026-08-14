@@ -125,7 +125,6 @@ impl LocalToolResult {
             "provider_call_id": self.provider_call_id,
             "provider_name": self.provider_name,
             "name": self.name,
-            "arguments": self.persisted.arguments.clone().unwrap_or_else(omitted_payload),
             "success": self.success,
             "payload": self.persisted.output.clone().unwrap_or_else(omitted_payload),
         })

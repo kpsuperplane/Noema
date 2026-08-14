@@ -9,10 +9,7 @@ use crate::{
 };
 use noema_providers::{ProviderToolTransport, TokenUsage};
 
-use super::{
-    local_tools::LocalToolResult, model_tools::ModelTools,
-    task_transcript::omitted_capability_payload,
-};
+use super::{local_tools::LocalToolResult, model_tools::ModelTools};
 
 pub(super) fn is_valid_terminal_tool(role: ExecutionRole, name: &str) -> bool {
     match role {
@@ -100,26 +97,7 @@ fn tool_transport_instructions(transport: ProviderToolTransport) -> &'static str
 }
 
 pub(super) fn task_tool_result_transcript_payload(result: &LocalToolResult) -> serde_json::Value {
-    let mut payload = result.transcript_payload();
-    if let Some(object) = payload.as_object_mut() {
-        object.insert(
-            "arguments".to_string(),
-            result
-                .persisted
-                .arguments
-                .clone()
-                .unwrap_or_else(omitted_capability_payload),
-        );
-        object.insert(
-            "payload".to_string(),
-            result
-                .persisted
-                .output
-                .clone()
-                .unwrap_or_else(omitted_capability_payload),
-        );
-    }
-    payload
+    result.transcript_payload()
 }
 
 pub(super) fn is_task_terminal_tool(name: &str) -> bool {
@@ -183,6 +161,11 @@ pub(super) fn add_usage(aggregate: &mut Option<TokenUsage>, usage: Option<&Token
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon::runtime::{
+        local_tool_results::{LocalToolKind, LocalToolResult},
+        tool_lifecycle::LocalToolCall,
+    };
+    use serde_json::json;
 
     #[test]
     fn native_instructions_keep_tools_out_of_text() {
@@ -190,5 +173,33 @@ mod tests {
         assert!(instructions.contains("native tool channel"));
         assert!(instructions.contains("never encode tool calls"));
         assert!(tool_transport_instructions(ProviderToolTransport::None).is_empty());
+    }
+
+    #[test]
+    fn tool_result_transcript_keeps_output_without_repeating_arguments() {
+        let call = LocalToolCall {
+            output_index: 0,
+            call_id: Some("call:one".to_string()),
+            provider_call_id: None,
+            provider_name: None,
+            name: "adapter.propose_definition".to_string(),
+            payload: json!({"manifest_json": "large input"}),
+        };
+        let result = LocalToolResult::from_call(
+            &call,
+            LocalToolKind::Gateway,
+            true,
+            json!({"status": "review_required"}),
+            true,
+        )
+        .with_persisted(noema_capabilities::PersistedCapabilityPayload {
+            arguments: Some(call.payload.clone()),
+            output: Some(json!({"status": "review_required"})),
+        });
+
+        let payload = task_tool_result_transcript_payload(&result);
+
+        assert!(payload.get("arguments").is_none());
+        assert_eq!(payload["payload"]["status"], "review_required");
     }
 }

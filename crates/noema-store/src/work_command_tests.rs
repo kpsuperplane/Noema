@@ -26,7 +26,8 @@ use crate::{
     ReportTaskBlocked, RuntimeDebugMetadata, RuntimeDebugScope, RuntimeDebugSpanCategory,
     RuntimeDebugSpanStatus, StoreError, SubmitTaskResult, SubmitTaskReview,
     WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService, WorkEventBeforeQuery,
-    WorkEventQuery, WorkNotificationLeaseRequest, WorkPageSize, WorkRunFence, WorkRunTerminal,
+    WorkEventQuery, WorkNotificationLeaseRequest, WorkPageSize, WorkRunFence,
+    WorkRunItemOwnerScope, WorkRunTerminal,
     test_support::{
         initialize_codex_provider_selections, open_ephemeral_store, ready_hosted_provider_registry,
     },
@@ -1985,6 +1986,9 @@ async fn run_review_case(
     let executor_run_for_items = executor_run_id.clone();
     store
         .with_connection(move |connection| {
+            let large_payload = serde_json::to_string(&serde_json::json!({
+                "saved_evidence": "x".repeat(70_000)
+            }))?;
             connection.execute(
                 r#"INSERT INTO agent_run_items (item_id, run_id, sequence_index, round_index, kind, status, content_text, payload_json)
                  VALUES ('run_item:review-case:executor-text', ?1, (SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM agent_run_items WHERE run_id = ?1), 0, 'assistant_output', 'completed', 'Authorized account label: Personal', '{"source_id":"source:ordinary:1"}')"#,
@@ -1995,6 +1999,16 @@ async fn run_review_case(
                  VALUES ('run_item:review-case:executor-result', ?1, (SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM agent_run_items WHERE run_id = ?1), 0, 'tool_result', 'failed', 'call:uncertain:1', 'The external outcome is uncertain.', '{"outcome":"uncertain","receipt_id":"receipt:ordinary:1"}')"#,
                 [executor_run_for_items.as_str()],
             )?;
+            for suffix in ["large-one", "large-two"] {
+                connection.execute(
+                    "INSERT INTO agent_run_items (item_id, run_id, sequence_index, round_index, kind, status, content_text, payload_json) VALUES (?1, ?2, (SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM agent_run_items WHERE run_id = ?2), 0, 'tool_result', 'completed', 'fixture.large_evidence', ?3)",
+                    rusqlite::params![
+                        format!("run_item:review-case:{suffix}"),
+                        executor_run_for_items.as_str(),
+                        large_payload.as_str(),
+                    ],
+                )?;
+            }
             Ok(())
         })
         .await
@@ -2028,7 +2042,7 @@ async fn run_review_case(
         )
         .await
         .expect("admit reviewer context");
-    assert_eq!(reviewer_context.context.lineage.len(), 2);
+    assert!(reviewer_context.context.lineage.is_empty());
     assert_eq!(
         reviewer_context
             .context
@@ -2039,25 +2053,20 @@ async fn run_review_case(
             .url,
         "https://example.com/source"
     );
-    assert!(
-        reviewer_context
-            .context
-            .lineage
-            .iter()
-            .all(|item| item.run_id == executor_run_id)
-    );
-    assert_eq!(
-        reviewer_context.context.lineage[0].content_text.as_deref(),
-        Some("Authorized account label: Personal")
-    );
-    assert_eq!(
-        reviewer_context.context.lineage[1].status,
-        AgentRunItemStatus::Failed
-    );
-    assert_eq!(
-        reviewer_context.context.lineage[1].payload["outcome"],
-        "uncertain"
-    );
+    let exact_result = store
+        .read_work_run_item(
+            WorkRunItemOwnerScope {
+                workspace_id: task.workspace_id.clone(),
+                task_id: Some(task.task_id.clone()),
+            },
+            &executor_run_id,
+            "run_item:review-case:executor-result",
+        )
+        .await
+        .expect("read submitted executor item")
+        .expect("submitted executor item");
+    assert_eq!(exact_result.status, AgentRunItemStatus::Failed);
+    assert_eq!(exact_result.payload["outcome"], "uncertain");
     assert!(reviewer_context.context.latest_submission.is_some());
     let result = service
         .record_work_run_terminal(

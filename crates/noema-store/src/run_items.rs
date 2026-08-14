@@ -6,7 +6,7 @@ use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::{
     NoemaStore, StoreError, WorkPageInfo, WorkRunFence, WorkRunItemConnection, WorkRunItemCursor,
-    WorkRunItemEdge, WorkRunItemQuery, ids::allocate_id, work_runs::rows,
+    WorkRunItemEdge, WorkRunItemOwnerScope, WorkRunItemQuery, ids::allocate_id, work_runs::rows,
 };
 
 impl NoemaStore {
@@ -118,6 +118,57 @@ impl NoemaStore {
                 },
                 edges,
             })
+        })
+        .await
+    }
+
+    /// Read one exact transcript item inside its owner and run scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the owner scope is invalid or SQLite fails.
+    /// Returns `None` when the item does not belong to the requested run.
+    pub async fn read_work_run_item(
+        &self,
+        owner: WorkRunItemOwnerScope,
+        run_id: &str,
+        item_id: &str,
+    ) -> Result<Option<AgentRunItemRecord>, StoreError> {
+        let run_id = run_id.trim().to_string();
+        let item_id = item_id.trim().to_string();
+        if run_id.is_empty() || item_id.is_empty() {
+            return Err(invalid_run_item_cursor());
+        }
+        let workspace_id = owner.workspace_id.into_string();
+        let task_id = owner.task_id.map(|id| id.into_string());
+        self.with_connection(move |conn| {
+            let authorized: bool = conn.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM agent_runs run
+                    JOIN tasks task ON task.task_id = run.task_id
+                    WHERE run.run_id = ?1 AND task.workspace_id = ?2
+                      AND (?3 IS NULL OR run.task_id = ?3)
+                )",
+                params![run_id, workspace_id, task_id],
+                |row| row.get(0),
+            )?;
+            if !authorized {
+                return Err(StoreError::InvariantViolation {
+                    message: "run is unavailable in the requested owner scope".to_string(),
+                });
+            }
+            conn.query_row(
+                "SELECT item_id, run_id, sequence_index, round_index, kind, status,
+                        correlation_id, parent_item_id, content_text, payload_json,
+                        created_at, updated_at
+                 FROM agent_run_items
+                 WHERE item_id = ?1 AND run_id = ?2 AND kind <> 'context_checkpoint'
+                 LIMIT 1",
+                params![item_id, run_id],
+                |row| rows::decode_run_item(row, None),
+            )
+            .optional()
+            .map_err(StoreError::Sqlite)
         })
         .await
     }

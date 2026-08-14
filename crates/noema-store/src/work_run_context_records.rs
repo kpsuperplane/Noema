@@ -52,8 +52,8 @@ pub struct WorkRunExecutionContext {
     /// Review evidence relevant to this run. A correction executor gets only
     /// its saved triggering review.
     pub latest_review: Option<TaskReviewRecord>,
-    /// Saved run records for this role. Executors get bounded parent lineage.
-    /// Reviewers get all final records from the exact submitted executor run.
+    /// Bounded parent-run records used by Executors. Reviewers read the exact
+    /// submitted executor run through their submission-fenced evidence tool.
     pub lineage: Vec<AgentRunItemRecord>,
 }
 

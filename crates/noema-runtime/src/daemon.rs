@@ -28,6 +28,7 @@ pub(crate) mod runtime;
 mod task_artifact_tool;
 pub(crate) mod task_run_context;
 pub(crate) mod task_runtime;
+mod task_submission_evidence_tool;
 pub(crate) mod task_tool;
 #[cfg(test)]
 mod tests;

@@ -182,14 +182,6 @@ fn insert_checkpoint_tx(
         "contract_id": &context.run.contract_id,
         "context": &context,
     }))?;
-    if context.run.run_kind == noema_tasks::RunKind::Reviewer
-        && payload.len() > MAX_CONTEXT_PAYLOAD_BYTES
-    {
-        return Err(StoreError::Work(WorkDomainError::InvalidInput {
-            field: "run.context_checkpoint",
-            message: "exact reviewer evidence exceeds bounded context".to_string(),
-        }));
-    }
     while payload.len() > MAX_CONTEXT_PAYLOAD_BYTES && !context.lineage.is_empty() {
         // Immutable contract/submission context is more valuable than the
         // oldest transcript item, so discard lineage from the front until the

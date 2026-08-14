@@ -757,6 +757,10 @@ fn execution_failure(error: &crate::daemon::RuntimeError) -> (&'static str, bool
             if matches!(
                 error.as_ref(),
                 noema_store::StoreError::InvariantViolation { .. }
+                    | noema_store::StoreError::Work(noema_tasks::WorkDomainError::InvalidInput {
+                        field: "run.context_checkpoint",
+                        ..
+                    })
             ) =>
         {
             ("invariant_fault", false)
