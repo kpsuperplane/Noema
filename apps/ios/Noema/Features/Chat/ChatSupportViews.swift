@@ -150,7 +150,8 @@ struct ChatComposer: View {
     let textWidth = content.components(separatedBy: .newlines).map { line in
       (line as NSString).size(withAttributes: [.font: font]).width
     }.max() ?? 0
-    let horizontalChrome = NoemaSpacing.lg + composerTextTrailingPadding + NoemaSpacing.compact
+    let typingReserve = font.lineHeight + NoemaSpacing.compact
+    let horizontalChrome = NoemaSpacing.lg + composerTextTrailingPadding + typingReserve
     return min(composerMaxWidth, max(200, ceil(textWidth) + horizontalChrome))
   }
 
