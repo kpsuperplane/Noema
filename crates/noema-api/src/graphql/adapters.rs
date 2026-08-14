@@ -1908,6 +1908,55 @@ mod tests {
         .expect("OAuth manifest")
     }
 
+    fn revision_proposal_arguments(
+        manifest: &AdapterManifest,
+        base_semantic_digest: &str,
+        source_reference: &str,
+        remove_operation_ids: &[&str],
+    ) -> serde_json::Value {
+        let operations = manifest
+            .operations
+            .iter()
+            .map(|operation| {
+                json!({
+                    "operation_id": operation.operation_id,
+                    "description": operation.description,
+                    "source_description": operation.source_description,
+                    "method": operation.method,
+                    "path": operation.path,
+                    "authorization": operation.authorization,
+                    "fixed_headers": operation.fixed_headers,
+                    "fixed_query": operation.fixed_query,
+                    "arguments": operation.arguments,
+                    "json_body_template": operation.json_body_template,
+                    "read_only": operation.behavior.read_only.value.unwrap_or(false),
+                    "idempotent": operation.behavior.idempotent.value.unwrap_or(false),
+                    "destructive": operation.behavior.destructive.value.unwrap_or(true),
+                    "open_world": operation.behavior.open_world.value.unwrap_or(true),
+                    "pagination": operation.pagination,
+                    "response": {
+                        "kind": "custom",
+                        "accepted_content_types": operation.response.accepted_content_types,
+                        "transform": operation.response.transform,
+                        "output_schema": operation.response.output_schema
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        json!({
+            "source_reference": source_reference,
+            "base_semantic_digest": base_semantic_digest,
+            "revision": {
+                "definition_revision": manifest.definition_revision,
+                "display_name": manifest.display_name,
+                "origin": manifest.origin,
+                "authentication": manifest.authentication
+            },
+            "upsert_operations": operations,
+            "remove_operation_ids": remove_operation_ids
+        })
+    }
+
     fn oauth_application(id: &str, profile_digest: &str) -> OauthApplicationV1 {
         OauthApplicationV1 {
             schema_version: 1,
@@ -2289,11 +2338,12 @@ mod tests {
             CapabilityInvocation {
                 operation: ToolName::new("adapter.propose_definition").expect("tool name"),
                 operation_token: binding.target().operation_token().clone(),
-                arguments: json!({
-                    "source_reference": "https://developers.example.test/oauth-v2",
-                    "manifest_json": serde_json::to_string(&replacement).expect("manifest JSON"),
-                    "replaces_semantic_digest": first.semantic_digest,
-                }),
+                arguments: revision_proposal_arguments(
+                    &replacement,
+                    &first.semantic_digest,
+                    "https://developers.example.test/oauth-v2",
+                    &[],
+                ),
                 reviewed_authorization: None,
             },
         )
@@ -2353,11 +2403,12 @@ mod tests {
             CapabilityInvocation {
                 operation: ToolName::new("adapter.propose_definition").expect("tool name"),
                 operation_token: binding.target().operation_token().clone(),
-                arguments: json!({
-                    "source_reference": "https://developers.example.test/items-v2",
-                    "manifest_json": serde_json::to_string(&replacement).expect("manifest JSON"),
-                    "replaces_semantic_digest": first.semantic_digest,
-                }),
+                arguments: revision_proposal_arguments(
+                    &replacement,
+                    &first.semantic_digest,
+                    "https://developers.example.test/items-v2",
+                    &["list_items"],
+                ),
                 reviewed_authorization: None,
             },
         )
@@ -2430,11 +2481,12 @@ mod tests {
             CapabilityInvocation {
                 operation: ToolName::new("adapter.propose_definition").expect("tool name"),
                 operation_token: binding.target().operation_token().clone(),
-                arguments: json!({
-                    "source_reference": "https://developers.example.test/oauth-v2",
-                    "manifest_json": serde_json::to_string(&replacement).expect("manifest JSON"),
-                    "replaces_semantic_digest": first.semantic_digest,
-                }),
+                arguments: revision_proposal_arguments(
+                    &replacement,
+                    &first.semantic_digest,
+                    "https://developers.example.test/oauth-v2",
+                    &[],
+                ),
                 reviewed_authorization: None,
             },
         )

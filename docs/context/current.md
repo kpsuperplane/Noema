@@ -98,6 +98,9 @@ vertical slice or a net-negative reduction.
 - Definition proposals store their review impact with immutable revision
   metadata. Read surfaces show only current or actionable revisions and read
   that impact directly. Approval recalculates it under the family lock.
+- Connector proposals use direct, operation-keyed changes against one exact
+  semantic digest. Noema expands response recipes and mechanical defaults into
+  one complete immutable manifest before compilation, persistence, and review.
 - Reusable OAuth is the active adapter authorization model. Reviewed profiles,
   applications, accounts, and grants have separate filesystem authorities.
   Client secrets and tokens use protected generations.

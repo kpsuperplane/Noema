@@ -28,6 +28,7 @@ mod openapi_normalize;
 mod openapi_schema;
 mod output_schema;
 mod private_fs;
+mod proposal_input;
 mod request;
 mod response;
 #[cfg(test)]

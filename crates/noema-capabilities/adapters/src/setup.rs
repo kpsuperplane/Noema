@@ -2,12 +2,13 @@
 
 use crate::{
     AdapterCapabilityService, AdapterCompileError, AdapterCompiler, AdapterManifest,
-    DefinitionProvenance, DefinitionStoreError,
+    DefinitionProvenance, DefinitionStoreError, OperationAuthorization, OutputSchema,
+    proposal_input::{DefinitionProposalInput, build_manifest, operation_proposals},
 };
 use noema_capabilities::{
     CapabilityBinding, CapabilityError, CapabilityExecutionDecision, CapabilityOutput,
     CapabilityScope, CapabilityTarget, CapabilityToolBehavior, InvokerKey, OperationToken,
-    RedactingPayloadSanitizer, ToolSpec,
+    PayloadSanitizer, ToolSpec, sanitize_standard_credentials,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -19,45 +20,72 @@ pub(crate) const PROPOSE_DEFINITION_TOKEN: &str = "adapter-setup-v1:propose-defi
 pub(crate) const DEFINITION_TEMPLATE_TOOL: &str = "adapter.definition_template";
 pub(crate) const DEFINITION_TEMPLATE_TOKEN: &str = "adapter-setup-v1:definition-template";
 const MAX_SOURCE_REFERENCE_BYTES: usize = 4_096;
-const MAX_MANIFEST_JSON_BYTES: usize = 1_048_576;
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ProposeDefinitionInput {
-    source_reference: String,
-    #[serde(default)]
-    manifest_json: Option<String>,
-    #[serde(default)]
-    manifest_value_replacements: Vec<ManifestValueReplacement>,
-    #[serde(default)]
-    replaces_semantic_digest: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ManifestValueReplacement {
-    pointer: String,
-    value_json: String,
-}
+const MAX_MANIFEST_BYTES: usize = 1_048_576;
 
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DefinitionTemplateInput {
     #[serde(default)]
     semantic_digest: Option<String>,
+    #[serde(default)]
+    operation_ids: Vec<String>,
+}
+
+#[derive(Debug)]
+struct AdapterSetupPayloadSanitizer;
+
+impl PayloadSanitizer for AdapterSetupPayloadSanitizer {
+    fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
+        let mut persisted = sanitize_standard_credentials(arguments);
+        restore_proposal_metadata(arguments, &mut persisted);
+        Some(persisted)
+    }
+}
+
+fn restore_proposal_metadata(source: &Value, persisted: &mut Value) {
+    match (source, persisted) {
+        (Value::Object(source), Value::Object(persisted)) => {
+            for (key, value) in source {
+                let Some(persisted_value) = persisted.get_mut(key) else {
+                    continue;
+                };
+                if (key == "authorization"
+                    && serde_json::from_value::<OperationAuthorization>(value.clone()).is_ok())
+                    || (key == "output_schema"
+                        && serde_json::from_value::<OutputSchema>(value.clone()).is_ok())
+                {
+                    *persisted_value = value.clone();
+                } else {
+                    restore_proposal_metadata(value, persisted_value);
+                }
+            }
+        }
+        (Value::Array(source), Value::Array(persisted)) => {
+            for (source, persisted) in source.iter().zip(persisted) {
+                restore_proposal_metadata(source, persisted);
+            }
+        }
+        _ => {}
+    }
 }
 
 pub(crate) fn definition_template_binding() -> Result<CapabilityBinding, crate::AdapterCatalogError>
 {
     let spec = ToolSpec::new(
         DEFINITION_TEMPLATE_TOOL,
-        "Inspect current API definitions or return Noema's provider-neutral AdapterManifest template. Research official authentication documentation, then choose the smallest supported credential scheme. Before revising a definition, load its canonical manifest by semantic digest.",
+        "List current API definitions or return a concise revision base. Before a revision, provide its exact digest and only the operation IDs that need inspection. Reuse the result during corrections.",
         json!({
             "type": "object",
             "properties": {
                 "semantic_digest": {
                     "type": "string",
-                    "description": "Optional exact definition digest whose canonical manifest should be returned for revision."
+                    "description": "Optional exact definition digest selected for revision."
+                },
+                "operation_ids": {
+                    "type": "array",
+                    "maxItems": 32,
+                    "items": {"type": "string"},
+                    "description": "Exact operation IDs whose direct proposal form should be returned. Requires semantic_digest."
                 }
             },
             "required": [],
@@ -72,12 +100,11 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
     let spec = ToolSpec::new(
         PROPOSE_DEFINITION_TOOL,
         concat!(
-            "Continue chat-first setup by proposing a small declarative public HTTP adapter after researching official API documentation with the available web search and fetch tools. Call the available definition-template tool before this tool. ",
-            "Provide one official HTTPS source URL and either a complete AdapterManifest object or a bounded list of exact JSON value replacements against the selected canonical manifest. Never provide both. Noema always stores the proposal as pending human review. ",
-            "When revising an existing definition, load its canonical manifest first and provide its exact digest as replaces_semantic_digest. Never submit a second unlinked proposal for the same definition family. ",
-            "For a large existing definition, prefer manifest_value_replacements. Each JSON Pointer must identify an existing value; additions and removals are unsupported. Serialize each replacement value by itself in value_json. ",
+            "Propose one public HTTP API definition after researching official documentation. Call the definition-template tool first. ",
+            "For a new service, provide new_definition and the required upsert_operations. For a revision, provide the exact base_semantic_digest, revision, and operation changes. ",
+            "An upsert adds or replaces one complete operation by operation_id. remove_operation_ids removes exact operations. Noema compiles one complete immutable pending revision. ",
             "For OAuth, research and include a safe account_identity operation whenever the requested scopes expose a recognizable account identifier. ",
-            "Never include credentials, tokens, cookies, or private user data. Prefer the smallest read-only operation set needed for the request. This path is for public HTTP APIs; do not use MCP server endpoints as adapter origins or operations."
+            "Never include credentials, tokens, cookies, or private user data. Prefer the smallest required operation set. Do not use MCP endpoints as adapter origins."
         ),
         json!({
             "type": "object",
@@ -87,36 +114,29 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
                     "maxLength": MAX_SOURCE_REFERENCE_BYTES,
                     "description": "Official HTTPS API or authorization documentation URL used as primary provenance."
                 },
-                "manifest_json": {
-                    "type": "string",
-                    "maxLength": MAX_MANIFEST_JSON_BYTES,
-                    "description": "Complete AdapterManifest object serialized as JSON. Omit when using manifest_value_replacements. Call the available definition-template tool first. Set reviewed to false; Noema enforces pending review."
+                "new_definition": {
+                    "description": "Direct JSON service header for a new definition. Include definition_id, adapter_id, optional display_name, definition_revision, origin, and authentication. Omit for a revision."
                 },
-                "manifest_value_replacements": {
+                "base_semantic_digest": {
+                    "type": "string",
+                    "description": "Exact semantic digest loaded for a revision. Omit for a new definition."
+                },
+                "revision": {
+                    "description": "Direct JSON revision header. Include definition_revision. Optionally replace display_name, origin, or authentication."
+                },
+                "upsert_operations": {
                     "type": "array",
-                    "maxItems": 32,
-                    "description": "Exact replacements applied to an existing canonical manifest. Omit when providing manifest_json.",
+                    "maxItems": 128,
+                    "description": "Direct JSON operations added or replaced by stable operation_id.",
                     "items": {
-                        "type": "object",
-                        "properties": {
-                            "pointer": {
-                                "type": "string",
-                                "maxLength": 4096,
-                                "description": "JSON Pointer to one existing manifest value."
-                            },
-                            "value_json": {
-                                "type": "string",
-                                "maxLength": MAX_MANIFEST_JSON_BYTES,
-                                "description": "The complete replacement JSON value serialized as a string."
-                            }
-                        },
-                        "required": ["pointer", "value_json"],
-                        "additionalProperties": false
+                        "description": "One operation proposal from the definition-template contract."
                     }
                 },
-                "replaces_semantic_digest": {
-                    "type": "string",
-                    "description": "Exact current pending or reviewed definition digest replaced by this complete proposal. Required for an existing definition family and omitted for a new one."
+                "remove_operation_ids": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {"type": "string"},
+                    "description": "Stable operation IDs removed from the exact base revision."
                 }
             },
             "required": ["source_reference"],
@@ -126,7 +146,6 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
     .map_err(|_| crate::AdapterCatalogError)?;
     setup_binding(spec, PROPOSE_DEFINITION_TOKEN)
 }
-
 fn setup_binding(
     spec: ToolSpec,
     token: &str,
@@ -154,7 +173,7 @@ fn setup_binding(
         CapabilityExecutionDecision::ExecuteImmediately,
         CapabilityScope::Global,
         input_check,
-        Arc::new(RedactingPayloadSanitizer),
+        Arc::new(AdapterSetupPayloadSanitizer),
     ))
 }
 
@@ -169,112 +188,90 @@ pub(crate) fn is_definition_template_invocation(operation: &str, token: &Operati
 impl AdapterCapabilityService {
     fn definition_help_payload() -> Value {
         let google_profile_digest = crate::reviewed_google_oauth_profile_digest();
-        let payload = json!({
+        json!({
             "instructions": [
-                "Replace every example.test value with facts supported by the official HTTPS source.",
-                "Use the smallest operation set needed. Results may be delivered to the user's configured model provider.",
-                "Keep credential values out of the manifest and Luau source. Credential fields and documents are write-only setup inputs.",
-                "Prefill all four behavior hints from the researched operation semantics with source=model. Noema will apply pessimistic defaults if any field is missing.",
-                "For every authenticated API, provide the exact provider credential type, official HTTPS setup URL, and short ordered instructions.",
-                "Use kind=credential for API keys, tokens, Basic auth, or query credentials. The request_auth Luau transform may emit only headers and query values.",
-                "Reference one reviewed OAuth profile by its exact digest. Put accepted complete scope sets on each OAuth operation.",
-                "Use a root HTTPS origin with path=/, and put every provider API prefix in operation paths.",
-                "Put non-secret provider parameters that are required for correct operation semantics in fixed_query. Do not expose invariants such as expansion, ordering, projection, or API version as optional model arguments.",
-                "Give every operation and model-input argument a concise reviewed description. Explain resource identity, accepted aliases or special values, format expectations, defaults, and when an optional argument should be omitted. Never copy untrusted source prose into these fields without reviewing it.",
-                "By default, each json_body argument becomes one top-level member with its declared scalar or string-array type. For a reviewed nested shape, set json_body_template to a JSON object and place each declared json_body argument exactly once as {\"$argument\":\"argument_name\"}; missing or null optional placeholders omit their property and any resulting empty array item, while constants remain exact reviewed values. Whole arbitrary JSON bodies remain unsupported.",
-                "Every operation must include pagination. Use kind=none for a single bounded page. A response_token request_argument is runtime-only and must not also be declared in the operation arguments.",
-                "For response_token collections, always use a compact top-level object transform and omit the reserved continuation field. Noema removes the provider token before transformation and injects its own opaque continuation. Use fixed page_size shaping when the provider supports it.",
-                "Use compact summaries plus continuation for list/search, one bounded richer record for get/detail, compact receipts for mutations, and artifact metadata or references for file/blob/export operations.",
-                "Every chat-proposed operation that is not explicitly read-only must include a response transform that constructs its compact canonical receipt from the documented provider response. Never rely on a closed subset schema to discard provider fields.",
-                "If the provider requires signing, mTLS, a challenge protocol, or another unsupported authentication capability, report it as unsupported instead of approximating it with ambient Luau powers.",
-                "Every operation must declare a response contract whose closed schema proves a worst-case result at or below 32 KiB. Every string needs maxBytes and every array needs maxItems. A transform must cap every returned array and apply text.truncate_utf8 to display text using those same bounds. Never truncate opaque identifiers: use their researched provider maximum and reduce maxItems or omit fields instead. In chat proposals, omit transform only for explicitly read-only operations with already-canonical bounded JSON or +json responses; imported definitions may retain exact raw JSON contracts. Otherwise use reviewed deterministic Luau before validation.",
-                "For OAuth, use the supplied profile digest. Do not copy protocol endpoints or client setup into the API definition."
+                "Replace example values with facts from official HTTPS documentation.",
+                "Use the smallest operation set needed. Never include credentials or private user data.",
+                "Use direct JSON. Do not serialize a manifest or response value into a string.",
+                "For a revision, load the exact digest once and submit operation-keyed changes.",
+                "Noema adds canonical schema fields, review state, behavior provenance, retry policy, and common response transforms.",
+                "Declare all four behavior booleans from researched semantics.",
+                "Use response kind flat_object, object_list, or scalar_list when possible.",
+                "Use kind custom only when pointer-based field projection cannot express the documented response.",
+                "A string field requires max_bytes. Set truncate only for display text, never opaque identifiers.",
+                "If authentication needs unsupported signing, mTLS, or challenges, report it as unsupported."
             ],
-            "manifest_template": {
-                "schema_version": 9,
-                "definition_id": "definition:example_service",
-                "adapter_id": "example_service",
-                "display_name": "Example Service",
-                "definition_revision": "v1",
-                "reviewed": false,
-                "origin": "https://api.example.test/",
-                "authentication": {
-                    "kind": "oauth2_authorization_code_pkce",
-                    "profile_digest": google_profile_digest
-                },
-                "operations": [{
-                    "operation_id": "get_profile",
-                    "description": "Get the recognizable profile for this connection.",
-                    "method": "GET",
-                    "path": "/v1/profile",
-                    "authorization": {"kind": "oauth_scopes", "accepted_scope_sets": [["official profile scope URL"]]},
-                    "fixed_headers": {},
-                    "fixed_query": {},
-                    "arguments": [],
-                    "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": false, "source": "model"}},
-                    "retry": "transport_safe_read",
-                    "pagination": {"kind": "none"},
-                    "response": {
-                        "accepted_content_types": ["application/json"],
-                        "transform": {"language": "luau", "source": "return function(response) local body = json.decode(response.body) return { displayName = body.displayName } end"},
-                        "output_schema": {"type": "object", "properties": {"displayName": {"type": "string", "maxBytes": 256}}, "required": ["displayName"], "additionalProperties": false}
+            "proposal_template": {
+                "source_reference": "https://developers.example.test/api",
+                "new_definition": {
+                    "definition_id": "definition:example_service",
+                    "adapter_id": "example_service",
+                    "display_name": "Example Service",
+                    "definition_revision": "v1",
+                    "origin": "https://api.example.test/",
+                    "authentication": {
+                        "kind": "oauth2_authorization_code_pkce",
+                        "profile_digest": google_profile_digest
                     }
-                }, {
+                },
+                "upsert_operations": [{
                     "operation_id": "list_items",
-                    "description": "List a bounded page of items for this connection.",
+                    "description": "List a bounded page of items.",
                     "method": "GET",
                     "path": "/v1/items",
                     "authorization": {"kind": "oauth_scopes", "accepted_scope_sets": [["official read scope URL"]]},
-                    "fixed_headers": {},
-                    "fixed_query": {},
-                    "arguments": [{
-                        "name": "limit",
-                        "description": "Maximum number of items to return.",
-                        "location": "query",
-                        "type": "integer",
-                        "required": false,
-                        "enum_values": []
-                    }],
-                    "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
-                    "retry": "transport_safe_read",
-                    "pagination": {
-                        "kind": "response_token",
-                        "response_pointer": "/next_cursor",
-                        "request_argument": "cursor",
-                        "page_size": {"request_argument": "page_size", "value": 8}
-                    },
+                    "arguments": [],
+                    "read_only": true,
+                    "idempotent": true,
+                    "destructive": false,
+                    "open_world": true,
+                    "pagination": {"kind": "none"},
                     "response": {
-                        "accepted_content_types": ["application/json"],
-                        "transform": {"language": "luau", "source": "return function(response) return {} end"},
-                        "output_schema": {"type": "object", "properties": {}, "required": [], "additionalProperties": false}
+                        "kind": "object_list",
+                        "source_pointer": "/items",
+                        "output_name": "items",
+                        "max_items": 8,
+                        "fields": [
+                            {"name": "id", "source_pointer": "/id", "type": "string", "max_bytes": 256, "required": true},
+                            {"name": "name", "source_pointer": "/name", "type": "string", "max_bytes": 512, "truncate": true}
+                        ]
                     }
-                }]
+                }],
+                "remove_operation_ids": []
             },
-            "transformed_response_example": {
+            "revision_template": {
+                "source_reference": "https://developers.example.test/api",
+                "base_semantic_digest": "exact digest from revision_base",
+                "revision": {"definition_revision": "v2"},
+                "upsert_operations": ["complete changed or added operation objects"],
+                "remove_operation_ids": ["removed_operation_id"]
+            },
+            "flat_object_response_example": {
+                "kind": "flat_object",
+                "fields": [
+                    {"name": "id", "source_pointer": "/id", "type": "string", "max_bytes": 256, "required": true},
+                    {"name": "count", "source_pointer": "/count", "type": "integer"}
+                ]
+            },
+            "scalar_list_response_example": {
+                "kind": "scalar_list",
+                "source_pointer": "/labels",
+                "output_name": "labels",
+                "max_items": 16,
+                "item": {"type": "string", "max_bytes": 128, "truncate": true}
+            },
+            "custom_response_example": {
+                "kind": "custom",
                 "accepted_content_types": ["application/json"],
                 "transform": {
                     "language": "luau",
-                    "source": "return function(response)\n  local body = json.decode(response.body)\n  return { id = body.id }\nend"
+                    "source": "return function(response) local body = json.decode(response.body) return { id = body.id } end"
                 },
                 "output_schema": {
                     "type": "object",
                     "properties": {"id": {"type": "string", "maxBytes": 256}},
                     "required": ["id"],
                     "additionalProperties": false
-                }
-            },
-            "nested_json_body_example": {
-                "arguments": [{
-                    "name": "response_status",
-                    "description": "Attendance response to apply.",
-                    "location": "json_body",
-                    "type": "string",
-                    "required": true,
-                    "enum_values": ["accepted", "tentative", "declined"]
-                }],
-                "json_body_template": {
-                    "attendees": [{"responseStatus": {"$argument": "response_status"}}],
-                    "attendeesOmitted": true
                 }
             },
             "credential_authentication_example": {
@@ -297,20 +294,29 @@ impl AdapterCapabilityService {
                 "argument.location": ["path", "query", "json_body"],
                 "argument.type": ["string", "integer", "number", "boolean", "string_array"],
                 "operation.pagination.kind": ["none", "response_token"],
-                "operation.behavior.fields": ["readOnly", "idempotent", "destructive", "openWorld"],
-                "operation.behavior.source": ["model", "safe_default"],
-                "operation.retry": ["never", "transport_safe_read"]
+                "response.kind": ["flat_object", "object_list", "scalar_list", "custom"]
+            },
+            "nested_json_body_example": {
+                "arguments": [{
+                    "name": "response_status",
+                    "description": "Attendance response to apply.",
+                    "location": "json_body",
+                    "type": "string",
+                    "required": true,
+                    "enum_values": ["accepted", "tentative", "declined"]
+                }],
+                "json_body_template": {
+                    "attendees": [{"responseStatus": {"$argument": "response_status"}}]
+                }
             },
             "response_token_pagination_example": {
                 "kind": "response_token",
                 "response_pointer": "/next_cursor",
                 "request_argument": "cursor",
                 "page_size": {"request_argument": "page_size", "value": 8},
-                "request_argument_is_runtime_only": true,
-                "declare_request_argument_in_operation_arguments": false
+                "request_argument_is_runtime_only": true
             }
-        });
-        payload
+        })
     }
 
     pub(crate) fn definition_template(
@@ -325,17 +331,32 @@ impl AdapterCapabilityService {
                 .definitions
                 .load(&digest)
                 .map_err(|_| CapabilityError::InvalidArguments)?;
+            let selected_operations = operation_proposals(&stored.manifest, &input.operation_ids)
+                .map_err(|_| CapabilityError::InvalidArguments)?;
             return Ok(CapabilityOutput::success(json!({
                 "instructions": [
-                    "Use this exact canonical definition as the revision base.",
+                    "Use revision_base.semantic_digest as base_semantic_digest.",
+                    "Upsert only changed or added operations. Remove operations by stable operation_id.",
                     "Reuse this response. Do not reload it for each correction."
                 ],
-                "selected_definition": {
+                "revision_base": {
                     "semantic_digest": digest,
                     "source_reference": stored.provenance.source_reference,
-                    "manifest": stored.manifest
-                }
+                    "definition_id": stored.manifest.definition_id,
+                    "adapter_id": stored.manifest.adapter_id,
+                    "display_name": stored.manifest.display_name,
+                    "definition_revision": stored.manifest.definition_revision,
+                    "origin": stored.manifest.origin,
+                    "authentication": stored.manifest.authentication,
+                    "operations": stored.manifest.operations.iter().map(|operation| json!({
+                        "operation_id": operation.operation_id,
+                        "description": operation.description
+                    })).collect::<Vec<_>>()
+                },
+                "selected_operations": selected_operations
             })));
+        } else if !input.operation_ids.is_empty() {
+            return Err(CapabilityError::InvalidArguments);
         }
         let scan = self
             .inner
@@ -392,68 +413,41 @@ impl AdapterCapabilityService {
         &self,
         arguments: Value,
     ) -> Result<CapabilityOutput, CapabilityError> {
-        let input: ProposeDefinitionInput =
-            serde_json::from_value(arguments).map_err(|_| CapabilityError::InvalidArguments)?;
-        if let Err(reason) = validate_source_reference(&input.source_reference) {
-            return Ok(Self::proposal_rejection(reason));
-        }
-        let manifest_json = match (
-            input.manifest_json.as_deref(),
-            input.manifest_value_replacements.as_slice(),
-        ) {
-            (Some(manifest_json), []) => manifest_json.to_string(),
-            (None, replacements) if !replacements.is_empty() => {
-                let Some(target_digest) = input.replaces_semantic_digest.as_deref() else {
-                    return Ok(Self::proposal_rejection("replacement_target_invalid"));
-                };
-                let stored = self
-                    .inner
-                    .definitions
-                    .load(target_digest)
-                    .map_err(|_| CapabilityError::InvalidArguments)?;
-                let mut manifest = serde_json::to_value(stored.manifest)
-                    .map_err(|_| CapabilityError::Unavailable)?;
-                let mut pointers = BTreeSet::new();
-                for (index, replacement) in replacements.iter().enumerate() {
-                    if replacement.pointer.is_empty() || !pointers.insert(&replacement.pointer) {
-                        return Ok(Self::proposal_rejection_at(
-                            "manifest_replacement_invalid",
-                            &format!("manifest_value_replacements[{index}].pointer"),
-                        ));
-                    }
-                    let Ok(value) = serde_json::from_str(&replacement.value_json) else {
-                        return Ok(Self::proposal_rejection_at(
-                            "manifest_replacement_invalid",
-                            &format!("manifest_value_replacements[{index}].value_json"),
-                        ));
-                    };
-                    let Some(target) = manifest.pointer_mut(&replacement.pointer) else {
-                        return Ok(Self::proposal_rejection_at(
-                            "manifest_replacement_invalid",
-                            &format!("manifest_value_replacements[{index}].pointer"),
-                        ));
-                    };
-                    *target = value;
-                }
-                serde_json::to_string(&manifest).map_err(|_| CapabilityError::Unavailable)?
-            }
-            _ => return Ok(Self::proposal_rejection("manifest_input_invalid")),
-        };
-        if manifest_json.len() > MAX_MANIFEST_JSON_BYTES {
-            return Ok(Self::proposal_rejection("manifest_json_too_large"));
-        }
-        let mut deserializer = serde_json::Deserializer::from_str(&manifest_json);
-        let mut manifest: AdapterManifest =
+        let arguments_json =
+            serde_json::to_string(&arguments).map_err(|_| CapabilityError::InvalidArguments)?;
+        let mut deserializer = serde_json::Deserializer::from_str(&arguments_json);
+        let input: DefinitionProposalInput =
             match serde_path_to_error::deserialize(&mut deserializer) {
-                Ok(manifest) => manifest,
+                Ok(input) => input,
                 Err(error) => {
                     return Ok(Self::proposal_rejection_at(
-                        "manifest_json_invalid",
+                        "proposal_input_invalid",
                         &safe_manifest_path(error.path()),
                     ));
                 }
             };
-        manifest.reviewed = false;
+        if let Err(reason) = validate_source_reference(&input.source_reference) {
+            return Ok(Self::proposal_rejection(reason));
+        }
+        let source_reference = input.source_reference.clone();
+        let base_semantic_digest = input.base_semantic_digest.clone();
+        let base_manifest = if let Some(digest) = base_semantic_digest.as_deref() {
+            match self.inner.definitions.load(digest) {
+                Ok(stored) => Some(stored.manifest),
+                Err(_) => return Ok(Self::proposal_rejection("replacement_target_invalid")),
+            }
+        } else {
+            None
+        };
+        let manifest = match build_manifest(input, base_manifest) {
+            Ok(manifest) => manifest,
+            Err(error) => return Ok(Self::proposal_rejection_at(error.reason, &error.path)),
+        };
+        let manifest_bytes =
+            serde_json::to_string(&manifest).map_err(|_| CapabilityError::Unavailable)?;
+        if manifest_bytes.len() > MAX_MANIFEST_BYTES {
+            return Ok(Self::proposal_rejection("manifest_too_large"));
+        }
         if let Some((path, operation_id)) = missing_proposal_description(&manifest) {
             let mut output = Self::proposal_rejection_at("description", &path);
             output.payload["operation_id"] = json!(operation_id);
@@ -507,11 +501,11 @@ impl AdapterCapabilityService {
             .collect::<Vec<_>>();
         let mut replaces = BTreeSet::new();
         if family.is_empty() {
-            if input.replaces_semantic_digest.is_some() {
+            if base_semantic_digest.is_some() {
                 return Ok(Self::proposal_rejection("replacement_target_invalid"));
             }
         } else {
-            let Some(target_digest) = input.replaces_semantic_digest.as_deref() else {
+            let Some(target_digest) = base_semantic_digest.as_deref() else {
                 return Ok(Self::proposal_rejection(
                     "existing_definition_requires_replacement_target",
                 ));
@@ -606,7 +600,7 @@ impl AdapterCapabilityService {
             DefinitionProvenance {
                 source_digest: None,
                 source_extension: None,
-                source_reference: input.source_reference.clone(),
+                source_reference: source_reference.clone(),
                 imported_at: None,
                 replaces_semantic_digests: replaces,
                 transition: Some(transition),
@@ -618,7 +612,7 @@ impl AdapterCapabilityService {
                 return Ok(Self::proposal_rejection(&error.to_string()));
             }
             Err(DefinitionStoreError::Json(_)) => {
-                return Ok(Self::proposal_rejection("manifest_json_invalid"));
+                return Ok(Self::proposal_rejection("manifest_invalid"));
             }
             Err(DefinitionStoreError::Integrity("provenance")) => {
                 return Ok(Self::proposal_rejection("source_reference_invalid"));
@@ -631,9 +625,9 @@ impl AdapterCapabilityService {
             "status": "review_required",
             "semantic_digest": installed.compiled.semantic_digest.as_str(),
             "display_name": display_name,
-            "source_reference": input.source_reference,
+            "source_reference": source_reference,
             "operation_ids": operation_ids,
-            "replaces_semantic_digest": input.replaces_semantic_digest,
+            "base_semantic_digest": base_semantic_digest,
             "next_step": "Tell the human that the discovered definition is waiting for review directly above the chat composer, then continue setup through that chat intervention."
         })))
     }
@@ -704,7 +698,7 @@ impl AdapterCapabilityService {
 
 fn compile_error_reason(error: &AdapterCompileError) -> &'static str {
     match error {
-        AdapterCompileError::Manifest => "manifest_json_invalid",
+        AdapterCompileError::Manifest => "manifest_invalid",
         AdapterCompileError::Invalid(reason) | AdapterCompileError::Unsupported(reason) => reason,
     }
 }
@@ -819,7 +813,7 @@ fn validate_source_reference(reference: &str) -> Result<(), &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AdapterCompiler, AdapterDefinitionStore, Oauth2CallbackMode};
+    use crate::{AdapterDefinitionStore, Oauth2CallbackMode};
     use noema_capabilities::{
         CapabilityBindingSource, CapabilityInvocation, CapabilityInvoker, ToolName,
     };
@@ -846,6 +840,55 @@ mod tests {
                 "pagination": {"kind": "none"},
                 "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
             }]
+        })
+    }
+
+    fn new_proposal_arguments(manifest: Value, source_reference: &str) -> Value {
+        let manifest: AdapterManifest = serde_json::from_value(manifest).expect("manifest");
+        let operation_ids = manifest
+            .operations
+            .iter()
+            .map(|operation| operation.operation_id.clone())
+            .collect::<Vec<_>>();
+        let operations = crate::proposal_input::operation_proposals(&manifest, &operation_ids)
+            .expect("operation proposals");
+        json!({
+            "source_reference": source_reference,
+            "new_definition": {
+                "definition_id": manifest.definition_id,
+                "adapter_id": manifest.adapter_id,
+                "display_name": manifest.display_name,
+                "definition_revision": manifest.definition_revision,
+                "origin": manifest.origin,
+                "authentication": manifest.authentication
+            },
+            "upsert_operations": operations
+        })
+    }
+
+    fn revision_arguments(
+        base_semantic_digest: &str,
+        manifest: Value,
+        source_reference: &str,
+    ) -> Value {
+        let manifest: AdapterManifest = serde_json::from_value(manifest).expect("manifest");
+        let operation_ids = manifest
+            .operations
+            .iter()
+            .map(|operation| operation.operation_id.clone())
+            .collect::<Vec<_>>();
+        let operations = crate::proposal_input::operation_proposals(&manifest, &operation_ids)
+            .expect("operation proposals");
+        json!({
+            "source_reference": source_reference,
+            "base_semantic_digest": base_semantic_digest,
+            "revision": {
+                "definition_revision": manifest.definition_revision,
+                "display_name": manifest.display_name,
+                "origin": manifest.origin,
+                "authentication": manifest.authentication
+            },
+            "upsert_operations": operations
         })
     }
 
@@ -880,29 +923,24 @@ mod tests {
             .snapshot
             .resolve(PROPOSE_DEFINITION_TOOL)
             .expect("binding");
-        assert_eq!(
-            binding.spec().input_schema.as_value()["properties"]["manifest_json"]["type"],
-            "string"
+        assert!(
+            binding.spec().input_schema.as_value()["properties"]
+                .get("manifest_json")
+                .is_none()
         );
         assert_eq!(
             binding.spec().input_schema.as_value()["required"],
             json!(["source_reference"])
         );
         assert_eq!(
-            binding.spec().input_schema.as_value()["properties"]["manifest_value_replacements"]["maxItems"],
-            json!(32)
+            binding.spec().input_schema.as_value()["properties"]["upsert_operations"]["maxItems"],
+            json!(128)
         );
         assert!(catalog.snapshot.resolve(DEFINITION_TEMPLATE_TOOL).is_some());
-        let template: AdapterManifest = serde_json::from_value(
-            AdapterCapabilityService::definition_help_payload()["manifest_template"].clone(),
-        )
-        .expect("template manifest");
-        assert!(template.authentication.oauth2().is_some());
-        AdapterCompiler::compile(&template).expect("compilable template");
         assert_eq!(
-            AdapterCapabilityService::definition_help_payload()["manifest_template"]["operations"]
-                [1]["fixed_query"],
-            json!({})
+            AdapterCapabilityService::definition_help_payload()["proposal_template"]["new_definition"]
+                ["authentication"]["profile_digest"],
+            json!(crate::reviewed_google_oauth_profile_digest())
         );
         assert_eq!(
             AdapterCapabilityService::definition_help_payload()["response_token_pagination_example"],
@@ -911,8 +949,7 @@ mod tests {
                 "response_pointer": "/next_cursor",
                 "request_argument": "cursor",
                 "page_size": {"request_argument": "page_size", "value": 8},
-                "request_argument_is_runtime_only": true,
-                "declare_request_argument_in_operation_arguments": false
+                "request_argument_is_runtime_only": true
             })
         );
         assert_eq!(
@@ -922,6 +959,22 @@ mod tests {
         assert_eq!(
             binding.persist_arguments(&json!({"marker": "draft", "api_key": "private"})),
             Some(json!({"marker": "draft", "api_key": "[REDACTED]"}))
+        );
+        assert_eq!(
+            binding.persist_arguments(&json!({
+                "upsert_operations": [{
+                    "authorization": {"kind": "none"},
+                    "response": {"output_schema": {"type": "object", "properties": {"api_key": {"type": "string", "maxBytes": 32}}, "required": [], "additionalProperties": false}},
+                    "api_key": "private"
+                }]
+            })),
+            Some(json!({
+                "upsert_operations": [{
+                    "authorization": {"kind": "none"},
+                    "response": {"output_schema": {"type": "object", "properties": {"api_key": {"type": "string", "maxBytes": 32}}, "required": [], "additionalProperties": false}},
+                    "api_key": "[REDACTED]"
+                }]
+            }))
         );
         assert_eq!(
             binding.persist_output(&json!({
@@ -945,10 +998,13 @@ mod tests {
 
         assert!(output.payload["compatible_oauth2_callback_mode"].is_null());
         assert_eq!(
-            output.payload["manifest_template"]["authentication"]["profile_digest"],
+            output.payload["proposal_template"]["new_definition"]["authentication"]["profile_digest"],
             json!(crate::reviewed_google_oauth_profile_digest())
         );
-        assert!(output.payload["manifest_template"]["authentication"]["setups"].is_null());
+        assert!(
+            output.payload["proposal_template"]["new_definition"]["authentication"]["setups"]
+                .is_null()
+        );
     }
 
     #[tokio::test]
@@ -958,10 +1014,10 @@ mod tests {
         let service = AdapterCapabilityService::new(paths.clone());
         let invocation = proposal_invocation(
             &service,
-            json!({
-                "source_reference": "https://developers.example.test/calendar",
-                "manifest_json": proposal_manifest(true).to_string()
-            }),
+            new_proposal_arguments(
+                proposal_manifest(true),
+                "https://developers.example.test/calendar",
+            ),
         )
         .await;
         let output = CapabilityInvoker::invoke(&service, invocation)
@@ -979,33 +1035,30 @@ mod tests {
     }
 
     #[test]
-    fn proposal_can_replace_exact_values_in_an_existing_canonical_manifest() {
+    fn proposal_can_update_one_operation_in_an_existing_definition() {
         let home = tempfile::tempdir().expect("home");
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let service = AdapterCapabilityService::new(paths.clone());
         let first = service
-            .propose_definition(json!({
-                "source_reference": "https://developers.example.test/calendar",
-                "manifest_json": proposal_manifest(false).to_string()
-            }))
+            .propose_definition(new_proposal_arguments(
+                proposal_manifest(false),
+                "https://developers.example.test/calendar",
+            ))
             .expect("initial proposal");
         let first_digest = first.payload["semantic_digest"]
             .as_str()
             .expect("initial digest");
         let replacement_source = "return function() return json.null end";
+        let mut revised = proposal_manifest(false);
+        revised["definition_revision"] = json!("v2");
+        revised["operations"][0]["response"]["transform"]["source"] = json!(replacement_source);
 
         let replacement = service
-            .propose_definition(json!({
-                "source_reference": "https://developers.example.test/calendar-v2",
-                "replaces_semantic_digest": first_digest,
-                "manifest_value_replacements": [
-                    {"pointer": "/definition_revision", "value_json": "\"v2\""},
-                    {
-                        "pointer": "/operations/0/response/transform/source",
-                        "value_json": serde_json::to_string(replacement_source).expect("source JSON")
-                    }
-                ]
-            }))
+            .propose_definition(revision_arguments(
+                first_digest,
+                revised,
+                "https://developers.example.test/calendar-v2",
+            ))
             .expect("replacement proposal");
 
         assert_eq!(replacement.payload["status"], "review_required");
@@ -1031,35 +1084,45 @@ mod tests {
     }
 
     #[test]
-    fn manifest_value_replacements_fail_closed_for_non_exact_inputs() {
+    fn operation_changes_fail_closed_for_unknown_or_conflicting_ids() {
         let home = tempfile::tempdir().expect("home");
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let service = AdapterCapabilityService::new(paths.clone());
         let first = service
-            .propose_definition(json!({
-                "source_reference": "https://developers.example.test/calendar",
-                "manifest_json": proposal_manifest(false).to_string()
-            }))
+            .propose_definition(new_proposal_arguments(
+                proposal_manifest(false),
+                "https://developers.example.test/calendar",
+            ))
             .expect("initial proposal");
         let first_digest = first.payload["semantic_digest"]
             .as_str()
             .expect("initial digest");
 
-        for (pointer, value_json) in [
-            ("/operations/1/path", "\"/v2/events\""),
-            ("/operations/0/path", "not JSON"),
+        let operation = new_proposal_arguments(
+            proposal_manifest(false),
+            "https://developers.example.test/calendar",
+        )["upsert_operations"][0]
+            .clone();
+        for changes in [
+            json!({"remove_operation_ids": ["missing_operation"]}),
+            json!({
+                "remove_operation_ids": ["list_events"],
+                "upsert_operations": [operation]
+            }),
         ] {
+            let mut arguments = json!({
+                "source_reference": "https://developers.example.test/calendar-v2",
+                "base_semantic_digest": first_digest,
+                "revision": {"definition_revision": "v2"}
+            });
+            arguments
+                .as_object_mut()
+                .expect("arguments")
+                .extend(changes.as_object().expect("changes").clone());
             let rejected = service
-                .propose_definition(json!({
-                    "source_reference": "https://developers.example.test/calendar-v2",
-                    "replaces_semantic_digest": first_digest,
-                    "manifest_value_replacements": [{
-                        "pointer": pointer,
-                        "value_json": value_json
-                    }]
-                }))
+                .propose_definition(arguments)
                 .expect("safe rejection");
-            assert_eq!(rejected.payload["reason"], "manifest_replacement_invalid");
+            assert_eq!(rejected.payload["reason"], "proposal_changes");
         }
         assert_eq!(
             AdapterDefinitionStore::new(paths)
@@ -1079,10 +1142,10 @@ mod tests {
         let mut manifest = proposal_manifest(false);
         manifest["operations"][0]["description"] = json!("");
         let rejected = service
-            .propose_definition(json!({
-                "source_reference": "https://developers.example.test/calendar",
-                "manifest_json": manifest.to_string()
-            }))
+            .propose_definition(new_proposal_arguments(
+                manifest.clone(),
+                "https://developers.example.test/calendar",
+            ))
             .expect("operation description rejection");
         assert_eq!(rejected.payload["reason"], "description");
         assert_eq!(
@@ -1098,10 +1161,10 @@ mod tests {
             "type": "string"
         }]);
         let rejected = service
-            .propose_definition(json!({
-                "source_reference": "https://developers.example.test/calendar",
-                "manifest_json": manifest.to_string()
-            }))
+            .propose_definition(new_proposal_arguments(
+                manifest,
+                "https://developers.example.test/calendar",
+            ))
             .expect("argument description rejection");
         assert_eq!(rejected.payload["reason"], "description");
         assert_eq!(
@@ -1131,10 +1194,10 @@ mod tests {
             &service,
             proposal_invocation(
                 &service,
-                json!({
-                    "source_reference": "https://developers.example.test/calendar",
-                    "manifest_json": manifest.to_string()
-                }),
+                new_proposal_arguments(
+                    manifest.clone(),
+                    "https://developers.example.test/calendar",
+                ),
             )
             .await,
         )
@@ -1162,10 +1225,7 @@ mod tests {
             &service,
             proposal_invocation(
                 &service,
-                json!({
-                    "source_reference": "https://developers.example.test/calendar",
-                    "manifest_json": manifest.to_string()
-                }),
+                new_proposal_arguments(manifest, "https://developers.example.test/calendar"),
             )
             .await,
         )
@@ -1183,10 +1243,10 @@ mod tests {
             &service,
             proposal_invocation(
                 &service,
-                json!({
-                    "source_reference": "https://developers.example.test/calendar",
-                    "manifest_json": proposal_manifest(false).to_string()
-                }),
+                new_proposal_arguments(
+                    proposal_manifest(false),
+                    "https://developers.example.test/calendar",
+                ),
             )
             .await,
         )
@@ -1201,10 +1261,10 @@ mod tests {
             &service,
             proposal_invocation(
                 &service,
-                json!({
-                    "source_reference": "https://developers.example.test/calendar",
-                    "manifest_json": proposal_manifest(false).to_string()
-                }),
+                new_proposal_arguments(
+                    proposal_manifest(false),
+                    "https://developers.example.test/calendar",
+                ),
             )
             .await,
         )
@@ -1221,11 +1281,11 @@ mod tests {
             &service,
             proposal_invocation(
                 &service,
-                json!({
-                    "source_reference": "https://developers.example.test/calendar-v2",
-                    "manifest_json": replacement.to_string(),
-                    "replaces_semantic_digest": first_digest
-                }),
+                revision_arguments(
+                    &first_digest,
+                    replacement,
+                    "https://developers.example.test/calendar-v2",
+                ),
             )
             .await,
         )
@@ -1249,13 +1309,16 @@ mod tests {
         ));
 
         let selected = service
-            .definition_template(json!({"semantic_digest": second_digest}))
+            .definition_template(json!({
+                "semantic_digest": second_digest,
+                "operation_ids": ["list_events"]
+            }))
             .expect("template lookup");
         assert_eq!(
-            selected.payload["selected_definition"]["manifest"]["operations"][0]["path"],
+            selected.payload["selected_operations"][0]["path"],
             "/v2/events"
         );
-        assert!(selected.payload.get("manifest_template").is_none());
+        assert!(selected.payload.get("proposal_template").is_none());
         assert!(selected.payload.get("current_definitions").is_none());
 
         let reviewed = service
@@ -1268,11 +1331,11 @@ mod tests {
             &service,
             proposal_invocation(
                 &service,
-                json!({
-                    "source_reference": "https://developers.example.test/calendar-v3",
-                    "manifest_json": approved_replacement.to_string(),
-                    "replaces_semantic_digest": reviewed_digest
-                }),
+                revision_arguments(
+                    &reviewed_digest,
+                    approved_replacement,
+                    "https://developers.example.test/calendar-v3",
+                ),
             )
             .await,
         )
@@ -1303,23 +1366,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn proposal_rejects_non_https_provenance_and_invalid_manifests() {
+    async fn proposal_rejects_non_https_provenance_and_invalid_direct_inputs() {
         let home = tempfile::tempdir().expect("home");
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let service = AdapterCapabilityService::new(paths.clone());
+        let mut invalid_source = new_proposal_arguments(
+            proposal_manifest(false),
+            "http://developers.example.test/calendar",
+        );
+        let mut invalid_recipe = new_proposal_arguments(
+            proposal_manifest(false),
+            "https://developers.example.test/calendar",
+        );
+        invalid_recipe["upsert_operations"][0]["response"] = json!({
+            "kind": "flat_object",
+            "fields": [{"name": "id", "source_pointer": "/id", "type": "string"}]
+        });
         for arguments in [
-            json!({
-                "source_reference": "http://developers.example.test/calendar",
-                "manifest_json": proposal_manifest(false).to_string()
-            }),
+            std::mem::take(&mut invalid_source),
             json!({
                 "source_reference": "https://developers.example.test/calendar",
-                "manifest_json": serde_json::json!({"schema_version": 1}).to_string()
+                "new_definition": {"definition_id": "definition:invalid"},
+                "upsert_operations": []
             }),
-            json!({
-                "source_reference": "https://developers.example.test/calendar",
-                "manifest_json": "x".repeat(MAX_MANIFEST_JSON_BYTES + 1)
-            }),
+            invalid_recipe,
         ] {
             let invocation = proposal_invocation(&service, arguments).await;
             let output = CapabilityInvoker::invoke(&service, invocation)
@@ -1343,51 +1413,39 @@ mod tests {
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let service = AdapterCapabilityService::new(paths);
         let cases = [(
-            "/operations/0/pagination/kind",
-            "operations[0].pagination.kind",
+            "/upsert_operations/0/pagination/kind",
+            "upsert_operations[0].pagination.kind",
             "private-token",
         )];
 
         for (pointer, expected_path, private_value) in cases {
-            let mut manifest = proposal_manifest(false);
-            *manifest.pointer_mut(pointer).expect("manifest field") = json!(private_value);
-            let output = CapabilityInvoker::invoke(
-                &service,
-                proposal_invocation(
-                    &service,
-                    json!({
-                        "source_reference": "https://developers.example.test/calendar",
-                        "manifest_json": manifest.to_string()
-                    }),
-                )
-                .await,
-            )
-            .await
-            .expect("actionable rejection");
+            let mut arguments = new_proposal_arguments(
+                proposal_manifest(false),
+                "https://developers.example.test/calendar",
+            );
+            *arguments.pointer_mut(pointer).expect("proposal field") = json!(private_value);
+            let output =
+                CapabilityInvoker::invoke(&service, proposal_invocation(&service, arguments).await)
+                    .await
+                    .expect("actionable rejection");
 
-            assert_eq!(output.payload["reason"], "manifest_json_invalid");
+            assert_eq!(output.payload["reason"], "proposal_input_invalid");
             assert_eq!(output.payload["manifest_path"], expected_path);
             assert!(!output.payload.to_string().contains(private_value));
         }
 
-        let mut manifest = proposal_manifest(false);
-        manifest["operations"][0]["fixed_headers"] = json!({"private-header-name": 7});
-        let output = CapabilityInvoker::invoke(
-            &service,
-            proposal_invocation(
-                &service,
-                json!({
-                    "source_reference": "https://developers.example.test/calendar",
-                    "manifest_json": manifest.to_string()
-                }),
-            )
-            .await,
-        )
-        .await
-        .expect("private map-key rejection");
+        let mut arguments = new_proposal_arguments(
+            proposal_manifest(false),
+            "https://developers.example.test/calendar",
+        );
+        arguments["upsert_operations"][0]["fixed_headers"] = json!({"private-header-name": 7});
+        let output =
+            CapabilityInvoker::invoke(&service, proposal_invocation(&service, arguments).await)
+                .await
+                .expect("private map-key rejection");
         assert_eq!(
             output.payload["manifest_path"],
-            "operations[0].fixed_headers.*"
+            "upsert_operations[0].fixed_headers.*"
         );
         assert!(!output.payload.to_string().contains("private-header-name"));
     }
@@ -1404,10 +1462,7 @@ mod tests {
             &service,
             proposal_invocation(
                 &service,
-                json!({
-                    "source_reference": "https://developers.example.test/calendar",
-                    "manifest_json": invalid_path.to_string()
-                }),
+                new_proposal_arguments(invalid_path, "https://developers.example.test/calendar"),
             )
             .await,
         )
@@ -1424,10 +1479,7 @@ mod tests {
             &service,
             proposal_invocation(
                 &service,
-                json!({
-                    "source_reference": "https://developers.example.test/calendar",
-                    "manifest_json": oversized.to_string()
-                }),
+                new_proposal_arguments(oversized, "https://developers.example.test/calendar"),
             )
             .await,
         )
