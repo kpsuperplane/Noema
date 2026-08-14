@@ -114,7 +114,10 @@ final class ChatModel {
   private(set) var interventions: [ChatIntervention] = []
   private(set) var interventionErrors: [String: String] = [:]
   private(set) var dismissedAdapterSetupDigests = Set<String>()
-  var draft = ""
+  @ObservationIgnored private var draftGeneration = 0
+  var draft = "" {
+    didSet { draftGeneration &+= 1 }
+  }
   var isVoiceInputActive = false
 
   func dismissAdapterSetup(_ definition: AdapterDefinitionModel) {
@@ -296,8 +299,11 @@ final class ChatModel {
 
   func send() async {
     guard phase == .ready, let client, let conversationID, !isOffline else { return }
+    let submittedDraft = draft
     let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !text.isEmpty, !isSending else { return }
+    draft = ""
+    let clearedDraftGeneration = draftGeneration
     let clientMessageID = UUID().uuidString
     messages.append(ChatMessage(
       id: "optimistic-\(clientMessageID)",
@@ -320,9 +326,9 @@ final class ChatModel {
       )
       let response = try await client.perform(mutation: NoemaAPI.SendConversationTurnMutation(input: input))
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
-      if draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { draft = "" }
       isOffline = false
     } catch {
+      if draftGeneration == clearedDraftGeneration { draft = submittedDraft }
       recordMutationError(error)
     }
   }
