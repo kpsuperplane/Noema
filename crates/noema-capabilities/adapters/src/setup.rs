@@ -7,7 +7,7 @@ use crate::{
 use noema_capabilities::{
     CapabilityBinding, CapabilityError, CapabilityExecutionDecision, CapabilityOutput,
     CapabilityScope, CapabilityTarget, CapabilityToolBehavior, InvokerKey, OperationToken,
-    PayloadSanitizer, RedactingPayloadSanitizer, ToolSpec, sanitize_standard_credentials,
+    RedactingPayloadSanitizer, ToolSpec,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -139,11 +139,6 @@ fn setup_binding(
         .map_err(|_| crate::AdapterCatalogError)?;
     let input_check: Arc<dyn noema_capabilities::ToolInputCheck> =
         Arc::new(move |arguments: &Value| validator.is_valid(arguments));
-    let sanitizer: Arc<dyn PayloadSanitizer> = if token == PROPOSE_DEFINITION_TOKEN {
-        Arc::new(ProposalPayloadSanitizer)
-    } else {
-        Arc::new(RedactingPayloadSanitizer)
-    };
     Ok(CapabilityBinding::new(
         spec,
         CapabilityTarget::new(
@@ -159,25 +154,8 @@ fn setup_binding(
         CapabilityExecutionDecision::ExecuteImmediately,
         CapabilityScope::Global,
         input_check,
-        sanitizer,
+        Arc::new(RedactingPayloadSanitizer),
     ))
-}
-
-#[derive(Debug)]
-struct ProposalPayloadSanitizer;
-
-impl PayloadSanitizer for ProposalPayloadSanitizer {
-    fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
-        Some(sanitize_standard_credentials(arguments))
-    }
-
-    fn persist_output(&self, output: &Value) -> Option<Value> {
-        let mut output = sanitize_standard_credentials(output);
-        if let Some(object) = output.as_object_mut() {
-            object.remove("definition_help");
-        }
-        Some(output)
-    }
 }
 
 pub(crate) fn is_proposal_invocation(operation: &str, token: &OperationToken) -> bool {
@@ -341,6 +319,24 @@ impl AdapterCapabilityService {
     ) -> Result<CapabilityOutput, CapabilityError> {
         let input: DefinitionTemplateInput =
             serde_json::from_value(arguments).map_err(|_| CapabilityError::InvalidArguments)?;
+        if let Some(digest) = input.semantic_digest {
+            let stored = self
+                .inner
+                .definitions
+                .load(&digest)
+                .map_err(|_| CapabilityError::InvalidArguments)?;
+            return Ok(CapabilityOutput::success(json!({
+                "instructions": [
+                    "Use this exact canonical definition as the revision base.",
+                    "Reuse this response. Do not reload it for each correction."
+                ],
+                "selected_definition": {
+                    "semantic_digest": digest,
+                    "source_reference": stored.provenance.source_reference,
+                    "manifest": stored.manifest
+                }
+            })));
+        }
         let scan = self
             .inner
             .definitions
@@ -389,22 +385,6 @@ impl AdapterCapabilityService {
             "current_definitions_truncated".to_string(),
             Value::Bool(truncated),
         );
-        if let Some(digest) = input.semantic_digest {
-            let stored = self
-                .inner
-                .definitions
-                .load(&digest)
-                .map_err(|_| CapabilityError::InvalidArguments)?;
-            object.insert(
-                "selected_definition".to_string(),
-                json!({
-                    "semantic_digest": digest,
-                    "source_reference": stored.provenance.source_reference,
-                    "manifest_json": serde_json::to_string_pretty(&stored.manifest)
-                        .map_err(|_| CapabilityError::Unavailable)?
-                }),
-            );
-        }
         Ok(CapabilityOutput::success(payload))
     }
 
@@ -662,8 +642,7 @@ impl AdapterCapabilityService {
         CapabilityOutput::success(json!({
             "status": "invalid_proposal",
             "reason": reason,
-            "definition_help": Self::definition_help_payload(),
-            "next_step": "Correct the manifest from the returned template and retry the available proposal tool."
+            "next_step": "Correct the reported value and retry. Reuse the definition template already loaded for this task."
         }))
     }
 
@@ -947,8 +926,7 @@ mod tests {
         assert_eq!(
             binding.persist_output(&json!({
                 "marker": "result",
-                "access_token": "private",
-                "definition_help": {"manifest_template": "large repair guidance"}
+                "access_token": "private"
             })),
             Some(json!({"marker": "result", "access_token": "[REDACTED]"}))
         );
@@ -1274,14 +1252,11 @@ mod tests {
             .definition_template(json!({"semantic_digest": second_digest}))
             .expect("template lookup");
         assert_eq!(
-            selected.payload["selected_definition"]["manifest_json"]
-                .as_str()
-                .and_then(|manifest| serde_json::from_str::<Value>(manifest).ok())
-                .and_then(|manifest| manifest["operations"][0]["path"]
-                    .as_str()
-                    .map(str::to_string)),
-            Some("/v2/events".to_string())
+            selected.payload["selected_definition"]["manifest"]["operations"][0]["path"],
+            "/v2/events"
         );
+        assert!(selected.payload.get("manifest_template").is_none());
+        assert!(selected.payload.get("current_definitions").is_none());
 
         let reviewed = service
             .review_definition(&second_digest)
@@ -1351,7 +1326,7 @@ mod tests {
                 .await
                 .expect("actionable rejection");
             assert_eq!(output.payload["status"], "invalid_proposal");
-            assert!(output.payload["definition_help"].is_object());
+            assert!(output.payload.get("definition_help").is_none());
         }
         assert!(
             AdapterDefinitionStore::new(paths)
@@ -1476,6 +1451,6 @@ mod tests {
                 |message| message.contains("computed constraint, not a manifest field")
             )
         );
-        assert!(output.payload["definition_help"].is_object());
+        assert!(output.payload.get("definition_help").is_none());
     }
 }
