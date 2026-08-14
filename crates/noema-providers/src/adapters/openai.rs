@@ -201,9 +201,6 @@ impl ModelProvider for OpenAiProvider {
             model.clone(),
             request.conversation_id.clone(),
         );
-        for (tool_name, reason) in &tool_names.conversion_fallbacks {
-            diagnostics.log_schema_fallback(tool_name, reason);
-        }
         let response = self
             .transport
             .send(

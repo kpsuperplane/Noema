@@ -210,6 +210,35 @@ impl RuntimeActor {
     }
 
     pub(super) async fn run(mut self, mut receiver: mpsc::Receiver<RuntimeCommand>) {
+        match self
+            .store
+            .primary_conversation_for_human("human:local")
+            .await
+        {
+            Ok(Some(conversation)) => {
+                if let Err(error) = self
+                    .store
+                    .recover_shutdown_cancelled_work(&conversation.conversation_id)
+                    .await
+                {
+                    self.system_errors.try_append(
+                        SystemErrorEvent::new(
+                            crate::daemon::SYSTEM_ERROR_RUNTIME_INVARIANT,
+                            "failed to recover interrupted conversation",
+                        )
+                        .with_error_chain([error.to_string()]),
+                    );
+                }
+            }
+            Ok(None) => {}
+            Err(error) => self.system_errors.try_append(
+                SystemErrorEvent::new(
+                    crate::daemon::SYSTEM_ERROR_RUNTIME_INVARIANT,
+                    "failed to load interrupted conversation",
+                )
+                .with_error_chain([error.to_string()]),
+            ),
+        }
         if let Err(error) = self.recover_governed_action_origins().await {
             self.system_errors.try_append(
                 SystemErrorEvent::new(

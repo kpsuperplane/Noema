@@ -91,10 +91,6 @@ async fn queue_suppresses_only_the_visible_subscription() {
 #[tokio::test]
 async fn primary_checkpoint_is_monotonic_until_the_conversation_changes() {
     let store = test_store().await;
-    store
-        .get_or_insert_web_push_identity(&[1; 32], &[2; 65])
-        .await
-        .expect("insert Web Push identity");
     let primary = store
         .get_or_create_primary_conversation("human:local", None, None)
         .await
@@ -107,13 +103,16 @@ async fn primary_checkpoint_is_monotonic_until_the_conversation_changes() {
         .advance_notification_primary_checkpoint(&primary.conversation_id, 3)
         .await
         .expect("ignore older checkpoint");
+    assert_eq!(
+        store
+            .with_connection(|connection| Ok(connection.changes()))
+            .await
+            .expect("checkpoint changes"),
+        0
+    );
     let checkpoint = store
         .notification_primary_checkpoint()
         .await
         .expect("read checkpoint");
-    assert_eq!(
-        checkpoint.conversation_id.as_deref(),
-        Some(primary.conversation_id.as_str())
-    );
     assert_eq!(checkpoint.sequence, 8);
 }

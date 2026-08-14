@@ -117,6 +117,29 @@ impl NoemaStore {
             )?;
             transaction.execute(
                 r#"
+                UPDATE runtime_debug_spans
+                SET status = 'cancelled',
+                    duration_milliseconds = CAST(MAX(0, ROUND((julianday('now') - julianday(started_at)) * 86400000)) AS INTEGER),
+                    ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE status = 'running'
+                  AND conversation_turn_id IN (
+                    SELECT turn_id
+                    FROM conversation_turns
+                    WHERE conversation_id = ?1
+                      AND status IN ('input_received', 'running', 'waiting_for_tool')
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM conversation_interactions interaction
+                        WHERE interaction.originating_turn_id = conversation_turns.turn_id
+                          AND interaction.lifecycle_status IN ('pending', 'answered', 'resuming')
+                      )
+                  )
+                "#,
+                [conversation_id],
+            )?;
+            transaction.execute(
+                r#"
                 UPDATE conversation_turns
                 SET status = 'cancelled',
                     completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),

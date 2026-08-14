@@ -8,7 +8,7 @@ use crate::{
 };
 
 #[tokio::test]
-async fn runtime_debug_span_is_live_then_durable_for_exactly_one_owner() {
+async fn turn_finalization_finishes_debug_span_and_child_item() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let conversation = store
@@ -24,7 +24,7 @@ async fn runtime_debug_span_is_live_then_durable_for_exactly_one_owner() {
         .await
         .expect("turn");
     let scope = RuntimeDebugScope::ConversationTurn(turn.turn_id.clone());
-    let span_id = store
+    store
         .begin_runtime_debug_span(NewRuntimeDebugSpan {
             scope: scope.clone(),
             category: RuntimeDebugSpanCategory::Provider,
@@ -44,23 +44,39 @@ async fn runtime_debug_span_is_live_then_durable_for_exactly_one_owner() {
     assert_eq!(live.spans[0].status, RuntimeDebugSpanStatus::Running);
 
     store
-        .finish_runtime_debug_span(
-            &span_id,
-            RuntimeDebugSpanStatus::Completed,
-            42,
-            RuntimeDebugMetadata::default(),
-        )
+        .with_connection(|connection| {
+            connection.execute(
+                "INSERT INTO conversation_items (item_id, conversation_id, turn_id, sequence_index, kind, status, author_actor_id) VALUES ('item:unfinished-call', ?1, ?2, 1, 'tool_call', 'running', 'agent:primary')",
+                rusqlite::params![conversation.conversation_id, turn.turn_id],
+            )?;
+            Ok(())
+        })
         .await
-        .expect("finish span");
+        .expect("unfinished call");
+    store
+        .complete_conversation_turn(&turn.turn_id)
+        .await
+        .expect("complete turn");
     let durable = store
         .runtime_debug_profile(scope)
         .await
         .expect("durable profile")
         .expect("turn profile");
-    assert_eq!(durable.spans[0].duration_milliseconds, Some(42));
+    assert_eq!(durable.spans[0].status, RuntimeDebugSpanStatus::Completed);
+    assert!(durable.spans[0].duration_milliseconds.is_some());
 
     let connection = store.connection_for_tests();
     let connection = connection.lock().await;
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT status FROM conversation_items WHERE item_id = 'item:unfinished-call'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("finished call"),
+        "failed"
+    );
     let invalid = connection.execute(
         "INSERT INTO runtime_debug_spans (span_id, category, name) VALUES ('debug_span:invalid', 'runtime', 'invalid')",
         [],

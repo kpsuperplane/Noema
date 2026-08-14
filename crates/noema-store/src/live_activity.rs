@@ -350,7 +350,7 @@ impl NoemaStore {
     ) -> Result<bool, StoreError> {
         self.with_connection(|connection| {
             let changed = connection.execute(
-                "UPDATE client_task_activities SET latest_projection_json = '{}', latest_projection_signature = '', focused_task_id = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND lifecycle = 'dismissed' AND suppressed = 1",
+                "UPDATE client_task_activities SET latest_projection_json = '{}', latest_projection_signature = '', focused_task_id = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND lifecycle = 'dismissed' AND suppressed = 1 AND (latest_projection_json <> '{}' OR latest_projection_signature <> '' OR focused_task_id IS NOT NULL)",
                 [client_id],
             )?;
             Ok(changed == 1)
@@ -623,7 +623,7 @@ impl NoemaStore {
             .map_err(|_| invalid("notification sequence is outside SQLite range"))?;
         self.with_connection(|connection| {
             connection.execute(
-                "UPDATE notification_projection_state SET task_notification_sequence = MAX(task_notification_sequence, ?1), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE state_id = 1",
+                "UPDATE notification_projection_state SET task_notification_sequence = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE state_id = 1 AND task_notification_sequence < ?1",
                 [sequence],
             )?;
             Ok(())

@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 42;
+pub const STORE_SCHEMA_VERSION: usize = 43;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1186,8 +1186,146 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(ADAPTER_GRANT_LABEL_SQL),
         M::up(LIVE_ACTIVITY_DIAGNOSTICS_SQL),
         M::up(LIVE_ACTIVITY_OBSERVATIONS_RENAME_SQL),
+        M::up(TERMINAL_CHILD_STATE_REPAIR_SQL),
     ])
 }
+
+/// Finish child records left active under final Tasks runs and conversation turns.
+const TERMINAL_CHILD_STATE_REPAIR_SQL: &str = r#"
+UPDATE agent_run_items AS call
+SET status = (
+  SELECT CASE result.status
+    WHEN 'completed' THEN 'completed'
+    WHEN 'cancelled' THEN 'cancelled'
+    ELSE 'failed'
+  END
+  FROM agent_run_items AS result
+  WHERE result.run_id = call.run_id
+    AND result.kind = 'tool_result'
+    AND result.parent_item_id = call.item_id
+    AND result.status NOT IN ('pending', 'running')
+  ORDER BY result.sequence_index DESC
+  LIMIT 1
+), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE call.kind = 'tool_call'
+  AND call.status IN ('pending', 'running')
+  AND EXISTS (
+    SELECT 1 FROM agent_runs runs
+    WHERE runs.run_id = call.run_id
+      AND runs.status IN ('completed', 'failed', 'interrupted', 'cancelled')
+  )
+  AND EXISTS (
+    SELECT 1 FROM agent_run_items AS result
+    WHERE result.run_id = call.run_id
+      AND result.kind = 'tool_result'
+      AND result.parent_item_id = call.item_id
+      AND result.status NOT IN ('pending', 'running')
+  );
+
+UPDATE agent_run_items
+SET status = CASE (
+    SELECT runs.status FROM agent_runs runs WHERE runs.run_id = agent_run_items.run_id
+  )
+    WHEN 'completed' THEN CASE WHEN kind IN ('tool_call', 'tool_result') THEN 'failed' ELSE 'completed' END
+    WHEN 'cancelled' THEN 'cancelled'
+    ELSE 'failed'
+  END,
+  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE status IN ('pending', 'running')
+  AND EXISTS (
+    SELECT 1 FROM agent_runs runs
+    WHERE runs.run_id = agent_run_items.run_id
+      AND runs.status IN ('completed', 'failed', 'interrupted', 'cancelled')
+  );
+
+UPDATE runtime_debug_spans
+SET status = CASE (
+    SELECT runs.status FROM agent_runs runs WHERE runs.run_id = runtime_debug_spans.agent_run_id
+  )
+    WHEN 'completed' THEN 'completed'
+    WHEN 'cancelled' THEN 'cancelled'
+    WHEN 'interrupted' THEN 'interrupted'
+    ELSE 'failed'
+  END,
+  duration_milliseconds = CAST(MAX(0, ROUND((julianday('now') - julianday(started_at)) * 86400000)) AS INTEGER),
+  ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE agent_run_id IS NOT NULL
+  AND status = 'running'
+  AND EXISTS (
+    SELECT 1 FROM agent_runs runs
+    WHERE runs.run_id = runtime_debug_spans.agent_run_id
+      AND runs.status IN ('completed', 'failed', 'interrupted', 'cancelled')
+  );
+
+UPDATE conversation_items AS call
+SET status = (
+  SELECT CASE result.status
+    WHEN 'completed' THEN 'completed'
+    WHEN 'cancelled' THEN 'cancelled'
+    WHEN 'interrupted' THEN 'interrupted'
+    ELSE 'failed'
+  END
+  FROM conversation_items AS result
+  WHERE result.turn_id = call.turn_id
+    AND result.kind = 'tool_result'
+    AND result.parent_item_id = call.item_id
+    AND result.status NOT IN ('pending', 'running')
+  ORDER BY result.sequence_index DESC
+  LIMIT 1
+), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE call.kind = 'tool_call'
+  AND call.status IN ('pending', 'running')
+  AND EXISTS (
+    SELECT 1 FROM conversation_turns turns
+    WHERE turns.turn_id = call.turn_id
+      AND turns.status IN ('completed', 'failed', 'interrupted', 'cancelled')
+  )
+  AND EXISTS (
+    SELECT 1 FROM conversation_items AS result
+    WHERE result.turn_id = call.turn_id
+      AND result.kind = 'tool_result'
+      AND result.parent_item_id = call.item_id
+      AND result.status NOT IN ('pending', 'running')
+  );
+
+UPDATE conversation_items
+SET status = CASE (
+    SELECT turns.status FROM conversation_turns turns WHERE turns.turn_id = conversation_items.turn_id
+  )
+    WHEN 'completed' THEN CASE WHEN kind IN ('tool_call', 'tool_result') THEN 'failed' ELSE 'completed' END
+    WHEN 'cancelled' THEN 'cancelled'
+    WHEN 'interrupted' THEN 'interrupted'
+    ELSE 'failed'
+  END,
+  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE status IN ('pending', 'running')
+  AND EXISTS (
+    SELECT 1 FROM conversation_turns turns
+    WHERE turns.turn_id = conversation_items.turn_id
+      AND turns.status IN ('completed', 'failed', 'interrupted', 'cancelled')
+  );
+
+UPDATE runtime_debug_spans
+SET status = CASE (
+    SELECT turns.status FROM conversation_turns turns WHERE turns.turn_id = runtime_debug_spans.conversation_turn_id
+  )
+    WHEN 'completed' THEN 'completed'
+    WHEN 'cancelled' THEN 'cancelled'
+    WHEN 'interrupted' THEN 'interrupted'
+    ELSE 'failed'
+  END,
+  duration_milliseconds = CAST(MAX(0, ROUND((julianday('now') - julianday(started_at)) * 86400000)) AS INTEGER),
+  ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE conversation_turn_id IS NOT NULL
+  AND status = 'running'
+  AND EXISTS (
+    SELECT 1 FROM conversation_turns turns
+    WHERE turns.turn_id = runtime_debug_spans.conversation_turn_id
+      AND turns.status IN ('completed', 'failed', 'interrupted', 'cancelled')
+  );
+"#;
 
 const LIVE_ACTIVITY_OBSERVATIONS_RENAME_SQL: &str = r#"
 ALTER TABLE client_live_activity_observations RENAME TO live_activity_observations;

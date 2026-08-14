@@ -728,12 +728,16 @@ fn full_provider_conversion_uses_reduced_copy_for_unsupported_unique_items() {
         "Read a document.",
         json!({
             "type": "object",
-            "properties": {"ids": {"type": "array", "uniqueItems": true}},
+            "properties": {
+                "context": {"type": "string"},
+                "ids": {"type": "array", "uniqueItems": true}
+            },
             "required": ["ids"],
             "additionalProperties": false
         }),
     )
     .expect("tool");
+    let source_schema = tool.input_schema.as_value().clone();
     let names = ResponsesToolNameMap::from_tools_with_request(
         &[tool.into()],
         ProviderSchemaRequest::RequestStrictWhenPossible,
@@ -741,7 +745,7 @@ fn full_provider_conversion_uses_reduced_copy_for_unsupported_unique_items() {
     .expect("best-effort fallback");
     let wire = serde_json::to_value(&names.tools[0]).expect("tool wire");
     assert_eq!(wire["strict"], false);
-    assert_eq!(names.conversion_fallbacks.len(), 1);
+    assert_eq!(wire["parameters"], source_schema);
 }
 
 #[test]

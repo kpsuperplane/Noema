@@ -91,7 +91,6 @@ impl ResponsesTool {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ResponsesToolNameMap {
     pub(crate) tools: Vec<ResponsesTool>,
-    pub(crate) conversion_fallbacks: Vec<(String, String)>,
     names: OpenAiToolNameMap,
 }
 
@@ -127,7 +126,6 @@ impl ResponsesToolNameMap {
 
         Ok(Self {
             tools: responses_tools,
-            conversion_fallbacks: names.conversion_fallbacks.clone(),
             names,
         })
     }

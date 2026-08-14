@@ -115,6 +115,8 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
                     "description": "Official HTTPS API or authorization documentation URL used as primary provenance."
                 },
                 "new_definition": {
+                    "type": "object",
+                    "additionalProperties": {},
                     "description": "Direct JSON service header for a new definition. Include definition_id, adapter_id, optional display_name, definition_revision, origin, and authentication. Omit for a revision."
                 },
                 "base_semantic_digest": {
@@ -122,6 +124,8 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
                     "description": "Exact semantic digest loaded for a revision. Omit for a new definition."
                 },
                 "revision": {
+                    "type": "object",
+                    "additionalProperties": {},
                     "description": "Direct JSON revision header. Include definition_revision. Optionally replace display_name, origin, or authentication."
                 },
                 "upsert_operations": {
@@ -129,6 +133,8 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
                     "maxItems": 128,
                     "description": "Direct JSON operations added or replaced by stable operation_id.",
                     "items": {
+                        "type": "object",
+                        "additionalProperties": {},
                         "description": "One operation proposal from the definition-template contract."
                     }
                 },
@@ -932,10 +938,20 @@ mod tests {
             binding.spec().input_schema.as_value()["required"],
             json!(["source_reference"])
         );
-        assert_eq!(
-            binding.spec().input_schema.as_value()["properties"]["upsert_operations"]["maxItems"],
-            json!(128)
-        );
+        for pointer in [
+            "/properties/new_definition",
+            "/properties/revision",
+            "/properties/upsert_operations/items",
+        ] {
+            let schema = binding
+                .spec()
+                .input_schema
+                .as_value()
+                .pointer(pointer)
+                .expect("direct JSON schema");
+            assert_eq!(schema["type"], "object");
+            assert!(schema["additionalProperties"].is_object());
+        }
         assert!(catalog.snapshot.resolve(DEFINITION_TEMPLATE_TOOL).is_some());
         assert_eq!(
             AdapterCapabilityService::definition_help_payload()["proposal_template"]["new_definition"]

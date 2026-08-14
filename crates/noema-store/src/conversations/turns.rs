@@ -1,5 +1,5 @@
 use noema_conversations::{ConversationTurnRecord, NewConversationTurn};
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::Value;
 
 use super::{NoemaStore, StoreError};
@@ -168,7 +168,9 @@ impl NoemaStore {
         self.require_turn(turn_id).await?;
         let completed_at = now_string();
         self.with_connection(|conn| {
-            conn.execute(
+            let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            finish_conversation_turn_records_tx(&transaction, turn_id, status)?;
+            transaction.execute(
                 r#"
                 UPDATE conversation_turns
                 SET status = ?2,
@@ -178,8 +180,29 @@ impl NoemaStore {
                 "#,
                 params![turn_id, status, completed_at],
             )?;
+            transaction.commit()?;
             Ok(())
         })
         .await
     }
+}
+
+fn finish_conversation_turn_records_tx(
+    transaction: &Transaction<'_>,
+    turn_id: &str,
+    turn_status: &str,
+) -> Result<(), StoreError> {
+    transaction.execute(
+        "UPDATE conversation_items AS call SET status = (SELECT CASE result.status WHEN 'completed' THEN 'completed' WHEN 'cancelled' THEN 'cancelled' WHEN 'interrupted' THEN 'interrupted' ELSE 'failed' END FROM conversation_items AS result WHERE result.turn_id = call.turn_id AND result.kind = 'tool_result' AND result.parent_item_id = call.item_id AND result.status NOT IN ('pending', 'running') ORDER BY result.sequence_index DESC LIMIT 1), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE call.turn_id = ?1 AND call.kind = 'tool_call' AND call.status IN ('pending', 'running') AND EXISTS (SELECT 1 FROM conversation_items AS result WHERE result.turn_id = call.turn_id AND result.kind = 'tool_result' AND result.parent_item_id = call.item_id AND result.status NOT IN ('pending', 'running'))",
+        [turn_id],
+    )?;
+    transaction.execute(
+        "UPDATE conversation_items SET status = CASE WHEN ?2 = 'completed' AND kind IN ('tool_call', 'tool_result') THEN 'failed' ELSE ?2 END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE turn_id = ?1 AND status IN ('pending', 'running')",
+        params![turn_id, turn_status],
+    )?;
+    transaction.execute(
+        "UPDATE runtime_debug_spans SET status = ?2, duration_milliseconds = CAST(MAX(0, ROUND((julianday('now') - julianday(started_at)) * 86400000)) AS INTEGER), ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE conversation_turn_id = ?1 AND status = 'running'",
+        params![turn_id, turn_status],
+    )?;
+    Ok(())
 }

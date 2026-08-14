@@ -243,6 +243,19 @@ async fn v34_upgrade_links_saved_action_request_items_and_matches_fresh_schema()
               'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
               '{"type":"object"}', '{}', 'Fixture action', 'awaiting_approval'
             );
+            INSERT INTO governed_actions (
+              action_id, revision, owner_human_id, conversation_id, turn_id,
+              requesting_agent_id, capability_name, operation_token, review_route,
+              read_only, idempotent, destructive, open_world, arguments_json,
+              arguments_sha256, input_schema_json, authorization_context_json,
+              safe_summary, state
+            ) SELECT
+              'action:unlinked', revision, owner_human_id, conversation_id, turn_id,
+              requesting_agent_id, capability_name, operation_token, review_route,
+              read_only, idempotent, destructive, open_world, arguments_json,
+              arguments_sha256, input_schema_json, authorization_context_json,
+              safe_summary, 'succeeded'
+            FROM governed_actions WHERE action_id = 'action:source';
             "#,
         )
         .expect("v34 action source");
@@ -262,6 +275,13 @@ async fn v34_upgrade_links_saved_action_request_items_and_matches_fresh_schema()
             .payload_json
             .pointer("/metadata/action/payload/provider_call_id"),
         Some(&serde_json::json!("call:ordinary"))
+    );
+    assert!(
+        store
+            .list_interrupted_governed_action_resumptions()
+            .await
+            .expect("recoverable actions")
+            .is_empty()
     );
     drop(store);
 
@@ -2214,6 +2234,104 @@ async fn immutable_schema_inspection_handles_uri_reserved_path_characters() {
     NoemaStore::open(&config)
         .await
         .expect("inspect reserved-character path");
+}
+
+#[tokio::test]
+async fn v43_upgrade_finishes_terminal_child_records_and_matches_fresh_schema() {
+    let upgrade_home = TempDir::new().expect("v42 root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    let mut connection = Connection::open(&upgrade_config.path).expect("v42 database");
+    store_migrations()
+        .to_version(&mut connection, 42)
+        .expect("construct v42 schema");
+    connection
+        .execute(
+            "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:valid', 'workspace:personal', 'workflow:personal:default', 'stage:personal:done', 'Terminal records', 'system', 'actor:system')",
+            [],
+        )
+        .expect("task");
+    insert_planner_run(&connection, "run:terminal-records").expect("run");
+    connection
+        .execute(
+            "UPDATE agent_runs SET status = 'completed' WHERE run_id = 'run:terminal-records'",
+            [],
+        )
+        .expect("finish run");
+    connection
+        .execute_batch(
+            r#"
+            INSERT INTO agent_run_items (item_id, run_id, sequence_index, kind, status)
+            VALUES
+              ('run_item:terminal-output', 'run:terminal-records', 1, 'assistant_output', 'running'),
+              ('run_item:terminal-call', 'run:terminal-records', 2, 'tool_call', 'running');
+            INSERT INTO runtime_debug_spans (span_id, agent_run_id, category, name)
+            VALUES ('debug_span:terminal-run', 'run:terminal-records', 'provider', 'terminal run');
+            "#,
+        )
+        .expect("run child records");
+    insert_migration_conversation(
+        &connection,
+        "conversation:terminal-records",
+        "turn:terminal-records",
+    );
+    connection
+        .execute_batch(
+            r#"
+            INSERT INTO conversation_items (
+              item_id, conversation_id, turn_id, sequence_index, kind, status, author_actor_id
+            ) VALUES (
+              'item:terminal-call', 'conversation:terminal-records', 'turn:terminal-records',
+              1, 'tool_call', 'running', 'agent:primary'
+            );
+            INSERT INTO runtime_debug_spans (span_id, conversation_turn_id, category, name)
+            VALUES ('debug_span:terminal-turn', 'turn:terminal-records', 'tool', 'terminal turn');
+            "#,
+        )
+        .expect("turn child records");
+    drop(connection);
+
+    drop(
+        NoemaStore::open(&upgrade_config)
+            .await
+            .expect("upgrade v42 database"),
+    );
+    let connection = Connection::open(&upgrade_config.path).expect("upgraded database");
+    assert_eq!(
+        connection
+            .query_row(
+                r#"SELECT
+                  (SELECT status FROM agent_run_items WHERE item_id = 'run_item:terminal-output'),
+                  (SELECT status FROM agent_run_items WHERE item_id = 'run_item:terminal-call'),
+                  (SELECT status FROM conversation_items WHERE item_id = 'item:terminal-call'),
+                  (SELECT count(*) FROM runtime_debug_spans WHERE span_id IN ('debug_span:terminal-run', 'debug_span:terminal-turn') AND status = 'completed' AND ended_at IS NOT NULL),
+                  (SELECT user_version FROM pragma_user_version)"#,
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?, row.get::<_, usize>(4)?)),
+            )
+            .expect("repaired records"),
+        (
+            "completed".to_string(),
+            "failed".to_string(),
+            "failed".to_string(),
+            2,
+            STORE_SCHEMA_VERSION,
+        )
+    );
+    drop(connection);
+
+    let fresh_home = TempDir::new().expect("fresh v43 root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(
+        NoemaStore::open(&fresh_config)
+            .await
+            .expect("fresh v43 schema"),
+    );
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
+    );
 }
 
 fn stage(

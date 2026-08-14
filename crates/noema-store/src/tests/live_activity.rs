@@ -425,6 +425,39 @@ async fn disabling_live_activities_clears_a_dismissed_session() {
     assert_eq!(activity.lifecycle, "dismissed");
     assert!(activity.latest_projection_signature.is_empty());
     assert!(activity.focused_task_id.is_none());
+    store
+        .with_connection(|connection| {
+            connection.execute(
+                "UPDATE notification_projection_state SET task_notification_sequence = 10, updated_at = '2000-01-01T00:00:00.000Z' WHERE state_id = 1",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("seed unchanged checkpoint");
+    assert!(
+        !store
+            .clear_client_task_activity_dismissal("client:live")
+            .await
+            .expect("repeat dismissal clear")
+    );
+    store
+        .advance_notification_task_checkpoint(10)
+        .await
+        .expect("repeat checkpoint");
+    assert_eq!(
+        store
+            .with_connection(|connection| connection
+                .query_row(
+                    "SELECT updated_at FROM notification_projection_state WHERE state_id = 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .map_err(crate::StoreError::Sqlite))
+            .await
+            .expect("unchanged checkpoint"),
+        "2000-01-01T00:00:00.000Z"
+    );
 
     store
         .register_client_live_activities(

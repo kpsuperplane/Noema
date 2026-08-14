@@ -17,7 +17,6 @@ pub(crate) struct OpenAiToolDefinition {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct OpenAiToolNameMap {
     pub(crate) definitions: Vec<OpenAiToolDefinition>,
-    pub(crate) conversion_fallbacks: Vec<(String, String)>,
     provider_to_canonical: HashMap<String, String>,
     canonical_to_provider: HashMap<String, String>,
     return_rules: HashMap<String, ToolReturnRules>,
@@ -38,7 +37,6 @@ impl OpenAiToolNameMap {
         let mut provider_to_canonical = HashMap::with_capacity(tools.len());
         let mut canonical_to_provider = HashMap::with_capacity(tools.len());
         let mut return_rules = HashMap::with_capacity(tools.len());
-        let mut conversion_fallbacks = Vec::new();
 
         for tool in tools {
             let provider_safe = tool.exposed_name();
@@ -58,11 +56,14 @@ impl OpenAiToolNameMap {
             canonical_to_provider.insert(canonical.to_string(), provider_safe.to_string());
             let mut parameters = tool.input_schema.as_value().clone();
             let strict = if request_mode == ProviderSchemaRequest::RequestStrictWhenPossible {
-                match convert_schema_fully(&mut parameters) {
-                    Ok(()) => Some(true),
-                    Err(error) => {
+                let mut converted = parameters.clone();
+                match convert_schema_fully(&mut converted) {
+                    Ok(()) => {
+                        parameters = converted;
+                        Some(true)
+                    }
+                    Err(_) => {
                         normalize_openai_schema(&mut parameters);
-                        conversion_fallbacks.push((canonical.to_string(), error));
                         Some(false)
                     }
                 }
@@ -87,7 +88,6 @@ impl OpenAiToolNameMap {
 
         Ok(Self {
             definitions,
-            conversion_fallbacks,
             provider_to_canonical,
             canonical_to_provider,
             return_rules,

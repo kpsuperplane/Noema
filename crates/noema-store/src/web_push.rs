@@ -144,7 +144,8 @@ impl NoemaStore {
                          ELSE ?2
                        END,
                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                   WHERE state_id = 1"#,
+                   WHERE state_id = 1
+                     AND (primary_conversation_id IS NOT ?1 OR primary_sequence < ?2)"#,
                 params![conversation_id, sequence],
             )?;
             Ok(())

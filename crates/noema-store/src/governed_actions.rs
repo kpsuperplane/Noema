@@ -821,7 +821,9 @@ impl NoemaStore {
                     FROM governed_actions actions
                     WHERE actions.state IN ('succeeded', 'failed', 'outcome_uncertain', 'declined', 'superseded', 'cancelled')
                       AND (
-                        (actions.conversation_id IS NOT NULL AND NOT EXISTS (
+                        (actions.conversation_id IS NOT NULL
+                          AND actions.approval_item_id IS NOT NULL
+                          AND NOT EXISTS (
                           SELECT 1 FROM conversation_items items
                           WHERE items.item_id = 'item:governed_action:' || actions.action_id || ':' || actions.revision
                         ))
