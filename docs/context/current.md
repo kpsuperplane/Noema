@@ -29,6 +29,9 @@ vertical slice or a net-negative reduction.
   exact human-message or tool-result sources.
 - Durable chat is reconstructed from conversation items. Live daemon and
   subscription state is coordination state only.
+- Message runtime profiles store provider response and hosted-search timing as
+  content-free child spans. The existing debug flame chart shows these spans.
+- Foreground context compaction is a runtime span in the same message profile.
 - Hosted Codex search requests include ordered action sources. The runtime
   resolves exact private-use citation markers before saving new chat text or
   task submissions. Task submission citations are immutable child records.

@@ -222,8 +222,27 @@ impl RuntimeActor {
                 user_item_id: turn.user_item_id.clone(),
                 assistant_item_id: None,
             };
+            let continuation_provider_started_at = std::time::Instant::now();
+            let continuation_debug = RuntimeDebugSpan::begin(
+                &self.store,
+                RuntimeDebugScope::ConversationTurn(turn.turn_id.clone()),
+                RuntimeDebugSpanCategory::Provider,
+                format!("Provider continuation {continuation_step}"),
+                RuntimeDebugMetadata {
+                    provider: Some(turn.provider_kind.clone()),
+                    model: turn.model.clone(),
+                    phase: Some("continuation".to_string()),
+                    response_index: Some(continuation_step as u64),
+                    ..RuntimeDebugMetadata::default()
+                },
+            )
+            .await;
+            let mut provider_timeline = ProviderDebugTimeline::begin();
             let mut on_continuation_event = |event| {
-                if !continuation_stream_seen_for_event.swap(true, Ordering::Relaxed) {
+                provider_timeline.observe(&event);
+                if !matches!(&event, GenerateStreamEvent::ProviderTiming { .. })
+                    && !continuation_stream_seen_for_event.swap(true, Ordering::Relaxed)
+                {
                     timing.mark(
                         "provider_continuation_first_stream_event",
                         continuation_provider_stream_event_fields(continuation_step, &event),
@@ -258,6 +277,7 @@ impl RuntimeActor {
                             continuation_output_base,
                         );
                     }
+                    GenerateStreamEvent::ProviderTiming { .. } => {}
                 }
             };
             timing.mark(
@@ -274,21 +294,6 @@ impl RuntimeActor {
                     },
                 }),
             );
-            let continuation_provider_started_at = std::time::Instant::now();
-            let continuation_debug = RuntimeDebugSpan::begin(
-                &self.store,
-                RuntimeDebugScope::ConversationTurn(turn.turn_id.clone()),
-                RuntimeDebugSpanCategory::Provider,
-                format!("Provider continuation {continuation_step}"),
-                RuntimeDebugMetadata {
-                    provider: Some(turn.provider_kind.clone()),
-                    model: turn.model.clone(),
-                    phase: Some("continuation".to_string()),
-                    response_index: Some(continuation_step as u64),
-                    ..RuntimeDebugMetadata::default()
-                },
-            )
-            .await;
             let (continuation_tools, continuation_tool_choice) =
                 if turn.tool_capabilities.allowed_tools
                     && turn.continuation_model_tools.transport == ProviderToolTransport::Native
@@ -408,18 +413,23 @@ impl RuntimeActor {
                     )
                     .await;
             }
+            let provider_children = provider_timeline.completed_spans();
             let continuation_response = match continuation_result {
                 Ok(response) => response,
                 Err(error) => {
                     continuation_debug
-                        .finish(RuntimeDebugSpanStatus::Failed, None)
+                        .finish_with_children(
+                            RuntimeDebugSpanStatus::Failed,
+                            None,
+                            &provider_children,
+                        )
                         .await;
                     return Err(RuntimeError::Provider(error));
                 }
             };
             let continuation_usage = continuation_response.usage.as_ref();
             continuation_debug
-                .finish(
+                .finish_with_children(
                     RuntimeDebugSpanStatus::Completed,
                     Some(RuntimeDebugMetadata {
                         provider: Some(continuation_response.provider.clone()),
@@ -433,6 +443,7 @@ impl RuntimeActor {
                         total_tokens: continuation_usage.map(|value| value.total_tokens),
                         ..RuntimeDebugMetadata::default()
                     }),
+                    &provider_children,
                 )
                 .await;
             timing.mark(

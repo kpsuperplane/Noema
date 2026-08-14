@@ -241,6 +241,19 @@ impl RuntimeActor {
                 );
             let compaction_started_at = std::time::Instant::now();
             timing.mark("runtime_foreground_compaction_started", json!({}));
+            let compaction_debug = RuntimeDebugSpan::begin(
+                &self.store,
+                RuntimeDebugScope::ConversationTurn(turn.turn_id.clone()),
+                RuntimeDebugSpanCategory::Runtime,
+                "Foreground context compaction",
+                RuntimeDebugMetadata {
+                    provider: Some(provider_kind.to_string()),
+                    model: model_profile.map(str::to_string),
+                    phase: Some("compaction".to_string()),
+                    ..RuntimeDebugMetadata::default()
+                },
+            )
+            .await;
             let compaction_request = super::context_compaction::CompactionRequest {
                 store: &self.store,
                 provider,
@@ -256,6 +269,16 @@ impl RuntimeActor {
             } else {
                 super::context_compaction::compact_context_with_retry(compaction_request).await
             };
+            compaction_debug
+                .finish(
+                    if compaction_result.is_ok() {
+                        RuntimeDebugSpanStatus::Completed
+                    } else {
+                        RuntimeDebugSpanStatus::Failed
+                    },
+                    None,
+                )
+                .await;
             if let Err(error) = compaction_result {
                 let error_context = ConversationMemoryContext {
                     turn_index,
@@ -392,8 +415,27 @@ impl RuntimeActor {
             user_item_id: user_item_id.clone(),
             assistant_item_id: None,
         };
+        let initial_provider_started_at = std::time::Instant::now();
+        let initial_provider_debug = RuntimeDebugSpan::begin(
+            &self.store,
+            RuntimeDebugScope::ConversationTurn(turn.turn_id.clone()),
+            RuntimeDebugSpanCategory::Provider,
+            "Initial provider request",
+            RuntimeDebugMetadata {
+                provider: Some(provider_kind.to_string()),
+                model: model_profile.map(str::to_string),
+                phase: Some("initial".to_string()),
+                response_index: Some(0),
+                ..RuntimeDebugMetadata::default()
+            },
+        )
+        .await;
+        let mut provider_timeline = ProviderDebugTimeline::begin();
         let mut on_initial_event = |event| {
-            if !initial_stream_seen {
+            provider_timeline.observe(&event);
+            if !matches!(&event, GenerateStreamEvent::ProviderTiming { .. })
+                && !initial_stream_seen
+            {
                 timing.mark(
                     "provider_initial_first_stream_event",
                     provider_stream_event_fields(&event),
@@ -429,6 +471,7 @@ impl RuntimeActor {
                         0,
                     );
                 }
+                GenerateStreamEvent::ProviderTiming { .. } => {}
             }
         };
 
@@ -441,21 +484,6 @@ impl RuntimeActor {
                     && tool_capabilities.parallel_tool_calls,
             }),
         );
-        let initial_provider_started_at = std::time::Instant::now();
-        let initial_provider_debug = RuntimeDebugSpan::begin(
-            &self.store,
-            RuntimeDebugScope::ConversationTurn(turn.turn_id.clone()),
-            RuntimeDebugSpanCategory::Provider,
-            "Initial provider request",
-            RuntimeDebugMetadata {
-                provider: Some(provider_kind.to_string()),
-                model: model_profile.map(str::to_string),
-                phase: Some("initial".to_string()),
-                response_index: Some(0),
-                ..RuntimeDebugMetadata::default()
-            },
-        )
-        .await;
         let initial_provider_input = planned_context.input.clone();
         let initial_prompt_cache_breakpoints =
             prompt_cache_breakpoints_for(&planned_context.input, tool_capabilities);
@@ -471,7 +499,7 @@ impl RuntimeActor {
         } else {
             (initial_provider_tools, NoemaToolChoice::Auto)
         };
-        match provider
+        let initial_result = provider
             .generate_streaming(
                 GenerateRequest {
                     conversation_id: Some(conversation_id.clone()),
@@ -497,12 +525,13 @@ impl RuntimeActor {
                 },
                 &mut on_initial_event,
             )
-            .await
-        {
+            .await;
+        let provider_children = provider_timeline.completed_spans();
+        match initial_result {
             Ok(response) => {
                 let usage = response.usage.as_ref();
                 initial_provider_debug
-                    .finish(
+                    .finish_with_children(
                         RuntimeDebugSpanStatus::Completed,
                         Some(RuntimeDebugMetadata {
                             provider: Some(response.provider.clone()),
@@ -515,6 +544,7 @@ impl RuntimeActor {
                             total_tokens: usage.map(|value| value.total_tokens),
                             ..RuntimeDebugMetadata::default()
                         }),
+                        &provider_children,
                     )
                     .await;
                 let initial_batch_kind =
@@ -602,7 +632,11 @@ impl RuntimeActor {
             }
             Err(error) => {
                 initial_provider_debug
-                    .finish(RuntimeDebugSpanStatus::Failed, None)
+                    .finish_with_children(
+                        RuntimeDebugSpanStatus::Failed,
+                        None,
+                        &provider_children,
+                    )
                     .await;
                 timing.mark(
                     "provider_initial_response_failed",

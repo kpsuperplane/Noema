@@ -95,8 +95,8 @@ pub use generation::{
     GenerateToolCallInput, GenerateToolResultInput, GenerateWebSource, GenerationPriority,
     ModelProvider, MultipleChoiceOption, MultipleChoiceSelectionMode, PromptCacheMode,
     PromptCacheOptions, PromptCacheRetention, PromptCacheTtl, ProviderContextMetadata,
-    ProviderError, ProviderResponseContinuation, ProviderTransportContext, ProviderTransportKind,
-    ReasoningEffort, TokenUsage,
+    ProviderError, ProviderResponseContinuation, ProviderTimingMilestone, ProviderTransportContext,
+    ProviderTransportKind, ReasoningEffort, TokenUsage,
 };
 pub use local_model::{
     DefaultModelPreferenceRecord, DegradedLocalModelInstance, HuggingFaceLocalModelImport,

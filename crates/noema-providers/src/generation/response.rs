@@ -110,6 +110,26 @@ pub enum GenerateStreamEvent {
         /// Provider output item id, when available.
         id: Option<String>,
     },
+    /// A privacy-bounded provider timing milestone.
+    ProviderTiming {
+        /// Provider lifecycle milestone without request or response content.
+        milestone: ProviderTimingMilestone,
+        /// Provider output-item index for a hosted-search milestone.
+        output_index: Option<usize>,
+    },
+}
+
+/// Provider wait boundaries available from a streaming response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderTimingMilestone {
+    /// Successful response headers arrived.
+    ResponseHeaders,
+    /// The first response-body bytes arrived.
+    ResponseBodyStarted,
+    /// A provider-hosted web search entered its searching state.
+    HostedWebSearchSearching,
+    /// A provider-hosted web search completed.
+    HostedWebSearchCompleted,
 }
 
 impl GenerateResponse {

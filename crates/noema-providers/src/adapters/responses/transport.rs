@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use super::{ResponsesDiagnosticContext, ResponsesResponse, sse::SseAccumulator};
 use crate::response_support::http::{error_from_status, normalize_base_url, request_id};
-use crate::{GenerateStreamEvent, ProviderError, reqwest_transport_error};
+use crate::{GenerateStreamEvent, ProviderError, ProviderTimingMilestone, reqwest_transport_error};
 
 /// HTTP transport for a Responses-compatible endpoint.
 #[derive(Clone)]
@@ -150,14 +150,26 @@ impl ResponsesTransport {
             })?;
             return Err(error_from_status(status, request_id, &body_text));
         }
+        on_event(GenerateStreamEvent::ProviderTiming {
+            milestone: ProviderTimingMilestone::ResponseHeaders,
+            output_index: None,
+        });
 
         let transport_provider = diagnostics.provider_kind.clone();
         let mut accumulator = SseAccumulator::new(diagnostics);
         let mut stream = response.bytes_stream();
+        let mut body_started = false;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|source| {
                 reqwest_transport_error(&transport_provider, "read_generation_stream", &source)
             })?;
+            if !body_started {
+                body_started = true;
+                on_event(GenerateStreamEvent::ProviderTiming {
+                    milestone: ProviderTimingMilestone::ResponseBodyStarted,
+                    output_index: None,
+                });
+            }
             accumulator.push_bytes(&chunk, on_event)?;
         }
 

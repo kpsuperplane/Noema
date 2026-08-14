@@ -111,8 +111,8 @@ pub use observed_urls::ObservedUrlSource;
 pub use provider_setup_confirmation::{ProviderSetupRole, ReadyProviderSetupSelection};
 pub use runtime::{NoemaStore, StoreConfig};
 pub use runtime_debug::{
-    NewRuntimeDebugSpan, RuntimeDebugMetadata, RuntimeDebugProfileRecord, RuntimeDebugScope,
-    RuntimeDebugSpanCategory, RuntimeDebugSpanRecord, RuntimeDebugSpanStatus,
+    NewRuntimeDebugSpan, RuntimeDebugChildSpan, RuntimeDebugMetadata, RuntimeDebugProfileRecord,
+    RuntimeDebugScope, RuntimeDebugSpanCategory, RuntimeDebugSpanRecord, RuntimeDebugSpanStatus,
 };
 pub use web_push::{
     ClaimedWebPushDelivery, NewWebPushSubscription, WebPushIdentity, WebPushPrimaryCheckpoint,

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     NoemaStore, StoreError,
-    ids::{allocate_id, now_string},
+    ids::allocate_id,
     sqlite::{deserialize_json, serialize_json},
 };
 
@@ -106,6 +106,14 @@ pub struct NewRuntimeDebugSpan {
 }
 
 #[derive(Clone, Debug)]
+pub struct RuntimeDebugChildSpan {
+    pub name: String,
+    pub start_offset_milliseconds: u64,
+    pub duration_milliseconds: u64,
+    pub metadata: RuntimeDebugMetadata,
+}
+
+#[derive(Clone, Debug)]
 pub struct RuntimeDebugSpanRecord {
     pub span_id: String,
     pub category: RuntimeDebugSpanCategory,
@@ -171,20 +179,94 @@ impl NoemaStore {
         duration_milliseconds: u64,
         metadata: RuntimeDebugMetadata,
     ) -> Result<(), StoreError> {
+        self.finish_runtime_debug_span_with_children(
+            span_id,
+            status,
+            duration_milliseconds,
+            metadata,
+            &[],
+        )
+        .await
+    }
+
+    /// Close one interval and add its completed child intervals atomically.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when an interval is invalid or SQLite cannot
+    /// update the stored profile.
+    pub async fn finish_runtime_debug_span_with_children(
+        &self,
+        span_id: &str,
+        status: RuntimeDebugSpanStatus,
+        duration_milliseconds: u64,
+        metadata: RuntimeDebugMetadata,
+        children: &[RuntimeDebugChildSpan],
+    ) -> Result<(), StoreError> {
         let duration = i64::try_from(duration_milliseconds)
             .map_err(|_| invariant("runtime debug span duration exceeds SQLite range"))?;
         let metadata = serialize_json(&metadata)?;
-        let ended_at = now_string();
-        self.with_connection(|conn| {
-            let changed = conn.execute(
-                "UPDATE runtime_debug_spans SET status = ?2, duration_milliseconds = ?3, metadata_json = ?4, ended_at = ?5, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE span_id = ?1 AND status = 'running'",
-                params![span_id, status.as_str(), duration, metadata, ended_at],
-            )?;
-            if changed == 1 {
-                Ok(())
-            } else {
-                Err(invariant(format!("runtime debug span is unavailable or already closed: {span_id}")))
+        let mut prepared_children = Vec::with_capacity(children.len());
+        for child in children {
+            if child.name.trim().is_empty() {
+                return Err(invariant("runtime debug child span name cannot be empty"));
             }
+            let start_offset = i64::try_from(child.start_offset_milliseconds)
+                .map_err(|_| invariant("runtime debug child offset exceeds SQLite range"))?;
+            let child_duration = i64::try_from(child.duration_milliseconds)
+                .map_err(|_| invariant("runtime debug child duration exceeds SQLite range"))?;
+            if start_offset.saturating_add(child_duration) > duration {
+                return Err(invariant("runtime debug child span exceeds its parent"));
+            }
+            prepared_children.push((
+                allocate_id("debug_span"),
+                child.name.clone(),
+                start_offset,
+                child_duration,
+                serialize_json(&child.metadata)?,
+            ));
+        }
+        self.with_immediate_transaction_retry(|transaction| {
+            let changed = transaction.execute(
+                "UPDATE runtime_debug_spans SET status = ?2, duration_milliseconds = ?3, metadata_json = ?4, ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE span_id = ?1 AND status = 'running'",
+                params![span_id, status.as_str(), duration, metadata],
+            )?;
+            if changed != 1 {
+                return Err(invariant(format!(
+                    "runtime debug span is unavailable or already closed: {span_id}"
+                )));
+            }
+            for (child_id, name, start_offset, child_duration, child_metadata) in
+                &prepared_children
+            {
+                let inserted = transaction.execute(
+                    r#"
+                    INSERT INTO runtime_debug_spans (
+                      span_id, conversation_turn_id, agent_run_id, category, name,
+                      status, duration_milliseconds, metadata_json, started_at, ended_at
+                    )
+                    SELECT ?2, conversation_turn_id, agent_run_id, category, ?3,
+                      'completed', ?5, ?6,
+                      strftime('%Y-%m-%dT%H:%M:%fZ', julianday(started_at) + (?4 / 86400000.0)),
+                      strftime('%Y-%m-%dT%H:%M:%fZ', julianday(started_at) + ((?4 + ?5) / 86400000.0))
+                    FROM runtime_debug_spans WHERE span_id = ?1
+                    "#,
+                    params![
+                        span_id,
+                        child_id,
+                        name,
+                        start_offset,
+                        child_duration,
+                        child_metadata
+                    ],
+                )?;
+                if inserted != 1 {
+                    return Err(invariant(format!(
+                        "runtime debug parent span is unavailable: {span_id}"
+                    )));
+                }
+            }
+            Ok(())
         })
         .await
     }

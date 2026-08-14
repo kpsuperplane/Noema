@@ -47,7 +47,7 @@ use super::{
     progress_audit::{
         ProgressAuditDecision, ProgressAuditError, build_no_tools_finalization_prompt,
     },
-    runtime_debug::RuntimeDebugSpan,
+    runtime_debug::{ProviderDebugTimeline, RuntimeDebugSpan},
     tool_lifecycle::{LocalToolCall, local_tool_calls, single_tool_display_description},
     transcript_persistence::{
         assistant_stream_id, handle_provider_stream_event, send_conversation_item,
@@ -302,6 +302,14 @@ fn provider_stream_event_fields(event: &GenerateStreamEvent) -> serde_json::Valu
         }),
         GenerateStreamEvent::HostedWebSearchStarted { output_index, .. } => json!({
             "stream_event": "hosted_web_search_started",
+            "output_index": output_index,
+        }),
+        GenerateStreamEvent::ProviderTiming {
+            milestone,
+            output_index,
+        } => json!({
+            "stream_event": "provider_timing",
+            "milestone": format!("{milestone:?}"),
             "output_index": output_index,
         }),
     }

@@ -19,7 +19,7 @@ pub use response::{
     AssistantTextPhase, GenerateActionItem, GenerateCitation, GenerateHostedWebSearch,
     GenerateReasoningItem, GenerateResponse, GenerateResponseItem, GenerateStreamEvent,
     GenerateToolCall, GenerateWebSource, MultipleChoiceOption, MultipleChoiceSelectionMode,
-    TokenUsage,
+    ProviderTimingMilestone, TokenUsage,
 };
 
 use crate::{ProviderSchemaRequestCapabilities, ProviderToolCapabilities};

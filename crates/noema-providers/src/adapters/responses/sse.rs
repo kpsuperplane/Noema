@@ -2,7 +2,7 @@
 
 use super::{ResponsesDiagnosticContext, ResponsesResponse, ResponsesUsage};
 use crate::response_support::sse::{SseEvent, next_sse_event_boundary, parse_sse_event_bytes};
-use crate::{GenerateStreamEvent, ProviderError};
+use crate::{GenerateStreamEvent, ProviderError, ProviderTimingMilestone};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 
@@ -16,6 +16,8 @@ pub(crate) struct SseAccumulator {
     usage: Option<ResponsesUsage>,
     terminal_error: Option<Value>,
     started_hosted_web_searches: HashSet<usize>,
+    searching_hosted_web_searches: HashSet<usize>,
+    completed_hosted_web_searches: HashSet<usize>,
 }
 
 impl SseAccumulator {
@@ -30,6 +32,8 @@ impl SseAccumulator {
             usage: None,
             terminal_error: None,
             started_hosted_web_searches: HashSet::new(),
+            searching_hosted_web_searches: HashSet::new(),
+            completed_hosted_web_searches: HashSet::new(),
         }
     }
 
@@ -217,6 +221,13 @@ impl SseAccumulator {
                                 .expect("usize output index space cannot be exhausted")
                         });
                     self.output_values.insert(output_index, item.clone());
+                    if item.get("type").and_then(Value::as_str) == Some("web_search_call") {
+                        self.emit_hosted_search_timing(
+                            ProviderTimingMilestone::HostedWebSearchCompleted,
+                            output_index,
+                            on_event,
+                        );
+                    }
                 }
             }
             "response.output_item.added"
@@ -243,6 +254,31 @@ impl SseAccumulator {
                         .and_then(Value::as_str)
                         .map(ToString::to_string);
                     on_event(GenerateStreamEvent::HostedWebSearchStarted { output_index, id });
+                }
+                if event_type == "response.web_search_call.searching"
+                    && let Some(output_index) = value
+                        .get("output_index")
+                        .and_then(Value::as_u64)
+                        .and_then(|index| usize::try_from(index).ok())
+                    && self.searching_hosted_web_searches.insert(output_index)
+                {
+                    on_event(GenerateStreamEvent::ProviderTiming {
+                        milestone: ProviderTimingMilestone::HostedWebSearchSearching,
+                        output_index: Some(output_index),
+                    });
+                }
+            }
+            "response.web_search_call.completed" => {
+                if let Some(output_index) = value
+                    .get("output_index")
+                    .and_then(Value::as_u64)
+                    .and_then(|index| usize::try_from(index).ok())
+                {
+                    self.emit_hosted_search_timing(
+                        ProviderTimingMilestone::HostedWebSearchCompleted,
+                        output_index,
+                        on_event,
+                    );
                 }
             }
             "response.completed" | "response.incomplete" => {
@@ -278,6 +314,20 @@ impl SseAccumulator {
         }
 
         Ok(())
+    }
+
+    fn emit_hosted_search_timing(
+        &mut self,
+        milestone: ProviderTimingMilestone,
+        output_index: usize,
+        on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) {
+        if self.completed_hosted_web_searches.insert(output_index) {
+            on_event(GenerateStreamEvent::ProviderTiming {
+                milestone,
+                output_index: Some(output_index),
+            });
+        }
     }
 
     fn log_malformed(&self, message: impl Into<String>, raw: serde_json::Value) {
@@ -576,6 +626,9 @@ mod tests {
                  event: response.web_search_call.searching\n\
                  data: {\"type\":\"response.web_search_call.searching\",\"output_index\":2,\"item_id\":\"ws_1\"}\n\
                  \n\
+                 event: response.output_item.done\n\
+                 data: {\"type\":\"response.output_item.done\",\"output_index\":2,\"item\":{\"type\":\"web_search_call\",\"id\":\"ws_1\",\"status\":\"completed\",\"action\":{\"type\":\"search\",\"query\":\"weather\"}}}\n\
+                 \n\
                  event: response.completed\n\
                  data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"status\":\"completed\"}}\n\
                  \n",
@@ -585,10 +638,20 @@ mod tests {
 
         assert_eq!(
             events,
-            vec![GenerateStreamEvent::HostedWebSearchStarted {
-                output_index: 2,
-                id: Some("ws_1".to_string()),
-            }]
+            vec![
+                GenerateStreamEvent::HostedWebSearchStarted {
+                    output_index: 2,
+                    id: Some("ws_1".to_string()),
+                },
+                GenerateStreamEvent::ProviderTiming {
+                    milestone: ProviderTimingMilestone::HostedWebSearchSearching,
+                    output_index: Some(2),
+                },
+                GenerateStreamEvent::ProviderTiming {
+                    milestone: ProviderTimingMilestone::HostedWebSearchCompleted,
+                    output_index: Some(2),
+                },
+            ]
         );
         accumulator.finish(&mut |_| {}).expect("response");
     }

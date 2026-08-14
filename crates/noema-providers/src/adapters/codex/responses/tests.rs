@@ -138,6 +138,7 @@ async fn sends_codex_input_as_response_message_list() {
         Some("text/event-stream")
     );
     assert_eq!(response.assistant_text(), "Hello");
+    events.drain(..2).for_each(drop);
     assert_eq!(
         events,
         vec![
@@ -238,6 +239,7 @@ async fn generate_streaming_plain_text_preserves_provider_activity() {
     assert!(body.get("text").is_none());
 
     assert_eq!(response.assistant_text(), "Hello");
+    events.drain(..2).for_each(drop);
     assert_eq!(
         events,
         vec![

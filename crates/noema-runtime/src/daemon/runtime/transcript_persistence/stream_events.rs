@@ -87,6 +87,7 @@ pub(super) fn handle_provider_stream_event(
                 Some(&correlation_id),
             );
         }
+        GenerateStreamEvent::ProviderTiming { .. } => {}
     }
 }
 
