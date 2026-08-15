@@ -60,6 +60,7 @@ async fn uncertain_foreground_action_fails_with_a_durable_non_retry_notice() {
         name: "external.test".to_string(),
         arguments: json!({}),
         persisted: PersistedCapabilityPayload::omitted(),
+        persisted_output_source: None,
         success: false,
         side_effect: false,
         payload: json!({"error": "capability outcome is uncertain"}),

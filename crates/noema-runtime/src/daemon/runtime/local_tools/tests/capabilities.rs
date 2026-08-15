@@ -42,6 +42,26 @@ fn persisted_native_memory_search_keeps_references_but_omits_snippets() {
 }
 
 #[test]
+fn runtime_output_preserves_details_without_exposing_them_to_the_model() {
+    let result = super::LocalToolResult::from_call(
+        &test_tool_call("web.browse.open", json!({})),
+        super::LocalToolKind::WebBrowse,
+        true,
+        json!({"state":"open"}),
+        true,
+    )
+    .with_persisted_output_source(json!({
+        "state":"open",
+        "screenshot":{"media_type":"image/png","data":"cG5n","width":1280,"height":720}
+    }));
+
+    let output = super::runtime_capability_output(&result);
+
+    assert_eq!(output.payload, json!({"state":"open"}));
+    assert_eq!(output.persisted_output_source()["screenshot"]["data"], "cG5n");
+}
+
+#[test]
 fn uncertain_gateway_failure_stops_provider_continuation() {
     let result = super::gateway_failure_result(
         &test_tool_call(TEST_CAPABILITY_NAME, json!({"body": "ambiguous"})),

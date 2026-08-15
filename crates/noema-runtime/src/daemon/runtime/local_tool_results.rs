@@ -30,6 +30,8 @@ pub(super) struct LocalToolResult {
     pub(super) name: String,
     pub(super) arguments: Value,
     pub(super) persisted: noema_capabilities::PersistedCapabilityPayload,
+    /// Optional richer source for persistence. This value never enters model context.
+    pub(super) persisted_output_source: Option<Value>,
     pub(super) success: bool,
     pub(super) side_effect: bool,
     /// Canonical structured result delivered to the model.
@@ -57,6 +59,7 @@ impl LocalToolResult {
             name: call.name.clone(),
             arguments: call.payload.clone(),
             persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
+            persisted_output_source: None,
             success,
             side_effect: false,
             payload,
@@ -116,6 +119,11 @@ impl LocalToolResult {
         persisted: noema_capabilities::PersistedCapabilityPayload,
     ) -> Self {
         self.persisted = persisted;
+        self
+    }
+
+    pub(super) fn with_persisted_output_source(mut self, output: Value) -> Self {
+        self.persisted_output_source = Some(output);
         self
     }
 

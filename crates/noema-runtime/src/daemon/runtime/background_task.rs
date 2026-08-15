@@ -238,6 +238,7 @@ mod tests {
             name: "fixture.write".to_string(),
             arguments: serde_json::Value::Null,
             persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
+            persisted_output_source: None,
             success: false,
             side_effect: false,
             payload: serde_json::json!({"error": "capability outcome is uncertain"}),

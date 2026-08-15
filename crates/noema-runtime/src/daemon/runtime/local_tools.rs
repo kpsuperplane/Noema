@@ -632,6 +632,7 @@ impl RuntimeActor {
             let output = self
                 .execute_web_browse_action(owner_key, &call.name, &call.payload, source)
                 .await;
+            let persisted_output_source = output.persisted_output_source().clone();
             LocalToolResult::from_call(
                 call,
                 LocalToolKind::WebBrowse,
@@ -639,6 +640,7 @@ impl RuntimeActor {
                 output.payload,
                 true,
             )
+            .with_persisted_output_source(persisted_output_source)
         } else {
             return Err(CapabilityError::UnknownOperation);
         };
@@ -986,17 +988,25 @@ impl CapabilityInvoker for RuntimeExecutionInvoker<'_> {
                 .actor
                 .execute_bound_runtime_tool(self.turn, self.agent_identity, &dispatched_call)
                 .await?;
-            let output = if result.success {
-                CapabilityOutput::success(result.payload.clone())
-            } else {
-                CapabilityOutput::failed(result.payload.clone())
-            };
+            let output = runtime_capability_output(&result);
             *self.result.lock().expect("runtime result lock") = Some(RuntimeExecutionResult {
                 kind: result.kind,
                 requires_provider_continuation: result.requires_provider_continuation,
             });
             Ok(output)
         })
+    }
+}
+
+fn runtime_capability_output(result: &LocalToolResult) -> CapabilityOutput {
+    let output = if result.success {
+        CapabilityOutput::success(result.payload.clone())
+    } else {
+        CapabilityOutput::failed(result.payload.clone())
+    };
+    match result.persisted_output_source.clone() {
+        Some(source) => output.with_persisted_output_source(source),
+        None => output,
     }
 }
 
