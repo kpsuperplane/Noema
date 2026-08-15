@@ -28,6 +28,7 @@ use tokio::time::Instant;
 use crate::adapters::web::fetch::url_policy::validate_public_web_fetch_url;
 
 const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const POST_NAVIGATION_SETTLE_MS: u64 = 250;
 const SCREENSHOT_RESOURCE_TIMEOUT_MS: u64 = 1_000;
 const MAX_SCREENSHOT_BYTES: usize = 900_000;
 
@@ -356,6 +357,7 @@ impl WorkerState {
             .navigate_with_wait(checked.url.as_str(), map_wait(wait))
             .await
             .map_err(|_| WebBrowseError::Unavailable)?;
+        self.page.settle(POST_NAVIGATION_SETTLE_MS).await;
         self.validate_resulting_url().await
     }
 
@@ -526,6 +528,8 @@ struct RawElement {
 }
 
 const SNAPSHOT_SCRIPT: &str = r#"(() => {
+  const body = document.body ? document.body.cloneNode(true) : null;
+  if (body) body.querySelectorAll('noscript,script,style,template').forEach(element => element.remove());
   const selectors = 'a[href],button,input,textarea,select,[role="button"],[tabindex]';
   const nodes = Array.from(document.querySelectorAll(selectors));
   const elements = nodes.map((element, index) => {
@@ -534,7 +538,7 @@ const SNAPSHOT_SCRIPT: &str = r#"(() => {
     const name = element.getAttribute('aria-label') || element.innerText || element.value || element.getAttribute('placeholder') || '';
     return {ref, role: element.getAttribute('role') || element.tagName.toLowerCase(), name: String(name).trim(), href: element.href || null, disabled: Boolean(element.disabled || element.getAttribute('aria-disabled') === 'true')};
   });
-  return {text: String(document.body ? document.body.innerText : ''), elements};
+  return {text: String(body ? body.innerText : ''), elements};
 })()"#;
 
 fn interaction_script(
@@ -686,7 +690,7 @@ mod tests {
             let mut request = [0_u8; 1024];
             let _ = stream.read(&mut request).await;
             stream
-                .write_all(b"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><title>Fixture</title><body><label>Name<input aria-label='Name'></label><label>Role<select aria-label='Role'><option value='engineer'>Engineer</option><option value='manager'>Manager</option></select></label><button type='button'>Save</button><script>const input=document.querySelector('input');const select=document.querySelector('select');const button=document.querySelector('button');input.addEventListener('input',event=>input.setAttribute('data-input-trusted',String(event.isTrusted)));input.addEventListener('change',event=>input.setAttribute('data-change-trusted',String(event.isTrusted)));input.addEventListener('keydown',event=>input.setAttribute('data-keydown-trusted',String(event.isTrusted)));input.addEventListener('keyup',event=>input.setAttribute('data-keyup-trusted',String(event.isTrusted)));select.addEventListener('input',event=>select.setAttribute('data-input-trusted',String(event.isTrusted)));select.addEventListener('change',event=>select.setAttribute('data-change-trusted',String(event.isTrusted)));button.addEventListener('click',event=>button.setAttribute('data-click-trusted',String(event.isTrusted)));</script></body>")
+                .write_all(b"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><title>Fixture</title><body><noscript>JavaScript is disabled</noscript><label>Name<input aria-label='Name'></label><label>Role<select aria-label='Role'><option value='engineer'>Engineer</option><option value='manager'>Manager</option></select></label><button type='button' disabled>Save</button><script>const input=document.querySelector('input');const select=document.querySelector('select');const button=document.querySelector('button');setTimeout(()=>button.disabled=false,1);input.addEventListener('input',event=>input.setAttribute('data-input-trusted',String(event.isTrusted)));input.addEventListener('change',event=>input.setAttribute('data-change-trusted',String(event.isTrusted)));input.addEventListener('keydown',event=>input.setAttribute('data-keydown-trusted',String(event.isTrusted)));input.addEventListener('keyup',event=>input.setAttribute('data-keyup-trusted',String(event.isTrusted)));select.addEventListener('input',event=>select.setAttribute('data-input-trusted',String(event.isTrusted)));select.addEventListener('change',event=>select.setAttribute('data-change-trusted',String(event.isTrusted)));button.addEventListener('click',event=>button.setAttribute('data-click-trusted',String(event.isTrusted)));</script></body>")
                 .await
                 .expect("write fixture");
         });
@@ -707,6 +711,7 @@ mod tests {
             .navigate_with_wait(&format!("http://{address}"), WaitUntil::Load)
             .await
             .expect("load fixture");
+        state.page.settle(POST_NAVIGATION_SETTLE_MS).await;
 
         let response = state.snapshot(2_000).await.expect("snapshot");
         let screenshot = response.screenshot.as_ref().expect("rendered screenshot");
@@ -718,6 +723,7 @@ mod tests {
                 .is_ok_and(|png| png.starts_with(b"\x89PNG\r\n\x1a\n"))
         );
         let snapshot = response.snapshot.expect("open snapshot");
+        assert!(!snapshot.text.contains("JavaScript is disabled"));
         let input = snapshot
             .elements
             .iter()
@@ -728,6 +734,7 @@ mod tests {
             .iter()
             .find(|element| element.name == "Save")
             .expect("button reference");
+        assert!(!button.disabled);
         let select = snapshot
             .elements
             .iter()
