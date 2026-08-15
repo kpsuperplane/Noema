@@ -18,8 +18,6 @@ use tokio::{
 };
 
 const WEB_ASSET_WATCH_SCRIPT: &str = "dev:assets";
-const DEV_RUST_TARGET_DIR: &str = "target/noema-dev";
-const WEB_SERVER_WATCH_COMMAND: &str = "run -p noema-server --bin noema_web --features dev-no-auth";
 const WEB_SERVER_WATCH_IGNORE_GLOBS: [&str; 2] =
     ["apps/web/**", "crates/noema-server/target/web-assets/**"];
 
@@ -49,6 +47,9 @@ enum DevError {
     #[error("failed to install dev shutdown signal handler: {source}")]
     ShutdownSignal { source: io::Error },
 
+    #[error("failed to locate the Noema development executable: {source}")]
+    LocateExecutable { source: io::Error },
+
     #[error("unknown Noema development mode: {mode:?}")]
     UnknownMode { mode: OsString },
 }
@@ -66,6 +67,9 @@ async fn run_mode() -> Result<(), DevError> {
     match args.next() {
         None => run_development().await,
         Some(mode) if mode == "dev" => run_development().await,
+        Some(mode) if mode == "serve" => {
+            workflow::run_development_server().await.map_err(Into::into)
+        }
         Some(mode) if mode == "validate" => workflow::run_validation(args.collect())
             .await
             .map_err(Into::into),
@@ -75,7 +79,6 @@ async fn run_mode() -> Result<(), DevError> {
 
 async fn run_development() -> Result<(), DevError> {
     let repo_root = repo_root();
-    workflow::prepare_development(&repo_root).await?;
     let web_dir = repo_root.join("apps/web");
 
     let mut web = spawn_web_watcher(&web_dir)?;
@@ -84,11 +87,7 @@ async fn run_development() -> Result<(), DevError> {
 
     eprintln!("Noema dev supervisor started");
     eprintln!("web assets: bun run {WEB_ASSET_WATCH_SCRIPT}");
-    eprintln!("web server: cargo watch -x {WEB_SERVER_WATCH_COMMAND}");
-    eprintln!(
-        "web server target: {}",
-        dev_rust_target_dir(&repo_root).display()
-    );
+    eprintln!("web server: cargo watch -- noema-dev serve");
     if bridge.is_some() {
         eprintln!("foundation bridge: cargo watch -s swift build");
     }
@@ -168,13 +167,14 @@ fn spawn_web_watcher(web_dir: &Path) -> Result<Child, DevError> {
 }
 
 fn spawn_web_server_watcher(repo_root: &Path) -> Result<Child, DevError> {
+    let executable = env::current_exe().map_err(|source| DevError::LocateExecutable { source })?;
     let mut command = Command::new(cargo_exe());
-    configure_web_server_watcher(&mut command, repo_root);
+    configure_web_server_watcher(&mut command, &executable);
 
     spawn_dev_process("web server watcher", &mut command, repo_root)
 }
 
-fn configure_web_server_watcher(command: &mut Command, repo_root: &Path) {
+fn configure_web_server_watcher(command: &mut Command, executable: &Path) {
     command
         .arg("watch")
         .arg("--delay")
@@ -194,13 +194,7 @@ fn configure_web_server_watcher(command: &mut Command, repo_root: &Path) {
         command.arg("--ignore").arg(glob);
     }
 
-    command.arg("-x").arg(WEB_SERVER_WATCH_COMMAND);
-    command.env("CARGO_TARGET_DIR", dev_rust_target_dir(repo_root));
-    command.env("NOEMA_WEB__HOST", "0.0.0.0");
-}
-
-fn dev_rust_target_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join(DEV_RUST_TARGET_DIR)
+    command.arg("--").arg(executable).arg("serve");
 }
 
 fn spawn_bridge_watcher(repo_root: &Path) -> Result<Option<Child>, DevError> {
@@ -360,7 +354,7 @@ mod tests {
     #[test]
     fn server_watcher_uses_fast_development_profile() {
         let mut command = Command::new("cargo");
-        configure_web_server_watcher(&mut command, Path::new("/workspace"));
+        configure_web_server_watcher(&mut command, Path::new("/workspace/noema-dev"));
 
         let arguments = command.as_std().get_args().collect::<Vec<_>>();
         assert!(arguments.windows(2).any(|pair| pair == ["--delay", "1.5"]));
@@ -373,6 +367,19 @@ mod tests {
             arguments
                 .windows(2)
                 .any(|pair| pair == ["-E", "CARGO_PROFILE_DEV_DEBUG=0"])
+        );
+    }
+
+    #[test]
+    fn server_watcher_runs_the_budgeted_server_command() {
+        let mut command = Command::new("cargo");
+        configure_web_server_watcher(&mut command, Path::new("/workspace/noema-dev"));
+
+        let arguments = command.as_std().get_args().collect::<Vec<_>>();
+        assert!(
+            arguments
+                .windows(3)
+                .any(|pair| pair == ["--", "/workspace/noema-dev", "serve"])
         );
     }
 

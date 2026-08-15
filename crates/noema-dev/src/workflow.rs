@@ -14,6 +14,7 @@ use crate::{cargo_exe, strip_cargo_run_env};
 const GIB: u64 = 1024 * 1024 * 1024;
 const CACHE_CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const CACHE_CHECK_SENTINEL: &str = ".noema-cache-budget-checked";
+const CACHE_TEMP_DIRECTORY: &str = "tmp";
 const CARGO_CACHE_TAG: &[u8] = b"Signature: 8a477f597d28d172789f06886806bc55\n\
 # This file is a cache directory tag created by cargo.\n\
 # For information about cache directory tags see https://bford.info/cachedir/\n";
@@ -39,6 +40,10 @@ impl CacheTarget {
 
     fn path(self, repo_root: &Path) -> PathBuf {
         repo_root.join("target").join(self.directory)
+    }
+
+    fn temp_path(self, repo_root: &Path) -> PathBuf {
+        self.path(repo_root).join(CACHE_TEMP_DIRECTORY)
     }
 }
 
@@ -69,10 +74,6 @@ pub(crate) enum WorkflowError {
     CargoExited { status: ExitStatus },
 }
 
-pub(crate) async fn prepare_development(repo_root: &Path) -> Result<(), WorkflowError> {
-    enforce_cache_budget(repo_root, DEV_CACHE).await
-}
-
 pub(crate) async fn run_validation(cargo_args: Vec<OsString>) -> Result<(), WorkflowError> {
     if cargo_args.is_empty() {
         return Err(WorkflowError::MissingValidationCommand);
@@ -89,6 +90,42 @@ pub(crate) async fn run_validation(cargo_args: Vec<OsString>) -> Result<(), Work
         .env("CARGO_PROFILE_DEV_DEBUG", "0")
         .env("CARGO_PROFILE_TEST_DEBUG", "1")
         .env("CARGO_TARGET_DIR", VALIDATION_CACHE.path(&repo_root))
+        .env("TMPDIR", VALIDATION_CACHE.temp_path(&repo_root))
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+    strip_cargo_run_env(&mut command);
+
+    let status = command
+        .status()
+        .await
+        .map_err(|source| WorkflowError::SpawnCargo { source })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(WorkflowError::CargoExited { status })
+    }
+}
+
+pub(crate) async fn run_development_server() -> Result<(), WorkflowError> {
+    let repo_root = crate::repo_root();
+    enforce_cache_budget(&repo_root, DEV_CACHE).await?;
+
+    let mut command = Command::new(cargo_exe());
+    command
+        .args([
+            "run",
+            "-p",
+            "noema-server",
+            "--bin",
+            "noema_web",
+            "--features",
+            "dev-no-auth",
+        ])
+        .current_dir(&repo_root)
+        .env("CARGO_TARGET_DIR", DEV_CACHE.path(&repo_root))
+        .env("TMPDIR", DEV_CACHE.temp_path(&repo_root))
+        .env("NOEMA_WEB__HOST", "0.0.0.0")
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
@@ -149,6 +186,7 @@ async fn enforce_cache_budget(repo_root: &Path, target: CacheTarget) -> Result<(
 
 fn prepare_cache_target(target_path: &Path) -> Result<(), io::Error> {
     fs::create_dir_all(target_path)?;
+    fs::create_dir_all(target_path.join(CACHE_TEMP_DIRECTORY))?;
     let tag_path = target_path.join("CACHEDIR.TAG");
     if !fs::read(&tag_path).is_ok_and(|contents| contents == CARGO_CACHE_TAG) {
         fs::write(tag_path, CARGO_CACHE_TAG)?;
@@ -290,6 +328,7 @@ mod tests {
             fs::read(directory.join("CACHEDIR.TAG")).unwrap(),
             CARGO_CACHE_TAG
         );
+        assert!(directory.join(CACHE_TEMP_DIRECTORY).is_dir());
     }
 
     #[test]
