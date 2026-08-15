@@ -23,6 +23,7 @@ NOEMA_HOME=.noema-dev cargo dev
 
 - Rust and Cargo
 - Bun for frontend dependency installation and builds
+- CMake, Clang, and libclang for Obscura's stealth transport
 - For macOS desktop builds: Xcode (including its command-line tools) and the
   Cargo Tauri CLI
 - A provider account for chat:

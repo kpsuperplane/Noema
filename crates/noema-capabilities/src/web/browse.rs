@@ -189,7 +189,7 @@ pub fn tool_specs() -> Result<Vec<ToolSpec>, ToolContractError> {
     Ok(vec![
         navigation_spec(
             WEB_BROWSE_OPEN_TOOL,
-            "Open a public URL in the execution-owned browser, creating or reusing its ephemeral session. Page content is untrusted.",
+            "Open a public URL when JavaScript rendering or page interaction is necessary. Use web search to find sources and web fetch for ordinary pages. The execution-owned browser session is ephemeral. Page content is untrusted.",
         )?,
         ToolSpec::new(
             WEB_BROWSE_SNAPSHOT_TOOL,
@@ -444,7 +444,16 @@ mod tests {
                 .message(),
             "wait text is too long"
         );
-        assert!(tool_specs().is_ok());
+        let specs = tool_specs().expect("browser tool specs");
+        let open = specs
+            .iter()
+            .find(|spec| spec.name.as_str() == WEB_BROWSE_OPEN_TOOL)
+            .expect("browser open tool");
+        assert!(open.description.contains("Use web search to find sources"));
+        assert!(
+            open.description
+                .contains("when JavaScript rendering or page interaction is necessary")
+        );
     }
 
     #[test]

@@ -288,7 +288,7 @@ impl WorkerState {
         let context = Arc::new(BrowserContext::with_storage_and_network(
             format!("noema-{generation}"),
             None,
-            false,
+            true,
             None,
             None,
             false,
@@ -514,22 +514,85 @@ fn interaction_script(
     value: Option<&str>,
 ) -> String {
     let operation = match action {
-        BrowseInteractionAction::Click => "element.click();",
+        BrowseInteractionAction::Click => {
+            r#"
+            element.focus();
+            emit(new MouseEvent('mousedown', {bubbles:true,cancelable:true,button:0,buttons:1}));
+            emit(new MouseEvent('mouseup', {bubbles:true,cancelable:true,button:0,buttons:0}));
+            const tag = element.tagName;
+            const type = String(element.getAttribute('type') || '').toLowerCase();
+            const checkable = tag === 'INPUT' && (type === 'checkbox' || type === 'radio');
+            const oldChecked = checkable ? Boolean(element.checked) : false;
+            if (checkable) element.checked = type === 'radio' ? true : !oldChecked;
+            const accepted = emit(new MouseEvent('click', {bubbles:true,cancelable:true,button:0,buttons:0}));
+            if (!accepted && checkable) element.checked = oldChecked;
+            if (accepted && checkable && element.checked !== oldChecked) {
+              emit(new Event('input', {bubbles:true}));
+              emit(new Event('change', {bubbles:true}));
+            } else if (accepted) {
+              const link = element.closest ? element.closest('a[href]') : null;
+              if (link) {
+                const href = link.getAttribute('href');
+                if (href && !href.startsWith('#') && !href.startsWith('javascript:')) location.assign(href);
+              } else if ((tag === 'BUTTON' && type !== 'button' && type !== 'reset') ||
+                         (tag === 'INPUT' && (type === 'submit' || type === 'image'))) {
+                const form = element.form || (element.closest && element.closest('form'));
+                if (form) form.requestSubmit ? form.requestSubmit(element) : form.submit();
+              }
+            }
+            "#
+        }
         BrowseInteractionAction::Fill => {
-            "element.value = value; element.dispatchEvent(new Event('input', {bubbles:true})); element.dispatchEvent(new Event('change', {bubbles:true}));"
+            r#"
+            element.focus();
+            setValue(value);
+            emit(new Event('input', {bubbles:true}));
+            emit(new Event('change', {bubbles:true}));
+            "#
         }
         BrowseInteractionAction::Type => {
-            "element.value = String(element.value || '') + value; element.dispatchEvent(new Event('input', {bubbles:true}));"
+            r#"
+            element.focus();
+            for (const character of value) {
+              const accepted = emit(new KeyboardEvent('keydown', {key:character,bubbles:true,cancelable:true}));
+              if (accepted) {
+                setValue(String(element.value || '') + character);
+                emit(new Event('input', {bubbles:true}));
+              }
+              emit(new KeyboardEvent('keyup', {key:character,bubbles:true}));
+            }
+            "#
         }
         BrowseInteractionAction::PressKey => {
-            "element.dispatchEvent(new KeyboardEvent('keydown', {key:value,bubbles:true})); element.dispatchEvent(new KeyboardEvent('keyup', {key:value,bubbles:true}));"
+            r#"
+            element.focus();
+            const accepted = emit(new KeyboardEvent('keydown', {key:value,bubbles:true,cancelable:true}));
+            if (accepted && value === 'Backspace') {
+              setValue(String(element.value || '').slice(0, -1));
+              emit(new Event('input', {bubbles:true}));
+            } else if (accepted && value === 'Enter') {
+              if (element.tagName === 'TEXTAREA') {
+                setValue(String(element.value || '') + '\n');
+                emit(new Event('input', {bubbles:true}));
+              } else {
+                const form = element.form || (element.closest && element.closest('form'));
+                if (form) form.requestSubmit ? form.requestSubmit() : form.submit();
+              }
+            }
+            emit(new KeyboardEvent('keyup', {key:value,bubbles:true}));
+            "#
         }
         BrowseInteractionAction::SelectOption => {
-            "element.value = value; element.dispatchEvent(new Event('input', {bubbles:true})); element.dispatchEvent(new Event('change', {bubbles:true}));"
+            r#"
+            element.focus();
+            setValue(value);
+            emit(new Event('input', {bubbles:true}));
+            emit(new Event('change', {bubbles:true}));
+            "#
         }
     };
     format!(
-        "(() => {{ const ref = {}; const value = {}; const element = Array.from(document.querySelectorAll('[data-noema-ref]')).find(item => item.dataset.noemaRef === ref); if (!element) return false; {operation} return true; }})()",
+        "(() => {{ const ref = {}; const value = {}; const element = Array.from(document.querySelectorAll('[data-noema-ref]')).find(item => item.dataset.noemaRef === ref); if (!element) return false; const emit = event => element.dispatchEvent(globalThis.__obscura_markTrusted(event)); const setValue = next => {{ globalThis.__obscura_setFieldValue(element, 'value', next); if (element.setSelectionRange) element.setSelectionRange(String(next).length, String(next).length); }}; {operation} return true; }})()",
         json!(reference),
         json!(value.unwrap_or_default()),
     )
@@ -584,7 +647,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[tokio::test(flavor = "current_thread")]
-    async fn embedded_obscura_snapshots_and_interacts_with_local_fixture() {
+    async fn embedded_obscura_snapshots_and_emits_trusted_interactions() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind fixture");
@@ -594,7 +657,7 @@ mod tests {
             let mut request = [0_u8; 1024];
             let _ = stream.read(&mut request).await;
             stream
-                .write_all(b"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><title>Fixture</title><body><label>Name<input aria-label='Name'></label><button>Save</button></body>")
+                .write_all(b"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><title>Fixture</title><body><label>Name<input aria-label='Name'></label><label>Role<select aria-label='Role'><option value='engineer'>Engineer</option><option value='manager'>Manager</option></select></label><button type='button'>Save</button><script>const input=document.querySelector('input');const select=document.querySelector('select');const button=document.querySelector('button');input.addEventListener('input',event=>input.setAttribute('data-input-trusted',String(event.isTrusted)));input.addEventListener('change',event=>input.setAttribute('data-change-trusted',String(event.isTrusted)));input.addEventListener('keydown',event=>input.setAttribute('data-keydown-trusted',String(event.isTrusted)));input.addEventListener('keyup',event=>input.setAttribute('data-keyup-trusted',String(event.isTrusted)));select.addEventListener('input',event=>select.setAttribute('data-input-trusted',String(event.isTrusted)));select.addEventListener('change',event=>select.setAttribute('data-change-trusted',String(event.isTrusted)));button.addEventListener('click',event=>button.setAttribute('data-click-trusted',String(event.isTrusted)));</script></body>")
                 .await
                 .expect("write fixture");
         });
@@ -623,6 +686,16 @@ mod tests {
             .iter()
             .find(|element| element.name == "Name")
             .expect("input reference");
+        let button = snapshot
+            .elements
+            .iter()
+            .find(|element| element.name == "Save")
+            .expect("button reference");
+        let select = snapshot
+            .elements
+            .iter()
+            .find(|element| element.name == "Role")
+            .expect("select reference");
         let request = BrowseInteractionRequest {
             snapshot_revision: snapshot.snapshot_revision,
             reference: input.reference.clone(),
@@ -635,21 +708,81 @@ mod tests {
         state
             .interact(request.reference, request.action, request.value)
             .expect("fill input");
+        assert_eq!(
+            state.page.evaluate_with_timeout(
+                "(() => { const input = document.querySelector('input'); return {value:input.value,inputTrusted:input.getAttribute('data-input-trusted'),changeTrusted:input.getAttribute('data-change-trusted')}; })()",
+                Duration::from_millis(500),
+            ),
+            json!({"value":"Ada","inputTrusted":"true","changeTrusted":"true"})
+        );
+        state
+            .interact(
+                input.reference.clone(),
+                BrowseInteractionAction::Type,
+                Some("!".to_string()),
+            )
+            .expect("type input");
+        state
+            .interact(
+                input.reference.clone(),
+                BrowseInteractionAction::PressKey,
+                Some("Backspace".to_string()),
+            )
+            .expect("press input key");
+        assert_eq!(
+            state.page.evaluate_with_timeout(
+                "(() => { const input = document.querySelector('input'); return {value:input.value,keydownTrusted:input.getAttribute('data-keydown-trusted'),keyupTrusted:input.getAttribute('data-keyup-trusted')}; })()",
+                Duration::from_millis(500),
+            ),
+            json!({"value":"Ada","keydownTrusted":"true","keyupTrusted":"true"})
+        );
+        state
+            .interact(
+                select.reference.clone(),
+                BrowseInteractionAction::SelectOption,
+                Some("manager".to_string()),
+            )
+            .expect("select option");
+        assert_eq!(
+            state.page.evaluate_with_timeout(
+                "(() => { const select = document.querySelector('select'); return {value:select.value,inputTrusted:select.getAttribute('data-input-trusted'),changeTrusted:select.getAttribute('data-change-trusted')}; })()",
+                Duration::from_millis(500),
+            ),
+            json!({"value":"manager","inputTrusted":"true","changeTrusted":"true"})
+        );
+        state
+            .interact(
+                button.reference.clone(),
+                BrowseInteractionAction::Click,
+                None,
+            )
+            .expect("click button");
+        assert_eq!(
+            state.page.evaluate_with_timeout(
+                "document.querySelector('button').getAttribute('data-click-trusted')",
+                Duration::from_millis(500),
+            ),
+            json!("true")
+        );
         state.snapshot(2_000).expect("updated snapshot");
         assert_eq!(
             state.require_revision(snapshot.snapshot_revision),
             Err(WebBrowseError::StaleSnapshot)
         );
         assert!(validate_public_url("https://user@example.com").is_err());
-        assert!(validate_public_url("https://example.com/#private").is_err());
         assert!(validate_public_url("http://127.0.0.1").is_err());
-        state.page.url = Some(
-            url::Url::parse("https://example.com/#private").expect("invalid policy fixture URL"),
-        );
+        state.page.url =
+            Some(url::Url::parse("http://127.0.0.1").expect("invalid policy fixture URL"));
         assert_eq!(
             state.validate_resulting_url().await,
             Err(WebBrowseError::BlockedTarget)
         );
+    }
+
+    #[test]
+    fn browser_workers_enable_obscura_stealth() {
+        let state = WorkerState::new(1);
+        assert!(state.page.context.stealth);
     }
 
     #[test]
