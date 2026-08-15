@@ -226,19 +226,11 @@ private struct NoemaConnectionBanner: View {
   var body: some View {
     HStack(spacing: NoemaSpacing.compact) {
       Image(systemName: "wifi.slash")
-        .foregroundStyle(NoemaColor.danger)
         .accessibilityHidden(true)
       Text("Noema is offline.")
         .font(NoemaFont.captionEmphasized)
-        .foregroundStyle(NoemaColor.contentSecondary)
     }
-    .padding(.horizontal, NoemaSpacing.sm)
-    .padding(.vertical, NoemaSpacing.xs)
-    .background(NoemaColor.surface, in: NoemaSuperellipse.full)
-    .overlay {
-      NoemaSuperellipse.full
-        .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
-    }
+    .foregroundStyle(NoemaColor.danger)
     .padding(.horizontal, NoemaSpacing.md)
     .padding(.vertical, NoemaSpacing.compact)
     .frame(maxWidth: .infinity)
