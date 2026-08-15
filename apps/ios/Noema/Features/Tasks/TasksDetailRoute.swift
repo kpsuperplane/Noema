@@ -69,7 +69,6 @@ private struct TasksDetailContent: View {
   @State private var validationPresented = false
   @State private var gateResponse = ""
   @State private var selectedTab: TaskResultTab = .result
-  @State private var pagePosition: TaskResultTab? = .result
   @State private var followsTranscriptBottom = true
   @State private var initialScrollTaskID: String?
   @State private var completedInitialHydration = false
@@ -80,33 +79,14 @@ private struct TasksDetailContent: View {
         TasksRecurrenceSummaryView(model: model, task: detail)
       }
       if let completed = acceptedCompletion {
-        TasksCompletedTabBar(selection: Binding(
-          get: { selectedTab },
-          set: { tab in
-            selectedTab = tab
-            pagePosition = tab
+        TasksCompletedTabBar(selection: $selectedTab)
+        TasksResultPager(selection: $selectedTab) {
+          ScrollView {
+            TasksCompletedResultView(submission: completed, onArtifact: openArtifact)
           }
-        ))
-        ScrollView(.horizontal) {
-          HStack(spacing: 0) {
-            ScrollView {
-              TasksCompletedResultView(submission: completed, onArtifact: openArtifact)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .containerRelativeFrame(.horizontal)
-            .id(TaskResultTab.result)
-
-            transcriptScroller(submission: completed)
-              .containerRelativeFrame(.horizontal)
-              .id(TaskResultTab.transcript)
-          }
-          .scrollTargetLayout()
-        }
-        .scrollIndicators(.hidden)
-        .scrollTargetBehavior(.paging)
-        .scrollPosition(id: $pagePosition)
-        .onChange(of: pagePosition) { _, tab in
-          if let tab { selectedTab = tab }
+          .scrollDismissesKeyboard(.interactively)
+        } transcript: {
+          transcriptScroller(submission: completed)
         }
       } else {
         transcriptScroller(submission: detail.latestSubmission)
@@ -146,44 +126,42 @@ private struct TasksDetailContent: View {
       TasksValidationSheet(criteria: detail.latestSubmission?.criteria ?? detail.criteria)
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
-      if showsContextDock {
-        VStack(spacing: 0) {
-          if !taskInterventions.isEmpty {
-            TasksHumanInterventionsView(model: model, interventions: taskInterventions)
-              .padding(.horizontal, NoemaSpacing.lg)
-              .padding(.bottom, NoemaSpacing.md)
-          }
-          if let gate = detail.activeGate {
-            TasksGatePanel(
-              gate: gate,
-              response: $gateResponse,
-              isConnected: model.isConnected,
-              isSubmitting: model.commandIsPending(taskID: detail.id),
-              errorMessage: model.commandError(taskID: detail.id),
-              canAnswer: hasAction("ANSWER"),
-              canRetry: hasAction("RETRY"),
-              answer: { answer, approval in
-                await model.answer(task: detail, answer: answer, approval: approval)
-              },
-              retry: { note in
-                await model.retry(task: detail, note: note)
-              }
-            )
+      VStack(spacing: 0) {
+        if !taskInterventions.isEmpty {
+          TasksHumanInterventionsView(model: model, interventions: taskInterventions)
             .padding(.horizontal, NoemaSpacing.lg)
-          }
-          TasksTaskContextDock(
-            run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
-            activity: latestRunActivity,
-            criteria: detail.latestSubmission?.criteria ?? detail.criteria,
-            canCancel: hasAction("CANCEL") && model.isConnected,
-            cancel: { cancelPresented = true },
-            showInfo: { taskInfoPresented = true },
-            showValidation: { validationPresented = true }
+            .padding(.bottom, NoemaSpacing.md)
+        }
+        if let gate = detail.activeGate {
+          TasksGatePanel(
+            gate: gate,
+            response: $gateResponse,
+            isConnected: model.isConnected,
+            isSubmitting: model.commandIsPending(taskID: detail.id),
+            errorMessage: model.commandError(taskID: detail.id),
+            canAnswer: hasAction("ANSWER"),
+            canRetry: hasAction("RETRY"),
+            answer: { answer, approval in
+              await model.answer(task: detail, answer: answer, approval: approval)
+            },
+            retry: { note in
+              await model.retry(task: detail, note: note)
+            }
           )
           .padding(.horizontal, NoemaSpacing.lg)
-          .offset(y: detail.activeGate == nil ? 0 : -NoemaSpacing.xxl)
-          .padding(.bottom, detail.activeGate == nil ? 0 : -NoemaSpacing.xxl)
         }
+        TasksTaskContextDock(
+          run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
+          activity: latestRunActivity,
+          criteria: detail.latestSubmission?.criteria ?? detail.criteria,
+          canCancel: hasAction("CANCEL") && model.isConnected,
+          cancel: { cancelPresented = true },
+          showInfo: { taskInfoPresented = true },
+          showValidation: { validationPresented = true }
+        )
+        .padding(.horizontal, NoemaSpacing.lg)
+        .offset(y: detail.activeGate == nil ? 0 : -NoemaSpacing.xxl)
+        .padding(.bottom, detail.activeGate == nil ? 0 : -NoemaSpacing.xxl)
       }
     }
     .onChange(of: detail.activeGate?.id) { _, _ in
@@ -192,7 +170,6 @@ private struct TasksDetailContent: View {
     .onChange(of: detail.id) { _, _ in
       gateResponse = ""
       selectedTab = .result
-      pagePosition = .result
     }
   }
 
@@ -308,10 +285,6 @@ private struct TasksDetailContent: View {
       .filter { $0.runId == runID }
       .max(by: { $0.sequence < $1.sequence })?
       .content
-  }
-
-  private var showsContextDock: Bool {
-    acceptedCompletion == nil || selectedTab == .transcript
   }
 
   private var acceptedCompletion: TasksSubmissionSnapshot? {
