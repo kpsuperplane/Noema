@@ -354,7 +354,7 @@ function HumanInterventionListItem({
   );
 }
 
-function humanInterventionKey(intervention: PendingHumanIntervention) {
+export function humanInterventionKey(intervention: PendingHumanIntervention) {
   switch (intervention.__typename) {
     case "TaskAttention": return `${intervention.task.taskId}:${intervention.gate?.gateId ?? intervention.kind}`;
     case "GovernedAction": return `${intervention.actionId}:${intervention.revision}`;

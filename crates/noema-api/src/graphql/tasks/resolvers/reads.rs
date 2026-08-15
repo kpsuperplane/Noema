@@ -103,6 +103,24 @@ pub(in crate::graphql) async fn task(
     detail_from_store(detail)
 }
 
+/// Resolve one owner-authorized task card for an embedded intervention.
+pub(in crate::graphql) async fn task_card(
+    state: &GraphqlState,
+    principal_subject: &str,
+    task_id: String,
+) -> Result<GraphqlTaskCard> {
+    require_owner(principal_subject)?;
+    let task_id = parse_task_id(&task_id)?;
+    let detail = state
+        .store()?
+        .get_work_task(&task_id)
+        .await
+        .map_err(task_error)?
+        .ok_or_else(unavailable)?;
+    require_personal_workspace(&detail.workspace.workspace_id)?;
+    task_card_from_detail(&detail)
+}
+
 /// Resolve a bounded project connection.
 pub(in crate::graphql) async fn projects(
     state: &GraphqlState,

@@ -8,6 +8,7 @@ import { ListCardLink } from "@/components/ListCardLink";
 import {
   HumanInterventionList,
   HumanInterventionMotionItem,
+  humanInterventionKey,
   usePendingHumanInterventions
 } from "@/components/actions/PendingGovernedActions";
 import {
@@ -125,30 +126,36 @@ function AttentionGroup({
   onResolved: () => void;
   selectedTaskId?: string;
 }) {
-  const taskInterventions = interventions.filter(
-    (intervention): intervention is TaskIntervention => intervention.__typename === "TaskAttention"
-  );
-  const otherInterventions = interventions.filter(
-    (intervention) => intervention.__typename !== "TaskAttention"
-  );
+  const attachedInterventions: AttachedIntervention[] = [];
+  const otherInterventions: HumanInterventions = [];
+  for (const intervention of interventions) {
+    const task = intervention.__typename === "TaskAttention"
+      ? intervention.task
+      : intervention.__typename === "GovernedAction"
+        ? intervention.actionTask
+        : undefined;
+    if (task) attachedInterventions.push({ intervention, task });
+    else otherInterventions.push(intervention);
+  }
   return (
     <VStack as="section" aria-labelledby="tasks-needs-you" gap={1.5} className={stylex.props(styles.taskGroup).className}>
       <SectionHeader id="tasks-needs-you" title="Needs you" count={interventions.length} attention />
       <AnimatePresence initial={false}>
-        {taskInterventions.length ? (
+        {attachedInterventions.length ? (
           <HumanInterventionMotionItem key="task-interventions" exitGap="var(--spacing-1-5)">
             <VStack as="div" role="list" gap={1.5} className={stylex.props(styles.cards).className}>
               <AnimatePresence initial={false}>
-                {taskInterventions.map((intervention) => (
+                {attachedInterventions.map(({ intervention, task }) => (
                   <HumanInterventionMotionItem
-                    key={`${intervention.task.taskId}:${intervention.gate?.gateId ?? intervention.kind}`}
+                    key={humanInterventionKey(intervention)}
                     exitGap="var(--spacing-1-5)"
                     role="listitem"
                   >
                     <AttachedTaskIntervention
                       intervention={intervention}
                       onResolved={onResolved}
-                      showAction={intervention.task.taskId !== selectedTaskId}
+                      showAction={task.taskId !== selectedTaskId}
+                      task={task}
                     />
                   </HumanInterventionMotionItem>
                 ))}
@@ -174,7 +181,11 @@ function AttentionGroup({
 }
 
 type HumanInterventions = PendingHumanInterventionsQuery["pendingHumanInterventions"];
-type TaskIntervention = Extract<HumanInterventions[number], { __typename: "TaskAttention" }>;
+type AttachedTask = Pick<TasksTask, "project" | "taskId" | "title" | "updatedAt">;
+type AttachedIntervention = {
+  intervention: HumanInterventions[number];
+  task: AttachedTask;
+};
 
 function interventionTaskId(intervention: HumanInterventions[number]) {
   switch (intervention.__typename) {
@@ -183,6 +194,7 @@ function interventionTaskId(intervention: HumanInterventions[number]) {
     case "McpAuthenticationIntervention":
     case "AdapterAuthenticationIntervention": return intervention.taskId;
     case "McpSetupIntervention":
+    case "AdapterOauthClientSetupIntervention":
     case "AdapterDefinition": return undefined;
   }
 }
@@ -190,13 +202,14 @@ function interventionTaskId(intervention: HumanInterventions[number]) {
 function AttachedTaskIntervention({
   intervention,
   onResolved,
-  showAction
+  showAction,
+  task
 }: {
-  intervention: TaskIntervention;
+  intervention: HumanInterventions[number];
   onResolved: () => void;
   showAction: boolean;
+  task: AttachedTask;
 }) {
-  const task = intervention.task;
   return (
     <VStack
       as="div"

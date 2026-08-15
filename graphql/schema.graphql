@@ -1577,6 +1577,7 @@ type GovernedAction {
 	conversationId: String
 	taskId: String
 	runId: String
+	task: TaskCard
 	capabilityName: String!
 	reviewRoute: ExecutionReviewRoute!
 	behavior: ToolBehavior

@@ -64,11 +64,10 @@ fn task_card_from_store(value: &WorkTaskSummary) -> async_graphql::Result<Graphq
     })
 }
 
-/// Build the current task-detail projection. History fields are resolved by
-/// context-backed connections on `TaskDetail`.
-pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<GraphqlTaskDetail> {
-    let task_id = value.task.task_id.to_string();
-    let summary = WorkTaskSummary {
+pub(crate) fn task_card_from_detail(
+    value: &WorkTaskDetail,
+) -> async_graphql::Result<GraphqlTaskCard> {
+    task_card_from_store(&WorkTaskSummary {
         task: value.task.clone(),
         workspace: value.workspace.clone(),
         project: value.project.clone(),
@@ -78,8 +77,14 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         latest_review: value.latest_review.clone(),
         attention: value.attention,
         valid_actions: value.valid_actions.clone(),
-    };
-    let task = task_card_from_store(&summary)?;
+    })
+}
+
+/// Build the current task-detail projection. History fields are resolved by
+/// context-backed connections on `TaskDetail`.
+pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<GraphqlTaskDetail> {
+    let task_id = value.task.task_id.to_string();
+    let task = task_card_from_detail(&value)?;
     let attention = attention_projection(
         task,
         value.attention,

@@ -8,7 +8,10 @@ use noema_store::{
     GovernedRisk, StoredToolBehavior,
 };
 
-use super::runtime_state::GraphqlState;
+use super::{
+    runtime_state::GraphqlState,
+    tasks::{self, GraphqlTaskCard},
+};
 
 /// Review route that originated a durable action.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
@@ -130,6 +133,7 @@ pub struct GraphqlGovernedAction {
     pub conversation_id: Option<String>,
     pub task_id: Option<String>,
     pub run_id: Option<String>,
+    pub task: Option<GraphqlTaskCard>,
     pub capability_name: String,
     pub review_route: GraphqlExecutionReviewRoute,
     pub behavior: Option<GraphqlToolBehavior>,
@@ -178,13 +182,20 @@ pub(super) async fn pending_governed_actions(
     } else {
         Default::default()
     };
-    Ok(actions
-        .into_iter()
-        .map(|action| {
-            let session_available = browser_availability.remove(&action.action_id);
-            GraphqlGovernedAction::from_record(action, session_available)
-        })
-        .collect())
+    let mut projected = Vec::with_capacity(actions.len());
+    for action in actions {
+        let task = match action.task_id.as_ref() {
+            Some(task_id) => Some(tasks::task_card(state, principal, task_id.clone()).await?),
+            None => None,
+        };
+        let session_available = browser_availability.remove(&action.action_id);
+        projected.push(GraphqlGovernedAction::from_record(
+            action,
+            session_available,
+            task,
+        ));
+    }
+    Ok(projected)
 }
 
 pub(super) async fn resolve_governed_action(
@@ -206,12 +217,16 @@ pub(super) async fn resolve_governed_action(
 
 impl From<GovernedActionRecord> for GraphqlGovernedAction {
     fn from(action: GovernedActionRecord) -> Self {
-        Self::from_record(action, None)
+        Self::from_record(action, None, None)
     }
 }
 
 impl GraphqlGovernedAction {
-    fn from_record(action: GovernedActionRecord, browser_session_available: Option<bool>) -> Self {
+    fn from_record(
+        action: GovernedActionRecord,
+        browser_session_available: Option<bool>,
+        task: Option<GraphqlTaskCard>,
+    ) -> Self {
         let display_arguments = action
             .authorization_context
             .get("browser_review_context")
@@ -236,6 +251,7 @@ impl GraphqlGovernedAction {
             conversation_id: action.conversation_id,
             task_id: action.task_id,
             run_id: action.run_id,
+            task,
             capability_name: action.capability_name,
             review_route: action.review_route.into(),
             behavior: action.behavior.map(Into::into),
@@ -492,7 +508,7 @@ mod tests {
                 explanation: "The action may disclose private data.".to_string(),
             }),
         };
-        let projection = GraphqlGovernedAction::from_record(action, Some(true));
+        let projection = GraphqlGovernedAction::from_record(action, Some(true), None);
         let encoded = serde_json::to_string(&projection.arguments.0).expect("arguments");
         assert!(encoded.contains("secret-marker"));
         assert_eq!(projection.arguments.0["value"], "secret-marker");

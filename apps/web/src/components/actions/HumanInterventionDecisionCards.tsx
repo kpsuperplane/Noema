@@ -6,6 +6,7 @@ import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
+import { Link } from "@tanstack/react-router";
 import { Code2 } from "lucide-react";
 import {
   ResolveGovernedActionDocument,
@@ -22,6 +23,7 @@ import { useMcpOAuthController } from "@/components/mcp/useMcpOAuthController";
 import { reserveExternalAuthNavigation } from "@/graphql/externalUrls";
 import { mcpOAuthRedirectUri } from "@/graphql/mcpOAuthCallback";
 import { TaskActions } from "@/components/tasks/TaskActions";
+import { normalizeTasksSearch } from "@/components/tasks/tasksTypes";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { HumanInterventionCard } from "./HumanInterventionCard";
 
@@ -107,7 +109,16 @@ export function GovernedActionCard({
   return (
     <HumanInterventionCard
       label={toolEnablement ? undefined : reviewLabel(action.reviewRoute, action.behavior?.readOnly)}
-      meta={toolEnablement ? undefined : action.taskId ? "Background task" : "Primary conversation"}
+      meta={toolEnablement ? undefined : action.actionTask ? (
+        <Link
+          to="/tasks/$taskId"
+          params={{ taskId: action.actionTask.taskId }}
+          search={(current) => normalizeTasksSearch(current)}
+          {...stylex.props(styles.taskLink)}
+        >
+          {action.actionTask.title}
+        </Link>
+      ) : "Primary conversation"}
       title={browserPreview ? browserActionTitle(browserPreview) : actionRequestTitle(action)}
       error={error}
       actions={(
@@ -562,6 +573,13 @@ function formatArguments(value: unknown) {
 }
 
 const styles = stylex.create({
+  taskLink: {
+    color: "inherit",
+    letterSpacing: 0,
+    textDecoration: "underline",
+    textTransform: "none",
+    cursor: "pointer"
+  },
   context: {
     color: "var(--noema-text-secondary)",
     fontSize: 12,

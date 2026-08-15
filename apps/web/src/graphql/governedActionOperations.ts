@@ -54,6 +54,9 @@ export const PendingHumanInterventionsDocument = gql`
         conversationId
         taskId
         runId
+        actionTask: task {
+          ...TasksTaskCardFields
+        }
         capabilityName
         reviewRoute
         behavior { readOnly idempotent destructive openWorld }
