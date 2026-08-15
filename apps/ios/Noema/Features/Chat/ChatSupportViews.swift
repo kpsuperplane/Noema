@@ -406,10 +406,11 @@ struct ChatComposer: View {
         .symbolEffect(.pulse, options: .repeating, isActive: voiceInput.isRecording && !reduceMotion)
     }
     .font(NoemaFont.bodyEmphasized)
-    .foregroundStyle(NoemaColor.pine500.opacity(enabled ? 1 : 0.7))
+    .foregroundStyle(NoemaColor.pine500)
     .animation(reduceMotion ? nil : NoemaSpring.micro, value: symbol)
     .frame(width: 40, height: 40)
     .background(NoemaColor.white, in: NoemaSuperellipse.composer)
+    .opacity(enabled ? 1 : 0.46)
     .scaleEffect(microphonePressed ? 0.94 : 1)
     .animation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion), value: microphonePressed)
   }
