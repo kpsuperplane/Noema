@@ -383,6 +383,11 @@ final class NoemaLiveActivityService {
 
   private func performRegistration(token: Data, generation: Int) async {
     guard let client, let profile, isEnabled, status?.available == true else { return }
+    guard let environment = NoemaAPNSEnvironment.current else {
+      errorMessage = "Noema could not read this app's APNs environment."
+      trace("registration_failed", fields: ["reason": "missing_apns_environment"])
+      return
+    }
     do {
       let activeActivityIds = matchingActivities(for: profile)
         .filter {
@@ -400,7 +405,7 @@ final class NoemaLiveActivityService {
       )
       let input = NoemaAPI.RegisterClientLiveActivitiesInput(
         pushToStartToken: token.base64URLEncoded,
-        environment: GraphQLEnum(Self.apnsEnvironment),
+        environment: GraphQLEnum(environment),
         activeActivityIds: activeActivityIds
       )
       let response = try await client.perform(
@@ -408,7 +413,7 @@ final class NoemaLiveActivityService {
       )
       if let message = response.errors?.first?.message { throw LiveActivityError.server(message) }
       guard let value = response.data?.registerClientLiveActivities else { throw LiveActivityError.emptyResponse }
-      guard value.environment?.rawValue == Self.apnsEnvironment.rawValue else {
+      guard value.environment?.rawValue == environment.rawValue else {
         throw LiveActivityError.server("The server expects a different APNs environment.")
       }
       guard isEnabled, generation == registrationGeneration else { return }
@@ -644,14 +649,6 @@ final class NoemaLiveActivityService {
     for activity in Activity<NoemaTasksActivityAttributes>.activities {
       await end(activity, notifyServer: false)
     }
-  }
-
-  private static var apnsEnvironment: ApnsEnvironment {
-    #if DEBUG
-    .development
-    #else
-    .production
-    #endif
   }
 
   private func trace(_ event: String, fields: [String: String] = [:]) {

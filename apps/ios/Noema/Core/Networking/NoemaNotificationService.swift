@@ -320,9 +320,13 @@ final class NoemaNotificationService {
   private func registerDeviceTokenIfPossible(token: Data, generation: Int) async {
     guard let client, desiredEnabled, status?.available == true
     else { return }
+    guard let environment = NoemaAPNSEnvironment.current else {
+      errorMessage = "Noema could not read this app's APNs environment."
+      return
+    }
     let input = NoemaAPI.RegisterClientNotificationsInput(
       deviceToken: token.base64URLEncoded,
-      environment: GraphQLEnum(Self.apnsEnvironment)
+      environment: GraphQLEnum(environment)
     )
     do {
       let response = try await client.perform(
@@ -330,7 +334,7 @@ final class NoemaNotificationService {
       )
       if let message = response.errors?.first?.message { throw NotificationError.server(message) }
       guard let value = response.data?.registerClientNotifications else { throw NotificationError.emptyResponse }
-      guard value.environment?.rawValue == Self.apnsEnvironment.rawValue else {
+      guard value.environment?.rawValue == environment.rawValue else {
         throw NotificationError.server("The server expects a different APNs environment.")
       }
       guard desiredEnabled, generation == registrationGeneration else { return }
@@ -431,14 +435,6 @@ final class NoemaNotificationService {
     default:
       return nil
     }
-  }
-
-  private static var apnsEnvironment: NoemaAPI.ApnsEnvironment {
-    #if DEBUG
-    .development
-    #else
-    .production
-    #endif
   }
 
   private var promptDismissalKey: String? {
