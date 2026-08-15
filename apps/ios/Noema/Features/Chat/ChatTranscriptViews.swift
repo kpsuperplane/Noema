@@ -263,7 +263,7 @@ struct ChatMessageView: View {
 }
 
 private struct ChatMarkdownText: View {
-  private static let fontSize: CGFloat = 14
+  private static let fontSize = NoemaFont.messageSize
   private static let webLineHeightMultiplier: CGFloat = 1.7
   private static let webListLineHeight: CGFloat = 20
   private static let lineSpacing: CGFloat = {
@@ -322,7 +322,7 @@ private struct ChatMarkdownText: View {
       .markdownNumberedListMarker(
         BlockStyle { configuration in
           Text("\(configuration.itemNumber).")
-            .font(NoemaFont.body)
+            .font(NoemaFont.message)
             .monospacedDigit()
             .foregroundStyle(color)
             .frame(
@@ -418,7 +418,7 @@ struct ChatBubbleView<Content: View>: View {
         .fixedSize(horizontal: true, vertical: false)
       bubbleContent
     }
-    .font(NoemaFont.body)
+    .font(NoemaFont.message)
     .foregroundStyle(lane == .human ? NoemaColor.white : NoemaColor.content)
     .padding(.horizontal, NoemaSpacing.lg)
     .padding(.vertical, NoemaSpacing.sm)
