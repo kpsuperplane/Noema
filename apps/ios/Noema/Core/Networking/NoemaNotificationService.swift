@@ -221,6 +221,16 @@ final class NoemaNotificationService {
 
   func presentationOptions(for userInfo: [AnyHashable: Any]) -> UNNotificationPresentationOptions {
     guard let route = validatePayload(userInfo) else { return [] }
+    NoemaDiagnosticTrace.shared.record(
+      category: "notification",
+      event: "foreground_received",
+      fields: [
+        "chatVisible": String(isChatVisible),
+        "destination": route.destination.diagnosticName,
+        "eventKey": route.eventKey,
+        "sceneActive": String(isSceneActive)
+      ]
+    )
     guard case .chat = route.destination, isSceneActive, isChatVisible else { return [.banner, .sound] }
     return []
   }
@@ -438,6 +448,15 @@ final class NoemaNotificationService {
   private var promptDismissed: Bool {
     guard let key = promptDismissalKey else { return false }
     return UserDefaults.standard.bool(forKey: key)
+  }
+}
+
+private extension NotificationRoute.Destination {
+  var diagnosticName: String {
+    switch self {
+    case .chat: "chat"
+    case .task: "task"
+    }
   }
 }
 

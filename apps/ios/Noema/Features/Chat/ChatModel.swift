@@ -247,6 +247,15 @@ final class ChatModel {
 
   /// Refetches durable transcript state after the shared WebSocket transport resumes.
   func recoverConnection() async {
+    NoemaDiagnosticTrace.shared.record(
+      category: "chat",
+      event: "recovery_requested",
+      fields: [
+        "hasConversation": String(conversationID != nil),
+        "isRecovering": String(isRecoveringConnection),
+        "phase": diagnosticPhase
+      ]
+    )
     guard phase == .ready,
           !isRecoveringConnection,
           let client,
@@ -318,6 +327,14 @@ final class ChatModel {
     isSending = true
     agentStatus = "INPUT_RECEIVED"
     defer { isSending = false }
+    NoemaDiagnosticTrace.shared.record(
+      category: "chat",
+      event: "turn_send_started",
+      fields: [
+        "clientMessageID": clientMessageID,
+        "messageCount": String(messages.count)
+      ]
+    )
     do {
       let input = NoemaAPI.SendConversationTurnInput(
         conversationId: conversationID,
@@ -326,8 +343,22 @@ final class ChatModel {
       )
       let response = try await client.perform(mutation: NoemaAPI.SendConversationTurnMutation(input: input))
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
+      NoemaDiagnosticTrace.shared.record(
+        category: "chat",
+        event: "turn_send_accepted",
+        fields: [
+          "acceptedClientMessageID": response.data?.sendConversationTurn.clientMessageId ?? "none",
+          "clientMessageID": clientMessageID
+        ]
+      )
       isOffline = false
     } catch {
+      NoemaDiagnosticTrace.shared.record(
+        category: "chat",
+        event: "turn_send_failed",
+        error: error,
+        fields: ["clientMessageID": clientMessageID]
+      )
       if draftGeneration == clearedDraftGeneration { draft = submittedDraft }
       recordMutationError(error)
     }
@@ -672,7 +703,10 @@ final class ChatModel {
   }
 
   private func loadLatest(client: ApolloClient) async -> Bool {
-    if let transcriptRefreshTask { return await transcriptRefreshTask.value }
+    if let transcriptRefreshTask {
+      NoemaDiagnosticTrace.shared.record(category: "chat", event: "transcript_refresh_joined")
+      return await transcriptRefreshTask.value
+    }
     let task = Task { [weak self] in
       guard let self else { return false }
       return await fetchLatest(client: client)
@@ -720,6 +754,11 @@ final class ChatModel {
   }
 
   private func applyLatest(_ page: NoemaAPI.ConversationTranscriptPageQuery.Data.ConversationTranscriptPage) {
+    let previousMessageCount = messages.count
+    let previousStreamingCount = messages.filter {
+      if case let .assistant(_, streaming) = $0.kind { return streaming }
+      return false
+    }.count
     messages.removeAll(keepingCapacity: true)
     knownItemIDs.removeAll(keepingCapacity: true)
     knownCursors.removeAll(keepingCapacity: true)
@@ -728,6 +767,17 @@ final class ChatModel {
     hasMoreBefore = page.pageInfo.hasMoreBefore
     beforeCursor = page.pageInfo.beforeCursor
     hasLoadedTranscript = true
+    NoemaDiagnosticTrace.shared.record(
+      category: "chat",
+      event: "transcript_replaced",
+      fields: [
+        "assistantCount": String(messages.filter { if case .assistant = $0.kind { return true }; return false }.count),
+        "messageCount": String(messages.count),
+        "pageItemCount": String(page.items.count),
+        "previousMessageCount": String(previousMessageCount),
+        "previousStreamingCount": String(previousStreamingCount)
+      ]
+    )
   }
 
   private func refreshInterventions(client: ApolloClient) async {
@@ -805,6 +855,16 @@ final class ChatModel {
 
   private func apply(_ event: NoemaAPI.ConversationEventsSubscription.Data.ConversationEvents) async {
     if let item = event.asConversationItemEvent {
+      NoemaDiagnosticTrace.shared.record(
+        category: "chat",
+        event: "conversation_item_received",
+        fields: [
+          "clientMessageID": item.clientMessageId ?? "none",
+          "itemID": item.itemId,
+          "itemKind": diagnosticItemKind(item.item),
+          "turnID": item.itemTurnId ?? "none"
+        ]
+      )
       merge(
         item: item.item,
         itemID: item.itemId,
@@ -816,8 +876,21 @@ final class ChatModel {
     } else if let delta = event.asAssistantTextDeltaEvent {
       apply(delta: delta)
     } else if let status = event.asAgentStatusEvent {
+      NoemaDiagnosticTrace.shared.record(
+        category: "chat",
+        event: "agent_status_received",
+        fields: ["status": status.status.rawValue]
+      )
       agentStatus = status.status.rawValue
-    } else if event.asTurnCompletedEvent != nil {
+    } else if let completed = event.asTurnCompletedEvent {
+      NoemaDiagnosticTrace.shared.record(
+        category: "chat",
+        event: "turn_completed_received",
+        fields: [
+          "clientMessageID": completed.clientMessageId ?? "none",
+          "messageCount": String(messages.count)
+        ]
+      )
       agentStatus = "IDLE"
       for index in messages.indices {
         if case let .assistant(text, streaming) = messages[index].kind, streaming {
@@ -826,6 +899,7 @@ final class ChatModel {
       }
       rebuildIndexes()
     } else if event.asSubscriptionReadyEvent != nil {
+      NoemaDiagnosticTrace.shared.record(category: "chat", event: "subscription_ready_received")
       if let client { _ = await loadLatest(client: client) }
     } else if event.asHumanInterventionsChangedEvent != nil {
       if let client { await refreshInterventions(client: client) }
@@ -834,6 +908,18 @@ final class ChatModel {
 
   private func apply(delta: NoemaAPI.ConversationEventsSubscription.Data.ConversationEvents.AsAssistantTextDeltaEvent) {
     let key = "\(delta.deltaTurnId):\(delta.streamId):\(delta.responseIndex)"
+    if streamingIndex[key] == nil {
+      NoemaDiagnosticTrace.shared.record(
+        category: "chat",
+        event: "assistant_stream_started",
+        fields: [
+          "deltaCharacters": String(delta.delta.count),
+          "responseIndex": String(delta.responseIndex),
+          "streamID": delta.streamId,
+          "turnID": delta.deltaTurnId
+        ]
+      )
+    }
     if messages.contains(where: { message in
       guard message.turnID == delta.deltaTurnId,
             case let .assistant(_, streaming) = message.kind,
@@ -1019,6 +1105,21 @@ final class ChatModel {
   private func activityMetadata(_ kind: ChatMessageKind) -> String? {
     guard case let .activity(_, _, _, metadata, _) = kind else { return nil }
     return metadata
+  }
+
+  private func diagnosticItemKind(
+    _ item: NoemaAPI.ConversationEventsSubscription.Data.ConversationEvents.AsConversationItemEvent.Item
+  ) -> String {
+    if item.asUserText != nil { return "user_text" }
+    if item.asAssistantText != nil { return "assistant_text" }
+    if item.asActivity != nil { return "activity" }
+    if item.asA2UISurface != nil { return "a2ui" }
+    if item.asMultipleChoicePrompt != nil { return "choice_prompt" }
+    if item.asMultipleChoiceSelection != nil { return "choice_selection" }
+    if item.asErrorNotice != nil { return "error" }
+    if item.asArtifactReference != nil { return "artifact" }
+    if item.asTaskReference != nil { return "task" }
+    return "unsupported"
   }
 
   private func convert(

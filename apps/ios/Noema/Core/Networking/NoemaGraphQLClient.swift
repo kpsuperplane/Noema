@@ -42,6 +42,7 @@ final class NoemaGraphQLClient: @unchecked Sendable {
       ),
       store: store
     )
+    Task { await websocket.setDelegate(self) }
     NoemaDiagnosticTrace.shared.record(category: "graphql", event: "client_initialized")
   }
 
@@ -147,6 +148,27 @@ final class NoemaGraphQLClient: @unchecked Sendable {
     var components = URLComponents(url: origin.appending(path: "graphql/ws"), resolvingAgainstBaseURL: false)
     components?.scheme = "wss"
     return components?.url ?? origin
+  }
+}
+
+extension NoemaGraphQLClient: WebSocketTransportDelegate {
+  func webSocketTransportDidConnect(_ webSocketTransport: isolated WebSocketTransport) {
+    NoemaDiagnosticTrace.shared.record(category: "graphql", event: "websocket_connected")
+  }
+
+  func webSocketTransportDidReconnect(_ webSocketTransport: isolated WebSocketTransport) {
+    NoemaDiagnosticTrace.shared.record(category: "graphql", event: "websocket_reconnected")
+  }
+
+  func webSocketTransport(
+    _ webSocketTransport: isolated WebSocketTransport,
+    didDisconnectWithError error: (any Error)?
+  ) {
+    if let error {
+      NoemaDiagnosticTrace.shared.record(category: "graphql", event: "websocket_disconnected", error: error)
+    } else {
+      NoemaDiagnosticTrace.shared.record(category: "graphql", event: "websocket_disconnected")
+    }
   }
 }
 
