@@ -121,28 +121,28 @@ private struct TasksDetailContent: View {
         }
       }
     }
-    .sheet(isPresented: $editPresented) {
+    .noemaSheet(isPresented: $editPresented) {
       TasksInboxEditSheet(model: model, task: detail)
     }
-    .sheet(isPresented: $reopenPresented) {
+    .noemaSheet(isPresented: $reopenPresented) {
       TasksReopenSheet(model: model, task: detail)
     }
-    .sheet(isPresented: $queuePresented) {
+    .noemaSheet(isPresented: $queuePresented) {
       TasksQueueSheet(model: model, task: detail)
     }
-    .sheet(item: $scheduleAction) { action in
+    .noemaSheet(item: $scheduleAction) { action in
       TasksScheduleSheet(model: model, task: detail, action: action)
     }
-    .sheet(item: $selectedArtifact) { selection in
+    .noemaSheet(item: $selectedArtifact) { selection in
       ArtifactVersionSheet(model: ArtifactModel(client: model.client, profile: model.profile), selection: selection)
     }
-    .sheet(isPresented: $cancelPresented) {
+    .noemaSheet(isPresented: $cancelPresented) {
       TasksCancelSheet(model: model, task: detail)
     }
-    .sheet(isPresented: $taskInfoPresented) {
+    .noemaSheet(isPresented: $taskInfoPresented) {
       TasksTaskInfoSheet(detail: detail)
     }
-    .sheet(isPresented: $validationPresented) {
+    .noemaSheet(isPresented: $validationPresented) {
       TasksValidationSheet(criteria: detail.latestSubmission?.criteria ?? detail.criteria)
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -652,7 +652,7 @@ private struct TasksInboxEditSheet: View {
     }
     .noemaTaskSheetPresentation([.medium, .large], regularHeight: 640)
     .interactiveDismissDisabled(isDirty || isSaving)
-    .sheet(isPresented: $discardPresented) {
+    .noemaSheet(isPresented: $discardPresented) {
       TasksDiscardSheet(title: "Discard changes?", message: "Your task edits will be lost.") {
         dismiss()
       }
@@ -778,7 +778,7 @@ private struct TasksReopenSheet: View {
     }
     .noemaTaskSheetPresentation([.height(362)], regularHeight: 500)
     .interactiveDismissDisabled(isDirty || isSubmitting)
-    .sheet(isPresented: $discardPresented) {
+    .noemaSheet(isPresented: $discardPresented) {
       TasksDiscardSheet(title: "Discard feedback?", message: "Your reopen direction will be lost.") {
         dismiss()
       }

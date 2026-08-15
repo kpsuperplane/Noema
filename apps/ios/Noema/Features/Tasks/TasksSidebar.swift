@@ -148,7 +148,7 @@ struct TasksProjectSheet: View {
     }
     .noemaTaskSheetPresentation([.height(project == nil ? 430 : 480)], regularHeight: project == nil ? 560 : 620)
     .interactiveDismissDisabled(isDirty || isSaving)
-    .sheet(isPresented: $discardPresented) {
+    .noemaSheet(isPresented: $discardPresented) {
       TasksDiscardSheet(title: "Discard changes?", message: "Your project edits will be lost.") {
         dismiss()
       }

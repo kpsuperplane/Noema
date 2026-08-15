@@ -254,7 +254,7 @@ struct ChatReadyView: View {
     GeometryReader { geometry in
       if geometry.size.width < NoemaBreakpoint.regularMinimum - 216 - 8 {
         transcriptSurface
-          .sheet(isPresented: taskDetailPresented) {
+          .noemaSheet(isPresented: taskDetailPresented) {
             taskDetail
           }
       } else {
@@ -265,7 +265,7 @@ struct ChatReadyView: View {
           }
       }
     }
-    .sheet(item: $selectedArtifact) { selection in
+    .noemaSheet(item: $selectedArtifact) { selection in
       ArtifactVersionSheet(model: ArtifactModel(client: model.client, profile: model.profile), selection: selection)
     }
   }

@@ -36,7 +36,7 @@ struct SettingsRootView: View {
     }
     .onAppear { installShellNavigation() }
     .onChange(of: selection) { _, _ in installShellNavigation() }
-    .sheet(isPresented: $disconnectPresented) {
+    .noemaSheet(isPresented: $disconnectPresented) {
       SettingsConfirmationSheet(
         title: "Unpair this app?",
         message: "The saved connection will be removed from this device so you can pair with another server. This client will remain listed on the current server until it is revoked there.",
@@ -837,7 +837,7 @@ private struct CapabilitySettings: View {
         capabilityList(integrations(settings.snapshot?.mcps ?? []))
       }
     }
-    .sheet(item: $editor, onDismiss: { startPolicyConnectionID = nil }) { connection in
+    .noemaSheet(item: $editor, onDismiss: { startPolicyConnectionID = nil }) { connection in
       CapabilityConnectionEditor(
         connection: connection,
         settings: settings,
@@ -845,7 +845,7 @@ private struct CapabilitySettings: View {
         startPolicyEditing: startPolicyConnectionID == connection.id
       )
     }
-    .sheet(item: $addTarget, onDismiss: openPendingPolicy) { integration in
+    .noemaSheet(item: $addTarget, onDismiss: openPendingPolicy) { integration in
       if kind == .api {
         APIConnectionSheet(
           integration: integration,
@@ -856,7 +856,7 @@ private struct CapabilitySettings: View {
         MCPConnectionSheet(integration: integration, settings: settings)
       }
     }
-    .sheet(item: $deleteTarget) { integration in
+    .noemaSheet(item: $deleteTarget) { integration in
       let connectionCount = integration.connections.count
       let connectionNoun = connectionCount == 1 ? "account" : "accounts"
       SettingsMutationConfirmationSheet(
@@ -870,10 +870,10 @@ private struct CapabilitySettings: View {
         await settings.deleteAdapterService(integration)
       }
     }
-    .sheet(isPresented: $setupPresented) {
+    .noemaSheet(isPresented: $setupPresented) {
       MCPSetupSheet(settings: settings, appModel: appModel)
     }
-    .sheet(item: $labelGrant) { grant in
+    .noemaSheet(item: $labelGrant) { grant in
       SettingsBottomSheet(title: "Label account", subtitle: grant.providerName, detent: .medium, onClose: { labelGrant = nil }) {
         VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
           SettingsSheetField("Account label") { TextField("Account label", text: $labelDraft).settingsSheetControl() }
@@ -892,7 +892,7 @@ private struct CapabilitySettings: View {
         }
       }
     }
-    .sheet(item: $disconnectGrant) { grant in
+    .noemaSheet(item: $disconnectGrant) { grant in
       SettingsMutationConfirmationSheet(
         title: "Disconnect \(grant.accountLabel ?? "account")?",
         message: "This removes account tokens and disables dependent APIs. API definitions and OAuth client setup stay available.",
@@ -903,7 +903,7 @@ private struct CapabilitySettings: View {
         return result
       }
     }
-    .sheet(item: $replaceApplication) { application in
+    .noemaSheet(item: $replaceApplication) { application in
       if let setup = settings.adapterOAuthState?.profiles.first(where: { $0.profileDigest == application.profileDigest })?.credentialSetup {
         AdapterCredentialSetupSheet(
           serviceName: application.providerName,
@@ -1379,7 +1379,7 @@ private struct UsageSettings: View {
         }
       }
     }
-    .sheet(item: $editor) { target in SettingsPreferenceEditor(target: target, settings: settings) }
+    .noemaSheet(item: $editor) { target in SettingsPreferenceEditor(target: target, settings: settings) }
   }
 }
 
@@ -1438,7 +1438,7 @@ private struct ExecutionSettings: View {
         }
       }
     }
-    .sheet(isPresented: $editor) {
+    .noemaSheet(isPresented: $editor) {
       if let policy = settings.snapshot?.taskExecutionPolicy { ExecutionPolicyEditor(settings: settings, policy: policy) }
     }
   }

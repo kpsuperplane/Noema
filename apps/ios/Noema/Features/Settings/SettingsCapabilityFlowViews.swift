@@ -83,7 +83,7 @@ struct APIConnectionSheet: View {
         }
       }
     }
-    .sheet(isPresented: Binding(
+    .noemaSheet(isPresented: Binding(
       get: { browserURL != nil },
       set: { if !$0 { browserURL = nil } }
     ), onDismiss: recoverAttempt) {
@@ -689,7 +689,7 @@ struct MCPSetupSheet: View {
         SettingsSheetActions(primaryTitle: "Check connection", isSaving: busy, primaryDisabled: busy || name.nilIfBlank == nil || !settings.canMutate, onCancel: { dismiss() }) { create() }
       }
     }
-    .sheet(isPresented: Binding(get: { browserURL != nil }, set: { if !$0 { browserURL = nil } }), onDismiss: { if let attemptID { check(attemptID) } }) { if let browserURL { SafariView(url: browserURL) } }
+    .noemaSheet(isPresented: Binding(get: { browserURL != nil }, set: { if !$0 { browserURL = nil } }), onDismiss: { if let attemptID { check(attemptID) } }) { if let browserURL { SafariView(url: browserURL) } }
   }
 
   private func input(
@@ -808,7 +808,7 @@ struct MCPReauthenticationSheet: View {
       }
     }
     .task { if usesBrowserOAuth { start() } }
-    .sheet(isPresented: Binding(get: { browserURL != nil }, set: { if !$0 { browserURL = nil } }), onDismiss: { if let attemptID { check(attemptID) } }) { if let browserURL { SafariView(url: browserURL) } }
+    .noemaSheet(isPresented: Binding(get: { browserURL != nil }, set: { if !$0 { browserURL = nil } }), onDismiss: { if let attemptID { check(attemptID) } }) { if let browserURL { SafariView(url: browserURL) } }
   }
 
   private func start() {

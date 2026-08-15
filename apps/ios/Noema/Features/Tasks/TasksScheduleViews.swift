@@ -526,10 +526,10 @@ struct TasksRecurrenceSummaryView: View {
       recurrence = await model.loadRecurrence(recurrenceId: id)
       recurrenceLoadFailed = recurrence == nil
     }
-    .sheet(item: $scheduleAction) { action in
+    .noemaSheet(item: $scheduleAction) { action in
       TasksScheduleSheet(model: model, task: task, action: action)
     }
-    .sheet(isPresented: $editing) {
+    .noemaSheet(isPresented: $editing) {
       if let recurrence { TasksRecurrenceEditSheet(model: model, recurrence: recurrence) { refresh() } }
     }
     .confirmationDialog("End recurring schedule?", isPresented: $confirmingEnd, titleVisibility: .visible) {

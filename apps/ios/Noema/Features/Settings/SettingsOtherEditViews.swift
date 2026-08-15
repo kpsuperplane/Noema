@@ -84,7 +84,7 @@ struct WebBindingEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || isDirty)
-    .sheet(isPresented: $discardPresented) {
+    .noemaSheet(isPresented: $discardPresented) {
       SettingsConfirmationSheet(
         title: "Discard provider changes?",
         message: "Any unsaved changes will be lost.",
@@ -182,7 +182,7 @@ struct ExecutionPolicyEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || isDirty)
-    .sheet(isPresented: $discardPresented) {
+    .noemaSheet(isPresented: $discardPresented) {
       SettingsConfirmationSheet(
         title: "Discard execution changes?",
         message: "Any unsaved changes will be lost.",
@@ -437,12 +437,12 @@ struct CapabilityConnectionEditor: View {
         policyPresented = true
       }
     }
-    .sheet(item: $editingTool, onDismiss: { Task { await refreshConnectionState() } }) { tool in
+    .noemaSheet(item: $editingTool, onDismiss: { Task { await refreshConnectionState() } }) { tool in
       CapabilityToolEditor(connection: currentConnection, tool: tool, settings: settings)
     }
-    .sheet(isPresented: $renamePresented) { renameSheet }
-    .sheet(isPresented: $policyPresented) { policySheet }
-    .sheet(isPresented: Binding(get: { browserURL != nil }, set: { if !$0 { browserURL = nil } }), onDismiss: {
+    .noemaSheet(isPresented: $renamePresented) { renameSheet }
+    .noemaSheet(isPresented: $policyPresented) { policySheet }
+    .noemaSheet(isPresented: Binding(get: { browserURL != nil }, set: { if !$0 { browserURL = nil } }), onDismiss: {
       Task {
         if let browserAttemptID,
            let result = await settings.adapterOAuthAttempt(attemptID: browserAttemptID),
@@ -453,7 +453,7 @@ struct CapabilityConnectionEditor: View {
     }) {
       if let browserURL { SafariView(url: browserURL) }
     }
-    .sheet(isPresented: $reauthPresented) {
+    .noemaSheet(isPresented: $reauthPresented) {
       let server = settings.snapshot?.mcpServers.first { $0.mcpServerId == connection.id }
       MCPReauthenticationSheet(
         serverID: connection.id,
@@ -463,7 +463,7 @@ struct CapabilityConnectionEditor: View {
         appModel: appModel
       )
     }
-    .sheet(isPresented: $deletePresented) {
+    .noemaSheet(isPresented: $deletePresented) {
       SettingsMutationConfirmationSheet(
         title: "Delete \(displayName)?",
         message: connection.kind == .api
@@ -550,7 +550,7 @@ struct CapabilityConnectionEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || labelDraft != label)
-    .sheet(isPresented: $renameDiscardPresented) {
+    .noemaSheet(isPresented: $renameDiscardPresented) {
       SettingsConfirmationSheet(title: "Discard label changes?", message: "Any unsaved changes will be lost.", confirmTitle: "Discard changes", cancelTitle: "Keep editing") {
         renameDiscardPresented = false
         renamePresented = false
@@ -596,7 +596,7 @@ struct CapabilityConnectionEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || sharingDraft != sharing || unsafeActionsDraft != unsafeActions)
-    .sheet(isPresented: $policyDiscardPresented) {
+    .noemaSheet(isPresented: $policyDiscardPresented) {
       SettingsConfirmationSheet(title: "Discard policy changes?", message: "Any unsaved changes will be lost.", confirmTitle: "Discard changes", cancelTitle: "Keep editing") {
         policyDiscardPresented = false
         policyPresented = false
@@ -749,7 +749,7 @@ private struct CapabilityToolEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || isDirty)
-    .sheet(isPresented: $discardPresented) {
+    .noemaSheet(isPresented: $discardPresented) {
       SettingsConfirmationSheet(
         title: "Discard tool changes?",
         message: "Any unsaved changes will be lost.",

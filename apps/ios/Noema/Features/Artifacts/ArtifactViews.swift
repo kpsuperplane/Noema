@@ -368,7 +368,7 @@ struct ArtifactVersionSheet: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(NoemaColor.surface)
-        .sheet(isPresented: Binding(
+        .noemaSheet(isPresented: Binding(
           get: { previewURL != nil },
           set: { if !$0 { previewURL = nil } }
         )) {
@@ -376,7 +376,7 @@ struct ArtifactVersionSheet: View {
             ArtifactQuickLookView(url: previewURL)
           }
         }
-        .sheet(isPresented: Binding(
+        .noemaSheet(isPresented: Binding(
           get: { shareURLValue != nil },
           set: { if !$0 { shareURLValue = nil } }
         )) {

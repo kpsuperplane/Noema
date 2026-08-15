@@ -139,7 +139,7 @@ private struct MemoryArticleView: View {
     }
     .background(NoemaColor.surface)
     .scrollContentBackground(.hidden)
-    .sheet(item: $selectedCitation) { citation in
+    .noemaSheet(item: $selectedCitation) { citation in
       MemoryCitationSheet(citation: citation)
     }
   }

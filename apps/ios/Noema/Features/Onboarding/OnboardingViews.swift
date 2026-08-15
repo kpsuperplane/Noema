@@ -377,7 +377,7 @@ private struct OnboardingAuthCard: View {
           .font(NoemaFont.bodyEmphasized)
         if let verificationURL {
           OnboardingButton("Open login page", tone: .secondary) { showSafari = true }
-            .sheet(isPresented: $showSafari, onDismiss: { Task { await model.refreshAuthentication() } }) {
+            .noemaSheet(isPresented: $showSafari, onDismiss: { Task { await model.refreshAuthentication() } }) {
               SafariView(url: verificationURL)
             }
         }

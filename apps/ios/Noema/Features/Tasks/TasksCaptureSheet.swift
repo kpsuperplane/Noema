@@ -143,7 +143,7 @@ struct TasksCaptureSheet: View {
     }
     .noemaTaskSheetPresentation([.medium, .large], regularHeight: 680)
     .interactiveDismissDisabled(isDirty || isSaving)
-    .sheet(isPresented: $discardPresented) {
+    .noemaSheet(isPresented: $discardPresented) {
       TasksDiscardSheet(
         title: "Discard capture?",
         message: "Your new task draft will be lost.",

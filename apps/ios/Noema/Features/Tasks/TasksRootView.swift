@@ -51,13 +51,13 @@ private struct TasksSurface: View {
       }
     }
     .tint(NoemaColor.accent)
-    .sheet(isPresented: $capturePresented) {
+    .noemaSheet(isPresented: $capturePresented) {
       TasksCaptureSheet(model: model)
     }
-    .sheet(isPresented: $createProjectPresented) {
+    .noemaSheet(isPresented: $createProjectPresented) {
       TasksProjectSheet(model: model, project: nil)
     }
-    .sheet(item: $projectEditor) { project in
+    .noemaSheet(item: $projectEditor) { project in
       TasksProjectSheet(model: model, project: project)
     }
     .overlay(alignment: .bottom) {
@@ -90,7 +90,7 @@ private struct TasksSurface: View {
       createProjectPresented: $createProjectPresented,
       projectEditor: $projectEditor
     )
-    .sheet(isPresented: taskDetailPresented) {
+    .noemaSheet(isPresented: taskDetailPresented) {
       if let selectedTaskId {
         TasksDetailRoute(model: model, taskId: selectedTaskId, compactPresentation: true)
           .noemaMobileDrawerPresentation()

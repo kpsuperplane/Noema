@@ -139,7 +139,7 @@ struct ChatMessageView: View {
           Button("Debug", systemImage: "chart.xyaxis.line") { runtimeDebug = target }
         }
       }
-      .sheet(item: $runtimeDebug) { target in
+      .noemaSheet(item: $runtimeDebug) { target in
         RuntimeDebugSheet(client: client, target: target)
       }
   }
@@ -423,7 +423,7 @@ struct ToolMarkerView: View {
         Button("Debug", systemImage: "chart.xyaxis.line") { runtimeDebug = target }
       }
     }
-    .sheet(item: $runtimeDebug) { target in
+    .noemaSheet(item: $runtimeDebug) { target in
       RuntimeDebugSheet(client: client, target: target)
     }
   }

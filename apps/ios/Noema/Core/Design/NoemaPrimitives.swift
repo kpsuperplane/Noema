@@ -58,6 +58,28 @@ struct NoemaNativeSheet<Content: View>: View {
 }
 
 extension View {
+  func noemaSheet<Content: View>(
+    isPresented: Binding<Bool>,
+    onDismiss: (() -> Void)? = nil,
+    @ViewBuilder content: @escaping () -> Content
+  ) -> some View {
+    sheet(isPresented: isPresented, onDismiss: onDismiss) {
+      content()
+        .presentationBackground(NoemaColor.white)
+    }
+  }
+
+  func noemaSheet<Item: Identifiable, Content: View>(
+    item: Binding<Item?>,
+    onDismiss: (() -> Void)? = nil,
+    @ViewBuilder content: @escaping (Item) -> Content
+  ) -> some View {
+    sheet(item: item, onDismiss: onDismiss) { item in
+      content(item)
+        .presentationBackground(NoemaColor.white)
+    }
+  }
+
   func settingsSheetControl(focused: Bool = false) -> some View {
     font(NoemaFont.body)
       .foregroundStyle(NoemaColor.content)

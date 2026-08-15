@@ -520,7 +520,7 @@ struct ChatInterventionsView: View {
       }
     }
     .frame(maxWidth: 760, alignment: .leading)
-    .sheet(isPresented: Binding(
+    .noemaSheet(isPresented: Binding(
       get: { browserURL != nil },
       set: { if !$0 { browserURL = nil } }
     ), onDismiss: {
