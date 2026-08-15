@@ -32,10 +32,13 @@ use noema_runtime::{ConversationRuntimeEvent, WorkRuntimeEvent};
 use noema_store::{
     ApnsEnvironment, ClaimedApnsDelivery, ClaimedLiveActivityDelivery, ClaimedWebPushDelivery,
     ClientLiveActivityRegistration, LiveActivityEvent, LiveActivityTarget, NewLiveActivityDelivery,
-    NewWebPushSubscription, NoemaStore, WorkPageSize, WorkTaskCursor, WorkTaskQuery, WorkTaskScope,
-    WorkTaskSummary,
+    NewWebPushSubscription, NoemaStore, WorkPageSize, WorkRunItemOwnerScope, WorkRunItemQuery,
+    WorkTaskCursor, WorkTaskQuery, WorkTaskScope, WorkTaskSummary,
 };
-use noema_tasks::{RunKind, RunStatus, TaskId, WorkflowStageBehavior};
+use noema_tasks::{
+    AgentRunItemKind, AgentRunItemRecord, AgentRunItemStatus, RunKind, RunStatus, TaskId,
+    WorkflowStageBehavior,
+};
 use noema_workspaces::WorkspaceId;
 use pulldown_cmark::{Event, Options, Parser, TagEnd};
 use reqwest::{Client, redirect::Policy};
@@ -52,6 +55,7 @@ use web_push_native::{
 };
 const LOCAL_HUMAN_ID: &str = "human:local";
 const MAX_PREVIEW_BYTES: usize = 600;
+const MAX_LIVE_UPDATE_BYTES: usize = 120;
 
 /// Browser-visible Web Push capability and registration state.
 #[derive(Clone, Debug, SimpleObject)]
@@ -1738,10 +1742,7 @@ async fn live_projection(
         .await?
         .and_then(|agent| agent.display_name)
         .unwrap_or_else(|| "Agent".to_string());
-    let update_label = focus
-        .current_run
-        .as_ref()
-        .and_then(|run| live_update_label(run.run_kind, run.status, run.tool_call_count));
+    let update_label = live_run_update_label(store, &workspace_id, focus).await;
     let task_summaries = tasks
         .iter()
         .take(2)
@@ -1816,7 +1817,122 @@ fn live_task_requires_attention(task: &WorkTaskSummary) -> bool {
         })
 }
 
-fn live_update_label(
+async fn live_run_update_label(
+    store: &NoemaStore,
+    workspace_id: &WorkspaceId,
+    task: &WorkTaskSummary,
+) -> Option<String> {
+    let run = task.current_run.as_ref()?;
+    let items = store
+        .list_work_run_items(WorkRunItemQuery {
+            owner: WorkRunItemOwnerScope {
+                workspace_id: workspace_id.clone(),
+                task_id: Some(task.task.task_id.clone()),
+            },
+            run_id: run.run_id.clone(),
+            first: WorkPageSize::new(20).expect("Live Activity transcript window is valid"),
+            before: None,
+        })
+        .await
+        .ok()
+        .map(|connection| {
+            connection
+                .edges
+                .into_iter()
+                .map(|edge| edge.node)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    live_transcript_update_label(&items).or_else(|| {
+        default_live_update_label(run.run_kind, run.status, run.tool_call_count).map(str::to_string)
+    })
+}
+
+fn live_transcript_update_label(items: &[AgentRunItemRecord]) -> Option<String> {
+    let active_tool = items.iter().rev().find(|item| {
+        item.kind == AgentRunItemKind::ToolCall && item.status == AgentRunItemStatus::Running
+    });
+    if let Some(tool) = active_tool
+        && let Some(label) = live_tool_line(items, tool)
+    {
+        return Some(label);
+    }
+    items.iter().rev().find_map(|item| match item.kind {
+        AgentRunItemKind::AssistantOutput => {
+            item.content_text.as_deref().and_then(live_activity_text)
+        }
+        AgentRunItemKind::ProgressNotice
+            if item
+                .payload
+                .get("phase")
+                .and_then(serde_json::Value::as_str)
+                != Some("provider_response") =>
+        {
+            item.content_text.as_deref().and_then(live_activity_text)
+        }
+        AgentRunItemKind::ToolCall if item.status != AgentRunItemStatus::Skipped => {
+            live_tool_line(items, item)
+        }
+        _ => None,
+    })
+}
+
+fn live_tool_line(items: &[AgentRunItemRecord], tool: &AgentRunItemRecord) -> Option<String> {
+    items
+        .iter()
+        .rev()
+        .find(|item| {
+            item.kind == AgentRunItemKind::AssistantOutput
+                && item.round_index == tool.round_index
+                && item.sequence_index < tool.sequence_index
+        })
+        .and_then(|item| item.content_text.as_deref())
+        .and_then(live_activity_text)
+        .or_else(|| live_tool_update_label(tool))
+}
+
+fn live_tool_update_label(item: &AgentRunItemRecord) -> Option<String> {
+    let name = item.content_text.as_deref()?.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let arguments = item.payload.get("arguments").unwrap_or(&item.payload);
+    let label = match name {
+        "web.search" => arguments
+            .get("query")
+            .and_then(serde_json::Value::as_str)
+            .map(|query| format!("Searching for “{}”", query.trim())),
+        "search_memory" => arguments
+            .get("query")
+            .and_then(serde_json::Value::as_str)
+            .map(|query| format!("Searching memory for “{}”", query.trim())),
+        "web.fetch" => arguments
+            .get("url")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| Url::parse(value).ok())
+            .and_then(|url| url.host_str().map(|host| format!("Reading {host}"))),
+        _ => None,
+    }
+    .unwrap_or_else(|| format!("Using {name}"));
+    live_activity_text(&label)
+}
+
+fn live_activity_text(value: &str) -> Option<String> {
+    let plain = notification_text(value);
+    if plain.is_empty() {
+        return None;
+    }
+    if plain.len() <= MAX_LIVE_UPDATE_BYTES {
+        return Some(plain);
+    }
+    let mut end = MAX_LIVE_UPDATE_BYTES.saturating_sub("…".len());
+    while !plain.is_char_boundary(end) {
+        end -= 1;
+    }
+    Some(format!("{}…", plain[..end].trim_end()))
+}
+
+fn default_live_update_label(
     kind: RunKind,
     status: RunStatus,
     tool_call_count: u32,
@@ -2237,6 +2353,30 @@ mod tests {
             created_at: String::new(),
         }
     }
+
+    fn run_item(
+        sequence_index: i64,
+        round_index: i64,
+        kind: AgentRunItemKind,
+        status: AgentRunItemStatus,
+        content_text: &str,
+        payload: serde_json::Value,
+    ) -> AgentRunItemRecord {
+        AgentRunItemRecord {
+            item_id: format!("run_item:{sequence_index}"),
+            run_id: "run:one".to_string(),
+            sequence_index,
+            round_index,
+            kind,
+            status,
+            correlation_id: None,
+            parent_item_id: None,
+            content_text: Some(content_text.to_string()),
+            payload,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
     #[tokio::test]
     async fn generated_vapid_identity_uses_an_uncompressed_public_key() {
         let root = tempfile::tempdir().expect("home");
@@ -2570,24 +2710,100 @@ mod tests {
     #[test]
     fn live_activity_update_labels_track_real_run_progress() {
         assert_eq!(
-            live_update_label(RunKind::Planner, RunStatus::Running, 0),
+            default_live_update_label(RunKind::Planner, RunStatus::Running, 0),
             Some("Building a plan")
         );
         assert_eq!(
-            live_update_label(RunKind::Executor, RunStatus::Running, 0),
+            default_live_update_label(RunKind::Executor, RunStatus::Running, 0),
             Some("Working on the task")
         );
         assert_eq!(
-            live_update_label(RunKind::Executor, RunStatus::Running, 2),
+            default_live_update_label(RunKind::Executor, RunStatus::Running, 2),
             Some("Using tools")
         );
         assert_eq!(
-            live_update_label(RunKind::Reviewer, RunStatus::Running, 0),
+            default_live_update_label(RunKind::Reviewer, RunStatus::Running, 0),
             Some("Checking the result")
         );
         assert_eq!(
-            live_update_label(RunKind::Executor, RunStatus::Completed, 2),
+            default_live_update_label(RunKind::Executor, RunStatus::Completed, 2),
             None
+        );
+    }
+    #[test]
+    fn live_activity_uses_task_commentary_for_the_active_tool() {
+        let items = vec![
+            run_item(
+                1,
+                2,
+                AgentRunItemKind::AssistantOutput,
+                AgentRunItemStatus::Completed,
+                "**Searching Apple documentation for ActivityKit updates.**",
+                json!({}),
+            ),
+            run_item(
+                2,
+                2,
+                AgentRunItemKind::ToolCall,
+                AgentRunItemStatus::Running,
+                "web.search",
+                json!({"arguments": {"query": "ActivityKit updates"}}),
+            ),
+        ];
+
+        assert_eq!(
+            live_transcript_update_label(&items).as_deref(),
+            Some("Searching Apple documentation for ActivityKit updates.")
+        );
+    }
+    #[test]
+    fn live_activity_retains_the_latest_tool_without_commentary() {
+        let items = vec![run_item(
+            1,
+            2,
+            AgentRunItemKind::ToolCall,
+            AgentRunItemStatus::Completed,
+            "web.search",
+            json!({"arguments": {"query": "ActivityKit updates"}}),
+        )];
+
+        assert_eq!(
+            live_transcript_update_label(&items).as_deref(),
+            Some("Searching for “ActivityKit updates”")
+        );
+    }
+    #[test]
+    fn live_activity_uses_the_latest_meaningful_task_line() {
+        let items = vec![
+            run_item(
+                1,
+                0,
+                AgentRunItemKind::ProgressNotice,
+                AgentRunItemStatus::Completed,
+                "Still finding relevant records.",
+                json!({}),
+            ),
+            run_item(
+                2,
+                3,
+                AgentRunItemKind::AssistantOutput,
+                AgentRunItemStatus::Completed,
+                "Comparing the matching records.",
+                json!({}),
+            ),
+            run_item(
+                3,
+                3,
+                AgentRunItemKind::ProgressNotice,
+                AgentRunItemStatus::Completed,
+                "Provider response received.",
+                json!({"phase": "provider_response"}),
+            ),
+        ];
+
+        assert_eq!(
+            live_transcript_update_label(&items).as_deref(),
+            Some("Comparing the matching records.")
         );
     }
     #[test]
