@@ -372,7 +372,7 @@ fn browser_arguments_with_context(
 fn is_session_bound_browser_action(capability_name: &str) -> bool {
     matches!(
         capability_name,
-        "web.browse.navigate" | "web.browse.interact" | "web.browse.history"
+        "web.browse.interact" | "web.browse.history"
     )
 }
 

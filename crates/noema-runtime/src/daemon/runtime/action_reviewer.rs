@@ -92,7 +92,8 @@ pub(crate) fn build_action_reviewer_input(
     action: &noema_store::GovernedActionRecord,
 ) -> Result<String, String> {
     let verified_context = match action.capability_name.as_str() {
-        noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
+        noema_capabilities::web::browse::WEB_BROWSE_OPEN_TOOL
+        | noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
         | noema_capabilities::web::browse::WEB_BROWSE_HISTORY_TOOL => json!({
             "browser_session": {
                 "owner_scope": "execution",

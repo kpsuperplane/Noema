@@ -3,8 +3,8 @@ use crate::WebBrowseError;
 use futures_util::StreamExt;
 use noema_capabilities::web::browse::{
     BrowseCommand, BrowseResponse, WEB_BROWSE_CLOSE_TOOL, WEB_BROWSE_HISTORY_TOOL,
-    WEB_BROWSE_INTERACT_TOOL, WEB_BROWSE_NAVIGATE_TOOL, WEB_BROWSE_OPEN_TOOL,
-    WEB_BROWSE_SNAPSHOT_TOOL, WEB_BROWSE_WAIT_TOOL, parse_command,
+    WEB_BROWSE_INTERACT_TOOL, WEB_BROWSE_OPEN_TOOL, WEB_BROWSE_SNAPSHOT_TOOL, WEB_BROWSE_WAIT_TOOL,
+    parse_command,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -308,9 +308,6 @@ async fn write_frame(
 fn command_parts(command: BrowseCommand) -> (&'static str, Value) {
     match command {
         BrowseCommand::Open(request) => (WEB_BROWSE_OPEN_TOOL, navigation_arguments(request)),
-        BrowseCommand::Navigate(request) => {
-            (WEB_BROWSE_NAVIGATE_TOOL, navigation_arguments(request))
-        }
         BrowseCommand::Snapshot { max_chars } => {
             (WEB_BROWSE_SNAPSHOT_TOOL, json!({"max_chars": max_chars}))
         }
@@ -340,7 +337,6 @@ fn encode_error(error: WebBrowseError) -> &'static str {
     match error {
         WebBrowseError::InvalidUrl => "invalid_url",
         WebBrowseError::BlockedTarget => "blocked_target",
-        WebBrowseError::SessionAlreadyOpen => "session_already_open",
         WebBrowseError::SessionNotFound => "session_not_found",
         WebBrowseError::Capacity => "capacity",
         WebBrowseError::StaleSnapshot => "stale_snapshot",
@@ -356,7 +352,6 @@ fn decode_error(value: &str) -> Result<WebBrowseError, WebBrowseError> {
     match value {
         "invalid_url" => Ok(WebBrowseError::InvalidUrl),
         "blocked_target" => Ok(WebBrowseError::BlockedTarget),
-        "session_already_open" => Ok(WebBrowseError::SessionAlreadyOpen),
         "session_not_found" => Ok(WebBrowseError::SessionNotFound),
         "capacity" => Ok(WebBrowseError::Capacity),
         "stale_snapshot" => Ok(WebBrowseError::StaleSnapshot),

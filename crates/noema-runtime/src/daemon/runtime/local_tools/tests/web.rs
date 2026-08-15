@@ -94,12 +94,13 @@ async fn browser_approval_persists_page_and_target_review_context() {
     turn.turn_id = turn_id;
     turn.user_item_id = item_id;
     turn.initial_model_tools = test_governed_web_browse_model_tools();
+    let owner = super::browse_owner_key_for_turn(&turn);
     actor
         .browser_snapshot_contexts
         .lock()
         .expect("browser snapshot context lock")
         .insert(
-            super::browse_owner_key_for_turn(&turn),
+            owner.clone(),
             crate::daemon::runtime::actor::BrowserSnapshotContext {
                 url: "https://example.com/form".to_string(),
                 title: "Newsletter".to_string(),
@@ -163,6 +164,24 @@ async fn browser_approval_persists_page_and_target_review_context() {
     assert_eq!(
         resolved.failure_code.as_deref(),
         Some("browser_session_unavailable")
+    );
+    for _ in 0..2 {
+        let closed = actor
+            .execute_web_browse_action(
+                owner.clone(),
+                noema_capabilities::web::browse::WEB_BROWSE_CLOSE_TOOL,
+                &json!({}),
+                "test",
+            )
+            .await;
+        assert!(!closed.success);
+    }
+    assert!(
+        !actor
+            .browser_snapshot_contexts
+            .lock()
+            .expect("browser snapshot context lock")
+            .contains_key(&owner)
     );
 }
 

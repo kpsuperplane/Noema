@@ -426,7 +426,9 @@ async fn supervise_claimed_run(
             error,
         );
     }
-    assert_run_settled(&services, &run.run_id).await;
+    if assert_run_settled(&services, &run.run_id).await {
+        reconcile_task_browser_session(&services, &run.task_id, run.task_generation).await;
+    }
     publish_task_changed(&services.subscriptions, &run.task_id);
     reconcile_one(
         &services,
@@ -609,31 +611,83 @@ async fn reconcile_all(services: &TaskRuntimeServices, service: &WorkCommandServ
     }
 }
 
-async fn assert_run_settled(services: &TaskRuntimeServices, run_id: &str) {
+async fn assert_run_settled(services: &TaskRuntimeServices, run_id: &str) -> bool {
     match services.store.get_work_run_record(run_id).await {
-        Ok(Some(run)) if run_is_settled(run.status) => {}
-        Ok(Some(run)) => log_system_error(
-            &services.system_errors,
-            "work_runtime_worker_returned_active",
-            "Work worker returned without reaching a settled status",
-            Some(json!({"run_id": run_id, "status": run.status.as_str()})),
-            "worker returned while its durable run remained active",
-        ),
-        Ok(None) => log_system_error(
-            &services.system_errors,
-            "work_runtime_worker_run_missing",
-            "Work worker returned but its durable run is missing",
-            Some(json!({"run_id": run_id})),
-            "worker run disappeared after execution",
-        ),
-        Err(error) => log_system_error(
-            &services.system_errors,
-            "work_runtime_worker_status_failed",
-            "Work worker status could not be verified after execution",
-            Some(json!({"run_id": run_id})),
-            error,
-        ),
+        Ok(Some(run)) if run_is_settled(run.status) => true,
+        Ok(Some(run)) => {
+            log_system_error(
+                &services.system_errors,
+                "work_runtime_worker_returned_active",
+                "Work worker returned without reaching a settled status",
+                Some(json!({"run_id": run_id, "status": run.status.as_str()})),
+                "worker returned while its durable run remained active",
+            );
+            false
+        }
+        Ok(None) => {
+            log_system_error(
+                &services.system_errors,
+                "work_runtime_worker_run_missing",
+                "Work worker returned but its durable run is missing",
+                Some(json!({"run_id": run_id})),
+                "worker run disappeared after execution",
+            );
+            false
+        }
+        Err(error) => {
+            log_system_error(
+                &services.system_errors,
+                "work_runtime_worker_status_failed",
+                "Work worker status could not be verified after execution",
+                Some(json!({"run_id": run_id})),
+                error,
+            );
+            false
+        }
     }
+}
+
+async fn reconcile_task_browser_session(
+    services: &TaskRuntimeServices,
+    task_id: &noema_tasks::TaskId,
+    task_generation: u64,
+) {
+    let should_close = match services.store.get_work_task(task_id).await {
+        Ok(task) => !task_generation_retains_browser_session(task.as_ref(), task_generation),
+        Err(error) => {
+            log_system_error(
+                &services.system_errors,
+                "work_browser_cleanup_task_read_failed",
+                "Browser cleanup could not read the current task",
+                Some(json!({"task_id": task_id, "task_generation": task_generation})),
+                error,
+            );
+            false
+        }
+    };
+    if should_close
+        && let Err(error) = services
+            .runtime
+            .close_task_browser_session(task_id.to_string(), task_generation)
+            .await
+    {
+        log_system_error(
+            &services.system_errors,
+            "work_browser_cleanup_failed",
+            "Browser cleanup failed after the task generation ended",
+            Some(json!({"task_id": task_id, "task_generation": task_generation})),
+            error,
+        );
+    }
+}
+
+fn task_generation_retains_browser_session(
+    task: Option<&noema_store::WorkTaskDetail>,
+    generation: u64,
+) -> bool {
+    task.is_some_and(|detail| {
+        detail.task.generation == generation && !detail.stage.system_behavior.is_terminal()
+    })
 }
 
 fn run_is_settled(status: RunStatus) -> bool {

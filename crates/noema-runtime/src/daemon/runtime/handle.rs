@@ -460,6 +460,19 @@ impl RuntimeHandle {
         .await
     }
 
+    pub(crate) async fn close_task_browser_session(
+        &self,
+        task_id: String,
+        task_generation: u64,
+    ) -> Result<(), RuntimeError> {
+        self.request(|reply| RuntimeCommand::CloseTaskBrowserSession {
+            task_id,
+            task_generation,
+            reply,
+        })
+        .await
+    }
+
     /// Ask the primary agent to narrate one completed capability setup.
     ///
     /// # Errors
@@ -640,6 +653,11 @@ pub(super) enum RuntimeCommand {
     BackgroundTask {
         request: super::BackgroundTaskGenerateRequest,
         reply: oneshot::Sender<Result<super::BackgroundTaskGenerateResult, RuntimeError>>,
+    },
+    CloseTaskBrowserSession {
+        task_id: String,
+        task_generation: u64,
+        reply: oneshot::Sender<Result<(), RuntimeError>>,
     },
     DeliverWorkNotification {
         notification: noema_store::ClaimedWorkNotification,

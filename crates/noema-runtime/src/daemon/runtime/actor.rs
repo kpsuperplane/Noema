@@ -433,6 +433,20 @@ impl RuntimeActor {
                         let _ = reply.send(result);
                     });
                 }
+                RuntimeCommand::CloseTaskBrowserSession {
+                    task_id,
+                    task_generation,
+                    reply,
+                } => {
+                    let owner =
+                        super::local_tools::browse_owner_key_for_task(&task_id, task_generation);
+                    let result = self
+                        .close_browser_session(&owner)
+                        .await
+                        .map(|_| ())
+                        .map_err(RuntimeError::Protocol);
+                    let _ = reply.send(result);
+                }
                 RuntimeCommand::DeliverWorkNotification {
                     notification,
                     conversation_id,

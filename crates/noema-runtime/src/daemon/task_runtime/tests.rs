@@ -26,7 +26,7 @@ use super::{
     ClaimRenewalEvidence, MAX_CONCURRENT_TASK_RUNS, PERSONAL_WORKSPACE_ID, TaskRuntimeHandle,
     TaskRuntimeServices, claim_renewal_event,
     notifications::{fail_notification, notification_work_event},
-    reconcile_all,
+    reconcile_all, task_generation_retains_browser_session,
 };
 use crate::daemon::{RuntimeError, RuntimeEventRegistry, RuntimeHandle, WorkRuntimeEvent};
 
@@ -56,6 +56,70 @@ fn delayed_claim_renewal_records_the_required_timing_and_phase() {
     assert_eq!(event.context["shutdown_requested"], false);
     assert_eq!(event.context["run_cancellation_requested"], false);
     assert_eq!(event.context["active_phase"], "initial");
+}
+
+#[tokio::test]
+async fn browser_cleanup_follows_current_task_generation_and_terminal_state() {
+    let store = crate::test_support::test_store().await;
+    let (task, _) = crate::test_support::seed_task(&store, "Browser cleanup policy").await;
+    let active = store
+        .get_work_task(&task.task_id)
+        .await
+        .expect("load task")
+        .expect("task detail");
+    let generation = active.task.generation;
+    let mut completed = active.clone();
+    completed.stage.system_behavior = noema_tasks::WorkflowStageBehavior::TerminalSuccess;
+    let mut cancelled = active.clone();
+    cancelled.stage.system_behavior = noema_tasks::WorkflowStageBehavior::TerminalCancelled;
+    let mut changed = active.clone();
+    changed.task.generation += 1;
+
+    assert!(task_generation_retains_browser_session(
+        Some(&active),
+        generation
+    ));
+    assert!(!task_generation_retains_browser_session(
+        Some(&completed),
+        generation
+    ));
+    assert!(!task_generation_retains_browser_session(
+        Some(&cancelled),
+        generation
+    ));
+    assert!(!task_generation_retains_browser_session(
+        Some(&changed),
+        generation
+    ));
+    assert!(!task_generation_retains_browser_session(None, generation));
+}
+
+#[tokio::test]
+async fn approval_continuation_retains_browser_session_for_same_generation() {
+    let store = crate::test_support::test_store().await;
+    let (task, _) = crate::test_support::seed_task(&store, "Browser approval").await;
+    let mut parent = store
+        .get_work_task(&task.task_id)
+        .await
+        .expect("load task")
+        .expect("task detail");
+    parent.task.active_gate_id =
+        Some(noema_tasks::TaskGateId::new("gate:browser-approval".to_string()).expect("gate id"));
+    parent.stage.system_behavior = noema_tasks::WorkflowStageBehavior::HumanGate;
+    let generation = parent.task.generation;
+    let mut child = parent.clone();
+    child.task.active_gate_id = None;
+    child.task.latest_run_id = Some("run:approval-child".to_string());
+    child.stage.system_behavior = noema_tasks::WorkflowStageBehavior::Active;
+
+    assert!(task_generation_retains_browser_session(
+        Some(&parent),
+        generation
+    ));
+    assert!(task_generation_retains_browser_session(
+        Some(&child),
+        generation
+    ));
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

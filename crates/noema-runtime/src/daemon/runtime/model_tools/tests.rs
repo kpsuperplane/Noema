@@ -510,7 +510,6 @@ async fn complete_catalog_is_stable_for_native_transport() {
                 "web.search",
                 "web.fetch",
                 "web.browse.open",
-                "web.browse.navigate",
                 "web.browse.snapshot",
                 "web.browse.interact",
                 "web.browse.wait",

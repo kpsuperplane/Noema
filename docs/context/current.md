@@ -128,8 +128,10 @@ vertical slice or a net-negative reduction.
   [../frontend/pwa.md](../frontend/pwa.md).
 - The Tauri app defaults to its embedded host and can pair with one remote
   HTTPS server. Rust owns its bearer, transport, recovery, and local return.
-- Each interactive browser session runs in a bounded child process. A browser
-  worker crash ends its session without stopping Noema.
+- `web.browse.open` creates or reuses one ephemeral session for its execution
+  owner. Work ownership is the task ID plus generation.
+- Each browser session runs in a bounded child process. A worker crash ends its
+  session without stopping Noema. Settled runs close ended task generations.
 - The iOS client stores normalized GraphQL reads in a protected per-client
   SQLite cache. It clears the active cache during unpair and never queues
   offline writes.

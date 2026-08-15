@@ -95,38 +95,50 @@ impl ObscuraBrowseBackend {
         command: BrowseCommand,
     ) -> Result<BrowseResponse, WebBrowseError> {
         let owner_key = owner.as_str().to_string();
-        let capacity = self
-            .inner
-            .capacity
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| WebBrowseError::Capacity)?;
-        let generation = self.inner.next_generation.fetch_add(1, Ordering::Relaxed);
-        let worker = spawn_worker(self.inner.launch.clone(), generation)?;
-        {
+        let (generation, worker, created) = {
             let mut sessions = self.inner.sessions.lock().await;
             remove_expired(&mut sessions, Instant::now());
-            if sessions.contains_key(&owner_key) {
-                return Err(WebBrowseError::SessionAlreadyOpen);
+            if let Some(session) = sessions.get(&owner_key) {
+                (session.generation, session.worker.clone(), false)
+            } else {
+                let capacity = self
+                    .inner
+                    .capacity
+                    .clone()
+                    .try_acquire_owned()
+                    .map_err(|_| WebBrowseError::Capacity)?;
+                let generation = self.inner.next_generation.fetch_add(1, Ordering::Relaxed);
+                let worker = spawn_worker(self.inner.launch.clone(), generation)?;
+                sessions.insert(
+                    owner_key.clone(),
+                    Session {
+                        generation,
+                        deadline: Instant::now() + IDLE_TIMEOUT,
+                        worker: worker.clone(),
+                        _capacity: capacity,
+                    },
+                );
+                (generation, worker, true)
             }
-            sessions.insert(
-                owner_key.clone(),
-                Session {
-                    generation,
-                    deadline: Instant::now() + IDLE_TIMEOUT,
-                    worker: worker.clone(),
-                    _capacity: capacity,
-                },
-            );
-        }
+        };
         self.inner.changed.notify_one();
-        match dispatch(&worker, command).await {
+        match dispatch(&worker, command, !created).await {
             Ok(response) => {
                 self.refresh(&owner_key, generation).await;
                 Ok(response)
             }
             Err(error) => {
-                self.remove(&owner_key, generation).await;
+                if created
+                    || matches!(
+                        error,
+                        WebBrowseError::BlockedTarget
+                            | WebBrowseError::Unavailable
+                            | WebBrowseError::OutcomeUncertain
+                    )
+                    || !worker.is_alive()
+                {
+                    self.remove(&owner_key, generation).await;
+                }
                 Err(error)
             }
         }
@@ -146,7 +158,11 @@ impl ObscuraBrowseBackend {
                 .ok_or(WebBrowseError::SessionNotFound)?;
             (session.generation, session.worker.clone())
         };
-        let result = dispatch(&worker, command).await;
+        let outcome_uncertain = matches!(
+            command,
+            BrowseCommand::Interact(_) | BrowseCommand::History(_)
+        );
+        let result = dispatch(&worker, command, outcome_uncertain).await;
         if result.is_ok() {
             self.refresh(&owner_key, generation).await;
         } else if matches!(
@@ -168,15 +184,21 @@ impl ObscuraBrowseBackend {
     }
 
     async fn close(&self, owner: &WebBrowseOwner) -> Result<BrowseResponse, WebBrowseError> {
-        let session = self
+        if self
             .inner
             .sessions
             .lock()
             .await
             .remove(owner.as_str())
-            .ok_or(WebBrowseError::SessionNotFound)?;
-        self.inner.changed.notify_one();
-        dispatch(&session.worker, BrowseCommand::Close).await
+            .is_some()
+        {
+            self.inner.changed.notify_one();
+        }
+        Ok(BrowseResponse {
+            provider: crate::OBSCURA_BROWSER_PROVIDER_ID.to_string(),
+            state: "closed".to_string(),
+            snapshot: None,
+        })
     }
 
     async fn refresh(&self, owner: &str, generation: u64) {
@@ -239,11 +261,8 @@ fn remove_expired(sessions: &mut HashMap<String, Session>, now: Instant) {
 async fn dispatch(
     worker: &WorkerHandle,
     command: BrowseCommand,
+    outcome_uncertain: bool,
 ) -> Result<BrowseResponse, WebBrowseError> {
-    let outcome_uncertain = matches!(
-        command,
-        BrowseCommand::Navigate(_) | BrowseCommand::Interact(_) | BrowseCommand::History(_)
-    );
     let (response, receiver) = oneshot::channel();
     worker
         .sender()
@@ -285,7 +304,7 @@ impl WorkerState {
             self.validate_resulting_url().await?;
         }
         match command {
-            BrowseCommand::Open(request) | BrowseCommand::Navigate(request) => {
+            BrowseCommand::Open(request) => {
                 self.navigate(&request.url, request.wait_until).await?;
                 self.snapshot(noema_capabilities::web::browse::DEFAULT_SNAPSHOT_CHARS)
             }
@@ -646,6 +665,55 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn concurrent_same_owner_opens_reuse_one_worker_at_capacity_one() {
+        let script = r#"printf '{"version":1,"ready":true}\n'; while read -r request; do case "$request" in *one.example*) url='https://one.example/' ;; *two.example*) url='https://two.example/' ;; *invalid.example*) printf '{"version":1,"error":"invalid_url"}\n'; continue ;; *) exit 2 ;; esac; printf '{"version":1,"response":{"provider":"obscura","state":"open","snapshot":{"url":"%s","title":"","text":"","snapshot_revision":1,"elements":[],"truncated":false}}}\n' "$url"; done"#;
+        let backend = ObscuraBrowseBackend::with_launch(
+            1,
+            WorkerLaunch::command(
+                PathBuf::from("/bin/sh"),
+                vec!["-c".to_string(), script.to_string()],
+            ),
+        );
+        let owner = WebBrowseOwner::new("task:shared:1");
+        let open = |url: &str| {
+            backend.execute(
+                &owner,
+                BrowseCommand::Open(BrowseNavigationRequest {
+                    url: url.to_string(),
+                    reason: None,
+                    wait_until: BrowseWaitUntil::Load,
+                }),
+            )
+        };
+
+        let (first, second) =
+            tokio::join!(open("https://one.example"), open("https://two.example"));
+
+        assert_eq!(
+            first
+                .expect("first open")
+                .snapshot
+                .expect("first snapshot")
+                .url,
+            "https://one.example/"
+        );
+        assert_eq!(
+            second
+                .expect("second open")
+                .snapshot
+                .expect("second snapshot")
+                .url,
+            "https://two.example/"
+        );
+        assert_eq!(
+            open("https://invalid.example").await,
+            Err(WebBrowseError::InvalidUrl)
+        );
+        assert!(backend.has_session(&owner).await);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn worker_crash_is_contained_and_removes_the_session() {
         let script = r#"printf '{"version":1,"ready":true}\n'; read -r _request; printf '{"version":1,"response":{"provider":"obscura","state":"open"}}\n'; read -r _request; exit 133"#;
         let backend = ObscuraBrowseBackend::with_launch(
@@ -666,12 +734,20 @@ mod tests {
             .await
             .expect("fake worker opens");
         assert_eq!(
-            backend
-                .execute(&owner, BrowseCommand::Navigate(request))
-                .await,
+            backend.execute(&owner, BrowseCommand::Open(request)).await,
             Err(WebBrowseError::OutcomeUncertain)
         );
         assert!(!backend.has_session(&owner).await);
+        for _ in 0..2 {
+            assert_eq!(
+                backend.execute(&owner, BrowseCommand::Close).await,
+                Ok(BrowseResponse {
+                    provider: crate::OBSCURA_BROWSER_PROVIDER_ID.to_string(),
+                    state: "closed".to_string(),
+                    snapshot: None,
+                })
+            );
+        }
     }
 
     #[cfg(target_os = "linux")]

@@ -124,13 +124,18 @@ impl RuntimeActor {
         arguments: &Value,
         source: &str,
     ) -> CapabilityOutput {
-        match self
-            .execute_web_browse(WebBrowseOwner::new(owner_key.clone()), name, arguments)
-            .await
-        {
+        let result = if name == noema_capabilities::web::browse::WEB_BROWSE_CLOSE_TOOL {
+            self.close_browser_session(&owner_key).await
+        } else {
+            self.execute_web_browse(WebBrowseOwner::new(owner_key.clone()), name, arguments)
+                .await
+        };
+        match result {
             Ok(payload) => {
                 self.record_browser_urls(source, &payload).await;
-                self.remember_browser_snapshot(&owner_key, name, &payload);
+                if name != noema_capabilities::web::browse::WEB_BROWSE_CLOSE_TOOL {
+                    self.remember_browser_snapshot(&owner_key, &payload);
+                }
                 CapabilityOutput::success(payload)
             }
             Err(message) => CapabilityOutput::failed(json!({"error": message})),

@@ -35,9 +35,6 @@ pub enum WebBrowseError {
     /// The URL targets a private, local, or otherwise blocked address.
     #[error("blocked private or local target")]
     BlockedTarget,
-    /// This execution already owns an active browser session.
-    #[error("this execution already has an active browser session")]
-    SessionAlreadyOpen,
     /// This execution has no active browser session.
     #[error("this execution has no active browser session")]
     SessionNotFound,

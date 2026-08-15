@@ -6,8 +6,8 @@ remain separate capabilities with their existing defaults.
 
 ## Model contract
 
-The stable tools are `open`, `navigate`, `snapshot`, `interact`, `wait`,
-`history`, and `close` under `web.browse.*`. Browser session identifiers,
+The stable tools are `open`, `snapshot`, `interact`, `wait`, `history`, and
+`close` under `web.browse.*`. Browser session identifiers,
 selectors, JavaScript, cookies, storage, response bodies, and network state are
 not model-visible. Snapshots expose bounded untrusted page text and bounded
 element references. An interaction or history operation must present the latest
@@ -20,15 +20,22 @@ session when the interaction is complete.
 
 ## Session authority and lifetime
 
+- `open` creates the owner's session or reuses its current session for a new
+  public URL. A reused session keeps its ephemeral cookies and storage.
 - One browser session may be open for an execution owner. Foreground ownership
-  is the opening turn; Work ownership is task ID plus task generation so an
-  approval continuation retains authority without granting a later generation
-  access.
+  is the opening turn. Work ownership is the task ID plus task generation.
+- A Work session remains open while the same task generation is nonterminal.
+  This rule includes human gates and approval continuations.
+- After a run settles, Noema reads the task before reconciliation. It closes the
+  session when the task is missing, terminal, or has a new generation.
+- If this task read fails, Noema retains the session and logs the failure.
 - Noema admits the configured number of sessions. The default is two, and the
   valid range is one through eight. One re-armable task waits for the earliest
   deadline; it does not poll.
 - Successful activity extends the 15-minute idle deadline. Explicit close,
-  expiry, and daemon shutdown drop the page, context, cookies, and storage.
+  task-generation closure, expiry, and daemon shutdown destroy session data.
+- `close` is idempotent. It clears the cached snapshot context even when no
+  browser session exists.
 - Each Obscura session runs in a child process. A private, versioned JSON-line
   protocol limits each frame to 2 MiB.
 - Each worker has a configured V8 old-space limit. The default is 1024 MiB, and
@@ -39,7 +46,7 @@ session when the interaction is complete.
 
 ## Network and execution security
 
-Explicit navigation uses Noema's shared public-HTTP(S), DNS, and SSRF policy.
+Every `open` uses Noema's shared public-HTTP(S), DNS, and SSRF policy.
 Credentials, fragments, local targets, private addresses, and DNS answers that
 include a non-public address are rejected. Obscura's private-network access
 remains disabled for redirects, subresources, and page-initiated requests.
@@ -58,11 +65,11 @@ contains failures, but it is not a sandbox for hostile native code.
 
 ## Governance and persistence
 
-`open` and `navigate` follow governed external-read policy. `interact` and
-`history` are non-idempotent open-world actions and use LLM/human review.
+`open` follows governed external-read policy. `interact` and `history` are
+non-idempotent open-world actions and use LLM/human review.
 `snapshot`, `wait`, and `close` execute immediately after ownership checks.
 Ownership and revision are revalidated after approval. Worker loss after a
-mutating dispatch is recorded as an uncertain outcome and is never replayed.
+reused `open` or mutating dispatch has an uncertain outcome and is never replayed.
 Each reviewed interaction durably retains bounded page URL/title and target
 reference/role/name context beside its exact arguments. That page-authored
 context is descriptive, untrusted evidence rather than authorization. Human

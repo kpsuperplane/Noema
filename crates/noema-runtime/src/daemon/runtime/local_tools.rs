@@ -47,7 +47,7 @@ use crate::daemon::{
 use crate::search::tool::is_web_search_tool;
 use crate::web_fetch::tool::is_web_fetch_tool;
 use crate::{WebBackendRequest, WebBackendResolverError};
-use noema_capabilities::web::browse::parse_command;
+use noema_capabilities::web::browse::{BrowseCommand, parse_command};
 use noema_capabilities::web::fetch::WEB_FETCH_TOOL;
 use noema_providers::{
     DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID, WebBrowseBackendHandle, WebBrowseOwner,
@@ -821,15 +821,27 @@ impl RuntimeActor {
             .map_err(|error| error.to_string())
     }
 
-    pub(super) fn remember_browser_snapshot(&self, owner: &str, tool_name: &str, payload: &Value) {
+    pub(super) async fn close_browser_session(&self, owner_key: &str) -> Result<Value, String> {
+        self.browser_snapshot_contexts
+            .lock()
+            .expect("browser snapshot context lock")
+            .remove(owner_key);
+        let provider = self.web_browse_runtime_provider_resolution().await?;
+        provider
+            .execute(&WebBrowseOwner::new(owner_key), BrowseCommand::Close)
+            .await
+            .and_then(|response| {
+                serde_json::to_value(response)
+                    .map_err(|_| noema_providers::WebBrowseError::Unavailable)
+            })
+            .map_err(|error| error.to_string())
+    }
+
+    pub(super) fn remember_browser_snapshot(&self, owner: &str, payload: &Value) {
         let mut contexts = self
             .browser_snapshot_contexts
             .lock()
             .expect("browser snapshot context lock");
-        if tool_name == noema_capabilities::web::browse::WEB_BROWSE_CLOSE_TOOL {
-            contexts.remove(owner);
-            return;
-        }
         let Ok(response) = serde_json::from_value::<noema_capabilities::web::browse::BrowseResponse>(
             payload.clone(),
         ) else {
@@ -856,9 +868,13 @@ impl RuntimeActor {
 
 pub(super) fn browse_owner_key_for_turn(turn: &SuccessfulProviderTurn) -> String {
     match (&turn.task_id, &turn.task_run_fence) {
-        (Some(task_id), Some(fence)) => format!("task:{task_id}:{}", fence.task_generation),
+        (Some(task_id), Some(fence)) => browse_owner_key_for_task(task_id, fence.task_generation),
         _ => format!("turn:{}", turn.turn_id),
     }
+}
+
+pub(super) fn browse_owner_key_for_task(task_id: &str, generation: u64) -> String {
+    format!("task:{task_id}:{generation}")
 }
 
 pub(super) fn browse_owner_key_for_action(
@@ -871,7 +887,7 @@ pub(super) fn browse_owner_key_for_action(
             .get("task_generation")
             .and_then(Value::as_u64),
     ) {
-        return Some(format!("task:{task_id}:{generation}"));
+        return Some(browse_owner_key_for_task(task_id, generation));
     }
     action
         .turn_id

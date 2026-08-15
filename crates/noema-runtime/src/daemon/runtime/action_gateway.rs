@@ -275,18 +275,13 @@ async fn observed_read_arguments(
             arguments["reason"] = serde_json::Value::String(reason);
         }
         (url, arguments)
-    } else if matches!(
-        capability_name,
-        noema_capabilities::web::browse::WEB_BROWSE_OPEN_TOOL
-            | noema_capabilities::web::browse::WEB_BROWSE_NAVIGATE_TOOL
-    ) {
+    } else if capability_name == noema_capabilities::web::browse::WEB_BROWSE_OPEN_TOOL {
         let Ok(command) = noema_capabilities::web::browse::parse_command(capability_name, payload)
         else {
             return Ok(None);
         };
         let request = match command {
-            noema_capabilities::web::browse::BrowseCommand::Open(request)
-            | noema_capabilities::web::browse::BrowseCommand::Navigate(request) => request,
+            noema_capabilities::web::browse::BrowseCommand::Open(request) => request,
             _ => return Ok(None),
         };
         let url = request.url.clone();

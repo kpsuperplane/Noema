@@ -634,8 +634,7 @@ impl RuntimeActor {
 fn is_session_bound_browser_action(action: &GovernedActionRecord) -> bool {
     matches!(
         action.capability_name.as_str(),
-        noema_capabilities::web::browse::WEB_BROWSE_NAVIGATE_TOOL
-            | noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
+        noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
             | noema_capabilities::web::browse::WEB_BROWSE_HISTORY_TOOL
     )
 }
