@@ -200,6 +200,31 @@ a[href][data-slot="shell-sidebar-control"] {
   transform: translateY(1px);
 }
 
+.noema-assistant-markdown
+  .astryx-list[data-list-style="decimal"]
+  > .astryx-list-item
+  > span:first-child {
+  display: inline-flex;
+  width: var(--spacing-5);
+  height: var(--spacing-5);
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background-color: color-mix(in srgb, var(--color-accent) 6%, transparent);
+  color: color-mix(in srgb, var(--color-accent) 72%, transparent);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  transform: translateY(1px);
+}
+
+.noema-assistant-markdown
+  .astryx-list[data-list-style="decimal"]
+  > .astryx-list-item
+  > span:first-child::before {
+  content: counter(astryx-list);
+}
+
 .astryx-date-input,
 .astryx-date-range-input,
 .astryx-date-time-input,
