@@ -249,7 +249,6 @@ struct TasksTranscriptSection: View {
   let submission: TasksSubmissionSnapshot?
   let loadMore: () -> Void
   let onArtifact: (TasksArtifactSnapshot) -> Void
-  @State private var expandedRunItemIDs: Set<String> = []
 
   private enum Event: Identifiable {
     case request(String)
@@ -370,33 +369,7 @@ struct TasksTranscriptSection: View {
   }
 
   private func toolActivityRow(_ item: TasksRunItemSnapshot, result: TasksRunItemSnapshot?) -> some View {
-    let expanded = expandedRunItemIDs.contains(item.id)
-    return VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-      Button {
-        if expanded { expandedRunItemIDs.remove(item.id) } else { expandedRunItemIDs.insert(item.id) }
-      } label: {
-        HStack(spacing: NoemaSpacing.xs) {
-          runItemStatusIcon(result?.status ?? item.status)
-          Text(item.content?.nilIfBlank ?? "Tool activity")
-            .font(NoemaFont.mono)
-            .foregroundStyle(NoemaColor.contentSecondary)
-            .lineLimit(1)
-          Spacer(minLength: NoemaSpacing.xs)
-          Image(systemName: "chevron.down")
-            .font(NoemaFont.metadata.weight(.semibold))
-            .foregroundStyle(NoemaColor.contentTertiary)
-            .rotationEffect(.degrees(expanded ? 180 : 0))
-        }
-      }
-      .buttonStyle(.plain)
-      if expanded {
-        Text(toolDetails(item, result: result))
-          .font(NoemaFont.monoTiny)
-          .foregroundStyle(NoemaColor.contentSecondary)
-          .textSelection(.enabled)
-          .padding(.leading, NoemaSpacing.xxl)
-      }
-    }
+    ToolMarkerView(client: nil, messages: toolMessages(item, result: result))
   }
 
   private func matchingToolResult(for item: TasksRunItemSnapshot) -> TasksRunItemSnapshot? {
@@ -427,13 +400,62 @@ struct TasksTranscriptSection: View {
     return runItems.first { $0.kind.uppercased() == "TOOL_CALL" && $0.correlationId == correlation }
   }
 
-  private func toolDetails(_ item: TasksRunItemSnapshot, result: TasksRunItemSnapshot?) -> String {
-    var details = [item.payloadText]
-    if let result {
-      if let content = result.content?.nilIfBlank { details.append(content) }
-      details.append(result.payloadText)
+  private func toolMessages(_ item: TasksRunItemSnapshot, result: TasksRunItemSnapshot?) -> [ChatMessage] {
+    var messages = [toolMessage(item)]
+    if let result { messages.append(toolMessage(result)) }
+    return messages
+  }
+
+  private func toolMessage(_ item: TasksRunItemSnapshot) -> ChatMessage {
+    let isResult = item.kind.uppercased() == "TOOL_RESULT"
+    let payload = taskToolPayload(item.payloadText)
+    let name = item.content?.nilIfBlank ?? "Tool activity"
+    var action: [String: Any] = ["name": name]
+    if let correlationID = item.correlationId?.nilIfBlank {
+      action["correlation_id"] = correlationID
     }
-    return details.filter { $0 != "null" && !$0.isEmpty }.joined(separator: "\n\n")
+    if isResult {
+      if let correlationID = item.correlationId?.nilIfBlank {
+        action["call_id"] = correlationID
+      }
+      action["payload"] = payload["payload"] ?? payload
+      action["success"] = item.status.uppercased() != "FAILED"
+    } else {
+      if let correlationID = item.correlationId?.nilIfBlank {
+        action["id"] = correlationID
+      }
+      action["arguments"] = payload["arguments"] ?? payload
+    }
+    let metadata: [String: Any] = [
+      "action": action,
+      "display": ["name": name]
+    ]
+    return ChatMessage(
+      id: item.id,
+      kind: .activity(
+        title: name,
+        summary: name,
+        status: taskToolStatus(item.status),
+        metadata: prettyJSON(metadata) ?? "{}",
+        activityKind: isResult ? "TOOL_RESULT" : "TOOL_CALL"
+      )
+    )
+  }
+
+  private func taskToolPayload(_ text: String) -> [String: Any] {
+    guard text != "null",
+          let data = text.data(using: .utf8),
+          let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return [:] }
+    return payload
+  }
+
+  private func taskToolStatus(_ status: String) -> String {
+    switch status.uppercased() {
+    case "FAILED": "FAILED"
+    case "STARTED", "RUNNING", "QUEUED", "ACTIVE": "STARTED"
+    default: "COMPLETED"
+    }
   }
 
   private func runItemTitle(_ kind: String) -> String {
