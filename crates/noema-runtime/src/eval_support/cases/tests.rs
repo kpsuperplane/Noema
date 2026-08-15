@@ -6,7 +6,7 @@ use crate::eval_support::{RuntimeEvalRole, runtime_eval_case_descriptors_for_rol
 #[test]
 fn onboarding_case_requires_the_name_tool_for_an_unnamed_agent() {
     let cases = evaluation_cases("local-model").expect("cases");
-    assert_eq!(cases.len(), 30, "qualification request contract changed");
+    assert_eq!(cases.len(), 31, "qualification request contract changed");
     let request = &cases
         .iter()
         .find(|case| case.id == "agent_onboarding_name")
@@ -139,7 +139,7 @@ fn suite_assigns_every_case_to_one_of_the_nine_model_settings() {
 fn role_subset_runs_shared_protocol_cases_once() {
     let cases = evaluation_cases_for_roles("local-model", &[RuntimeEvalRole::ActionReviewer], None)
         .expect("action reviewer cases");
-    assert_eq!(cases.len(), 5);
+    assert_eq!(cases.len(), 6);
     assert_eq!(
         cases
             .iter()
@@ -152,7 +152,20 @@ fn role_subset_runs_shared_protocol_cases_once() {
             .iter()
             .filter(|case| case.role == RuntimeEvalRole::ActionReviewer)
             .count(),
-        1
+        2
+    );
+
+    let browser_case = cases
+        .iter()
+        .find(|case| case.id == "action_reviewer_browser_consent_rejection")
+        .expect("browser consent review case");
+    let GenerateInput::Text(input) = &browser_case.request.input else {
+        panic!("action reviewer case should use text input");
+    };
+    let input: serde_json::Value = serde_json::from_str(input).expect("reviewer input JSON");
+    assert_eq!(
+        input["verified_context"]["browser_session"]["storage_lifetime"],
+        "session_only"
     );
 }
 

@@ -67,7 +67,9 @@ Each reviewed interaction durably retains bounded page URL/title and target
 reference/role/name context beside its exact arguments. That page-authored
 context is descriptive, untrusted evidence rather than authorization. Human
 review surfaces show it with the reviewer's authorization, risk, reason codes,
-and explanation. A session-bound approval is superseded with
+and explanation. The reviewer also receives trusted runtime facts that state
+the session ownership and storage lifetime. These facts can constrain scope,
+but they cannot create human authority. A session-bound approval is superseded with
 `browser_session_unavailable` when recovery or approval-time revalidation finds
 that its execution-owned browser session no longer exists.
 

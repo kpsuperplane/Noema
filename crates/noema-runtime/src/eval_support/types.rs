@@ -155,7 +155,7 @@ pub(super) enum EvalExpectation {
     ProgressAuditFinalize,
     WebSummary,
     ContextCompaction,
-    ActionReviewer,
+    ActionReviewer(&'static str, &'static str),
     MemoryConsolidation,
 }
 

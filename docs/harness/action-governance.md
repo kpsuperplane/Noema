@@ -176,6 +176,21 @@ by itself. This is semantic judgment, not a claim that Noema can trace
 paraphrased content to its source. Noema composes the final recommendation
 from the two classifications after the reviewer returns.
 
+Authorization uses these meanings:
+
+- `explicit` means that the human directly requested the action.
+- `substantive` means that the requested result clearly covers the action.
+- `weak` means that the action is a necessary implementation step, but the
+  human did not directly state it.
+- `absent` means that the action is unrelated, conflicts with the request, or
+  makes an independent choice or commitment.
+
+Trusted runtime facts can establish an action's scope and persistence. They do
+not create human authority. For example, rejecting optional cookies can have
+weak authorization when it only clears an obstacle in an execution-local,
+ephemeral browser session. Accepting optional tracking or terms is an
+independent choice unless the authenticated human request covers it.
+
 The audit record stores the reviewer model, prompt-policy version, action ID and
 revision, structured verdict, authority references, and verified structured
 evidence. It excludes secrets. Private payload or transcript content stays in
