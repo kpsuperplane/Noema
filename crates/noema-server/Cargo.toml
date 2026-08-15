@@ -26,6 +26,8 @@ noema-artifacts = { path = "../noema-artifacts", default-features = false }
 noema-api = { path = "../noema-api", default-features = false }
 noema-host = { path = "../noema-host", default-features = false, features = ["composition"] }
 noema-store = { path = "../noema-store", default-features = false }
+# Keep WebAuthn OpenSSL separate from Obscura's bundled BoringSSL archives.
+openssl.workspace = true
 ring.workspace = true
 rmcp = { workspace = true, features = ["macros", "server", "transport-io"] }
 serde.workspace = true

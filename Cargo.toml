@@ -48,6 +48,7 @@ http = "1"
 libc = "0.2"
 mlua = { version = "0.12", default-features = false, features = ["luau", "vendored"] }
 oauth2 = { version = "5", default-features = false }
+openssl = { version = "0.10", features = ["vendored"] }
 obscura-browser = { git = "https://github.com/h4ckf0r0day/obscura.git", rev = "97124edeb2ea610615e78f43e097454e3b221f6b" }
 obscura-js = { git = "https://github.com/h4ckf0r0day/obscura.git", rev = "97124edeb2ea610615e78f43e097454e3b221f6b" }
 openapiv3 = "2.2"
