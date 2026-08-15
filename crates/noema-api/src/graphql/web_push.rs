@@ -1938,9 +1938,7 @@ fn default_live_update_label(
     tool_call_count: u32,
 ) -> Option<&'static str> {
     match (status, kind, tool_call_count) {
-        (RunStatus::Running, RunKind::Planner, _) => Some("Building a plan"),
         (RunStatus::Running, RunKind::Executor, 1..) => Some("Using tools"),
-        (RunStatus::Running, RunKind::Executor, _) => Some("Working on the task"),
         (RunStatus::Running, RunKind::Reviewer, _) => Some("Checking the result"),
         (RunStatus::Leased, _, _) => Some("Starting the agent"),
         (RunStatus::Queued, _, _) => Some("Waiting to start"),
@@ -2711,11 +2709,11 @@ mod tests {
     fn live_activity_update_labels_track_real_run_progress() {
         assert_eq!(
             default_live_update_label(RunKind::Planner, RunStatus::Running, 0),
-            Some("Building a plan")
+            None
         );
         assert_eq!(
             default_live_update_label(RunKind::Executor, RunStatus::Running, 0),
-            Some("Working on the task")
+            None
         );
         assert_eq!(
             default_live_update_label(RunKind::Executor, RunStatus::Running, 2),

@@ -81,7 +81,9 @@ struct TaskProgressRail: View {
       return "Task complete. \(completedDetail)."
     }
     let nextSteps = step == 1 ? "Review and Done" : "Done"
-    return "Task progress: Started, \(stationTitle) now, then \(nextSteps). \(activeDetail)."
+    let progress = "Task progress: Started, \(stationTitle) now, then \(nextSteps)."
+    guard let activeDetail else { return progress }
+    return "\(progress) \(activeDetail)."
   }
 
   private var stationTitle: String {
@@ -94,8 +96,8 @@ struct TaskProgressRail: View {
     }
   }
 
-  private var activeDetail: String {
-    state.updateLabel ?? state.statusLabel
+  private var activeDetail: String? {
+    state.updateLabel
   }
 
   private var completedDetail: String {
@@ -156,16 +158,18 @@ private struct CurrentRailStation: View {
           .font(NoemaActivityFont.rowTitle)
           .foregroundStyle(appearance.primary)
           .lineLimit(1)
-        HStack(spacing: 3) {
-          Text(detail)
-            .lineLimit(1)
-          if showsUpdateAge, let updateAtEpoch = state.updateAtEpoch {
-            Text("·")
-            UpdateAge(epoch: updateAtEpoch)
+        if let detail {
+          HStack(spacing: 3) {
+            Text(detail)
+              .lineLimit(1)
+            if showsUpdateAge, let updateAtEpoch = state.updateAtEpoch {
+              Text("·")
+              UpdateAge(epoch: updateAtEpoch)
+            }
           }
+          .font(NoemaActivityFont.medium)
+          .foregroundStyle(appearance.secondary)
         }
-        .font(NoemaActivityFont.medium)
-        .foregroundStyle(appearance.secondary)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -230,13 +234,13 @@ private struct CurrentRailStation: View {
     }
   }
 
-  private var detail: String {
+  private var detail: String? {
     if state.phase == .completed, let count = state.completedOutputCount, count > 0 {
       return count == 1 ? "1 output" : "\(count) outputs"
     }
     if state.phase == .completed { return "Task complete" }
     if state.phase == .cancelled { return "Task ended" }
-    return state.updateLabel ?? state.statusLabel
+    return state.updateLabel
   }
 
   private var showsUpdateAge: Bool {
