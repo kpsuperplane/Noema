@@ -13,7 +13,7 @@
 Noema will receive external events and send configurable proactive messages.
 
 A human can connect a reviewed event source and give one triage instruction.
-The primary agent can ignore the event, add a chat suggestion, or send a notification.
+The primary agent can ignore the event or send one ordinary assistant message.
 
 The release must provide these outcomes:
 
@@ -21,9 +21,9 @@ The release must provide these outcomes:
 2. Reconcile every Gmail change from an API-issued checkpoint.
 3. Receive signed direct events through the same HTTP ingress.
 4. Support one callback endpoint for several connected accounts.
-5. Configure rules by source, account, event type, instruction, and maximum outcome.
+5. Configure rules by source, account, event type, instruction, and enabled state.
 6. Save the agent message before any client notification.
-7. Explain source health, gaps, and the rule that caused each message.
+7. Explain source health, gaps, and rule history in settings and audit views.
 8. Let reviewed custom adapter definitions declare HTTP event behavior.
 
 This work makes proactive event handling a production path.
@@ -39,6 +39,8 @@ It does not add a third general integration substrate.
 - Do not add universal automatic hydration.
 - Do not implement Graph rich notifications, Pub/Sub OIDC, or Salesforce streaming.
 - Do not add iOS management in this release.
+- Do not add proactive labels, markers, or special styling to chat messages.
+- Do not model chat messages and client notifications as separate rule outcomes.
 - Do not retire the dormant adapter scheduler without a separate decision.
 
 ## 3. Core Decisions
@@ -74,8 +76,11 @@ Run another sync pass when that generation changes during processing.
 Run deterministic eligibility checks before inference.
 Use one structured triage request without tools.
 
-The model can return only `ignore`, `suggest_in_chat`, or `notify`.
-Persist its final text once and reuse the existing notification projection.
+The model can return only `ignore` or `send_message`.
+`send_message` saves one ordinary final assistant message in the primary chat.
+
+The existing final-message notification projection then runs unchanged.
+Do not add another notification decision, delivery state, or model call.
 
 ## 4. Compatibility Contract
 
@@ -105,7 +110,7 @@ Use four SQLite authorities.
 | --- | --- |
 | Event endpoint | Public route, application or connection scope, setup status, verifier references, and safe health data |
 | Event binding | Connection, provider routing key, subscription, expiry, opaque cursors, wake generation, and worker claim |
-| Proactive rule | Human, primary agent, governable scope, source selection, event types, instruction, and maximum outcome |
+| Proactive rule | Human, primary agent, governable scope, source selection, event types, instruction, and enabled state |
 | Proactive delivery | Event identity and payload, rule revision, processing state, decision, and saved conversation item |
 
 One application endpoint can serve several bindings.
@@ -113,6 +118,7 @@ Provider display labels never route callbacks.
 
 The first schema must reject non-primary agents.
 A rule cannot raise any applicable proactivity limit.
+Existing policy must allow the agent to create a proactive message.
 
 Use one delivery uniqueness key across retries and replacement subscriptions.
 
@@ -200,6 +206,48 @@ Keep the committed cursor and deduplicate across the overlap.
 Apply only the declared recovery behavior after cursor expiry.
 Show the human when recovery can lose events.
 
+### 7.4 State diagrams
+
+The event source lifecycle uses explicit health and recovery states.
+
+```mermaid
+stateDiagram-v2
+    [*] --> NotConfigured
+    NotConfigured --> PendingSetup: Start setup
+    PendingSetup --> Active: Subscription confirmed
+    PendingSetup --> SetupFailed: Setup fails
+    SetupFailed --> PendingSetup: Retry
+    Active --> Renewing: Renewal starts
+    Renewing --> Active: Replacement confirmed
+    Active --> RecoveryNeeded: Cursor expires or sync fails
+    RecoveryNeeded --> Active: Recovery completes
+    Active --> Paused: Human pauses source
+    Paused --> Active: Human resumes source
+    Active --> Revoked: Connection revoked
+    Revoked --> [*]
+```
+
+One ordinary saved message is the only delivery decision.
+
+```mermaid
+flowchart TD
+    A[Verified callback] --> B{Result}
+    B -- Event --> C[Insert delivery]
+    B -- Wake --> D[Increment wake generation]
+    D --> E[Sync one provider page]
+    E --> F{More pages}
+    F -- Yes --> G[Commit deliveries and page cursor]
+    G --> E
+    F -- No --> H[Commit deliveries and sync cursor]
+    C --> I[Check rule and policy]
+    H --> I
+    I -- Ineligible --> J[Ignore]
+    I -- Eligible --> K[One tool-free triage call]
+    K -- Ignore --> J
+    K -- Send message --> L[Save ordinary final assistant message]
+    L --> M[Existing final-message notification projection]
+```
+
 ## 8. Governance and Product Surface
 
 Signing secrets, callback tokens, and captured verification tokens are secrets.
@@ -212,16 +260,20 @@ Provider identifiers, URLs, and cursors are not secrets by name.
 Treat all external payload text as untrusted content.
 
 Before inference, require an active grant, binding, current rule, exact scope, and sufficient proactivity level.
+Existing client notification settings decide whether the saved final message produces an alert.
 Do not log raw bodies, signatures, setup secrets, or model payloads.
 
 Use the existing Adapter Settings hierarchy.
 Show event sources, setup state, last callback, last sync, expiry, recovery, gaps, and rules.
 
 Create or edit one rule in a dialog.
-Include source, account, event types, instruction, maximum outcome, and enabled state.
+Include source, account, event types, instruction, and enabled state.
 
 Reuse existing Web Push and APNs settings.
-Link each saved proactive chat turn to its source, rule, and delivery.
+Reuse the existing final-message notification projection without event-source branches.
+
+Keep source, rule, and delivery links in governed records.
+Render the saved item as an ordinary assistant message without visible provenance markers.
 
 ## 9. Execution Units
 
@@ -237,7 +289,7 @@ Use one read-only adversarial review and one correction pass for each server uni
 **Budget:** 1,200–1,800 Rust production lines and 400–700 test lines.
 Add no more than ten Rust tests.
 
-**Proofs:** Invalid token, durable acknowledgement, setup race, restart pagination, final cursor commit, wake coalescing, renewal overlap, scopes, revocation, and message projection.
+**Proofs:** Invalid token, durable acknowledgement, setup race, restart pagination, final cursor commit, wake coalescing, renewal overlap, scopes, revocation, and ordinary final-message projection.
 
 **Stop:** Stop if this unit needs a general workflow engine or another substrate.
 
@@ -296,7 +348,7 @@ Decide the dormant adapter scheduler separately after this path is stable.
 | Secret reaches an ordinary sink | Protected generations; exclusion and preservation test |
 | Private payload is removed | Delivery record; private-data preservation test |
 | Cursor is changed or compared | Sync boundary; opaque cursor fixture |
-| Notification text differs | Conversation item; projection identity test |
+| Existing notification text differs from the saved message | Conversation item; projection identity test |
 
 Test each risk at its first authoritative boundary.
 Do not repeat the same behavior through every layer.
@@ -338,10 +390,12 @@ The release is complete when:
 5. Disabling a rule stops later model use immediately.
 6. Revoking a connection blocks delayed callbacks.
 7. Saved chat text exactly matches notification text.
-8. Settings explains renewal, sync, recovery, and gaps.
-9. Secrets stay in protected generations.
-10. Authorized private event data stays intact.
-11. Required Rust and Web gates pass, except for documented baseline failures.
+8. Chat renders the item as an ordinary assistant message.
+9. Rules do not select chat or notification delivery.
+10. Settings explains renewal, sync, recovery, and gaps.
+11. Secrets stay in protected generations.
+12. Authorized private event data stays intact.
+13. Required Rust and Web gates pass, except for documented baseline failures.
 
 Live acceptance needs isolated test accounts and human provider access.
 Do not claim live compatibility from fixtures alone.
