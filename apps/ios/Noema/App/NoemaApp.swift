@@ -11,8 +11,8 @@ struct NoemaApp: App {
       NoemaRootView(model: model)
         .preferredColorScheme(.light)
         .task {
-          await model.bootstrap()
           model.scenePhaseChanged(scenePhase)
+          await model.bootstrap()
         }
         .onOpenURL { url in
           model.ingestURL(url)

@@ -28,6 +28,7 @@ final class NoemaAppModel {
   private let pairingService: PairingService
   private var graphQL: NoemaGraphQLClient?
   private var registrationCleanupComplete = false
+  private var latestScenePhase: ScenePhase?
   private var subscriptionLifecycleTask: Task<Void, Never>?
 
   init() {
@@ -61,6 +62,7 @@ final class NoemaAppModel {
         await notifications.configure(profile: stored, client: graphQL?.client)
         await liveActivities.configure(profile: stored, client: graphQL?.client)
         notifications.markModelReady()
+        applySubscriptionLifecycle()
         NoemaDiagnosticTrace.shared.record(category: "app", event: "bootstrap_finished", fields: ["state": "paired"])
       } else {
         NoemaGraphQLClient.discardStaleCaches(keeping: nil)
@@ -146,6 +148,7 @@ final class NoemaAppModel {
         await notifications.configure(profile: stored, client: graphQL?.client)
         await liveActivities.configure(profile: stored, client: graphQL?.client)
         notifications.markModelReady()
+        applySubscriptionLifecycle()
       } catch {
         pairingError = error.localizedDescription
       }
@@ -211,6 +214,7 @@ final class NoemaAppModel {
   }
 
   func scenePhaseChanged(_ phase: ScenePhase) {
+    latestScenePhase = phase
     let phaseName: String
     switch phase {
     case .active: phaseName = "active"
@@ -225,9 +229,13 @@ final class NoemaAppModel {
     )
     notifications.scenePhaseChanged(phase == .active)
     liveActivities.scenePhaseChanged(phase == .active)
-    guard let graphQL else { return }
+    applySubscriptionLifecycle()
+  }
+
+  private func applySubscriptionLifecycle() {
+    guard let latestScenePhase, let graphQL else { return }
     subscriptionLifecycleTask?.cancel()
-    switch phase {
+    switch latestScenePhase {
     case .background, .inactive:
       subscriptionLifecycleTask = Task {
         guard !Task.isCancelled else { return }
