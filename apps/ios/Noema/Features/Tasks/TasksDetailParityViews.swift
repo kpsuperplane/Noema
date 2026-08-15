@@ -172,7 +172,7 @@ struct TasksCompletedTabBar: View {
     HStack(spacing: NoemaSpacing.xxs) {
       ForEach(TaskResultTab.allCases) { tab in
         Button {
-          withAnimation(reduceMotion ? nil : NoemaSpring.micro) {
+          withAnimation(NoemaMotion.animation(NoemaSpring.surface, reduceMotion: reduceMotion)) {
             selection = tab
           }
         } label: {

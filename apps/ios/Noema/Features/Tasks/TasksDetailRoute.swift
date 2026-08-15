@@ -69,6 +69,7 @@ private struct TasksDetailContent: View {
   @State private var validationPresented = false
   @State private var gateResponse = ""
   @State private var selectedTab: TaskResultTab = .result
+  @State private var pagePosition: TaskResultTab? = .result
   @State private var followsTranscriptBottom = true
   @State private var initialScrollTaskID: String?
   @State private var completedInitialHydration = false
@@ -79,18 +80,34 @@ private struct TasksDetailContent: View {
         TasksRecurrenceSummaryView(model: model, task: detail)
       }
       if let completed = acceptedCompletion {
-        TasksCompletedTabBar(selection: $selectedTab)
-        TabView(selection: $selectedTab) {
-          ScrollView {
-            TasksCompletedResultView(submission: completed, onArtifact: openArtifact)
+        TasksCompletedTabBar(selection: Binding(
+          get: { selectedTab },
+          set: { tab in
+            selectedTab = tab
+            pagePosition = tab
           }
-          .scrollDismissesKeyboard(.interactively)
-          .tag(TaskResultTab.result)
+        ))
+        ScrollView(.horizontal) {
+          HStack(spacing: 0) {
+            ScrollView {
+              TasksCompletedResultView(submission: completed, onArtifact: openArtifact)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .containerRelativeFrame(.horizontal)
+            .id(TaskResultTab.result)
 
-          transcriptScroller(submission: completed)
-            .tag(TaskResultTab.transcript)
+            transcriptScroller(submission: completed)
+              .containerRelativeFrame(.horizontal)
+              .id(TaskResultTab.transcript)
+          }
+          .scrollTargetLayout()
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
+        .scrollIndicators(.hidden)
+        .scrollTargetBehavior(.paging)
+        .scrollPosition(id: $pagePosition)
+        .onChange(of: pagePosition) { _, tab in
+          if let tab { selectedTab = tab }
+        }
       } else {
         transcriptScroller(submission: detail.latestSubmission)
       }
@@ -175,6 +192,7 @@ private struct TasksDetailContent: View {
     .onChange(of: detail.id) { _, _ in
       gateResponse = ""
       selectedTab = .result
+      pagePosition = .result
     }
   }
 
