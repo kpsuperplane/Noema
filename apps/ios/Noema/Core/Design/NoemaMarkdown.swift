@@ -185,17 +185,34 @@ private extension View {
       )
       .markdownNumberedListMarker(
         BlockStyle { configuration in
-          Text("\(configuration.itemNumber).")
-            .font(NoemaFont.message)
-            .monospacedDigit()
-            .foregroundStyle(color)
-            .frame(
-              width: assistant ? NoemaSpacing.xxl : NoemaSpacing.lg,
-              height: lineHeight,
-              alignment: .topTrailing
-            )
+          NoemaMarkdownNumberedMarker(
+            number: configuration.itemNumber,
+            assistant: assistant,
+            color: color,
+            lineHeight: lineHeight
+          )
         }
       )
+  }
+}
+
+private struct NoemaMarkdownNumberedMarker: View {
+  let number: Int
+  let assistant: Bool
+  let color: Color
+  let lineHeight: CGFloat
+
+  var body: some View {
+    let markerColor = assistant ? NoemaColor.clay600 : color
+    Text("\(number)")
+      .font(NoemaFont.metadata)
+      .fontWeight(.semibold)
+      .monospacedDigit()
+      .foregroundStyle(markerColor.opacity(assistant ? 0.72 : 1))
+      .padding(.horizontal, NoemaSpacing.xxs)
+      .frame(minWidth: NoemaSpacing.xl, minHeight: NoemaSpacing.xl)
+      .background(markerColor.opacity(assistant ? 0.06 : 0.14), in: Capsule())
+      .frame(minHeight: lineHeight, alignment: .top)
   }
 }
 
