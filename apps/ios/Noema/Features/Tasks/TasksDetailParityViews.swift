@@ -210,7 +210,8 @@ struct TasksCompletedResultView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
       if let response = response.nilIfBlank {
-        NoemaMarkdown(response)
+        NoemaMarkdown(response, role: .assistantMessage)
+          .textSelection(.enabled)
       } else {
         Text("The accepted response has no text content.")
           .font(NoemaFont.taskTitle)
