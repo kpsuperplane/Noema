@@ -171,6 +171,13 @@ a[href][data-slot="shell-sidebar-control"] {
 }
 
 .noema-markdown
+  .astryx-list[data-list-style="decimal"]
+  > .astryx-list-item {
+  margin-inline-start: calc(-1 * var(--spacing-5));
+  padding-inline: var(--spacing-1);
+}
+
+.noema-markdown
   .astryx-list[data-list-style="disc"]
   > .astryx-list-item
   > span:first-child {
