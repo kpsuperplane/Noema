@@ -142,6 +142,7 @@ struct ChatFailureView: View {
 private struct ChatScrollGeometry: Equatable {
   let isAtBottom: Bool
   let containerHeight: CGFloat
+  let contentHeight: CGFloat
 }
 
 struct ChatReadyView: View {
@@ -342,12 +343,15 @@ struct ChatReadyView: View {
           - (geometry.contentOffset.y + geometry.containerSize.height)
         return ChatScrollGeometry(
           isAtBottom: bottomDistance <= NoemaSpacing.sm,
-          containerHeight: geometry.containerSize.height
+          containerHeight: geometry.containerSize.height,
+          contentHeight: geometry.contentSize.height
         )
       } action: { oldGeometry, newGeometry in
         if newGeometry.isAtBottom {
           followBottom = true
-        } else if followBottom, oldGeometry.containerHeight != newGeometry.containerHeight {
+        } else if followBottom,
+                  oldGeometry.containerHeight != newGeometry.containerHeight
+                    || oldGeometry.contentHeight != newGeometry.contentHeight {
           proxy.scrollTo("chat-bottom", anchor: .bottom)
         } else {
           followBottom = false
