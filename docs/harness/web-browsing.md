@@ -56,8 +56,13 @@ admission evidence; every later fetch or navigation reruns live policy.
 
 Noema invokes only fixed, source-controlled DOM scripts. Model-provided values
 are JSON encoded into those scripts. Arbitrary JavaScript evaluation, selectors,
-screenshots, downloads, uploads, multiple tabs, proxies, durable profiles, and
-cross-execution reuse are intentionally absent.
+downloads, uploads, multiple tabs, proxies, durable profiles, and cross-execution
+reuse are intentionally absent.
+
+Each successful page result can include one bounded PNG of the current viewport.
+The worker omits an unavailable or oversized render without failing the browser
+operation. The image stays outside model context. Noema stores it with the
+compact tool result and shows it only in expanded tool-marker details.
 
 Obscura embeds V8 in the browser worker. A worker crash ends only its session.
 Noema removes that session and releases its capacity. This process boundary
@@ -82,8 +87,9 @@ that its execution-owned browser session no longer exists.
 
 Browser result persistence is compact: provider, URL/title with only actual
 credential-bearing components removed, revision, element count, truncation,
-operation metadata, and safe errors. Full snapshot
-text and session authority do not enter stored result payloads. Reviewed browser
+the bounded viewport PNG, operation metadata, and safe errors. Full snapshot
+text and session authority do not enter stored result payloads. The viewport PNG
+does not enter the model-visible tool result. Reviewed browser
 arguments, including interaction values, use the normal governed-action and
 transcript persistence contract. The information-handling contract in
 `docs/harness/security.md` still applies: credentials belong in credential

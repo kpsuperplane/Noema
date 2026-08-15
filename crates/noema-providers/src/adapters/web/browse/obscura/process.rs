@@ -462,6 +462,7 @@ mod tests {
                 provider: "obscura".to_string(),
                 state: "open".to_string(),
                 snapshot: None,
+                screenshot: None,
             }),
             error: Some("unavailable".to_string()),
         };

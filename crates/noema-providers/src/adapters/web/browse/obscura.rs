@@ -1,11 +1,12 @@
 use crate::{WebBrowseError, WebBrowseOwner};
 pub(super) mod process;
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use noema_capabilities::web::{
     browse::{
         BrowseCommand, BrowseHistoryAction, BrowseInteractionAction, BrowseInteractiveElement,
-        BrowseResponse, BrowseSnapshot, BrowseWaitUntil, MAX_INTERACTIVE_ELEMENTS,
-        MAX_SNAPSHOT_CHARS,
+        BrowseResponse, BrowseScreenshot, BrowseSnapshot, BrowseWaitUntil,
+        MAX_INTERACTIVE_ELEMENTS, MAX_SNAPSHOT_CHARS,
     },
     url_policy::validate_public_url,
 };
@@ -27,6 +28,8 @@ use tokio::time::Instant;
 use crate::adapters::web::fetch::url_policy::validate_public_web_fetch_url;
 
 const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const SCREENSHOT_RESOURCE_TIMEOUT_MS: u64 = 1_000;
+const MAX_SCREENSHOT_BYTES: usize = 900_000;
 
 pub(crate) struct ObscuraBrowseBackend {
     inner: Arc<BackendInner>,
@@ -198,6 +201,7 @@ impl ObscuraBrowseBackend {
             provider: crate::OBSCURA_BROWSER_PROVIDER_ID.to_string(),
             state: "closed".to_string(),
             snapshot: None,
+            screenshot: None,
         })
     }
 
@@ -307,30 +311,35 @@ impl WorkerState {
             BrowseCommand::Open(request) => {
                 self.navigate(&request.url, request.wait_until).await?;
                 self.snapshot(noema_capabilities::web::browse::DEFAULT_SNAPSHOT_CHARS)
+                    .await
             }
-            BrowseCommand::Snapshot { max_chars } => self.snapshot(max_chars),
+            BrowseCommand::Snapshot { max_chars } => self.snapshot(max_chars).await,
             BrowseCommand::Interact(request) => {
                 self.require_revision(request.snapshot_revision)?;
                 self.interact(request.reference, request.action, request.value)?;
                 self.page.settle(250).await;
                 self.validate_resulting_url().await?;
                 self.snapshot(noema_capabilities::web::browse::DEFAULT_SNAPSHOT_CHARS)
+                    .await
             }
             BrowseCommand::Wait(request) => {
                 self.wait(request.text, request.reference, request.timeout_ms)
                     .await?;
                 self.validate_resulting_url().await?;
                 self.snapshot(noema_capabilities::web::browse::DEFAULT_SNAPSHOT_CHARS)
+                    .await
             }
             BrowseCommand::History(request) => {
                 self.require_revision(request.snapshot_revision)?;
                 self.history(request.action).await?;
                 self.snapshot(noema_capabilities::web::browse::DEFAULT_SNAPSHOT_CHARS)
+                    .await
             }
             BrowseCommand::Close => Ok(BrowseResponse {
                 provider: crate::OBSCURA_BROWSER_PROVIDER_ID.to_string(),
                 state: "closed".to_string(),
                 snapshot: None,
+                screenshot: None,
             }),
         }
     }
@@ -365,7 +374,7 @@ impl WorkerState {
         }
     }
 
-    fn snapshot(&mut self, max_chars: usize) -> Result<BrowseResponse, WebBrowseError> {
+    async fn snapshot(&mut self, max_chars: usize) -> Result<BrowseResponse, WebBrowseError> {
         let raw = self
             .page
             .evaluate_with_timeout(SNAPSHOT_SCRIPT, Duration::from_millis(500));
@@ -387,6 +396,7 @@ impl WorkerState {
                 disabled: element.disabled,
             })
             .collect();
+        let screenshot = self.screenshot().await;
         Ok(BrowseResponse {
             provider: crate::OBSCURA_BROWSER_PROVIDER_ID.to_string(),
             state: "open".to_string(),
@@ -398,6 +408,25 @@ impl WorkerState {
                 elements,
                 truncated: text_truncated || element_truncated,
             }),
+            screenshot,
+        })
+    }
+
+    async fn screenshot(&mut self) -> Option<BrowseScreenshot> {
+        let viewport = self.page.viewport;
+        let _ = self
+            .page
+            .prepare_screenshot_resources(SCREENSHOT_RESOURCE_TIMEOUT_MS)
+            .await;
+        let png = self.page.screenshot(viewport)?;
+        if png.len() > MAX_SCREENSHOT_BYTES {
+            return None;
+        }
+        Some(BrowseScreenshot {
+            media_type: "image/png".to_string(),
+            data: STANDARD.encode(png),
+            width: viewport.0 as u32,
+            height: viewport.1 as u32,
         })
     }
 
@@ -679,8 +708,16 @@ mod tests {
             .await
             .expect("load fixture");
 
-        let snapshot = state.snapshot(2_000).expect("snapshot");
-        let snapshot = snapshot.snapshot.expect("open snapshot");
+        let response = state.snapshot(2_000).await.expect("snapshot");
+        let screenshot = response.screenshot.as_ref().expect("rendered screenshot");
+        assert_eq!(screenshot.media_type, "image/png");
+        assert_eq!((screenshot.width, screenshot.height), (1280, 720));
+        assert!(
+            STANDARD
+                .decode(&screenshot.data)
+                .is_ok_and(|png| png.starts_with(b"\x89PNG\r\n\x1a\n"))
+        );
+        let snapshot = response.snapshot.expect("open snapshot");
         let input = snapshot
             .elements
             .iter()
@@ -764,7 +801,7 @@ mod tests {
             ),
             json!("true")
         );
-        state.snapshot(2_000).expect("updated snapshot");
+        state.snapshot(2_000).await.expect("updated snapshot");
         assert_eq!(
             state.require_revision(snapshot.snapshot_revision),
             Err(WebBrowseError::StaleSnapshot)
@@ -878,6 +915,7 @@ mod tests {
                     provider: crate::OBSCURA_BROWSER_PROVIDER_ID.to_string(),
                     state: "closed".to_string(),
                     snapshot: None,
+                    screenshot: None,
                 })
             );
         }

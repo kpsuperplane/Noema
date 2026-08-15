@@ -82,6 +82,11 @@ unicode-segmentation = "1"
 webauthn-rs = { version = "0.5.5", default-features = false }
 web-push-native = "0.5"
 
+[patch.crates-io]
+# Obscura's render feature uses these source-controlled renderer fixes.
+cosmic-text = { git = "https://github.com/h4ckf0r0day/obscura.git", rev = "97124edeb2ea610615e78f43e097454e3b221f6b" }
+taffy = { git = "https://github.com/h4ckf0r0day/obscura.git", rev = "97124edeb2ea610615e78f43e097454e3b221f6b" }
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"

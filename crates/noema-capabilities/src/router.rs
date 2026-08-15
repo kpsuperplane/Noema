@@ -71,6 +71,9 @@ pub struct CapabilityOutput {
     pub payload: Value,
     /// Server-owned recovery semantics for a completed tool-declared failure.
     pub failure: Option<CapabilityFailure>,
+    /// Optional source for the binding-owned persisted output view.
+    /// This value is never sent to the model.
+    persisted_output_source: Option<Value>,
 }
 
 /// Provider-neutral category for a completed remote rejection.
@@ -193,6 +196,7 @@ impl CapabilityOutput {
             success: true,
             payload,
             failure: None,
+            persisted_output_source: None,
         }
     }
 
@@ -204,6 +208,7 @@ impl CapabilityOutput {
             success: false,
             payload,
             failure: None,
+            persisted_output_source: None,
         }
     }
 
@@ -214,8 +219,24 @@ impl CapabilityOutput {
             success: false,
             payload,
             failure: Some(failure),
+            persisted_output_source: None,
         }
         .materialize_failure()
+    }
+
+    /// Supply richer persisted tool details without adding them to model context.
+    #[must_use]
+    pub fn with_persisted_output_source(mut self, output: Value) -> Self {
+        self.persisted_output_source = Some(output);
+        self
+    }
+
+    /// Return the source payload for binding-owned output persistence.
+    #[must_use]
+    pub fn persisted_output_source(&self) -> &Value {
+        self.persisted_output_source
+            .as_ref()
+            .unwrap_or(&self.payload)
     }
 
     fn materialize_failure(mut self) -> Self {
@@ -478,7 +499,7 @@ impl<'a> CapabilityRegistryRouter<'a> {
                 Ok(CapabilityDispatch {
                     persisted: PersistedCapabilityPayload {
                         arguments: persisted_arguments,
-                        output: binding.persist_output(&output.payload),
+                        output: binding.persist_output(output.persisted_output_source()),
                     },
                     output,
                 })
@@ -935,6 +956,29 @@ mod tests {
                 "recovery":"retry_later"
             }))
         );
+    }
+
+    #[test]
+    fn persisted_output_source_stays_out_of_model_payload() {
+        let router = CapabilityRegistryRouter::new([(
+            InvokerKey::new("mcp"),
+            Arc::new(FixedInvoker(Ok(CapabilityOutput::success(
+                json!({"page":"summary"}),
+            )
+            .with_persisted_output_source(json!({"screenshot":"png"})))))
+                as CapabilityInvokerHandle,
+        )])
+        .expect("router");
+
+        let dispatch = poll_ready(router.dispatch(
+            snapshot(),
+            "mcp.docs.read".to_string(),
+            json!({"query":"safe"}),
+        ))
+        .expect("dispatch");
+
+        assert_eq!(dispatch.output.payload, json!({"page":"summary"}));
+        assert_eq!(dispatch.persisted.output, Some(json!({"screenshot":"png"})));
     }
 
     #[test]

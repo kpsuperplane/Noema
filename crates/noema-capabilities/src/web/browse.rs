@@ -95,6 +95,16 @@ pub struct BrowseResponse {
     pub state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub snapshot: Option<BrowseSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screenshot: Option<BrowseScreenshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowseScreenshot {
+    pub media_type: String,
+    pub data: String,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -406,6 +416,7 @@ pub fn sanitize_output_for_storage(output: &Value) -> Value {
         "snapshot_revision": snapshot.and_then(|value| value.get("snapshot_revision")),
         "element_count": snapshot.and_then(|value| value.get("elements")).and_then(Value::as_array).map(Vec::len),
         "truncated": snapshot.and_then(|value| value.get("truncated")),
+        "screenshot": output.get("screenshot"),
     })
 }
 
@@ -462,11 +473,12 @@ mod tests {
             &json!({"snapshot_revision":1,"ref":"e1","action":"fill","value":"private"}),
         );
         let output = sanitize_output_for_storage(
-            &json!({"provider":"obscura","state":"open","snapshot":{"url":"https://example.com","title":"Example","text":"private page","snapshot_revision":2,"elements":[{"name":"secret"}],"truncated":false}}),
+            &json!({"provider":"obscura","state":"open","snapshot":{"url":"https://example.com","title":"Example","text":"private page","snapshot_revision":2,"elements":[{"name":"secret"}],"truncated":false},"screenshot":{"media_type":"image/png","data":"cG5n","width":1280,"height":720}}),
         );
         assert_eq!(arguments["value"], "private");
         assert!(output.get("text").is_none());
         assert_eq!(output["element_count"], 1);
+        assert_eq!(output["screenshot"]["data"], "cG5n");
         assert!(!output.to_string().contains("private"));
     }
 }

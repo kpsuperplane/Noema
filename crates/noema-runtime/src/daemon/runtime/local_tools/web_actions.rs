@@ -136,7 +136,7 @@ impl RuntimeActor {
                 if name != noema_capabilities::web::browse::WEB_BROWSE_CLOSE_TOOL {
                     self.remember_browser_snapshot(&owner_key, &payload);
                 }
-                CapabilityOutput::success(payload)
+                browser_capability_output(payload)
             }
             Err(message) => CapabilityOutput::failed(json!({"error": message})),
         }
@@ -256,6 +256,20 @@ impl RuntimeActor {
     }
 }
 
+fn browser_capability_output(mut payload: Value) -> CapabilityOutput {
+    let screenshot = payload
+        .as_object_mut()
+        .and_then(|output| output.remove("screenshot"));
+    let Some(screenshot) = screenshot else {
+        return CapabilityOutput::success(payload);
+    };
+    let mut persisted_output = payload.clone();
+    if let Some(output) = persisted_output.as_object_mut() {
+        output.insert("screenshot".to_string(), screenshot);
+    }
+    CapabilityOutput::success(payload).with_persisted_output_source(persisted_output)
+}
+
 fn hosted_web_search_urls(searches: &[noema_providers::GenerateHostedWebSearch]) -> Vec<String> {
     searches
         .iter()
@@ -272,6 +286,20 @@ mod hosted_search_tests {
     use noema_providers::{GenerateHostedWebSearch, GenerateWebSource};
 
     use super::*;
+
+    #[test]
+    fn browser_screenshot_is_persisted_but_not_model_visible() {
+        let output = browser_capability_output(json!({
+            "state":"open",
+            "screenshot":{"media_type":"image/png","data":"cG5n","width":1280,"height":720}
+        }));
+
+        assert_eq!(output.payload, json!({"state":"open"}));
+        assert_eq!(
+            output.persisted_output_source()["screenshot"]["data"],
+            "cG5n"
+        );
+    }
 
     #[test]
     fn hosted_search_sources_become_observed_urls() {

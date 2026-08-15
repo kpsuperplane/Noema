@@ -233,12 +233,15 @@ impl RuntimeActor {
             };
             let persisted_output = match claimed.capability_name.as_str() {
                 noema_capabilities::web::fetch::WEB_FETCH_TOOL => {
-                    noema_capabilities::WebFetchPayloadSanitizer.persist_output(&output.payload)
+                    noema_capabilities::WebFetchPayloadSanitizer
+                        .persist_output(output.persisted_output_source())
                 }
                 name if name.starts_with("web.browse.") => {
-                    noema_capabilities::WebBrowsePayloadSanitizer.persist_output(&output.payload)
+                    noema_capabilities::WebBrowsePayloadSanitizer
+                        .persist_output(output.persisted_output_source())
                 }
-                _ => noema_capabilities::RedactingPayloadSanitizer.persist_output(&output.payload),
+                _ => noema_capabilities::RedactingPayloadSanitizer
+                    .persist_output(output.persisted_output_source()),
             };
             let finished = self
                 .store

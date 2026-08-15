@@ -1,6 +1,9 @@
 import type { ToolMarkerGroup } from "./renderModel";
 export type ToolDetailRowData = { label: string; value: string };
+export type ToolScreenshotData = { src: string; width: number; height: number };
 export type ToolMarkerKind = "web.search" | "web.fetch";
+
+const MAX_SCREENSHOT_DATA_CHARS = 1_200_000;
 
 export function toolMarkerPending(marker: ToolMarkerGroup): boolean {
   return marker.result?.item.status === "STARTED" ||
@@ -171,7 +174,36 @@ function completeToolValue(value: unknown): string {
 }
 
 export function toolMarkerExpandable(marker: ToolMarkerGroup): boolean {
-  return toolDetailRows(marker).length > 0;
+  return toolDetailRows(marker).length > 0 || screenshotPayload(marker) !== null;
+}
+
+export function toolMarkerScreenshot(marker: ToolMarkerGroup): ToolScreenshotData | null {
+  const screenshot = screenshotPayload(marker);
+  return screenshot
+    ? {
+        src: `data:image/png;base64,${screenshot.data}`,
+        width: screenshot.width,
+        height: screenshot.height
+      }
+    : null;
+}
+
+function screenshotPayload(
+  marker: ToolMarkerGroup
+): { data: string; width: number; height: number } | null {
+  const payload = toolActionPayload(marker.result?.item.metadata);
+  if (!isRecord(payload) || !isRecord(payload.screenshot)) return null;
+  const { media_type: mediaType, data, width, height } = payload.screenshot;
+  if (
+    mediaType !== "image/png" || typeof data !== "string" || data.length === 0 ||
+    data.length > MAX_SCREENSHOT_DATA_CHARS ||
+    !validScreenshotDimension(width) || !validScreenshotDimension(height)
+  ) return null;
+  return { data, width, height };
+}
+
+function validScreenshotDimension(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 32_768;
 }
 
 function safeToolMetadataPreview(metadata: unknown): string[] {

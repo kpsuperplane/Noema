@@ -1,14 +1,24 @@
 import * as stylex from "@stylexjs/stylex";
 import { VStack } from "@astryxdesign/core/VStack";
 import { WrenchIcon } from "lucide-react";
-import { toolDetailRows, toolMarkerLabel } from "./markerModel";
+import { toolDetailRows, toolMarkerLabel, toolMarkerScreenshot } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { TranscriptAttachmentCard } from "./TranscriptAttachmentCard";
 import { ToolDetailRow } from "./ToolDetailRow";
 
 const styles = stylex.create({
+  content: { maxWidth: 520 },
+  screenshot: {
+    display: "block",
+    width: "100%",
+    height: "auto",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--noema-border-subtle)",
+    borderRadius: "var(--radius-element)",
+    backgroundColor: "var(--noema-surface-sunken)"
+  },
   details: {
-    maxWidth: 520,
     margin: "var(--spacing-0)",
     borderTopWidth: 1,
     borderTopStyle: "solid",
@@ -19,7 +29,8 @@ const styles = stylex.create({
 
 export function ToolDetailAttachment({ id, marker }: { id: string; marker: ToolMarkerGroup }) {
   const rows = toolDetailRows(marker);
-  if (rows.length === 0) {
+  const screenshot = toolMarkerScreenshot(marker);
+  if (rows.length === 0 && !screenshot) {
     return null;
   }
   const failed = marker.result?.item.status === "FAILED";
@@ -31,10 +42,23 @@ export function ToolDetailAttachment({ id, marker }: { id: string; marker: ToolM
       icon={<WrenchIcon />}
       tone={failed ? "error" : "info"}
     >
-      <VStack as="dl" gap={1} className={stylex.props(styles.details).className}>
-        {rows.map((row, index) => (
-          <ToolDetailRow key={`${row.label}:${index}`} label={row.label} value={row.value} />
-        ))}
+      <VStack gap={2} className={stylex.props(styles.content).className}>
+        {screenshot ? (
+          <img
+            {...stylex.props(styles.screenshot)}
+            alt="Rendered browser page"
+            src={screenshot.src}
+            width={screenshot.width}
+            height={screenshot.height}
+          />
+        ) : null}
+        {rows.length > 0 ? (
+          <VStack as="dl" gap={1} className={stylex.props(styles.details).className}>
+            {rows.map((row, index) => (
+              <ToolDetailRow key={`${row.label}:${index}`} label={row.label} value={row.value} />
+            ))}
+          </VStack>
+        ) : null}
       </VStack>
     </TranscriptAttachmentCard>
   );
