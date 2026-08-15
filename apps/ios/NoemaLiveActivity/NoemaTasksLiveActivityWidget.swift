@@ -114,10 +114,19 @@ private struct ActivityIdentity: View {
   }
 
   private var label: String {
-    if appearance == .lockScreen, state.requiresAttention != true, state.activeTaskCount <= 1 {
+    if showsTaskTitle {
       return state.focusTitle
     }
     return agentName
+  }
+
+  private var labelFont: Font {
+    if showsTaskTitle { return .system(size: 14, weight: .semibold) }
+    return (appearance == .island ? Font.caption2 : .caption).weight(.semibold)
+  }
+
+  private var showsTaskTitle: Bool {
+    appearance == .lockScreen && state.requiresAttention != true && state.activeTaskCount <= 1
   }
 
   private var showsAgentMark: Bool {
@@ -131,7 +140,7 @@ private struct ActivityIdentity: View {
           .accessibilityHidden(true)
       }
       Text(label)
-        .font((appearance == .island ? Font.caption2 : .caption).weight(.semibold))
+        .font(labelFont)
         .foregroundStyle(appearance.primary)
         .lineLimit(1)
         .minimumScaleFactor(0.82)
