@@ -43,7 +43,7 @@ pub(crate) fn task_read_submission_evidence_tool_spec()
 -> Result<ToolSpec, noema_capabilities::ToolContractError> {
     ToolSpec::new(
         TASK_READ_SUBMISSION_EVIDENCE_TOOL,
-        "List bounded metadata for the submitted Executor run. Read one exact saved item by item_id. The current review submission fences each read. A page keeps its items in chronological order.",
+        "List bounded metadata for the submitted Executor run. Read one exact saved item by item_id. The current review or correction review fences each read. A page keeps its items in chronological order.",
         json!({
             "type": "object",
             "properties": {
@@ -93,19 +93,36 @@ pub(crate) async fn execute_task_read_submission_evidence(
         .await
         .map_err(|_| "submission evidence context is unavailable".to_string())?
         .filter(|envelope| {
-            envelope.task.task_id.as_str() == context.task_id
-                && envelope.run.run_kind == RunKind::Reviewer
-                && envelope.run.triggering_submission_id.as_deref()
-                    == envelope
-                        .latest_submission
-                        .as_ref()
-                        .map(|submission| submission.submission_id.as_str())
+            if envelope.task.task_id.as_str() != context.task_id {
+                return false;
+            }
+            let Some(submission) = envelope.latest_submission.as_ref() else {
+                return false;
+            };
+            match envelope.run.run_kind {
+                RunKind::Reviewer => {
+                    envelope.run.triggering_submission_id.as_deref()
+                        == Some(submission.submission_id.as_str())
+                }
+                RunKind::Executor => {
+                    envelope.run.review_round > 1
+                        && envelope.run.triggering_review_id.as_deref()
+                            == envelope
+                                .latest_review
+                                .as_ref()
+                                .map(|review| review.review_id.as_str())
+                        && envelope.latest_review.as_ref().is_some_and(|review| {
+                            review.reviewed_submission_id == submission.submission_id
+                        })
+                }
+                RunKind::Planner => false,
+            }
         })
         .ok_or_else(|| "submission evidence context is unavailable".to_string())?;
     let submission = envelope
         .latest_submission
         .as_ref()
-        .ok_or_else(|| "review submission is unavailable".to_string())?;
+        .ok_or_else(|| "submission evidence is unavailable".to_string())?;
     let owner = WorkRunItemOwnerScope {
         workspace_id: envelope.task.workspace_id.clone(),
         task_id: Some(envelope.task.task_id.clone()),

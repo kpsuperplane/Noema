@@ -511,6 +511,7 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
                         .map(|criterion| criterion.criterion_id.clone())
                         .collect(),
                     has_submission_artifacts: false,
+                    has_correction_review: false,
                 },
                 runtime_events: crate::daemon::RuntimeEventRegistry::default(),
             })

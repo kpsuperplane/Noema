@@ -1,7 +1,9 @@
-use noema_store::{SubmitTaskResult, WorkCommandService, WorkRunFence, WorkRunTerminal};
+use noema_store::{
+    SubmitTaskResult, SubmitTaskReview, WorkCommandService, WorkRunFence, WorkRunTerminal,
+};
 use noema_tasks::{
-    AgentRunItemKind, AgentRunItemStatus, NewAgentRunItem, NewTaskSubmission,
-    SubmissionCriterionEvidence,
+    AgentRunItemKind, AgentRunItemStatus, CriterionOutcome, NewAgentRunItem, NewTaskReview,
+    NewTaskSubmission, SubmissionCriterionEvidence, TaskReviewCriterion, TaskReviewVerdict,
 };
 use serde_json::json;
 
@@ -85,6 +87,101 @@ async fn reviewer_rejects_items_outside_the_submitted_executor_run() {
         .await
         .expect_err("Executor run must not access reviewer evidence tool");
     assert_eq!(error, "submission evidence context is unavailable");
+}
+
+#[tokio::test]
+async fn correction_executor_reads_evidence_from_the_reviewed_submission() {
+    let fixture = reviewer_fixture().await;
+    let service = WorkCommandService::new(
+        fixture.store.clone(),
+        crate::test_support::ready_test_provider_registry(),
+    );
+    let detail = fixture
+        .store
+        .get_work_task(&noema_tasks::TaskId::new(&fixture.context.task_id).expect("task id"))
+        .await
+        .expect("read task")
+        .expect("task detail");
+    let contract = detail.current_contract.expect("task contract");
+    let criterion_id = contract.criteria[0].criterion_id.clone();
+    service
+        .record_work_run_terminal(
+            WorkRunTerminal::Review(SubmitTaskReview {
+                fence: fixture.reviewer_fence,
+                review: NewTaskReview {
+                    review_id: Some("review:evidence:correction".to_string()),
+                    task_id: detail.task.task_id.clone(),
+                    contract_id: contract.contract_id,
+                    reviewer_run_id: fixture.context.run_id,
+                    reviewed_submission_id: "submission:evidence".to_string(),
+                    review_attempt_index: 1,
+                    supersedes_review_id: None,
+                    overall_verdict: TaskReviewVerdict::RequestChanges,
+                    human_gate_kind: None,
+                    overall_feedback: "Use the exact saved evidence.".to_string(),
+                    criteria: vec![TaskReviewCriterion {
+                        criterion_id,
+                        outcome: CriterionOutcome::Fail,
+                        evidence_markdown: Some("The saved result needs correction.".to_string()),
+                        feedback: Some("Correct the result from saved evidence.".to_string()),
+                    }],
+                },
+            }),
+            "actor:test",
+            None,
+            "correlation:evidence:review",
+        )
+        .await
+        .expect("submit correction review");
+    let correction = service
+        .claim_next_work_run("worker:evidence:correction", 120, &[])
+        .await
+        .expect("claim correction")
+        .expect("correction run");
+    let correction_fence = WorkRunFence {
+        run_id: correction.run.run_id.clone(),
+        lease_token: correction.lease_token,
+        task_generation: correction.run.task_generation,
+        contract_id: correction.run.contract_id,
+    };
+    service
+        .start_work_run(
+            &correction_fence,
+            "actor:test",
+            None,
+            "correlation:evidence:correction",
+        )
+        .await
+        .expect("start correction");
+    let correction_context = fixture
+        .store
+        .get_work_run_execution_context(&correction.run.run_id)
+        .await
+        .expect("read correction context")
+        .expect("correction context");
+    assert!(
+        crate::daemon::task_run_context::build_task_role_prompt(&correction_context)
+            .terminal_contract
+            .has_correction_review
+    );
+
+    let listed = execute_task_read_submission_evidence(
+        &fixture.store,
+        &TaskSubmissionEvidenceContext {
+            task_id: detail.task.task_id.to_string(),
+            run_id: correction.run.run_id,
+        },
+        &json!({"first": 10}),
+    )
+    .await
+    .expect("correction evidence");
+
+    assert_eq!(listed["submission_id"], "submission:evidence");
+    assert!(listed["items"].as_array().is_some_and(|items| {
+        items
+            .iter()
+            .any(|item| item["item_id"] == "run_item:evidence:large")
+    }));
 }
 
 struct ReviewerEvidenceFixture {

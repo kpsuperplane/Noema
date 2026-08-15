@@ -251,4 +251,16 @@ mod tests {
 
         assert!(should_stop_after_tool_results(&[result]));
     }
+
+    #[test]
+    fn hosted_action_consumes_the_remaining_regular_tool_budget() {
+        let completed_hosted_actions = 1;
+
+        assert!(regular_tool_budget_exceeded(completed_hosted_actions, 1, 1));
+        assert!(!regular_tool_budget_exceeded(
+            completed_hosted_actions,
+            0,
+            1
+        ));
+    }
 }

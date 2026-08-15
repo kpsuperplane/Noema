@@ -325,23 +325,71 @@ fn normalize_task_result(
     run_id: &str,
     system_errors: &noema_home::SystemErrorLogger,
 ) -> Vec<TaskSubmissionCitation> {
-    let Some(call) = generated
-        .response
+    let BackgroundTaskGenerateResult {
+        response,
+        citation_sources,
+    } = generated;
+    let Some(call) = response
         .tool_calls
         .iter_mut()
         .find(|call| call.name == "task.submit_result")
     else {
         return Vec::new();
     };
-    let Some(text) = call
+    let mut citations = Vec::new();
+    let mut unresolved_count = 0usize;
+    let mut normalize_text =
+        |value: &mut serde_json::Value, retain_offsets: bool| {
+            let Some(text) = value.as_str() else {
+                return;
+            };
+            let normalized = citation_sources.normalize(text, &[]);
+            unresolved_count =
+                unresolved_count.saturating_add(normalized.unresolved_references.len());
+            *value = serde_json::Value::String(normalized.text);
+            citations.extend(normalized.citations.into_iter().map(|citation| {
+                TaskSubmissionCitation {
+                    title: citation.title,
+                    url: citation.url,
+                    start_index: if retain_offsets {
+                        citation.start_index
+                    } else {
+                        None
+                    },
+                    end_index: if retain_offsets {
+                        citation.end_index
+                    } else {
+                        None
+                    },
+                }
+            }));
+        };
+    if let Some(text) = call.payload.get_mut("result_markdown") {
+        normalize_text(text, true);
+    }
+    if let Some(text) = call.payload.get_mut("summary") {
+        normalize_text(text, false);
+    }
+    if let Some(criteria) = call
         .payload
-        .get("result_markdown")
-        .and_then(serde_json::Value::as_str)
-    else {
-        return Vec::new();
-    };
-    let normalized = generated.citation_sources.normalize(text, &[]);
-    if !normalized.unresolved_references.is_empty() {
+        .get_mut("criteria")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for criterion in criteria {
+            if let Some(text) = criterion.get_mut("evidence_markdown") {
+                normalize_text(text, false);
+            }
+        }
+    }
+    drop(normalize_text);
+    let mut cited_urls = citations
+        .iter()
+        .filter(|citation| citation.end_index.is_some())
+        .map(|citation| citation.url.clone())
+        .collect::<HashSet<_>>();
+    citations
+        .retain(|citation| citation.end_index.is_some() || cited_urls.insert(citation.url.clone()));
+    if unresolved_count > 0 {
         system_errors.try_append(
             noema_home::SystemErrorEvent::new(
                 "provider_citation_unresolved",
@@ -350,21 +398,11 @@ fn normalize_task_result(
             .with_context(serde_json::json!({
                 "scope_kind": "task_run",
                 "scope_id": run_id,
-                "reference_count": normalized.unresolved_references.len(),
+                "reference_count": unresolved_count,
             })),
         );
     }
-    call.payload["result_markdown"] = serde_json::Value::String(normalized.text);
-    normalized
-        .citations
-        .into_iter()
-        .map(|citation| TaskSubmissionCitation {
-            title: citation.title,
-            url: citation.url,
-            start_index: citation.start_index,
-            end_index: citation.end_index,
-        })
-        .collect()
+    citations
 }
 
 fn background_task_generate_request(
@@ -419,7 +457,7 @@ mod citation_tests {
     use super::*;
 
     #[test]
-    fn task_result_markers_become_submission_citations() {
+    fn task_submission_markers_normalize_across_all_persisted_text() {
         let mut generated = BackgroundTaskGenerateResult {
             response: GenerateResponse {
                 responses: Vec::new(),
@@ -429,7 +467,18 @@ mod citation_tests {
                     provider_name: None,
                     name: "task.submit_result".to_string(),
                     payload: serde_json::json!({
-                        "result_markdown": "Claim\u{e200}cite\u{e202}turn0search0\u{e201}"
+                        "summary": "Summary\u{e200}cite\u{e202}turn0search0\u{e201}",
+                        "result_markdown": "Claim\u{e200}cite\u{e202}turn0search0\u{e201}",
+                        "criteria": [
+                            {
+                                "criterion_id": "criterion:one",
+                                "evidence_markdown": "Evidence\u{e200}cite\u{e202}turn0search1\u{e201}"
+                            },
+                            {
+                                "criterion_id": "criterion:two",
+                                "evidence_markdown": "Also\u{e200}cite\u{e202}turn0search1\u{e201}"
+                            }
+                        ]
                     }),
                 }],
                 reasoning_items: Vec::new(),
@@ -451,10 +500,16 @@ mod citation_tests {
                 arguments: serde_json::json!({}),
                 result: serde_json::json!({}),
                 status: "completed".to_string(),
-                sources: vec![GenerateWebSource {
-                    title: None,
-                    url: "https://example.com/source".to_string(),
-                }],
+                sources: vec![
+                    GenerateWebSource {
+                        title: None,
+                        url: "https://example.com/source".to_string(),
+                    },
+                    GenerateWebSource {
+                        title: Some("Evidence source".to_string()),
+                        url: "https://evidence.example/source".to_string(),
+                    },
+                ],
             }],
         );
 
@@ -468,9 +523,24 @@ mod citation_tests {
             generated.response.tool_calls[0].payload["result_markdown"],
             "Claim"
         );
-        assert_eq!(citations.len(), 1);
+        assert_eq!(
+            generated.response.tool_calls[0].payload["summary"],
+            "Summary"
+        );
+        assert_eq!(
+            generated.response.tool_calls[0].payload["criteria"][0]["evidence_markdown"],
+            "Evidence"
+        );
+        assert_eq!(
+            generated.response.tool_calls[0].payload["criteria"][1]["evidence_markdown"],
+            "Also"
+        );
+        assert_eq!(citations.len(), 2);
         assert_eq!(citations[0].end_index, Some(5));
         assert_eq!(citations[0].title, "example.com");
+        assert_eq!(citations[1].title, "Evidence source");
+        assert_eq!(citations[1].start_index, None);
+        assert_eq!(citations[1].end_index, None);
     }
 }
 

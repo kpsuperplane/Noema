@@ -289,7 +289,10 @@ fn role_builtin_tool_specs(
         ExecutionRole::TaskReviewer => vec![task_submit_review_tool_spec(criterion_ids)?],
         ExecutionRole::PrimaryConversation => Vec::new(),
     };
-    if role == ExecutionRole::TaskReviewer {
+    if role == ExecutionRole::TaskReviewer
+        || role == ExecutionRole::TaskExecutor
+            && terminal_contract.is_some_and(|contract| contract.has_correction_review)
+    {
         tools.push(task_read_submission_evidence_tool_spec()?);
     }
     if role != ExecutionRole::TaskPlanner {

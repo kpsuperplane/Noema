@@ -125,6 +125,22 @@ pub(super) fn task_cases(model_id: &str) -> Result<Vec<EvalCase>, String> {
         RunKind::Executor,
     );
     let blocked_request = terminal_tool_request(model_id, &blocked_context)?;
+    let unavailable_evidence_context = fixture_work_context(
+        "Find the current lowest fare",
+        "Find the current lowest fare from the required booking source. The source is unavailable after proportionate attempts, and no alternate source is authorized. Ask the human for one alternate source or scope reduction. Do not submit an unsupported fare.",
+        vec![TaskValidationCriterion {
+            criterion_id: "criterion:fare".to_string(),
+            ordinal: 1,
+            description:
+                "The result gives a current fare supported by the required booking source."
+                    .to_string(),
+            expected_evidence: Some("Cite the current fare from the required source.".to_string()),
+        }],
+        TaskComplexity::Simple,
+        RunKind::Executor,
+    );
+    let unavailable_evidence_request =
+        terminal_tool_request(model_id, &unavailable_evidence_context)?;
     let reviewer_context = fixture_work_context(
         "Return the launch code",
         "State that the launch code is **ORBIT-52** using that exact Markdown bold syntax. All required information is present; do not ask a question.",
@@ -201,6 +217,14 @@ pub(super) fn task_cases(model_id: &str) -> Result<Vec<EvalCase>, String> {
             category: "tasks",
             critical: true,
             request: blocked_request,
+            expectation: EvalExpectation::BlockedTask,
+        },
+        EvalCase {
+            id: "task_executor_unavailable_core_evidence",
+            role: RuntimeEvalRole::TaskSimple,
+            category: "tasks",
+            critical: true,
+            request: unavailable_evidence_request,
             expectation: EvalExpectation::BlockedTask,
         },
         EvalCase {

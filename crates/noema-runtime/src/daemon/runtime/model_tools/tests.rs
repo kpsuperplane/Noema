@@ -841,6 +841,36 @@ async fn background_roles_expose_read_tools_and_terminal_contracts_for_native_to
     }
 }
 
+#[test]
+fn correction_executor_exposes_only_review_fenced_submission_evidence() {
+    let initial = role_builtin_tool_specs(
+        ExecutionRole::TaskExecutor,
+        false,
+        Some(&TaskTerminalContract::default()),
+    )
+    .expect("initial Executor tools");
+    assert!(
+        initial
+            .iter()
+            .all(|tool| tool.name.as_str() != TASK_READ_SUBMISSION_EVIDENCE_TOOL)
+    );
+
+    let correction = role_builtin_tool_specs(
+        ExecutionRole::TaskExecutor,
+        false,
+        Some(&TaskTerminalContract {
+            has_correction_review: true,
+            ..TaskTerminalContract::default()
+        }),
+    )
+    .expect("correction Executor tools");
+    assert!(
+        correction
+            .iter()
+            .any(|tool| tool.name.as_str() == TASK_READ_SUBMISSION_EVIDENCE_TOOL)
+    );
+}
+
 #[tokio::test]
 async fn task_executor_can_submit_only_the_exact_pending_connector_proposal() {
     let store = crate::test_support::test_store().await;

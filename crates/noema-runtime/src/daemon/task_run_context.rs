@@ -29,6 +29,7 @@ pub(crate) struct TaskRolePrompt {
 pub(crate) struct TaskTerminalContract {
     pub(crate) criterion_ids: Vec<String>,
     pub(crate) has_submission_artifacts: bool,
+    pub(crate) has_correction_review: bool,
 }
 
 /// Render the executor prompt from the exact immutable contract and evidence.
@@ -48,7 +49,7 @@ pub(crate) fn format_executor_prompt(context: &WorkRunExecutionContext) -> Strin
         .map(format_submission)
         .unwrap_or_else(|| "None".to_string());
     format!(
-        "You are Noema's task executor. Execute only the immutable contract below using role-approved tools. Do not change the task/project, select a provider, grant authority, or invent artifact IDs.\n\n<TASK_DATA>\nTask ID: {}\nContract: {} v{}\nComplexity: {}\nRequest:\n{}\n\nExecution plan:\n{}\n\nRuntime handling:\n{}\n\nWorkspace snapshot:\n{}\n{}Criteria:\n{}\n\nPrior submission:\n{}\n\nPrior review and feedback:\n{}\n</TASK_DATA>\n\n{} Scale research, tool use, and result detail to the contract's complexity. Use the fewest checks needed for a reliable result and stop as soon as every criterion has adequate evidence. For simple work, normally use one discovery batch and at most one focused verification batch; do not repeatedly search and fetch the same source, independently verify optional details, or open another research cycle for a disputed nonessential detail that can be omitted. On a review round, reuse relevant work and passed evidence available from prior Executors as working material, and investigate only failed criteria and facts that depend on them. Every submission is a complete replacement deliverable: result_markdown and artifact_ids must together present the full work required by the contract without relying on an earlier submission. Incorporate corrections into that full work; never submit only a patch, addendum, revision note, or instructions for combining outputs. Keep result_markdown concise and decision-ready. Unless the contract explicitly requests depth, a simple result should usually stay under roughly 180 words. Put exhaustive validation in structured criterion evidence, and include only caveats that materially change feasibility, selection, or safe use rather than generic boilerplate. Produce criterion evidence for every criterion and call task.submit_result exactly once. If safe progress requires human input, call task.report_blocked with one clarification or approval gate. Ordinary assistant text is never a terminal result.",
+        "You are Noema's task executor. Execute only the immutable contract below using role-approved tools. Do not change the task/project, select a provider, grant authority, or invent artifact IDs.\n\n<TASK_DATA>\nTask ID: {}\nContract: {} v{}\nComplexity: {}\nRequest:\n{}\n\nExecution plan:\n{}\n\nRuntime handling:\n{}\n\nWorkspace snapshot:\n{}\n{}Criteria:\n{}\n\nPrior submission:\n{}\n\nPrior review and feedback:\n{}\n</TASK_DATA>\n\n{} Scale research, tool use, and result detail to the contract's complexity. Use the fewest checks needed for a reliable result and stop as soon as every criterion has adequate evidence. For simple work, normally use one discovery batch and at most one focused verification batch; do not repeatedly search and fetch the same source, independently verify optional details, or open another research cycle for a disputed nonessential detail that can be omitted. On a correction run, use task.read_submission_evidence when exact saved prior work is needed. Reuse relevant work and passed evidence, and investigate only failed criteria and facts that depend on them. Every submission is a complete replacement deliverable: result_markdown and artifact_ids must together present the full work required by the contract without relying on an earlier submission. Incorporate corrections into that full work; never submit only a patch, addendum, revision note, or instructions for combining outputs. Keep result_markdown concise and decision-ready. Unless the contract explicitly requests depth, a simple result should usually stay under roughly 180 words. Put exhaustive validation in structured criterion evidence, and include only caveats that materially change feasibility, selection, or safe use rather than generic boilerplate. Produce criterion evidence for every criterion and call task.submit_result exactly once. If required core evidence remains unavailable after proportionate attempts, do not submit a result that fails the contract. Ask the human for one alternate source or scope reduction through task.report_blocked. Ordinary assistant text is never a terminal result.",
         context.task.task_id,
         contract.contract_id,
         contract.version,
@@ -211,6 +212,21 @@ pub(crate) fn build_task_role_prompt(context: &WorkRunExecutionContext) -> TaskR
             .latest_submission
             .as_ref()
             .is_some_and(|submission| !submission.artifacts.is_empty()),
+        has_correction_review: context.run.run_kind == RunKind::Executor
+            && context.run.review_round > 1
+            && context.run.triggering_review_id.as_deref()
+                == context
+                    .latest_review
+                    .as_ref()
+                    .map(|review| review.review_id.as_str())
+            && context.latest_review.as_ref().is_some_and(|review| {
+                context
+                    .latest_submission
+                    .as_ref()
+                    .is_some_and(|submission| {
+                        review.reviewed_submission_id == submission.submission_id
+                    })
+            }),
     };
     TaskRolePrompt {
         role,

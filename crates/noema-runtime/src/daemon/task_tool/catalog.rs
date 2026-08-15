@@ -287,7 +287,7 @@ pub(crate) fn task_report_blocked_tool_spec()
 -> Result<ToolSpec, noema_capabilities::ToolContractError> {
     ToolSpec::new(
         TASK_REPORT_BLOCKED_TOOL,
-        "Open one focused clarification or approval gate and stop at a safe boundary. Keep the copy brief. Suggested answers render as separate controls, so do not repeat them in the question or context.",
+        "Open one focused clarification or approval gate and stop at a safe boundary. Use a clarification gate when unavailable core evidence requires an alternate source or reduced scope. Keep the copy brief. Suggested answers render as separate controls, so do not repeat them in the question or context.",
         json!({"type":"object","properties":{"gate_kind":{"type":"string","enum":["clarification","approval"]},"question":{"type":"string","description":"One brief standalone question. When suggested_answers is non-empty, do not quote, enumerate, or otherwise repeat those choices here.","minLength":1,"maxLength":4000},"context_markdown":{"type":"string","description":"Optional brief context needed to answer. Do not restate the question or suggested_answers.","maxLength":20000},"suggested_answers":{"type":"array","description":"Optional concise direct answers rendered as separate controls. Do not duplicate them in question or context_markdown.","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":1000}}},"required":["gate_kind","question"],"additionalProperties":false}),
     )
 }

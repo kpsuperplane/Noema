@@ -20,7 +20,8 @@ use noema_tasks::NewAgentRunItem;
 use crate::daemon::{RuntimeError, RuntimeEventRegistry, TaskRuntimeEvent};
 use noema_capabilities::CapabilityCatalogSnapshot;
 use noema_providers::{
-    GenerateRequest, GenerateResponse, GenerateStreamEvent, GenerationPriority, ProviderOperations,
+    GenerateHostedWebSearch, GenerateRequest, GenerateResponse, GenerateStreamEvent,
+    GenerationPriority, ProviderOperations,
 };
 
 use super::{
@@ -202,9 +203,18 @@ impl RuntimeActor {
             .await;
             let active_milliseconds =
                 u64::try_from(provider_started_at.elapsed().as_millis()).unwrap_or(u64::MAX);
-            let tool_call_count_delta = u32::try_from(response.tool_calls.len()).map_err(|_| {
+            let provider_action_count = response
+                .tool_calls
+                .len()
+                .checked_add(response.hosted_web_searches.len())
+                .ok_or_else(|| {
+                    RuntimeError::Protocol(
+                        "provider action count exceeds the supported range".to_string(),
+                    )
+                })?;
+            let tool_call_count_delta = u32::try_from(provider_action_count).map_err(|_| {
                 RuntimeError::Protocol(
-                    "provider tool-call count exceeds the supported range".to_string(),
+                    "provider action count exceeds the supported range".to_string(),
                 )
             })?;
             WorkCommandService::new(self.store.clone(), self.provider_registry.clone())
@@ -286,6 +296,27 @@ impl RuntimeActor {
                     )
                     .await;
                 }
+            }
+            for (search_index, search) in response.hosted_web_searches.iter().enumerate() {
+                let (call_item, result_item) = hosted_web_search_run_items(
+                    run_id,
+                    round_index,
+                    search_index,
+                    &response.provider,
+                    search,
+                );
+                self.store.append_agent_run_item(call_item, &fence).await?;
+                subscriptions.publish_task(TaskRuntimeEvent::Changed {
+                    task_id: task_id.to_string(),
+                    run_id: Some(run_id.to_string()),
+                });
+                self.store
+                    .append_agent_run_item(result_item, &fence)
+                    .await?;
+                subscriptions.publish_task(TaskRuntimeEvent::Changed {
+                    task_id: task_id.to_string(),
+                    run_id: Some(run_id.to_string()),
+                });
             }
             for (output_index, call) in response.tool_calls.iter().enumerate() {
                 let arguments = persisted_capability_arguments(bindings, &call.name, &call.payload);
@@ -383,6 +414,68 @@ impl RuntimeActor {
     }
 }
 
+fn hosted_web_search_run_items(
+    run_id: &str,
+    round_index: i64,
+    search_index: usize,
+    provider: &str,
+    search: &GenerateHostedWebSearch,
+) -> (NewAgentRunItem, NewAgentRunItem) {
+    let correlation_id = search
+        .id
+        .clone()
+        .unwrap_or_else(|| format!("hosted_web_search:{run_id}:{round_index}:{search_index}"));
+    let call_item_id =
+        format!("run_item:hosted_web_search_call:{run_id}:{round_index}:{search_index}");
+    let failed = search.status.eq_ignore_ascii_case("failed");
+    let status = if failed {
+        noema_tasks::AgentRunItemStatus::Failed
+    } else {
+        noema_tasks::AgentRunItemStatus::Completed
+    };
+    let call = NewAgentRunItem {
+        item_id: Some(call_item_id.clone()),
+        run_id: run_id.to_string(),
+        round_index,
+        kind: noema_tasks::AgentRunItemKind::ToolCall,
+        status: noema_tasks::AgentRunItemStatus::Completed,
+        correlation_id: Some(correlation_id.clone()),
+        parent_item_id: None,
+        content_text: Some(search.tool_name.clone()),
+        payload: serde_json::json!({
+            "output_index": search.output_index,
+            "provider_call_id": search.id,
+            "provider_name": provider,
+            "name": search.tool_name,
+            "arguments": search.arguments,
+            "status": search.status,
+        }),
+    };
+    let result = NewAgentRunItem {
+        item_id: Some(format!(
+            "run_item:hosted_web_search_result:{run_id}:{round_index}:{search_index}"
+        )),
+        run_id: run_id.to_string(),
+        round_index,
+        kind: noema_tasks::AgentRunItemKind::ToolResult,
+        status,
+        correlation_id: Some(correlation_id.clone()),
+        parent_item_id: Some(call_item_id),
+        content_text: Some(search.tool_name.clone()),
+        payload: serde_json::json!({
+            "call_id": correlation_id,
+            "provider_call_id": search.id,
+            "provider_name": provider,
+            "name": search.tool_name,
+            "success": !failed,
+            "payload": search.result,
+            "sources": search.sources,
+            "status": search.status,
+        }),
+    };
+    (call, result)
+}
+
 fn assistant_run_item(
     run_id: &str,
     round_index: i64,
@@ -432,6 +525,39 @@ mod tests {
         RedactingPayloadSanitizer, ToolSpec,
     };
     use std::sync::Arc;
+
+    #[test]
+    fn hosted_web_search_items_preserve_ordered_sources() {
+        let search = GenerateHostedWebSearch {
+            output_index: 3,
+            id: Some("provider-search:1".to_string()),
+            tool_name: "web.search".to_string(),
+            arguments: serde_json::json!({"query": "lowest fare weeks"}),
+            result: serde_json::json!({"query": "lowest fare weeks"}),
+            status: "completed".to_string(),
+            sources: vec![
+                noema_providers::GenerateWebSource {
+                    title: Some("First".to_string()),
+                    url: "https://one.example".to_string(),
+                },
+                noema_providers::GenerateWebSource {
+                    title: Some("Second".to_string()),
+                    url: "https://two.example".to_string(),
+                },
+            ],
+        };
+
+        let (call, result) =
+            hosted_web_search_run_items("run:test", 2, 0, "test-provider", &search);
+
+        assert_eq!(call.kind, noema_tasks::AgentRunItemKind::ToolCall);
+        assert_eq!(call.status, noema_tasks::AgentRunItemStatus::Completed);
+        assert_eq!(call.payload["arguments"]["query"], "lowest fare weeks");
+        assert_eq!(result.kind, noema_tasks::AgentRunItemKind::ToolResult);
+        assert_eq!(result.parent_item_id, call.item_id);
+        assert_eq!(result.payload["sources"][0]["title"], "First");
+        assert_eq!(result.payload["sources"][1]["url"], "https://two.example");
+    }
 
     fn bindings(name: &str, omit: bool) -> CapabilityCatalogSnapshot {
         let spec =

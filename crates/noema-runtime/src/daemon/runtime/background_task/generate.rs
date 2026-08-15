@@ -140,7 +140,7 @@ impl RuntimeActor {
         context.append_response(&response);
         let mut aggregate_usage = response.usage.clone();
         let mut progress = ContinuationProgressTracker::new(&request.input);
-        let mut completed_tool_calls = 0usize;
+        let mut completed_tool_calls = response.hosted_web_searches.len();
         let mut invalid_terminal_attempts = 0usize;
 
         for continuation_index in 0..=max_continuations {
@@ -207,7 +207,7 @@ impl RuntimeActor {
                     )
                     .await;
             }
-            if completed_tool_calls.saturating_add(calls.len()) > max_tool_calls {
+            if regular_tool_budget_exceeded(completed_tool_calls, calls.len(), max_tool_calls) {
                 self.mark_task_calls_skipped(
                     &request,
                     continuation_index as i64,
@@ -692,6 +692,8 @@ impl RuntimeActor {
                 Ok(response) => {
                     citation_sources
                         .observe(continuation_step, &response.hosted_web_searches);
+                    completed_tool_calls = completed_tool_calls
+                        .saturating_add(response.hosted_web_searches.len());
                     next_provider_round = continuation_step.saturating_add(1);
                     response
                 }
@@ -727,4 +729,8 @@ fn render_background_instance_identity(instructions: String, instance_name: &str
         "{instructions}\n\nSubagent instance identity:\n- instance_name: {}\n- This label is assigned by Noema and remains stable for this run. Do not rename it or claim it is user-chosen.",
         serde_json::to_string(instance_name).expect("serializing an instance name should not fail")
     )
+}
+
+fn regular_tool_budget_exceeded(completed: usize, pending: usize, maximum: usize) -> bool {
+    completed.saturating_add(pending) > maximum
 }
