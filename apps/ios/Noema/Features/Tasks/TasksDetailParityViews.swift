@@ -1,5 +1,4 @@
 import Foundation
-import MarkdownUI
 import SwiftUI
 
 enum TaskResultTab: String, CaseIterable, Identifiable {
@@ -211,19 +210,7 @@ struct TasksCompletedResultView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
       if let response = response.nilIfBlank {
-        Markdown(response)
-          .markdownTextStyle {
-            FontFamily(.custom("Hanken Grotesk"))
-            FontSize(14)
-            ForegroundColor(NoemaColor.content)
-          }
-          .markdownBlockStyle(\.paragraph) { configuration in
-            configuration.label
-              .lineSpacing(5)
-              .markdownMargin(top: 0, bottom: NoemaSpacing.sm)
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .textSelection(.enabled)
+        NoemaMarkdown(response)
       } else {
         Text("The accepted response has no text content.")
           .font(NoemaFont.taskTitle)
@@ -470,17 +457,7 @@ struct TasksTranscriptSection: View {
   }
 
   private func messageBubble(body: String, human: Bool) -> some View {
-    Markdown(body)
-      .markdownTextStyle {
-        FontFamily(.custom("Hanken Grotesk"))
-        FontSize(14)
-        ForegroundColor(human ? NoemaColor.white : NoemaColor.content)
-      }
-      .markdownBlockStyle(\.paragraph) { configuration in
-        configuration.label.markdownMargin(top: 0, bottom: 0)
-      }
-      .font(NoemaFont.body)
-      .lineSpacing(NoemaSpacing.compact)
+    NoemaMarkdown(body, role: human ? .humanMessage : .assistantMessage)
       .padding(.horizontal, NoemaSpacing.lg)
       .padding(.vertical, NoemaSpacing.sm)
       .frame(maxWidth: human ? nil : .infinity, alignment: .leading)

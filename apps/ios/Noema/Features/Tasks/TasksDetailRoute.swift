@@ -1,4 +1,3 @@
-import MarkdownUI
 import NoemaAPI
 import SwiftUI
 
@@ -325,12 +324,7 @@ private struct TasksGatePanel: View {
         }
 
         if !gate.context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-          Markdown(gate.context)
-            .markdownTextStyle {
-              FontFamily(.custom("Hanken Grotesk"))
-              FontSize(14)
-              ForegroundColor(NoemaColor.contentSecondary)
-            }
+          NoemaMarkdown(gate.context, role: .secondary)
         }
 
         if let errorMessage {

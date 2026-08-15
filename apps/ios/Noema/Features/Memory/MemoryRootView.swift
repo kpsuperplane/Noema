@@ -1,4 +1,3 @@
-import MarkdownUI
 import Foundation
 import SwiftUI
 
@@ -198,7 +197,7 @@ private struct MemoryArticleView: View {
         .padding(.vertical, NoemaSpacing.md)
     } else {
       ForEach(sections) { section in
-        MemoryMarkdownBody(content: section.content)
+        NoemaMarkdown(section.content, role: .document)
           .padding(.top, section.content.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#") ? 14 : 0)
           .id(section.id)
       }
@@ -311,66 +310,6 @@ private struct MemoryContents: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.bottom, 3)
-  }
-}
-
-private struct MemoryMarkdownHeading<Label: View>: View {
-  let label: Label
-  let major: Bool
-
-  var body: some View {
-    label
-      .markdownTextStyle {
-        FontFamily(.custom("Georgia"))
-        FontSize(major ? 24 : 19)
-        FontWeight(.regular)
-        ForegroundColor(NoemaColor.content)
-      }
-      .lineSpacing(2)
-      .markdownMargin(top: major ? 32 : NoemaSpacing.lg, bottom: NoemaSpacing.sm)
-      .padding(.bottom, 10)
-      .overlay(alignment: .bottom) {
-        Rectangle()
-          .fill(NoemaColor.separator)
-          .frame(height: 1)
-      }
-  }
-}
-
-private struct MemoryMarkdownBody: View {
-  let content: String
-
-  var body: some View {
-    Markdown(content)
-      .markdownTextStyle {
-        FontFamily(.custom("Georgia"))
-        FontSize(15)
-        ForegroundColor(NoemaColor.content)
-      }
-      .markdownTextStyle(\.link) {
-        FontFamily(.system())
-        FontSize(14)
-        ForegroundColor(NoemaColor.clay600)
-      }
-      .markdownBlockStyle(\.paragraph) { configuration in
-        configuration.label
-          .lineSpacing(7.5)
-          .markdownMargin(top: NoemaSpacing.lg, bottom: NoemaSpacing.sm)
-      }
-      .markdownBlockStyle(\.heading1) { configuration in
-        MemoryMarkdownHeading(label: configuration.label, major: true)
-      }
-      .markdownBlockStyle(\.heading2) { configuration in
-        MemoryMarkdownHeading(label: configuration.label, major: true)
-      }
-      .markdownBlockStyle(\.heading3) { configuration in
-        MemoryMarkdownHeading(label: configuration.label, major: false)
-      }
-      .markdownBlockStyle(\.heading4) { configuration in
-        MemoryMarkdownHeading(label: configuration.label, major: false)
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .textSelection(.enabled)
   }
 }
 

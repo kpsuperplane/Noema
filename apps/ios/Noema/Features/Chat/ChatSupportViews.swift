@@ -1,7 +1,6 @@
 import AVFoundation
 import Foundation
 import Apollo
-import MarkdownUI
 import NoemaAPI
 import SwiftUI
 import UIKit
@@ -680,8 +679,7 @@ struct ChatInterventionsView: View {
       Text(gate.prompt.nilIfBlank ?? attention.summary)
         .font(NoemaFont.taskTitle)
       if !gate.context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        Markdown(gate.context)
-          .markdownTextStyle { ForegroundColor(NoemaColor.contentSecondary) }
+        NoemaMarkdown(gate.context, role: .secondary)
       }
       switch gate.kind {
       case "APPROVAL":

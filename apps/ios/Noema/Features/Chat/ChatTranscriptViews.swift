@@ -1,8 +1,6 @@
 import Foundation
 import Apollo
-import MarkdownUI
 import SwiftUI
-import UIKit
 
 struct ChatLaneRow<Content: View>: View {
   let lane: ChatLane
@@ -152,7 +150,7 @@ struct ChatMessageView: View {
     case let .user(text):
       ChatLaneRow(lane: .human, showAvatar: showAvatar) {
         ChatBubbleView(lane: .human, group: group) {
-          ChatMarkdownText(text: text, color: NoemaColor.white, assistant: false)
+          NoemaMarkdown(text, role: .humanMessage)
         }
       }
     case let .assistant(text, _):
@@ -166,7 +164,7 @@ struct ChatMessageView: View {
       ) {
         ChatBubbleView(lane: .assistant, group: group) {
           VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-            ChatMarkdownText(text: text, color: NoemaColor.content, assistant: true)
+            NoemaMarkdown(text, role: .assistantMessage)
             ProviderCitationLinks(citations: citations)
             ForEach(attachedTaskIDs, id: \.self) { taskID in
               TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
@@ -259,136 +257,6 @@ struct ChatMessageView: View {
         TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
       }
       }
-  }
-}
-
-private struct ChatMarkdownText: View {
-  private static let fontSize = NoemaFont.messageSize
-  private static let webLineHeightMultiplier: CGFloat = 1.7
-  private static let webListLineHeight: CGFloat = 20
-  private static let lineSpacing: CGFloat = {
-    let font = UIFont(name: "HankenGrotesk-Regular", size: fontSize)
-      ?? UIFont.systemFont(ofSize: fontSize)
-    return max(0, fontSize * webLineHeightMultiplier - font.lineHeight)
-  }()
-  private static let listLineSpacing: CGFloat = {
-    let font = UIFont(name: "HankenGrotesk-Regular", size: fontSize)
-      ?? UIFont.systemFont(ofSize: fontSize)
-    return max(0, webListLineHeight - font.lineHeight)
-  }()
-
-  let text: String
-  let color: Color
-  let assistant: Bool
-
-  var body: some View {
-    Markdown(text)
-      .frame(alignment: .leading)
-      .markdownTextStyle {
-        FontFamily(.custom("Hanken Grotesk"))
-        FontSize(Self.fontSize)
-        TextKerning(-0.12)
-        ForegroundColor(color)
-      }
-      .markdownTextStyle(\.link) {
-        FontWeight(.semibold)
-        ForegroundColor(color)
-      }
-      .markdownBlockStyle(\.paragraph) { configuration in
-        ChatMarkdownParagraph(
-          label: configuration.label,
-          lineSpacing: Self.lineSpacing,
-          listLineSpacing: Self.listLineSpacing
-        )
-      }
-      .markdownBlockStyle(\.list) { configuration in
-        configuration.label
-          .environment(\.chatMarkdownList, true)
-          .padding(.horizontal, -NoemaSpacing.sm)
-          .markdownMargin(top: NoemaSpacing.xs, bottom: NoemaSpacing.xs)
-      }
-      .markdownBlockStyle(\.listItem) { configuration in
-        configuration.label
-          .labelStyle(ChatMarkdownListLabelStyle())
-          .padding(.horizontal, assistant ? 0 : NoemaSpacing.sm)
-          .padding(.vertical, NoemaSpacing.xs)
-          .markdownMargin(top: NoemaSpacing.xxs, bottom: NoemaSpacing.xxs)
-      }
-      .markdownBulletedListMarker(
-        BlockStyle { _ in
-          ChatMarkdownBulletMarker(assistant: assistant, color: color)
-        }
-      )
-      .markdownNumberedListMarker(
-        BlockStyle { configuration in
-          Text("\(configuration.itemNumber).")
-            .font(NoemaFont.message)
-            .monospacedDigit()
-            .foregroundStyle(color)
-            .frame(
-              width: assistant ? NoemaSpacing.xxl : NoemaSpacing.lg,
-              height: Self.webListLineHeight,
-              alignment: .topTrailing
-            )
-        }
-      )
-  }
-}
-
-private struct ChatMarkdownListKey: EnvironmentKey {
-  static let defaultValue = false
-}
-
-private extension EnvironmentValues {
-  var chatMarkdownList: Bool {
-    get { self[ChatMarkdownListKey.self] }
-    set { self[ChatMarkdownListKey.self] = newValue }
-  }
-}
-
-private struct ChatMarkdownParagraph: View {
-  @Environment(\.chatMarkdownList) private var isList
-
-  let label: BlockConfiguration.Label
-  let lineSpacing: CGFloat
-  let listLineSpacing: CGFloat
-
-  var body: some View {
-    label
-      .lineSpacing(isList ? listLineSpacing : lineSpacing)
-      .markdownMargin(top: 0, bottom: isList ? NoemaSpacing.xs : NoemaSpacing.sm)
-  }
-}
-
-private struct ChatMarkdownListLabelStyle: LabelStyle {
-  func makeBody(configuration: Configuration) -> some View {
-    HStack(alignment: .top, spacing: NoemaSpacing.sm) {
-      configuration.icon
-      configuration.title
-    }
-  }
-}
-
-private struct ChatMarkdownBulletMarker: View {
-  let assistant: Bool
-  let color: Color
-
-  var body: some View {
-    let diameter: CGFloat = assistant ? NoemaSpacing.xs : NoemaSpacing.compact
-    let width: CGFloat = assistant ? NoemaSpacing.xs : NoemaSpacing.lg
-    ZStack {
-      if assistant {
-        Circle()
-          .fill(NoemaColor.clay600.opacity(0.06))
-          .frame(width: NoemaSpacing.sm, height: NoemaSpacing.sm)
-      }
-      Circle()
-        .fill(assistant ? NoemaColor.clay600.opacity(0.72) : color)
-        .frame(width: diameter, height: diameter)
-    }
-    .frame(width: width, height: NoemaSpacing.xl)
-    .offset(x: assistant ? -NoemaSpacing.xxs : 0)
-    .padding(.leading, assistant ? NoemaSpacing.sm + NoemaSpacing.xxs : 0)
   }
 }
 

@@ -2,7 +2,6 @@ import Apollo
 import Foundation
 import QuickLook
 import SwiftUI
-import MarkdownUI
 import NoemaAPI
 import Observation
 import UniformTypeIdentifiers
@@ -459,8 +458,7 @@ private struct ArtifactDetailView: View {
           }
         }
         if detail.previewKind.uppercased() == "MARKDOWN", let markdown = detail.markdown {
-          Markdown(markdown)
-            .frame(maxWidth: .infinity, alignment: .leading)
+          NoemaMarkdown(markdown)
         } else if detail.previewKind.uppercased() == "PLAIN_TEXT", let plainText = detail.plainText {
           Text(plainText)
             .font(NoemaFont.mono)
