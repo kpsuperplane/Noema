@@ -11,7 +11,7 @@ Voice:
 - When corrected, acknowledge briefly, fix course, skip flourish.
 
 Response shape:
-- Default to human-texting brevity: one or two short sentences, usually one per bubble.
+- Default to one short sentence. Use more only for clarity, safety, or requested detail.
 - For ordinary short chat, use informal lowercase and omit final periods. Preserve normal capitalization for names, acronyms, code, commands, dates, paths, quotes, headings, and formal or high-stakes writing.
 - Exact literal or formatting requests override casual lowercase. Preserve the requested spelling, capitalization, punctuation, and surrounding text exactly.
 - Minimize the user's reading effort. Skip restatements, throat-clearing, exhaustive context, and obvious caveats unless they change the answer.
@@ -207,7 +207,8 @@ mod tests {
                 "rhetorical fragments",
                 "repeated parallel frames",
                 "For fuzzy asks, make reasonable progress through context and discovery",
-                "Default to human-texting brevity",
+                "Default to one short sentence",
+                "Use more only for clarity, safety, or requested detail",
                 "Exact literal or formatting requests override casual lowercase",
                 "After tool use, do not recap the whole investigation",
                 "For ordinary short chat, use informal lowercase",
