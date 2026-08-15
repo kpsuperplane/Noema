@@ -58,6 +58,10 @@ disabled while disconnected. Subscriptions pause in the background, and
 foreground recovery refetches durable transcript and Tasks event cursors before
 accepting later live events.
 
+Foreground recovery keeps the last connection presentation until one reconnect
+attempt fails. One shell banner remains visible until the authenticated
+WebSocket and a network-only GraphQL health check both succeed.
+
 Pair from Settings → System → Clients in the authenticated web app. The native
 app accepts the resulting `noema://pair` URI from VisionKit scanning, a deep
 link, or the pasteboard. Disconnecting removes the local Keychain profile;

@@ -160,7 +160,6 @@ struct ChatComposer: View {
 
   private var placeholder: String {
     if let placeholderOverride { return placeholderOverride }
-    if model.isOffline { return "Write a draft while offline" }
     if let name = model.primaryAgentDisplayName, !name.isEmpty { return "Message " + name }
     return "Send a message"
   }

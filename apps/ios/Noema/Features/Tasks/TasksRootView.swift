@@ -23,7 +23,12 @@ struct TasksRootView: View {
     .task(id: appModel.profile?.clientId) {
       guard let client = appModel.graphQLClient?.client else { return }
       if tasksModel == nil {
-        tasksModel = TasksModel(client: client, profile: appModel.profile)
+        guard let connectionStatus = appModel.graphQLClient?.connectionStatus else { return }
+        tasksModel = TasksModel(
+          client: client,
+          profile: appModel.profile,
+          connectionStatus: connectionStatus
+        )
       }
       await tasksModel?.start()
     }
@@ -36,7 +41,6 @@ struct TasksRootView: View {
 private struct TasksSurface: View {
   @Bindable var model: TasksModel
   @Environment(NoemaShellCoordinator.self) private var shellCoordinator
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var selectedTaskId: String?
   @State private var capturePresented = false
   @State private var projectEditor: TasksProjectSnapshot?
@@ -60,17 +64,6 @@ private struct TasksSurface: View {
     .noemaSheet(item: $projectEditor) { project in
       TasksProjectSheet(model: model, project: project)
     }
-    .overlay(alignment: .bottom) {
-      if !model.isConnected, model.hasLoadedTasks {
-        TasksConnectionBanner(error: model.lastError) {
-          Task { await model.recoverConnection() }
-        }
-        .padding(.horizontal, NoemaSpacing.md)
-        .padding(.bottom, NoemaSpacing.sm)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
-    }
-    .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: model.isConnected)
     .onAppear { registerSecondaryNavigation() }
     .onAppear { openRequestedTask() }
     .onChange(of: shellCoordinator.requestedTaskID) { _, _ in openRequestedTask() }
@@ -215,40 +208,6 @@ private struct TasksSurface: View {
       icon: .briefcaseBusiness,
       entries: entries
     ), for: .tasks)
-  }
-}
-
-private struct TasksConnectionBanner: View {
-  let error: String?
-  let reconnect: () -> Void
-
-  var body: some View {
-    HStack(spacing: NoemaSpacing.sm) {
-      Image(systemName: "wifi.slash")
-        .foregroundStyle(NoemaColor.warning)
-      VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-        Text("Showing cached tasks")
-          .font(NoemaFont.captionEmphasized)
-        if let error, !error.isEmpty {
-          Text(error)
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.contentSecondary)
-            .lineLimit(1)
-        }
-      }
-      Spacer(minLength: NoemaSpacing.sm)
-      Button("Reconnect", action: reconnect)
-        .font(NoemaFont.captionEmphasized)
-        .buttonStyle(.glass)
-    }
-    .padding(.horizontal, NoemaSpacing.md)
-    .padding(.vertical, NoemaSpacing.sm)
-    .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
-    .overlay {
-      NoemaSuperellipse(cornerRadius: NoemaRadius.element)
-        .stroke(NoemaColor.separator.opacity(0.4), lineWidth: 0.5)
-    }
-    .accessibilityElement(children: .combine)
   }
 }
 

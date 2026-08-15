@@ -10,6 +10,7 @@ struct ChatTaskDetailSheet: View {
   @Environment(\.dismiss) private var dismiss
   let client: ApolloClient?
   let profile: NoemaProfile?
+  let connectionStatus: NoemaConnectionStatus?
   let taskID: String
   @State private var tasksModel: TasksModel?
 
@@ -32,7 +33,8 @@ struct ChatTaskDetailSheet: View {
     .noemaMobileDrawerPresentation()
     .task(id: taskID) {
       guard tasksModel == nil, let client else { return }
-      tasksModel = TasksModel(client: client, profile: profile)
+      guard let connectionStatus else { return }
+      tasksModel = TasksModel(client: client, profile: profile, connectionStatus: connectionStatus)
     }
   }
 }

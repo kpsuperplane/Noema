@@ -276,14 +276,7 @@ struct ChatReadyView: View {
         NoemaPageTrack(maxWidth: 760, horizontalPadding: NoemaSpacing.md) {
           LazyVStack(alignment: .leading, spacing: 0) {
             if model.messages.isEmpty {
-              if model.isOffline {
-                SystemNoticeView(
-                  text: "Reconnect to load this conversation.",
-                  symbol: "wifi.slash",
-                  tone: .warning
-                )
-                .containerRelativeFrame(.vertical, alignment: .center)
-              } else if !model.hasLoadedTranscript {
+              if !model.hasLoadedTranscript {
                 ChatTranscriptLoadingSkeleton(horizontalPadding: 0)
                   .containerRelativeFrame(.vertical, alignment: .bottom)
               }
@@ -390,14 +383,6 @@ struct ChatReadyView: View {
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
       VStack(spacing: NoemaSpacing.xs) {
-        if model.isOffline {
-          NoemaInlineState(
-            message: "Offline — transcript remains available; sending is paused.",
-            symbol: "wifi.slash",
-            tone: .warning
-          )
-          .frame(maxWidth: 760)
-        }
         if !model.interventions.isEmpty {
           ChatInterventionsView(model: model)
         }
@@ -461,7 +446,12 @@ struct ChatReadyView: View {
   @ViewBuilder
   private var taskDetail: some View {
     if let selectedTaskID {
-      ChatTaskDetailSheet(client: model.client, profile: model.profile, taskID: selectedTaskID)
+      ChatTaskDetailSheet(
+        client: model.client,
+        profile: model.profile,
+        connectionStatus: model.connectionStatus,
+        taskID: selectedTaskID
+      )
     }
   }
 

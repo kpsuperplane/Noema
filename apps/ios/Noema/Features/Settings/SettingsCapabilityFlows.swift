@@ -282,7 +282,6 @@ extension SettingsModel {
             let url = URL(string: attempt.authorizationUrl) else {
         throw SettingsError.server("Noema did not return an authorization URL.")
       }
-      isOffline = false
       return SettingsAdapterOAuthAttempt(
         attemptID: attempt.attemptId,
         authorizationURL: url,
@@ -360,7 +359,6 @@ extension SettingsModel {
         .first(where: { $0.grantId == grantID }) else {
         throw SettingsError.server("The attached API connection is unavailable.")
       }
-      isOffline = false
       await load(client: client)
       return connection.connectionId
     } catch {
@@ -504,7 +502,6 @@ extension SettingsModel {
         )
       ))
       if let message = response.errors?.first?.message { throw SettingsError.server(message) }
-      isOffline = false
       await load(client: client)
       return response.data.map(Self.mcpSetupResult(from:))
     } catch {
@@ -520,7 +517,6 @@ extension SettingsModel {
     do {
       let response = try await client.perform(mutation: NoemaAPI.SettingsCreateMcpServerMutation(input: input))
       if let message = response.errors?.first?.message { throw SettingsError.server(message) }
-      isOffline = false
       await load(client: client)
       return response.data.map(Self.mcpSetupResult(from:))
     } catch {
@@ -538,7 +534,6 @@ extension SettingsModel {
         input: NoemaAPI.StartMcpServerOAuthSetupInput(server: input, redirectUri: redirectURI)
       ))
       if let message = response.errors?.first?.message { throw SettingsError.server(message) }
-      isOffline = false
       return response.data.map(Self.mcpAuthAttempt(from:))
     } catch {
       errorMessage = error.localizedDescription
@@ -558,7 +553,6 @@ extension SettingsModel {
         )
       ))
       if let message = response.errors?.first?.message { throw SettingsError.server(message) }
-      isOffline = false
       return response.data.map(Self.mcpAuthAttempt(from:))
     } catch {
       errorMessage = error.localizedDescription
@@ -595,7 +589,6 @@ extension SettingsModel {
         )
       ))
       if let message = response.errors?.first?.message { throw SettingsError.server(message) }
-      isOffline = false
       await load(client: client)
       return response.data.map(Self.mcpSetupResult(from:))
     } catch {
