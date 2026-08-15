@@ -3,14 +3,6 @@ import OSLog
 import SwiftUI
 import WidgetKit
 
-enum NoemaActivityFont {
-  static let body = Font.system(size: 14)
-  static let medium = Font.system(size: 14, weight: .medium)
-  static let semibold = Font.system(size: 14, weight: .semibold)
-  static let bold = Font.system(size: 14, weight: .bold)
-  static let rowTitle = Font.system(size: 15, weight: .semibold)
-}
-
 @main
 struct NoemaLiveActivityBundle: WidgetBundle {
   var body: some Widget {
@@ -139,9 +131,10 @@ private struct ActivityIdentity: View {
           .accessibilityHidden(true)
       }
       Text(label)
-        .font(NoemaActivityFont.semibold)
+        .font((appearance == .island ? Font.caption2 : .caption).weight(.semibold))
         .foregroundStyle(appearance.primary)
         .lineLimit(1)
+        .minimumScaleFactor(0.82)
         .allowsTightening(true)
         .layoutPriority(1)
     }
@@ -185,7 +178,11 @@ private struct ActivityHeaderStatus: View {
         }
       }
     }
-    .font(NoemaActivityFont.semibold.monospacedDigit())
+    .font(
+      (appearance == .island ? Font.caption2 : .caption)
+        .monospacedDigit()
+        .weight(.semibold)
+    )
     .lineLimit(1)
   }
 }
@@ -258,7 +255,7 @@ private struct MultipleTasksActivityBody: View {
       let hiddenCount = max(0, state.activeTaskCount - summaries.count)
       if hiddenCount > 0 {
         Text(hiddenCount == 1 ? "+ 1 task running in the background" : "+ \(hiddenCount) tasks running in the background")
-          .font(NoemaActivityFont.semibold)
+          .font(.system(size: 10, weight: .semibold))
           .foregroundStyle(appearance.tertiary)
           .padding(.top, 8)
       }
@@ -276,7 +273,7 @@ private struct MultipleTaskRow: View {
   var body: some View {
     HStack(spacing: 12) {
       Text(summary.title)
-        .font(NoemaActivityFont.rowTitle)
+        .font(.system(size: 13, weight: .medium))
         .foregroundStyle(appearance.primary)
         .lineLimit(1)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -296,7 +293,7 @@ private struct MultipleTaskRow: View {
             .lineLimit(1)
         }
       }
-      .font(NoemaActivityFont.medium)
+      .font(.system(size: 10, weight: .medium))
       .foregroundStyle(appearance.tertiary)
     }
     .frame(minHeight: 31)
@@ -318,12 +315,14 @@ private struct AttentionActivityBody: View {
         .font(appearance == .island ? .subheadline.weight(.semibold) : .title3.weight(.semibold))
         .foregroundStyle(appearance.primary)
         .lineLimit(appearance == .island ? 1 : 2)
+        .minimumScaleFactor(0.82)
         .allowsTightening(true)
 
       Text("\(agentName) is waiting for your decision on this task.")
-        .font(NoemaActivityFont.body)
+        .font(.caption)
         .foregroundStyle(appearance.secondary)
         .lineLimit(appearance == .island ? 1 : 2)
+        .minimumScaleFactor(0.85)
         .allowsTightening(true)
         .padding(.top, 6)
 
@@ -333,12 +332,12 @@ private struct AttentionActivityBody: View {
 
       HStack(spacing: appearance == .island ? 8 : 12) {
         Text(otherTasksLabel)
-          .font(NoemaActivityFont.semibold)
+          .font(.caption2.weight(.semibold))
           .foregroundStyle(appearance.secondary)
           .lineLimit(1)
         Spacer(minLength: 8)
         Text("Open task ›")
-          .font(NoemaActivityFont.bold)
+          .font(.caption2.weight(.bold))
           .foregroundStyle(NoemaActivityPalette.attention(for: appearance))
           .lineLimit(1)
       }
@@ -404,8 +403,9 @@ private struct CompactTrailingStatus: View {
           .accessibilityLabel("Starting")
       }
     }
-    .font(NoemaActivityFont.bold.monospacedDigit())
+    .font(.caption2.monospacedDigit().weight(.bold))
     .lineLimit(1)
+    .minimumScaleFactor(0.75)
     .fixedSize(horizontal: true, vertical: false)
   }
 }

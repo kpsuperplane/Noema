@@ -23,9 +23,9 @@ struct TasksTaskContextDock: View {
           .accessibilityLabel("\(run?.instanceName ?? "Task") run")
         VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
           Text(run.map { "\($0.instanceName) · \($0.kind.capitalized)" } ?? "No agent run yet")
-            .font(NoemaFont.captionEmphasized)
+            .font(NoemaFont.compactEmphasized)
           Text(activity?.taskDockText ?? run?.activity.taskDockText ?? "Task context")
-            .font(NoemaFont.monoTiny)
+            .font(NoemaFont.monoCompact)
             .foregroundStyle(NoemaColor.contentSecondary)
             .lineLimit(1)
         }
@@ -53,10 +53,10 @@ struct TasksTaskContextDock: View {
         Rectangle().fill(NoemaColor.separatorSubtle).frame(height: 1)
         Button(action: showValidation) {
           HStack(spacing: NoemaSpacing.xs) {
-            Text("Validation").font(NoemaFont.taskPreview.weight(.semibold))
+            Text("Validation").font(NoemaFont.compactEmphasized)
             ForEach(criteria.prefix(4)) { criterion in
               Image(systemName: criterion.verdict.taskCriterionIcon)
-                .font(NoemaFont.metadata)
+                .font(NoemaFont.compact)
                 .foregroundStyle(criterion.verdict.taskCriterionColor)
             }
             Spacer(minLength: 0)

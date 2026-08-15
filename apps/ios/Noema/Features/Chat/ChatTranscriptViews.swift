@@ -374,14 +374,14 @@ struct ToolMarkerView: View {
           ToolStatusIcon(status: markerStatus)
           if markerCount > 1 && expanded {
             Image(systemName: "wrench.and.screwdriver")
-              .font(NoemaFont.metadata)
+              .font(NoemaFont.compact)
               .foregroundStyle(NoemaColor.contentTertiary)
               .frame(width: 16, height: 16)
           } else {
             ToolTypeIcon(kind: toolMarkerKind(in: collapsedMessages))
           }
           Text(markerCount > 1 && expanded ? String(markerCount) + " tool calls" : toolMarkerName(in: collapsedMessages))
-            .font(NoemaFont.mono)
+            .font(NoemaFont.monoCompact)
             .foregroundStyle(NoemaColor.contentTertiary)
             .lineLimit(1)
             .multilineTextAlignment(.leading)
@@ -470,7 +470,7 @@ private struct ToolMarkerCallView: View {
           ToolStatusIcon(status: toolMarkerStatus(in: messages))
           ToolTypeIcon(kind: toolMarkerKind(in: messages))
           Text(toolMarkerName(in: messages))
-            .font(NoemaFont.mono)
+            .font(NoemaFont.monoCompact)
             .foregroundStyle(NoemaColor.contentTertiary)
             .lineLimit(1)
             .multilineTextAlignment(.leading)
@@ -517,7 +517,7 @@ struct ToolStatusIcon: View {
         ProgressView().controlSize(.mini).tint(color)
       } else {
         Image(systemName: symbol)
-          .font(NoemaFont.metadata.weight(.semibold))
+          .font(NoemaFont.compactEmphasized)
           .foregroundStyle(color)
       }
     }
@@ -555,7 +555,7 @@ struct ToolTypeIcon: View {
         Image(systemName: "globe")
       }
     }
-    .font(NoemaFont.metadata)
+    .font(NoemaFont.compact)
     .foregroundStyle(NoemaColor.contentTertiary)
     .frame(width: 16, height: 16)
     .accessibilityHidden(true)

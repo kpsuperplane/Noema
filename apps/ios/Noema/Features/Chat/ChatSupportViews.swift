@@ -32,13 +32,13 @@ struct TaskReferenceChip: View {
     } label: {
       HStack(spacing: NoemaSpacing.xs) {
         Image(systemName: "checklist")
-          .font(NoemaFont.captionEmphasized)
+          .font(NoemaFont.compactEmphasized)
           .foregroundStyle(NoemaColor.content)
         Image(systemName: statusSymbol)
-          .font(NoemaFont.captionEmphasized)
+          .font(NoemaFont.compactEmphasized)
           .foregroundStyle(statusColor)
         Text(title)
-          .font(NoemaFont.taskPreview.weight(.semibold))
+          .font(NoemaFont.compactEmphasized)
           .foregroundStyle(NoemaColor.content)
           .lineLimit(1)
       }
