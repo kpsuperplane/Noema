@@ -1,5 +1,5 @@
 import { parseOutlineFromMarkdown, type OutlineItem } from "@astryxdesign/core/Outline";
-import type { MarkdownSource } from "@astryxdesign/core/Markdown";
+import type { MarkdownSource } from "@/components/MarkdownContent";
 import type { GraphqlNativeMemorySourceKind } from "@/generated/graphql";
 
 export interface MemoryArticleModel {

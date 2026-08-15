@@ -1,7 +1,7 @@
 import { Citation } from "@astryxdesign/core/Citation";
-import type { MarkdownSource } from "@astryxdesign/core/Markdown";
 import { HStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
+import type { MarkdownSource } from "@/components/MarkdownContent";
 
 export type ProviderCitation = {
   title: string;

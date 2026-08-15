@@ -3,7 +3,6 @@ import { useMutation } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
-import { Markdown } from "@astryxdesign/core/Markdown";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
@@ -18,6 +17,7 @@ import {
   type GovernedActionDecision,
   type PendingHumanInterventionsQuery
 } from "@/generated/graphql";
+import { MarkdownContent } from "@/components/MarkdownContent";
 import { useMcpOAuthController } from "@/components/mcp/useMcpOAuthController";
 import { reserveExternalAuthNavigation } from "@/graphql/externalUrls";
 import { mcpOAuthRedirectUri } from "@/graphql/mcpOAuthCallback";
@@ -56,16 +56,13 @@ export function TaskGateInterventionCard({
           actionLayout="response"
         >
           {context ? (
-            <Markdown
-              autolink="gfm"
-              className="noema-assistant-markdown"
-              contentWidth="100%"
+            <MarkdownContent
               density="compact"
               headingLevelStart={4}
               xstyle={styles.context}
             >
               {context}
-            </Markdown>
+            </MarkdownContent>
           ) : null}
         </HumanInterventionCard>
       )}

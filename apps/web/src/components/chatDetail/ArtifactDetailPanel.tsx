@@ -1,9 +1,9 @@
 import React from "react";
 import { useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
-import { Markdown } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
 import { Download } from "lucide-react";
+import { MarkdownContent } from "@/components/MarkdownContent";
 import {
   ArtifactVersionDetailDocument,
   type ArtifactVersionDetailQuery
@@ -75,15 +75,13 @@ export function ArtifactDetailPanel({
         onChangeVersion={onChangeVersion}
       />
       {detail.previewKind === "MARKDOWN" && detail.markdown ? (
-        <Markdown
-          autolink="gfm"
-          contentWidth="100%"
+        <MarkdownContent
           density="default"
           headingLevelStart={1}
           xstyle={styles.markdown}
         >
           {detail.markdown}
-        </Markdown>
+        </MarkdownContent>
       ) : detail.previewKind === "PLAIN_TEXT" && detail.plainText !== null ? (
         <pre {...stylex.props(styles.plainText)}>{detail.plainText}</pre>
       ) : (

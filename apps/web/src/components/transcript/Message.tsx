@@ -1,17 +1,19 @@
 import * as React from "react";
 import { ContextMenu } from "@astryxdesign/core/ContextMenu";
-import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import { VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
+import {
+  MarkdownContent,
+  type MarkdownComponents,
+  type MarkdownContentProps
+} from "@/components/MarkdownContent";
 import type { IdentityAvatarActivity } from "../IdentityAvatar";
 import type { ProviderUsageDebug } from "./debugUsage";
 import { ExpandableTextBubbleContent } from "./ExpandableTextBubble";
 import { TranscriptChatBubble } from "./TranscriptChatBubble";
 import type { ChatBubbleGroup } from "./renderModel";
 import { TypingMessageContent } from "./TypingMessage";
-
-type MarkdownComponents = NonNullable<MarkdownProps["components"]>;
 
 const styles = stylex.create({
   markdown: {
@@ -21,6 +23,7 @@ const styles = stylex.create({
     lineHeight: "inherit"
   },
   userMarkdown: {
+    "--noema-markdown-bullet-accent": "currentColor",
     "--color-text-primary": "currentColor",
     "--color-text-secondary": "color-mix(in srgb, currentColor 80%, transparent)",
     "--color-text-disabled": "color-mix(in srgb, currentColor 62%, transparent)",
@@ -106,7 +109,7 @@ export function Message({
   onDebug?: () => void;
   attachment?: ReactNode;
   bodyFooter?: ReactNode;
-  citationSources?: NonNullable<MarkdownProps["sources"]>;
+  citationSources?: NonNullable<MarkdownContentProps["sources"]>;
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const [overflowing, setOverflowing] = React.useState(false);
@@ -158,21 +161,15 @@ function MessageMarkdown({
 }: {
   animate: boolean;
   role: "user" | "assistant";
-  sources?: NonNullable<MarkdownProps["sources"]>;
+  sources?: NonNullable<MarkdownContentProps["sources"]>;
   text: string;
 }) {
   return (
-    <Markdown
-      autolink="gfm"
+    <MarkdownContent
       className={
-        role === "assistant"
-          ? "noema-assistant-markdown"
-          : role === "user"
-            ? stylex.props(styles.userMarkdown).className
-            : undefined
+        role === "user" ? stylex.props(styles.userMarkdown).className : undefined
       }
       components={role === "user" ? userMarkdownComponents : undefined}
-      contentWidth="100%"
       citationStyle="number"
       density="compact"
       headingLevelStart={3}
@@ -181,7 +178,7 @@ function MessageMarkdown({
       xstyle={styles.markdown}
     >
       {text}
-    </Markdown>
+    </MarkdownContent>
   );
 }
 

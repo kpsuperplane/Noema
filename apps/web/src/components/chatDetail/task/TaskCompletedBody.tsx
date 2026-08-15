@@ -1,8 +1,8 @@
 import * as React from "react";
-import { Markdown } from "@astryxdesign/core/Markdown";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import * as stylex from "@stylexjs/stylex";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
+import { MarkdownContent } from "@/components/MarkdownContent";
 import { ArtifactReferenceCard } from "@/components/transcript/ArtifactReferenceCard";
 import {
   ProviderCitationTags,
@@ -82,8 +82,7 @@ function FinalResponse({
     <div data-slot="task-final-response" {...stylex.props(styles.finalScroller)}>
       <div {...stylex.props(styles.finalContent)}>
         {response ? (
-          <Markdown
-            autolink="gfm"
+          <MarkdownContent
             contentAlign="center"
             contentWidth="min(760px, calc(100% - var(--spacing-6) - var(--spacing-6)))"
             density="default"
@@ -92,7 +91,7 @@ function FinalResponse({
             xstyle={styles.markdown}
           >
             {citationContent.text}
-          </Markdown>
+          </MarkdownContent>
         ) : (
           <p {...stylex.props(styles.empty)}>The accepted response has no text content.</p>
         )}

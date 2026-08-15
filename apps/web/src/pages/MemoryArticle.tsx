@@ -1,4 +1,3 @@
-import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import { HoverCard } from "@astryxdesign/core/HoverCard";
 import { Item } from "@astryxdesign/core/Item";
 import { VStack } from "@astryxdesign/core/Stack";
@@ -7,6 +6,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { memoryPageUrlPath } from "@/app/routes";
+import { MarkdownContent, type MarkdownComponents } from "@/components/MarkdownContent";
 import { ShellPageLayout, ShellPageSubtitle, ShellPageTrack } from "@/components/shell/ShellPageLayout";
 import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
 import type { GraphqlNativeMemorySourceKind } from "@/generated/graphql";
@@ -14,7 +14,6 @@ import { buildMemoryArticle, memoryHeadingId, type MemoryCitationGroup } from "@
 import { styles } from "@/pages/memoryPageStyles";
 import { MemoryUpdateControl } from "@/pages/MemoryUpdateControl";
 
-type MarkdownComponents = NonNullable<MarkdownProps["components"]>;
 interface MemoryArticlePage {
   id: string;
   title: string;
@@ -68,18 +67,16 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
             ) : null}
 
             {article.content ? (
-              <Markdown
-                autolink="gfm"
+              <MarkdownContent
                 citationStyle="number"
                 components={articleComponents}
-                contentWidth="100%"
                 density="default"
                 headingLevelStart={1}
                 sources={article.sources}
                 xstyle={styles.articleBody}
               >
                 {article.content}
-              </Markdown>
+              </MarkdownContent>
             ) : (
               <p {...stylex.props(styles.stub)}>This biographical article is a stub. It will expand once the first durable facts are recorded.</p>
             )}

@@ -2,6 +2,7 @@ import { Popover } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
 import { Check, CircleAlert, Clock3, X } from "lucide-react";
 import * as React from "react";
+import { MarkdownContent } from "@/components/MarkdownContent";
 import { TaskStaticSection } from "./TaskSection";
 import type { TaskCriterion, TaskCriterionVerdict } from "./taskTypes";
 
@@ -172,7 +173,15 @@ function CriterionEvidence({ criterion }: { criterion: TaskCriterion }) {
       {criterion.evidence?.trim() ? (
         <div {...stylex.props(styles.evidenceRow)}>
           <dt {...stylex.props(styles.evidenceLabel)}>Seen</dt>
-          <dd {...stylex.props(styles.evidenceValue)}>{criterion.evidence}</dd>
+          <dd {...stylex.props(styles.evidenceValue)}>
+            <MarkdownContent
+              density="compact"
+              headingLevelStart={6}
+              xstyle={styles.evidenceMarkdown}
+            >
+              {criterion.evidence}
+            </MarkdownContent>
+          </dd>
         </div>
       ) : null}
     </dl>
@@ -299,5 +308,12 @@ const styles = stylex.create({
     lineHeight: 1.45,
     overflowWrap: "anywhere",
     whiteSpace: "pre-wrap"
+  },
+  evidenceMarkdown: {
+    color: "inherit",
+    fontFamily: "inherit",
+    fontSize: "inherit",
+    lineHeight: "inherit",
+    whiteSpace: "normal"
   }
 });
