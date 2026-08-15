@@ -344,10 +344,10 @@ struct ChatComposer: View {
         guard composerActionSends else { return }
         Task { await model.send() }
       } label: {
-        composerActionLabel(symbol: composerActionSymbol, enabled: composerActionEnabled)
+        composerActionLabel(symbol: composerActionSymbol)
       }
       .buttonStyle(.plain)
-      .disabled(composerActionSends && !canSend)
+      .disabled(!composerActionEnabled)
       .accessibilityHidden(!composerActionSends)
       .accessibilityLabel("Send message")
 
@@ -398,7 +398,7 @@ struct ChatComposer: View {
     }
   }
 
-  private func composerActionLabel(symbol: String, enabled: Bool) -> some View {
+  private func composerActionLabel(symbol: String) -> some View {
     ZStack {
       Image(systemName: symbol)
         .id(symbol)
@@ -410,7 +410,6 @@ struct ChatComposer: View {
     .animation(reduceMotion ? nil : NoemaSpring.micro, value: symbol)
     .frame(width: 40, height: 40)
     .background(NoemaColor.white, in: NoemaSuperellipse.composer)
-    .opacity(enabled ? 1 : 0.46)
     .scaleEffect(microphonePressed ? 0.94 : 1)
     .animation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion), value: microphonePressed)
   }
