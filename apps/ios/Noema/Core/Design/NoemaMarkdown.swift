@@ -12,18 +12,12 @@ struct NoemaMarkdown: View {
   }
 
   private static let messageFontSize = NoemaFont.messageSize
-  private static let listLineHeight: CGFloat = 20
+  private static let listMarkerLineHeight: CGFloat = 20
   private static let messageLineSpacing: CGFloat = {
     let font = UIFont(name: "HankenGrotesk-Regular", size: messageFontSize)
       ?? UIFont.systemFont(ofSize: messageFontSize)
     return max(0, messageFontSize * 1.7 - font.lineHeight)
   }()
-  private static let listLineSpacing: CGFloat = {
-    let font = UIFont(name: "HankenGrotesk-Regular", size: messageFontSize)
-      ?? UIFont.systemFont(ofSize: messageFontSize)
-    return max(0, listLineHeight - font.lineHeight)
-  }()
-
   let content: String
   let role: Role
 
@@ -61,14 +55,13 @@ struct NoemaMarkdown: View {
       .markdownBlockStyle(\.paragraph) { configuration in
         NoemaMarkdownParagraph(
           label: configuration.label,
-          lineSpacing: Self.messageLineSpacing,
-          listLineSpacing: Self.listLineSpacing
+          lineSpacing: Self.messageLineSpacing
         )
       }
       .noemaMarkdownListStyle(
         assistant: assistant,
         color: color,
-        lineHeight: Self.listLineHeight
+        lineHeight: Self.listMarkerLineHeight
       )
   }
 
@@ -87,7 +80,7 @@ struct NoemaMarkdown: View {
       .noemaMarkdownListStyle(
         assistant: true,
         color: color,
-        lineHeight: Self.listLineHeight
+        lineHeight: Self.listMarkerLineHeight
       )
       .frame(maxWidth: .infinity, alignment: .leading)
       .textSelection(.enabled)
@@ -125,7 +118,7 @@ struct NoemaMarkdown: View {
       .noemaMarkdownListStyle(
         assistant: true,
         color: NoemaColor.content,
-        lineHeight: Self.listLineHeight
+        lineHeight: Self.listMarkerLineHeight
       )
       .frame(maxWidth: .infinity, alignment: .leading)
       .textSelection(.enabled)
@@ -148,11 +141,10 @@ private struct NoemaMarkdownParagraph: View {
 
   let label: BlockConfiguration.Label
   let lineSpacing: CGFloat
-  let listLineSpacing: CGFloat
 
   var body: some View {
     label
-      .lineSpacing(isList ? listLineSpacing : lineSpacing)
+      .lineSpacing(lineSpacing)
       .markdownMargin(top: 0, bottom: isList ? NoemaSpacing.xs : NoemaSpacing.sm)
   }
 }
