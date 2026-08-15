@@ -134,7 +134,7 @@ private struct RailStop: View {
         .background(appearance.surface(for: colorScheme), in: Circle())
         .frame(width: 23, height: 23)
       Text(label)
-        .font(.system(size: 9.5, weight: .medium))
+        .font(NoemaActivityFont.medium)
         .foregroundStyle(appearance.tertiary)
         .lineLimit(1)
     }
@@ -153,7 +153,7 @@ private struct CurrentRailStation: View {
     HStack(spacing: 5) {
       VStack(alignment: .leading, spacing: 2) {
         Text(title)
-          .font(.system(size: 10.5, weight: .bold))
+          .font(NoemaActivityFont.rowTitle)
           .foregroundStyle(appearance.primary)
           .lineLimit(1)
         HStack(spacing: 3) {
@@ -164,7 +164,7 @@ private struct CurrentRailStation: View {
             UpdateAge(epoch: updateAtEpoch)
           }
         }
-        .font(.system(size: 9.25, weight: .medium))
+        .font(NoemaActivityFont.medium)
         .foregroundStyle(appearance.secondary)
       }
       .frame(maxWidth: .infinity, alignment: .leading)

@@ -349,7 +349,7 @@ private struct MemoryMarkdownBody: View {
       }
       .markdownTextStyle(\.link) {
         FontFamily(.system())
-        FontSize(10)
+        FontSize(14)
         ForegroundColor(NoemaColor.clay600)
       }
       .markdownBlockStyle(\.paragraph) { configuration in

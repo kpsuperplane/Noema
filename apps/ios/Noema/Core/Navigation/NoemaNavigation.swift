@@ -805,7 +805,7 @@ private struct NoemaSidebar: View {
             switch entry.kind {
             case .group:
               Text(entry.label)
-                .font(Font.custom("Hanken Grotesk", size: 11, relativeTo: .caption).weight(.semibold))
+                .font(NoemaFont.captionEmphasized)
                 .foregroundStyle(NoemaColor.contentTertiary)
                 .textCase(.uppercase)
                 .padding(.horizontal, NoemaSpacing.md)

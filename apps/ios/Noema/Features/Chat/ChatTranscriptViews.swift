@@ -513,7 +513,7 @@ struct ToolMarkerView: View {
             ToolTypeIcon(kind: toolMarkerKind(in: collapsedMessages))
           }
           Text(markerCount > 1 && expanded ? String(markerCount) + " tool calls" : toolMarkerName(in: collapsedMessages))
-            .font(.custom("JetBrains Mono", size: 12, relativeTo: .caption))
+            .font(NoemaFont.mono)
             .foregroundStyle(NoemaColor.contentTertiary)
             .lineLimit(1)
             .multilineTextAlignment(.leading)
@@ -602,7 +602,7 @@ private struct ToolMarkerCallView: View {
           ToolStatusIcon(status: toolMarkerStatus(in: messages))
           ToolTypeIcon(kind: toolMarkerKind(in: messages))
           Text(toolMarkerName(in: messages))
-            .font(.custom("JetBrains Mono", size: 12, relativeTo: .caption))
+            .font(NoemaFont.mono)
             .foregroundStyle(NoemaColor.contentTertiary)
             .lineLimit(1)
             .multilineTextAlignment(.leading)
