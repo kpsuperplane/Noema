@@ -224,24 +224,25 @@ struct NoemaTopRail: View {
 
 private struct NoemaConnectionBanner: View {
   var body: some View {
-    HStack(spacing: NoemaSpacing.sm) {
+    HStack(spacing: NoemaSpacing.compact) {
       Image(systemName: "wifi.slash")
-        .foregroundStyle(NoemaColor.warning)
-      Text("Noema is offline. Retrying…")
+        .foregroundStyle(NoemaColor.danger)
+        .accessibilityHidden(true)
+      Text("Noema is offline.")
         .font(NoemaFont.captionEmphasized)
-        .foregroundStyle(NoemaColor.content)
-      Spacer(minLength: 0)
+        .foregroundStyle(NoemaColor.contentSecondary)
+    }
+    .padding(.horizontal, NoemaSpacing.sm)
+    .padding(.vertical, NoemaSpacing.xs)
+    .background(NoemaColor.surface, in: NoemaSuperellipse.full)
+    .overlay {
+      NoemaSuperellipse.full
+        .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
     }
     .padding(.horizontal, NoemaSpacing.md)
     .padding(.vertical, NoemaSpacing.compact)
     .frame(maxWidth: .infinity)
     .frame(minHeight: NoemaSpacing.xxl + NoemaSpacing.sm)
-    .background(NoemaColor.clay50)
-    .overlay(alignment: .bottom) {
-      Rectangle()
-        .fill(NoemaColor.warning.opacity(0.24))
-        .frame(height: 1)
-    }
     .accessibilityElement(children: .combine)
   }
 }
