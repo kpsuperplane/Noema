@@ -80,14 +80,17 @@ private struct TasksDetailContent: View {
       }
       if let completed = acceptedCompletion {
         TasksCompletedTabBar(selection: $selectedTab)
-        if selectedTab == .result {
+        TabView(selection: $selectedTab) {
           ScrollView {
             TasksCompletedResultView(submission: completed, onArtifact: openArtifact)
           }
           .scrollDismissesKeyboard(.interactively)
-        } else {
+          .tag(TaskResultTab.result)
+
           transcriptScroller(submission: completed)
+            .tag(TaskResultTab.transcript)
         }
+        .tabViewStyle(.page(indexDisplayMode: .never))
       } else {
         transcriptScroller(submission: detail.latestSubmission)
       }
