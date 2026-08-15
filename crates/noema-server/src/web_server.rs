@@ -59,12 +59,13 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
     }
     let web_push_task = notifications.map(|notifications| {
         let receiver = host.services().runtime_events.subscribe_all_conversations();
+        let task_receiver = host.services().runtime_events.subscribe_all_tasks();
         let work_receiver = host
             .services()
             .runtime_events
             .subscribe_work("workspace:personal");
         let state = graphql_state.clone();
-        tokio::spawn(notifications.run(state, receiver, work_receiver))
+        tokio::spawn(notifications.run(state, receiver, task_receiver, work_receiver))
     });
     let web_state = WebState::new(
         graphql_state,

@@ -87,6 +87,7 @@ pub struct RuntimeEventRegistry {
     conversations: Arc<Mutex<HashMap<String, broadcast::Sender<ConversationRuntimeEvent>>>>,
     all_conversations: Arc<Mutex<Option<broadcast::Sender<ConversationRuntimeEvent>>>>,
     tasks: Arc<Mutex<HashMap<String, broadcast::Sender<TaskRuntimeEvent>>>>,
+    all_tasks: Arc<Mutex<Option<broadcast::Sender<TaskRuntimeEvent>>>>,
     workspaces: Arc<Mutex<HashMap<String, broadcast::Sender<WorkRuntimeEvent>>>>,
     memory: Arc<Mutex<Option<broadcast::Sender<MemoryRuntimeEvent>>>>,
 }
@@ -125,7 +126,14 @@ impl RuntimeEventRegistry {
         let task_id = match &event {
             TaskRuntimeEvent::Changed { task_id, .. } => task_id,
         };
-        let _ = self.task_sender(task_id).send(event);
+        let _ = self.task_sender(task_id).send(event.clone());
+        let _ = self.all_task_sender().send(event);
+    }
+
+    /// Subscribe to every task detail update for delivery-neutral observers.
+    #[must_use]
+    pub fn subscribe_all_tasks(&self) -> broadcast::Receiver<TaskRuntimeEvent> {
+        self.all_task_sender().subscribe()
     }
 
     /// Subscribe to committed Work invalidations for one workspace.
@@ -188,6 +196,16 @@ impl RuntimeEventRegistry {
             .clone()
     }
 
+    fn all_task_sender(&self) -> broadcast::Sender<TaskRuntimeEvent> {
+        let mut sender = self
+            .all_tasks
+            .lock()
+            .expect("runtime task observer registry poisoned");
+        sender
+            .get_or_insert_with(|| broadcast::channel(256).0)
+            .clone()
+    }
+
     fn work_sender(&self, workspace_id: &str) -> broadcast::Sender<WorkRuntimeEvent> {
         let mut workspaces = self
             .workspaces
@@ -226,6 +244,7 @@ mod tests {
         let event = receiver.recv().await.expect("event should be delivered");
         assert_eq!(event.conversation_id(), "conversation_1");
         let mut receiver = registry.subscribe_task("task_1");
+        let mut all_tasks = registry.subscribe_all_tasks();
 
         registry.publish_task(TaskRuntimeEvent::Changed {
             task_id: "task_1".to_string(),
@@ -234,6 +253,9 @@ mod tests {
 
         assert!(
             matches!(receiver.recv().await, Ok(TaskRuntimeEvent::Changed { task_id, run_id }) if task_id == "task_1" && run_id.is_none())
+        );
+        assert!(
+            matches!(all_tasks.recv().await, Ok(TaskRuntimeEvent::Changed { task_id, run_id }) if task_id == "task_1" && run_id.is_none())
         );
 
         let mut receiver = registry.subscribe_work("workspace:personal");

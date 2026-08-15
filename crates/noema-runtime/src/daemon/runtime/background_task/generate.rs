@@ -272,7 +272,6 @@ impl RuntimeActor {
                     "run_item:tool_call:{}:{}:{}",
                     request.run_id, continuation_index, correlation_id
                 );
-                let tool_started_at = Instant::now();
                 let tool_debug_span = RuntimeDebugSpan::begin(
                     &self.store,
                     RuntimeDebugScope::AgentRun(request.run_id.clone()),
@@ -331,15 +330,6 @@ impl RuntimeActor {
                         None,
                     )
                     .await;
-                self.persist_progress_notice(
-                    &request,
-                    &format!(
-                        "Tool call {} completed in {} ms.",
-                        call.name,
-                        tool_started_at.elapsed().as_millis()
-                    ),
-                )
-                .await;
                 self.persist_task_run_item(
                     &request.task_id,
                     &request.runtime_events,

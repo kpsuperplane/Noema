@@ -28,7 +28,7 @@ use futures_util::Stream;
 use noema_capabilities::web::url_policy::{is_public_ip, validate_public_url};
 use noema_conversations::{ConversationItemKind, ReplayMode};
 use noema_home::NoemaPaths;
-use noema_runtime::{ConversationRuntimeEvent, WorkRuntimeEvent};
+use noema_runtime::{ConversationRuntimeEvent, TaskRuntimeEvent, WorkRuntimeEvent};
 use noema_store::{
     ApnsEnvironment, ClaimedApnsDelivery, ClaimedLiveActivityDelivery, ClaimedWebPushDelivery,
     ClientLiveActivityRegistration, LiveActivityEvent, LiveActivityTarget, NewLiveActivityDelivery,
@@ -56,6 +56,8 @@ use web_push_native::{
 const LOCAL_HUMAN_ID: &str = "human:local";
 const MAX_PREVIEW_BYTES: usize = 600;
 const MAX_LIVE_UPDATE_BYTES: usize = 120;
+const LIVE_ACTIVITY_DETAIL_DEBOUNCE: Duration = Duration::from_millis(500);
+const NOTIFICATION_RECOVERY_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Browser-visible Web Push capability and registration state.
 #[derive(Clone, Debug, SimpleObject)]
@@ -108,6 +110,20 @@ struct WebPushInner {
     apns_client: Client,
     apns_jwt: Mutex<Option<(u64, String, std::time::Instant)>>,
     wake: Notify,
+    #[cfg(test)]
+    live_reconciled: tokio::sync::Semaphore,
+}
+struct ApnsRequest<'a> {
+    environment: ApnsEnvironment,
+    device_token: &'a [u8],
+    topic: &'a str,
+    push_type: &'a str,
+    urgency: &'a str,
+    ttl_seconds: u32,
+    created_at: &'a str,
+    jwt: &'a str,
+    payload: &'a serde_json::Value,
+    collapse_id: Option<&'a str>,
 }
 impl std::fmt::Debug for NotificationCoordinator {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -154,6 +170,8 @@ impl NotificationCoordinator {
                 apns_client,
                 apns_jwt: Mutex::new(None),
                 wake: Notify::new(),
+                #[cfg(test)]
+                live_reconciled: tokio::sync::Semaphore::new(0),
             }),
         })
     }
@@ -548,42 +566,77 @@ impl NotificationCoordinator {
         self,
         state: GraphqlState,
         mut events: tokio::sync::broadcast::Receiver<ConversationRuntimeEvent>,
+        mut task_events: tokio::sync::broadcast::Receiver<TaskRuntimeEvent>,
         mut work_events: tokio::sync::broadcast::Receiver<WorkRuntimeEvent>,
     ) {
         let _ = self.reconcile_primary_chat(&state).await;
         let _ = self.reconcile_interventions(&state).await;
         self.reconcile_live_activities().await;
+        let mut recovery = tokio::time::interval_at(
+            tokio::time::Instant::now() + NOTIFICATION_RECOVERY_INTERVAL,
+            NOTIFICATION_RECOVERY_INTERVAL,
+        );
+        recovery.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let detail_delay = tokio::time::sleep(LIVE_ACTIVITY_DETAIL_DEBOUNCE);
+        tokio::pin!(detail_delay);
+        let mut detail_dirty = false;
         loop {
-            tokio::select! {
+            let reconcile_all = tokio::select! {
                 event = events.recv() => match event {
-                    Ok(event) => self.handle_event(&state, event).await,
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                        let _ = self.reconcile_primary_chat(&state).await;
-                        let _ = self.reconcile_interventions(&state).await;
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => true,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                },
+                event = task_events.recv() => match event {
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        detail_dirty = true;
+                        detail_delay.as_mut().reset(
+                            tokio::time::Instant::now() + LIVE_ACTIVITY_DETAIL_DEBOUNCE,
+                        );
+                        false
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 },
                 event = work_events.recv() => match event {
-                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => true,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 },
-                () = self.inner.wake.notified() => {},
-                () = tokio::time::sleep(Duration::from_secs(30)) => {},
+                () = self.inner.wake.notified() => true,
+                _ = recovery.tick() => true,
+                () = &mut detail_delay, if detail_dirty => {
+                    let mut received_more = false;
+                    loop {
+                        match task_events.try_recv() {
+                            Ok(_) | Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {
+                                received_more = true;
+                            }
+                            Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break,
+                            Err(tokio::sync::broadcast::error::TryRecvError::Closed) => break,
+                        }
+                    }
+                    if received_more {
+                        detail_delay.as_mut().reset(
+                            tokio::time::Instant::now() + LIVE_ACTIVITY_DETAIL_DEBOUNCE,
+                        );
+                    } else {
+                        detail_dirty = false;
+                        self.reconcile_live_activities().await;
+                        self.drain_due().await;
+                    }
+                    false
+                },
+            };
+            if !reconcile_all {
+                continue;
             }
+            while matches!(
+                task_events.try_recv(),
+                Ok(_) | Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_))
+            ) {}
+            detail_dirty = false;
             let _ = self.reconcile_primary_chat(&state).await;
             let _ = self.reconcile_interventions(&state).await;
             self.reconcile_live_activities().await;
             self.drain_due().await;
-        }
-    }
-    async fn handle_event(&self, state: &GraphqlState, event: ConversationRuntimeEvent) {
-        match event {
-            ConversationRuntimeEvent::HumanInterventionsChanged { .. } => {
-                let _ = self.reconcile_interventions(state).await;
-            }
-            ConversationRuntimeEvent::Turn { .. } | ConversationRuntimeEvent::Completed { .. } => {
-                let _ = self.reconcile_primary_chat(state).await;
-            }
         }
     }
     async fn reconcile_primary_chat(&self, state: &GraphqlState) -> Result<()> {
@@ -978,17 +1031,18 @@ impl NotificationCoordinator {
             Err(error) => return (revision, Err(error), None),
         };
         let (result, apns_id) = self
-            .send_apns_request(
-                delivery.client.environment,
-                &delivery.client.device_token,
-                APNS_TOPIC,
-                "alert",
-                &delivery.urgency,
-                delivery.ttl_seconds,
-                &delivery.created_at,
-                &token,
-                &payload,
-            )
+            .send_apns_request(ApnsRequest {
+                environment: delivery.client.environment,
+                device_token: &delivery.client.device_token,
+                topic: APNS_TOPIC,
+                push_type: "alert",
+                urgency: &delivery.urgency,
+                ttl_seconds: delivery.ttl_seconds,
+                created_at: &delivery.created_at,
+                jwt: &token,
+                payload: &payload,
+                collapse_id: None,
+            })
             .await;
         (revision, result, apns_id)
     }
@@ -1022,18 +1076,24 @@ impl NotificationCoordinator {
             Ok(token) => token,
             Err(error) => return (revision, Err(error), None),
         };
+        let collapse_id = live_activity_collapse_id(
+            delivery.event,
+            &delivery.urgency,
+            delivery.activity_id.as_deref(),
+        );
         let (result, apns_id) = self
-            .send_apns_request(
-                delivery.environment,
-                &delivery.token,
-                LIVE_ACTIVITY_TOPIC,
-                "liveactivity",
-                &delivery.urgency,
-                delivery.ttl_seconds,
-                &delivery.created_at,
-                &token,
-                &delivery.payload,
-            )
+            .send_apns_request(ApnsRequest {
+                environment: delivery.environment,
+                device_token: &delivery.token,
+                topic: LIVE_ACTIVITY_TOPIC,
+                push_type: "liveactivity",
+                urgency: &delivery.urgency,
+                ttl_seconds: delivery.ttl_seconds,
+                created_at: &delivery.created_at,
+                jwt: &token,
+                payload: &delivery.payload,
+                collapse_id: collapse_id.as_deref(),
+            })
             .await;
         (revision, result, apns_id)
     }
@@ -1077,55 +1137,51 @@ impl NotificationCoordinator {
     }
     async fn send_apns_request(
         &self,
-        environment: ApnsEnvironment,
-        device_token: &[u8],
-        topic: &str,
-        push_type: &str,
-        urgency: &str,
-        ttl_seconds: u32,
-        created_at: &str,
-        jwt: &str,
-        payload: &serde_json::Value,
+        apns: ApnsRequest<'_>,
     ) -> (
         std::result::Result<reqwest::StatusCode, ApnsSendError>,
         Option<String>,
     ) {
-        let token_hex = device_token
+        let token_hex = apns
+            .device_token
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        let host = match environment {
+        let host = match apns.environment {
             ApnsEnvironment::Development => "api.sandbox.push.apple.com",
             ApnsEnvironment::Production => "api.push.apple.com",
         };
-        let expiration = if ttl_seconds == 0 {
+        let expiration = if apns.ttl_seconds == 0 {
             "0".to_string()
         } else {
-            let created_at = match chrono::DateTime::parse_from_rfc3339(created_at) {
+            let created_at = match chrono::DateTime::parse_from_rfc3339(apns.created_at) {
                 Ok(value) => value.timestamp(),
                 Err(_) => {
                     return (Err(ApnsSendError::Provider("invalid_delivery_time")), None);
                 }
             };
-            let expiration = created_at.saturating_add(i64::from(ttl_seconds));
+            let expiration = created_at.saturating_add(i64::from(apns.ttl_seconds));
             if expiration <= chrono::Utc::now().timestamp() {
                 return (Err(ApnsSendError::Provider("delivery_expired")), None);
             }
             expiration.to_string()
         };
-        let response = match self
+        let mut request = self
             .inner
             .apns_client
             .post(format!("https://{host}/3/device/{token_hex}"))
-            .header("authorization", format!("bearer {jwt}"))
-            .header("apns-topic", topic)
-            .header("apns-push-type", push_type)
-            .header("apns-priority", if urgency == "high" { "10" } else { "5" })
-            .header("apns-expiration", expiration)
-            .json(payload)
-            .send()
-            .await
-        {
+            .header("authorization", format!("bearer {}", apns.jwt))
+            .header("apns-topic", apns.topic)
+            .header("apns-push-type", apns.push_type)
+            .header(
+                "apns-priority",
+                if apns.urgency == "high" { "10" } else { "5" },
+            )
+            .header("apns-expiration", expiration);
+        if let Some(collapse_id) = apns.collapse_id {
+            request = request.header("apns-collapse-id", collapse_id);
+        }
+        let response = match request.json(apns.payload).send().await {
             Ok(response) => response,
             Err(_) => {
                 return (Err(ApnsSendError::Transport("transport_unavailable")), None);
@@ -1200,6 +1256,8 @@ impl NotificationCoordinator {
     async fn reconcile_live_activities(&self) {
         let _guard = self.inner.live_activity_mutation.lock().await;
         self.reconcile_live_activities_locked().await;
+        #[cfg(test)]
+        self.inner.live_reconciled.add_permits(1);
     }
     async fn reconcile_live_activities_locked(&self) {
         let Some(targets) = self.live_activity_targets().await else {
@@ -1729,7 +1787,7 @@ async fn live_projection(
         .map_or(focus.task.updated_at.as_str(), |run| {
             std::cmp::max(focus.task.updated_at.as_str(), run.updated_at.as_str())
         });
-    let updated_at =
+    let base_updated_at =
         parse_epoch(updated_at_value).unwrap_or_else(|| chrono::Utc::now().timestamp() as f64);
     let agent_id = focus
         .current_run
@@ -1742,7 +1800,14 @@ async fn live_projection(
         .await?
         .and_then(|agent| agent.display_name)
         .unwrap_or_else(|| "Agent".to_string());
-    let update_label = live_run_update_label(store, &workspace_id, focus).await;
+    let update = live_run_update(store, &workspace_id, focus).await;
+    let updated_at = update
+        .as_ref()
+        .and_then(|update| update.updated_at)
+        .map_or(base_updated_at, |item_updated_at| {
+            base_updated_at.max(item_updated_at)
+        });
+    let update_label = update.as_ref().map(|update| update.label.clone());
     let task_summaries = tasks
         .iter()
         .take(2)
@@ -1817,11 +1882,16 @@ fn live_task_requires_attention(task: &WorkTaskSummary) -> bool {
         })
 }
 
-async fn live_run_update_label(
+struct LiveRunUpdate {
+    label: String,
+    updated_at: Option<f64>,
+}
+
+async fn live_run_update(
     store: &NoemaStore,
     workspace_id: &WorkspaceId,
     task: &WorkTaskSummary,
-) -> Option<String> {
+) -> Option<LiveRunUpdate> {
     let run = task.current_run.as_ref()?;
     let items = store
         .list_work_run_items(WorkRunItemQuery {
@@ -1843,38 +1913,53 @@ async fn live_run_update_label(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    live_transcript_update_label(&items).or_else(|| {
-        default_live_update_label(run.run_kind, run.status, run.tool_call_count).map(str::to_string)
-    })
+    live_transcript_update(&items)
 }
 
-fn live_transcript_update_label(items: &[AgentRunItemRecord]) -> Option<String> {
-    let active_tool = items.iter().rev().find(|item| {
+fn live_transcript_update(items: &[AgentRunItemRecord]) -> Option<LiveRunUpdate> {
+    let active_tool = items.iter().find(|item| {
         item.kind == AgentRunItemKind::ToolCall && item.status == AgentRunItemStatus::Running
     });
     if let Some(tool) = active_tool
         && let Some(label) = live_tool_line(items, tool)
     {
-        return Some(label);
+        return Some(LiveRunUpdate {
+            label,
+            updated_at: run_item_epoch(tool),
+        });
     }
-    items.iter().rev().find_map(|item| match item.kind {
-        AgentRunItemKind::AssistantOutput => {
-            item.content_text.as_deref().and_then(live_activity_text)
+    for item in items.iter().rev() {
+        let label = match item.kind {
+            AgentRunItemKind::AssistantOutput if item.status == AgentRunItemStatus::Running => {
+                return None;
+            }
+            AgentRunItemKind::AssistantOutput if item.status == AgentRunItemStatus::Completed => {
+                item.content_text.as_deref().and_then(live_activity_text)
+            }
+            AgentRunItemKind::ProgressNotice
+                if item.status == AgentRunItemStatus::Completed
+                    && item
+                        .payload
+                        .get("phase")
+                        .and_then(serde_json::Value::as_str)
+                        != Some("provider_response") =>
+            {
+                item.content_text.as_deref().and_then(live_activity_text)
+            }
+            _ => None,
+        };
+        if let Some(label) = label {
+            return Some(LiveRunUpdate {
+                label,
+                updated_at: run_item_epoch(item),
+            });
         }
-        AgentRunItemKind::ProgressNotice
-            if item
-                .payload
-                .get("phase")
-                .and_then(serde_json::Value::as_str)
-                != Some("provider_response") =>
-        {
-            item.content_text.as_deref().and_then(live_activity_text)
-        }
-        AgentRunItemKind::ToolCall if item.status != AgentRunItemStatus::Skipped => {
-            live_tool_line(items, item)
-        }
-        _ => None,
-    })
+    }
+    None
+}
+
+fn run_item_epoch(item: &AgentRunItemRecord) -> Option<f64> {
+    parse_epoch(&item.updated_at).or_else(|| parse_epoch(&item.created_at))
 }
 
 fn live_tool_line(items: &[AgentRunItemRecord], tool: &AgentRunItemRecord) -> Option<String> {
@@ -1883,6 +1968,7 @@ fn live_tool_line(items: &[AgentRunItemRecord], tool: &AgentRunItemRecord) -> Op
         .rev()
         .find(|item| {
             item.kind == AgentRunItemKind::AssistantOutput
+                && item.status == AgentRunItemStatus::Completed
                 && item.round_index == tool.round_index
                 && item.sequence_index < tool.sequence_index
         })
@@ -1932,20 +2018,6 @@ fn live_activity_text(value: &str) -> Option<String> {
     Some(format!("{}…", plain[..end].trim_end()))
 }
 
-fn default_live_update_label(
-    kind: RunKind,
-    status: RunStatus,
-    tool_call_count: u32,
-) -> Option<&'static str> {
-    match (status, kind, tool_call_count) {
-        (RunStatus::Running, RunKind::Executor, 1..) => Some("Using tools"),
-        (RunStatus::Running, RunKind::Reviewer, _) => Some("Checking the result"),
-        (RunStatus::Leased, _, _) => Some("Starting the agent"),
-        (RunStatus::Queued, _, _) => Some("Waiting to start"),
-        _ => None,
-    }
-}
-
 fn live_task_summary(task: &WorkTaskSummary) -> serde_json::Value {
     let started_at = task
         .current_run
@@ -1983,6 +2055,17 @@ fn live_activity_urgency(event: LiveActivityEvent, alerts_human: bool) -> &'stat
         LiveActivityEvent::Update if alerts_human => "high",
         LiveActivityEvent::Update | LiveActivityEvent::End => "normal",
     }
+}
+
+fn live_activity_collapse_id(
+    event: LiveActivityEvent,
+    urgency: &str,
+    activity_id: Option<&str>,
+) -> Option<String> {
+    if event != LiveActivityEvent::Update || urgency != "normal" {
+        return None;
+    }
+    activity_id.map(|id| hex_digest(digest::digest(&digest::SHA256, id.as_bytes()).as_ref()))
 }
 
 fn live_activity_payload(
@@ -2375,6 +2458,10 @@ mod tests {
             updated_at: String::new(),
         }
     }
+
+    fn live_label(items: &[AgentRunItemRecord]) -> Option<String> {
+        live_transcript_update(items).map(|update| update.label)
+    }
     #[tokio::test]
     async fn generated_vapid_identity_uses_an_uncompressed_public_key() {
         let root = tempfile::tempdir().expect("home");
@@ -2430,6 +2517,62 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+    #[tokio::test]
+    async fn task_events_debounce_live_reconciliation_and_work_clears_it() {
+        async fn take_reconciliation(
+            coordinator: &NotificationCoordinator,
+            wait: Duration,
+        ) -> bool {
+            let Ok(Ok(permit)) =
+                tokio::time::timeout(wait, coordinator.inner.live_reconciled.acquire()).await
+            else {
+                return false;
+            };
+            permit.forget();
+            true
+        }
+
+        let environment = crate::test_support::test_environment();
+        let store = crate::test_support::test_store_for_environment(&environment).await;
+        let coordinator = NotificationCoordinator::new_with_paths(
+            store.clone(),
+            "https://noema.example".to_string(),
+            NoemaPaths::from_noema_home(environment.root()).expect("paths"),
+        )
+        .await
+        .expect("initialize notifications");
+        let state = GraphqlState::for_tests_with_store_and_environment(store, environment);
+        let registry = noema_runtime::RuntimeEventRegistry::default();
+        let runner = tokio::spawn(coordinator.clone().run(
+            state,
+            registry.subscribe_all_conversations(),
+            registry.subscribe_all_tasks(),
+            registry.subscribe_work("workspace:personal"),
+        ));
+        assert!(take_reconciliation(&coordinator, Duration::from_secs(1)).await);
+
+        for _ in 0..3 {
+            registry.publish_task(TaskRuntimeEvent::Changed {
+                task_id: "task:one".to_string(),
+                run_id: Some("run:one".to_string()),
+            });
+        }
+        assert!(!take_reconciliation(&coordinator, Duration::from_millis(400)).await);
+        assert!(take_reconciliation(&coordinator, Duration::from_millis(300)).await);
+
+        registry.publish_task(TaskRuntimeEvent::Changed {
+            task_id: "task:one".to_string(),
+            run_id: Some("run:one".to_string()),
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        registry.publish_work(WorkRuntimeEvent::Committed {
+            workspace_id: "workspace:personal".to_string(),
+            task_id: Some("task:one".to_string()),
+        });
+        assert!(take_reconciliation(&coordinator, Duration::from_millis(200)).await);
+        assert!(!take_reconciliation(&coordinator, Duration::from_millis(550)).await);
+        runner.abort();
     }
     #[test]
     fn only_final_primary_chat_text_becomes_a_notification() {
@@ -2567,6 +2710,34 @@ mod tests {
         assert_eq!(
             live_activity_urgency(LiveActivityEvent::End, false),
             "normal"
+        );
+        let collapse_id = live_activity_collapse_id(
+            LiveActivityEvent::Update,
+            "normal",
+            Some("live_activity:one"),
+        )
+        .expect("ordinary update should collapse");
+        assert_eq!(collapse_id.len(), 64);
+        assert!(
+            collapse_id
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        );
+        assert_eq!(
+            live_activity_collapse_id(
+                LiveActivityEvent::Update,
+                "normal",
+                Some("live_activity:one"),
+            ),
+            Some(collapse_id)
+        );
+        assert_eq!(
+            live_activity_collapse_id(LiveActivityEvent::Update, "high", Some("live_activity:one")),
+            None
+        );
+        assert_eq!(
+            live_activity_collapse_id(LiveActivityEvent::End, "normal", Some("live_activity:one")),
+            None
         );
     }
     #[tokio::test]
@@ -2706,29 +2877,6 @@ mod tests {
         assert!(!activity.suppressed);
     }
     #[test]
-    fn live_activity_update_labels_track_real_run_progress() {
-        assert_eq!(
-            default_live_update_label(RunKind::Planner, RunStatus::Running, 0),
-            None
-        );
-        assert_eq!(
-            default_live_update_label(RunKind::Executor, RunStatus::Running, 0),
-            None
-        );
-        assert_eq!(
-            default_live_update_label(RunKind::Executor, RunStatus::Running, 2),
-            Some("Using tools")
-        );
-        assert_eq!(
-            default_live_update_label(RunKind::Reviewer, RunStatus::Running, 0),
-            Some("Checking the result")
-        );
-        assert_eq!(
-            default_live_update_label(RunKind::Executor, RunStatus::Completed, 2),
-            None
-        );
-    }
-    #[test]
     fn live_activity_uses_task_commentary_for_the_active_tool() {
         let items = vec![
             run_item(
@@ -2750,7 +2898,7 @@ mod tests {
         ];
 
         assert_eq!(
-            live_transcript_update_label(&items).as_deref(),
+            live_label(&items).as_deref(),
             Some("Searching Apple documentation for ActivityKit updates.")
         );
     }
@@ -2760,15 +2908,87 @@ mod tests {
             1,
             2,
             AgentRunItemKind::ToolCall,
-            AgentRunItemStatus::Completed,
+            AgentRunItemStatus::Running,
             "web.search",
             json!({"arguments": {"query": "ActivityKit updates"}}),
         )];
 
         assert_eq!(
-            live_transcript_update_label(&items).as_deref(),
+            live_label(&items).as_deref(),
             Some("Searching for “ActivityKit updates”")
         );
+    }
+    #[test]
+    fn live_activity_ignores_partial_commentary_and_completed_tools() {
+        let items = vec![
+            run_item(
+                1,
+                2,
+                AgentRunItemKind::AssistantOutput,
+                AgentRunItemStatus::Running,
+                "Partial task commentary",
+                json!({}),
+            ),
+            run_item(
+                2,
+                2,
+                AgentRunItemKind::ToolCall,
+                AgentRunItemStatus::Completed,
+                "web.search",
+                json!({"arguments": {"query": "stale result"}}),
+            ),
+        ];
+
+        assert_eq!(live_label(&items), None);
+    }
+    #[test]
+    fn live_activity_uses_the_first_running_tool_and_its_timestamp() {
+        let mut first = run_item(
+            1,
+            2,
+            AgentRunItemKind::ToolCall,
+            AgentRunItemStatus::Running,
+            "web.search",
+            json!({"arguments": {"query": "current work"}}),
+        );
+        first.updated_at = "2026-08-15T12:00:01Z".to_string();
+        let mut second = run_item(
+            2,
+            2,
+            AgentRunItemKind::ToolCall,
+            AgentRunItemStatus::Running,
+            "search_memory",
+            json!({"arguments": {"query": "queued work"}}),
+        );
+        second.updated_at = "2026-08-15T12:00:02Z".to_string();
+
+        let update = live_transcript_update(&[first, second]).expect("active tool");
+
+        assert_eq!(update.label, "Searching for “current work”");
+        assert_eq!(update.updated_at, parse_epoch("2026-08-15T12:00:01Z"));
+    }
+    #[test]
+    fn live_activity_partial_output_hides_an_older_completed_line() {
+        let items = vec![
+            run_item(
+                1,
+                1,
+                AgentRunItemKind::AssistantOutput,
+                AgentRunItemStatus::Completed,
+                "Finished the earlier action.",
+                json!({}),
+            ),
+            run_item(
+                2,
+                2,
+                AgentRunItemKind::AssistantOutput,
+                AgentRunItemStatus::Running,
+                "Starting the next action",
+                json!({}),
+            ),
+        ];
+
+        assert_eq!(live_label(&items), None);
     }
     #[test]
     fn live_activity_uses_the_latest_meaningful_task_line() {
@@ -2800,7 +3020,7 @@ mod tests {
         ];
 
         assert_eq!(
-            live_transcript_update_label(&items).as_deref(),
+            live_label(&items).as_deref(),
             Some("Comparing the matching records.")
         );
     }
