@@ -57,7 +57,7 @@ enum NoemaColor {
 }
 
 enum NoemaFont {
-  static let messageSize: CGFloat = 16
+  static let messageSize: CGFloat = 15
   static let message = Font.custom("Hanken Grotesk", size: messageSize, relativeTo: .body)
   static let body = Font.custom("Hanken Grotesk", size: 14, relativeTo: .body)
   static let bodyEmphasized = Font.custom("Hanken Grotesk", size: 14, relativeTo: .body).weight(.semibold)
