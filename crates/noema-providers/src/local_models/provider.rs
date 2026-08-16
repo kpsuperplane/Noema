@@ -401,6 +401,7 @@ impl ModelProvider for LocalModelsProvider {
             vec![GenerateResponseItem::Text {
                 phase: None,
                 text: stream.text,
+                citations: Vec::new(),
             }]
         };
         Ok(GenerateResponse {
@@ -408,7 +409,6 @@ impl ModelProvider for LocalModelsProvider {
             tool_calls,
             reasoning_items: Vec::new(),
             hosted_web_searches: Vec::new(),
-            citations: Vec::new(),
             provider: LOCAL_MODELS_PROVIDER.to_string(),
             model: stream.model.unwrap_or(model),
             response_id: stream.response_id,

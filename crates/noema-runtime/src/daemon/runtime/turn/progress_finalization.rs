@@ -213,28 +213,25 @@ impl RuntimeActor {
         )
         .await?;
         citation_sources.observe(provider_round_index, &response.hosted_web_searches);
-        let citation_response_index = response
-            .responses
-            .iter()
-            .rposition(|item| matches!(item, noema_providers::GenerateResponseItem::Text { .. }));
         let mut assistant_response = ProviderAssistantResponse::default();
         for (offset, response_item) in response.responses.into_iter().enumerate() {
             let response_item = match response_item {
-                noema_providers::GenerateResponseItem::Text { phase, text } => {
-                    let existing = (citation_response_index == Some(offset))
-                        .then_some(response.citations.as_slice())
-                        .unwrap_or_default();
+                noema_providers::GenerateResponseItem::Text {
+                    phase,
+                    text,
+                    citations,
+                } => {
                     let normalized = self.normalize_provider_citation_text(
                         citation_sources,
                         &text,
-                        existing,
+                        &citations,
                         "conversation_turn",
                         &turn.turn_id,
                     );
-                    assistant_response.set_citations_for(offset, normalized.citations);
                     noema_providers::GenerateResponseItem::Text {
                         phase,
                         text: normalized.text,
+                        citations: normalized.citations,
                     }
                 }
             };

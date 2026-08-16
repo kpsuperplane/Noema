@@ -471,10 +471,6 @@ impl RuntimeActor {
                         .and_then(|usage| usage.cached_input_tokens),
                 }),
             );
-            let citation_response_index =
-                continuation_response.responses.iter().rposition(|item| {
-                    matches!(item, noema_providers::GenerateResponseItem::Text { .. })
-                });
             citation_sources.observe(
                 continuation_step_number,
                 &continuation_response.hosted_web_searches,
@@ -513,7 +509,6 @@ impl RuntimeActor {
                 tool_calls: continuation_tool_call_items.clone(),
                 reasoning_items: continuation_response.reasoning_items.clone(),
                 hosted_web_searches: continuation_response.hosted_web_searches.clone(),
-                citations: continuation_response.citations.clone(),
                 provider: continuation_response.provider.clone(),
                 model: continuation_response.model.clone(),
                 response_id: continuation_response.response_id.clone(),
@@ -561,22 +556,22 @@ impl RuntimeActor {
                     continuation_response.responses.iter().cloned().enumerate()
                 {
                     let response_item = match response_item {
-                        noema_providers::GenerateResponseItem::Text { phase, text } => {
-                            let existing = (citation_response_index == Some(offset))
-                                .then_some(continuation_response.citations.as_slice())
-                                .unwrap_or_default();
+                        noema_providers::GenerateResponseItem::Text {
+                            phase,
+                            text,
+                            citations,
+                        } => {
                             let normalized = self.normalize_provider_citation_text(
                                 &citation_sources,
                                 &text,
-                                existing,
+                                &citations,
                                 "conversation_turn",
                                 &turn.turn_id,
                             );
-                            continuation_assistant_response
-                                .set_citations_for(offset, normalized.citations);
                             noema_providers::GenerateResponseItem::Text {
                                 phase,
                                 text: normalized.text,
+                                citations: normalized.citations,
                             }
                         }
                     };
@@ -629,7 +624,6 @@ impl RuntimeActor {
                     tool_calls: continuation_tool_call_items,
                     reasoning_items: continuation_response.reasoning_items.clone(),
                     hosted_web_searches: continuation_response.hosted_web_searches.clone(),
-                    citations: continuation_response.citations.clone(),
                     provider: continuation_response.provider.clone(),
                     model: continuation_response.model.clone(),
                     response_id: continuation_response.response_id.clone(),

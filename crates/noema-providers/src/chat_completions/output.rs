@@ -82,7 +82,11 @@ impl ChatCompletionResponse {
         }
 
         let responses = (!text.is_empty())
-            .then_some(GenerateResponseItem::Text { phase: None, text })
+            .then_some(GenerateResponseItem::Text {
+                phase: None,
+                text,
+                citations: self.citations(),
+            })
             .into_iter()
             .collect();
         Ok(GenerateResponse {
@@ -90,7 +94,6 @@ impl ChatCompletionResponse {
             tool_calls,
             reasoning_items: self.reasoning_items(),
             hosted_web_searches: self.hosted_web_searches(),
-            citations: self.citations(),
             provider: diagnostics.provider_kind.clone(),
             model: self.model.unwrap_or_else(|| diagnostics.model.clone()),
             response_id: self.id,

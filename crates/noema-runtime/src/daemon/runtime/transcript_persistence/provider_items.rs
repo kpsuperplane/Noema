@@ -59,12 +59,17 @@ impl RuntimeActor {
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), RuntimeError> {
         match item {
-            GenerateResponseItem::Text { phase, text } => {
+            GenerateResponseItem::Text {
+                phase,
+                text,
+                citations,
+            } => {
                 assistant_response.push_text(&text);
                 let effective_phase = AssistantTextPhase::effective_for_response_item(
                     &GenerateResponseItem::Text {
                         phase,
                         text: text.clone(),
+                        citations: citations.clone(),
                     },
                     provider_phase_has_tools,
                 );
@@ -90,7 +95,6 @@ impl RuntimeActor {
                         turn.usage.as_ref(),
                     ),
                 );
-                let citations = assistant_response.citations_for(position.response_index);
                 if !citations.is_empty()
                     && let Some(metadata) = metadata.as_object_mut()
                 {

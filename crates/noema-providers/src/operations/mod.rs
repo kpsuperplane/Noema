@@ -5,13 +5,15 @@
 
 use std::{collections::BTreeMap, fmt::Debug, future::Future, pin::Pin, sync::Arc};
 
-use crate::generation::split_markdown_messages;
+use crate::generation::split_markdown_response_item;
 use crate::{
-    DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateResponseItem,
-    GenerateStreamEvent, MarkdownMessageDeltaSplitter, ModelProvider, ProviderContextMetadata,
-    ProviderError, ProviderResponseContinuation, ProviderSchemaRequestCapabilities,
-    ProviderToolCapabilities,
+    DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
+    MarkdownMessageDeltaSplitter, ModelProvider, ProviderContextMetadata, ProviderError,
+    ProviderResponseContinuation, ProviderSchemaRequestCapabilities, ProviderToolCapabilities,
 };
+
+#[cfg(test)]
+use crate::GenerateResponseItem;
 
 /// Boxed future returned by object-safe provider generation operations.
 pub type ProviderOperationFuture<'a, T> =
@@ -226,22 +228,15 @@ where
                 .into_iter()
                 .enumerate()
             {
-                match item {
-                    GenerateResponseItem::Text { phase, text } => {
-                        for (segment, text) in
-                            split_markdown_messages(&text).into_iter().enumerate()
-                        {
-                            let output_index = *response_indices
-                                .entry((source_index, segment))
-                                .or_insert_with(|| {
-                                    let index = next_response_index;
-                                    next_response_index = next_response_index.saturating_add(1);
-                                    index
-                                });
-                            normalized
-                                .push((output_index, GenerateResponseItem::Text { phase, text }));
-                        }
-                    }
+                for (segment, item) in split_markdown_response_item(item).into_iter().enumerate() {
+                    let output_index = *response_indices
+                        .entry((source_index, segment))
+                        .or_insert_with(|| {
+                            let index = next_response_index;
+                            next_response_index = next_response_index.saturating_add(1);
+                            index
+                        });
+                    normalized.push((output_index, item));
                 }
             }
             normalized.sort_by_key(|(output_index, _)| *output_index);
@@ -287,6 +282,7 @@ mod tests {
             response.responses.push(GenerateResponseItem::Text {
                 phase: None,
                 text: "second".to_string(),
+                citations: Vec::new(),
             });
             Ok(response)
         }

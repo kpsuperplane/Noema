@@ -163,7 +163,6 @@ fn test_turn_with_selection(
             tool_calls: Vec::new(),
             reasoning_items: Vec::new(),
             hosted_web_searches: Vec::new(),
-            citations: Vec::new(),
             provider: provider_kind,
             model: model.unwrap_or_else(|| "provider-default".to_string()),
             response_id: None,

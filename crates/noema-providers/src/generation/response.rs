@@ -13,8 +13,6 @@ pub struct GenerateResponse {
     pub reasoning_items: Vec<GenerateReasoningItem>,
     /// Provider-hosted web-search activity completed during this response.
     pub hosted_web_searches: Vec<GenerateHostedWebSearch>,
-    /// Provider-supplied source citations for the assistant response.
-    pub citations: Vec<GenerateCitation>,
     /// Provider identifier that produced the response.
     pub provider: String,
     /// Model identifier used by the provider.
@@ -136,12 +134,7 @@ impl GenerateResponse {
     pub(crate) fn normalize_markdown_messages(&mut self) {
         self.responses = std::mem::take(&mut self.responses)
             .into_iter()
-            .flat_map(|item| match item {
-                GenerateResponseItem::Text { phase, text } => super::split_markdown_messages(&text)
-                    .into_iter()
-                    .map(move |text| GenerateResponseItem::Text { phase, text })
-                    .collect::<Vec<_>>(),
-            })
+            .flat_map(split_markdown_response_item)
             .collect();
     }
 
@@ -156,11 +149,11 @@ impl GenerateResponse {
             responses: vec![GenerateResponseItem::Text {
                 phase: None,
                 text: text.into(),
+                citations: Vec::new(),
             }],
             tool_calls: Vec::new(),
             reasoning_items: Vec::new(),
             hosted_web_searches: Vec::new(),
-            citations: Vec::new(),
             provider: provider.into(),
             model: model.into(),
             response_id: None,
@@ -255,7 +248,63 @@ pub enum GenerateResponseItem {
         phase: Option<AssistantTextPhase>,
         /// Text to show in the transcript.
         text: String,
+        /// Provider source citations attached to this exact text item.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        citations: Vec<GenerateCitation>,
     },
+}
+
+pub(crate) fn split_markdown_response_item(
+    item: GenerateResponseItem,
+) -> Vec<GenerateResponseItem> {
+    let GenerateResponseItem::Text {
+        phase,
+        text,
+        citations,
+    } = item;
+    let segments = super::split_markdown_message_segments(&text);
+    let mut grouped = vec![Vec::new(); segments.len()];
+    for mut citation in citations {
+        let target = citation
+            .end_index
+            .and_then(|end| {
+                segments
+                    .iter()
+                    .position(|segment| {
+                        segment.source_utf16.contains(&end) || end == segment.source_utf16.end
+                    })
+                    .or_else(|| {
+                        segments
+                            .iter()
+                            .rposition(|segment| segment.source_utf16.end < end)
+                    })
+            })
+            .or_else(|| (!segments.is_empty()).then_some(segments.len() - 1));
+        let Some(target) = target else { continue };
+        let segment = &segments[target];
+        citation.end_index = citation.end_index.map(|end| {
+            end.saturating_sub(segment.source_utf16.start)
+                .min(segment.text.encode_utf16().count())
+        });
+        citation.start_index = citation.start_index.and_then(|start| {
+            (segment.source_utf16.contains(&start) || start == segment.source_utf16.end)
+                .then(|| start.saturating_sub(segment.source_utf16.start))
+        });
+        if matches!((citation.start_index, citation.end_index), (Some(start), Some(end)) if start >= end)
+        {
+            citation.start_index = None;
+        }
+        grouped[target].push(citation);
+    }
+    segments
+        .into_iter()
+        .zip(grouped)
+        .map(|(segment, citations)| GenerateResponseItem::Text {
+            phase,
+            text: segment.text,
+            citations,
+        })
+        .collect()
 }
 
 /// One provider-requested tool call.
@@ -275,6 +324,63 @@ pub struct GenerateToolCall {
     /// Provider payload for audit and replay.
     #[serde(default)]
     pub payload: Value,
+}
+
+#[cfg(test)]
+mod citation_split_tests {
+    use super::*;
+
+    #[test]
+    fn citations_follow_utf16_bubble_ranges_and_missing_offset_fallback() {
+        let mut response = GenerateResponse {
+            responses: vec![GenerateResponseItem::Text {
+                phase: None,
+                text: "😀 first\n\nsecond".to_string(),
+                citations: vec![
+                    citation("First", Some(9)),
+                    citation("Second", Some(16)),
+                    citation("Fallback", None),
+                ],
+            }],
+            tool_calls: Vec::new(),
+            reasoning_items: Vec::new(),
+            hosted_web_searches: Vec::new(),
+            provider: "test".to_string(),
+            model: "test".to_string(),
+            response_id: None,
+            usage: None,
+        };
+
+        response.normalize_markdown_messages();
+
+        let GenerateResponseItem::Text {
+            text, citations, ..
+        } = &response.responses[0];
+        assert_eq!(text, "😀 first");
+        assert_eq!(citations[0].end_index, Some(8));
+        let GenerateResponseItem::Text {
+            text, citations, ..
+        } = &response.responses[1];
+        assert_eq!(text, "second");
+        assert_eq!(
+            citations
+                .iter()
+                .map(|citation| citation.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Second", "Fallback"]
+        );
+        assert_eq!(citations[0].end_index, Some(6));
+        assert_eq!(citations[1].end_index, None);
+    }
+
+    fn citation(title: &str, end_index: Option<usize>) -> GenerateCitation {
+        GenerateCitation {
+            title: title.to_string(),
+            url: format!("https://{}.example", title.to_lowercase()),
+            start_index: None,
+            end_index,
+        }
+    }
 }
 
 /// Runtime action item persisted after provider output is interpreted.

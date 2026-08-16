@@ -490,6 +490,7 @@ fn foundation_response(
         .then_some(GenerateResponseItem::Text {
             phase: None,
             text: generation.text,
+            citations: Vec::new(),
         })
         .into_iter()
         .collect();
@@ -498,7 +499,6 @@ fn foundation_response(
         tool_calls,
         reasoning_items: Vec::new(),
         hosted_web_searches: Vec::new(),
-        citations: Vec::new(),
         provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
         model,
         response_id: None,

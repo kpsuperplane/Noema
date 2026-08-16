@@ -63,10 +63,6 @@ impl RuntimeActor {
             &turn.response.reasoning_items,
         )
         .await?;
-        let citation_response_index =
-            turn.response.responses.iter().rposition(|item| {
-                matches!(item, noema_providers::GenerateResponseItem::Text { .. })
-            });
         let mut citation_sources = CitationSourceRegistry::default();
         citation_sources.observe(0, &turn.response.hosted_web_searches);
         let mut initial_assistant_response = ProviderAssistantResponse::default();
@@ -88,22 +84,22 @@ impl RuntimeActor {
         if !initial_batch_kind.contains_delegation() {
             for (index, response_item) in turn.response.responses.iter().cloned().enumerate() {
                 let response_item = match response_item {
-                    noema_providers::GenerateResponseItem::Text { phase, text } => {
-                        let existing = (citation_response_index == Some(index))
-                            .then_some(turn.response.citations.as_slice())
-                            .unwrap_or_default();
+                    noema_providers::GenerateResponseItem::Text {
+                        phase,
+                        text,
+                        citations,
+                    } => {
                         let normalized = self.normalize_provider_citation_text(
                             &citation_sources,
                             &text,
-                            existing,
+                            &citations,
                             "conversation_turn",
                             &turn.turn_id,
                         );
-                        initial_assistant_response
-                            .set_citations_for(index, normalized.citations);
                         noema_providers::GenerateResponseItem::Text {
                             phase,
                             text: normalized.text,
+                            citations: normalized.citations,
                         }
                     }
                 };

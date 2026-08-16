@@ -245,6 +245,7 @@ impl FakeCodexProvider {
                         .map(|text| GenerateResponseItem::Text {
                             phase: None,
                             text: text.to_string(),
+                            citations: Vec::new(),
                         })
                         .collect(),
                         Vec::new(),
@@ -266,10 +267,12 @@ impl FakeCodexProvider {
                     GenerateResponseItem::Text {
                         phase: Some(AssistantTextPhase::FinalAnswer),
                         text: "I started all three background tasks.".to_string(),
+                        citations: Vec::new(),
                     },
                     GenerateResponseItem::Text {
                         phase: Some(AssistantTextPhase::FinalAnswer),
                         text: "They are underway.".to_string(),
+                        citations: Vec::new(),
                     },
                 ],
                 vec![

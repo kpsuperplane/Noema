@@ -275,7 +275,6 @@ mod tests {
                     }],
                     reasoning_items: Vec::new(),
                     hosted_web_searches: Vec::new(),
-                    citations: Vec::new(),
                     provider: "test".to_string(),
                     model: request.model.unwrap_or_else(|| "missing-model".to_string()),
                     response_id: None,

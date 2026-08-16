@@ -291,9 +291,10 @@ data: [DONE]
         normalized.reasoning_items[0].encrypted_content.as_deref(),
         Some("opaque")
     );
-    assert_eq!(normalized.citations[0].url, "https://example.test/source");
-    assert_eq!(normalized.citations[0].start_index, Some(0));
-    assert_eq!(normalized.citations[0].end_index, Some(5));
+    let crate::GenerateResponseItem::Text { citations, .. } = &normalized.responses[0];
+    assert_eq!(citations[0].url, "https://example.test/source");
+    assert_eq!(citations[0].start_index, Some(0));
+    assert_eq!(citations[0].end_index, Some(5));
     assert_eq!(normalized.hosted_web_searches.len(), 1);
     assert_eq!(normalized.hosted_web_searches[0].tool_name, "web.search");
     assert_eq!(
@@ -358,7 +359,8 @@ data: [DONE]
         normalized.hosted_web_searches[0].result["summary"],
         "Found 1 cited source"
     );
-    assert_eq!(normalized.citations.len(), 1);
+    let crate::GenerateResponseItem::Text { citations, .. } = &normalized.responses[0];
+    assert_eq!(citations.len(), 1);
 }
 
 #[test]

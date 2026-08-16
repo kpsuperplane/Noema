@@ -18,7 +18,7 @@ use noema_store::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -376,7 +376,6 @@ pub(in crate::daemon) struct SuccessfulProviderTurn {
 pub(in crate::daemon) struct ProviderAssistantResponse {
     pub(in crate::daemon) item_id: Option<String>,
     pub(in crate::daemon) text: String,
-    citations: HashMap<usize, Vec<noema_providers::GenerateCitation>>,
 }
 
 impl ProviderAssistantResponse {
@@ -385,25 +384,6 @@ impl ProviderAssistantResponse {
             self.text.push_str("\n\n");
         }
         self.text.push_str(text);
-    }
-
-    pub(in crate::daemon) fn citations_for(
-        &self,
-        response_index: usize,
-    ) -> &[noema_providers::GenerateCitation] {
-        self.citations
-            .get(&response_index)
-            .map_or(&[], Vec::as_slice)
-    }
-
-    pub(in crate::daemon) fn set_citations_for(
-        &mut self,
-        response_index: usize,
-        citations: Vec<noema_providers::GenerateCitation>,
-    ) {
-        if !citations.is_empty() {
-            self.citations.insert(response_index, citations);
-        }
     }
 }
 

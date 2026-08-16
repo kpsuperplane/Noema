@@ -57,6 +57,7 @@ pub(super) fn single_tool_display_description(
             GenerateResponseItem::Text {
                 phase: None | Some(AssistantTextPhase::Commentary),
                 text,
+                ..
             } => Some(text.as_str()),
             GenerateResponseItem::Text {
                 phase: Some(AssistantTextPhase::FinalAnswer),
@@ -114,10 +115,12 @@ mod tests {
             GenerateResponseItem::Text {
                 phase: Some(AssistantTextPhase::Commentary),
                 text: "  Searching memory\nfor the launch date.  ".to_string(),
+                citations: Vec::new(),
             },
             GenerateResponseItem::Text {
                 phase: Some(AssistantTextPhase::FinalAnswer),
                 text: "This must not label a pending call.".to_string(),
+                citations: Vec::new(),
             },
         ];
 

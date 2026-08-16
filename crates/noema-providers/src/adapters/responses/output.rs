@@ -76,13 +76,11 @@ impl ResponsesResponse {
     ) -> GenerateResponse {
         let reasoning_items = self.reasoning_items();
         let hosted_web_searches = self.hosted_web_searches();
-        let citations = self.citations();
         GenerateResponse {
             responses,
             tool_calls,
             reasoning_items,
             hosted_web_searches,
-            citations,
             provider: diagnostics.provider_kind.clone(),
             model: self.model.unwrap_or_else(|| diagnostics.model.clone()),
             response_id: self.id,
@@ -118,11 +116,22 @@ impl ResponsesResponse {
             };
 
             let mut text = String::new();
+            let mut citations = Vec::new();
+            let mut seen = HashSet::new();
             for content_item in content {
                 match content_item {
                     ResponsesContent::OutputText {
-                        text: content_text, ..
-                    } => text.push_str(content_text),
+                        text: content_text,
+                        annotations,
+                    } => {
+                        collect_response_citations(
+                            annotations,
+                            text.encode_utf16().count(),
+                            &mut seen,
+                            &mut citations,
+                        );
+                        text.push_str(content_text);
+                    }
                     ResponsesContent::Refusal { refusal } => refusals.push(refusal.as_str()),
                     ResponsesContent::Other => {}
                 }
@@ -133,7 +142,11 @@ impl ResponsesResponse {
                     Some("final_answer") => Some(AssistantTextPhase::FinalAnswer),
                     _ => None,
                 };
-                messages.push(GenerateResponseItem::Text { phase, text });
+                messages.push(GenerateResponseItem::Text {
+                    phase,
+                    text,
+                    citations,
+                });
             }
         }
 
@@ -271,6 +284,7 @@ impl ResponsesResponse {
     }
 
     /// Collect unique safe URL citations from assistant output text.
+    #[cfg(test)]
     #[must_use]
     pub fn citations(&self) -> Vec<GenerateCitation> {
         let mut seen = std::collections::HashSet::new();
@@ -279,34 +293,13 @@ impl ResponsesResponse {
             let ResponsesOutputItem::Message { content, .. } = item else {
                 continue;
             };
+            let mut content_offset = 0;
             for content_item in content {
-                let ResponsesContent::OutputText { annotations, .. } = content_item else {
+                let ResponsesContent::OutputText { text, annotations } = content_item else {
                     continue;
                 };
-                for annotation in annotations {
-                    let ResponsesAnnotation::UrlCitation {
-                        title,
-                        url,
-                        start_index,
-                        end_index,
-                    } = annotation
-                    else {
-                        continue;
-                    };
-                    let url = url.trim();
-                    if !(url.starts_with("https://") || url.starts_with("http://"))
-                        || !seen.insert((url.to_string(), *start_index, *end_index))
-                    {
-                        continue;
-                    }
-                    let title = title.trim();
-                    citations.push(GenerateCitation {
-                        title: if title.is_empty() { url } else { title }.to_string(),
-                        url: url.to_string(),
-                        start_index: *start_index,
-                        end_index: *end_index,
-                    });
-                }
+                collect_response_citations(annotations, content_offset, &mut seen, &mut citations);
+                content_offset += text.encode_utf16().count();
             }
         }
         citations
@@ -341,6 +334,40 @@ impl ResponsesResponse {
             usage,
             raw: Some(raw),
         })
+    }
+}
+
+fn collect_response_citations(
+    annotations: &[ResponsesAnnotation],
+    offset: usize,
+    seen: &mut HashSet<(String, Option<usize>, Option<usize>)>,
+    citations: &mut Vec<GenerateCitation>,
+) {
+    for annotation in annotations {
+        let ResponsesAnnotation::UrlCitation {
+            title,
+            url,
+            start_index,
+            end_index,
+        } = annotation
+        else {
+            continue;
+        };
+        let url = url.trim();
+        let start_index = start_index.map(|index| offset + index);
+        let end_index = end_index.map(|index| offset + index);
+        if !(url.starts_with("https://") || url.starts_with("http://"))
+            || !seen.insert((url.to_string(), start_index, end_index))
+        {
+            continue;
+        }
+        let title = title.trim();
+        citations.push(GenerateCitation {
+            title: if title.is_empty() { url } else { title }.to_string(),
+            url: url.to_string(),
+            start_index,
+            end_index,
+        });
     }
 }
 

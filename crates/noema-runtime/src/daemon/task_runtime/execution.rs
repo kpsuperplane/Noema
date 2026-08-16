@@ -483,7 +483,6 @@ mod citation_tests {
                 }],
                 reasoning_items: Vec::new(),
                 hosted_web_searches: Vec::new(),
-                citations: Vec::new(),
                 provider: "codex".to_string(),
                 model: "test".to_string(),
                 response_id: None,

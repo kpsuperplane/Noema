@@ -516,10 +516,12 @@ mod tests {
                 crate::GenerateResponseItem::Text {
                     phase: Some(crate::AssistantTextPhase::Commentary),
                     text: "Got it".to_string(),
+                    citations: Vec::new(),
                 },
                 crate::GenerateResponseItem::Text {
                     phase: Some(crate::AssistantTextPhase::FinalAnswer),
                     text: "What time works?".to_string(),
+                    citations: Vec::new(),
                 },
             ]
         );
@@ -607,7 +609,8 @@ mod tests {
             .expect("normalized response");
         assert_eq!(generated.hosted_web_searches.len(), 1);
         assert_eq!(generated.hosted_web_searches[0].output_index, 0);
-        assert_eq!(generated.citations.len(), 1);
+        let crate::GenerateResponseItem::Text { citations, .. } = &generated.responses[0];
+        assert_eq!(citations.len(), 1);
         assert_eq!(generated.assistant_text(), "Current answer.");
     }
 

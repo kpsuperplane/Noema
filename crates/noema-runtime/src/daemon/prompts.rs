@@ -37,6 +37,9 @@ Avoid:
 pub(crate) const WEB_FETCH_PROVENANCE_INSTRUCTIONS: &str = r#"Web URL provenance:
 When following a `web.search` result or a link returned by `web.fetch`, copy the exact URL string from that result into the next `web.fetch` call. Do not reconstruct, canonicalize, swap hostnames, or add or remove path segments. If the exact URL is not present in a result, search for it first instead of inventing an alternate URL."#;
 
+pub(crate) const CITATION_OUTPUT_INSTRUCTIONS: &str = r#"Citation output:
+When a provider supplies source citations, keep attribution in provider-native citation annotations. Do not add citation-only Markdown links, parenthesized domains, source URLs, or Sources sections to user-visible text. Include a URL in user-visible text only when the human requested it or the URL is necessary answer content."#;
+
 /// Build the immutable instruction kernel for ordinary primary-agent turns.
 /// Mutable identity, environment, and tool state belongs in keyed context updates.
 pub(crate) fn build_structured_turn_system_prompt() -> String {
@@ -44,6 +47,8 @@ pub(crate) fn build_structured_turn_system_prompt() -> String {
         r#"{AGENT_PERSONALITY_PROMPT}
 
 {WEB_FETCH_PROVENANCE_INSTRUCTIONS}
+
+{CITATION_OUTPUT_INSTRUCTIONS}
 
 Initiative:
 - Work through ambiguity by inspecting the available context, discovering missing facts, and using available tools before asking the user for information.
@@ -244,6 +249,9 @@ mod tests {
                 "provider's native tool channel",
                 "NOEMA_MODEL_CONTEXT_UPDATE",
                 "copy the exact URL string from that result",
+                "keep attribution in provider-native citation annotations",
+                "Do not add citation-only Markdown links",
+                "only when the human requested it or the URL is necessary answer content",
                 "Work through ambiguity by inspecting the available context",
                 "Ask for clarification only at a genuine crossroads",
                 "further investigation cannot resolve it",

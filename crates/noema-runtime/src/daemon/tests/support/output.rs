@@ -8,7 +8,6 @@ fn fake_generate_response(
         tool_calls,
         reasoning_items: Vec::new(),
         hosted_web_searches: Vec::new(),
-        citations: Vec::new(),
         provider: provider.to_string(),
         model,
         response_id: Some("fake-response".to_string()),
@@ -29,6 +28,7 @@ fn assistant_with_tools(
         vec![GenerateResponseItem::Text {
             phase,
             text: text.to_string(),
+            citations: Vec::new(),
         }],
         tool_calls,
     )

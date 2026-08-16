@@ -577,6 +577,7 @@ mod tests {
             responses: vec![GenerateResponseItem::Text {
                 phase: None,
                 text: "I will inspect the official source.".to_string(),
+                citations: Vec::new(),
             }],
             tool_calls: vec![GenerateToolCall {
                 id: Some("fc_1".to_string()),
@@ -592,7 +593,6 @@ mod tests {
                 provider_details: None,
             }],
             hosted_web_searches: Vec::new(),
-            citations: Vec::new(),
             provider: "test".to_string(),
             model: "test".to_string(),
             response_id: None,
