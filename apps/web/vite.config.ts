@@ -79,7 +79,8 @@ export default defineConfig({
           /^\/(?:mcp|provider|adapter)\/oauth(?:\/|$)/,
           /^\/artifacts\/versions\/[^/]+\/download$/
         ],
-        globPatterns: ["**/*.{html,js,css,svg,png,ttf,webmanifest}"]
+        globPatterns: ["**/*.{html,js,css,svg,png,ttf,webmanifest}"],
+        globIgnores: ["graphiql.html", "graphiql-*"]
       }
     })
   ],
