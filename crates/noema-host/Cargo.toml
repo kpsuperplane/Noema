@@ -16,6 +16,7 @@ composition = [
     "dep:figment",
     "dep:ring",
     "dep:serde_json",
+    "dep:serde_yaml",
     "noema-artifacts/filesystem",
     "noema-capabilities-mcp/transport",
     "noema-providers/adapters",
@@ -37,6 +38,7 @@ noema-store = { path = "../noema-store", default-features = false }
 ring = { workspace = true, optional = true }
 serde.workspace = true
 serde_json = { workspace = true, optional = true }
+serde_yaml = { workspace = true, optional = true }
 thiserror.workspace = true
 
 [dev-dependencies]

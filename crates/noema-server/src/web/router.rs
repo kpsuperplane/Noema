@@ -13,6 +13,7 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
+use serde::Deserialize;
 use tower_http::{limit::RequestBodyLimitLayer, set_header::SetResponseHeaderLayer};
 use tower_sessions::{MemoryStore, Session, SessionManagerLayer, cookie::SameSite};
 
@@ -20,6 +21,7 @@ use super::{WebState, assets::embedded_asset, authority, clients, passkey, sessi
 
 const MAX_GRAPHQL_BODY_BYTES: usize = 64 * 1024;
 const MAX_OAUTH_QUERY_BYTES: usize = 8 * 1024;
+const MAX_RECOVERY_BODY_BYTES: usize = 1024;
 const NOT_FOUND: &str = "not found";
 const GRAPHIQL_CSP: &str = "default-src 'none'; script-src 'unsafe-inline' https://unpkg.com; style-src 'unsafe-inline' https://unpkg.com; img-src https://graphql.org; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'";
 
@@ -51,36 +53,52 @@ pub(crate) fn build_router(state: WebState) -> Router {
         graphql_route.get(method_not_found)
     };
 
-    Router::new()
-        .route(
-            "/graphql",
-            graphql_route,
-        )
+    let router = Router::new()
+        .route("/graphql", graphql_route)
         .route("/graphql/schema.graphql", get_only!(graphql_schema))
         .route("/graphql/ws", get_only!(graphql_ws))
-        .route("/__noema/bootstrap/{capability}", get_only!(bootstrap))
         .route("/auth/status", get_only!(passkey::status))
-        .route("/auth/passkey/register/start", post(passkey::start_registration))
-        .route("/auth/passkey/register/finish", post(passkey::finish_registration))
-        .route("/auth/passkey/login/start", post(passkey::start_authentication))
-        .route("/auth/passkey/login/finish", post(passkey::finish_authentication))
+        .route(
+            "/auth/recovery",
+            post(recover).layer(RequestBodyLimitLayer::new(MAX_RECOVERY_BODY_BYTES)),
+        )
+        .route(
+            "/auth/passkey/register/start",
+            post(passkey::start_registration),
+        )
+        .route(
+            "/auth/passkey/register/finish",
+            post(passkey::finish_registration),
+        )
+        .route(
+            "/auth/passkey/login/start",
+            post(passkey::start_authentication),
+        )
+        .route(
+            "/auth/passkey/login/finish",
+            post(passkey::finish_authentication),
+        )
         .route("/auth/logout", post(passkey::logout))
         .route("/auth/client/pairing/start", post(clients::start_pairing))
-        .route("/auth/client/pairing/complete", post(clients::complete_pairing))
+        .route(
+            "/auth/client/pairing/complete",
+            post(clients::complete_pairing),
+        )
         .route("/mcp/oauth/callback", get_only!(mcp_oauth_callback))
         .route(
             "/provider/oauth/callback/{attempt_id}",
             get_only!(provider_oauth_callback),
         )
-        .route(
-            "/adapter/oauth/callback",
-            get_only!(adapter_oauth_callback),
-        )
+        .route("/adapter/oauth/callback", get_only!(adapter_oauth_callback))
         .route(
             "/artifacts/versions/{artifact_version_slug}/download",
             get_only!(download_artifact_slug),
         )
-        .fallback(asset_or_not_found)
+        .fallback(asset_or_not_found);
+    #[cfg(test)]
+    let router = router.route("/__test/authenticate", post(authenticate_test_session));
+
+    router
         .layer(SetResponseHeaderLayer::if_not_present(
             header::CACHE_CONTROL,
             HeaderValue::from_static("no-store"),
@@ -106,16 +124,39 @@ pub(crate) fn build_router(state: WebState) -> Router {
             ),
         ))
         .layer(RequestBodyLimitLayer::new(MAX_GRAPHQL_BODY_BYTES))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            clients::authenticate_bearer,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            passkey::enforce_setup_barrier,
+        ))
         .layer(session_layer)
         .layer(middleware::from_fn_with_state(
             authority,
             authority::enforce_authority,
         ))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            clients::authenticate_bearer,
-        ))
         .with_state(state)
+}
+
+#[cfg(test)]
+async fn authenticate_test_session(
+    State(state): State<WebState>,
+    session_value: Session,
+) -> Response {
+    if state
+        .store
+        .insert_local_human_passkey("test-passkey", r#"{"test":true}"#)
+        .await
+        .is_err()
+    {
+        return internal_error();
+    }
+    match session::authenticate(&session_value, "test-passkey").await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(_) => internal_error(),
+    }
 }
 
 async fn graphql(
@@ -229,31 +270,34 @@ async fn graphql_schema(
     plain_response(StatusCode::OK, state.graphql_schema.sdl())
 }
 
-async fn bootstrap(
+#[derive(Deserialize)]
+struct RecoveryRequest {
+    code: String,
+}
+
+async fn recover(
     State(state): State<WebState>,
-    Path(capability): Path<String>,
     session_value: Session,
+    axum::Json(input): axum::Json<RecoveryRequest>,
 ) -> Response {
-    match state.store.local_human_has_passkey().await {
-        Ok(true) => return not_found(),
-        Err(_) => return internal_error(),
-        Ok(false) => {}
-    }
-    if !state.sessions.consume(&capability) {
+    if !state.auth_mode.requires_session() {
         return not_found();
     }
-    #[cfg(test)]
-    let result = if state.sessions.test_bootstrap_authenticates() {
-        session::authenticate(&session_value, "test-passkey").await
-    } else {
-        session::authorize_setup(&session_value).await
+    let Some(recovery) = state.recovery.clone() else {
+        return not_found();
     };
-    #[cfg(not(test))]
-    let result = session::authorize_setup(&session_value).await;
-    if result.is_err() {
-        return plain_response(StatusCode::INTERNAL_SERVER_ERROR, "internal server error");
+    let matched = tokio::task::spawn_blocking(move || recovery.attempt(&input.code)).await;
+    match matched {
+        Ok(Ok(true)) => match state.sessions.authorize_setup(&session_value).await {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(()) => internal_error(),
+        },
+        Ok(Ok(false)) => plain_response(StatusCode::UNAUTHORIZED, "recovery code was not accepted"),
+        Ok(Err(_)) | Err(_) => plain_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "recovery is unavailable until Noema restarts",
+        ),
     }
-    (StatusCode::SEE_OTHER, [(header::LOCATION, "/")]).into_response()
 }
 
 async fn mcp_oauth_callback(State(state): State<WebState>, RawQuery(query): RawQuery) -> Response {

@@ -43,6 +43,7 @@ pub(crate) struct WebState {
     passkeys: passkey::PasskeySecurity,
     client_auth: clients::ClientAuth,
     graphiql_enabled: bool,
+    recovery: Option<noema_host::RecoveryCodeStore>,
 }
 
 impl WebState {
@@ -53,6 +54,7 @@ impl WebState {
         sessions: session::SessionSecurity,
         auth_mode: WebAuthMode,
         graphiql_enabled: bool,
+        recovery: Option<noema_host::RecoveryCodeStore>,
     ) -> Result<Self, String> {
         let graphql_schema = noema_api::graphql::build_schema(graphql_state.clone());
         let passkeys = passkey::PasskeySecurity::new(&authority)?;
@@ -67,6 +69,7 @@ impl WebState {
             passkeys,
             client_auth,
             graphiql_enabled,
+            recovery,
         })
     }
 }

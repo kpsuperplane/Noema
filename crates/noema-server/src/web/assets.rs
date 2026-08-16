@@ -30,7 +30,19 @@ pub(super) fn is_spa_entry_path(path: &str) -> bool {
         return false;
     }
 
-    if ["/assets", "/api", "/graphql"].iter().any(|prefix| {
+    if [
+        "/assets",
+        "/api",
+        "/graphql",
+        "/auth",
+        "/__noema",
+        "/mcp/oauth",
+        "/provider/oauth",
+        "/adapter/oauth",
+        "/artifacts",
+    ]
+    .iter()
+    .any(|prefix| {
         path.strip_prefix(prefix)
             .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('/'))
     }) {

@@ -17,6 +17,17 @@ pub async fn run_daemon_web(host: NoemaHost) -> Result<(), WebServerError> {
 }
 
 async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
+    let auth_mode = web::WebAuthMode::from_config(host.web_config());
+    let recovery = if auth_mode.requires_session() {
+        Some(
+            noema_host::RecoveryCodeStore::open(host.services().noema_paths.config_path())
+                .map_err(|error| {
+                    WebServerError::Protocol(format!("recovery setup failed: {error}"))
+                })?,
+        )
+    } else {
+        None
+    };
     let web_listener = web::bind_listener(host.web_config()).await?;
     let listener_address = web_listener.local_addr()?;
     let authority = web::authority::CanonicalAuthority::from_web_config(
@@ -25,17 +36,8 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
     )
     .map_err(WebServerError::Protocol)?;
     let sessions = web::session::SessionSecurity::generate().map_err(|_| {
-        WebServerError::Protocol("failed to generate the browser bootstrap capability".to_string())
+        WebServerError::Protocol("failed to generate browser session security".to_string())
     })?;
-    let auth_mode = web::WebAuthMode::from_config(host.web_config());
-    let passkey_registered = host
-        .services()
-        .store
-        .local_human_has_passkey()
-        .await
-        .map_err(|error| {
-            WebServerError::Protocol(format!("failed to read passkey state: {error}"))
-        })?;
     let mut graphql_state = noema_api::graphql::GraphqlState::from_host_services(host.services())
         .with_mcp_oauth_callback_url(format!("{}/mcp/oauth/callback", authority.origin()))
         .with_provider_oauth_callback_url(format!("{}/provider/oauth/callback", authority.origin()))
@@ -73,14 +75,10 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
         sessions.clone(),
         auth_mode,
         host.web_config().graphiql,
+        recovery,
     )
     .map_err(WebServerError::Protocol)?;
-    if auth_mode.requires_session() && !passkey_registered {
-        let bootstrap_url = sessions.bootstrap_url(authority.origin()).ok_or_else(|| {
-            WebServerError::Protocol("failed to read the browser bootstrap capability".to_string())
-        })?;
-        println!("Noema browser bootstrap: {bootstrap_url}");
-    } else if !auth_mode.requires_session() {
+    if !auth_mode.requires_session() {
         println!("Noema browser authentication disabled (development only)");
     } else {
         println!(

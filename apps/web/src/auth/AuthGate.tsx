@@ -1,6 +1,7 @@
 import React from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { VStack } from "@astryxdesign/core/Stack";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import * as stylex from "@stylexjs/stylex";
 import { AppBootSkeleton } from "@/components/shell/AppBootSkeleton";
 import { SetupFrame } from "@/components/shell/SetupFrame";
@@ -9,8 +10,10 @@ import { pwaRuntime } from "@/pwa/runtime";
 import { hasAuthenticatedSentinel } from "@/pwa/storage";
 import {
   authenticateWithPasskey,
+  authorizeRecovery,
   enrollPasskey,
-  passkeysSupported
+  passkeysSupported,
+  RecoveryRequestError
 } from "./passkey";
 
 type AuthState =
@@ -33,6 +36,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [state, setState] = React.useState<AuthState>(desktop ? "authenticated" : "loading");
   const [working, setWorking] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [recoveryCode, setRecoveryCode] = React.useState("");
 
   const initializeAuthentication = React.useCallback(async (): Promise<AuthState> => {
     const next = await readAuthStatus();
@@ -78,6 +82,38 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function recoverAndEnroll() {
+    setWorking(true);
+    setError(null);
+    pwaRuntime.setCriticalOperation("passkey", true);
+    try {
+      await authorizeRecovery(recoveryCode.trim());
+      setRecoveryCode("");
+      setState("setup_ready");
+      await enrollPasskey();
+      await pwaRuntime.authenticated();
+      setState("authenticated");
+    } catch (caught) {
+      setRecoveryCode("");
+      if (caught instanceof RecoveryRequestError) {
+        setError(
+          caught.status === 401
+            ? "Noema did not accept that code. Read the new code from the startup config and try again."
+            : "Recovery is unavailable. Restart Noema and read the current code from the startup config."
+        );
+      } else {
+        setError(
+          caught instanceof DOMException && caught.name === "NotAllowedError"
+            ? "The passkey prompt was cancelled or timed out. Select Create passkey to try again."
+            : "Noema could not create that passkey. Select Create passkey to try again."
+        );
+      }
+    } finally {
+      pwaRuntime.setCriticalOperation("passkey", false);
+      setWorking(false);
+    }
+  }
+
   function retryStatus() {
     setError(null);
     setState("loading");
@@ -107,7 +143,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               : loginRequired
                 ? "Use the passkey registered to this server to continue."
                 : visibleState === "setup_required"
-                  ? "Open the one-time setup link printed by the Noema server to register its first passkey."
+                  ? "Enter the recovery code from the startup config. Each attempt replaces the code."
                   : visibleState === "unavailable"
                     ? "Noema could not read the server authentication state."
                     : "Checking server access…"}
@@ -119,6 +155,36 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
             </p>
           ) : null}
           {error ? <p {...stylex.props(styles.error)}>{error}</p> : null}
+
+          {visibleState === "setup_required" && supported ? (
+            <VStack
+              as="form"
+              gap={3}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void recoverAndEnroll();
+              }}
+            >
+              <TextInput
+                type="password"
+                label="Recovery code"
+                description="Read the current code from config.yaml. A failed attempt also replaces it."
+                value={recoveryCode}
+                isRequired
+                isDisabled={working}
+                hasAutoFocus
+                onChange={setRecoveryCode}
+              />
+              <Button
+                type="submit"
+                label="Continue"
+                isDisabled={working || recoveryCode.trim().length === 0}
+                isLoading={working}
+              >
+                Continue
+              </Button>
+            </VStack>
+          ) : null}
 
           {setupReady && supported ? (
             <Button

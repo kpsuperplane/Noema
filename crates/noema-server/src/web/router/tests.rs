@@ -17,6 +17,7 @@ use super::*;
 
 const TEST_AUTHORITY: &str = "localhost:3737";
 const TEST_ORIGIN: &str = "http://localhost:3737";
+const TEST_RECOVERY_CODE: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 async fn test_store() -> noema_store::NoemaStore {
     let root = tempfile::tempdir().expect("store root").keep();
@@ -34,8 +35,20 @@ async fn web_state(sessions: session::SessionSecurity, auth_mode: WebAuthMode) -
         sessions,
         auth_mode,
         false,
+        Some(test_recovery()),
     )
     .expect("web state")
+}
+
+fn test_recovery() -> noema_host::RecoveryCodeStore {
+    let root = tempfile::tempdir().expect("recovery root").keep();
+    let path = root.join("config.yaml");
+    std::fs::write(
+        &path,
+        format!("web:\n  recovery_code: {TEST_RECOVERY_CODE}\n"),
+    )
+    .expect("recovery config");
+    noema_host::RecoveryCodeStore::open(path).expect("recovery store")
 }
 
 async fn test_router() -> Router {
@@ -61,7 +74,7 @@ async fn test_router_without_auth() -> Router {
 async fn test_setup_router() -> Router {
     build_router(
         web_state(
-            session::SessionSecurity::for_setup_tests("setup-capability"),
+            session::SessionSecurity::for_tests("setup"),
             WebAuthMode::Required,
         )
         .await,
@@ -131,7 +144,7 @@ async fn raw_request(
 }
 
 #[tokio::test]
-async fn authority_session_and_bootstrap_boundary() {
+async fn authority_session_and_removed_bootstrap_boundary() {
     for (method, uri) in [
         (Method::GET, "/"),
         (Method::GET, "/__noema/bootstrap/test-capability"),
@@ -154,12 +167,12 @@ async fn authority_session_and_bootstrap_boundary() {
     }
 
     let router = test_router().await;
-    let (unauthorized, _, _) = request(
+    let (setup_blocked, _, _) = request(
         router.clone(),
         graphql_request(r#"{"query":"{ __typename }"}"#),
     )
     .await;
-    assert_eq!(unauthorized, StatusCode::UNAUTHORIZED);
+    assert_eq!(setup_blocked, StatusCode::FORBIDDEN);
 
     let (missing_origin, _, _) = raw_request(
         router.clone(),
@@ -196,18 +209,9 @@ async fn authority_session_and_bootstrap_boundary() {
         }
     }
 
-    let (bootstrap_status, headers, _) = request(
-        router.clone(),
-        empty_request(Method::GET, "/__noema/bootstrap/test-capability"),
-    )
-    .await;
-    assert_eq!(bootstrap_status, StatusCode::SEE_OTHER);
-    assert_eq!(headers[header::LOCATION], "/");
-    let set_cookie = headers[header::SET_COOKIE].to_str().expect("cookie");
+    let cookie = authenticate(router.clone()).await;
+    let set_cookie = cookie.as_str();
     assert!(set_cookie.starts_with("noema.sid="));
-    assert!(set_cookie.contains("HttpOnly"));
-    assert!(set_cookie.contains("SameSite=Strict"));
-    assert!(set_cookie.contains("Path=/"));
 
     for capability in ["test-capability", "wrong"] {
         let (status, _, body) = request(
@@ -221,7 +225,7 @@ async fn authority_session_and_bootstrap_boundary() {
 }
 
 #[tokio::test]
-async fn setup_capability_authorizes_one_session_without_authenticating_it() {
+async fn recovery_authorizes_one_setup_session_without_authenticating_it() {
     let router = test_setup_router().await;
     let (forbidden, _, _) = request(
         router.clone(),
@@ -230,12 +234,16 @@ async fn setup_capability_authorizes_one_session_without_authenticating_it() {
     .await;
     assert_eq!(forbidden, StatusCode::FORBIDDEN);
 
-    let (bootstrap_status, headers, _) = request(
+    let (recovery_status, headers, _) = request(
         router.clone(),
-        empty_request(Method::GET, "/__noema/bootstrap/setup-capability"),
+        auth_post(
+            "/auth/recovery",
+            None,
+            Body::from(format!(r#"{{"code":"{TEST_RECOVERY_CODE}"}}"#)),
+        ),
     )
     .await;
-    assert_eq!(bootstrap_status, StatusCode::SEE_OTHER);
+    assert_eq!(recovery_status, StatusCode::NO_CONTENT);
     let cookie = headers[header::SET_COOKIE]
         .to_str()
         .expect("cookie")
@@ -255,7 +263,7 @@ async fn setup_capability_authorizes_one_session_without_authenticating_it() {
             .expect("GraphQL request"),
     )
     .await;
-    assert_eq!(graphql_status, StatusCode::UNAUTHORIZED);
+    assert_eq!(graphql_status, StatusCode::FORBIDDEN);
 
     let (start_status, _, start_body) = request(
         router.clone(),
@@ -288,8 +296,9 @@ async fn development_mode_keeps_canonical_host_and_origin_checks() {
 
 #[tokio::test]
 async fn development_auth_bypass_allows_graphql_without_bootstrap() {
+    let router = test_router_without_auth().await;
     let (status, _, body) = request(
-        test_router_without_auth().await,
+        router.clone(),
         graphql_request(r#"{"query":"{ __typename }"}"#),
     )
     .await;
@@ -299,6 +308,52 @@ async fn development_auth_bypass_allows_graphql_without_bootstrap() {
         serde_json::from_slice::<serde_json::Value>(&body).expect("GraphQL JSON"),
         json!({"data": {"__typename": "QueryRoot"}})
     );
+    let (recovery_status, _, _) = request(
+        router,
+        auth_post(
+            "/auth/recovery",
+            None,
+            Body::from(format!(r#"{{"code":"{TEST_RECOVERY_CODE}"}}"#)),
+        ),
+    )
+    .await;
+    assert_eq!(recovery_status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn recovery_keeps_origin_checks_and_rotates_rejected_candidates() {
+    let router = test_setup_router().await;
+    let (missing_origin, _, _) = raw_request(
+        router.clone(),
+        Request::builder()
+            .method(Method::POST)
+            .uri("/auth/recovery")
+            .header(header::HOST, TEST_AUTHORITY)
+            .header(header::AUTHORIZATION, "Bearer ignored")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(format!(r#"{{"code":"{TEST_RECOVERY_CODE}"}}"#)))
+            .expect("recovery request"),
+    )
+    .await;
+    assert_eq!(missing_origin, StatusCode::FORBIDDEN);
+
+    let (wrong, _, _) = request(
+        router.clone(),
+        auth_post("/auth/recovery", None, Body::from(r#"{"code":"wrong"}"#)),
+    )
+    .await;
+    assert_eq!(wrong, StatusCode::UNAUTHORIZED);
+
+    let (stale, _, _) = request(
+        router,
+        auth_post(
+            "/auth/recovery",
+            None,
+            Body::from(format!(r#"{{"code":"{TEST_RECOVERY_CODE}"}}"#)),
+        ),
+    )
+    .await;
+    assert_eq!(stale, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
@@ -393,7 +448,7 @@ async fn pwa_asset_responses_use_release_safe_headers() {
 async fn private_and_network_endpoints_remain_excluded_from_http_caches() {
     for uri in [
         "/auth/status",
-        "/__noema/bootstrap/not-a-capability",
+        "/auth/recovery",
         "/artifacts/versions/missing/download",
     ] {
         let (_, headers, _) = request(
@@ -448,6 +503,7 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
         session::SessionSecurity::for_tests("ws-test-capability"),
         WebAuthMode::Required,
         false,
+        Some(test_recovery()),
     )
     .expect("web state");
     let server = tokio::spawn(async move {
@@ -461,14 +517,14 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
         .build()
         .expect("HTTP client");
     let bootstrap = client
-        .get(format!(
-            "http://localhost:{}/__noema/bootstrap/ws-test-capability",
+        .post(format!(
+            "http://localhost:{}/__test/authenticate",
             address.port()
         ))
         .send()
         .await
-        .expect("bootstrap request");
-    assert_eq!(bootstrap.status(), reqwest::StatusCode::SEE_OTHER);
+        .expect("test authentication request");
+    assert_eq!(bootstrap.status(), reqwest::StatusCode::NO_CONTENT);
     let ws_cookie = bootstrap
         .headers()
         .get(reqwest::header::SET_COOKIE)
@@ -593,6 +649,7 @@ async fn client_bearer_authorizes_http_and_ws_without_browser_origin_and_revocat
         session::SessionSecurity::for_tests("client-test-capability"),
         WebAuthMode::Required,
         false,
+        Some(test_recovery()),
     )
     .expect("web state");
     let server = tokio::spawn(async move {
@@ -602,6 +659,19 @@ async fn client_bearer_authorizes_http_and_ws_without_browser_origin_and_revocat
     });
     let client = reqwest::Client::new();
     let url = format!("http://localhost:{}/graphql", address.port());
+    let setup_blocked = client
+        .post(&url)
+        .header(reqwest::header::AUTHORIZATION, &bearer)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(r#"{"query":"{ testRequestPrincipal }"}"#)
+        .send()
+        .await
+        .expect("setup-barrier bearer request");
+    assert_eq!(setup_blocked.status(), reqwest::StatusCode::FORBIDDEN);
+    store
+        .insert_local_human_passkey("test-passkey", r#"{"test":true}"#)
+        .await
+        .expect("insert test passkey");
     let response = client
         .post(&url)
         .header(reqwest::header::AUTHORIZATION, &bearer)
@@ -708,12 +778,9 @@ async fn client_bearer_authorizes_http_and_ws_without_browser_origin_and_revocat
 }
 
 async fn authenticate(router: Router) -> String {
-    let (status, headers, _) = request(
-        router,
-        empty_request(Method::GET, "/__noema/bootstrap/test-capability"),
-    )
-    .await;
-    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (status, headers, _) =
+        request(router, empty_request(Method::POST, "/__test/authenticate")).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
     headers[header::SET_COOKIE]
         .to_str()
         .expect("session cookie")
@@ -727,6 +794,8 @@ async fn authenticate(router: Router) -> String {
 async fn router_preserves_oauth_and_plain_text_not_found_responses() {
     let authority = authority::CanonicalAuthority::from_public_origin(TEST_ORIGIN, "localhost")
         .expect("authority");
+    let router = test_router().await;
+    drop(authenticate(router.clone()).await);
     assert_eq!(
         oauth_callback_url(
             &authority,
@@ -736,14 +805,14 @@ async fn router_preserves_oauth_and_plain_text_not_found_responses() {
         "http://localhost:3737/mcp/oauth/callback?attemptId=1&host=attacker.invalid"
     );
     let (oauth_status, _, oauth_body) = request(
-        test_router().await,
+        router.clone(),
         empty_request(Method::GET, "/mcp/oauth/callback"),
     )
     .await;
     assert_eq!(oauth_status, StatusCode::BAD_REQUEST);
     assert_eq!(oauth_body, "missing OAuth callback query");
     let (adapter_status, _, adapter_body) = request(
-        test_router().await,
+        router.clone(),
         empty_request(
             Method::GET,
             "/adapter/oauth/callback?state=missing&code=hidden",
@@ -760,7 +829,7 @@ async fn router_preserves_oauth_and_plain_text_not_found_responses() {
         "x".repeat(MAX_OAUTH_QUERY_BYTES + 1)
     );
     let (oversized_status, _, oversized_body) =
-        request(test_router().await, empty_request(Method::GET, &oversized)).await;
+        request(router.clone(), empty_request(Method::GET, &oversized)).await;
     assert_eq!(oversized_status, StatusCode::BAD_REQUEST);
     assert_eq!(oversized_body, "invalid OAuth callback query");
     for (method, uri) in [
@@ -773,7 +842,7 @@ async fn router_preserves_oauth_and_plain_text_not_found_responses() {
         (Method::PUT, "/memory"),
     ] {
         let (status, headers, body) =
-            request(test_router().await, empty_request(method.clone(), uri)).await;
+            request(router.clone(), empty_request(method.clone(), uri)).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{method} {uri}");
         assert_eq!(
             headers[header::CONTENT_TYPE],
@@ -785,7 +854,7 @@ async fn router_preserves_oauth_and_plain_text_not_found_responses() {
         }
     }
     let (status, _, body) = request(
-        test_router().await,
+        router,
         empty_request(Method::GET, "/artifacts/versions/missing/download"),
     )
     .await;

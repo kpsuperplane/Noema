@@ -109,7 +109,11 @@ pub(super) async fn enforce_authority(
         && (request.uri().path() == "/graphql" || request.uri().path().starts_with("/auth/")))
         || (request.method() == Method::GET && request.uri().path() == "/graphql/ws");
     let has_authorization = headers.get(header::AUTHORIZATION).is_some();
-    if needs_origin && !has_authorization && request.uri().path() != "/auth/client/pairing/complete"
+    let authorization_replaces_origin =
+        has_authorization && request.uri().path() != "/auth/recovery";
+    if needs_origin
+        && !authorization_replaces_origin
+        && request.uri().path() != "/auth/client/pairing/complete"
     {
         let valid_origin = headers
             .get(header::ORIGIN)

@@ -11,6 +11,8 @@ mod loading;
 mod mcp;
 #[cfg(feature = "composition")]
 mod raw;
+#[cfg(feature = "composition")]
+mod recovery;
 mod web;
 
 pub use browser::BrowserConfig;
@@ -20,6 +22,8 @@ pub use error::ConfigError;
 #[cfg(feature = "composition")]
 pub use loading::Config;
 pub use mcp::McpConfig;
+#[cfg(feature = "composition")]
+pub use recovery::{RecoveryCodeError, RecoveryCodeStore};
 pub use web::WebConfig;
 
 use std::path::PathBuf;

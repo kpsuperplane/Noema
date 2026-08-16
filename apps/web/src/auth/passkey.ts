@@ -39,6 +39,22 @@ export async function authenticateWithPasskey() {
   });
 }
 
+export class RecoveryRequestError extends Error {
+  constructor(readonly status: number) {
+    super("Noema could not authorize recovery.");
+  }
+}
+
+export async function authorizeRecovery(code: string) {
+  const response = await fetch("/auth/recovery", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code })
+  });
+  if (!response.ok) throw new RecoveryRequestError(response.status);
+}
+
 function creationOptionsFromJson(
   options: PublicKeyCredentialCreationOptionsJSON
 ): PublicKeyCredentialCreationOptions {

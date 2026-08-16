@@ -8,8 +8,9 @@ use std::{
 
 use axum::{
     Json,
-    extract::State,
-    http::StatusCode,
+    extract::{Request, State},
+    http::{Method, StatusCode},
+    middleware::Next,
     response::{IntoResponse, Response},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -77,6 +78,14 @@ enum BrowserAuthState {
 #[derive(Serialize)]
 struct BrowserAuthStatus {
     state: BrowserAuthState,
+    mode: BrowserAuthMode,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum BrowserAuthMode {
+    Required,
+    Disabled,
 }
 
 #[derive(Serialize)]
@@ -150,10 +159,56 @@ impl PasskeySecurity {
     }
 }
 
+pub(super) async fn enforce_setup_barrier(
+    State(state): State<WebState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if !state.auth_mode.requires_session() {
+        return next.run(request).await;
+    }
+    let has_passkey = match state.store.local_human_has_passkey().await {
+        Ok(has_passkey) => has_passkey,
+        Err(_) => {
+            return auth_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authentication_unavailable",
+            );
+        }
+    };
+    if has_passkey || setup_path_allowed(request.method(), request.uri().path()) {
+        return next.run(request).await;
+    }
+    auth_error(StatusCode::FORBIDDEN, "setup_required")
+}
+
+fn setup_path_allowed(method: &Method, path: &str) -> bool {
+    #[cfg(test)]
+    if method == Method::POST && path == "/__test/authenticate" {
+        return true;
+    }
+    if matches!(
+        (method, path),
+        (&Method::GET, "/auth/status")
+            | (&Method::GET, "/")
+            | (&Method::POST, "/auth/recovery")
+            | (&Method::POST, "/auth/passkey/register/start")
+            | (&Method::POST, "/auth/passkey/register/finish")
+    ) {
+        return true;
+    }
+    matches!(method, &Method::GET | &Method::HEAD) && path.starts_with("/assets/")
+}
+
 pub(super) async fn status(State(state): State<WebState>, browser: Session) -> Response {
     if !state.auth_mode.requires_session() || session::is_authenticated(&browser).await {
         return Json(BrowserAuthStatus {
             state: BrowserAuthState::Authenticated,
+            mode: if state.auth_mode.requires_session() {
+                BrowserAuthMode::Required
+            } else {
+                BrowserAuthMode::Disabled
+            },
         })
         .into_response();
     }
@@ -168,19 +223,23 @@ pub(super) async fn status(State(state): State<WebState>, browser: Session) -> R
     };
     let auth_state = if credential_exists {
         BrowserAuthState::LoginRequired
-    } else if session::is_setup_authorized(&browser).await {
+    } else if state.sessions.is_setup_authorized(&browser).await {
         BrowserAuthState::SetupReady
     } else {
         BrowserAuthState::SetupRequired
     };
-    Json(BrowserAuthStatus { state: auth_state }).into_response()
+    Json(BrowserAuthStatus {
+        state: auth_state,
+        mode: BrowserAuthMode::Required,
+    })
+    .into_response()
 }
 
 pub(super) async fn start_registration(
     State(state): State<WebState>,
     browser: Session,
 ) -> Response {
-    if !registration_authorized(&state, &browser).await {
+    if !registration_start_authorized(&state, &browser).await {
         return auth_error(StatusCode::FORBIDDEN, "setup_not_authorized");
     }
     let stored = match state.store.local_human_passkeys().await {
@@ -280,6 +339,7 @@ pub(super) async fn finish_registration(
             );
         }
     }
+    state.sessions.consume_setup(&browser).await;
     establish_session(&browser, &credential_id).await
 }
 
@@ -434,10 +494,20 @@ async fn establish_session(browser: &Session, credential_id: &str) -> Response {
 }
 
 async fn registration_authorized(state: &WebState, browser: &Session) -> bool {
-    if !state.auth_mode.requires_session() || session::is_setup_authorized(browser).await {
+    if !state.auth_mode.requires_session() || state.sessions.is_setup_authorized(browser).await {
         return true;
     }
     session::is_authenticated(browser).await && session::has_recent_passkey(browser).await
+}
+
+async fn registration_start_authorized(state: &WebState, browser: &Session) -> bool {
+    if !state.auth_mode.requires_session() {
+        return true;
+    }
+    if session::is_authenticated(browser).await && session::has_recent_passkey(browser).await {
+        return true;
+    }
+    state.sessions.claim_setup_registration(browser).await
 }
 
 fn deserialize_passkeys(

@@ -19,7 +19,7 @@ pub mod runtime_host;
 
 pub use config::{BrowserConfig, DEFAULT_NOEMA_CONFIG_YAML, HostConfig, McpConfig, WebConfig};
 #[cfg(feature = "composition")]
-pub use config::{Config, ConfigError};
+pub use config::{Config, ConfigError, RecoveryCodeError, RecoveryCodeStore};
 pub use onboarding::{
     OnboardingService, OnboardingServiceError, OnboardingStatus, OnboardingStep,
     OnboardingStepStatus,
