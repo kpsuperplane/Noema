@@ -317,8 +317,8 @@ impl WorkerState {
             BrowseCommand::Snapshot { max_chars } => self.snapshot(max_chars).await,
             BrowseCommand::Interact(request) => {
                 self.require_revision(request.snapshot_revision)?;
-                self.interact(request.reference, request.action, request.value)?;
-                self.page.settle(250).await;
+                self.interact(request.reference, request.action, request.value)
+                    .await?;
                 self.validate_resulting_url().await?;
                 self.snapshot(noema_capabilities::web::browse::DEFAULT_SNAPSHOT_CHARS)
                     .await
@@ -432,7 +432,7 @@ impl WorkerState {
         })
     }
 
-    fn interact(
+    async fn interact(
         &mut self,
         reference: String,
         action: BrowseInteractionAction,
@@ -442,11 +442,19 @@ impl WorkerState {
         let result = self
             .page
             .evaluate_with_timeout(&script, Duration::from_millis(500));
-        if result == Value::Bool(true) {
-            Ok(())
-        } else {
-            Err(WebBrowseError::ElementNotFound)
+        if result != Value::Bool(true) {
+            return Err(WebBrowseError::ElementNotFound);
         }
+        self.page.settle(250).await;
+        if self
+            .page
+            .process_pending_navigation()
+            .await
+            .map_err(|_| WebBrowseError::OutcomeUncertain)?
+        {
+            self.page.settle(POST_NAVIGATION_SETTLE_MS).await;
+        }
+        Ok(())
     }
 
     async fn wait(
@@ -599,11 +607,12 @@ fn interaction_script(
         BrowseInteractionAction::PressKey => {
             r#"
             element.focus();
-            const accepted = emit(new KeyboardEvent('keydown', {key:value,bubbles:true,cancelable:true}));
-            if (accepted && value === 'Backspace') {
+            const key = value.toLowerCase() === 'enter' ? 'Enter' : value.toLowerCase() === 'backspace' ? 'Backspace' : value;
+            const accepted = emit(new KeyboardEvent('keydown', {key,bubbles:true,cancelable:true}));
+            if (accepted && key === 'Backspace') {
               setValue(String(element.value || '').slice(0, -1));
               emit(new Event('input', {bubbles:true}));
-            } else if (accepted && value === 'Enter') {
+            } else if (accepted && key === 'Enter') {
               if (element.tagName === 'TEXTAREA') {
                 setValue(String(element.value || '') + '\n');
                 emit(new Event('input', {bubbles:true}));
@@ -612,7 +621,7 @@ fn interaction_script(
                 if (form) form.requestSubmit ? form.requestSubmit() : form.submit();
               }
             }
-            emit(new KeyboardEvent('keyup', {key:value,bubbles:true}));
+            emit(new KeyboardEvent('keyup', {key,bubbles:true}));
             "#
         }
         BrowseInteractionAction::SelectOption => {
@@ -690,9 +699,16 @@ mod tests {
             let mut request = [0_u8; 1024];
             let _ = stream.read(&mut request).await;
             stream
-                .write_all(b"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><title>Fixture</title><body><noscript>JavaScript is disabled</noscript><label>Name<input aria-label='Name'></label><label>Role<select aria-label='Role'><option value='engineer'>Engineer</option><option value='manager'>Manager</option></select></label><button type='button' disabled>Save</button><script>const input=document.querySelector('input');const select=document.querySelector('select');const button=document.querySelector('button');setTimeout(()=>button.disabled=false,1);input.addEventListener('input',event=>input.setAttribute('data-input-trusted',String(event.isTrusted)));input.addEventListener('change',event=>input.setAttribute('data-change-trusted',String(event.isTrusted)));input.addEventListener('keydown',event=>input.setAttribute('data-keydown-trusted',String(event.isTrusted)));input.addEventListener('keyup',event=>input.setAttribute('data-keyup-trusted',String(event.isTrusted)));select.addEventListener('input',event=>select.setAttribute('data-input-trusted',String(event.isTrusted)));select.addEventListener('change',event=>select.setAttribute('data-change-trusted',String(event.isTrusted)));button.addEventListener('click',event=>button.setAttribute('data-click-trusted',String(event.isTrusted)));</script></body>")
+                .write_all(b"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><title>Fixture</title><body><noscript>JavaScript is disabled</noscript><label>Name<input aria-label='Name'></label><label>Role<select aria-label='Role'><option value='engineer'>Engineer</option><option value='manager'>Manager</option></select></label><button type='button' disabled>Save</button><div role='button' aria-label='Activate' tabindex='0'>Activate</div><script>const input=document.querySelector('input');const select=document.querySelector('select');const button=document.querySelector('button');const activate=document.querySelector('[role=button]');setTimeout(()=>button.disabled=false,1);input.addEventListener('input',event=>input.setAttribute('data-input-trusted',String(event.isTrusted)));input.addEventListener('change',event=>input.setAttribute('data-change-trusted',String(event.isTrusted)));input.addEventListener('keydown',event=>input.setAttribute('data-keydown-trusted',String(event.isTrusted)));input.addEventListener('keyup',event=>input.setAttribute('data-keyup-trusted',String(event.isTrusted)));select.addEventListener('input',event=>select.setAttribute('data-input-trusted',String(event.isTrusted)));select.addEventListener('change',event=>select.setAttribute('data-change-trusted',String(event.isTrusted)));button.addEventListener('click',event=>button.setAttribute('data-click-trusted',String(event.isTrusted)));activate.addEventListener('keydown',event=>{if(event.key==='Enter')activate.setAttribute('data-enter','true')});</script></body>")
                 .await
                 .expect("write fixture");
+            drop(stream);
+            let (mut stream, _) = listener.accept().await.expect("accept navigation");
+            let _ = stream.read(&mut request).await;
+            stream
+                .write_all(b"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><title>Confirmed</title>")
+                .await
+                .expect("write navigation");
         });
         let context = Arc::new(BrowserContext::with_storage_and_network(
             "test".to_string(),
@@ -740,6 +756,11 @@ mod tests {
             .iter()
             .find(|element| element.name == "Role")
             .expect("select reference");
+        let activate = snapshot
+            .elements
+            .iter()
+            .find(|element| element.name == "Activate")
+            .expect("role button reference");
         let request = BrowseInteractionRequest {
             snapshot_revision: snapshot.snapshot_revision,
             reference: input.reference.clone(),
@@ -751,6 +772,7 @@ mod tests {
             .expect("current revision");
         state
             .interact(request.reference, request.action, request.value)
+            .await
             .expect("fill input");
         assert_eq!(
             state.page.evaluate_with_timeout(
@@ -765,6 +787,7 @@ mod tests {
                 BrowseInteractionAction::Type,
                 Some("!".to_string()),
             )
+            .await
             .expect("type input");
         state
             .interact(
@@ -772,6 +795,7 @@ mod tests {
                 BrowseInteractionAction::PressKey,
                 Some("Backspace".to_string()),
             )
+            .await
             .expect("press input key");
         assert_eq!(
             state.page.evaluate_with_timeout(
@@ -786,6 +810,7 @@ mod tests {
                 BrowseInteractionAction::SelectOption,
                 Some("manager".to_string()),
             )
+            .await
             .expect("select option");
         assert_eq!(
             state.page.evaluate_with_timeout(
@@ -800,6 +825,7 @@ mod tests {
                 BrowseInteractionAction::Click,
                 None,
             )
+            .await
             .expect("click button");
         assert_eq!(
             state.page.evaluate_with_timeout(
@@ -808,6 +834,21 @@ mod tests {
             ),
             json!("true")
         );
+        state
+            .page
+            .evaluate_with_timeout(
+                "document.querySelector('[role=button]').addEventListener('keydown',event=>{if(event.key==='Enter')location.assign('/confirmed')})",
+                Duration::from_millis(500),
+            );
+        state
+            .interact(
+                activate.reference.clone(),
+                BrowseInteractionAction::PressKey,
+                Some("ENTER".to_string()),
+            )
+            .await
+            .expect("activate navigation");
+        assert_eq!(state.page.title, "Confirmed");
         state.snapshot(2_000).await.expect("updated snapshot");
         assert_eq!(
             state.require_revision(snapshot.snapshot_revision),
