@@ -459,7 +459,7 @@ final class OnboardingModel {
     authSubscription?.cancel()
     authSubscription = Task { [weak self] in
       do {
-        let stream = try self?.client.subscribe(subscription: NoemaAPI.ProviderAuthAttemptEventsSubscription(attemptId: attemptID))
+        let stream = try self?.client.recoveringSubscribe(subscription: NoemaAPI.ProviderAuthAttemptEventsSubscription(attemptId: attemptID))
         if let stream {
           for try await response in stream {
             guard let value = response.data?.providerAuthAttemptEvents else { continue }
@@ -514,7 +514,7 @@ final class OnboardingModel {
     localSubscription?.cancel()
     localSubscription = Task { [weak self] in
       do {
-        let stream = try self?.client.subscribe(subscription: NoemaAPI.LocalModelEventsSubscription(after: .none))
+        let stream = try self?.client.recoveringSubscribe(subscription: NoemaAPI.LocalModelEventsSubscription(after: .none))
         if let stream {
           for try await response in stream {
             if let installation = response.data?.localModelEvents.installation { self?.applyInstallation(installation) }

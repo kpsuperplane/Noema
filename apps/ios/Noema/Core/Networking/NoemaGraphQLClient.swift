@@ -5,74 +5,21 @@ import ApolloWebSocket
 import CryptoKit
 import Foundation
 import NoemaAPI
-import Observation
-
-@MainActor
-@Observable
-final class NoemaConnectionStatus {
-  enum Outcome: String {
-    case presumedConnected
-    case connected
-    case disconnected
-  }
-
-  private(set) var outcome: Outcome = .presumedConnected
-  private(set) var isActive = false
-  private var reconnectAttemptPending = false
-
-  var isDisconnected: Bool { outcome == .disconnected }
-
-  func foregroundAttemptStarted() {
-    isActive = true
-    reconnectAttemptPending = true
-  }
-
-  func backgrounded() {
-    isActive = false
-  }
-
-  func transportDisconnected() {
-    guard isActive else { return }
-    if reconnectAttemptPending || outcome == .presumedConnected {
-      setOutcome(.disconnected)
-    } else {
-      reconnectAttemptPending = true
-    }
-  }
-
-  func confirmationFailed() {
-    guard isActive else { return }
-    setOutcome(.disconnected)
-  }
-
-  func connectionConfirmed() {
-    guard isActive else { return }
-    reconnectAttemptPending = false
-    setOutcome(.connected)
-  }
-
-  private func setOutcome(_ next: Outcome) {
-    guard outcome != next else { return }
-    outcome = next
-    NoemaDiagnosticTrace.shared.record(
-      category: "graphql",
-      event: "connection_outcome_changed",
-      fields: ["outcome": next.rawValue]
-    )
-  }
-}
 
 final class NoemaGraphQLClient: @unchecked Sendable {
-  private static let reconnectionInterval: TimeInterval = 2
-
   let client: ApolloClient
   @MainActor let connectionStatus: NoemaConnectionStatus
   private let webSocketTransport: WebSocketTransport
+  private let connectionRecovery: NoemaConnectionRecovery
+  private var networkObserverID: UUID?
   @MainActor private var healthCheckTask: Task<Void, Never>?
 
   @MainActor init(profile: NoemaProfile) {
     NoemaDiagnosticTrace.shared.record(category: "graphql", event: "client_initializing")
-    self.connectionStatus = NoemaConnectionStatus()
+    let connectionStatus = NoemaConnectionStatus()
+    let connectionRecovery = NoemaConnectionRecovery(status: connectionStatus)
+    self.connectionStatus = connectionStatus
+    self.connectionRecovery = connectionRecovery
     let store = ApolloStore(cache: Self.normalizedCache(for: profile))
     let sessionConfiguration = URLSessionConfiguration.ephemeral
     sessionConfiguration.httpAdditionalHeaders = ["Authorization": "Bearer \(profile.accessToken)"]
@@ -85,7 +32,7 @@ final class NoemaGraphQLClient: @unchecked Sendable {
     )
 
     let websocketConfiguration = WebSocketTransport.Configuration(
-      reconnectionInterval: Self.reconnectionInterval,
+      reconnectionInterval: -1,
       connectingPayload: nil,
       pingInterval: 20
     )
@@ -96,16 +43,29 @@ final class NoemaGraphQLClient: @unchecked Sendable {
       configuration: websocketConfiguration
     )
     self.webSocketTransport = websocket
+    let recoveringSubscriptions = NoemaRecoveringSubscriptionTransport(
+      underlying: websocket,
+      recovery: connectionRecovery,
+      connectionStatus: connectionStatus
+    )
     self.client = ApolloClient(
       networkTransport: SplitNetworkTransport(
         queryTransport: http,
         mutationTransport: http,
-        subscriptionTransport: websocket
+        subscriptionTransport: recoveringSubscriptions
       ),
       store: store
     )
     Task { await websocket.setDelegate(self) }
+    networkObserverID = NoemaNetworkMonitor.shared.observe { [weak self] availability in
+      Task { @MainActor [weak self] in await self?.networkChanged(availability) }
+    }
     NoemaDiagnosticTrace.shared.record(category: "graphql", event: "client_initialized")
+  }
+
+  deinit {
+    guard let networkObserverID else { return }
+    Task { @MainActor in NoemaNetworkMonitor.shared.removeObserver(networkObserverID) }
   }
 
   @MainActor func pauseSubscriptions() async {
@@ -119,17 +79,21 @@ final class NoemaGraphQLClient: @unchecked Sendable {
   @MainActor func resumeSubscriptionsAndRecover() async {
     NoemaDiagnosticTrace.shared.record(category: "graphql", event: "subscriptions_resuming")
     connectionStatus.foregroundAttemptStarted()
-    await webSocketTransport.resume()
+    if connectionStatus.retryState.allowsAttempt {
+      await webSocketTransport.resume()
+    }
     NoemaDiagnosticTrace.shared.record(category: "graphql", event: "subscriptions_resumed")
   }
 
   @MainActor private func confirmConnection() {
-    guard connectionStatus.isActive else { return }
+    guard connectionStatus.retryState.allowsAttempt else { return }
     healthCheckTask?.cancel()
     healthCheckTask = Task { [weak self] in
       guard let self else { return }
-      while !Task.isCancelled, connectionStatus.isActive {
+      var attempt = 0
+      while !Task.isCancelled {
         do {
+          try await connectionRecovery.waitBeforeRetry(attempt)
           let response = try await client.fetch(
             query: NoemaAPI.NativeConnectionHealthQuery(),
             cachePolicy: .networkOnly
@@ -137,7 +101,7 @@ final class NoemaGraphQLClient: @unchecked Sendable {
           guard response.data != nil, response.errors?.isEmpty != false else {
             throw ConnectionHealthError.invalidResponse
           }
-          guard !Task.isCancelled, connectionStatus.isActive else { return }
+          guard !Task.isCancelled, connectionStatus.retryState.allowsAttempt else { return }
           connectionStatus.connectionConfirmed()
           return
         } catch is CancellationError {
@@ -145,9 +109,20 @@ final class NoemaGraphQLClient: @unchecked Sendable {
         } catch {
           NoemaDiagnosticTrace.shared.record(category: "graphql", event: "connection_health_failed", error: error)
           connectionStatus.confirmationFailed()
-          try? await Task.sleep(for: .seconds(Self.reconnectionInterval))
+          attempt = min(attempt + 1, NoemaConnectionRetryPolicy.maximumAttempt)
         }
       }
+    }
+  }
+
+  @MainActor private func networkChanged(_ availability: NoemaNetworkAvailability) async {
+    connectionStatus.networkChanged(availability)
+    guard connectionStatus.isActive else { return }
+    if availability == .unavailable {
+      healthCheckTask?.cancel()
+      await webSocketTransport.pause()
+    } else {
+      await webSocketTransport.resume()
     }
   }
 
@@ -277,6 +252,12 @@ private enum ConnectionHealthError: Error {
 }
 
 extension ApolloClient {
+  func recoveringSubscribe<Subscription: GraphQLSubscription>(
+    subscription: Subscription
+  ) throws -> SubscriptionStream<GraphQLResponse<Subscription>> {
+    try subscribe(subscription: subscription)
+  }
+
   /// Apollo 2.3.0 skips its network-first cache fallback when a successful HTTP response has no body.
   func fetchNetworkFirst<Query: GraphQLQuery>(
     query: Query

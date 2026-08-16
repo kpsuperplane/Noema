@@ -375,7 +375,7 @@ final class NoemaNotificationService {
     let generation = presenceGeneration
     presenceTask = Task { [weak self] in
       do {
-        let stream = try client.subscribe(subscription: NoemaAPI.ClientNotificationPresenceSubscription())
+        let stream = try client.recoveringSubscribe(subscription: NoemaAPI.ClientNotificationPresenceSubscription())
         for try await response in stream {
           guard !Task.isCancelled else { return }
           guard let presence = response.data?.clientNotificationPresence,

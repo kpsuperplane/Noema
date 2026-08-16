@@ -223,11 +223,14 @@ struct NoemaTopRail: View {
 }
 
 private struct NoemaConnectionBanner: View {
+  let message: String
+  let symbol: String
+
   var body: some View {
     HStack(spacing: NoemaSpacing.compact) {
-      Image(systemName: "wifi.slash")
+      Image(systemName: symbol)
         .accessibilityHidden(true)
-      Text("Noema is offline.")
+      Text(message)
         .font(NoemaFont.captionEmphasized)
     }
     .foregroundStyle(NoemaColor.danger)
@@ -351,7 +354,7 @@ struct NoemaShellView: View {
       let breakpoint = NoemaBreakpoint.resolve(width: proxy.size.width)
       let compact = breakpoint == .compact
       let sidebarWidth: CGFloat = compact ? proxy.size.width : 216
-      let connectionBannerHeight = model.isDisconnected
+      let connectionBannerHeight = model.connectionMessage != nil
         ? max(measuredConnectionBannerHeight, NoemaSpacing.xxl + NoemaSpacing.sm)
         : 0
       let shellTop = safeTop + connectionBannerHeight
@@ -368,8 +371,8 @@ struct NoemaShellView: View {
       ZStack(alignment: .topLeading) {
         NoemaColor.pine50.ignoresSafeArea()
 
-        if model.isDisconnected {
-          NoemaConnectionBanner()
+        if let connectionMessage = model.connectionMessage {
+          NoemaConnectionBanner(message: connectionMessage, symbol: model.connectionSymbol)
             .onGeometryChange(for: CGFloat.self) { geometry in
               geometry.size.height
             } action: { height in

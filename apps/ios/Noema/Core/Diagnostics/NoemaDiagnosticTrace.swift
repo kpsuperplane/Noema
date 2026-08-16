@@ -1,5 +1,4 @@
 import Foundation
-import Network
 import OSLog
 
 /// A bounded, device-local trace for short-lived connectivity investigations.
@@ -20,8 +19,6 @@ final class NoemaDiagnosticTrace: @unchecked Sendable {
 
   private let logger = Logger(subsystem: "dev.noema.app.ios", category: "Connectivity")
   private let ioQueue = DispatchQueue(label: "dev.noema.app.ios.diagnostics")
-  private let monitorQueue = DispatchQueue(label: "dev.noema.app.ios.network-path")
-  private let monitor = NWPathMonitor()
   private let session = UUID().uuidString
   private let processStart = ProcessInfo.processInfo.systemUptime
   private let encoder: JSONEncoder
@@ -35,22 +32,6 @@ final class NoemaDiagnosticTrace: @unchecked Sendable {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     self.formatter = formatter
-    monitor.pathUpdateHandler = { [weak self] path in
-      self?.record(
-        category: "network",
-        event: "path_changed",
-        fields: [
-          "status": Self.pathStatus(path.status),
-          "interface": Self.interfaceName(path),
-          "expensive": String(path.isExpensive),
-          "constrained": String(path.isConstrained),
-          "dns": String(path.supportsDNS),
-          "ipv4": String(path.supportsIPv4),
-          "ipv6": String(path.supportsIPv6)
-        ]
-      )
-    }
-    monitor.start(queue: monitorQueue)
     record(category: "app", event: "trace_started")
   }
 
@@ -146,21 +127,4 @@ final class NoemaDiagnosticTrace: @unchecked Sendable {
     )
   }
 
-  private static func pathStatus(_ status: NWPath.Status) -> String {
-    switch status {
-    case .satisfied: "satisfied"
-    case .unsatisfied: "unsatisfied"
-    case .requiresConnection: "requires_connection"
-    @unknown default: "unknown"
-    }
-  }
-
-  private static func interfaceName(_ path: NWPath) -> String {
-    if path.usesInterfaceType(.wifi) { return "wifi" }
-    if path.usesInterfaceType(.cellular) { return "cellular" }
-    if path.usesInterfaceType(.wiredEthernet) { return "wired" }
-    if path.usesInterfaceType(.loopback) { return "loopback" }
-    if path.usesInterfaceType(.other) { return "other" }
-    return "none"
-  }
 }

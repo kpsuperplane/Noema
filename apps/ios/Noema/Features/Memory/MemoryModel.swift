@@ -205,23 +205,15 @@ final class MemoryModel {
     subscriptionTask?.cancel()
     guard let client else { return }
     subscriptionTask = Task { [weak self] in
-      var attempt = 0
-      while !Task.isCancelled {
-        do {
-          let stream = try client.subscribe(subscription: NoemaAPI.MemoryEventsSubscription())
-          for try await response in stream {
-            guard let data = response.data else { continue }
-            attempt = 0
-            await self?.applySubscription(data.memoryEvents)
-          }
-          guard !Task.isCancelled else { return }
-        } catch is CancellationError {
-          return
-        } catch {
+      do {
+        let stream = try client.recoveringSubscribe(subscription: NoemaAPI.MemoryEventsSubscription())
+        for try await response in stream {
+          guard let data = response.data else { continue }
+          await self?.applySubscription(data.memoryEvents)
         }
-        attempt = min(attempt + 1, 6)
-        let delay = min(1 << min(attempt - 1, 5), 30)
-        try? await Task.sleep(for: .seconds(delay))
+      } catch is CancellationError {
+        return
+      } catch {
       }
     }
   }

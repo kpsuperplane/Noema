@@ -58,9 +58,13 @@ The cache is excluded from backup. Mutations are disabled while disconnected.
 Subscriptions pause in the background. Foreground recovery refetches durable
 transcript and Tasks event cursors before it accepts later live events.
 
-Foreground recovery keeps the last connection presentation until one reconnect
-attempt fails. One shell banner remains visible until the authenticated
-WebSocket and a network-only GraphQL health check both succeed.
+An unsatisfied system network path pauses subscription and health-check retries.
+The next usable path resumes them immediately. Server failures retry after 1,
+2, 4, 8, 16, and then 30 seconds. The 30-second delay remains until recovery.
+
+The shell distinguishes a missing network path from an unavailable Noema
+server. Its banner remains visible until the authenticated WebSocket and a
+network-only GraphQL health check both succeed.
 
 Create a connection link in Settings → System → Clients. The native app accepts
 the resulting `noema://connect` URI from VisionKit, a deep link, or the

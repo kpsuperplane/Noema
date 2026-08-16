@@ -57,7 +57,7 @@ struct TaskReferenceChip: View {
     await loadTask()
     guard let client else { return }
     do {
-      let stream = try client.subscribe(
+      let stream = try client.recoveringSubscribe(
         subscription: TasksTaskEventsSubscription(taskId: taskID, after: .none)
       )
       for try await response in stream {

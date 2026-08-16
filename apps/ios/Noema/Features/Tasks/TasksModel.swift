@@ -923,7 +923,7 @@ final class TasksModel {
     eventSubscription = Task { [weak self] in
       guard let self else { return }
       do {
-        let stream = try client.subscribe(
+        let stream = try client.recoveringSubscribe(
           subscription: TasksEventsSubscription(
             workspaceId: workspaceId,
             after: optional(eventCursor)
@@ -937,10 +937,6 @@ final class TasksModel {
       } catch {
         guard !Task.isCancelled else { return }
         record(error)
-        try? await Task.sleep(for: .seconds(2))
-        guard started, !Task.isCancelled else { return }
-        await refresh()
-        subscribeToTasks()
       }
     }
   }
@@ -950,7 +946,7 @@ final class TasksModel {
     taskSubscription = Task { [weak self] in
       guard let self else { return }
       do {
-        let stream = try client.subscribe(
+        let stream = try client.recoveringSubscribe(
           subscription: TasksTaskEventsSubscription(taskId: taskId, after: optional(eventCursor))
         )
         for try await value in stream {
@@ -970,7 +966,7 @@ final class TasksModel {
     runtimeSubscription = Task { [weak self] in
       guard let self else { return }
       do {
-        let stream = try client.subscribe(subscription: TasksRuntimeEventsSubscription(taskId: taskId))
+        let stream = try client.recoveringSubscribe(subscription: TasksRuntimeEventsSubscription(taskId: taskId))
         for try await value in stream {
           guard !Task.isCancelled else { return }
           if let runId = value.data?.taskRuntimeEvents.runId {

@@ -137,7 +137,6 @@ final class ChatModel {
   private var knownItemIDs = Set<String>()
   private var knownCursors = Set<String>()
   private var streamingIndex: [String: Int] = [:]
-  private var subscriptionRetryAttempt = 0
   private var started = false
   private var isRecoveringConnection = false
 
@@ -767,7 +766,7 @@ final class ChatModel {
     NoemaDiagnosticTrace.shared.record(category: "chat", event: "subscription_starting")
     subscriptionTask = Task { [weak self] in
       do {
-        let stream = try client.subscribe(subscription: NoemaAPI.ConversationEventsSubscription(conversationId: conversationID))
+        let stream = try client.recoveringSubscribe(subscription: NoemaAPI.ConversationEventsSubscription(conversationId: conversationID))
         var connected = false
         for try await response in stream {
           guard let event = response.data?.conversationEvents else {
@@ -778,44 +777,15 @@ final class ChatModel {
             connected = true
             NoemaDiagnosticTrace.shared.record(category: "chat", event: "subscription_connected")
           }
-          self?.subscriptionRetryAttempt = 0
           await self?.apply(event)
         }
         guard !Task.isCancelled else { return }
         NoemaDiagnosticTrace.shared.record(category: "chat", event: "subscription_ended")
-        await self?.recoverAfterSubscriptionLoss()
       } catch {
         guard !Task.isCancelled else { return }
         NoemaDiagnosticTrace.shared.record(category: "chat", event: "subscription_failed", error: error)
-        await self?.recoverAfterSubscriptionLoss()
       }
     }
-  }
-
-  private func recoverAfterSubscriptionLoss() async {
-    isSending = false
-    agentStatus = "closed"
-    let attempt = nextSubscriptionRetryAttempt()
-    let delay = min(1 << min(attempt - 1, 5), 30)
-    NoemaDiagnosticTrace.shared.record(
-      category: "chat",
-      event: "subscription_recovery_scheduled",
-      fields: ["attempt": String(attempt), "delaySeconds": String(delay)]
-    )
-    try? await Task.sleep(for: .seconds(delay))
-    guard !Task.isCancelled else { return }
-    await recoverSubscription()
-  }
-
-  private func nextSubscriptionRetryAttempt() -> Int {
-    subscriptionRetryAttempt = min(subscriptionRetryAttempt + 1, 6)
-    return subscriptionRetryAttempt
-  }
-
-  private func recoverSubscription() async {
-    guard phase == .ready, let client else { return }
-    _ = await loadLatest(client: client)
-    if let conversationID { startSubscription(client: client, conversationID: conversationID) }
   }
 
   private func apply(_ event: NoemaAPI.ConversationEventsSubscription.Data.ConversationEvents) async {

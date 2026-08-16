@@ -411,7 +411,7 @@ extension SettingsModel {
   func waitForAdapterOAuth(attemptID: String) async -> (status: String, grantID: String?, grantRevision: Int?)? {
     guard let client else { return nil }
     do {
-      let stream = try client.subscribe(
+      let stream = try client.recoveringSubscribe(
         subscription: NoemaAPI.SettingsAdapterOauthAttemptEventsSubscription(attemptId: attemptID)
       )
       for try await response in stream {

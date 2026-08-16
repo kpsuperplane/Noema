@@ -52,6 +52,8 @@ final class NoemaAppModel {
 
   var graphQLClient: NoemaGraphQLClient? { graphQL }
   var isDisconnected: Bool { graphQL?.connectionStatus.isDisconnected ?? false }
+  var connectionMessage: String? { graphQL?.connectionStatus.bannerMessage }
+  var connectionSymbol: String { graphQL?.connectionStatus.bannerSymbol ?? "wifi.slash" }
 
   func bootstrap() async {
     NoemaDiagnosticTrace.shared.record(category: "app", event: "bootstrap_started")
@@ -62,7 +64,7 @@ final class NoemaAppModel {
         NoemaDiagnosticTrace.shared.record(category: "app", event: "profile_restored")
         NoemaGraphQLClient.discardStaleCaches(keeping: restored)
         profile = restored
-        graphQL = NoemaGraphQLClient(profile: restored)
+        graphQL = makeGraphQLClient(profile: restored)
         state = .paired
         await notifications.configure(profile: restored, client: graphQL?.client)
         await liveActivities.configure(profile: restored, client: graphQL?.client)
@@ -158,7 +160,7 @@ final class NoemaAppModel {
         hasStoredProfile = true
         try? await previousGraphQL?.clearCache()
         profile = stored
-        graphQL = NoemaGraphQLClient(profile: stored)
+        graphQL = makeGraphQLClient(profile: stored)
         state = .paired
         pairingPayload = nil
         await notifications.configure(profile: stored, client: graphQL?.client)
@@ -277,7 +279,6 @@ final class NoemaAppModel {
         NoemaDiagnosticTrace.shared.record(category: "graphql", event: "foreground_recovery_started")
         await graphQL.resumeSubscriptionsAndRecover()
         guard !Task.isCancelled else { return }
-        recoveryGeneration &+= 1
         NoemaDiagnosticTrace.shared.record(
           category: "graphql",
           event: "foreground_recovery_finished",
@@ -337,5 +338,13 @@ final class NoemaAppModel {
 
   func clearPendingTaskID() {
     pendingTaskID = nil
+  }
+
+  private func makeGraphQLClient(profile: NoemaProfile) -> NoemaGraphQLClient {
+    let graphQL = NoemaGraphQLClient(profile: profile)
+    graphQL.connectionStatus.onConnectionConfirmed = { [weak self] in
+      self?.recoveryGeneration &+= 1
+    }
+    return graphQL
   }
 }

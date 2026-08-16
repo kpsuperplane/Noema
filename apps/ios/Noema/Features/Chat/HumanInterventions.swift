@@ -181,7 +181,7 @@ enum HumanInterventionActions {
     action: AdapterNextActionModel,
     client: ApolloClient
   ) async throws -> String {
-    let stream = try client.subscribe(
+    let stream = try client.recoveringSubscribe(
       subscription: NoemaAPI.SettingsAdapterOauthAttemptEventsSubscription(attemptId: attempt.attemptID)
     )
     for try await response in stream {

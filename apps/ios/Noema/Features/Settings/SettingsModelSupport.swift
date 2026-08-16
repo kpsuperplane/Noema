@@ -9,7 +9,7 @@ extension SettingsModel {
     guard let client else { return }
     authSubscription = Task { [weak self] in
       do {
-        let stream = try client.subscribe(
+        let stream = try client.recoveringSubscribe(
           subscription: NoemaAPI.ProviderAuthAttemptEventsSubscription(attemptId: attemptID)
         )
         for try await response in stream {
