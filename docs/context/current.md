@@ -119,17 +119,20 @@ vertical slice or a net-negative reduction.
   policy editor. Added-access decisions show operations before exact scopes.
 - Chat projects OAuth client setup by profile. One intervention lists every
   reviewed API that can reuse the imported client.
-- SQLite schema version 43 has rebuildable public OAuth projections and grant
-  labels. It supersedes authentication requests from the replaced model. Its
-  latest migration finishes active child records whose parent run or turn is final.
+- SQLite schema version 44 stores independent local-human passkeys. Version 43
+  added rebuildable public OAuth projections and grant labels.
 - The active reviewed Calendar definition has all 12 current operations,
   including date-only event creation. The 50-case live validation ledger has 50
   passing cases. Case 12 made no external change because the human told Noema
   to leave the date-only event uncreated.
 - [Server authentication and public access](../server-security.md) is the
-  accepted target contract. Current browser auth uses one local-human WebAuthn
-  credential, and current paired clients still use legacy bearer credentials.
-  Installed PWA behavior follows [../frontend/pwa.md](../frontend/pwa.md).
+  accepted target contract. Runtime development, GraphiQL, local GraphQL, and
+  stdio MCP flags now fail closed by default. Browser setup supports multiple
+  passkeys and rotating file-backed recovery. The private Unix GraphQL socket
+  gives local tools `human:local` authority when enabled. Browser session
+  hardening and native OAuth remain incomplete. Native clients still use legacy
+  bearer credentials. Installed PWA behavior follows
+  [../frontend/pwa.md](../frontend/pwa.md).
 - The Tauri app defaults to its embedded host and can pair with one remote
   HTTPS server. Rust owns its bearer, transport, recovery, and local return.
 - `web.browse.open` creates or reuses one ephemeral session for its execution

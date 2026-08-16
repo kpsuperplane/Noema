@@ -157,6 +157,12 @@ impl NoemaPaths {
         self.root.join("run/capability-auth")
     }
 
+    /// Private Unix socket for local GraphQL development access.
+    #[must_use]
+    pub fn graphql_socket_path(&self) -> PathBuf {
+        self.root.join("run/graphql.sock")
+    }
+
     /// Root directory for filesystem-canonical adapter state.
     #[must_use]
     pub fn adapters_dir(&self) -> PathBuf {

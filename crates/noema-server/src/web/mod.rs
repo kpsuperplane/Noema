@@ -3,6 +3,7 @@
 mod assets;
 pub(super) mod authority;
 mod clients;
+mod local_graphql;
 mod passkey;
 mod router;
 pub(super) mod session;
@@ -11,6 +12,9 @@ use noema_host::WebConfig;
 use tokio::net::TcpListener;
 
 use crate::WebServerError;
+
+pub(super) const MAX_GRAPHQL_BODY_BYTES: usize = 64 * 1024;
+pub(super) use local_graphql::LocalGraphqlServer;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum WebAuthMode {
@@ -71,6 +75,10 @@ impl WebState {
             graphiql_enabled,
             recovery,
         })
+    }
+
+    pub(super) fn local_graphql_schema(&self) -> noema_api::graphql::GraphqlSchema {
+        self.graphql_schema.clone()
     }
 }
 

@@ -4818,6 +4818,7 @@ dependencies = [
  "futures-util",
  "noema-api",
  "noema-artifacts",
+ "noema-home",
  "noema-host",
  "noema-store",
  "noema-tasks",

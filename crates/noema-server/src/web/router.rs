@@ -17,9 +17,10 @@ use serde::Deserialize;
 use tower_http::{limit::RequestBodyLimitLayer, set_header::SetResponseHeaderLayer};
 use tower_sessions::{MemoryStore, Session, SessionManagerLayer, cookie::SameSite};
 
-use super::{WebState, assets::embedded_asset, authority, clients, passkey, session};
+use super::{
+    MAX_GRAPHQL_BODY_BYTES, WebState, assets::embedded_asset, authority, clients, passkey, session,
+};
 
-const MAX_GRAPHQL_BODY_BYTES: usize = 64 * 1024;
 const MAX_OAUTH_QUERY_BYTES: usize = 8 * 1024;
 const MAX_RECOVERY_BODY_BYTES: usize = 1024;
 const NOT_FOUND: &str = "not found";

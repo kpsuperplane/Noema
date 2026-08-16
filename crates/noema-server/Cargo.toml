@@ -22,6 +22,7 @@ base64.workspace = true
 noema-artifacts = { path = "../noema-artifacts", default-features = false }
 noema-api = { path = "../noema-api", default-features = false }
 noema-host = { path = "../noema-host", default-features = false, features = ["composition"] }
+noema-home = { path = "../noema-home", default-features = false }
 noema-store = { path = "../noema-store", default-features = false }
 # Keep WebAuthn OpenSSL separate from Obscura's bundled BoringSSL archives.
 openssl.workspace = true

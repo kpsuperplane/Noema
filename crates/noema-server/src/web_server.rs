@@ -58,16 +58,7 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
     if let Some(notifications) = &notifications {
         graphql_state = graphql_state.with_notifications(notifications.clone());
     }
-    let web_push_task = notifications.map(|notifications| {
-        let receiver = host.services().runtime_events.subscribe_all_conversations();
-        let task_receiver = host.services().runtime_events.subscribe_all_tasks();
-        let work_receiver = host
-            .services()
-            .runtime_events
-            .subscribe_work("workspace:personal");
-        let state = graphql_state.clone();
-        tokio::spawn(notifications.run(state, receiver, task_receiver, work_receiver))
-    });
+    let notification_graphql_state = graphql_state.clone();
     let web_state = WebState::new(
         graphql_state,
         host.services().store.clone(),
@@ -78,6 +69,31 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
         recovery,
     )
     .map_err(WebServerError::Protocol)?;
+    let local_graphql = if host.web_config().local_graphql_socket {
+        Some(
+            web::LocalGraphqlServer::bind(
+                host.services().noema_paths.graphql_socket_path(),
+                web_state.local_graphql_schema(),
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
+    let web_push_task = notifications.map(|notifications| {
+        let receiver = host.services().runtime_events.subscribe_all_conversations();
+        let task_receiver = host.services().runtime_events.subscribe_all_tasks();
+        let work_receiver = host
+            .services()
+            .runtime_events
+            .subscribe_work("workspace:personal");
+        tokio::spawn(notifications.run(
+            notification_graphql_state,
+            receiver,
+            task_receiver,
+            work_receiver,
+        ))
+    });
     if !auth_mode.requires_session() {
         println!("Noema browser authentication disabled (development only)");
     } else {
@@ -88,6 +104,10 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
     }
     let shutdown_error = std::sync::Arc::new(std::sync::Mutex::new(None));
     let signal_error = shutdown_error.clone();
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::watch::channel(false);
+    let local_graphql_task = local_graphql
+        .map(|server| tokio::spawn(async move { server.serve(shutdown_receiver).await }));
+    let signal_shutdown = shutdown_sender.clone();
     let server_result = axum::serve(web_listener, web::build_router(web_state))
         .with_graceful_shutdown(async move {
             if let Err(error) = tokio::signal::ctrl_c().await
@@ -95,8 +115,19 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
             {
                 *shutdown_error = Some(error);
             }
+            let _ = signal_shutdown.send(true);
         })
         .await;
+    let _ = shutdown_sender.send(true);
+    let local_graphql_result = match local_graphql_task {
+        Some(task) => match task.await {
+            Ok(result) => result.map_err(WebServerError::Io),
+            Err(error) => Err(WebServerError::Protocol(format!(
+                "local GraphQL server stopped unexpectedly: {error}"
+            ))),
+        },
+        None => Ok(()),
+    };
     if let Some(task) = web_push_task {
         task.abort();
     }
@@ -107,7 +138,8 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
     if let Some(error) = signal_result {
         return Err(error.into());
     }
-    server_result.map_err(WebServerError::from)
+    server_result.map_err(WebServerError::from)?;
+    local_graphql_result
 }
 
 /// Failure to start or serve the local web application.

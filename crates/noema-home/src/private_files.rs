@@ -54,7 +54,7 @@ pub fn atomic_write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
 /// # Errors
 ///
 /// Returns an I/O error when directory creation or permission changes fail.
-pub(crate) fn ensure_private_dir(path: &Path) -> io::Result<()> {
+pub fn ensure_private_dir(path: &Path) -> io::Result<()> {
     create_private_dir_all(path)
 }
 
