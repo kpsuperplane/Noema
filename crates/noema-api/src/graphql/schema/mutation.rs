@@ -130,6 +130,12 @@ impl MutationRoot {
         clients::revoke_client(ctx.data_unchecked::<GraphqlState>(), &principal, client_id).await
     }
 
+    /// Revoke every native client owned by the authenticated local human.
+    async fn revoke_all_clients(&self, ctx: &Context<'_>) -> Result<i32> {
+        let principal = crate::graphql::request_principal(ctx)?;
+        clients::revoke_all_clients(ctx.data_unchecked::<GraphqlState>(), &principal).await
+    }
+
     /// Atomically confirm every first-run model assignment.
     async fn confirm_onboarding_model_selections(
         &self,

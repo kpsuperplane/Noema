@@ -68,6 +68,20 @@ pub(super) async fn revoke_client(
     Ok(GraphqlClient::from_record(client, principal))
 }
 
+pub(super) async fn revoke_all_clients(
+    state: &GraphqlState,
+    principal: &RequestPrincipal,
+) -> Result<i32> {
+    let count = state
+        .store()?
+        .revoke_all_native_clients(principal.subject_id())
+        .await
+        .map_err(graphql_error)?;
+    count
+        .try_into()
+        .map_err(|_| async_graphql::Error::new("client count is outside its bounds"))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::graphql::{GraphqlState, RequestPrincipal, build_schema};
@@ -108,5 +122,29 @@ mod tests {
         assert_eq!(payload["clientId"], "client-one");
         assert_eq!(payload["isCurrent"], true);
         assert!(payload["revokedAt"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn client_graphql_revokes_all_native_clients() {
+        let store = crate::test_support::test_store().await;
+        for client_id in ["client-one", "client-two"] {
+            store
+                .insert_client(client_id, "human:local", client_id, [4_u8; 32])
+                .await
+                .expect("insert client");
+        }
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(
+                async_graphql::Request::new("mutation { revokeAllClients }")
+                    .data(RequestPrincipal::local()),
+            )
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        assert_eq!(
+            response.data.into_json().expect("response JSON")["revokeAllClients"],
+            2
+        );
     }
 }

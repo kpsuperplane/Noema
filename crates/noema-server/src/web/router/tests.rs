@@ -1014,6 +1014,63 @@ async fn client_bearer_authorizes_http_and_ws_without_browser_origin_and_revocat
         .expect("subscription complete timeout")
         .expect("subscription complete frame")
         .expect("subscription complete");
+
+    let expiring_access = URL_SAFE_NO_PAD.encode([16_u8; 32]);
+    let expiring_digest = digest::digest(&digest::SHA256, expiring_access.as_bytes());
+    let expiring_now: i64 = std::time::SystemTime::UNIX_EPOCH
+        .elapsed()
+        .expect("system time")
+        .as_secs()
+        .try_into()
+        .expect("timestamp");
+    store
+        .insert_native_oauth_family(noema_store::NewNativeOAuthFamily {
+            family_id: "1123456789abcdef0123456789abcdef",
+            client_id,
+            access_hash: expiring_digest.as_ref().try_into().expect("access digest"),
+            refresh_hash: [18_u8; 32],
+            issued_at: expiring_now,
+            access_expires_at: expiring_now + 3,
+            idle_expires_at: expiring_now + 30 * 24 * 60 * 60,
+            absolute_expires_at: expiring_now + 180 * 24 * 60 * 60,
+        })
+        .await
+        .expect("insert expiring family");
+    let mut expiring_request = format!("ws://localhost:{}/graphql/ws", address.port())
+        .into_client_request()
+        .expect("expiring WebSocket request");
+    expiring_request.headers_mut().insert(
+        "authorization",
+        format!("Bearer {expiring_access}")
+            .parse()
+            .expect("authorization header"),
+    );
+    expiring_request.headers_mut().insert(
+        "sec-websocket-protocol",
+        "graphql-transport-ws".parse().expect("protocol header"),
+    );
+    let (mut expiring_socket, _) = connect_async(expiring_request)
+        .await
+        .expect("expiring WebSocket handshake");
+    expiring_socket
+        .send(Message::Text(
+            json!({"type": "connection_init"}).to_string().into(),
+        ))
+        .await
+        .expect("expiring connection init");
+    let _ack = expiring_socket
+        .next()
+        .await
+        .expect("expiring connection ack frame")
+        .expect("expiring connection ack");
+    let expired = tokio::time::timeout(std::time::Duration::from_secs(5), expiring_socket.next())
+        .await
+        .expect("access expiry close timeout");
+    assert!(matches!(
+        expired,
+        None | Some(Err(_)) | Some(Ok(Message::Close(_)))
+    ));
+
     store
         .revoke_client("human:local", client_id)
         .await

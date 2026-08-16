@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
 use super::{NoemaStore, StoreError};
 
@@ -14,7 +14,7 @@ pub struct ClientRecord {
 }
 
 impl NoemaStore {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn insert_client(
         &self,
         client_id: &str,
@@ -80,6 +80,45 @@ impl NoemaStore {
             let _ = self.client_revocations.send(client_id.to_string());
         }
         Ok(client)
+    }
+
+    pub async fn revoke_all_native_clients(
+        &self,
+        owner_human_id: &str,
+    ) -> Result<usize, StoreError> {
+        let revoked = self
+            .with_connection(|conn| {
+                let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let client_ids = {
+                    let mut statement = tx.prepare(
+                        "SELECT client_id FROM clients WHERE owner_human_id = ?1 AND auth_kind = 'native_oauth' AND revoked_at IS NULL",
+                    )?;
+                    let rows = statement.query_map([owner_human_id], |row| row.get::<_, String>(0))?;
+                    rows.collect::<Result<Vec<_>, _>>()?
+                };
+                for client_id in &client_ids {
+                    tx.execute(
+                        "UPDATE clients SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND revoked_at IS NULL",
+                        [client_id],
+                    )?;
+                    tx.execute(
+                        "UPDATE native_oauth_families SET revoked_at = unixepoch(), revoke_reason = 'global' WHERE client_id = ?1 AND revoked_at IS NULL",
+                        [client_id],
+                    )?;
+                    tx.execute(
+                        "UPDATE native_oauth_access_tokens SET revoked_at = unixepoch() WHERE family_id IN (SELECT family_id FROM native_oauth_families WHERE client_id = ?1) AND revoked_at IS NULL",
+                        [client_id],
+                    )?;
+                    revoke_client_dependents(&tx, client_id)?;
+                }
+                tx.commit()?;
+                Ok(client_ids)
+            })
+            .await?;
+        for client_id in &revoked {
+            let _ = self.client_revocations.send(client_id.clone());
+        }
+        Ok(revoked.len())
     }
 
     #[must_use]
@@ -198,6 +237,43 @@ mod tests {
         assert_eq!(
             store.list_clients("human:local").await.expect("list").len(),
             1
+        );
+    }
+
+    #[tokio::test]
+    async fn global_revocation_revokes_each_active_native_client() {
+        let home = TempDir::new().expect("store root");
+        let store = NoemaStore::open(&StoreConfig::new(home.path().join("noema.sqlite3")))
+            .await
+            .expect("store");
+        for (client_id, name) in [("client-one", "Phone"), ("client-two", "Desktop")] {
+            store
+                .insert_client(client_id, "human:local", name, [4_u8; 32])
+                .await
+                .expect("insert client");
+        }
+        let mut events = store.subscribe_client_revocations();
+
+        assert_eq!(
+            store
+                .revoke_all_native_clients("human:local")
+                .await
+                .expect("revoke all"),
+            2
+        );
+        let mut revoked_events = vec![
+            events.recv().await.expect("first event"),
+            events.recv().await.expect("second event"),
+        ];
+        revoked_events.sort();
+        assert_eq!(revoked_events, ["client-one", "client-two"]);
+        assert!(
+            store
+                .list_clients("human:local")
+                .await
+                .expect("list clients")
+                .into_iter()
+                .all(|client| client.revoked_at.is_some())
         );
     }
 }

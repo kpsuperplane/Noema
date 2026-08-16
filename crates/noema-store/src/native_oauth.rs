@@ -66,6 +66,12 @@ pub struct NativeOAuthRotation {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeOAuthAccess {
+    pub client_id: String,
+    pub expires_at: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NativeOAuthRotationOutcome {
     Rotated,
     Invalid,
@@ -296,17 +302,51 @@ impl NoemaStore {
         &self,
         access_hash: [u8; 32],
         now: i64,
-    ) -> Result<Option<String>, StoreError> {
+    ) -> Result<Option<NativeOAuthAccess>, StoreError> {
         self.with_connection(|conn| {
             conn.query_row(
-                "SELECT family.client_id FROM native_oauth_access_tokens AS access JOIN native_oauth_families AS family ON family.family_id = access.family_id JOIN clients ON clients.client_id = family.client_id WHERE access.token_hash = ?1 AND access.revoked_at IS NULL AND access.expires_at > ?2 AND family.revoked_at IS NULL AND family.idle_expires_at > ?2 AND family.absolute_expires_at > ?2 AND clients.revoked_at IS NULL AND clients.auth_kind = 'native_oauth'",
+                "SELECT family.client_id, min(access.expires_at, family.idle_expires_at, family.absolute_expires_at) FROM native_oauth_access_tokens AS access JOIN native_oauth_families AS family ON family.family_id = access.family_id JOIN clients ON clients.client_id = family.client_id WHERE access.token_hash = ?1 AND access.revoked_at IS NULL AND access.expires_at > ?2 AND family.revoked_at IS NULL AND family.idle_expires_at > ?2 AND family.absolute_expires_at > ?2 AND clients.revoked_at IS NULL AND clients.auth_kind = 'native_oauth'",
                 params![access_hash.as_slice(), now],
-                |row| row.get(0),
+                |row| {
+                    Ok(NativeOAuthAccess {
+                        client_id: row.get(0)?,
+                        expires_at: row.get(1)?,
+                    })
+                },
             )
             .optional()
             .map_err(StoreError::Sqlite)
         })
         .await
+    }
+
+    pub async fn expire_native_oauth_families(&self, now: i64) -> Result<usize, StoreError> {
+        let revoked_clients = self
+            .with_connection(|conn| {
+                let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let expired = {
+                    let mut statement = tx.prepare(
+                        "SELECT family_id, client_id FROM native_oauth_families WHERE revoked_at IS NULL AND (idle_expires_at <= ?1 OR absolute_expires_at <= ?1)",
+                    )?;
+                    let rows = statement.query_map([now], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?;
+                    rows.collect::<Result<Vec<_>, _>>()?
+                };
+                for (family_id, client_id) in &expired {
+                    revoke_family(&tx, family_id, client_id, now, "expired")?;
+                }
+                tx.commit()?;
+                Ok(expired
+                    .into_iter()
+                    .map(|(_, client_id)| client_id)
+                    .collect::<std::collections::BTreeSet<_>>())
+            })
+            .await?;
+        for client_id in &revoked_clients {
+            let _ = self.client_revocations.send(client_id.clone());
+        }
+        Ok(revoked_clients.len())
     }
 
     pub async fn revoke_native_oauth_family(
@@ -569,5 +609,49 @@ mod tests {
             })
             .await
             .expect("used members remain");
+    }
+
+    #[tokio::test]
+    async fn expiry_cleanup_revokes_access_and_notifies_the_client() {
+        let (_home, store) = store().await;
+        let now = 1_700_000_000;
+        insert_code(&store, [11_u8; 32], now).await;
+        store
+            .consume_native_oauth_code([11_u8; 32], now)
+            .await
+            .expect("consume code");
+        store
+            .insert_native_oauth_family(NewNativeOAuthFamily {
+                family_id: "1123456789abcdef0123456789abcdef",
+                client_id: "noema-desktop:installation",
+                access_hash: [12_u8; 32],
+                refresh_hash: [13_u8; 32],
+                issued_at: now,
+                access_expires_at: now + 900,
+                idle_expires_at: now + 10,
+                absolute_expires_at: now + 20,
+            })
+            .await
+            .expect("family");
+        let mut revocations = store.subscribe_client_revocations();
+
+        assert_eq!(
+            store
+                .expire_native_oauth_families(now + 10)
+                .await
+                .expect("expire families"),
+            1
+        );
+        assert_eq!(
+            revocations.recv().await.expect("revocation event"),
+            "noema-desktop:installation"
+        );
+        assert!(
+            store
+                .active_native_oauth_client([12_u8; 32], now + 10)
+                .await
+                .expect("access lookup")
+                .is_none()
+        );
     }
 }

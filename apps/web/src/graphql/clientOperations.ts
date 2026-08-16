@@ -17,3 +17,9 @@ export const RevokeClientDocument = gql`
     revokeClient(clientId: $clientId) { clientId }
   }
 `;
+
+export const RevokeAllClientsDocument = gql`
+  mutation RevokeAllClients {
+    revokeAllClients
+  }
+`;

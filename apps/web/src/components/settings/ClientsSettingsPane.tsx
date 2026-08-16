@@ -15,8 +15,11 @@ import { ListCardLink } from "@/components/ListCardLink";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import {
   ClientsDocument,
+  RevokeAllClientsDocument,
   RevokeClientDocument,
   type ClientsQuery,
+  type RevokeAllClientsMutation,
+  type RevokeAllClientsMutationVariables,
   type RevokeClientMutation,
   type RevokeClientMutationVariables
 } from "@/generated/graphql";
@@ -46,8 +49,16 @@ export function ClientsSettingsPane({ clientId }: { clientId?: string }) {
     RevokeClientDocument,
     { refetchQueries: [{ query: ClientsDocument }], awaitRefetchQueries: true }
   );
+  const [revokeAllClients, revokeAllResult] = useMutation<
+    RevokeAllClientsMutation,
+    RevokeAllClientsMutationVariables
+  >(RevokeAllClientsDocument, {
+    refetchQueries: [{ query: ClientsDocument }],
+    awaitRefetchQueries: true
+  });
   const [pairingOpen, setPairingOpen] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<ClientRecord | null>(null);
+  const [revokeAllOpen, setRevokeAllOpen] = useState(false);
   const clients = result.data?.clients ?? [];
   const activeClients = clients.filter((client) => client.revokedAt === null);
   const revokedClients = clients.filter((client) => client.revokedAt !== null);
@@ -58,6 +69,7 @@ export function ClientsSettingsPane({ clientId }: { clientId?: string }) {
   const loading = result.loading && !result.data;
   const queryError = result.error ? "Connected clients could not be loaded." : null;
   const mutationError = revokeResult.error ? "Noema could not revoke this client." : null;
+  const revokeAllError = revokeAllResult.error ? "Noema could not revoke all clients." : null;
 
   useEffect(() => {
     if (!desktop || clientId || !defaultClient) return;
@@ -84,6 +96,16 @@ export function ClientsSettingsPane({ clientId }: { clientId?: string }) {
     }
   };
 
+  const revokeAll = async () => {
+    try {
+      await revokeAllClients();
+      setRevokeAllOpen(false);
+      void navigate({ to: "/settings/system/clients" });
+    } catch {
+      // Keep the dialog open so the local error can be retried.
+    }
+  };
+
   return <>
     <SettingsManagementLayout
       title="Clients"
@@ -101,6 +123,11 @@ export function ClientsSettingsPane({ clientId }: { clientId?: string }) {
           loading={loading}
           error={queryError}
           onRetry={() => void result.refetch()}
+          revokeAllBusy={revokeAllResult.loading}
+          onRevokeAll={() => {
+            revokeAllResult.reset();
+            setRevokeAllOpen(true);
+          }}
         />
       }
       detail={selectedClient ? (
@@ -133,6 +160,18 @@ export function ClientsSettingsPane({ clientId }: { clientId?: string }) {
       }}
       onConfirm={() => void revoke()}
     />
+    <DeleteConfirmationDialog
+      title="Revoke all clients?"
+      message="Every native client loses access immediately. Browser sessions remain active."
+      open={revokeAllOpen}
+      submitting={revokeAllResult.loading}
+      error={revokeAllError}
+      confirmLabel="Revoke all clients"
+      onOpenChange={(open) => {
+        if (!open && !revokeAllResult.loading) setRevokeAllOpen(false);
+      }}
+      onConfirm={() => void revokeAll()}
+    />
   </>;
 }
 
@@ -142,7 +181,9 @@ function ClientList({
   selectedClientId,
   loading,
   error,
-  onRetry
+  onRetry,
+  revokeAllBusy,
+  onRevokeAll
 }: {
   activeClients: readonly ClientRecord[];
   revokedClients: readonly ClientRecord[];
@@ -150,6 +191,8 @@ function ClientList({
   loading: boolean;
   error: string | null;
   onRetry: () => void;
+  revokeAllBusy: boolean;
+  onRevokeAll: () => void;
 }) {
   if (loading) return <p {...stylex.props(styles.mutedText)}>Loading connected clients...</p>;
   if (error && activeClients.length === 0 && revokedClients.length === 0) return (
@@ -162,6 +205,24 @@ function ClientList({
   );
   return <VStack gap={4}>
     <BrowserAccessSettings />
+    {activeClients.length > 0 ? (
+      <SettingsSection
+        title="Native access"
+        titleId="native-client-access"
+        action={<Button
+          type="button"
+          size="sm"
+          variant="destructive"
+          label="Revoke all clients"
+          isDisabled={revokeAllBusy}
+          onClick={onRevokeAll}
+        />}
+      >
+        <SettingsSectionInset>
+          <p {...stylex.props(styles.mutedText)}>Use this action if native credentials might be unsafe.</p>
+        </SettingsSectionInset>
+      </SettingsSection>
+    ) : null}
     {error ? <SettingsSection title="Connected clients" titleId="client-stale-error">
       <SettingsSectionInset>
         <HStack gap={2} wrap="wrap" vAlign="center">

@@ -226,6 +226,7 @@ async fn graphql_ws(
     State(state): State<WebState>,
     session: Session,
     principal: Option<Extension<noema_api::RequestPrincipal>>,
+    native_auth: Option<Extension<clients::NativeBearerAuth>>,
     protocol: GraphQLProtocol,
     upgrade: WebSocketUpgrade,
 ) -> Response {
@@ -253,14 +254,23 @@ async fn graphql_ws(
                 .with_data(data)
                 .serve();
             let client_id = principal.client_id().map(str::to_owned);
+            let native_expires_at = native_auth.map(|auth| auth.expires_at);
             async move {
                 let _slot = slot;
                 tokio::pin!(serve);
                 if let Some(client_id) = client_id {
                     let mut revocations = client_revocations;
+                    let expires_in = native_expires_at
+                        .unwrap_or_default()
+                        .saturating_sub(clients::unix_timestamp());
+                    let expiry = tokio::time::sleep(std::time::Duration::from_secs(
+                        expires_in.try_into().unwrap_or_default(),
+                    ));
+                    tokio::pin!(expiry);
                     loop {
                         tokio::select! {
                             () = &mut serve => break,
+                            () = &mut expiry => break,
                             event = revocations.recv() => match event {
                                 Ok(revoked) if revoked == client_id => break,
                                 Ok(_) => continue,

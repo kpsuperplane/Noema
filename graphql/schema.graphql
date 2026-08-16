@@ -2575,6 +2575,10 @@ type MutationRoot {
 	"""
 	revokeClient(clientId: String!): Client!
 	"""
+	Revoke every native client owned by the authenticated local human.
+	"""
+	revokeAllClients: Int!
+	"""
 	Atomically confirm every first-run model assignment.
 	"""
 	confirmOnboardingModelSelections(input: ConfirmOnboardingModelSelectionsInput!): OnboardingStatus!

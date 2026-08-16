@@ -108,6 +108,9 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
     let local_graphql_task = local_graphql
         .map(|server| tokio::spawn(async move { server.serve(shutdown_receiver).await }));
     let session_cleanup_task = tokio::spawn(sessions.run_expiry_cleanup());
+    let oauth_cleanup_task = tokio::spawn(run_native_oauth_expiry_cleanup(
+        host.services().store.clone(),
+    ));
     let signal_shutdown = shutdown_sender.clone();
     let server_result = axum::serve(web_listener, web::build_router(web_state))
         .with_graceful_shutdown(async move {
@@ -133,6 +136,7 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
         task.abort();
     }
     session_cleanup_task.abort();
+    oauth_cleanup_task.abort();
     let signal_result = shutdown_error
         .lock()
         .map_err(|_| WebServerError::Protocol("Ctrl-C error state was poisoned".to_string()))?
@@ -142,6 +146,27 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
     }
     server_result.map_err(WebServerError::from)?;
     local_graphql_result
+}
+
+async fn run_native_oauth_expiry_cleanup(store: noema_store::NoemaStore) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        interval.tick().await;
+        if let Err(error) = store
+            .expire_native_oauth_families(
+                std::time::SystemTime::UNIX_EPOCH
+                    .elapsed()
+                    .unwrap_or_default()
+                    .as_secs()
+                    .try_into()
+                    .unwrap_or(i64::MAX),
+            )
+            .await
+        {
+            eprintln!("Native OAuth expiry cleanup failed: {error}");
+        }
+    }
 }
 
 /// Failure to start or serve the local web application.

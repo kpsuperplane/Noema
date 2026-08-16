@@ -142,7 +142,9 @@ vertical slice or a net-negative reduction.
   opaque short access tokens and rotating refresh families. Refresh replay
   revokes the family, access tokens, WebSockets, and push registrations. iOS
   and desktop now use system-browser OAuth with PKCE and rotating refresh
-  credentials. Legacy pairing routes and bearer credentials are disabled.
+  credentials. Active cleanup revokes expired families, access expiry closes
+  native WebSockets, and one settings action revokes all native clients.
+  Legacy pairing routes and bearer credentials are disabled.
   Installed PWA behavior follows
   [../frontend/pwa.md](../frontend/pwa.md).
 - The Tauri app defaults to its embedded host and can connect to one remote
@@ -184,9 +186,6 @@ vertical slice or a net-negative reduction.
 
 ## Open loops
 
-- The Linux workspace gates stop before code validation because the active
-  Tauri allowlist rejects the enabled `macos-private-api` feature. The roadmap
-  did not change or bypass this desktop configuration.
 - Apollo iOS 2.3 code generation requires macOS. This Linux workspace can
   validate operations and parse Swift source, but it cannot regenerate native
   sources or run the unsigned Simulator build.
