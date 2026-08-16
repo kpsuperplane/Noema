@@ -182,10 +182,15 @@ struct ChatReadyView: View {
       guard case let .activity(_, _, _, _, activityKind) = message.kind else { return true }
       return activityKind.replacingOccurrences(of: "_", with: "").lowercased() != "hostedwebsearch"
     }
+    let toolPairs = correlatedToolPairs(in: visibleMessages)
     var rows: [TimelineRow] = []
     var index = 0
     while index < visibleMessages.count {
       let message = visibleMessages[index]
+      if toolPairs.resultIDs.contains(message.id) {
+        index += 1
+        continue
+      }
       if case let .task(taskID) = message.kind {
         if taskProjection.consumedTaskIDs.contains(message.id) || taskProjection.hiddenTaskIDs.contains(message.id) {
           index += 1
@@ -197,11 +202,17 @@ struct ChatReadyView: View {
       }
       if isToolActivity(message) {
         var markers = [message]
+        if let result = toolPairs.resultsByCallID[message.id] { markers.append(result) }
         index += 1
-        while index < visibleMessages.count,
-              isToolActivity(visibleMessages[index]),
-              sameToolGroup(markers, visibleMessages[index]) {
-          markers.append(visibleMessages[index])
+        while index < visibleMessages.count {
+          let next = visibleMessages[index]
+          if toolPairs.resultIDs.contains(next.id) {
+            index += 1
+            continue
+          }
+          guard isToolActivity(next), sameToolGroup(markers, next) else { break }
+          markers.append(next)
+          if let result = toolPairs.resultsByCallID[next.id] { markers.append(result) }
           index += 1
         }
         rows.append(.toolMarkers(id: markers[0].id, messages: markers))
@@ -220,6 +231,30 @@ struct ChatReadyView: View {
     }
     if shouldShowTyping(in: visibleMessages) { rows.append(.typing) }
     return rows
+  }
+
+  private func correlatedToolPairs(
+    in messages: [ChatMessage]
+  ) -> (resultsByCallID: [String: ChatMessage], resultIDs: Set<String>) {
+    var callsByCorrelationID: [String: ChatMessage] = [:]
+    var resultsByCallID: [String: ChatMessage] = [:]
+    var resultIDs = Set<String>()
+    for message in messages {
+      guard let values = activityValues(message) else { continue }
+      switch values.activityKind.normalizedActivityKind {
+      case "TOOL_CALL":
+        if let correlationID = toolCorrelationID(message) { callsByCorrelationID[correlationID] = message }
+      case "TOOL_RESULT":
+        guard let correlationID = toolCorrelationID(message),
+              let call = callsByCorrelationID[correlationID],
+              sameToolTurn(call, message) else { continue }
+        resultsByCallID[call.id] = message
+        resultIDs.insert(message.id)
+      default:
+        continue
+      }
+    }
+    return (resultsByCallID, resultIDs)
   }
 
   private func shouldShowTyping(in messages: [ChatMessage]) -> Bool {
