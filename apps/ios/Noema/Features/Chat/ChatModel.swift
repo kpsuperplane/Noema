@@ -324,7 +324,8 @@ final class ChatModel {
       let input = NoemaAPI.SendConversationTurnInput(
         conversationId: conversationID,
         input: text,
-        clientMessageId: .some(clientMessageID)
+        clientMessageId: .some(clientMessageID),
+        clientTimeZone: .some(TimeZone.current.identifier)
       )
       let response = try await client.perform(mutation: NoemaAPI.SendConversationTurnMutation(input: input))
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
