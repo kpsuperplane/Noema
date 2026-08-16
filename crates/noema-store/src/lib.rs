@@ -32,6 +32,7 @@ mod local_models;
 mod local_models_tests;
 mod mcp;
 mod mcp_auth_requests;
+mod native_oauth;
 mod notifications;
 mod observed_urls;
 mod provider_account_port;
@@ -106,6 +107,10 @@ pub use live_activity::{
 pub use mcp_auth_requests::{
     CapabilityAuthenticationRequestRecord, CapabilityAuthenticationRequestState,
     NewCapabilityAuthenticationRequest,
+};
+pub use native_oauth::{
+    NativeOAuthGrant, NativeOAuthRefreshGrant, NativeOAuthRefreshLookup, NativeOAuthRotation,
+    NativeOAuthRotationOutcome, NewNativeOAuthCode, NewNativeOAuthFamily,
 };
 pub use notifications::{ApnsEnvironment, ClaimedApnsDelivery, ClientNotificationRecord};
 pub use observed_urls::ObservedUrlSource;

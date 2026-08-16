@@ -92,29 +92,14 @@ impl NoemaStore {
                 )?;
                 if changed == 1 {
                     conn.execute(
-                        "UPDATE live_activity_deliveries SET status = 'suppressed', last_error_code = 'client_revoked', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND event <> 'end' AND status = 'pending'",
+                        "UPDATE native_oauth_families SET revoked_at = unixepoch(), revoke_reason = 'client' WHERE client_id = ?1 AND revoked_at IS NULL",
                         [client_id],
                     )?;
                     conn.execute(
-                        "UPDATE apns_deliveries SET status = 'failed', last_error_code = 'client_revoked', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND status = 'pending'",
+                        "UPDATE native_oauth_access_tokens SET revoked_at = unixepoch() WHERE family_id IN (SELECT family_id FROM native_oauth_families WHERE client_id = ?1) AND revoked_at IS NULL",
                         [client_id],
                     )?;
-                    conn.execute(
-                        "DELETE FROM client_notification_registrations WHERE client_id = ?1",
-                        [client_id],
-                    )?;
-                    conn.execute(
-                        "DELETE FROM client_live_activity_registrations WHERE client_id = ?1",
-                        [client_id],
-                    )?;
-                    conn.execute(
-                        "DELETE FROM client_task_activities WHERE client_id = ?1",
-                        [client_id],
-                    )?;
-                    conn.execute(
-                        "DELETE FROM live_activity_deliveries WHERE client_id = ?1 AND event <> 'end'",
-                        [client_id],
-                    )?;
+                    revoke_client_dependents(conn, client_id)?;
                 }
                 let client = load_client(conn, owner_human_id, client_id, false)?
                     .map(|row| row.record);
@@ -131,6 +116,37 @@ impl NoemaStore {
     pub fn subscribe_client_revocations(&self) -> tokio::sync::broadcast::Receiver<String> {
         self.client_revocations.subscribe()
     }
+}
+
+pub(super) fn revoke_client_dependents(
+    conn: &rusqlite::Connection,
+    client_id: &str,
+) -> Result<(), StoreError> {
+    conn.execute(
+        "UPDATE live_activity_deliveries SET status = 'suppressed', last_error_code = 'client_revoked', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND event <> 'end' AND status = 'pending'",
+        [client_id],
+    )?;
+    conn.execute(
+        "UPDATE apns_deliveries SET status = 'failed', last_error_code = 'client_revoked', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND status = 'pending'",
+        [client_id],
+    )?;
+    conn.execute(
+        "DELETE FROM client_notification_registrations WHERE client_id = ?1",
+        [client_id],
+    )?;
+    conn.execute(
+        "DELETE FROM client_live_activity_registrations WHERE client_id = ?1",
+        [client_id],
+    )?;
+    conn.execute(
+        "DELETE FROM client_task_activities WHERE client_id = ?1",
+        [client_id],
+    )?;
+    conn.execute(
+        "DELETE FROM live_activity_deliveries WHERE client_id = ?1 AND event <> 'end'",
+        [client_id],
+    )?;
+    Ok(())
 }
 
 fn client_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClientRecord> {

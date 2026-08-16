@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 44;
+pub const STORE_SCHEMA_VERSION: usize = 45;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1188,6 +1188,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(LIVE_ACTIVITY_OBSERVATIONS_RENAME_SQL),
         M::up(TERMINAL_CHILD_STATE_REPAIR_SQL),
         M::up(MULTIPLE_HUMAN_PASSKEYS_SQL),
+        M::up(NATIVE_OAUTH_SQL),
     ])
 }
 
@@ -2482,6 +2483,77 @@ FROM human_passkeys_v43;
 
 DROP TABLE human_passkeys_v43;
 CREATE INDEX human_passkeys_human ON human_passkeys(human_id, created_at, credential_id);
+"#;
+
+const NATIVE_OAUTH_SQL: &str = r#"
+ALTER TABLE clients ADD COLUMN auth_kind TEXT NOT NULL DEFAULT 'legacy_bearer'
+  CHECK (auth_kind IN ('legacy_bearer', 'native_oauth'));
+
+CREATE TABLE native_oauth_codes (
+  code_hash BLOB PRIMARY KEY NOT NULL CHECK (length(code_hash) = 32),
+  client_id TEXT NOT NULL,
+  owner_human_id TEXT NOT NULL CHECK (owner_human_id = 'human:local'),
+  redirect_uri TEXT NOT NULL CHECK (length(redirect_uri) BETWEEN 1 AND 2048),
+  scope TEXT NOT NULL CHECK (scope = 'noema'),
+  pkce_value TEXT NOT NULL CHECK (length(pkce_value) BETWEEN 44 AND 256),
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  FOREIGN KEY (client_id) REFERENCES clients(client_id) ON DELETE CASCADE,
+  FOREIGN KEY (owner_human_id) REFERENCES humans(human_id) ON DELETE RESTRICT,
+  CHECK (expires_at > created_at)
+);
+CREATE INDEX native_oauth_codes_expiry ON native_oauth_codes(expires_at);
+
+CREATE TABLE native_oauth_families (
+  family_id TEXT PRIMARY KEY NOT NULL
+    CHECK (length(family_id) = 32 AND family_id = lower(family_id)),
+  client_id TEXT NOT NULL,
+  owner_human_id TEXT NOT NULL CHECK (owner_human_id = 'human:local'),
+  audience TEXT NOT NULL CHECK (audience = 'noema'),
+  scope TEXT NOT NULL CHECK (scope = 'noema'),
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  last_used_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  idle_expires_at INTEGER NOT NULL,
+  absolute_expires_at INTEGER NOT NULL,
+  revoked_at INTEGER,
+  revoke_reason TEXT CHECK (
+    revoke_reason IS NULL OR revoke_reason IN ('client', 'global', 'replay', 'expired')
+  ),
+  FOREIGN KEY (client_id) REFERENCES clients(client_id) ON DELETE CASCADE,
+  FOREIGN KEY (owner_human_id) REFERENCES humans(human_id) ON DELETE RESTRICT,
+  CHECK (idle_expires_at > created_at),
+  CHECK (absolute_expires_at >= idle_expires_at),
+  CHECK ((revoked_at IS NULL) = (revoke_reason IS NULL))
+);
+CREATE INDEX native_oauth_families_client_active
+ON native_oauth_families(client_id, absolute_expires_at)
+WHERE revoked_at IS NULL;
+
+CREATE TABLE native_oauth_refresh_tokens (
+  token_hash BLOB PRIMARY KEY NOT NULL CHECK (length(token_hash) = 32),
+  family_id TEXT NOT NULL,
+  sequence INTEGER NOT NULL CHECK (sequence >= 0),
+  status TEXT NOT NULL CHECK (status IN ('active', 'used')),
+  issued_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  used_at INTEGER,
+  FOREIGN KEY (family_id) REFERENCES native_oauth_families(family_id) ON DELETE CASCADE,
+  UNIQUE (family_id, sequence),
+  CHECK ((status = 'active' AND used_at IS NULL) OR (status = 'used' AND used_at IS NOT NULL))
+);
+CREATE UNIQUE INDEX native_oauth_refresh_tokens_one_active
+ON native_oauth_refresh_tokens(family_id) WHERE status = 'active';
+
+CREATE TABLE native_oauth_access_tokens (
+  token_hash BLOB PRIMARY KEY NOT NULL CHECK (length(token_hash) = 32),
+  family_id TEXT NOT NULL,
+  issued_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER,
+  FOREIGN KEY (family_id) REFERENCES native_oauth_families(family_id) ON DELETE CASCADE,
+  CHECK (expires_at > issued_at)
+);
+CREATE INDEX native_oauth_access_tokens_family_active
+ON native_oauth_access_tokens(family_id, expires_at) WHERE revoked_at IS NULL;
 "#;
 
 const MCP_TOOL_POLICY_SQL: &str = r#"
