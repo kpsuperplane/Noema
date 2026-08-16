@@ -29,6 +29,8 @@ pub(super) const MAX_OAUTH_QUERY_BYTES: usize = 8 * 1024;
 const MAX_RECOVERY_BODY_BYTES: usize = 1024;
 const MAX_CONCURRENT_HTTP_REQUESTS: usize = 256;
 const NOT_FOUND: &str = "not found";
+const DEFAULT_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+pub(super) const IOS_OAUTH_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self' noema:";
 const GRAPHIQL_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 macro_rules! get_only {
@@ -128,9 +130,7 @@ pub(crate) fn build_router(state: WebState) -> Router {
         ))
         .layer(SetResponseHeaderLayer::if_not_present(
             header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static(
-                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
-            ),
+            HeaderValue::from_static(DEFAULT_CSP),
         ))
         .layer(SetResponseHeaderLayer::if_not_present(
             header::X_CONTENT_TYPE_OPTIONS,
@@ -146,9 +146,11 @@ pub(crate) fn build_router(state: WebState) -> Router {
                 "publickey-credentials-create=(self), publickey-credentials-get=(self)",
             ),
         ))
-        .layer(ServiceBuilder::new()
-            .layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_HTTP_REQUESTS))
-            .layer(RequestBodyLimitLayer::new(MAX_GRAPHQL_BODY_BYTES)))
+        .layer(
+            ServiceBuilder::new()
+                .layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_HTTP_REQUESTS))
+                .layer(RequestBodyLimitLayer::new(MAX_GRAPHQL_BODY_BYTES)),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             clients::authenticate_bearer,

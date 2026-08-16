@@ -462,6 +462,36 @@ async fn native_authorization_resumes_after_recent_passkey_authentication() {
 }
 
 #[tokio::test]
+async fn ios_authorization_page_alone_permits_native_form_navigation() {
+    let router = test_router().await;
+    let cookie = authenticate(router.clone()).await;
+    let authorization = "/oauth/authorize?client_id=noema-ios%3Aabcdefghijklmnop&redirect_uri=noema%3A%2F%2Foauth%2Fcallback&response_type=code&state=ssssssssssssssssssssssssssssssss&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256";
+    let (status, headers, _) = request(
+        router.clone(),
+        Request::get(authorization)
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .expect("iOS authorization request"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_SECURITY_POLICY], IOS_OAUTH_CSP);
+
+    let (_, default_headers, _) = request(
+        router,
+        Request::get("/auth/status")
+            .header(header::COOKIE, cookie)
+            .body(Body::empty())
+            .expect("default CSP request"),
+    )
+    .await;
+    assert_eq!(
+        default_headers[header::CONTENT_SECURITY_POLICY],
+        DEFAULT_CSP
+    );
+}
+
+#[tokio::test]
 async fn development_auth_bypass_allows_graphql_without_bootstrap() {
     let router = test_router_without_auth().await;
     let (status, _, body) = request(

@@ -324,6 +324,7 @@ pub(super) async fn authorize(
         );
     };
     let client_name = display_name(client_id);
+    let ios_client = client_id.starts_with("noema-ios:");
     if validate_request_shape(&parameters).is_err()
         || run_authorization(parameters, Consent::Pending).is_err()
     {
@@ -373,7 +374,7 @@ pub(super) async fn authorize(
             AuthorizationFailure::ServiceFailure,
         );
     }
-    Html(format!(
+    let mut response = Html(format!(
         r##"<!doctype html>
 <html lang="en">
 <head>
@@ -408,7 +409,14 @@ pub(super) async fn authorize(
 </body>
 </html>"##
     ))
-    .into_response()
+    .into_response();
+    if ios_client {
+        response.headers_mut().insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(super::router::IOS_OAUTH_CSP),
+        );
+    }
+    response
 }
 
 pub(super) async fn approve(
