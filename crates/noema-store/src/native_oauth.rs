@@ -79,6 +79,11 @@ pub enum NativeOAuthRotationOutcome {
 }
 
 impl NoemaStore {
+    /// Store one short-lived native authorization code.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` if the code is invalid or storage fails.
     pub async fn insert_native_oauth_code(
         &self,
         code_hash: [u8; 32],
@@ -121,6 +126,11 @@ impl NoemaStore {
         .await
     }
 
+    /// Consume one native authorization code atomically.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` if storage cannot complete the transaction.
     pub async fn consume_native_oauth_code(
         &self,
         code_hash: [u8; 32],
@@ -154,6 +164,11 @@ impl NoemaStore {
         .await
     }
 
+    /// Store one native refresh family and its first credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` if the family is invalid or storage fails.
     pub async fn insert_native_oauth_family(
         &self,
         family: NewNativeOAuthFamily<'_>,
@@ -192,6 +207,11 @@ impl NoemaStore {
         .await
     }
 
+    /// Read an active refresh grant and revoke detected replay.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` if storage cannot complete the lookup.
     pub async fn native_oauth_refresh_grant(
         &self,
         refresh_hash: [u8; 32],
@@ -238,6 +258,11 @@ impl NoemaStore {
         Ok(outcome)
     }
 
+    /// Rotate one refresh credential and its access credential atomically.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` if validation or storage fails.
     pub async fn rotate_native_oauth_refresh(
         &self,
         refresh_hash: [u8; 32],
@@ -298,6 +323,11 @@ impl NoemaStore {
         Ok(outcome)
     }
 
+    /// Resolve one active native access credential.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` if storage cannot complete the lookup.
     pub async fn active_native_oauth_client(
         &self,
         access_hash: [u8; 32],
@@ -320,6 +350,11 @@ impl NoemaStore {
         .await
     }
 
+    /// Revoke every native refresh family that has expired.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` if storage cannot commit all revocations.
     pub async fn expire_native_oauth_families(&self, now: i64) -> Result<usize, StoreError> {
         let revoked_clients = self
             .with_connection(|conn| {
@@ -349,6 +384,11 @@ impl NoemaStore {
         Ok(revoked_clients.len())
     }
 
+    /// Revoke the refresh family that owns one refresh credential.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` if storage cannot commit the revocation.
     pub async fn revoke_native_oauth_family(
         &self,
         refresh_hash: [u8; 32],

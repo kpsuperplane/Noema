@@ -16,6 +16,7 @@ pub(super) struct NativeBearerAuth {
     pub expires_at: i64,
 }
 
+#[cfg(test)]
 pub(super) async fn validate_bearer(
     store: &noema_store::NoemaStore,
     raw: &str,

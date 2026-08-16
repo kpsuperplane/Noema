@@ -14,6 +14,11 @@ pub struct ClientRecord {
 }
 
 impl NoemaStore {
+    /// Insert one native client for tests.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` if storage rejects the client.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn insert_client(
         &self,
@@ -36,6 +41,11 @@ impl NoemaStore {
         .await
     }
 
+    /// List all clients owned by one human.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` if storage cannot read the clients.
     pub async fn list_clients(
         &self,
         owner_human_id: &str,
@@ -50,6 +60,11 @@ impl NoemaStore {
         .await
     }
 
+    /// Revoke one client and its dependent authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` if storage cannot commit the revocation.
     pub async fn revoke_client(
         &self,
         owner_human_id: &str,
@@ -82,6 +97,11 @@ impl NoemaStore {
         Ok(client)
     }
 
+    /// Revoke all active native clients owned by one human.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` if storage cannot commit every revocation.
     pub async fn revoke_all_native_clients(
         &self,
         owner_human_id: &str,

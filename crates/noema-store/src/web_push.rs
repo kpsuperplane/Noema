@@ -264,6 +264,10 @@ impl NoemaStore {
     }
 
     /// Delete Web Push authority bound to one revoked browser session.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` if storage cannot delete the subscriptions.
     pub async fn remove_web_push_for_session(
         &self,
         browser_session_hash: [u8; 32],
@@ -279,6 +283,10 @@ impl NoemaStore {
     }
 
     /// Delete all browser Push authority after global browser revocation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` if storage cannot delete the subscriptions.
     pub async fn remove_all_web_push_subscriptions(&self) -> Result<usize, StoreError> {
         self.with_connection(|conn| {
             conn.execute("DELETE FROM web_push_subscriptions", [])
