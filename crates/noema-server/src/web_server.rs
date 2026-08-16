@@ -107,7 +107,12 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
     let (shutdown_sender, shutdown_receiver) = tokio::sync::watch::channel(false);
     let local_graphql_task = local_graphql
         .map(|server| tokio::spawn(async move { server.serve(shutdown_receiver).await }));
+    let browser_session_revocations = sessions.subscribe_revocations();
     let session_cleanup_task = tokio::spawn(sessions.run_expiry_cleanup());
+    let browser_push_cleanup_task = tokio::spawn(run_browser_push_cleanup(
+        host.services().store.clone(),
+        browser_session_revocations,
+    ));
     let oauth_cleanup_task = tokio::spawn(run_native_oauth_expiry_cleanup(
         host.services().store.clone(),
     ));
@@ -136,6 +141,7 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
         task.abort();
     }
     session_cleanup_task.abort();
+    browser_push_cleanup_task.abort();
     oauth_cleanup_task.abort();
     let signal_result = shutdown_error
         .lock()
@@ -146,6 +152,25 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
     }
     server_result.map_err(WebServerError::from)?;
     local_graphql_result
+}
+
+async fn run_browser_push_cleanup(
+    store: noema_store::NoemaStore,
+    mut revocations: tokio::sync::broadcast::Receiver<tower_sessions::session::Id>,
+) {
+    loop {
+        match revocations.recv().await {
+            Ok(session_id) => {
+                let _ = store
+                    .remove_web_push_for_session(web::session::session_id_hash(session_id))
+                    .await;
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                let _ = store.remove_all_web_push_subscriptions().await;
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+        }
+    }
 }
 
 async fn run_native_oauth_expiry_cleanup(store: noema_store::NoemaStore) {

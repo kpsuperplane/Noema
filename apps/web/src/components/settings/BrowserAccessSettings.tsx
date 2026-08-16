@@ -23,10 +23,12 @@ import {
 
 export function BrowserAccessSettings() {
   const [passkeys, setPasskeys] = useState<RegisteredPasskey[] | null>(null);
-  const [busy, setBusy] = useState<"add" | "remove" | "logout" | "logout-all" | null>(null);
+  const [busy, setBusy] = useState<"add" | "remove" | "logout" | "logout-all" | "erase" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<RegisteredPasskey | null>(null);
   const [logoutAllOpen, setLogoutAllOpen] = useState(false);
+  const [eraseOpen, setEraseOpen] = useState(false);
+  const installed = pwaRuntime.getSnapshot().installed;
 
   const load = useCallback(async () => {
     try {
@@ -113,6 +115,26 @@ export function BrowserAccessSettings() {
       window.location.assign("/");
     } catch {
       setError(all ? "Noema could not log out all browsers." : "Noema could not log out this browser.");
+      setBusy(null);
+    }
+  };
+
+  const erase = async () => {
+    setBusy("erase");
+    setError(null);
+    try {
+      if (navigator.onLine) {
+        try {
+          await logoutBrowserSessions(false);
+        } catch {
+          // Continue as an offline erasure. Server authority then expires later.
+        }
+      }
+      await unsubscribeBrowserPush();
+      await pwaRuntime.erasePrivateData();
+      window.location.assign("/");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Noema could not erase this device.");
       setBusy(null);
     }
   };
@@ -206,6 +228,30 @@ export function BrowserAccessSettings() {
         </SettingsList>
       </SettingsSection>
 
+      {installed ? (
+        <SettingsSection title="Installed app data" titleId="installed-app-data">
+          <SettingsList density="balanced">
+            <SettingsListItem
+              label="This device"
+              description="Log out and remove private offline data from this installed app."
+              endContent={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  label="Log out and erase"
+                  isDisabled={busy !== null}
+                  onClick={() => {
+                    setError(null);
+                    setEraseOpen(true);
+                  }}
+                />
+              }
+            />
+          </SettingsList>
+        </SettingsSection>
+      ) : null}
+
       {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
       <DeleteConfirmationDialog
         title="Remove this passkey?"
@@ -233,8 +279,29 @@ export function BrowserAccessSettings() {
         }}
         onConfirm={() => void logout(true)}
       />
+      <DeleteConfirmationDialog
+        title="Log out and erase this device?"
+        message="Noema will remove private offline data and notifications from this installed app."
+        open={eraseOpen}
+        submitting={busy === "erase"}
+        error={eraseOpen ? error : null}
+        confirmLabel="Log out and erase"
+        onOpenChange={(open) => {
+          if (!open && busy !== "erase") setEraseOpen(false);
+        }}
+        onConfirm={() => void erase()}
+      />
     </VStack>
   );
+}
+
+async function unsubscribeBrowserPush() {
+  if (!("serviceWorker" in navigator)) return;
+  const registration = await navigator.serviceWorker.getRegistration("/");
+  const subscription = await registration?.pushManager.getSubscription();
+  if (subscription && !await subscription.unsubscribe()) {
+    throw new Error("Noema could not remove notifications from this device.");
+  }
 }
 
 function passkeyError(caught: unknown, fallback: string) {

@@ -354,7 +354,7 @@ pub(super) async fn finish_registration(
         }
     }
     state.sessions.consume_setup(&browser).await;
-    establish_session(&browser, &credential_id).await
+    establish_session(&state, &browser, &credential_id).await
 }
 
 pub(super) async fn start_authentication(
@@ -490,10 +490,19 @@ pub(super) async fn finish_authentication(
             }
         }
     }
-    establish_session(&browser, &credential_id).await
+    establish_session(&state, &browser, &credential_id).await
 }
 
-pub(super) async fn logout(browser: Session) -> Response {
+pub(super) async fn logout(State(state): State<WebState>, browser: Session) -> Response {
+    if let Some(session_hash) = session::session_hash(&browser)
+        && state
+            .store
+            .remove_web_push_for_session(session_hash)
+            .await
+            .is_err()
+    {
+        return auth_error(StatusCode::INTERNAL_SERVER_ERROR, "session_unavailable");
+    }
     match session::logout(&browser).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(_) => auth_error(StatusCode::INTERNAL_SERVER_ERROR, "session_unavailable"),
@@ -503,6 +512,14 @@ pub(super) async fn logout(browser: Session) -> Response {
 pub(super) async fn logout_all(State(state): State<WebState>, browser: Session) -> Response {
     if state.auth_mode.requires_session() && !session::is_authenticated(&browser).await {
         return auth_error(StatusCode::UNAUTHORIZED, "authentication_required");
+    }
+    if state
+        .store
+        .remove_all_web_push_subscriptions()
+        .await
+        .is_err()
+    {
+        return auth_error(StatusCode::INTERNAL_SERVER_ERROR, "session_unavailable");
     }
     state.sessions.revoke_all();
     match session::logout(&browser).await {
@@ -568,7 +585,16 @@ pub(super) async fn remove_passkey(
     }
 }
 
-async fn establish_session(browser: &Session, credential_id: &str) -> Response {
+async fn establish_session(state: &WebState, browser: &Session, credential_id: &str) -> Response {
+    if let Some(session_hash) = session::session_hash(browser)
+        && state
+            .store
+            .remove_web_push_for_session(session_hash)
+            .await
+            .is_err()
+    {
+        return auth_error(StatusCode::INTERNAL_SERVER_ERROR, "session_unavailable");
+    }
     match session::authenticate(browser, credential_id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(_) => auth_error(StatusCode::INTERNAL_SERVER_ERROR, "session_unavailable"),

@@ -631,6 +631,7 @@ mod tests {
         store
             .register_web_push_subscription(NewWebPushSubscription {
                 owner_human_id: LOCAL_HUMAN_ID.to_string(),
+                browser_session_hash: [3; 32],
                 endpoint: "https://push.example.test/task".to_string(),
                 p256dh: "p".repeat(40),
                 auth_secret: "a".repeat(16),

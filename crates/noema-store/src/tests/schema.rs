@@ -2392,6 +2392,63 @@ async fn v46_upgrade_revokes_legacy_clients_and_matches_fresh_schema() {
     );
 }
 
+#[tokio::test]
+async fn v47_upgrade_invalidates_unbound_web_push_and_matches_fresh_schema() {
+    let upgrade_home = TempDir::new().expect("v46 root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    let mut connection = Connection::open(&upgrade_config.path).expect("v46 database");
+    store_migrations()
+        .to_version(&mut connection, 46)
+        .expect("construct v46 schema");
+    connection
+        .execute(
+            "INSERT INTO web_push_subscriptions (subscription_id, owner_human_id, endpoint, p256dh, auth_secret) VALUES ('push:legacy', 'human:local', 'https://push.example/legacy', ?1, ?2)",
+            params!["p".repeat(40), "a".repeat(16)],
+        )
+        .expect("legacy Push registration");
+    drop(connection);
+
+    drop(
+        NoemaStore::open(&upgrade_config)
+            .await
+            .expect("upgrade v46 database"),
+    );
+    let connection = Connection::open(&upgrade_config.path).expect("upgraded database");
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM web_push_subscriptions", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("count Push registrations"),
+        0
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM pragma_table_info('web_push_subscriptions') WHERE name = 'browser_session_hash' AND \"notnull\" = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("session binding column"),
+        1
+    );
+    drop(connection);
+
+    let fresh_home = TempDir::new().expect("fresh v47 root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(
+        NoemaStore::open(&fresh_config)
+            .await
+            .expect("fresh v47 schema"),
+    );
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
+    );
+}
+
 fn stage(
     stable_key: &str,
     display_name: &str,

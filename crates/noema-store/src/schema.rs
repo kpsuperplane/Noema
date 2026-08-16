@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 46;
+pub const STORE_SCHEMA_VERSION: usize = 47;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1190,6 +1190,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(MULTIPLE_HUMAN_PASSKEYS_SQL),
         M::up(NATIVE_OAUTH_SQL),
         M::up(LEGACY_CLIENT_REVOCATION_SQL),
+        M::up(WEB_PUSH_SESSION_BINDING_SQL),
     ])
 }
 
@@ -2583,6 +2584,16 @@ WHERE client_id IN (SELECT client_id FROM clients WHERE auth_kind = 'legacy_bear
 DELETE FROM live_activity_deliveries
 WHERE client_id IN (SELECT client_id FROM clients WHERE auth_kind = 'legacy_bearer')
   AND event <> 'end';
+"#;
+
+const WEB_PUSH_SESSION_BINDING_SQL: &str = r#"
+ALTER TABLE web_push_subscriptions
+ADD COLUMN browser_session_hash BLOB NOT NULL
+DEFAULT X'0000000000000000000000000000000000000000000000000000000000000000'
+CHECK (length(browser_session_hash) = 32);
+DELETE FROM web_push_subscriptions;
+CREATE INDEX web_push_subscriptions_session
+ON web_push_subscriptions(browser_session_hash, subscription_id);
 "#;
 
 const MCP_TOOL_POLICY_SQL: &str = r#"

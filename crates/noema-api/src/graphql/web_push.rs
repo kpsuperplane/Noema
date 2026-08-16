@@ -179,13 +179,14 @@ impl NotificationCoordinator {
     pub(super) async fn status(
         &self,
         owner_human_id: &str,
+        browser_session_hash: [u8; 32],
         endpoint: Option<&str>,
     ) -> Result<GraphqlWebPushStatus> {
         let subscription = match endpoint {
             Some(endpoint) => self
                 .inner
                 .store
-                .web_push_subscription_for_endpoint(owner_human_id, endpoint)
+                .web_push_subscription_for_endpoint(owner_human_id, browser_session_hash, endpoint)
                 .await
                 .map_err(graphql_error)?,
             None => None,
@@ -201,6 +202,7 @@ impl NotificationCoordinator {
     pub(super) async fn register(
         &self,
         owner_human_id: &str,
+        browser_session_hash: [u8; 32],
         input: GraphqlRegisterWebPushSubscriptionInput,
     ) -> Result<GraphqlWebPushStatus> {
         validate_subscription_material(&input)?;
@@ -209,19 +211,30 @@ impl NotificationCoordinator {
             .store
             .register_web_push_subscription(NewWebPushSubscription {
                 owner_human_id: owner_human_id.to_string(),
+                browser_session_hash,
                 endpoint: endpoint.to_string(),
                 p256dh: input.p256dh,
                 auth_secret: input.auth,
             })
             .await
             .map_err(graphql_error)?;
-        self.status(owner_human_id, Some(endpoint.as_str())).await
+        self.status(
+            owner_human_id,
+            browser_session_hash,
+            Some(endpoint.as_str()),
+        )
+        .await
     }
 
-    pub(super) async fn remove(&self, owner_human_id: &str, subscription_id: &str) -> Result<bool> {
+    pub(super) async fn remove(
+        &self,
+        owner_human_id: &str,
+        browser_session_hash: [u8; 32],
+        subscription_id: &str,
+    ) -> Result<bool> {
         self.inner
             .store
-            .remove_web_push_subscription(owner_human_id, subscription_id)
+            .remove_web_push_subscription(owner_human_id, browser_session_hash, subscription_id)
             .await
             .map_err(graphql_error)
     }
@@ -229,12 +242,13 @@ impl NotificationCoordinator {
     pub(super) async fn presence(
         &self,
         owner_human_id: &str,
+        browser_session_hash: [u8; 32],
         subscription_id: String,
     ) -> Result<impl Stream<Item = GraphqlWebPushPresenceEvent> + use<>> {
         let ids = self
             .inner
             .store
-            .web_push_subscription_ids(owner_human_id)
+            .web_push_subscription_ids(owner_human_id, browser_session_hash)
             .await
             .map_err(graphql_error)?;
         if !ids.iter().any(|candidate| candidate == &subscription_id) {
@@ -2473,7 +2487,7 @@ mod tests {
         .await
         .expect("initialize Web Push");
         let status = coordinator
-            .status(LOCAL_HUMAN_ID, None)
+            .status(LOCAL_HUMAN_ID, [3; 32], None)
             .await
             .expect("read Web Push status");
         let public_key = URL_SAFE_NO_PAD

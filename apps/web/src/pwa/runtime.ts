@@ -38,6 +38,7 @@ import {
 } from "@/generated/graphql";
 import {
   isInstalledPwa,
+  erasePwaPrivateStorage,
   markAuthenticated,
   requestPersistentStorage,
   saveDurableSnapshot,
@@ -108,6 +109,7 @@ class PwaRuntime {
   private applicationUpdatePromise: Promise<void> | null = null;
   private persistenceTimer: number | null = null;
   private listenersInstalled = false;
+  private erasing = false;
 
   initialize(snapshot: DurableSnapshot | null) {
     if (!this.snapshot.installed) return;
@@ -309,13 +311,28 @@ class PwaRuntime {
   }
 
   async persistNow(lastSync = this.snapshot.lastSync) {
-    if (!this.snapshot.installed || !this.client) return;
+    if (!this.snapshot.installed || !this.client || this.erasing) return;
     await saveDurableSnapshot({
       generation: this.generation,
       lastSync,
       cache: this.client.extract() as NormalizedCacheObject,
       recentQueries: this.recentQueries
     });
+  }
+
+  async erasePrivateData() {
+    if (!this.snapshot.installed) return;
+    this.erasing = true;
+    if (this.persistenceTimer !== null) {
+      window.clearTimeout(this.persistenceTimer);
+      this.persistenceTimer = null;
+    }
+    await erasePwaPrivateStorage();
+    this.generation += 1;
+    this.recentQueries = [];
+    this.baselineCache = null;
+    this.client?.cache.restore({});
+    this.update({ state: "auth_required", lastSync: null, updating: false, canMutate: false });
   }
 
   private checkForApplicationUpdate() {

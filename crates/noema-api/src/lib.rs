@@ -8,4 +8,4 @@ pub mod graphql;
 #[cfg(test)]
 mod test_support;
 
-pub use graphql::RequestPrincipal;
+pub use graphql::{BrowserSessionHash, RequestPrincipal};

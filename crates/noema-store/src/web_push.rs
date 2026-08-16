@@ -25,6 +25,8 @@ pub struct WebPushPrimaryCheckpoint {
 pub struct NewWebPushSubscription {
     /// Human who owns the subscription.
     pub owner_human_id: String,
+    /// Digest of the browser session that authorized this subscription.
+    pub browser_session_hash: [u8; 32],
     /// Browser-issued, bearer-like push service endpoint.
     pub endpoint: String,
     /// Browser P-256 Diffie-Hellman public key.
@@ -174,22 +176,30 @@ impl NoemaStore {
         self.with_connection(|conn| {
             conn.execute(
                 r#"INSERT INTO web_push_subscriptions
-                   (subscription_id, owner_human_id, endpoint, p256dh, auth_secret)
-                   VALUES (?1, ?2, ?3, ?4, ?5)
+                   (subscription_id, owner_human_id, browser_session_hash, endpoint, p256dh, auth_secret)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                    ON CONFLICT(endpoint) DO UPDATE SET
                      owner_human_id = excluded.owner_human_id,
+                     browser_session_hash = excluded.browser_session_hash,
                      p256dh = excluded.p256dh,
                      auth_secret = excluded.auth_secret,
                      updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"#,
                 params![
                     subscription_id,
                     input.owner_human_id,
+                    input.browser_session_hash.as_slice(),
                     input.endpoint,
                     input.p256dh,
                     input.auth_secret
                 ],
             )?;
-            load_subscription_by_endpoint(conn, &input.endpoint)?.ok_or_else(|| {
+            load_subscription_by_endpoint(
+                conn,
+                &input.owner_human_id,
+                input.browser_session_hash,
+                &input.endpoint,
+            )?
+            .ok_or_else(|| {
                 StoreError::InvariantViolation {
                     message: "registered Web Push subscription disappeared".to_string(),
                 }
@@ -205,11 +215,11 @@ impl NoemaStore {
     pub async fn web_push_subscription_for_endpoint(
         &self,
         owner_human_id: &str,
+        browser_session_hash: [u8; 32],
         endpoint: &str,
     ) -> Result<Option<WebPushSubscription>, StoreError> {
         self.with_connection(|conn| {
-            load_subscription_by_endpoint(conn, endpoint)
-                .map(|record| record.filter(|record| record.owner_human_id == owner_human_id))
+            load_subscription_by_endpoint(conn, owner_human_id, browser_session_hash, endpoint)
         })
         .await
     }
@@ -221,12 +231,13 @@ impl NoemaStore {
     pub async fn remove_web_push_subscription(
         &self,
         owner_human_id: &str,
+        browser_session_hash: [u8; 32],
         subscription_id: &str,
     ) -> Result<bool, StoreError> {
         self.with_connection(|conn| {
             Ok(conn.execute(
-                "DELETE FROM web_push_subscriptions WHERE subscription_id = ?1 AND owner_human_id = ?2",
-                params![subscription_id, owner_human_id],
+                "DELETE FROM web_push_subscriptions WHERE subscription_id = ?1 AND owner_human_id = ?2 AND browser_session_hash = ?3",
+                params![subscription_id, owner_human_id, browser_session_hash.as_slice()],
             )? == 1)
         }).await
     }
@@ -238,14 +249,42 @@ impl NoemaStore {
     pub async fn web_push_subscription_ids(
         &self,
         owner_human_id: &str,
+        browser_session_hash: [u8; 32],
     ) -> Result<Vec<String>, StoreError> {
         self.with_connection(|conn| {
             let mut statement = conn.prepare(
-                "SELECT subscription_id FROM web_push_subscriptions WHERE owner_human_id = ?1 ORDER BY created_at, subscription_id",
+                "SELECT subscription_id FROM web_push_subscriptions WHERE owner_human_id = ?1 AND browser_session_hash = ?2 ORDER BY created_at, subscription_id",
             )?;
-            let rows = statement.query_map([owner_human_id], |row| row.get(0))?;
+            let rows = statement.query_map(
+                params![owner_human_id, browser_session_hash.as_slice()],
+                |row| row.get(0),
+            )?;
             rows.collect::<Result<Vec<_>, _>>().map_err(StoreError::Sqlite)
         }).await
+    }
+
+    /// Delete Web Push authority bound to one revoked browser session.
+    pub async fn remove_web_push_for_session(
+        &self,
+        browser_session_hash: [u8; 32],
+    ) -> Result<usize, StoreError> {
+        self.with_connection(|conn| {
+            conn.execute(
+                "DELETE FROM web_push_subscriptions WHERE browser_session_hash = ?1",
+                [browser_session_hash.as_slice()],
+            )
+            .map_err(StoreError::Sqlite)
+        })
+        .await
+    }
+
+    /// Delete all browser Push authority after global browser revocation.
+    pub async fn remove_all_web_push_subscriptions(&self) -> Result<usize, StoreError> {
+        self.with_connection(|conn| {
+            conn.execute("DELETE FROM web_push_subscriptions", [])
+                .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
     /// Queue one logical notification for every active subscription exactly once.
@@ -369,11 +408,13 @@ impl NoemaStore {
 
 fn load_subscription_by_endpoint(
     conn: &rusqlite::Connection,
+    owner_human_id: &str,
+    browser_session_hash: [u8; 32],
     endpoint: &str,
 ) -> Result<Option<WebPushSubscription>, StoreError> {
     conn.query_row(
-        "SELECT subscription_id, owner_human_id, endpoint, p256dh, auth_secret FROM web_push_subscriptions WHERE endpoint = ?1",
-        [endpoint],
+        "SELECT subscription_id, owner_human_id, endpoint, p256dh, auth_secret FROM web_push_subscriptions WHERE endpoint = ?1 AND owner_human_id = ?2 AND browser_session_hash = ?3",
+        params![endpoint, owner_human_id, browser_session_hash.as_slice()],
         |row| Ok(WebPushSubscription { subscription_id: row.get(0)?, owner_human_id: row.get(1)?, endpoint: row.get(2)?, p256dh: row.get(3)?, auth_secret: row.get(4)? }),
     ).optional().map_err(StoreError::Sqlite)
 }

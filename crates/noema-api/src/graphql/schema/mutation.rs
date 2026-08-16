@@ -102,10 +102,11 @@ impl MutationRoot {
     ) -> Result<GraphqlWebPushStatus> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
+        let browser_session_hash = crate::graphql::browser_session_hash(ctx)?;
         state
             .notifications()
             .ok_or_else(|| async_graphql::Error::new("Web Push requires an HTTPS public origin"))?
-            .register(principal, input)
+            .register(principal, browser_session_hash, input)
             .await
     }
 
@@ -117,10 +118,11 @@ impl MutationRoot {
     ) -> Result<bool> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
+        let browser_session_hash = crate::graphql::browser_session_hash(ctx)?;
         state
             .notifications()
             .ok_or_else(|| async_graphql::Error::new("Web Push requires an HTTPS public origin"))?
-            .remove(principal, &subscription_id)
+            .remove(principal, browser_session_hash, &subscription_id)
             .await
     }
 

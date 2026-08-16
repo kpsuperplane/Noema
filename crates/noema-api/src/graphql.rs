@@ -72,6 +72,31 @@ pub use runtime_state::GraphqlState;
 pub use schema::{GraphqlSchema, build_schema, schema_sdl};
 pub use web_push::NotificationCoordinator;
 
+/// Non-authoritative digest that binds browser resources to one session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BrowserSessionHash([u8; 32]);
+
+impl BrowserSessionHash {
+    /// Construct a browser session binding at the authenticated HTTP boundary.
+    #[must_use]
+    pub fn new(value: [u8; 32]) -> Self {
+        Self(value)
+    }
+
+    pub(crate) fn value(self) -> [u8; 32] {
+        self.0
+    }
+}
+
+pub(crate) fn browser_session_hash(
+    ctx: &async_graphql::Context<'_>,
+) -> async_graphql::Result<[u8; 32]> {
+    ctx.data_opt::<BrowserSessionHash>()
+        .copied()
+        .map(BrowserSessionHash::value)
+        .ok_or_else(|| async_graphql::Error::new("browser session authentication required"))
+}
+
 /// Server-derived identity attached to every authenticated GraphQL operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RequestPrincipal {

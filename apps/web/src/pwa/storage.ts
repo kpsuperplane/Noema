@@ -86,6 +86,20 @@ export async function requestPersistentStorage() {
   }
 }
 
+export async function erasePwaPrivateStorage() {
+  if (!isInstalledPwa()) return;
+  const database = await databasePromise?.catch(() => null);
+  database?.close();
+  databasePromise = null;
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(DATABASE_NAME);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error ?? new Error("Noema could not erase offline storage."));
+    request.onblocked = () => reject(new Error("Close other Noema windows, then try again."));
+  });
+  window.localStorage.clear();
+}
+
 let databasePromise: Promise<IDBDatabase> | null = null;
 
 function openDatabase() {
@@ -96,7 +110,10 @@ function openDatabase() {
         request.result.createObjectStore(STORE_NAME, { keyPath: "key" });
       }
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      request.result.onversionchange = () => request.result.close();
+      resolve(request.result);
+    };
     request.onerror = () => reject(request.error ?? new Error("Could not open Noema offline storage."));
   });
   return databasePromise;

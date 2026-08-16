@@ -119,9 +119,11 @@ vertical slice or a net-negative reduction.
   policy editor. Added-access decisions show operations before exact scopes.
 - Chat projects OAuth client setup by profile. One intervention lists every
   reviewed API that can reuse the imported client.
-- SQLite schema version 46 revokes all legacy native-client credentials.
-  Version 45 stores OAuth code digests, token families, refresh history, and
-  access-token digests. Version 44 stores independent local-human passkeys.
+- SQLite schema version 47 binds Web Push registrations to browser sessions
+  and invalidates old unbound registrations. Version 46 revokes all legacy
+  native-client credentials. Version 45 stores OAuth code digests, token
+  families, refresh history, and access-token digests. Version 44 stores
+  independent local-human passkeys.
 - The active reviewed Calendar definition has all 12 current operations,
   including date-only event creation. The 50-case live validation ledger has 50
   passing cases. Case 12 made no external change because the human told Noema
@@ -145,6 +147,8 @@ vertical slice or a net-negative reduction.
   credentials. Active cleanup revokes expired families, access expiry closes
   native WebSockets, and one settings action revokes all native clients.
   Legacy pairing routes and bearer credentials are disabled.
+  Browser logout and expiry remove session-bound Push registrations. Installed
+  mode can log out and erase its private local state.
   Installed PWA behavior follows
   [../frontend/pwa.md](../frontend/pwa.md).
 - The Tauri app defaults to its embedded host and can connect to one remote

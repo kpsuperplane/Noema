@@ -7,6 +7,7 @@ use super::test_store;
 fn subscription(endpoint: &str) -> NewWebPushSubscription {
     NewWebPushSubscription {
         owner_human_id: "human:local".to_string(),
+        browser_session_hash: [3; 32],
         endpoint: endpoint.to_string(),
         p256dh: "p".repeat(87),
         auth_secret: "a".repeat(22),
@@ -37,6 +38,43 @@ async fn web_push_identity_and_endpoint_registration_are_stable() {
         .await
         .expect("refresh browser");
     assert_eq!(refreshed.subscription_id, first.subscription_id);
+}
+
+#[tokio::test]
+async fn browser_session_revocation_removes_only_its_push_authority() {
+    let store = test_store().await;
+    let first = store
+        .register_web_push_subscription(subscription("https://push.example/one"))
+        .await
+        .expect("register first browser");
+    let mut second_input = subscription("https://push.example/two");
+    second_input.browser_session_hash = [4; 32];
+    let second = store
+        .register_web_push_subscription(second_input)
+        .await
+        .expect("register second browser");
+
+    assert_eq!(
+        store
+            .remove_web_push_for_session([3; 32])
+            .await
+            .expect("revoke first session"),
+        1
+    );
+    assert!(
+        store
+            .web_push_subscription_for_endpoint("human:local", [3; 32], &first.endpoint,)
+            .await
+            .expect("first lookup")
+            .is_none()
+    );
+    assert!(
+        store
+            .web_push_subscription_for_endpoint("human:local", [4; 32], &second.endpoint,)
+            .await
+            .expect("second lookup")
+            .is_some()
+    );
 }
 
 #[tokio::test]

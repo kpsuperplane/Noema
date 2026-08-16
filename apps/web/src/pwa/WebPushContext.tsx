@@ -84,6 +84,16 @@ export function WebPushProvider({
     };
   }, []);
 
+  React.useEffect(() => {
+    if (!capable || !subscription) return;
+    const repair = () => {
+      repairAttemptedEndpoint.current = null;
+      void statusResult.refetch({ endpoint: subscription.endpoint });
+    };
+    window.addEventListener("noema:browser-session-changed", repair);
+    return () => window.removeEventListener("noema:browser-session-changed", repair);
+  }, [capable, statusResult, subscription]);
+
   const serverStatus = statusResult.data?.webPushStatus;
   const subscriptionId = serverStatus?.subscriptionId ?? null;
 

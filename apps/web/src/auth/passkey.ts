@@ -32,6 +32,7 @@ export async function enrollPasskey() {
     ceremonyId: start.ceremonyId,
     credential: credentialToJson(credential)
   });
+  window.dispatchEvent(new Event("noema:browser-session-changed"));
 }
 
 export async function authenticateWithPasskey() {
@@ -48,6 +49,7 @@ export async function authenticateWithPasskey() {
     ceremonyId: start.ceremonyId,
     credential: credentialToJson(credential)
   });
+  window.dispatchEvent(new Event("noema:browser-session-changed"));
 }
 
 export class RecoveryRequestError extends Error {

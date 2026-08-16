@@ -86,10 +86,11 @@ impl SubscriptionRoot {
     ) -> Result<impl Stream<Item = GraphqlWebPushPresenceEvent>> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
+        let browser_session_hash = crate::graphql::browser_session_hash(ctx)?;
         state
             .notifications()
             .ok_or_else(|| async_graphql::Error::new("Web Push requires an HTTPS public origin"))?
-            .presence(principal, subscription_id)
+            .presence(principal, browser_session_hash, subscription_id)
             .await
     }
 

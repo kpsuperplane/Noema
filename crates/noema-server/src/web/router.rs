@@ -213,13 +213,18 @@ async fn graphql(
     let Some(principal) = authenticated_principal(&state, &session, principal).await else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
-    GraphQLResponse::from(
-        state
-            .graphql_schema
-            .execute(request.into_inner().data(principal))
-            .await,
-    )
-    .into_response()
+    let browser_session = if principal.client_id().is_none() {
+        session::ensure_session_hash(&session)
+            .await
+            .map(noema_api::BrowserSessionHash::new)
+    } else {
+        None
+    };
+    let mut request = request.into_inner().data(principal);
+    if let Some(browser_session) = browser_session {
+        request = request.data(browser_session);
+    }
+    GraphQLResponse::from(state.graphql_schema.execute(request).await).into_response()
 }
 
 async fn graphql_ws(
@@ -245,11 +250,21 @@ async fn graphql_ws(
         .requires_session()
         .then(|| session.id())
         .flatten();
+    let browser_session = if principal.client_id().is_none() {
+        session::ensure_session_hash(&session)
+            .await
+            .map(noema_api::BrowserSessionHash::new)
+    } else {
+        None
+    };
     upgrade
         .protocols(ALL_WEBSOCKET_PROTOCOLS)
         .on_upgrade(move |socket| {
             let mut data = Data::default();
             data.insert(principal.clone());
+            if let Some(browser_session) = browser_session {
+                data.insert(browser_session);
+            }
             let serve = GraphQLWebSocket::new(socket, schema, protocol)
                 .with_data(data)
                 .serve();

@@ -7,7 +7,10 @@ use std::{
 };
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use ring::rand::{SecureRandom, SystemRandom};
+use ring::{
+    digest,
+    rand::{SecureRandom, SystemRandom},
+};
 use tower_sessions::{Session, cookie::Key};
 
 use super::session_store::BoundedSessionStore;
@@ -62,7 +65,7 @@ impl SessionSecurity {
         self.store.clone()
     }
 
-    pub(super) fn subscribe_revocations(
+    pub(crate) fn subscribe_revocations(
         &self,
     ) -> tokio::sync::broadcast::Receiver<tower_sessions::session::Id> {
         self.store.subscribe_revocations()
@@ -204,6 +207,27 @@ pub(super) async fn request_principal(
 ) -> Option<noema_api::RequestPrincipal> {
     (!authentication_required || is_authenticated(session).await)
         .then(noema_api::RequestPrincipal::local)
+}
+
+pub(super) fn session_hash(session: &Session) -> Option<[u8; 32]> {
+    session.id().map(session_id_hash)
+}
+
+pub(super) async fn ensure_session_hash(session: &Session) -> Option<[u8; 32]> {
+    if session.id().is_none() {
+        browser_binding(session).await?;
+        session.save().await.ok()?;
+    }
+    session_hash(session)
+}
+
+pub(crate) fn session_id_hash(session_id: tower_sessions::session::Id) -> [u8; 32] {
+    let session_id = session_id.to_string();
+    let candidate = digest::digest(&digest::SHA256, session_id.as_bytes());
+    candidate
+        .as_ref()
+        .try_into()
+        .expect("SHA-256 always returns 32 bytes")
 }
 
 fn unix_timestamp() -> u64 {

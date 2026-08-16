@@ -53,8 +53,13 @@ impl QueryRoot {
     ) -> Result<GraphqlWebPushStatus> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
+        let browser_session_hash = crate::graphql::browser_session_hash(ctx)?;
         match state.notifications() {
-            Some(web_push) => web_push.status(principal, endpoint.as_deref()).await,
+            Some(web_push) => {
+                web_push
+                    .status(principal, browser_session_hash, endpoint.as_deref())
+                    .await
+            }
             None => Ok(GraphqlWebPushStatus::unavailable()),
         }
     }
