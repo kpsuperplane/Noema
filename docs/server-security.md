@@ -37,6 +37,9 @@ same application authority after successful authentication.
 The server retains each platform `client_id`. Each refresh family identifies
 one installation and owns its revocation, Push, WebSockets, and audit history.
 
+The local development GraphQL socket also receives `human:local` authority.
+Filesystem access to that socket is its authentication boundary.
+
 Credential type does not change application authority. A browser session and a
 native client must pass the same authorization checks.
 A recent-passkey rule applies equally to browser and native clients. A native
@@ -52,6 +55,7 @@ web:
   rp_id: noema.example.com
   public_origin: https://noema.example.com
   dev_no_auth: false
+  local_graphql_socket: false
   graphiql: false
   recovery_code: <generated-base64url-value>
 mcp:
@@ -62,6 +66,7 @@ The related environment variables are:
 
 ```text
 NOEMA_WEB__DEV_NO_AUTH=true
+NOEMA_WEB__LOCAL_GRAPHQL_SOCKET=true
 NOEMA_WEB__GRAPHIQL=true
 NOEMA_MCP__STDIO_ENABLED=true
 ```
@@ -89,6 +94,8 @@ When it is false, every application request requires one of these credentials:
 - An authenticated browser session
 - A valid native access token
 - A setup-only session for one permitted setup action
+
+This network rule does not apply to the local development GraphQL socket.
 
 Noema has two passkey initialization states:
 
@@ -152,6 +159,42 @@ disabled. The operator must revoke any unwanted clients.
 The operator must keep the edge private while using this mode for recovery.
 Before public access returns, the operator must review passkeys and native
 grants, disable the mode, restart, and verify passkey login.
+
+### Local Codex GraphQL
+
+`web.local_graphql_socket` defaults to `false`. When enabled, Noema creates
+`${NOEMA_HOME}/run/graphql.sock` for local Codex development.
+
+The socket uses HTTP GraphQL requests over a Unix domain socket. Its parent
+directory uses mode `0700`, and the socket uses mode `0600`.
+
+Each socket request authenticates as `human:local`. It bypasses passkey login,
+recent-passkey checks, browser sessions, and the zero-passkey setup barrier.
+
+The socket exposes only GraphQL POST requests. It does not expose GraphiQL,
+WebSockets, assets, artifacts, recovery, OAuth, or other HTTP routes.
+
+A separate socket router constructs the `human:local` principal at its boundary
+and calls the shared GraphQL schema. No header, path, Host value, source address,
+or public-listener middleware branch can select this authority.
+
+The normal GraphQL authorization and resource limits still apply. The stdio MCP
+flag remains independent and continues to guard process creation.
+
+Enabling the socket does not change setup state, create browser sessions, or
+authorize any TCP request. Its bypass exists only for each socket request.
+
+The public listener and reverse proxy must never route this socket. Noema does
+not provide an unauthenticated TCP fallback or a local bearer token.
+
+Local Codex can use any Unix-socket HTTP client. For example:
+
+```sh
+curl --unix-socket /path/to/noema/run/graphql.sock \
+  --header 'Content-Type: application/json' \
+  --data '{"query":"{ __typename }"}' \
+  http://localhost/graphql
+```
 
 ## 6. Passkeys
 
@@ -496,6 +539,7 @@ Before public routing, verify:
 - GraphiQL and stdio MCP remain disabled unless explicitly enabled.
 - The listener is loopback-only.
 - Canonical Host enforcement and application and edge limits are active.
+- An enabled local GraphQL socket has private permissions and no proxy route.
 
 Triage dependency advisories before public routing. Only reachable
 vulnerabilities within this threat model block access.
