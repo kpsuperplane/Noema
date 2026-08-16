@@ -7,7 +7,7 @@ use async_graphql_axum::{GraphQLProtocol, GraphQLRequest, GraphQLResponse, Graph
 use axum::{
     Router,
     body::Body,
-    extract::{Extension, Path, RawQuery, Request, State, WebSocketUpgrade},
+    extract::{Extension, FromRequest, Path, RawQuery, Request, State, WebSocketUpgrade},
     http::{HeaderValue, Method, StatusCode, Uri, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
@@ -208,7 +208,7 @@ async fn graphql(
     State(state): State<WebState>,
     session: Session,
     principal: Option<Extension<noema_api::RequestPrincipal>>,
-    request: GraphQLRequest,
+    request: Request,
 ) -> Response {
     let Some(principal) = authenticated_principal(&state, &session, principal).await else {
         return StatusCode::UNAUTHORIZED.into_response();
@@ -219,6 +219,10 @@ async fn graphql(
             .map(noema_api::BrowserSessionHash::new)
     } else {
         None
+    };
+    let request: GraphQLRequest = match GraphQLRequest::from_request(request, &state).await {
+        Ok(request) => request,
+        Err(error) => return error.into_response(),
     };
     let mut request = request.into_inner().data(principal);
     if let Some(browser_session) = browser_session {

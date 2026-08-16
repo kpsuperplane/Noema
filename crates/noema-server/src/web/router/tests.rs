@@ -157,7 +157,7 @@ async fn passkey_remove_status(
     credential_id: &str,
 ) -> StatusCode {
     request(
-        router,
+        router.clone(),
         auth_post(
             "/auth/passkey/remove",
             cookie,
@@ -170,7 +170,7 @@ async fn passkey_remove_status(
 
 async fn authenticated_graphql_status(router: Router, cookie: &str) -> StatusCode {
     request(
-        router,
+        router.clone(),
         Request::post("/graphql")
             .header(header::COOKIE, cookie)
             .header(header::CONTENT_TYPE, "application/json")
@@ -359,7 +359,7 @@ async fn development_mode_keeps_canonical_host_and_origin_checks() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
     let (approval_status, _, _) = raw_request(
-        router,
+        router.clone(),
         Request::builder()
             .method(Method::POST)
             .uri("/oauth/authorize")
@@ -371,6 +371,45 @@ async fn development_mode_keeps_canonical_host_and_origin_checks() {
     )
     .await;
     assert_eq!(approval_status, StatusCode::FORBIDDEN);
+
+    let (logout_status, _, _) = raw_request(
+        router,
+        Request::builder()
+            .method(Method::POST)
+            .uri("/auth/logout")
+            .header(header::HOST, TEST_AUTHORITY)
+            .header(header::AUTHORIZATION, "Bearer ignored")
+            .body(Body::empty())
+            .expect("logout request"),
+    )
+    .await;
+    assert_eq!(logout_status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn browser_authentication_precedes_graphql_parsing() {
+    let store = test_store().await;
+    store
+        .insert_local_human_passkey("test-passkey", r#"{"test":true}"#)
+        .await
+        .expect("insert passkey");
+    let router = build_router(web_state_with_store(
+        store,
+        session::SessionSecurity::for_tests("parse-order"),
+        WebAuthMode::Required,
+    ));
+    let malformed_request = Request::builder()
+        .method(Method::POST)
+        .uri("/graphql")
+        .header(header::ORIGIN, TEST_ORIGIN)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from("{"))
+        .expect("malformed GraphQL request");
+
+    assert_eq!(
+        request(router, malformed_request).await.0,
+        StatusCode::UNAUTHORIZED
+    );
 }
 
 #[tokio::test]
