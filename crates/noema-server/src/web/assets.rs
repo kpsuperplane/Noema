@@ -56,7 +56,12 @@ pub(super) fn is_spa_entry_path(path: &str) -> bool {
 
 fn static_asset_name(path: &str) -> Option<&str> {
     let name = path.strip_prefix("/assets/")?;
-    if name.is_empty() || name.contains('/') || name.contains('\\') || name.contains("..") {
+    if name.is_empty()
+        || name == "graphiql.html"
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+    {
         return None;
     }
     Some(name)

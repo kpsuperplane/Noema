@@ -493,14 +493,36 @@ async fn router_serves_schema_graphiql_and_spa_fallback() {
     )
     .await;
     graphiql_state.graphiql_enabled = true;
-    for (router, uri, expected_fragment) in [
-        (build_router(graphiql_state), "/graphql", "GraphiQL"),
-        (
-            test_router_without_auth().await,
-            "/graphql/schema.graphql",
-            "type QueryRoot",
-        ),
-    ] {
+    let graphiql_router = build_router(graphiql_state);
+    let (graphiql_status, graphiql_headers, graphiql_body) = request(
+        graphiql_router.clone(),
+        empty_request(Method::GET, "/graphql"),
+    )
+    .await;
+    assert_eq!(graphiql_status, StatusCode::OK);
+    assert_eq!(
+        graphiql_headers[header::CONTENT_SECURITY_POLICY],
+        GRAPHIQL_CSP
+    );
+    let graphiql_body = String::from_utf8(graphiql_body.to_vec()).expect("GraphiQL HTML");
+    assert!(graphiql_body.contains("Noema GraphiQL"));
+    assert!(graphiql_body.contains("/assets/"));
+    assert!(!graphiql_body.contains("https://"));
+    assert_eq!(
+        request(
+            graphiql_router,
+            empty_request(Method::GET, "/assets/graphiql.html")
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+
+    for (router, uri, expected_fragment) in [(
+        test_router_without_auth().await,
+        "/graphql/schema.graphql",
+        "type QueryRoot",
+    )] {
         let (status, headers, body) = request(router, empty_request(Method::GET, uri)).await;
         assert_eq!(status, StatusCode::OK, "{uri}");
         assert!(

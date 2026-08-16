@@ -27,7 +27,7 @@ use super::{
 const MAX_OAUTH_QUERY_BYTES: usize = 8 * 1024;
 const MAX_RECOVERY_BODY_BYTES: usize = 1024;
 const NOT_FOUND: &str = "not found";
-const GRAPHIQL_CSP: &str = "default-src 'none'; script-src 'unsafe-inline' https://unpkg.com; style-src 'unsafe-inline' https://unpkg.com; img-src https://graphql.org; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'";
+const GRAPHIQL_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 macro_rules! get_only {
     ($handler:expr) => {
@@ -292,13 +292,14 @@ async fn graphiql(
     {
         return StatusCode::UNAUTHORIZED.into_response();
     }
-    let mut response = Html(
-        async_graphql::http::GraphiQLSource::build()
-            .endpoint("/graphql")
-            .subscription_endpoint("/graphql/ws")
-            .finish(),
-    )
-    .into_response();
+    let Some(body) = assets::asset_body("graphiql.html") else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let mut response = Response::new(Body::from(body.into_owned()));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
     response.headers_mut().insert(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(GRAPHIQL_CSP),
