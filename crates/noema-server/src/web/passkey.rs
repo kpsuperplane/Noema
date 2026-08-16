@@ -93,6 +93,19 @@ struct AuthError {
     error: &'static str,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PasskeySummary {
+    credential_id: String,
+    current: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RemovePasskeyRequest {
+    credential_id: String,
+}
+
 impl PasskeySecurity {
     pub(super) fn new(authority: &CanonicalAuthority) -> Result<Self, String> {
         let origin = Url::parse(authority.origin())
@@ -118,12 +131,7 @@ impl PasskeySecurity {
             ceremony.expires_at > now && ceremony.browser_binding != browser_binding
         });
         if ceremonies.len() >= MAX_PENDING_CEREMONIES {
-            let oldest = ceremonies
-                .iter()
-                .min_by_key(|(_, ceremony)| ceremony.expires_at)
-                .map(|(id, _)| id.clone())
-                .expect("a full ceremony registry has an oldest entry");
-            ceremonies.remove(&oldest);
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
         let ceremony_id = random_id().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         ceremonies.insert(
@@ -156,6 +164,12 @@ impl PasskeySecurity {
             .remove(ceremony_id)
             .expect("checked ceremony must remain present")
             .state)
+    }
+
+    fn clear(&self) {
+        if let Ok(mut ceremonies) = self.ceremonies.lock() {
+            ceremonies.clear();
+        }
     }
 }
 
@@ -486,6 +500,74 @@ pub(super) async fn logout(browser: Session) -> Response {
     }
 }
 
+pub(super) async fn logout_all(State(state): State<WebState>, browser: Session) -> Response {
+    if state.auth_mode.requires_session() && !session::is_authenticated(&browser).await {
+        return auth_error(StatusCode::UNAUTHORIZED, "authentication_required");
+    }
+    state.sessions.revoke_all();
+    match session::logout(&browser).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(_) => auth_error(StatusCode::INTERNAL_SERVER_ERROR, "session_unavailable"),
+    }
+}
+
+pub(super) async fn list_passkeys(State(state): State<WebState>, browser: Session) -> Response {
+    if state.auth_mode.requires_session() && !session::is_authenticated(&browser).await {
+        return auth_error(StatusCode::UNAUTHORIZED, "authentication_required");
+    }
+    let current = session::authenticating_passkey(&browser).await;
+    match state.store.local_human_passkeys().await {
+        Ok(passkeys) => Json(
+            passkeys
+                .into_iter()
+                .map(|passkey| PasskeySummary {
+                    current: current.as_deref() == Some(passkey.credential_id.as_str()),
+                    credential_id: passkey.credential_id,
+                })
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
+        Err(_) => auth_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "authentication_unavailable",
+        ),
+    }
+}
+
+pub(super) async fn remove_passkey(
+    State(state): State<WebState>,
+    browser: Session,
+    Json(input): Json<RemovePasskeyRequest>,
+) -> Response {
+    if state.auth_mode.requires_session()
+        && (!session::is_authenticated(&browser).await
+            || !session::has_recent_passkey(&browser).await)
+    {
+        return auth_error(StatusCode::FORBIDDEN, "recent_passkey_required");
+    }
+    match state
+        .store
+        .remove_local_human_passkey(&input.credential_id)
+        .await
+    {
+        Ok(noema_store::HumanPasskeyRemoval::Removed) => {
+            state.passkeys.clear();
+            state.sessions.revoke_passkey(&input.credential_id);
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Ok(noema_store::HumanPasskeyRemoval::NotFound) => {
+            auth_error(StatusCode::NOT_FOUND, "passkey_not_found")
+        }
+        Ok(noema_store::HumanPasskeyRemoval::FinalPasskey) => {
+            auth_error(StatusCode::CONFLICT, "final_passkey_required")
+        }
+        Err(_) => auth_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "authentication_unavailable",
+        ),
+    }
+}
+
 async fn establish_session(browser: &Session, credential_id: &str) -> Response {
     match session::authenticate(browser, credential_id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -539,21 +621,22 @@ fn random_id() -> Result<String, ring::error::Unspecified> {
 mod tests {
     use super::*;
 
+    fn registration(security: &PasskeySecurity) -> CeremonyState {
+        let (_, registration) = security
+            .webauthn
+            .start_passkey_registration(LOCAL_HUMAN_UUID, "human:local", "You", None)
+            .expect("registration");
+        CeremonyState::Registration(registration)
+    }
+
     #[test]
     fn ceremony_is_session_bound_and_consumed_once() {
         let authority =
             CanonicalAuthority::from_public_origin("https://noema.example", "noema.example")
                 .expect("authority");
         let security = PasskeySecurity::new(&authority).expect("passkey security");
-        let (_, registration) = security
-            .webauthn
-            .start_passkey_registration(LOCAL_HUMAN_UUID, "human:local", "You", None)
-            .expect("registration");
         let ceremony_id = security
-            .insert(
-                "expected-browser".to_string(),
-                CeremonyState::Registration(registration),
-            )
+            .insert("expected-browser".to_string(), registration(&security))
             .expect("insert ceremony");
 
         assert!(security.take(&ceremony_id, "different-browser").is_err());
@@ -564,5 +647,29 @@ mod tests {
             CeremonyState::Registration(_)
         ));
         assert!(security.take(&ceremony_id, "expected-browser").is_err());
+    }
+
+    #[test]
+    fn full_ceremony_registry_rejects_new_work_without_evicting_active_work() {
+        let authority =
+            CanonicalAuthority::from_public_origin("https://noema.example", "noema.example")
+                .expect("authority");
+        let security = PasskeySecurity::new(&authority).expect("passkey security");
+        let mut first = None;
+        for index in 0..MAX_PENDING_CEREMONIES {
+            let id = security
+                .insert(format!("browser-{index}"), registration(&security))
+                .expect("ceremony");
+            first.get_or_insert(id);
+        }
+        assert_eq!(
+            security.insert("extra-browser".to_string(), registration(&security)),
+            Err(StatusCode::SERVICE_UNAVAILABLE)
+        );
+        assert!(
+            security
+                .take(first.as_deref().expect("first"), "browser-0")
+                .is_ok()
+        );
     }
 }

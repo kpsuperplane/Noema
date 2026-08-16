@@ -3,6 +3,17 @@ type CeremonyStart<T> = {
   options: { publicKey: T };
 };
 
+export type RegisteredPasskey = {
+  credentialId: string;
+  current: boolean;
+};
+
+export class PasskeyRequestError extends Error {
+  constructor(readonly status: number) {
+    super("Noema could not complete the passkey request.");
+  }
+}
+
 export function passkeysSupported() {
   return Boolean(window.PublicKeyCredential && navigator.credentials);
 }
@@ -53,6 +64,23 @@ export async function authorizeRecovery(code: string) {
     body: JSON.stringify({ code })
   });
   if (!response.ok) throw new RecoveryRequestError(response.status);
+}
+
+export async function registeredPasskeys(): Promise<RegisteredPasskey[]> {
+  const response = await fetch("/auth/passkeys", {
+    credentials: "same-origin",
+    cache: "no-store"
+  });
+  if (!response.ok) throw new PasskeyRequestError(response.status);
+  return response.json() as Promise<RegisteredPasskey[]>;
+}
+
+export async function removePasskey(credentialId: string) {
+  await postJson("/auth/passkey/remove", { credentialId });
+}
+
+export async function logoutBrowserSessions(all: boolean) {
+  await postJson(all ? "/auth/logout/all" : "/auth/logout");
 }
 
 function creationOptionsFromJson(
@@ -145,7 +173,7 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
     body: body === undefined ? undefined : JSON.stringify(body)
   });
   if (!response.ok) {
-    throw new Error("Noema could not complete the passkey ceremony.");
+    throw new PasskeyRequestError(response.status);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;

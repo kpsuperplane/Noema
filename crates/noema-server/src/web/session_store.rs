@@ -66,6 +66,33 @@ impl BoundedSessionStore {
         self.announce(revoked);
     }
 
+    pub(super) fn revoke_all(&self) {
+        let revoked = self.with_entries(|entries| entries.drain().map(|(id, _)| id).collect());
+        self.announce(revoked);
+    }
+
+    pub(super) fn revoke_matching(&self, key: &str, value: &str) {
+        let revoked = self.with_entries(|entries| {
+            let ids = entries
+                .iter()
+                .filter_map(|(id, stored)| {
+                    (stored
+                        .record
+                        .data
+                        .get(key)
+                        .and_then(serde_json::Value::as_str)
+                        == Some(value))
+                    .then_some(*id)
+                })
+                .collect::<Vec<_>>();
+            for id in &ids {
+                entries.remove(id);
+            }
+            ids
+        });
+        self.announce(revoked);
+    }
+
     fn with_entries<T>(&self, action: impl FnOnce(&mut HashMap<Id, StoredSession>) -> T) -> T {
         let mut entries = self
             .inner

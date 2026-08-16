@@ -98,7 +98,7 @@ pub use governed_actions::{
     GovernedActionState, GovernedAssessmentStatus, GovernedAuthorization, GovernedExecutionOutcome,
     GovernedRisk, NewGovernedAction, NewGovernedActionAssessment, StoredToolBehavior,
 };
-pub use human_passkeys::HumanPasskeyRecord;
+pub use human_passkeys::{HumanPasskeyRecord, HumanPasskeyRemoval};
 pub use live_activity::{
     ClaimedLiveActivityDelivery, ClientLiveActivityRegistration, ClientTaskActivityRecord,
     LiveActivityEvent, LiveActivityTarget, NewLiveActivityDelivery, TaskNotificationAlert,

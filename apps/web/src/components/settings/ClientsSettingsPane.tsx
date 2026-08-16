@@ -21,6 +21,7 @@ import {
   type RevokeClientMutationVariables
 } from "@/generated/graphql";
 import { DeleteConfirmationDialog } from "./DeleteConnectionDialog";
+import { BrowserAccessSettings } from "./BrowserAccessSettings";
 import { startClientPairing, type ClientPairing } from "./clientPairing";
 import { SettingsManagementLayout } from "./SettingsManagementLayout";
 import {
@@ -161,6 +162,7 @@ function ClientList({
     </SettingsSection>
   );
   return <VStack gap={4}>
+    <BrowserAccessSettings />
     {error ? <SettingsSection title="Paired clients" titleId="client-stale-error">
       <SettingsSectionInset>
         <HStack gap={2} wrap="wrap" vAlign="center">

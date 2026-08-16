@@ -129,9 +129,11 @@ vertical slice or a net-negative reduction.
   accepted target contract. Runtime development, GraphiQL, local GraphQL, and
   stdio MCP flags now fail closed by default. Browser setup supports multiple
   passkeys and rotating file-backed recovery. The private Unix GraphQL socket
-  gives local tools `human:local` authority when enabled. Browser session
-  hardening and native OAuth remain incomplete. Native clients still use legacy
-  bearer credentials. Installed PWA behavior follows
+  gives local tools `human:local` authority when enabled. Browser sessions are
+  bounded, expire, and support targeted or global revocation. Settings can add
+  and remove passkeys, but cannot remove the final passkey. Native OAuth and
+  remaining public-edge controls remain incomplete. Native clients still use
+  legacy bearer credentials. Installed PWA behavior follows
   [../frontend/pwa.md](../frontend/pwa.md).
 - The Tauri app defaults to its embedded host and can pair with one remote
   HTTPS server. Rust owns its bearer, transport, recovery, and local return.

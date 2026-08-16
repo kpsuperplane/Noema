@@ -67,6 +67,7 @@ pub(crate) fn build_router(state: WebState) -> Router {
         .route("/graphql/schema.graphql", get_only!(graphql_schema))
         .route("/graphql/ws", get_only!(graphql_ws))
         .route("/auth/status", get_only!(passkey::status))
+        .route("/auth/passkeys", get_only!(passkey::list_passkeys))
         .route(
             "/auth/recovery",
             post(recover).layer(RequestBodyLimitLayer::new(MAX_RECOVERY_BODY_BYTES)),
@@ -88,6 +89,8 @@ pub(crate) fn build_router(state: WebState) -> Router {
             post(passkey::finish_authentication),
         )
         .route("/auth/logout", post(passkey::logout))
+        .route("/auth/logout/all", post(passkey::logout_all))
+        .route("/auth/passkey/remove", post(passkey::remove_passkey))
         .route("/auth/client/pairing/start", post(clients::start_pairing))
         .route(
             "/auth/client/pairing/complete",

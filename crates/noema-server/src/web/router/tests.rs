@@ -27,9 +27,17 @@ async fn test_store() -> noema_store::NoemaStore {
 }
 
 async fn web_state(sessions: session::SessionSecurity, auth_mode: WebAuthMode) -> WebState {
+    web_state_with_store(test_store().await, sessions, auth_mode)
+}
+
+fn web_state_with_store(
+    store: noema_store::NoemaStore,
+    sessions: session::SessionSecurity,
+    auth_mode: WebAuthMode,
+) -> WebState {
     WebState::new(
         noema_api::graphql::GraphqlState::for_tests(),
-        test_store().await,
+        store,
         authority::CanonicalAuthority::from_public_origin(TEST_ORIGIN, "localhost")
             .expect("test authority"),
         sessions,
@@ -141,6 +149,36 @@ async fn raw_request(
         .await
         .expect("response body");
     (status, headers, body)
+}
+
+async fn passkey_remove_status(
+    router: Router,
+    cookie: Option<&str>,
+    credential_id: &str,
+) -> StatusCode {
+    request(
+        router,
+        auth_post(
+            "/auth/passkey/remove",
+            cookie,
+            Body::from(format!(r#"{{"credentialId":"{credential_id}"}}"#)),
+        ),
+    )
+    .await
+    .0
+}
+
+async fn authenticated_graphql_status(router: Router, cookie: &str) -> StatusCode {
+    request(
+        router,
+        Request::post("/graphql")
+            .header(header::COOKIE, cookie)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"query":"{ __typename }"}"#))
+            .expect("authenticated GraphQL request"),
+    )
+    .await
+    .0
 }
 
 #[tokio::test]
@@ -380,6 +418,64 @@ async fn recovery_keeps_origin_checks_and_rotates_rejected_candidates() {
     )
     .await;
     assert_eq!(stale, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn passkey_management_requires_auth_and_revokes_affected_sessions() {
+    let store = test_store().await;
+    store
+        .insert_local_human_passkey("second-passkey", r#"{"test":true}"#)
+        .await
+        .expect("second passkey");
+    let router = build_router(web_state_with_store(
+        store,
+        session::SessionSecurity::for_tests("passkey-management"),
+        WebAuthMode::Required,
+    ));
+    assert_eq!(
+        passkey_remove_status(router.clone(), None, "second-passkey").await,
+        StatusCode::FORBIDDEN
+    );
+    let cookie = authenticate(router.clone()).await;
+
+    let (list_status, _, list_body) = request(
+        router.clone(),
+        Request::get("/auth/passkeys")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .expect("list passkeys"),
+    )
+    .await;
+    assert_eq!(list_status, StatusCode::OK);
+    let list: serde_json::Value = serde_json::from_slice(&list_body).expect("passkey list");
+    assert_eq!(
+        list,
+        json!([
+            {"credentialId": "second-passkey", "current": false},
+            {"credentialId": "test-passkey", "current": true}
+        ])
+    );
+    assert_eq!(
+        passkey_remove_status(router.clone(), Some(&cookie), "test-passkey").await,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        authenticated_graphql_status(router.clone(), &cookie).await,
+        StatusCode::UNAUTHORIZED
+    );
+
+    let first = authenticate(router.clone()).await;
+    let second = authenticate(router.clone()).await;
+    let (logout, _, _) = request(
+        router.clone(),
+        auth_post("/auth/logout/all", Some(&first), Body::empty()),
+    )
+    .await;
+    assert_eq!(logout, StatusCode::NO_CONTENT);
+    assert_eq!(
+        authenticated_graphql_status(router, &second).await,
+        StatusCode::UNAUTHORIZED
+    );
 }
 
 #[tokio::test]

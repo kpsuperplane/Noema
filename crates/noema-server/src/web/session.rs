@@ -75,6 +75,14 @@ impl SessionSecurity {
         }
     }
 
+    pub(super) fn revoke_all(&self) {
+        self.store.revoke_all();
+    }
+
+    pub(super) fn revoke_passkey(&self, credential_id: &str) {
+        self.store.revoke_matching(PASSKEY_ID_KEY, credential_id);
+    }
+
     pub(super) async fn authorize_setup(&self, session: &Session) -> Result<(), ()> {
         session.clear().await;
         let binding = browser_binding(session).await.ok_or(())?;
@@ -164,6 +172,10 @@ pub(super) async fn has_recent_passkey(session: &Session) -> bool {
         return false;
     };
     unix_timestamp().saturating_sub(authenticated_at) <= RECENT_PASSKEY_TTL.as_secs()
+}
+
+pub(super) async fn authenticating_passkey(session: &Session) -> Option<String> {
+    session.get::<String>(PASSKEY_ID_KEY).await.ok().flatten()
 }
 
 pub(super) async fn browser_binding(session: &Session) -> Option<String> {
