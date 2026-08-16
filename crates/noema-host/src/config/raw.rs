@@ -1,4 +1,4 @@
-use super::{BrowserConfig, HostConfig, WebConfig, error::ConfigError};
+use super::{BrowserConfig, HostConfig, McpConfig, WebConfig, error::ConfigError};
 use noema_providers::{
     CodexProviderConfig, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_TIMEOUT_SECONDS,
     DEFAULT_FOUNDATION_LOCAL_PROFILE, DEFAULT_HOSTED_REASONING_EFFORT,
@@ -27,6 +27,7 @@ pub(super) struct RawConfig {
     local_models: RawLocalModelsConfig,
     browser: BrowserConfig,
     web: WebConfig,
+    mcp: McpConfig,
 }
 
 impl Default for RawConfig {
@@ -43,6 +44,7 @@ impl Default for RawConfig {
             local_models: RawLocalModelsConfig::default(),
             browser: BrowserConfig::default(),
             web: WebConfig::default(),
+            mcp: McpConfig::default(),
         }
     }
 }
@@ -75,6 +77,7 @@ impl RawConfig {
             provider,
             self.browser.validate()?,
             self.web,
+            self.mcp,
         ))
     }
 

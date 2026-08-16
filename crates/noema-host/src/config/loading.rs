@@ -35,6 +35,10 @@ pub(super) const CONFIG_ENV_KEYS: &[&str] = &[
     "web.port",
     "web.rp_id",
     "web.public_origin",
+    "web.dev_no_auth",
+    "web.local_graphql_socket",
+    "web.graphiql",
+    "mcp.stdio_enabled",
 ];
 
 /// Configuration loader.

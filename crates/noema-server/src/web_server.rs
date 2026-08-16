@@ -27,7 +27,7 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
     let sessions = web::session::SessionSecurity::generate().map_err(|_| {
         WebServerError::Protocol("failed to generate the browser bootstrap capability".to_string())
     })?;
-    let auth_mode = web::WebAuthMode::from_build();
+    let auth_mode = web::WebAuthMode::from_config(host.web_config());
     let passkey_registered = host
         .services()
         .store
@@ -73,6 +73,7 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
         authority.clone(),
         sessions.clone(),
         auth_mode,
+        host.web_config().graphiql,
     )
     .map_err(WebServerError::Protocol)?;
     if auth_mode.requires_session() && !passkey_registered {

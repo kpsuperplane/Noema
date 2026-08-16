@@ -113,19 +113,12 @@ pub(crate) async fn run_development_server() -> Result<(), WorkflowError> {
 
     let mut command = Command::new(cargo_exe());
     command
-        .args([
-            "run",
-            "-p",
-            "noema-server",
-            "--bin",
-            "noema_web",
-            "--features",
-            "dev-no-auth",
-        ])
+        .args(["run", "-p", "noema-server", "--bin", "noema_web"])
         .current_dir(&repo_root)
         .env("CARGO_TARGET_DIR", DEV_CACHE.path(&repo_root))
         .env("TMPDIR", DEV_CACHE.temp_path(&repo_root))
         .env("NOEMA_WEB__HOST", "0.0.0.0")
+        .env("NOEMA_WEB__DEV_NO_AUTH", "true")
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());

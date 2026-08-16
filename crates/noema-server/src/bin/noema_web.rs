@@ -29,7 +29,7 @@ fn application_runtime() -> Result<tokio::runtime::Runtime, std::io::Error> {
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(feature = "dev-no-auth")]
+    #[cfg(debug_assertions)]
     generate_graphql_schema()?;
 
     let host =
@@ -38,7 +38,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "dev-no-auth")]
+#[cfg(debug_assertions)]
 fn generate_graphql_schema() -> Result<(), std::io::Error> {
     let output_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../graphql/schema.graphql");
     let schema = noema_api::graphql::schema_sdl();
@@ -48,7 +48,7 @@ fn generate_graphql_schema() -> Result<(), std::io::Error> {
     Ok(())
 }
 
-#[cfg(feature = "dev-no-auth")]
+#[cfg(debug_assertions)]
 fn write_if_changed(path: &Path, contents: &[u8]) -> Result<bool, std::io::Error> {
     if std::fs::read(path).is_ok_and(|existing| existing == contents) {
         return Ok(false);
@@ -65,7 +65,7 @@ fn local_model_runtime_root() -> Option<PathBuf> {
     }
 }
 
-#[cfg(all(test, feature = "dev-no-auth"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

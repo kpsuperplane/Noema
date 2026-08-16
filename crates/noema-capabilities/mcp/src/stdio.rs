@@ -1,9 +1,6 @@
 //! Stdio MCP session preparation.
 
-use std::{
-    ffi::{OsStr, OsString},
-    fmt,
-};
+use std::fmt;
 
 use process_wrap::tokio::{CommandWrap, KillOnDrop};
 use rmcp::ServiceExt;
@@ -24,14 +21,18 @@ mod transport;
 /// Factory for initialized stdio MCP sessions.
 #[derive(Clone)]
 pub struct StdioMcpSessionFactory {
+    enabled: bool,
     diagnostics: Option<McpDiagnosticHandle>,
 }
 
 impl StdioMcpSessionFactory {
-    /// Construct the stdio factory with optional developer diagnostics.
+    /// Construct the stdio factory with startup authority and optional diagnostics.
     #[must_use]
-    pub const fn new(diagnostics: Option<McpDiagnosticHandle>) -> Self {
-        Self { diagnostics }
+    pub const fn new(enabled: bool, diagnostics: Option<McpDiagnosticHandle>) -> Self {
+        Self {
+            enabled,
+            diagnostics,
+        }
     }
 }
 
@@ -39,6 +40,7 @@ impl fmt::Debug for StdioMcpSessionFactory {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("StdioMcpSessionFactory")
+            .field("enabled", &self.enabled)
             .field("diagnostics_configured", &self.diagnostics.is_some())
             .finish()
     }
@@ -53,8 +55,13 @@ impl McpSessionFactory for StdioMcpSessionFactory {
     ) -> McpClientFuture<'a, McpSessionPreparation> {
         Box::pin(async move {
             context.check("initialize")?;
+            if !self.enabled {
+                return Err(McpClientError::Unavailable(
+                    "MCP stdio transport is disabled by startup configuration".to_string(),
+                ));
+            }
             let config = stdio_config_from_server(server, secrets)?;
-            let command = wrapped_stdio_command(stdio_command(&config, std::env::vars_os()));
+            let command = wrapped_stdio_command(stdio_command(&config));
             let transport = transport::spawn(command).map_err(|error| {
                 McpClientError::Unavailable(format!("failed to start MCP stdio command: {error}"))
             })?;
@@ -96,17 +103,9 @@ fn wrapped_stdio_command(command: Command) -> CommandWrap {
     command
 }
 
-fn stdio_command(
-    config: &McpStdioSetupConfig,
-    inherited: impl IntoIterator<Item = (OsString, OsString)>,
-) -> Command {
+fn stdio_command(config: &McpStdioSetupConfig) -> Command {
     let mut command = Command::new(&config.command);
     command.env_clear();
-    for (key, value) in inherited {
-        if inherited_env_allowed(&key) {
-            command.env(key, value);
-        }
-    }
     command
         .args(&config.args)
         .envs(&config.env)
@@ -115,21 +114,6 @@ fn stdio_command(
         command.current_dir(cwd);
     }
     command
-}
-
-fn inherited_env_allowed(key: &OsStr) -> bool {
-    const PORTABLE: &[&str] = &["PATH", "HOME", "TMPDIR", "TEMP", "TMP"];
-    if PORTABLE.iter().any(|allowed| key == OsStr::new(allowed)) {
-        return true;
-    }
-    #[cfg(windows)]
-    {
-        const WINDOWS: &[&str] = &["PATHEXT", "SYSTEMROOT", "COMSPEC", "USERPROFILE"];
-        if WINDOWS.iter().any(|allowed| key == OsStr::new(allowed)) {
-            return true;
-        }
-    }
-    false
 }
 
 fn stdio_config_from_server(
@@ -195,34 +179,39 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn command_inherits_only_minimal_allowlist_plus_declared_environment() {
+    async fn command_passes_only_declared_environment() {
         let config = McpStdioSetupConfig {
-            command: "/bin/sh".to_string(),
-            args: vec![
-                "-c".to_string(),
-                "printf '%s|%s|%s' \"${PRIVATE_SENTINEL-unset}\" \"$DECLARED\" \"$PATH\""
-                    .to_string(),
-            ],
+            command: "/usr/bin/env".to_string(),
+            args: Vec::new(),
             cwd: None,
             env: BTreeMap::from([("DECLARED".to_string(), "present".to_string())]),
         };
-        let inherited = [
-            (
-                OsString::from("PRIVATE_SENTINEL"),
-                OsString::from("must-not-leak"),
-            ),
-            (OsString::from("PATH"), OsString::from("/test/bin")),
-        ];
 
-        let output = stdio_command(&config, inherited)
-            .output()
-            .await
-            .expect("run command");
+        let output = stdio_command(&config).output().await.expect("run command");
 
         assert!(output.status.success());
         assert_eq!(
             String::from_utf8(output.stdout).expect("utf8"),
-            "unset|present|/test/bin"
+            "DECLARED=present\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn disabled_factory_rejects_before_reading_stdio_configuration() {
+        let server = server(Value::Null);
+        let context =
+            McpRequestContext::with_timeout(Duration::from_secs(1), CancellationToken::new());
+
+        let error = StdioMcpSessionFactory::new(false, None)
+            .prepare(&server, &McpSecretMaterial::default(), &context)
+            .await
+            .expect_err("disabled stdio");
+
+        assert_eq!(
+            error,
+            McpClientError::Unavailable(
+                "MCP stdio transport is disabled by startup configuration".to_string()
+            )
         );
     }
 
@@ -257,7 +246,7 @@ done
         }));
         let context =
             McpRequestContext::with_timeout(Duration::from_secs(3), CancellationToken::new());
-        let preparation = StdioMcpSessionFactory::new(None)
+        let preparation = StdioMcpSessionFactory::new(true, None)
             .prepare(&server, &McpSecretMaterial::default(), &context)
             .await
             .expect("prepare");
@@ -293,7 +282,7 @@ while IFS= read -r _; do :; done
         let context =
             McpRequestContext::with_timeout(Duration::from_millis(100), CancellationToken::new());
 
-        let error = StdioMcpSessionFactory::new(None)
+        let error = StdioMcpSessionFactory::new(true, None)
             .prepare(&server, &McpSecretMaterial::default(), &context)
             .await
             .expect_err("timeout");

@@ -33,6 +33,7 @@ async fn web_state(sessions: session::SessionSecurity, auth_mode: WebAuthMode) -
             .expect("test authority"),
         sessions,
         auth_mode,
+        false,
     )
     .expect("web state")
 }
@@ -129,7 +130,6 @@ async fn raw_request(
     (status, headers, body)
 }
 
-#[cfg(not(all(feature = "dev-no-auth", debug_assertions)))]
 #[tokio::test]
 async fn authority_session_and_bootstrap_boundary() {
     for (method, uri) in [
@@ -268,10 +268,9 @@ async fn setup_capability_authorizes_one_session_without_authenticating_it() {
     assert!(start["options"]["publicKey"]["challenge"].is_string());
 }
 
-#[cfg(all(feature = "dev-no-auth", debug_assertions))]
 #[tokio::test]
-async fn development_mode_allows_noncanonical_host_and_origin() {
-    let (status, _, body) = raw_request(
+async fn development_mode_keeps_canonical_host_and_origin_checks() {
+    let (status, _, _) = raw_request(
         test_router_without_auth().await,
         Request::builder()
             .method(Method::POST)
@@ -284,11 +283,7 @@ async fn development_mode_allows_noncanonical_host_and_origin() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&body).expect("GraphQL JSON"),
-        json!({"data": {"__typename": "QueryRoot"}})
-    );
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -308,15 +303,28 @@ async fn development_auth_bypass_allows_graphql_without_bootstrap() {
 
 #[tokio::test]
 async fn router_serves_schema_graphiql_and_spa_fallback() {
-    for (uri, expected_fragment) in [
-        ("/graphql", "GraphiQL"),
-        ("/graphql/schema.graphql", "type QueryRoot"),
-    ] {
-        let (status, headers, body) = request(
+    let (disabled_status, _, _) = request(
+        test_router_without_auth().await,
+        empty_request(Method::GET, "/graphql"),
+    )
+    .await;
+    assert_eq!(disabled_status, StatusCode::NOT_FOUND);
+
+    let mut graphiql_state = web_state(
+        session::SessionSecurity::for_tests("test-capability"),
+        WebAuthMode::DisabledForDevelopment,
+    )
+    .await;
+    graphiql_state.graphiql_enabled = true;
+    for (router, uri, expected_fragment) in [
+        (build_router(graphiql_state), "/graphql", "GraphiQL"),
+        (
             test_router_without_auth().await,
-            empty_request(Method::GET, uri),
-        )
-        .await;
+            "/graphql/schema.graphql",
+            "type QueryRoot",
+        ),
+    ] {
+        let (status, headers, body) = request(router, empty_request(Method::GET, uri)).await;
         assert_eq!(status, StatusCode::OK, "{uri}");
         assert!(
             headers[header::CONTENT_TYPE]
@@ -439,6 +447,7 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
         authority,
         session::SessionSecurity::for_tests("ws-test-capability"),
         WebAuthMode::Required,
+        false,
     )
     .expect("web state");
     let server = tokio::spawn(async move {
@@ -583,6 +592,7 @@ async fn client_bearer_authorizes_http_and_ws_without_browser_origin_and_revocat
         authority,
         session::SessionSecurity::for_tests("client-test-capability"),
         WebAuthMode::Required,
+        false,
     )
     .expect("web state");
     let server = tokio::spawn(async move {

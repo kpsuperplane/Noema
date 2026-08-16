@@ -93,6 +93,7 @@ async fn assemble_services(
     resources: &mut StartupResources,
 ) -> Result<(HostServices, crate::WebConfig), RuntimeHostError> {
     let web_config = config.web().clone();
+    let mcp_config = config.mcp().clone();
     let HostConfig {
         provider,
         browser,
@@ -279,8 +280,10 @@ async fn assemble_services(
         LocalMcpServiceConfig::default(),
         |oauth| {
             let authorization: McpHttpAuthorizationHandle = Arc::new(oauth);
-            let stdio: McpSessionFactoryHandle =
-                Arc::new(StdioMcpSessionFactory::new(Some(mcp_diagnostics.clone())));
+            let stdio: McpSessionFactoryHandle = Arc::new(StdioMcpSessionFactory::new(
+                mcp_config.stdio_enabled,
+                Some(mcp_diagnostics.clone()),
+            ));
             let streamable_http: McpSessionFactoryHandle = Arc::new(
                 StreamableHttpMcpSessionFactory::new(Some(mcp_diagnostics), Some(authorization)),
             );

@@ -164,6 +164,10 @@ web:
             ("NOEMA_WEB__PORT", "5757"),
             ("NOEMA_WEB__RP_ID", "noema.example"),
             ("NOEMA_WEB__PUBLIC_ORIGIN", "https://noema.example"),
+            ("NOEMA_WEB__DEV_NO_AUTH", "true"),
+            ("NOEMA_WEB__LOCAL_GRAPHQL_SOCKET", "true"),
+            ("NOEMA_WEB__GRAPHIQL", "true"),
+            ("NOEMA_MCP__STDIO_ENABLED", "true"),
         ],
     )
     .expect("config should load");
@@ -175,8 +179,12 @@ web:
             port: 5757,
             rp_id: "noema.example".to_string(),
             public_origin: Some("https://noema.example".to_string()),
+            dev_no_auth: true,
+            local_graphql_socket: true,
+            graphiql: true,
         }
     );
+    assert!(resolved.mcp.stdio_enabled);
 
     // Case: codex_config_reads_yaml_and_normalized_env_overrides.
     let file = write_config(

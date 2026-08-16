@@ -8,6 +8,7 @@ mod error;
 mod file;
 #[cfg(feature = "composition")]
 mod loading;
+mod mcp;
 #[cfg(feature = "composition")]
 mod raw;
 mod web;
@@ -18,6 +19,7 @@ pub use defaults::DEFAULT_NOEMA_CONFIG_YAML;
 pub use error::ConfigError;
 #[cfg(feature = "composition")]
 pub use loading::Config;
+pub use mcp::McpConfig;
 pub use web::WebConfig;
 
 use std::path::PathBuf;
@@ -32,6 +34,7 @@ pub struct HostConfig {
     pub(crate) provider: noema_providers::ProviderConfig,
     pub(crate) browser: BrowserConfig,
     web: WebConfig,
+    mcp: McpConfig,
     pub(crate) local_model_runtime_root: Option<PathBuf>,
 }
 
@@ -41,11 +44,13 @@ impl HostConfig {
         provider: noema_providers::ProviderConfig,
         browser: BrowserConfig,
         web: WebConfig,
+        mcp: McpConfig,
     ) -> Self {
         Self {
             provider,
             browser,
             web,
+            mcp,
             local_model_runtime_root: None,
         }
     }
@@ -54,6 +59,12 @@ impl HostConfig {
     #[must_use]
     pub const fn web(&self) -> &WebConfig {
         &self.web
+    }
+
+    /// Return the MCP transport configuration.
+    #[must_use]
+    pub const fn mcp(&self) -> &McpConfig {
+        &self.mcp
     }
 }
 

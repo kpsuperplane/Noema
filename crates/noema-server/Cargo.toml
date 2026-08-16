@@ -7,9 +7,6 @@ repository.workspace = true
 rust-version.workspace = true
 default-run = "noema_web"
 
-[features]
-dev-no-auth = []
-
 [build-dependencies]
 serde.workspace = true
 serde_json.workspace = true

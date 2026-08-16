@@ -42,13 +42,19 @@ pub(crate) fn build_router(state: WebState) -> Router {
         .with_secure(authority.secure())
         .with_private(state.sessions.key());
 
+    let graphql_route = post(graphql)
+        .head(method_not_found)
+        .fallback(method_not_found);
+    let graphql_route = if state.graphiql_enabled {
+        graphql_route.get(graphiql)
+    } else {
+        graphql_route.get(method_not_found)
+    };
+
     Router::new()
         .route(
             "/graphql",
-            get(graphiql)
-                .post(graphql)
-                .head(method_not_found)
-                .fallback(method_not_found),
+            graphql_route,
         )
         .route("/graphql/schema.graphql", get_only!(graphql_schema))
         .route("/graphql/ws", get_only!(graphql_ws))

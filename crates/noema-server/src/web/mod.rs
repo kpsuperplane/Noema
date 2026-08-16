@@ -14,21 +14,17 @@ use crate::WebServerError;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum WebAuthMode {
-    #[cfg_attr(all(feature = "dev-no-auth", debug_assertions), allow(dead_code))]
     Required,
-    #[cfg(any(test, all(feature = "dev-no-auth", debug_assertions)))]
     DisabledForDevelopment,
 }
 
 impl WebAuthMode {
-    #[cfg(all(feature = "dev-no-auth", debug_assertions))]
-    pub(crate) const fn from_build() -> Self {
-        Self::DisabledForDevelopment
-    }
-
-    #[cfg(not(all(feature = "dev-no-auth", debug_assertions)))]
-    pub(crate) const fn from_build() -> Self {
-        Self::Required
+    pub(crate) const fn from_config(config: &WebConfig) -> Self {
+        if config.dev_no_auth {
+            Self::DisabledForDevelopment
+        } else {
+            Self::Required
+        }
     }
 
     pub(crate) const fn requires_session(self) -> bool {
@@ -46,6 +42,7 @@ pub(crate) struct WebState {
     store: noema_store::NoemaStore,
     passkeys: passkey::PasskeySecurity,
     client_auth: clients::ClientAuth,
+    graphiql_enabled: bool,
 }
 
 impl WebState {
@@ -55,6 +52,7 @@ impl WebState {
         authority: authority::CanonicalAuthority,
         sessions: session::SessionSecurity,
         auth_mode: WebAuthMode,
+        graphiql_enabled: bool,
     ) -> Result<Self, String> {
         let graphql_schema = noema_api::graphql::build_schema(graphql_state.clone());
         let passkeys = passkey::PasskeySecurity::new(&authority)?;
@@ -68,6 +66,7 @@ impl WebState {
             store,
             passkeys,
             client_auth,
+            graphiql_enabled,
         })
     }
 }

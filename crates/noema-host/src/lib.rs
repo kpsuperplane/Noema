@@ -17,7 +17,7 @@ pub mod onboarding;
 /// Assembled application host and lifecycle.
 pub mod runtime_host;
 
-pub use config::{BrowserConfig, DEFAULT_NOEMA_CONFIG_YAML, HostConfig, WebConfig};
+pub use config::{BrowserConfig, DEFAULT_NOEMA_CONFIG_YAML, HostConfig, McpConfig, WebConfig};
 #[cfg(feature = "composition")]
 pub use config::{Config, ConfigError};
 pub use onboarding::{

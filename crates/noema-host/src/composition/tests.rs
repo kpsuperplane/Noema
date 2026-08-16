@@ -73,11 +73,15 @@ async fn startup_entrypoint_child() {
                 port: 4_848,
                 rp_id: "localhost".to_string(),
                 public_origin: None,
+                dev_no_auth: false,
+                local_graphql_socket: false,
+                graphiql: false,
             };
             let config = HostConfig::new(
                 ProviderConfig::Codex(CodexProviderConfig::default()),
                 crate::BrowserConfig::default(),
                 web.clone(),
+                crate::McpConfig::default(),
             );
             let host = crate::start_from_loaded_config(config)
                 .await
@@ -111,6 +115,7 @@ async fn fresh_unresolvable_local_default_starts_onboarding_without_an_account()
         }),
         crate::BrowserConfig::default(),
         crate::WebConfig::default(),
+        crate::McpConfig::default(),
     );
 
     let host = assemble(config, paths)
