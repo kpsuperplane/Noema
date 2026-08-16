@@ -105,10 +105,12 @@ pub(super) async fn enforce_authority(
         return StatusCode::BAD_REQUEST.into_response();
     }
 
+    let oauth_approval =
+        request.method() == Method::POST && request.uri().path() == "/oauth/authorize";
     let needs_origin = (request.method() == Method::POST
         && (request.uri().path() == "/graphql"
             || request.uri().path().starts_with("/auth/")
-            || request.uri().path() == "/oauth/authorize"))
+            || oauth_approval))
         || (request.method() == Method::GET && request.uri().path() == "/graphql/ws");
     let has_authorization = headers.get(header::AUTHORIZATION).is_some();
     let authorization_replaces_origin =
@@ -118,7 +120,11 @@ pub(super) async fn enforce_authority(
             .get(header::ORIGIN)
             .and_then(|value| value.to_str().ok())
             .is_some_and(|origin| origin == authority.origin());
-        if !valid_origin {
+        let opaque_oauth_origin = oauth_approval
+            && headers
+                .get(header::ORIGIN)
+                .is_none_or(|origin| origin == "null");
+        if !valid_origin && !opaque_oauth_origin {
             return StatusCode::FORBIDDEN.into_response();
         }
     }
@@ -129,6 +135,8 @@ pub(super) async fn enforce_authority(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{Router, http::Request, middleware};
+    use tower::ServiceExt as _;
 
     #[test]
     fn bind_ip_requires_an_explicit_numeric_address() {
@@ -177,5 +185,51 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn only_oauth_approval_allows_an_opaque_origin() {
+        let authority =
+            CanonicalAuthority::from_public_origin("https://noema.example", "noema.example")
+                .expect("authority");
+        let router = Router::new()
+            .fallback(|| async { StatusCode::NO_CONTENT })
+            .layer(middleware::from_fn_with_state(authority, enforce_authority));
+
+        for (path, origin, expected) in [
+            ("/oauth/authorize", None, StatusCode::NO_CONTENT),
+            (
+                "/oauth/authorize",
+                Some("https://noema.example"),
+                StatusCode::NO_CONTENT,
+            ),
+            ("/oauth/authorize", Some("null"), StatusCode::NO_CONTENT),
+            (
+                "/oauth/authorize",
+                Some("https://attacker.example"),
+                StatusCode::FORBIDDEN,
+            ),
+            ("/auth/logout", None, StatusCode::FORBIDDEN),
+            ("/auth/logout", Some("null"), StatusCode::FORBIDDEN),
+        ] {
+            let mut request = Request::post(path)
+                .header(header::HOST, "noema.example")
+                .body(Body::empty())
+                .expect("request");
+            if let Some(origin) = origin {
+                request
+                    .headers_mut()
+                    .insert(header::ORIGIN, origin.parse().expect("origin header"));
+            }
+            assert_eq!(
+                router
+                    .clone()
+                    .oneshot(request)
+                    .await
+                    .expect("response")
+                    .status(),
+                expected
+            );
+        }
     }
 }
