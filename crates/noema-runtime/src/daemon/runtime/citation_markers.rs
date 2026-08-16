@@ -76,11 +76,12 @@ impl CitationSourceRegistry {
         text: &str,
         existing: &[GenerateCitation],
     ) -> NormalizedCitationText {
+        let (text, existing) = strip_links(text, existing);
         let mut normalized = String::with_capacity(text.len());
         let mut removals = Vec::new();
         let mut citations = Vec::new();
         let mut unresolved = Vec::new();
-        let mut remaining = text;
+        let mut remaining = text.as_str();
         let mut raw_utf16 = 0;
         let mut seen = HashSet::new();
 
@@ -118,7 +119,7 @@ impl CitationSourceRegistry {
         }
         normalized.push_str(remaining);
 
-        citations.extend(existing.iter().cloned().map(|mut citation| {
+        citations.extend(existing.into_iter().map(|mut citation| {
             citation.start_index = citation
                 .start_index
                 .map(|index| adjust_index(index, &removals));
@@ -133,6 +134,105 @@ impl CitationSourceRegistry {
             unresolved_references: unresolved,
         }
     }
+}
+
+fn strip_links(text: &str, citations: &[GenerateCitation]) -> (String, Vec<GenerateCitation>) {
+    let annotated_ranges = citations
+        .iter()
+        .filter_map(|citation| {
+            let (start, end) = (citation.start_index?, citation.end_index?);
+            let value = utf16_slice(text, start, end)?;
+            is_parenthesized_domain_link(value, &citation.url).then_some((start, end))
+        })
+        .collect::<HashSet<_>>();
+    if annotated_ranges.is_empty() {
+        return (text.to_string(), citations.to_vec());
+    }
+
+    let citation_start = |start| {
+        (start > 0 && utf16_slice(text, start - 1, start) == Some(" "))
+            .then_some(start - 1)
+            .unwrap_or(start)
+    };
+    let mut removals = annotated_ranges
+        .iter()
+        .map(|&(start, end)| (citation_start(start), end))
+        .collect::<Vec<_>>();
+    removals.sort_unstable();
+
+    let mut cleaned = String::with_capacity(text.len());
+    let mut prior_end = 0;
+    for &(start, end) in &removals {
+        cleaned.push_str(utf16_slice(text, prior_end, start).expect("validated citation range"));
+        prior_end = end;
+    }
+    cleaned.push_str(
+        utf16_slice(text, prior_end, text.encode_utf16().count())
+            .expect("validated citation range"),
+    );
+
+    let citations = citations
+        .iter()
+        .cloned()
+        .map(|mut citation| {
+            let annotated_range = citation.start_index.zip(citation.end_index);
+            if annotated_range.is_some_and(|range| annotated_ranges.contains(&range)) {
+                citation.start_index = None;
+                citation.end_index = annotated_range
+                    .map(|(start, _)| adjust_index(citation_start(start), &removals));
+            } else {
+                citation.start_index = citation
+                    .start_index
+                    .map(|index| adjust_index(index, &removals));
+                citation.end_index = citation
+                    .end_index
+                    .map(|index| adjust_index(index, &removals));
+            }
+            citation
+        })
+        .collect();
+    (cleaned, citations)
+}
+
+fn is_parenthesized_domain_link(value: &str, expected_url: &str) -> bool {
+    let Some(link) = value
+        .strip_prefix("([")
+        .and_then(|value| value.strip_suffix("))"))
+    else {
+        return false;
+    };
+    let Some((label, url)) = link.rsplit_once("](") else {
+        return false;
+    };
+    let Ok(expected) = Url::parse(expected_url) else {
+        return false;
+    };
+    let Some(host) = expected.host_str() else {
+        return false;
+    };
+    url == expected_url
+        && label
+            .trim_start_matches("www.")
+            .eq_ignore_ascii_case(host.trim_start_matches("www."))
+}
+
+fn utf16_slice(text: &str, start: usize, end: usize) -> Option<&str> {
+    (start <= end).then_some(())?;
+    let mut start_byte = None;
+    let mut units = 0;
+    for (byte, character) in text.char_indices() {
+        if units == start {
+            start_byte = Some(byte);
+        }
+        if units == end {
+            return Some(&text[start_byte?..byte]);
+        }
+        units += character.len_utf16();
+        if units > end || (start_byte.is_none() && units > start) {
+            return None;
+        }
+    }
+    (units == end).then(|| &text[start_byte.unwrap_or(text.len())..])
 }
 
 impl RuntimeActor {
@@ -288,5 +388,35 @@ mod tests {
         assert_eq!(result.citations[0].url, "https://find.example/b");
         assert_eq!(result.citations[0].end_index, Some(5));
         assert_eq!(result.citations[1].end_index, Some(10));
+    }
+
+    #[test]
+    fn removes_annotated_domain_suffix_but_preserves_answer_links() {
+        let url = "https://one.example/menu";
+        let prefix = "😀 Claim.";
+        let suffix = format!("{prefix} ([one.example]({url}))");
+        let suffix_start = prefix.encode_utf16().count() + 1;
+        let requested = format!("Open the [menu]({url}).");
+        let requested_start = requested.find("[menu]").unwrap();
+        let citation = |start, end| GenerateCitation {
+            title: "Menu".to_string(),
+            url: url.to_string(),
+            start_index: Some(start),
+            end_index: Some(end),
+        };
+
+        let stripped = CitationSourceRegistry::default().normalize(
+            &suffix,
+            &[citation(suffix_start, suffix.encode_utf16().count())],
+        );
+        assert_eq!(stripped.text, prefix);
+        assert_eq!(stripped.citations[0].start_index, None);
+        assert_eq!(stripped.citations[0].end_index, Some(9));
+
+        let preserved = CitationSourceRegistry::default().normalize(
+            &requested,
+            &[citation(requested_start, requested.len() - 1)],
+        );
+        assert_eq!(preserved.text, requested);
     }
 }

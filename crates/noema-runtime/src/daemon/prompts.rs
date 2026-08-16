@@ -38,7 +38,7 @@ pub(crate) const WEB_FETCH_PROVENANCE_INSTRUCTIONS: &str = r#"Web URL provenance
 When following a `web.search` result or a link returned by `web.fetch`, copy the exact URL string from that result into the next `web.fetch` call. Do not reconstruct, canonicalize, swap hostnames, or add or remove path segments. If the exact URL is not present in a result, search for it first instead of inventing an alternate URL."#;
 
 pub(crate) const CITATION_OUTPUT_INSTRUCTIONS: &str = r#"Citation output:
-When a provider supplies source citations, keep attribution in provider-native citation annotations. Do not add citation-only Markdown links, parenthesized domains, source URLs, or Sources sections to user-visible text. Include a URL in user-visible text only when the human requested it or the URL is necessary answer content."#;
+After web research, cite supported claims only with the provider-native private citation markers in the `cite…` form. Noema removes those markers from the message and saves their sources as structured citation metadata. Do not omit these markers for supported claims. Never convert or repeat them as Markdown links, source attribution, source domains, source URLs, parenthesized citations, or Sources sections. Forbidden output includes `([example.com](https://example.com/page))`, `[example.com](https://example.com/page)`, and `(example.com)`. This rule applies even if another default asks for visible citations. Include a URL in message text only when the human requested it or the URL is necessary answer content."#;
 
 /// Build the immutable instruction kernel for ordinary primary-agent turns.
 /// Mutable identity, environment, and tool state belongs in keyed context updates.
@@ -47,8 +47,6 @@ pub(crate) fn build_structured_turn_system_prompt() -> String {
         r#"{AGENT_PERSONALITY_PROMPT}
 
 {WEB_FETCH_PROVENANCE_INSTRUCTIONS}
-
-{CITATION_OUTPUT_INSTRUCTIONS}
 
 Initiative:
 - Work through ambiguity by inspecting the available context, discovering missing facts, and using available tools before asking the user for information.
@@ -81,6 +79,8 @@ Response format:
 - Write naturally in Markdown.
 - Put one blank line between distinct speech acts so Noema can show separate bubbles.
 - Call tools only through the provider's native tool channel. Never encode tool calls or Noema response objects in ordinary text.
+
+{CITATION_OUTPUT_INSTRUCTIONS}
 
 "#
     )
@@ -249,8 +249,12 @@ mod tests {
                 "provider's native tool channel",
                 "NOEMA_MODEL_CONTEXT_UPDATE",
                 "copy the exact URL string from that result",
-                "keep attribution in provider-native citation annotations",
-                "Do not add citation-only Markdown links",
+                "provider-native private citation markers in the `cite…` form",
+                "saves their sources as structured citation metadata",
+                "Do not omit these markers for supported claims",
+                "Never convert or repeat them as Markdown links",
+                "`([example.com](https://example.com/page))`",
+                "This rule applies even if another default asks for visible citations",
                 "only when the human requested it or the URL is necessary answer content",
                 "Work through ambiguity by inspecting the available context",
                 "Ask for clarification only at a genuine crossroads",
