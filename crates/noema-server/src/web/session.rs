@@ -10,6 +10,8 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use ring::rand::{SecureRandom, SystemRandom};
 use tower_sessions::{Session, cookie::Key};
 
+use super::session_store::BoundedSessionStore;
+
 const AUTHENTICATED_KEY: &str = "authenticated";
 const BROWSER_BINDING_KEY: &str = "browser_binding";
 const PASSKEY_ID_KEY: &str = "passkey_id";
@@ -22,6 +24,7 @@ const SETUP_REGISTRATION_STARTS: u8 = 8;
 #[derive(Clone)]
 pub(crate) struct SessionSecurity {
     key: Key,
+    store: BoundedSessionStore,
     setup_grants: Arc<Mutex<HashMap<String, SetupGrant>>>,
 }
 
@@ -36,6 +39,7 @@ impl SessionSecurity {
         SystemRandom::new().fill(&mut bytes)?;
         Ok(Self {
             key: Key::generate(),
+            store: BoundedSessionStore::default(),
             setup_grants: Arc::new(Mutex::new(HashMap::new())),
         })
     }
@@ -44,12 +48,31 @@ impl SessionSecurity {
     pub(super) fn for_tests(_unused: &str) -> Self {
         Self {
             key: Key::generate(),
+            store: BoundedSessionStore::default(),
             setup_grants: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     pub(super) fn key(&self) -> Key {
         self.key.clone()
+    }
+
+    pub(super) fn store(&self) -> BoundedSessionStore {
+        self.store.clone()
+    }
+
+    pub(super) fn subscribe_revocations(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<tower_sessions::session::Id> {
+        self.store.subscribe_revocations()
+    }
+
+    pub(crate) async fn run_expiry_cleanup(self) {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            self.store.delete_expired();
+        }
     }
 
     pub(super) async fn authorize_setup(&self, session: &Session) -> Result<(), ()> {

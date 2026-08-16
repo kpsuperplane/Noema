@@ -7,18 +7,21 @@ use async_graphql_axum::{GraphQLProtocol, GraphQLRequest, GraphQLResponse, Graph
 use axum::{
     Router,
     body::Body,
-    extract::{Extension, Path, RawQuery, State, WebSocketUpgrade},
+    extract::{Extension, Path, RawQuery, Request, State, WebSocketUpgrade},
     http::{HeaderValue, Method, StatusCode, Uri, header},
-    middleware,
+    middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
 use serde::Deserialize;
 use tower_http::{limit::RequestBodyLimitLayer, set_header::SetResponseHeaderLayer};
-use tower_sessions::{MemoryStore, Session, SessionManagerLayer, cookie::SameSite};
+use tower_sessions::{Expiry, Session, SessionManagerLayer, cookie::SameSite};
 
+use super::session_store::IDLE_EXPIRY;
 use super::{
-    MAX_GRAPHQL_BODY_BYTES, WebState, assets::embedded_asset, authority, clients, passkey, session,
+    MAX_GRAPHQL_BODY_BYTES, WebState,
+    assets::{self, embedded_asset},
+    authority, clients, passkey, session,
 };
 
 const MAX_OAUTH_QUERY_BYTES: usize = 8 * 1024;
@@ -37,12 +40,17 @@ macro_rules! get_only {
 /// Build the single application router served by the daemon.
 pub(crate) fn build_router(state: WebState) -> Router {
     let authority = state.authority.clone();
-    let session_layer = SessionManagerLayer::new(MemoryStore::default())
-        .with_name("noema.sid")
+    let session_layer = SessionManagerLayer::new(state.sessions.store())
+        .with_name(if authority.secure() {
+            "__Host-noema.sid"
+        } else {
+            "noema.sid"
+        })
         .with_http_only(true)
         .with_same_site(SameSite::Strict)
         .with_path("/")
         .with_secure(authority.secure())
+        .with_expiry(Expiry::OnInactivity(IDLE_EXPIRY))
         .with_private(state.sessions.key());
 
     let graphql_route = post(graphql)
@@ -129,16 +137,36 @@ pub(crate) fn build_router(state: WebState) -> Router {
             state.clone(),
             clients::authenticate_bearer,
         ))
+        .layer(middleware::from_fn(refresh_browser_activity))
+        .layer(session_layer)
         .layer(middleware::from_fn_with_state(
             state.clone(),
             passkey::enforce_setup_barrier,
         ))
-        .layer(session_layer)
         .layer(middleware::from_fn_with_state(
             authority,
             authority::enforce_authority,
         ))
         .with_state(state)
+}
+
+async fn refresh_browser_activity(
+    session_value: Session,
+    request: Request,
+    next: Next,
+) -> Response {
+    if is_human_activity(request.method(), request.uri().path())
+        && session::is_authenticated(&session_value).await
+    {
+        session_value.set_expiry(Some(Expiry::OnInactivity(IDLE_EXPIRY)));
+    }
+    next.run(request).await
+}
+
+fn is_human_activity(method: &Method, path: &str) -> bool {
+    (method == Method::POST && path == "/graphql")
+        || (method == Method::GET && assets::is_spa_entry_path(path))
+        || (method == Method::GET && path.starts_with("/artifacts/"))
 }
 
 #[cfg(test)]
@@ -189,7 +217,13 @@ async fn graphql_ws(
         return StatusCode::UNAUTHORIZED.into_response();
     };
     let schema = state.graphql_schema.clone();
-    let revocations = state.store.subscribe_client_revocations();
+    let client_revocations = state.store.subscribe_client_revocations();
+    let session_revocations = state.sessions.subscribe_revocations();
+    let browser_session_id = state
+        .auth_mode
+        .requires_session()
+        .then(|| session.id())
+        .flatten();
     upgrade
         .protocols(ALL_WEBSOCKET_PROTOCOLS)
         .on_upgrade(move |socket| {
@@ -200,21 +234,33 @@ async fn graphql_ws(
                 .serve();
             let client_id = principal.client_id().map(str::to_owned);
             async move {
-                let Some(client_id) = client_id else {
-                    serve.await;
-                    return;
-                };
                 tokio::pin!(serve);
-                let mut revocations = revocations;
-                loop {
-                    tokio::select! {
-                        () = &mut serve => break,
-                        event = revocations.recv() => match event {
-                            Ok(revoked) if revoked == client_id => break,
-                            Ok(_) => continue,
-                            Err(_) => break,
-                        },
+                if let Some(client_id) = client_id {
+                    let mut revocations = client_revocations;
+                    loop {
+                        tokio::select! {
+                            () = &mut serve => break,
+                            event = revocations.recv() => match event {
+                                Ok(revoked) if revoked == client_id => break,
+                                Ok(_) => continue,
+                                Err(_) => break,
+                            },
+                        }
                     }
+                } else if let Some(browser_session_id) = browser_session_id {
+                    let mut revocations = session_revocations;
+                    loop {
+                        tokio::select! {
+                            () = &mut serve => break,
+                            event = revocations.recv() => match event {
+                                Ok(revoked) if revoked == browser_session_id => break,
+                                Ok(_) => continue,
+                                Err(_) => break,
+                            },
+                        }
+                    }
+                } else {
+                    serve.await;
                 }
             }
         })

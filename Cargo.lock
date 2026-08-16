@@ -4812,6 +4812,7 @@ version = "0.1.0"
 dependencies = [
  "async-graphql",
  "async-graphql-axum",
+ "async-trait",
  "axum",
  "base64 0.22.1",
  "bytes",
@@ -4830,6 +4831,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
+ "time",
  "tokio",
  "tokio-tungstenite",
  "tower",

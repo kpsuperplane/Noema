@@ -213,6 +213,32 @@ async fn authority_session_and_removed_bootstrap_boundary() {
     let set_cookie = cookie.as_str();
     assert!(set_cookie.starts_with("noema.sid="));
 
+    let secure_state = WebState::new(
+        noema_api::graphql::GraphqlState::for_tests(),
+        test_store().await,
+        authority::CanonicalAuthority::from_public_origin("https://noema.example", "noema.example")
+            .expect("secure authority"),
+        session::SessionSecurity::for_tests("secure-cookie"),
+        WebAuthMode::Required,
+        false,
+        Some(test_recovery()),
+    )
+    .expect("secure state");
+    let (_, secure_headers, _) = raw_request(
+        build_router(secure_state),
+        Request::post("/__test/authenticate")
+            .header(header::HOST, "noema.example")
+            .body(Body::empty())
+            .expect("secure authentication"),
+    )
+    .await;
+    assert!(
+        secure_headers[header::SET_COOKIE]
+            .to_str()
+            .expect("secure cookie")
+            .starts_with("__Host-noema.sid=")
+    );
+
     for capability in ["test-capability", "wrong"] {
         let (status, _, body) = request(
             router.clone(),
@@ -608,11 +634,30 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
             "payload": {"data": {"testRequestPrincipal": "human:local"}}
         })
     );
-
-    tokio::time::timeout(std::time::Duration::from_secs(2), socket.close(None))
+    let _complete = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
         .await
-        .expect("WebSocket close timeout")
-        .expect("close WebSocket");
+        .expect("subscription complete timeout")
+        .expect("subscription complete frame")
+        .expect("subscription complete");
+
+    let logout = client
+        .post(format!("http://localhost:{}/auth/logout", address.port()))
+        .header(
+            reqwest::header::ORIGIN,
+            format!("http://localhost:{}", address.port()),
+        )
+        .header(reqwest::header::COOKIE, &ws_cookie)
+        .send()
+        .await
+        .expect("logout request");
+    assert_eq!(logout.status(), reqwest::StatusCode::NO_CONTENT);
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
+        .await
+        .expect("revocation close timeout");
+    assert!(matches!(
+        closed,
+        None | Some(Err(_)) | Some(Ok(Message::Close(_)))
+    ));
     server.abort();
 }
 

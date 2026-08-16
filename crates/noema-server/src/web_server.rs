@@ -107,6 +107,7 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
     let (shutdown_sender, shutdown_receiver) = tokio::sync::watch::channel(false);
     let local_graphql_task = local_graphql
         .map(|server| tokio::spawn(async move { server.serve(shutdown_receiver).await }));
+    let session_cleanup_task = tokio::spawn(sessions.run_expiry_cleanup());
     let signal_shutdown = shutdown_sender.clone();
     let server_result = axum::serve(web_listener, web::build_router(web_state))
         .with_graceful_shutdown(async move {
@@ -131,6 +132,7 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
     if let Some(task) = web_push_task {
         task.abort();
     }
+    session_cleanup_task.abort();
     let signal_result = shutdown_error
         .lock()
         .map_err(|_| WebServerError::Protocol("Ctrl-C error state was poisoned".to_string()))?

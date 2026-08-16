@@ -29,6 +29,7 @@ repository = "https://github.com/kpsuperplane/Noema"
 rust-version = "1.96"
 
 [workspace.dependencies]
+async-trait = "0.1"
 async-graphql = "7"
 async-graphql-axum = "7.2.1"
 async-stream = "0.3"

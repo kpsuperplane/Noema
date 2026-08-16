@@ -7,6 +7,7 @@ mod local_graphql;
 mod passkey;
 mod router;
 pub(super) mod session;
+mod session_store;
 
 use noema_host::WebConfig;
 use tokio::net::TcpListener;
