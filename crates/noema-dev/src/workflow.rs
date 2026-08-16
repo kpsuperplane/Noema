@@ -119,6 +119,7 @@ pub(crate) async fn run_development_server() -> Result<(), WorkflowError> {
         .env("TMPDIR", DEV_CACHE.temp_path(&repo_root))
         .env("NOEMA_WEB__HOST", "0.0.0.0")
         .env("NOEMA_WEB__DEV_NO_AUTH", "true")
+        .env("NOEMA_WEB__LOCAL_GRAPHQL_SOCKET", "true")
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
