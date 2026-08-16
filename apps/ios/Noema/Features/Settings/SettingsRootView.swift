@@ -49,9 +49,10 @@ struct SettingsRootView: View {
       get: { model.disconnectError != nil },
       set: { if !$0 { model.clearDisconnectError() } }
     )) {
-      Button("OK", role: .cancel) { model.clearDisconnectError() }
+      Button("Cancel", role: .cancel) { model.clearDisconnectError() }
+      Button("Unpair Anyway", role: .destructive) { model.disconnectLocally() }
     } message: {
-      Text(model.disconnectError ?? "Reconnect to this server and try again.")
+      Text("\(model.disconnectError ?? "The server could not be updated.") Unpairing anyway removes this app’s saved connection and offline cache. The server can continue to send notifications until you revoke this client there.")
     }
   }
 

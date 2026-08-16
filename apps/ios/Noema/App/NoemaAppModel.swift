@@ -241,6 +241,10 @@ final class NoemaAppModel {
     }
   }
 
+  func disconnectLocally() {
+    disconnect(registrationsAlreadyRemoved: true)
+  }
+
   func clearDisconnectError() {
     disconnectError = nil
   }
