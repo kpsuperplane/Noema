@@ -126,9 +126,10 @@ vertical slice or a net-negative reduction.
   including date-only event creation. The 50-case live validation ledger has 50
   passing cases. Case 12 made no external change because the human told Noema
   to leave the date-only event uncreated.
-- Browser auth is local-human WebAuthn; paired clients use independently
-  revocable bearer credentials. Installed PWA behavior follows
-  [../frontend/pwa.md](../frontend/pwa.md).
+- [Server authentication and public access](../server-security.md) is the
+  accepted target contract. Current browser auth uses one local-human WebAuthn
+  credential, and current paired clients still use legacy bearer credentials.
+  Installed PWA behavior follows [../frontend/pwa.md](../frontend/pwa.md).
 - The Tauri app defaults to its embedded host and can pair with one remote
   HTTPS server. Rust owns its bearer, transport, recovery, and local return.
 - `web.browse.open` creates or reuses one ephemeral session for its execution

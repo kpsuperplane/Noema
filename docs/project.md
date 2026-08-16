@@ -22,6 +22,8 @@ is preserved and controlled through scope-aware authorization plus egress
 policy. Ordinary information is preserved without precautionary redaction.
 Redaction never substitutes for authorization; the detailed authority is
 [`docs/harness/security.md`](harness/security.md#information-classes-and-mechanisms).
+Browser, native-client, recovery, public-ingress, and process-execution
+boundaries are defined in [Server Authentication and Public Access](server-security.md).
 
 ## Core product goals
 
