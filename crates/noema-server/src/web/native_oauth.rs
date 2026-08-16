@@ -39,7 +39,7 @@ const ACCESS_TTL_SECONDS: i64 = 15 * 60;
 const IDLE_TTL_SECONDS: i64 = 30 * 24 * 60 * 60;
 const ABSOLUTE_TTL_SECONDS: i64 = 180 * 24 * 60 * 60;
 
-const AUTHORIZATION_PAGE_STYLE: &str = r#"
+const NATIVE_OAUTH_PAGE_STYLE: &str = r#"
 /* This standalone document mirrors Noema tokens without the hashed application bundle. */
 :root {
   color-scheme: light;
@@ -89,7 +89,7 @@ main {
   padding: var(--spacing-6);
 }
 
-.consent-card {
+.oauth-card {
   display: flex;
   width: min(100%, 30rem);
   min-width: 0;
@@ -138,7 +138,9 @@ h1 {
 
 .intro,
 .access-description,
-.revocation {
+.revocation,
+.next-step-description,
+.assurance {
   color: var(--text-secondary);
 }
 
@@ -157,6 +159,24 @@ h1 {
 }
 
 .revocation {
+  font-size: 0.875rem;
+}
+
+.next-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  padding: var(--spacing-3);
+  border-radius: var(--radius-element);
+  background: var(--paper-100);
+  font-size: 0.875rem;
+}
+
+.next-step-title {
+  font-weight: 650;
+}
+
+.assurance {
   font-size: 0.875rem;
 }
 
@@ -212,7 +232,7 @@ button:focus-visible {
     padding: 0;
   }
 
-  .consent-card {
+  .oauth-card {
     width: 100%;
     min-height: 100svh;
     padding: var(--spacing-6) var(--spacing-4);
@@ -232,7 +252,7 @@ button:focus-visible {
 }
 
 @media (forced-colors: active) {
-  .consent-card,
+  .oauth-card,
   button {
     border-color: CanvasText;
   }
@@ -251,6 +271,14 @@ struct PendingAuthorization {
     csrf: String,
 }
 
+#[derive(Clone, Copy)]
+enum AuthorizationFailure {
+    InvalidRequest,
+    ExpiredRequest,
+    UnverifiedRequest,
+    ServiceFailure,
+}
+
 pub(super) async fn authorize(
     State(state): State<WebState>,
     browser: Session,
@@ -258,26 +286,51 @@ pub(super) async fn authorize(
 ) -> Response {
     let query = match query {
         Some(query) if query.len() <= super::router::MAX_OAUTH_QUERY_BYTES => query,
-        Some(_) => return oauth_error(StatusCode::BAD_REQUEST, "invalid_request"),
+        Some(_) => {
+            return authorization_error(
+                StatusCode::BAD_REQUEST,
+                AuthorizationFailure::InvalidRequest,
+            );
+        }
         None => match browser
             .remove::<String>(session::NATIVE_OAUTH_RESUME_KEY)
             .await
         {
             Ok(Some(query)) => query,
-            _ => return oauth_error(StatusCode::BAD_REQUEST, "invalid_request"),
+            Ok(None) => {
+                return authorization_error(
+                    StatusCode::BAD_REQUEST,
+                    AuthorizationFailure::InvalidRequest,
+                );
+            }
+            Err(_) => {
+                return authorization_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    AuthorizationFailure::ServiceFailure,
+                );
+            }
         },
     };
     let Ok(parameters) = unique_parameters(query.as_bytes()) else {
-        return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
+        return authorization_error(
+            StatusCode::BAD_REQUEST,
+            AuthorizationFailure::InvalidRequest,
+        );
     };
     let Some(client_id) = parameters.get("client_id") else {
-        return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
+        return authorization_error(
+            StatusCode::BAD_REQUEST,
+            AuthorizationFailure::InvalidRequest,
+        );
     };
     let client_name = display_name(client_id);
     if validate_request_shape(&parameters).is_err()
         || run_authorization(parameters, Consent::Pending).is_err()
     {
-        return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
+        return authorization_error(
+            StatusCode::BAD_REQUEST,
+            AuthorizationFailure::InvalidRequest,
+        );
     }
     if state.auth_mode.requires_session()
         && (!session::is_authenticated(&browser).await
@@ -288,7 +341,10 @@ pub(super) async fn authorize(
             .await
             .is_err()
         {
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            return authorization_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                AuthorizationFailure::ServiceFailure,
+            );
         }
         return Redirect::to("/?native_authorization=resume").into_response();
     }
@@ -296,7 +352,10 @@ pub(super) async fn authorize(
         .remove::<String>(session::NATIVE_OAUTH_RESUME_KEY)
         .await;
     let Ok(csrf) = random_text(32) else {
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        return authorization_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            AuthorizationFailure::ServiceFailure,
+        );
     };
     if browser
         .insert(
@@ -309,7 +368,10 @@ pub(super) async fn authorize(
         .await
         .is_err()
     {
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        return authorization_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            AuthorizationFailure::ServiceFailure,
+        );
     }
     Html(format!(
         r##"<!doctype html>
@@ -320,11 +382,11 @@ pub(super) async fn authorize(
   <meta name="theme-color" content="#fcfaf5">
   <title>Connect {client_name} · Noema</title>
   <link rel="icon" href="/assets/apple-touch-icon.png">
-  <style>{AUTHORIZATION_PAGE_STYLE}</style>
+  <style>{NATIVE_OAUTH_PAGE_STYLE}</style>
 </head>
 <body>
   <main>
-    <section class="consent-card" aria-labelledby="consent-title" aria-describedby="consent-summary consent-access">
+    <section class="oauth-card" aria-labelledby="consent-title" aria-describedby="consent-summary consent-access">
       <img class="brand-mark" src="/assets/apple-touch-icon.png" width="40" height="40" alt="">
       <div class="heading">
         <p class="eyebrow">Client connection</p>
@@ -355,36 +417,70 @@ pub(super) async fn approve(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    if !form_content_type(&headers)
-        || (state.auth_mode.requires_session()
-            && (!session::is_authenticated(&browser).await
-                || !session::has_recent_passkey(&browser).await))
+    if !form_content_type(&headers) {
+        return authorization_error(StatusCode::FORBIDDEN, AuthorizationFailure::InvalidRequest);
+    }
+    if state.auth_mode.requires_session()
+        && (!session::is_authenticated(&browser).await
+            || !session::has_recent_passkey(&browser).await)
     {
-        return StatusCode::FORBIDDEN.into_response();
+        return authorization_error(StatusCode::FORBIDDEN, AuthorizationFailure::ExpiredRequest);
     }
     let Ok(form) = serde_urlencoded::from_bytes::<ApprovalForm>(&body) else {
-        return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
+        return authorization_error(
+            StatusCode::BAD_REQUEST,
+            AuthorizationFailure::InvalidRequest,
+        );
     };
-    let Ok(Some(pending)) = browser.remove::<PendingAuthorization>(PENDING_KEY).await else {
-        return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
+    let pending = match browser.remove::<PendingAuthorization>(PENDING_KEY).await {
+        Ok(Some(pending)) => pending,
+        Ok(None) => {
+            return authorization_error(
+                StatusCode::BAD_REQUEST,
+                AuthorizationFailure::ExpiredRequest,
+            );
+        }
+        Err(_) => {
+            return authorization_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                AuthorizationFailure::ServiceFailure,
+            );
+        }
     };
     if !secret_equal(form.csrf.as_bytes(), pending.csrf.as_bytes()) {
-        return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
+        return authorization_error(
+            StatusCode::BAD_REQUEST,
+            AuthorizationFailure::UnverifiedRequest,
+        );
     }
     let Ok(parameters) = unique_parameters(pending.query.as_bytes()) else {
-        return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
+        return authorization_error(
+            StatusCode::BAD_REQUEST,
+            AuthorizationFailure::InvalidRequest,
+        );
     };
     let consent = match form.decision.as_str() {
         "approve" => Consent::Approve,
         "deny" => Consent::Deny,
-        _ => return oauth_error(StatusCode::BAD_REQUEST, "invalid_request"),
+        _ => {
+            return authorization_error(
+                StatusCode::BAD_REQUEST,
+                AuthorizationFailure::InvalidRequest,
+            );
+        }
     };
     let Ok((response, issued)) = run_authorization(parameters, consent) else {
-        return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
+        return authorization_error(
+            StatusCode::BAD_REQUEST,
+            AuthorizationFailure::InvalidRequest,
+        );
     };
     if let Some((raw_code, grant)) = issued {
         let Some(pkce_value) = private_pkce(&grant.extensions) else {
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            return authorization_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                AuthorizationFailure::ServiceFailure,
+            );
         };
         let display_name = display_name(&grant.client_id);
         let code = noema_store::NewNativeOAuthCode {
@@ -400,7 +496,10 @@ pub(super) async fn approve(
             .await
             .is_err()
         {
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            return authorization_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                AuthorizationFailure::ServiceFailure,
+            );
         }
     }
     adapt_response(response)
@@ -908,6 +1007,65 @@ fn adapt_response(response: OAuthResponse) -> Response {
         );
     }
     output
+}
+
+fn authorization_error(status: StatusCode, failure: AuthorizationFailure) -> Response {
+    let (title, summary, next_step) = match failure {
+        AuthorizationFailure::InvalidRequest => (
+            "Authorization request not accepted",
+            "The connection request is invalid or incomplete.",
+            "Close this window. Then start the connection again in the Noema app.",
+        ),
+        AuthorizationFailure::ExpiredRequest => (
+            "Authorization expired",
+            "This connection request is no longer available.",
+            "Close this window. Then start the connection again in the Noema app.",
+        ),
+        AuthorizationFailure::UnverifiedRequest => (
+            "Authorization could not be verified",
+            "Noema did not accept this authorization response.",
+            "Close this window. Then start the connection again in the Noema app.",
+        ),
+        AuthorizationFailure::ServiceFailure => (
+            "Noema could not finish authorization",
+            "The server could not complete this request.",
+            "Close this window. Then return to Noema and try again.",
+        ),
+    };
+    (
+        status,
+        Html(format!(
+            r##"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fcfaf5">
+  <title>{title} · Noema</title>
+  <link rel="icon" href="/assets/apple-touch-icon.png">
+  <style>{NATIVE_OAUTH_PAGE_STYLE}</style>
+</head>
+<body>
+  <main>
+    <section class="oauth-card" aria-labelledby="error-title">
+      <img class="brand-mark" src="/assets/apple-touch-icon.png" width="40" height="40" alt="">
+      <div class="heading">
+        <p class="eyebrow">Authorization error</p>
+        <h1 id="error-title">{title}</h1>
+        <p class="intro">{summary}</p>
+      </div>
+      <div class="next-step">
+        <p class="next-step-title">What to do next</p>
+        <p class="next-step-description">{next_step}</p>
+      </div>
+      <p class="assurance">This attempt granted no client access.</p>
+    </section>
+  </main>
+</body>
+</html>"##
+        )),
+    )
+        .into_response()
 }
 
 fn oauth_error(status: StatusCode, error: &str) -> Response {
