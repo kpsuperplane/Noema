@@ -119,8 +119,9 @@ vertical slice or a net-negative reduction.
   policy editor. Added-access decisions show operations before exact scopes.
 - Chat projects OAuth client setup by profile. One intervention lists every
   reviewed API that can reuse the imported client.
-- SQLite schema version 44 stores independent local-human passkeys. Version 43
-  added rebuildable public OAuth projections and grant labels.
+- SQLite schema version 45 stores native OAuth code digests, token families,
+  refresh rotation history, and access-token digests. Version 44 stores
+  independent local-human passkeys.
 - The active reviewed Calendar definition has all 12 current operations,
   including date-only event creation. The 50-case live validation ledger has 50
   passing cases. Case 12 made no external change because the human told Noema
@@ -135,8 +136,12 @@ vertical slice or a net-negative reduction.
   uses a separate self-hosted build with no third-party runtime resources.
   Release servers reject root on Unix. Noema home and startup configuration
   use private modes. HTTP and WebSocket concurrency are bounded. The repository
-  has constrained systemd and nginx deployment examples. Native OAuth remains
-  incomplete. Native clients still use legacy bearer credentials. Installed
+  has constrained systemd and nginx deployment examples. The server supports
+  fixed first-party native OAuth clients through `oxide-auth`. It requires
+  S256 PKCE, recent browser passkey approval, and one-time CSRF state. It owns
+  opaque short access tokens and rotating refresh families. Refresh replay
+  revokes the family, access tokens, WebSockets, and push registrations. Native
+  clients still use legacy bearer credentials until their cutover. Installed
   PWA behavior follows
   [../frontend/pwa.md](../frontend/pwa.md).
 - The Tauri app defaults to its embedded host and can pair with one remote
