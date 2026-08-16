@@ -29,12 +29,14 @@ noema-store = { path = "../noema-store", default-features = false }
 openssl.workspace = true
 ring.workspace = true
 rmcp = { workspace = true, features = ["macros", "server", "transport-io"] }
+rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
 tower-http.workspace = true
+tower.workspace = true
 tower-sessions.workspace = true
 url.workspace = true
 webauthn-rs.workspace = true

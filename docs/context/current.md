@@ -133,8 +133,11 @@ vertical slice or a net-negative reduction.
   bounded, expire, and support targeted or global revocation. Settings can add
   and remove passkeys, but cannot remove the final passkey. Enabled GraphiQL
   uses a separate self-hosted build with no third-party runtime resources.
-  Native OAuth and remaining public-edge controls remain incomplete. Native
-  clients still use legacy bearer credentials. Installed PWA behavior follows
+  Release servers reject root on Unix. Noema home and startup configuration
+  use private modes. HTTP and WebSocket concurrency are bounded. The repository
+  has constrained systemd and nginx deployment examples. Native OAuth remains
+  incomplete. Native clients still use legacy bearer credentials. Installed
+  PWA behavior follows
   [../frontend/pwa.md](../frontend/pwa.md).
 - The Tauri app defaults to its embedded host and can pair with one remote
   HTTPS server. Rust owns its bearer, transport, recovery, and local return.

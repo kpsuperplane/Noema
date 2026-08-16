@@ -1,10 +1,10 @@
 //! Noema home-directory initialization.
 
-use std::{fs, path::PathBuf};
+use std::path::PathBuf;
 
 use thiserror::Error;
 
-use crate::NoemaPaths;
+use crate::{NoemaPaths, atomic_write_private, ensure_private_dir, ensure_private_file};
 
 /// Create the Noema root and runtime directory, optionally writing initial
 /// configuration bytes.
@@ -24,12 +24,12 @@ pub fn init_noema_home(
     let run_dir = root.join("run");
     let config_path = paths.config_path();
 
-    fs::create_dir_all(&root).map_err(|source| NoemaHomeError::CreateDirectory {
+    ensure_private_dir(&root).map_err(|source| NoemaHomeError::CreateDirectory {
         path: root.clone(),
         source,
     })?;
 
-    fs::create_dir_all(&run_dir).map_err(|source| NoemaHomeError::CreateDirectory {
+    ensure_private_dir(&run_dir).map_err(|source| NoemaHomeError::CreateDirectory {
         path: run_dir.clone(),
         source,
     })?;
@@ -37,7 +37,14 @@ pub fn init_noema_home(
     if let Some(initial_config) = initial_config
         && !config_path.exists()
     {
-        fs::write(&config_path, initial_config).map_err(|source| NoemaHomeError::WriteConfig {
+        atomic_write_private(&config_path, initial_config).map_err(|source| {
+            NoemaHomeError::WriteConfig {
+                path: config_path.clone(),
+                source,
+            }
+        })?;
+    } else if config_path.exists() {
+        ensure_private_file(&config_path).map_err(|source| NoemaHomeError::WriteConfig {
             path: config_path.clone(),
             source,
         })?;
@@ -89,6 +96,29 @@ mod tests {
             std::fs::read(root.join("config.yaml")).expect("config"),
             TEST_CONFIG
         );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for (path, expected) in [(&root, 0o700), (&root.join("run"), 0o700)] {
+                assert_eq!(
+                    std::fs::metadata(path)
+                        .expect("directory mode")
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                    expected
+                );
+            }
+            assert_eq!(
+                std::fs::metadata(paths.config_path())
+                    .expect("config mode")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
         std::fs::write(paths.config_path(), "provider: custom\n").expect("custom config");
 
         init_noema_home(&paths, Some(TEST_CONFIG)).expect("preserving init");

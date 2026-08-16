@@ -18,7 +18,33 @@ fn main() {
 }
 
 fn run_application() -> Result<(), Box<dyn std::error::Error>> {
+    require_unprivileged_release_user()?;
     application_runtime()?.block_on(run())
+}
+
+fn require_unprivileged_release_user() -> Result<(), std::io::Error> {
+    reject_root(!cfg!(debug_assertions) && current_user_is_root())
+}
+
+#[cfg(unix)]
+fn current_user_is_root() -> bool {
+    rustix::process::geteuid().is_root()
+}
+
+#[cfg(not(unix))]
+fn current_user_is_root() -> bool {
+    false
+}
+
+fn reject_root(is_root: bool) -> Result<(), std::io::Error> {
+    if is_root {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "release Noema server must not run as root",
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 fn application_runtime() -> Result<tokio::runtime::Runtime, std::io::Error> {
@@ -86,6 +112,12 @@ mod tests {
         });
 
         assert!(next >= 1_786_472_647);
+    }
+
+    #[test]
+    fn release_service_identity_rejects_root() {
+        assert!(reject_root(true).is_err());
+        assert!(reject_root(false).is_ok());
     }
 
     #[test]

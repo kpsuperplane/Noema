@@ -95,6 +95,10 @@ Supported environment variables include:
 - `NOEMA_WEB__PORT`
 - `NOEMA_WEB__RP_ID`
 - `NOEMA_WEB__PUBLIC_ORIGIN`
+- `NOEMA_WEB__DEV_NO_AUTH`
+- `NOEMA_WEB__LOCAL_GRAPHQL_SOCKET`
+- `NOEMA_WEB__GRAPHIQL`
+- `NOEMA_MCP__STDIO_ENABLED`
 
 For a server deployment, keep Noema bound to loopback and terminate TLS in a
 reverse proxy on the same host. Configure the exact browser origin and the
@@ -108,17 +112,25 @@ web:
   public_origin: https://noema.example.com
 ```
 
-On a fresh database, the server prints a one-use setup URL. Opening that URL
-authorizes the browser to register the first FIDO passkey for `human:local`;
-ordinary first visitors cannot claim an unconfigured public instance. Later
-browsers authenticate with that passkey and receive a private `HttpOnly`,
-`SameSite=Strict`, and, for HTTPS origins, `Secure` session cookie. Sessions are
-process-local, so a server restart requires passkey authentication again.
+On a fresh database, Noema writes `web.recovery_code` to `config.yaml`.
+Read that code from the server filesystem. Enter it in the setup screen.
+Noema rotates the code after every attempt. A successful attempt permits one
+passkey enrollment. Other application routes remain blocked until enrollment.
 
-Treat `web.rp_id` as durable identity configuration: changing it invalidates
-credentials registered under the old id. Passkey recovery and additional-key
-management are not implemented yet, so do not deploy without retaining access
-to the registered synced passkey or authenticator.
+Later browsers authenticate with a passkey. Noema supports multiple passkeys.
+It does not permit removal of the final passkey. Browser sessions use private
+`HttpOnly` and `SameSite=Strict` cookies. HTTPS origins also use `Secure`
+cookies. Sessions are process-local. A server restart requires authentication.
+
+Treat `web.rp_id` as durable identity configuration. A change invalidates
+credentials registered under the old identifier.
+
+Run public release binaries with a dedicated `noema` account. Release binaries
+reject root on Unix. The example [systemd unit](deploy/systemd/noema.service)
+sets a private home and removes Linux capabilities. The example
+[nginx configuration](deploy/nginx/noema.conf.example) terminates TLS and adds
+connection, request, body, and header limits. Replace its host and certificate
+paths before use. Keep Noema bound to loopback.
 
 Example Codex-oriented configuration:
 

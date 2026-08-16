@@ -36,6 +36,7 @@ fn main() -> io::Result<()> {
 fn validate_release_assets(asset_dir: &Path) -> io::Result<()> {
     for name in [
         "index.html",
+        "graphiql.html",
         "manifest.webmanifest",
         "sw.js",
         "apple-touch-icon.png",
@@ -59,12 +60,18 @@ fn validate_release_assets(asset_dir: &Path) -> io::Result<()> {
             require_asset(asset_dir, path)?;
         }
     }
+    validate_graphiql_entry(asset_dir)?;
     validate_precache(asset_dir)?;
     Ok(())
 }
 
 fn validate_precache(asset_dir: &Path) -> io::Result<()> {
     let worker = fs::read_to_string(asset_dir.join("sw.js"))?;
+    if worker.contains("graphiql") {
+        return Err(invalid_assets(
+            "service worker must not precache GraphiQL assets",
+        ));
+    }
     for entry in fs::read_dir(asset_dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -78,11 +85,28 @@ fn validate_precache(asset_dir: &Path) -> io::Result<()> {
             .strip_prefix("workbox-")
             .and_then(|_| name.strip_suffix(".js"))
             .unwrap_or(name);
-        if name != "sw.js" && !worker.contains(worker_reference) {
+        if name != "sw.js"
+            && name != "graphiql.html"
+            && !name.starts_with("graphiql-")
+            && !worker.contains(worker_reference)
+        {
             return Err(invalid_assets(format!(
                 "service worker does not reference release asset: {name}"
             )));
         }
+    }
+    Ok(())
+}
+
+fn validate_graphiql_entry(asset_dir: &Path) -> io::Result<()> {
+    let entry = fs::read_to_string(asset_dir.join("graphiql.html"))?;
+    if !entry.contains("/assets/graphiql-")
+        || entry.contains("http://")
+        || entry.contains("https://")
+    {
+        return Err(invalid_assets(
+            "GraphiQL entry must reference only self-hosted GraphiQL assets",
+        ));
     }
     Ok(())
 }

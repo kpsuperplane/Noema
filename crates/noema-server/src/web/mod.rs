@@ -10,11 +10,12 @@ pub(super) mod session;
 mod session_store;
 
 use noema_host::WebConfig;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::Semaphore};
 
 use crate::WebServerError;
 
 pub(super) const MAX_GRAPHQL_BODY_BYTES: usize = 64 * 1024;
+const MAX_WEBSOCKET_CONNECTIONS: usize = 64;
 pub(super) use local_graphql::LocalGraphqlServer;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,6 +50,7 @@ pub(crate) struct WebState {
     client_auth: clients::ClientAuth,
     graphiql_enabled: bool,
     recovery: Option<noema_host::RecoveryCodeStore>,
+    websocket_slots: std::sync::Arc<Semaphore>,
 }
 
 impl WebState {
@@ -75,11 +77,51 @@ impl WebState {
             client_auth,
             graphiql_enabled,
             recovery,
+            websocket_slots: std::sync::Arc::new(Semaphore::new(MAX_WEBSOCKET_CONNECTIONS)),
         })
+    }
+
+    fn websocket_slot(&self) -> Result<tokio::sync::OwnedSemaphorePermit, axum::http::StatusCode> {
+        self.websocket_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| axum::http::StatusCode::SERVICE_UNAVAILABLE)
     }
 
     pub(super) fn local_graphql_schema(&self) -> noema_api::graphql::GraphqlSchema {
         self.graphql_schema.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn websocket_capacity_rejects_excess_work() {
+        let root = tempfile::tempdir().expect("store root");
+        let state = WebState::new(
+            noema_api::graphql::GraphqlState::for_tests(),
+            noema_store::NoemaStore::open(&noema_store::StoreConfig::new(
+                root.path().join("noema.sqlite3"),
+            ))
+            .await
+            .expect("store"),
+            authority::CanonicalAuthority::from_public_origin("http://localhost:3737", "localhost")
+                .expect("authority"),
+            session::SessionSecurity::for_tests("WebSocket capacity"),
+            WebAuthMode::DisabledForDevelopment,
+            false,
+            None,
+        )
+        .expect("web state");
+        let permits = (0..MAX_WEBSOCKET_CONNECTIONS)
+            .map(|_| state.websocket_slot().expect("WebSocket slot"))
+            .collect::<Vec<_>>();
+
+        assert!(state.websocket_slot().is_err());
+        drop(permits);
+        assert!(state.websocket_slot().is_ok());
     }
 }
 

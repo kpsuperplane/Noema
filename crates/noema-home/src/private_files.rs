@@ -58,6 +58,22 @@ pub fn ensure_private_dir(path: &Path) -> io::Result<()> {
     create_private_dir_all(path)
 }
 
+/// Restrict an existing regular file to the current operating-system account.
+///
+/// # Errors
+///
+/// Returns an I/O error when the path is not a regular file or protection fails.
+pub fn ensure_private_file(path: &Path) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private file path must be a regular file",
+        ));
+    }
+    set_private_file_permissions(path)
+}
+
 fn create_temporary_file(path: &Path) -> io::Result<(PathBuf, fs::File)> {
     let parent = path.parent().ok_or_else(|| {
         io::Error::new(
@@ -252,7 +268,13 @@ mod tests {
                 0o700
             );
             assert_eq!(
-                fs::metadata(path).expect("file").permissions().mode() & 0o777,
+                fs::metadata(&path).expect("file").permissions().mode() & 0o777,
+                0o600
+            );
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("loosen file");
+            ensure_private_file(&path).expect("restore private file");
+            assert_eq!(
+                fs::metadata(&path).expect("file").permissions().mode() & 0o777,
                 0o600
             );
         }

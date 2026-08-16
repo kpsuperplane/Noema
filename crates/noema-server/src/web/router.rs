@@ -14,6 +14,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::Deserialize;
+use tower::{ServiceBuilder, limit::ConcurrencyLimitLayer};
 use tower_http::{limit::RequestBodyLimitLayer, set_header::SetResponseHeaderLayer};
 use tower_sessions::{Expiry, Session, SessionManagerLayer, cookie::SameSite};
 
@@ -26,6 +27,7 @@ use super::{
 
 const MAX_OAUTH_QUERY_BYTES: usize = 8 * 1024;
 const MAX_RECOVERY_BODY_BYTES: usize = 1024;
+const MAX_CONCURRENT_HTTP_REQUESTS: usize = 256;
 const NOT_FOUND: &str = "not found";
 const GRAPHIQL_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
@@ -135,7 +137,9 @@ pub(crate) fn build_router(state: WebState) -> Router {
                 "publickey-credentials-create=(self), publickey-credentials-get=(self)",
             ),
         ))
-        .layer(RequestBodyLimitLayer::new(MAX_GRAPHQL_BODY_BYTES))
+        .layer(ServiceBuilder::new()
+            .layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_HTTP_REQUESTS))
+            .layer(RequestBodyLimitLayer::new(MAX_GRAPHQL_BODY_BYTES)))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             clients::authenticate_bearer,
@@ -219,6 +223,10 @@ async fn graphql_ws(
     let Some(principal) = authenticated_principal(&state, &session, principal).await else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
+    let slot = match state.websocket_slot() {
+        Ok(slot) => slot,
+        Err(status) => return status.into_response(),
+    };
     let schema = state.graphql_schema.clone();
     let client_revocations = state.store.subscribe_client_revocations();
     let session_revocations = state.sessions.subscribe_revocations();
@@ -237,6 +245,7 @@ async fn graphql_ws(
                 .serve();
             let client_id = principal.client_id().map(str::to_owned);
             async move {
+                let _slot = slot;
                 tokio::pin!(serve);
                 if let Some(client_id) = client_id {
                     let mut revocations = client_revocations;

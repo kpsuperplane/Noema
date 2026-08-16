@@ -1,0 +1,28 @@
+[Unit]
+Description=Noema personal agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=noema
+Group=noema
+Environment=NOEMA_HOME=/var/lib/noema
+WorkingDirectory=/var/lib/noema
+ExecStart=/usr/local/bin/noema_web
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/noema
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target
