@@ -129,7 +129,7 @@ vertical slice or a net-negative reduction.
   passing cases. Case 12 made no external change because the human told Noema
   to leave the date-only event uncreated.
 - [Server authentication and public access](../server-security.md) is the
-  accepted target contract. Runtime development, GraphiQL, local GraphQL, and
+  implemented code contract. Runtime development, GraphiQL, local GraphQL, and
   stdio MCP flags now fail closed by default. Browser setup supports multiple
   passkeys and rotating file-backed recovery. The private Unix GraphQL socket
   gives local tools `human:local` authority when enabled. Browser sessions are

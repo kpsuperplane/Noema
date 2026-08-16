@@ -1,16 +1,15 @@
 # Server Authentication and Public Access
 
-- **Status:** Accepted target contract; implementation is pending
+- **Status:** Implemented code contract; public deployment verification remains required
 - **Scope:** Browser, PWA, iOS, desktop, public ingress, recovery, and local process authority
 - **Human authority:** One built-in administrator, `human:local`
 
 This document defines Noema's server authentication and public-access contract.
-It does not describe the current implementation as complete.
 [`docs/harness/security.md`](harness/security.md) remains authoritative for
 information classes, model context, tool governance, and egress policy.
 
-Each requirement applies when its feature is enabled. Until a feature meets its
-requirements, public deployments must disable that feature and its routes.
+Each requirement applies when its feature is enabled. Public routing still
+requires the deployment checks in [Public Enablement](#public-enablement).
 
 ## 1. Threat Model
 
@@ -444,7 +443,6 @@ platform authentication session and networking APIs.
 
 Noema does not add OIDC, ID tokens, UserInfo, JWKS, or OIDC discovery.
 
-Until this contract is complete, public deployments must disable native access.
 The OAuth cutover removes legacy pairing routes and revokes legacy credentials.
 
 ## 10. GraphiQL
@@ -527,8 +525,9 @@ request bodies and concurrent HTTP and WebSocket connections.
 The proxy must preserve the configured public Host. It must not forward an
 untrusted client value through a header that Noema treats as authoritative.
 
-Production errors are bounded and stable. They do not expose stack traces,
-database details, or secret values.
+Unauthenticated production errors are bounded and stable. They do not expose
+stack traces, database details, or secret values. Authenticated administrator
+errors can preserve ordinary diagnostics, but they must never expose secrets.
 
 ### Public Enablement
 
@@ -548,21 +547,36 @@ Validate setup isolation, development bypass, recovery failure and concurrency,
 session revocation, OAuth replay, and WebSocket termination through the public
 edge.
 
+### Repository Advisory Review: 2026-08-16
+
+`cargo audit` reports `RUSTSEC-2026-0194` and `RUSTSEC-2026-0195` for
+`quick-xml 0.39.4`. The dependency chain is desktop-only:
+`noema-desktop -> tauri -> plist -> quick-xml`.
+
+Tauri reads the installed macOS `Info.plist` during application restart.
+Public server requests do not provide this XML. Modifying the installed file
+already requires local package control, which is outside this threat model.
+
+`cargo audit` also reports `RUSTSEC-2023-0071` for `rsa 0.9.10` through
+`web-push-native`. Noema creates and loads only ES256 VAPID keys. It performs no
+RSA private-key operation, so the reported timing path is not reachable.
+
+`bun audit` reports 12 advisories in `brace-expansion`, `js-yaml`, `nanoid`,
+and `postcss`. These packages run in the web build, lint, and generation tools.
+They do not parse requests in the deployed server or browser application.
+
+These advisories do not block public routing under this threat model. Repeat
+the reachability review after dependency or build-pipeline changes.
+
 ## 13. PWA Offline Boundary
 
 Installed PWA data remains protected by the browser profile and device lock.
 Server logout cannot erase data from an offline device.
 
-Development bypass cannot establish offline authentication or write private
-offline snapshots.
-
 Installed mode provides one `Log out and erase this device` action. It deletes
 local private data. When online, it first revokes the server session and Push
 registration. When offline, server authority remains until expiry or later
 revocation.
-
-Each Push delivery checks the subscription's current authorization. Logout,
-expiry, and revocation disable the related Push registration.
 
 The detailed release and cache contract remains in
 [Installed Web Application](frontend/pwa.md). GraphQL, WebSocket, authentication,
