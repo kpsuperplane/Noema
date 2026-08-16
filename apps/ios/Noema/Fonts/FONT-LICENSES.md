@@ -8,5 +8,5 @@ from the Google Fonts repository at commit
 - Hanken Grotesk: `ofl/hankengrotesk`
 - JetBrains Mono: `ofl/jetbrainsmono`
 
-Each family is distributed under the SIL Open Font License 1.1. The verbatim
-license for each family is kept beside its font file.
+Each family uses the SIL Open Font License 1.1. Its family-specific license
+text is kept beside the font file.

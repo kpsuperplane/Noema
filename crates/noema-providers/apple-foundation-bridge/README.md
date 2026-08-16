@@ -1,17 +1,22 @@
 # Noema Foundation Bridge
 
 This Swift package is the macOS-only helper process for the `foundation_local`
-provider. It is not a Cargo workspace member and is not required for Linux or
-Windows builds.
+provider. It requires macOS 26, Swift 6, and Apple Foundation Models. It is not
+a Cargo workspace member. Linux and Windows builds do not require it.
 
-In local source builds, the Rust `foundation_local` provider runs `swift build`
-on demand when the default source-tree bridge binary is missing.
+When `bridge_path` is unset, a debug Rust build uses the source-tree bridge.
+If that executable is missing, the provider runs `swift build` on demand.
+Configured bridge paths and release builds are never built automatically.
 
-Manual development build on a supported macOS toolchain:
+On macOS, `cargo dev` watches `Package.swift` and `Sources`. It runs
+`swift build` after a change.
+
+Run a manual development build from the repository root:
 
 ```bash
 swift build --package-path crates/noema-providers/apple-foundation-bridge
 ```
 
-The Rust provider adapter owns this process lifecycle. Users should not start
-this bridge manually in normal Noema use.
+For a release build, place `noema-foundation-bridge` beside the Noema
+executable. Alternatively, set `foundation_local.bridge_path` to its exact
+path. The Rust provider adapter starts and stops the process.

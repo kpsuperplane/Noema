@@ -19,30 +19,42 @@ package, or the desktop app.
 NOEMA_HOME=.noema-dev cargo dev
 ```
 
+`cargo dev` currently requires Unix because it always enables the private Unix
+GraphQL socket. On macOS, it also watches the Foundation bridge package and
+runs `swift build` after bridge changes.
+
 ## Requirements
 
 - Rust and Cargo
 - Bun for frontend dependency installation and builds
+- `cargo-watch` for the combined development supervisor
 - CMake, Clang, and libclang for Obscura's stealth transport
-- For macOS desktop builds: Xcode (including its command-line tools) and the
-  Cargo Tauri CLI
-- A provider account for chat:
-  - OpenAI Platform API key for `provider: openai`
-  - Noema-managed Codex OAuth credentials for `provider: codex`, created through
-    provider onboarding
+- A Unix host for `cargo dev`
+- For macOS desktop builds: Xcode and its command-line tools
+- For Apple Foundation Models: macOS 26 and Swift 6
+- One supported chat provider:
+  - OpenAI Platform for `provider: openai`
+  - OpenRouter for `provider: openrouter`
+  - Codex for `provider: codex`
+  - Local GGUF models for `provider: local_models`
+  - Apple Foundation Models for `provider: foundation_local`
+
+OpenAI uses `NOEMA_OPENAI__API_KEY`. OpenRouter and Codex credentials are
+created through provider onboarding. The desktop package locks the Tauri CLI
+through Bun.
 
 ## Product Surfaces
 
 The first-party product API is GraphQL. The local web UI uses `/graphql` for
 queries and mutations plus `/graphql/ws` for subscriptions. The desktop app
 uses Tauri commands and events for both its embedded schema and authenticated
-HTTPS connections to a paired remote server.
+HTTPS connections to a remote server.
 
 `noema-host` owns configuration, startup, composition, and dependency-ordered
 shutdown. During startup it uses `noema-home` to initialize `${NOEMA_HOME}`,
 composes the SQLite-backed `noema-store`, starts the native `noema-memory`
 subsystem, and assembles provider and capability implementations. SQLite lives
-at `${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`, canonical human memory lives
+at `${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`, durable human memory lives
 under `${NOEMA_HOME:-$HOME/.noema}/memory/human/`, its rebuildable FTS index
 lives under `system/indexes/`, and provider credential material lives under
 `${NOEMA_HOME:-$HOME/.noema}/providers/<provider>/<account>/`.
@@ -56,7 +68,6 @@ Example OpenAI-oriented configuration:
 
 ```yaml
 provider: openai
-model: gpt-5.5
 openai:
   base_url: https://api.openai.com/v1
   organization_id: org_...
@@ -82,6 +93,7 @@ Supported environment variables include:
 - `NOEMA_HOME`
 - `NOEMA_PROVIDER`
 - `NOEMA_MODEL`
+- `NOEMA_REASONING_EFFORT`
 - `NOEMA_OPENAI__API_KEY`
 - `NOEMA_OPENAI__BASE_URL`
 - `NOEMA_OPENAI__TIMEOUT_SECONDS`
@@ -137,12 +149,12 @@ Example Codex-oriented configuration:
 ```yaml
 provider: codex
 codex:
-  model: gpt-5.5
   timeout_seconds: 300
 ```
 
 Codex authentication is handled as Noema-owned provider account state. The web
 onboarding flow blocks chat until an active provider account is authenticated.
+If you set an explicit OpenAI or Codex model, also set `reasoning_effort`.
 
 ## Development
 
@@ -224,8 +236,7 @@ can use `.noema-dev/run/graphql.sock` without a passkey. This server is
 unauthenticated, so use it only on a trusted network. Direct daemon runs and
 release builds keep the secure defaults.
 
-This expects `cargo-watch` to be installed because it restarts the Rust web
-server on backend changes.
+The supervisor uses `cargo-watch` for the Rust server and Foundation bridge.
 
 For frontend development against the desktop app, run the Tauri-oriented Vite
 build/watch task:
@@ -258,21 +269,26 @@ and clean-machine distribution validation remain future release work.
 ### Connect the desktop app to a server
 
 The desktop app uses its embedded local Noema instance by default. To connect
-it to a server, create a ten-minute pairing link under **Settings > System >
-Clients**. Open that link with the installed desktop app, or paste it under
-**Settings > System > Desktop**.
+it to a server, create a connection link under **Settings > System > Clients**.
+The link contains only the server origin. Open it with the installed desktop
+app, or paste it under **Settings > System > Desktop**.
 
 Remote connections require the server's exact `https` public origin and an
 operating-system-trusted certificate. Noema rejects HTTP, localhost, IP-address
-origins, redirects, and custom certificate authorities. The bearer credential
-stays in the operating system credential store.
+origins, redirects, and custom certificate authorities. The desktop app opens
+the system browser for OAuth. Authorization requires PKCE and recent passkey
+approval.
+
+The operating system credential store keeps the origin, client identifier, and
+rotating refresh credential. Access tokens stay in memory.
 
 The desktop app keeps one active remote server. **Use local Noema** revokes the
-remote client, removes its credential, and restarts the embedded instance.
-Noema also restarts after successful pairing to clear server-specific UI state.
+remote OAuth family, removes its credential, and restarts the embedded instance.
+Noema also restarts after a successful connection to clear server-specific UI
+state.
 If remote startup fails, retry the connection or return to local mode. If the
-server is unavailable, **Forget this server** cannot revoke its client. Revoke
-that client later from another authenticated client.
+server is unavailable, **Forget this server** only removes local credentials.
+Revoke that client later from another authenticated client.
 
 Use the Rust desktop crate for desktop-side validation:
 
@@ -285,13 +301,17 @@ cargo validate test -p noema-desktop
 
 ```text
 apps/web/                     React UI and GraphQL operation generation
+apps/ios/                     Native SwiftUI client and Live Activity extension
+graphql/                      Generated shared GraphQL schema
 crates/noema-home/            Home layout, initialization, safe paths, diagnostics
 crates/noema-conversations/   Conversation and transcript domain contracts
 crates/noema-artifacts/       Governed artifact contracts and filesystem service
 crates/noema-capabilities/    Provider-neutral capability and tool contracts
+  adapters/                   Native HTTP adapter manifests and compiler
   mcp/                        MCP contracts and optional local transport adapter
 crates/noema-providers/       Provider contracts, adapters, and local GGUF models
 crates/noema-tasks/           Task, run, submission, and review domain contracts
+crates/noema-workspaces/      Workspace and project domain contracts
 crates/noema-memory/          Native Markdown memory and derived search
 crates/noema-store/           SQLite persistence and persistence read models
 crates/noema-runtime/         Governed, transport-neutral agent execution
@@ -299,6 +319,7 @@ crates/noema-host/            Configuration, composition, startup, and shutdown
 crates/noema-api/             Transport-neutral GraphQL schema and resolvers
 crates/noema-server/          HTTP/WebSocket shell and release web-asset owner
 crates/noema-desktop/         Tauri shell using the shared host and GraphQL API
+crates/noema-dev/             Development supervisor and validation launcher
 crates/noema-model-evals/     Opt-in local-model qualification runner
-docs/                         Current design notes and historical plans/specs
+docs/                         Current contracts, active plans, and dated evidence
 ```

@@ -1,5 +1,11 @@
 # Overengineering audit evidence appendix
 
+- **Status:** Dated evidence snapshot
+- **Baseline:** `ef0db3918e4997c214f9762f3be1e5753d6022de`
+
+This file preserves measurements from the stated baseline.
+It does not describe current repository size or behavior.
+
 This appendix records the baseline, method, repository measurements, and concrete
 evidence behind the [main audit](2026-08-08-overengineering-audit.md). It is a
 review artifact, not a replacement for source-level contracts.

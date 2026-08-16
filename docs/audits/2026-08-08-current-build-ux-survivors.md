@@ -1,12 +1,15 @@
 # Current-build disposition of `.noema-dev` UX incidents
 
-- **Status:** Complete current-build audit
+- **Status:** Dated evidence snapshot; closed at the stated cutoff
 - **Mode:** Adversarial review and report only
 - **Historical baseline:** [`.noema-dev` user-experience incident audit](2026-08-08-noema-dev-user-experience-history.md)
 - **Source revision:** `be388c1e223800bb9925e49302eb2a1acb3c7d9f`
 - **Runtime cutoff:** 2026-08-08 19:24:29 UTC
 - **SQLite snapshot:** `/tmp/noema-current-build-audit-20260808-v2.sqlite3`
 - **Error-log snapshot:** `/tmp/noema-current-build-audit-20260808-v2.errors.jsonl`
+
+“Current build” means only the stated source revision and runtime cutoff.
+This file does not describe current repository status.
 
 This report rechecks all 78 historical issue records against the current source,
 the fresh `.noema-dev` state, post-audit runtime activity, focused unit tests, and
@@ -102,7 +105,7 @@ The 22 surviving issue IDs collapse to a smaller set of root problems:
 
 ## What is resolved
 
-The strongest current evidence is the live validation ledger: 49 of 50 cases are
+The strongest evidence at the cutoff is the live validation ledger: 49 of 50 cases are
 `PASS`; Case 12 is `RUNNING` only because of the separately retained all-day
 Calendar gap. The suite exercised Gmail, Calendar, Notion, cross-system reads,
 confirmed writes, exact update targeting, pagination, readback, OAuth recovery,

@@ -1,6 +1,6 @@
 # Overengineering audit remediation report
 
-- **Status:** Implementation complete within approved engineering scope
+- **Status:** Dated completion record; closed at the measured head
 - **Audit baseline:** `ef0db3918e4997c214f9762f3be1e5753d6022de`
 - **Measured implementation head:** `43267781ee9e37606f6ac3303373a6a657530ebf`
 - **Mode:** Implement, validate, and record explicit blockers and product decisions
@@ -11,6 +11,8 @@ This is the durable completion ledger for the audit. The original audit remains 
 review snapshot, and the [evidence appendix](2026-08-08-overengineering-evidence.md)
 retains its baseline measurements. Current subsystem contracts remain authoritative
 over this report.
+
+This file does not describe changes after the measured implementation head.
 
 ## Executive outcome
 

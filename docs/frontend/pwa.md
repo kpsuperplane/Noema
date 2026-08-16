@@ -16,7 +16,11 @@ An install or update failure leaves the current controller and snapshot in place
 
 Installed mode uses the versioned `noema-pwa` IndexedDB database. One `snapshot` record contains Apollo's normalized cache, the cache schema version, recovery generation, last successful synchronization time, and at most 100 recent mutable query/variable pairs. Replacing that record is one IndexedDB transaction, so termination leaves either the previous complete generation or the replacement. Chat drafts and the task-capture draft are separate durable records because they must be saved between synchronized snapshots.
 
-Noema requests persistent browser storage after authentication, but denial and quota exhaustion are nonfatal. The server remains canonical. The installed app's isolated origin storage and the iPhone device lock are the offline access boundary; Noema does not add application-level encryption to the Apollo snapshot.
+Noema requests persistent browser storage after authentication. Denial and
+quota exhaustion are nonfatal. The server remains the source authority. The
+installed app uses isolated origin storage and the iPhone device lock as its
+offline access boundary. Noema does not add application-level encryption to
+the Apollo snapshot.
 
 A previously authenticated sentinel permits an installed app to reveal its saved snapshot when the server is unreachable. A reachable server response requiring login immediately hides that snapshot behind the passkey gate without deleting it. A successful login makes it available for reconciliation again.
 
@@ -40,9 +44,20 @@ Mutation responses, immutable task/run history, debug profiles, OAuth/setup stat
 
 Web Push is available only to an installed standalone browser app served from the configured HTTPS `web.public_origin`. Permission is requested only from the Enable action in Chat or Settings. The browser subscription is registered through GraphQL; the daemon retains one stable VAPID keypair, private endpoint/key material, a primary-conversation projection checkpoint, and a bounded delivery outbox in SQLite. A 404 or 410 response removes the expired subscription. Network, 429, and server failures retry after 1, 5, and 30 minutes before becoming terminal.
 
-The first slice notifies for durable `final_answer` items in the local human's primary conversation and newly appearing HumanInterventionCard projections. Existing transcript items and intervention cards seed the projector without alerting. Chat messages use normal urgency with a one-hour TTL; interventions use high urgency with a one-day TTL. Payloads contain the primary agent or safe intervention title, a whitespace-normalized preview, and navigation to `/`; arguments, tool results, action details, badges, and notification actions are excluded.
+Noema notifies for durable `final_answer` items in the local human's primary
+conversation. It also notifies for new `HumanIntervention` projections.
+Existing items seed the projector without an alert. Chat messages use normal
+urgency and a one-hour TTL. Interventions use high urgency and a one-day TTL.
+Payloads contain the agent or safe intervention title, a normalized preview,
+and navigation to `/`. They exclude arguments, results, action details, badges,
+and notification actions.
 
-Suppression is per browser subscription. While one installed client has the primary Chat route visible and focused, its GraphQL presence stream holds a visibility lease and new deliveries for that exact subscription are suppressed. Other devices still receive the notification. Settings, Work, backgrounded, offline, and disconnected clients do not assert Chat visibility. This matches common messaging behavior: suppress where the conversation is actively being read without globally silencing a human's other clients.
+Suppression is per browser subscription. A focused primary Chat route holds a
+visibility lease for that installed client. Noema suppresses new deliveries for
+that exact subscription. Other devices still receive the notification. Tasks,
+Settings, backgrounded, offline, and disconnected clients do not assert Chat
+visibility. This behavior avoids an alert where the human reads the message.
+It does not silence the human's other clients.
 
 The daemon always sends the declarative Web Push JSON shape so current WebKit can display and navigate even if the service worker has been removed or fails. The generated worker imports a small fallback handler that renders the same payload and handles clicks on browsers without declarative support. Notification content crosses the browser vendor's push service encrypted by standard Web Push; device-level preview controls remain authoritative.
 
@@ -50,4 +65,13 @@ The daemon always sends the declarative Web Push JSON shape so current WebKit ca
 
 The browser production build must precede a release server build. `build.rs` requires the manifest, stable worker, HTML, icons, Vite manifest entries, and every file named by the worker's precache. Server tests verify MIME types, cache headers, worker scope, precache completeness, and `no-store` exclusions.
 
-The manual iPhone check installs from authenticated Safari, opens representative Chat, Work, Memory, Settings, and textual artifact data, then relaunches in Airplane Mode. It enables notifications from a direct tap, verifies that focused Chat suppresses only that iPhone while another client still alerts, and verifies that background Chat, Settings, and a closed app receive both a final reply and a new intervention. A second release must be deployed while version one is offline; reconnecting without terminating must produce a complete worker install, safe automatic activation and refresh, route/draft preservation, and an atomic data-generation advance before any write control becomes available.
+The manual iPhone check installs from authenticated Safari. It opens Chat,
+Tasks, Memory, Settings, and textual artifact data before an Airplane Mode
+relaunch. A direct tap must enable notifications. Focused Chat must suppress
+only that iPhone while another client still alerts. Background Chat, Settings,
+and a closed app must receive a final reply and a new intervention.
+
+Deploy a second release while version one is offline. Reconnect without
+terminating the app. The app must install and activate the complete worker,
+then refresh automatically. It must preserve the route and drafts. Stored data
+must advance atomically before any write control becomes available.

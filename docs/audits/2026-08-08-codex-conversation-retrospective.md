@@ -1,11 +1,14 @@
 # Recurring problems in Noema's Codex build conversations
 
-- **Status:** Evidence-backed retrospective
+- **Status:** Dated evidence snapshot
 - **Mode:** Explore and report only
 - **Conversation window:** 2026-08-03 through 2026-08-08
 - **Repository reference:** `dc9bb212`
 - **Scope:** Codex conversations and delegated reviews conducted while building,
   debugging, validating, and simplifying Noema
+
+This snapshot does not describe current repository status.
+Use current subsystem contracts and code for present behavior.
 
 This report identifies recurring problems in how Noema behaved and in how Codex
 helped build it. It is a retrospective, not a second product or architecture

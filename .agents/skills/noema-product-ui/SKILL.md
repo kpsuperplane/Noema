@@ -125,10 +125,10 @@ material, or several stages, use a route, rail, or full-screen flow instead.
 
 ## Implement with existing structure
 
-- Use Astryx props and components first, then Noema domain components, then
-  token-backed StyleX. Hand-roll behavior only when the existing foundation
-  cannot express it.
-- Search for the same semantic object across chat, Work, settings, and detail
+- Use an existing Noema domain component first. Then use Astryx props and
+  components, followed by token-backed StyleX. Add custom behavior only when
+  the existing foundation cannot express it.
+- Search for the same semantic object across Chat, Tasks, Settings, and detail
   surfaces. Consolidate or extend the shared abstraction rather than
   introducing a second rendering.
 - Keep source and visual order aligned. Preserve keyboard, focus, loading,
@@ -161,5 +161,5 @@ overflow, and responsive composition. A passing build does not prove the
 design is correct. When browser inspection is not authorized, say explicitly
 that the change received static and build validation only.
 
-Run the project-prescribed frontend generation, lint, and production build
-checks. Do not add UI tests unless the user explicitly requests them.
+From `apps/web`, run `bun run check:generated`, `bun run lint`, and
+`bun run build`. Do not add UI tests unless the user explicitly requests them.

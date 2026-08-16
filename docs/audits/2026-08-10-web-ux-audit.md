@@ -1,10 +1,15 @@
 # Web UX audit
 
-Date: 2026-08-10
+- **Date:** 2026-08-10
+- **Status:** Closed static evidence snapshot
+- **Runtime verification:** Not performed
+
+This file records the reviewed source and listed implementation commits.
+It does not describe current repository behavior.
 
 ## Outcome
 
-The web application now includes all 14 approved changes.
+The recorded implementation included all 14 approved changes.
 
 The changes improve approval safety, navigation, focus, contrast, state accuracy, and failure recovery.
 
@@ -14,7 +19,7 @@ UX-13 is not a finding. A new conversation still waits for the agent's first mes
 
 ## Scope and coverage
 
-This was a full static audit of every current web route and its owning user-facing components.
+This was a full static audit of every web route present at the audit cutoff.
 
 The scope included authentication, onboarding, Chat, Tasks, Memory, Settings, the shell, dialogs, and offline states.
 
@@ -817,4 +822,6 @@ Do not prompt the human to start the conversation because that would invert the 
 
 ## Verdict
 
-Static implementation complete. Runtime verification required.
+Static implementation evidence is complete.
+Browser, device, and assistive-technology verification was not performed.
+A fresh runtime review must use current code.

@@ -1,5 +1,11 @@
 # MacBook Air 32 GB unified-tool qualification
 
+- **Suite status:** Historical 11-case unified-tool snapshot
+- **Supersession status:** Superseded by the live Noema qualification
+- **Current suite:** 31 scored cases plus a separate unscored soak
+
+This result still supports the selected E4B artifact on the stated 32 GB machine.
+
 Run on 2026-07-15 on a MacBook Air `Mac17,3` with an Apple M5, 10 CPU
 cores, 10 GPU cores, 32 GB unified memory, and the Metal backend. Noema used
 its pinned llama.cpp b10015 runtime at commit
@@ -100,9 +106,11 @@ This is llama.cpp's maintained Q4_K_M conversion. Google's QAT Q4_0 artifact is
 not interchangeable; it aborts the pinned b10015 runtime while loading the
 vocabulary.
 
-## Raw reports
+## Machine-local support
 
-Raw reports remain ignored under `target/noema-model-evals/runs/`:
+The raw reports were machine-local diagnostic support.
+The committed summary is the durable evidence record.
+These paths identify the original runs and might not remain present:
 
 - Gemma E4B qualification one: `run-1784151938/gemma-4-e4b-it-q4-k-m-1.json`
 - Gemma E4B qualification two: `run-1784152057/gemma-4-e4b-it-q4-k-m-1.json`

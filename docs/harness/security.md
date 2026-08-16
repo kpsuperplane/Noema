@@ -48,7 +48,7 @@ Noema should treat the following boundaries as explicit:
 | Human interface -> trigger router | Spoofed or malformed requests |
 | External connector -> Noema | Prompt injection, malicious content, stale data |
 | Filesystem import -> context | Embedded instructions, private or secret data, provenance loss |
-| Memory runtime -> context packet | Over-broad retrieval, stale or contested memory |
+| Memory runtime -> model context | Over-broad retrieval, stale or contested memory |
 | Model output -> harness proposal | Hallucinated permissions, unsafe actions |
 | Harness -> capability adapter | Unauthorized read/write or confused deputy |
 | Capability result -> context | Tool output treated as trusted instruction |
@@ -162,7 +162,7 @@ only defense.
 
 ## Trust labels
 
-Noema should attach trust labels to content in context packets.
+Noema should attach trust labels to content in model context.
 
 Suggested labels:
 
@@ -237,13 +237,18 @@ Suggested egress classes:
 | `task_mutation` | Update task status or notes | Policy-check |
 | `agent_handoff` | Send context to another agent | Policy-check |
 | `external_read` | Query external API with context | Policy-check the destination and data; preserve allowed content |
-| `external_write` | Update doc, send email, create ticket | Approval by default |
-| `external_share` | Share file/link with another person | Approval by default |
-| `public_publish` | Publish web page, repo, package, post | Approval required |
+| `external_write` | Update doc, send email, create ticket | Use current connection and review policy |
+| `external_share` | Share file/link with another person | Use current connection and review policy |
+| `public_publish` | Publish web page, repo, package, post | Use current connection and review policy |
 | `secret_exposure` | Send secret or credential anywhere | Deny by default |
 
 Policy may refine defaults by human, workspace, project, task, agent,
 relationship, tool, destination, and operation.
+
+An external write does not categorically require a human decision. Current
+connection policy selects immediate execution, human review, or LLM review. A
+successful LLM review can clear execution under the deterministic matrix in
+[the action request contract](action-governance.md#llm-review).
 
 ## Information classes and mechanisms
 
@@ -253,7 +258,7 @@ information, not whether a particular principal may access it:
 | Class | Examples | Persistence | Model access | Egress |
 | --- | --- | --- | --- | --- |
 | `secret` | Passwords, API keys, access/refresh tokens, private keys, session cookies, authorization codes, PKCE verifiers, recovery codes, or any bearer value whose possession grants authority | Only explicit credential stores or protected transient-auth stores | Never; adapters receive secure bindings or references | Never as content |
-| `private` | Personal, medical, financial, legal, relationship, workspace, project, conversation, private-memory, or business-confidential content | Preserve in its canonical governed store | Include intact only when scope, purpose, participant policy, and grants authorize the run | Apply normal egress policy for the exact destination and audience |
+| `private` | Personal, medical, financial, legal, relationship, workspace, project, conversation, or business-confidential content | Preserve in its governed source | Include intact only when scope, purpose, participant policy, and grants authorize the run | Apply normal egress policy for the exact destination and audience |
 | `ordinary` | Non-secret content and metadata, including IDs, statuses, counts, schemas, non-credential URLs, paths, hostnames, ports, model names, service endpoints, and safe diagnostics | Preserve normally | Include when functionally relevant | Apply the operation's normal egress policy without precautionary redaction |
 
 Trust labels, provenance, retention, memory status, action-triggering behavior,
@@ -267,16 +272,16 @@ The enforcement mechanisms are also distinct:
   explicit credential store or protected transient-auth store. Use typed
   secret wrappers, exact schema annotations, credential-store
   provenance, and secure bindings. If a result accidentally contains a known
-  secret, remove only that value or fail the result when a safe canonical value
+  secret, remove only that value or fail the result when a safe source value
   cannot be produced.
 - **Authorization** decides whether private information may be retrieved or
   shown in a context. Authorized private information remains intact.
-  Unauthorized information is omitted or denied at the boundary; the canonical
+  Unauthorized information is omitted or denied at the boundary; the stored
   source is not replaced with a redacted copy.
 - **Egress policy** decides whether authorized private or ordinary information
   may cross to the exact destination and audience. It may block the operation,
   require approval, send the content intact, or intentionally create a
-  redacted derivative. The governed source remains unchanged.
+  redacted derivative. The source remains unchanged.
 - **Redaction** is therefore a narrow transformation, not a general privacy
   posture. Never redact solely because a value is a path, URL, identifier,
   technical detail, high-entropy string, or has a field name containing words
@@ -286,7 +291,7 @@ Classification must come from the authoritative type, schema, credential
 source, or explicit policy metadata. English-name substring matching and
 entropy heuristics are not classification authorities. Defense-in-depth secret
 scanners may block a forbidden sink, but they must not silently rewrite
-canonical tool results, memories, or model context based on a guess.
+saved tool results, memories, or model context based on a guess.
 
 At protocol boundaries, a small exact sanitizer is an allowed
 defense-in-depth measure. It may remove URL userinfo, exact standard credential
@@ -359,10 +364,10 @@ Examples:
 - An agent can normally read a Google Doc but can write it only when acting on
   a specific project task.
 - A research agent can use web search for a project but cannot send emails.
-- A personal assistant can create calendar holds for the primary human but
-  needs approval to invite other attendees.
-- A coding agent can write files under a project workspace but cannot push to a
-  remote repository without approval.
+- A personal assistant can create calendar holds. An attendee invitation uses
+  the connection's current execution and review policy.
+- A coding agent can write inside a project workspace. A remote push uses the
+  connection's current execution and review policy.
 - A proactive rule can draft a message but cannot send it.
 
 Contextual elevation should always include:
@@ -380,40 +385,25 @@ Contextual elevation should always include:
 
 ## Durable approval gates
 
-Approvals should be durable objects, not ephemeral chat prompts.
+Action requests and human decisions are durable. They do not depend on an open
+chat request, worker claim, or client connection.
 
-An approval request should include:
+A request that needs human review includes:
 
-- Approval ID.
-- Run ID.
-- Requesting agent.
-- Requesting principal.
-- Owner or approving principal.
-- Operation being requested.
-- Capability and resource.
-- Destination.
-- Data that may leave the boundary.
-- Proposed payload or diff.
-- Risk classification.
-- Policy reason for approval.
-- Expiration time.
-- Whether approval is one-time or reusable.
-- Scope of approval if granted.
-- Human-readable summary.
-- Machine-readable details.
+- The action ID and exact revision.
+- The owner and requesting agent.
+- The originating conversation or Task.
+- The capability, operation, resource, and destination.
+- The saved exact arguments or diff.
+- Information leaving Noema and its expected audience.
+- The reviewer classification and policy reason.
+- A human-readable summary and bounded details.
 
-Approval outcomes:
+Production supports `Approve once` and `Decline`. Approval permits one execution
+after live revalidation. Execution admission consumes it. A stale request,
+changed policy, or invalid origin supersedes the decision before invocation.
 
-- Approved.
-- Denied.
-- Approved with modifications.
-- Expired.
-- Revoked.
-- Superseded.
-- Cancelled because run was cancelled.
-
-Approval must be checked again at execution time. The world may have changed
-between request and approval.
+Changing the proposal requires a new action revision and review.
 
 ## Prompt injection model
 
@@ -485,25 +475,15 @@ auditable through those references.
 
 Memory has special security implications because it shapes future runs.
 
-The harness should:
+Current memory belongs to the local human. It does not implement private memory
+scopes or memory-specific access grants.
 
-- Retrieve memory only through grants or explicit participant-overlap policy.
-- Preserve memory information-class labels.
-- Record memory shown to agents.
-- Record memory used in outputs or actions.
-- Treat candidate and inferred memories carefully.
-- Avoid using disputed memory for external action without confirmation.
-- Treat retrieval hints as non-authoritative for private memory.
-- Require valid typed retrieval policy before private memory can be included.
-- Omit unauthorized private-memory details from agent-visible context
-  manifests while retaining exact audit details behind authorization.
-- Reject secret material as memory content; memory may retain a non-secret
-  reference to a credential-backed capability but never the credential.
-- Submit memory proposals with provenance.
-- Prevent external content from directly creating confirmed memory.
-
-Private or action-triggering memories require the applicable authorization or
-explicit policy before affecting proactive behavior.
+- Human messages and exact saved tool results can provide memory evidence.
+- Assistant messages and external prose cannot provide evidence independently.
+- Every published claim retains exact evidence identifiers.
+- Secret material cannot enter memory. A non-secret capability reference may.
+- External content cannot directly create confirmed memory.
+- Memory content remains untrusted for creating action authority.
 
 ## Agent handoff safety
 
@@ -545,70 +525,27 @@ Audit entries must exclude secrets. Private payloads may be stored behind
 governed references or protected artifacts when the event does not need an
 inline copy. Ordinary audit metadata should remain intact for diagnosis.
 
-## Revocation and rollback
+## Fencing and rollback
 
-Noema should support revocation even when rollback is impossible.
+Disabling a capability, removing authentication, changing policy, or replacing
+a credential revision fences future invocation. A pending action request is
+superseded when its live authority no longer matches.
 
-Revocation targets:
+Rollback remains adapter-specific. Noema distinguishes preventing a future
+action from reverting state or creating a compensating action.
 
-- Capability grants.
-- Tool authentication.
-- Contextual elevations.
-- Approval grants.
-- Agent access.
-- Memory access.
-- Proactive rules.
-- Shared resources.
+## Inspection surfaces
 
-Rollback depends on capability support. Some actions can be undone, some can
-be superseded, and some can only be recorded.
-
-The harness should distinguish:
-
-- Preventing future action.
-- Reverting local state.
-- Reverting external state.
-- Creating a compensating action.
-- Recording that rollback is impossible.
-
-## Security dashboard surfaces
-
-The dashboard should make security tangible, not hidden.
-
-Useful surfaces:
-
-- Capability access preview for a given agent and scope.
-- "What can this run access?" view.
-- "What can this agent send externally?" view.
-- Approval inbox.
-- Denied action history.
-- External effects timeline.
-- Memory-used-by-run view.
-- Policy explanation panel.
-- Grant explorer.
-- Revocation controls.
-- Egress review history.
-- Prompt-injection warning traces.
-
-Humans should not need to read raw logs to understand why Noema acted.
+Current action request surfaces show the target, saved arguments, destination,
+information egress, reviewer classification, and human decision. Secrets remain
+excluded. Detailed policy evidence stays behind authenticated disclosure.
 
 ## Security acceptance scenarios
 
-Minimum scenarios the harness should eventually pass:
-
-- An external document cannot instruct an agent to email private memory to an
-  arbitrary address.
-- A connector can expose a document that one agent may read while another
-  cannot see.
-- A project task can pre-approve a narrow document write without granting
-  global write access.
-- A proactive run can draft a notification but cannot send it above the allowed
-  proactivity level.
-- A tool result containing instructions is treated as untrusted content.
-- A memory retrieved for one project is not used in another project unless a
-  grant allows it.
-- A denied tool call leaves a clear policy decision in the ledger.
-- A run paused for approval can resume after approval without losing context.
-- A revoked approval prevents later execution even if the model already planned
-  the action.
-- A failed external write with unknown outcome is not blindly retried.
+- A tool result containing instructions remains untrusted content.
+- A secret-backed tool keeps credential values outside model context.
+- A reviewed external write follows the current deterministic review matrix.
+- A run can resume after one saved human decision.
+- Live revalidation supersedes a stale request before invocation.
+- An external write with an unknown outcome is not retried automatically.
+- Exact sanitization preserves ordinary technical values.

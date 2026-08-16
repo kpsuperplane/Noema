@@ -1,12 +1,15 @@
 # `.noema-dev` user-experience incident audit
 
-- **Status:** Complete evidence snapshot
+- **Status:** Dated evidence snapshot; closed at the stated cutoff
 - **Mode:** Explore and report only
 - **History window:** 2026-08-01 20:08 UTC through 2026-08-08 17:04 UTC
 - **SQLite snapshot:** `/tmp/noema-history-audit-20260808.sqlite3`
 - **Error-log snapshot:** `/tmp/noema-history-audit-20260808.errors.jsonl`
 - **Scope:** Every distinct failure, misleading result, blocked workflow, repeated
   friction point, and latent state defect evidenced by `.noema-dev`
+
+This file preserves historical evidence.
+It does not describe current repository status.
 
 This is an incident inventory, not a remediation plan or a second product
 authority. Counts are occurrences in the point-in-time snapshot, not estimates.

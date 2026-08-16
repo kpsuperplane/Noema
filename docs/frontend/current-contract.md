@@ -30,6 +30,26 @@ and Settings. The current settings roots are:
 Unknown paths fall back to Chat. Do not document proposed routes as current or
 add disabled navigation merely to reserve future information architecture.
 
+## Onboarding
+
+Onboarding is a bounded readiness flow. It replaces the product shell until
+the human confirms one complete model setup. It then opens Chat.
+
+The first provider view presents Local, OpenRouter, and Codex as peer choices.
+The human selects one provider to start and can add others later. OpenRouter
+offers OAuth first and keeps API-key entry behind disclosure. Local setup shows
+one compatible recommendation and its required download when available.
+OpenAI remains a configuration path outside the first-run chooser.
+
+After connection, the human reviews model assignments for Chat, Tasks, and
+supporting work. Proposed assignments remain drafts until one confirmation
+saves the complete selection. The same assignments remain editable later.
+
+Use task and outcome language in onboarding. Keep paths, configuration,
+transport, runtime, and policy internals outside the default flow. The current
+shell restores Chat, Tasks, Memory, and Settings after setup. Do not hide these
+destinations to preserve an obsolete staged rollout.
+
 ## State authorities
 
 - SQLite owns durable conversations, transcript items, tasks, provider and tool
@@ -42,8 +62,9 @@ add disabled navigation merely to reserve future information architecture.
   transcript or task authority.
 - Browser code never receives credential material. Provider-auth redirects and
   callbacks remain server-governed flows.
-- Tauri keeps remote bearer credentials in the operating system credential
-  store. Its webview receives connection state and the validated server origin.
+- Tauri keeps the origin, client identifier, and rotating refresh credential
+  in the operating system credential store. Access tokens remain in Rust
+  memory. Its webview receives connection state and the validated server origin.
 
 ## Interaction contracts
 
@@ -65,11 +86,15 @@ Settings panes own their data loading and mutations directly unless a shared
 controller has multiple production consumers. Editing is either inline without
 a separate Save button or performed in a focused dialog with explicit Save.
 
-The desktop app runs one embedded local instance or one paired remote server.
-Remote mode uses HTTPS GraphQL and authenticated `graphql-transport-ws` through
-the existing Tauri IPC contract. Returning to local mode revokes and removes
-the remote client before restart. Failed remote startup replaces the product
-surface with retry, local-mode, and confirmed forget recovery actions.
+The desktop app runs one embedded local instance or one connected remote server.
+A connection link carries only the validated server origin. Rust opens the
+system browser for OAuth with PKCE and recent passkey approval. Remote mode uses
+HTTPS GraphQL and authenticated `graphql-transport-ws` through Tauri IPC.
+
+Returning to local mode revokes the remote OAuth family and removes its local
+credentials before restart. If revocation cannot reach the server, confirmed
+forget removes only the local credentials. Failed startup shows retry,
+local-mode, and confirmed-forget actions instead of the product surface.
 
 ## API integration UX
 

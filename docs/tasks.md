@@ -1,6 +1,6 @@
 # Tasks Contract
 
-This document records the current durable contract for Noema Tasks. It replaces
+This document defines the current durable contract for Noema Tasks. It replaces
 the completed design program and multi-agent implementation packets that
 originally built the subsystem. Git history owns those execution details; new
 work should follow the current code and this contract rather than reconstructing
@@ -148,7 +148,7 @@ resolver-local conventions.
 The store command service owns each mutation transaction. A successful command
 commits all of the following together when applicable:
 
-- canonical task, gate, contract, run, submission, review, or project state;
+- stored task, gate, contract, run, submission, review, or project state;
 - optimistic revision and generation changes;
 - the audit event and required notification outbox records;
 - the idempotency receipt and stable result.
@@ -184,11 +184,11 @@ retry is allowed. Free-form text does not decide gate semantics.
 Reconciliation derives one next action from durable facts. It may queue the
 role compatible with the current contract, materialize a completed plan, move
 an approved review to terminal Done, resume a resolved gate, open a recovery gate,
-or fence stale runnable work. Contradictory state fails closed or opens an
+or reject stale runnable work. Contradictory state fails closed or opens an
 invariant-recovery gate; it does not guess from event text.
 
-An Active task whose current run is waiting for a governed action decision is
-intentionally idle. The run resumes through the governed-action continuation;
+An Active task whose current run is waiting for an action request decision is
+intentionally idle. The run resumes through the action request continuation;
 reconciliation must not reinterpret that pause as missing durable work.
 
 The essential compatibility rule is simple: Planner runs exist before a
@@ -197,7 +197,7 @@ human-gated tasks cannot retain runnable work.
 
 ## Persistence and events
 
-SQLite is canonical and is opened only by the Noema server. Schema changes
+SQLite owns stored state and is opened only by the Noema server. Schema changes
 append forward-only store migrations so persisted application rows survive
 upgrades; applied migrations are immutable.
 
@@ -208,7 +208,7 @@ lineage where SQLite can express them; command transactions enforce the
 cross-record behavioral invariants.
 
 `work_events` has a monotonic cursor and stable event identity. It supports
-audit, subscriptions, and invalidation, but clients recover canonical state
+audit, subscriptions, and invalidation, but clients recover stored state
 through bounded reads after reconnect. Event payloads should identify affected
 objects and facts needed by those consumers, without duplicating the full
 aggregate.
@@ -287,7 +287,7 @@ attention and valid actions from stored facts.
 
 Clients must use generated GraphQL types and server-owned valid actions. Do not
 mirror stage-transition rules in TypeScript. After reconnect, clients refetch
-canonical reads and use the event cursor only to invalidate or advance them.
+stored-state reads and use the event cursor only to invalidate or advance them.
 
 The primary chat shows compact task markers and human decisions when action is
 needed. Tasks is the `/tasks` product surface. It contains one task-first

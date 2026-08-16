@@ -5,20 +5,20 @@ Historical architecture plans live in Git history, not in the working tree.
 
 - [Security and information handling](harness/security.md)
 - [Capability boundaries](harness/capabilities.md)
-- [Governed actions and approvals](harness/action-governance.md)
-- [Memory context](harness/memory-context.md)
+- [Action requests and approvals](harness/action-governance.md)
 - [Web browsing](harness/web-browsing.md)
+- [Tasks](tasks.md)
 
 ## Runtime boundaries
 
-- SQLite is the canonical structured store. Concrete rows and forward-only
-  migrations own durable state.
+- SQLite owns stored structured state. Concrete rows and forward-only
+  migrations own durable records.
 - Conversation items own durable transcript history. Live runtime and
-  subscription state coordinate work but do not replace persisted truth.
-- Work commands mutate current state transactionally and append events for
+  subscription state coordinate work but do not replace stored state.
+- Task commands change current state transactionally and append events for
   audit and invalidation; events are not a second state-reconstruction system.
 - `noema-host` composes services, `noema-runtime` executes conversations and
-  Work, `noema-api` owns GraphQL, and shells remain thin.
+  Tasks, `noema-api` owns GraphQL, and shells remain thin.
 - Provider, MCP, native adapter, artifact, and memory boundaries keep their own
   transport and persistence contracts. A new universal abstraction requires
   multiple concrete production consumers and a net simplification.

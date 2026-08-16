@@ -22,9 +22,9 @@ session when the interaction is complete.
 
 - `open` creates the owner's session or reuses its current session for a new
   public URL. A reused session keeps its ephemeral cookies and storage.
-- One browser session may be open for an execution owner. Foreground ownership
-  is the opening turn. Work ownership is the task ID plus task generation.
-- A Work session remains open while the same task generation is nonterminal.
+- One browser session may be open for an owner. Foreground ownership is the
+  conversation. Task ownership is the task ID plus task generation.
+- A task session remains open while the same task generation is nonterminal.
   This rule includes human gates and approval continuations.
 - After a run settles, Noema reads the task before reconciliation. It closes the
   session when the task is missing, terminal, or has a new generation.
@@ -32,7 +32,7 @@ session when the interaction is complete.
 - Noema admits the configured number of sessions. The default is two, and the
   valid range is one through eight. One re-armable task waits for the earliest
   deadline; it does not poll.
-- Successful activity extends the 15-minute idle deadline. Explicit close,
+- Successful activity extends the 30-minute idle deadline. Explicit close,
   task-generation closure, expiry, and daemon shutdown destroy session data.
 - `close` is idempotent. It clears the cached snapshot context even when no
   browser session exists.
@@ -56,7 +56,7 @@ admission evidence; every later fetch or navigation reruns live policy.
 
 Noema invokes only fixed, source-controlled DOM scripts. Model-provided values
 are JSON encoded into those scripts. Arbitrary JavaScript evaluation, selectors,
-downloads, uploads, multiple tabs, proxies, durable profiles, and cross-execution
+downloads, uploads, multiple tabs, proxies, durable profiles, and cross-owner
 reuse are intentionally absent.
 
 Each successful page result can include one bounded PNG of the current viewport.
@@ -70,7 +70,7 @@ contains failures, but it is not a sandbox for hostile native code.
 
 ## Governance and persistence
 
-`open` follows governed external-read policy. `interact` and `history` are
+`open` follows external-read execution policy. `interact` and `history` are
 non-idempotent open-world actions and use LLM/human review.
 `snapshot`, `wait`, and `close` execute immediately after ownership checks.
 Ownership and revision are revalidated after approval. Worker loss after a
@@ -81,18 +81,18 @@ context is descriptive, untrusted evidence rather than authorization. Human
 review surfaces show it with the reviewer's authorization, risk, reason codes,
 and explanation. The reviewer also receives trusted runtime facts that state
 the session ownership and storage lifetime. These facts can constrain scope,
-but they cannot create human authority. A session-bound approval is superseded with
-`browser_session_unavailable` when recovery or approval-time revalidation finds
-that its execution-owned browser session no longer exists.
+but they cannot create human authority. Before review and after approval, Noema
+revalidates the session, snapshot revision, and exact target. It supersedes a
+stale request instead of acting on a changed page or missing session.
 
 Browser result persistence is compact: provider, URL/title with only actual
 credential-bearing components removed, revision, element count, truncation,
 the bounded viewport PNG, operation metadata, and safe errors. Full snapshot
 text and session authority do not enter stored result payloads. The viewport PNG
 does not enter the model-visible tool result. Reviewed browser
-arguments, including interaction values, use the normal governed-action and
+arguments, including interaction values, use the normal action request and
 transcript persistence contract. The information-handling contract in
-`docs/harness/security.md` still applies: credentials belong in credential
-stores, authorized private interaction values follow normal governed
-persistence, and ordinary URLs, titles, identifiers, and operation metadata
-remain intact.
+[the security model](security.md) still applies. Credentials belong in
+credential stores. Authorized private interaction values follow normal stored
+state rules. Ordinary URLs, titles, identifiers, and operation metadata remain
+intact.

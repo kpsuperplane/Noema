@@ -15,16 +15,42 @@ This audit covers every project-owned Markdown file tracked by Git.
 
 The baseline excludes this report.
 
-The most urgent defect is in `docs/project.md`.
-Its complete-backup list omits several live source authorities.
-This defect can cause data loss during recovery.
+The most urgent baseline defect was in `docs/project.md`.
+Its complete-backup list omitted several live source authorities.
+That defect could cause data loss during recovery.
 
-This report recommends changes.
-It does not apply the recommended deletions or modifications.
+The inventory and line counts describe the pre-cleanup tree.
+The approved recommendations were applied on 2026-08-16.
+
+## Resolution status
+
+The cleanup deleted completed plans and obsolete design authorities.
+It moved the current Tasks contract to `docs/tasks.md`.
+It also corrected current contracts, client guidance, evidence labels, links, and terms.
+The result deletes 14 stale files and moves one active contract.
+It removes more than 6,400 documentation lines net.
+
+The owner resolved the questions as follows:
+
+| ID | Decision | Applied result |
+| --- | --- | --- |
+| Q1 | Do not add special restore handling for this edge case. | The backup contract requires a complete stopped-home backup. |
+| Q2 | Follow current code. | Security and action governance now describe the reviewed-write matrix. |
+| Q3 | Remove dormant approval revocation when production code changes. | Current docs expose only `Approve once` and `Decline`. No schema changed in this documentation unit. |
+| Q4 | Remove future private-memory policy. | Security now states that current memory excludes private scopes. |
+| Q5 | Follow the current Tasks and onboarding UI. | Current disclosure rules moved to active frontend contracts. The old design file was deleted. |
+| Q6 | Allow bounded Gmail recovery. | The active plan defines OIDC checks, six-hour reconciliation, and bounded recovery. |
+| Q7 | Keep only the live Google acceptance item. | The current brief tracks it. The completed OAuth plan was deleted. |
+| Q8 | Rerun evaluations only for material contract or risk changes. | The evaluation index now defines that validity policy. |
+| Q9 | Keep committed summaries as durable evidence. | Machine-local raw evidence is optional diagnostic support. |
+| Q10 | Treat vendored A2UI JSON as reference-only. | The A2UI README names current runtime checks as authority. |
+| Q11 | Remove volatile gate failures from the current brief. | The brief now contains only current direction and open loops. |
+| Q12 | Close the Web UX audit as static-only evidence. | The audit now states that runtime verification was not performed. |
+| Q13 | Document the current Unix limit. | The root README now states that `cargo dev` requires Unix. |
 
 ## Scope
 
-The audit includes 62 tracked `.md` files.
+The baseline audit included 62 tracked `.md` files.
 No tracked `.mdx` file exists.
 Before this report, no untracked project Markdown file existed.
 
@@ -42,8 +68,8 @@ The review compared prose with these sources:
 - The terminology rules in `docs/development/terms.md`.
 
 Automated checks covered local links, local anchors, tracked paths, package names, and documented versions.
-One local link is broken.
-It is inside a completed roadmap that this report recommends deleting.
+The baseline check found one missing local target.
+It was inside a completed roadmap that the cleanup deleted.
 
 The audit did not run browser or assistive-technology checks.
 It did not rerun model evaluations or live connector cases.

@@ -38,9 +38,8 @@ boundaries are defined in [Server Authentication and Public Access](server-secur
 
 ## Filesystem and storage architecture
 
-Noema should keep a clean split between canonical structured state and durable
-object-owned files. The default Noema directory is `~/.noema`; users can point
-Noema at another directory with `NOEMA_HOME`.
+Noema keeps stored state separate from durable object-owned files. The default
+Noema directory is `~/.noema`. `NOEMA_HOME` can select another directory.
 
 ```
 ~/.noema/
@@ -51,23 +50,31 @@ Noema at another directory with `NOEMA_HOME`.
 
   run/
     capability-auth/      # protected exact arguments for active auth pauses
+    graphql.sock          # process-local GraphQL socket when enabled
 
   notifications/
     apns-provider.json     # protected APNs authority, metadata, revision, and tombstone
 
   adapters/
-    definitions/          # immutable canonical manifests by semantic SHA-256
+    definitions/          # immutable source manifests by semantic SHA-256
     sources/              # optional exact imported descriptions by source SHA-256
-    connections/          # canonical descriptors and private credential generations
+    oauth-profiles/       # reviewed public OAuth protocol profiles
+    oauth-applications/   # application descriptors and protected client secrets
+    external-accounts/    # stable provider account descriptors
+    oauth-grants/         # grant descriptors and protected token generations
+    connections/          # descriptors and protected credential generations
     quarantine/           # invalid or intentionally removed adapter objects
 
+  mcp/                    # MCP server configuration and protected credentials
+
+  providers/              # hosted-provider account credentials
+
   memory/
-    human/                # canonical local-human Markdown memory tree
+    human/                # source local-human Markdown memory tree
 
   models/
     blobs/                # checksum-verified, content-addressed GGUF files
     downloads/            # resumable partial model transfers
-    run/                  # local inference runtime state
 
   humans/
     [human_id]/
@@ -108,7 +115,7 @@ Noema at another directory with `NOEMA_HOME`.
 
 Source-of-truth rules:
 
-Concrete object rows are the canonical structured state. Shared concepts such
+Concrete object rows are the stored state. Shared concepts such
 as actor/principal, governable scope, provenance source, and transcript item
 are interfaces implemented by concrete objects rather than universal parent
 tables.
@@ -118,7 +125,7 @@ tables.
 | Structured state: humans, human passkeys, agents, tools, conversations, transcript items, provider accounts, local-model installations, MCP setup, tasks, permissions, approvals, and audit events | SQLite |
 | Active capability-authentication metadata and exact private replay arguments | SQLite metadata plus `${NOEMA_HOME}/run/capability-auth/` protected files; in-flight state is not database-rebuildable |
 | APNs provider authority, metadata, revision, and removal tombstone | `${NOEMA_HOME}/notifications/apns-provider.json` protected file; the private key never enters SQLite |
-| Client notification registrations, Tasks Live Activity projections, and durable delivery queues | SQLite; every native registration is bound to its authenticated paired client |
+| Client notification registrations, Tasks Live Activity projections, and durable delivery queues | SQLite; every native registration is bound to its authenticated OAuth client |
 | Adapter definitions, source bytes, connections, OAuth profiles, applications, accounts, grants, and protected generations | `${NOEMA_HOME}/adapters/`; SQLite adapter tables are disposable public projections |
 | Memory prose, semantic metadata, provenance, and consolidation state | `memory/human/` Markdown |
 | Verified local model weights | `${NOEMA_HOME}/models/blobs/` |
@@ -157,8 +164,8 @@ Context Runtime
   conversations, projects, workspaces, humans, tools, tasks, memory retrieval
         │
         ▼
-Canonical Store
-  SQLite + canonical memory Markdown + durable object-owned files
+Stored Data
+  SQLite + source memory Markdown + durable object-owned files
         │
         └── System State
               indexes, caches, vectors, temp files
@@ -257,42 +264,27 @@ intent require them.
 
 ## Backup and portability
 
-Noema should assume humans can back up the entire Noema directory, defaulting
-to `~/.noema/`, with their preferred backup tool.
+Stop Noema before backup or restore. Copy the complete Noema directory with the
+preferred backup tool. The directory defaults to `~/.noema/`.
 
-A complete backup includes:
+Do not use a partial directory list as a complete backup. The home contains
+SQLite state, memory, credentials, adapter authority, models, and artifacts.
+Some `system/` data is rebuildable, but a complete backup includes it.
 
-```
-config.yaml
-db/
-humans/
-agents/
-conversations/
-workspaces/
-```
+Restore the complete directory before starting Noema. Exports are separate
+from backups. Exports should support machine-readable and human-readable forms.
 
-`system/` is rebuildable. Exports are separate from backups and should support machine-readable and human-readable formats.
+## Current storage model
 
-## Current slice recommendation
+SQLite owns stored state. The native Markdown tree owns durable memory prose.
+A separate SQLite FTS projection supports rebuildable memory search. The
+filesystem owns durable documents, protected credentials, and artifacts.
 
-Build Noema around the root objects first:
+Chat and task details provide focused inspection. Advanced inspection and
+explicit export tools expose broader database-backed state.
 
-```
-humans
-agents
-conversations
-workspaces/projects
-tools
-tasks
-memory
-```
+[Memory Contract Index](memory.md)
 
-Use SQLite as Noema's canonical structured store. Use the native Markdown tree
-for durable memory truth and a separate rebuildable SQLite FTS projection for
-search. Use the filesystem for durable object-owned documents and artifacts.
-Use chat/task drill-ins, advanced inspection, and explicit export tools for
-introspection into database-backed state.
-
-[Memory Plan Index](memory.md)
+[Tasks Contract](tasks.md)
 
 [Runtime Harness Architecture](harness.md)

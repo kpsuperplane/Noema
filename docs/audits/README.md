@@ -1,31 +1,39 @@
 # Codebase audits
 
-This directory contains dated, evidence-backed audits of the current repository.
-An audit is a snapshot, not a second architecture authority. Current product and
-engineering contracts remain in the closest subsystem document, while accepted
-cleanup work should be tracked in an implementation plan only for as long as that
-work is active.
+This directory contains dated, evidence-backed snapshots.
+An audit does not define current product behavior.
+Use the closest subsystem document and current code for present contracts.
 
-## Current audit
+## Documentation
+
+- [Documentation audit](2026-08-16-documentation-audit.md) — complete Markdown
+  disposition at its stated repository baseline.
+
+## Engineering snapshots from 2026-08-08
 
 - [Overengineering audit](2026-08-08-overengineering-audit.md) — assessment,
   ranked findings, decision gates, and protected complexity.
 - [Evidence appendix](2026-08-08-overengineering-evidence.md) — baseline,
   measurements, inspected surfaces, and finding-level evidence.
-- [Reduction roadmap](2026-08-08-overengineering-roadmap.md) — independently
-  shippable reduction slices, budgets, tests, and stop conditions.
-- [Remediation report](2026-08-08-overengineering-remediation.md) — durable
-  finding-by-finding dispositions, measured reductions, validation results,
-  blockers, retained complexity, and open product decisions.
+- [Remediation report](2026-08-08-overengineering-remediation.md) — completion
+  ledger, measured reductions, validation results, and unresolved decisions.
 
-The 2026-08-08 audit superseded the removed codebase audit tracker as the current
-codebase-reduction assessment. It does not silently close or implement items in
-that older tracker; retiring the tracker is itself a documented cleanup action.
+The remediation report replaces the deleted execution roadmap.
+Git history preserves the completed plan.
 
-## Current UX audit
+## Experience snapshots
 
-- [Web UX audit](2026-08-10-web-ux-audit.md) — full static review across
-  accessibility, layout, writing, typography, color, and interface behavior.
+- [Codex conversation retrospective](2026-08-08-codex-conversation-retrospective.md)
+  — private-source-safe evidence from the stated conversation window.
+- [`.noema-dev` experience history](2026-08-08-noema-dev-user-experience-history.md)
+  — incident evidence through its stated runtime cutoff.
+- [Current-build disposition](2026-08-08-current-build-ux-survivors.md) — point-in-time
+  recheck at source revision `be388c1e`.
+- [Web UX audit](2026-08-10-web-ux-audit.md) — closed static review and
+  implementation record.
+
+The Web audit did not include browser, device, or assistive-technology checks.
+Run a fresh review before treating an old finding as present behavior.
 
 ## Audit conventions
 

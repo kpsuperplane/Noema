@@ -1,6 +1,6 @@
 # Noema codebase overengineering audit
 
-- **Status:** Complete review snapshot
+- **Status:** Dated review snapshot; remediation complete
 - **Baseline:** `ef0db3918e4997c214f9762f3be1e5753d6022de`
 - **Mode:** Adversarial review, report only
 - **Scope:** Entire tracked repository, with focused source tracing across every
@@ -16,7 +16,10 @@ correctness, security, privacy, and data-loss invariants.
 Supporting material:
 
 - [Evidence appendix](2026-08-08-overengineering-evidence.md)
-- [Reduction roadmap](2026-08-08-overengineering-roadmap.md)
+- [Remediation report](2026-08-08-overengineering-remediation.md)
+
+This file preserves the original assessment.
+The remediation report owns completed dispositions.
 
 ## Executive assessment
 
@@ -602,5 +605,5 @@ The highest-leverage near-term result is achievable without touching database
 schema or core runtime state machines: repair native generation, remove heuristic
 secrecy, delete dormant adapter and gate machinery, retire inactive tooling and
 historical docs, remove dead client UI, and collapse test-only authorities. The
-[roadmap](2026-08-08-overengineering-roadmap.md) turns those findings into bounded
-review units.
+[remediation report](2026-08-08-overengineering-remediation.md) records the
+completed review units and retained decisions.

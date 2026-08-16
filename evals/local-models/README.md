@@ -24,21 +24,34 @@ cargo validate run -p noema-model-evals -- prepare
 cargo validate run -p noema-model-evals -- run
 cargo validate run -p noema-model-evals -- run ternary-bonsai-8b-q2kt ternary-bonsai-27b-q2-g64
 
-# After a candidate passes, repeat the 21 cases plus an unscored resource soak.
+# After a candidate passes, repeat the 31 scored cases and run the unscored soak.
 cargo validate run -p noema-model-evals -- soak nemotron-3-nano-4b-q4-k-m
 ```
 
-`soak` keeps the correctness denominator at 21, then sends one
-tokenizer-calibrated near-context request and 20 distinct short turns. The raw
-report records observed input tokens, long-request latency, completed turns, and
-the post-turn resident-set range; the process-level peak still covers the entire
-worker.
+`soak` keeps the correctness denominator at 31.
+It then runs a separate unscored resource probe.
+The probe sends one tokenizer-calibrated near-context request and 20 distinct short turns.
+The raw report records tokens, latency, completed turns, and resident memory.
+The process peak covers the complete worker.
 
 Reports are written incrementally under `target/noema-model-evals/runs/<run-id>/` as `matrix.json`, `summary.md`, and one raw JSON report per candidate/repetition. Downloads are resumable and content-addressed through Noema's installer. The runner checks Noema's existing verified blob store before downloading a duplicate artifact.
 
-Committed machine snapshots live under `results/`. They record the exact hardware,
-runtime, artifacts, suite configuration, and raw-report locations used for a decision;
-they are evidence for catalog changes, not additional catalog policy.
+Committed machine snapshots live under `results/`.
+They record hardware, runtime, artifacts, suite configuration, and decision results.
+They are evidence for catalog changes, not additional catalog policy.
+
+## Evidence validity
+
+A committed result summary is sufficient durable decision evidence.
+Machine-local raw reports are optional diagnostic support.
+Their absence does not invalidate the committed summary.
+
+A suite change does not automatically invalidate an earlier recommendation.
+Rerun a recommendation when case coverage changes its role's material contract or a named risk.
+Also rerun after a material runtime, template, artifact, or hardware-fit change.
+
+Each committed result states its suite status and supersession status.
+Historical results remain useful for their stated hardware, runtime, cases, and risks.
 
 V1 deliberately scores model-sensitive behavior only. Catalog selection,
 downloads, SQLite mechanics, and UI rendering already have deterministic product

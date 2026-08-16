@@ -1,5 +1,14 @@
 # Personal Agent 50-Case Live Validation Ledger
 
+- **Status:** Dated live-validation evidence snapshot
+- **Suite status:** 50 named cases from `docs/common-personal-agent-tasks.md`
+- **Evidence cutoff:** 2026-08-09 at commit `651b4a52`
+- **Supersession status:** No later committed 50-case ledger
+
+This ledger does not define current product behavior.
+The committed results are sufficient durable evidence for the stated run.
+Machine-local databases, logs, and provider records are optional diagnostic support.
+
 This ledger tracks live validation against the `.noema-dev` instance at
 `http://127.0.0.1:3737`. The source task contracts are in
 [`docs/common-personal-agent-tasks.md`](../common-personal-agent-tasks.md).

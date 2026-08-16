@@ -1,5 +1,13 @@
 # Real-Noema local-model qualification
 
+- **Suite status:** Historical 12-case live-product snapshot
+- **Supersession status:** Latest committed live Noema qualification
+- **Current suite:** 31 scored cases plus a separate unscored soak
+- **Recommendation status:** E4B still matches the shipped catalog on 2026-08-16
+
+The expanded suite does not automatically invalidate this recommendation.
+Use the rerun rules in the parent README when its role contract or a named risk changes.
+
 Run on 2026-07-15 against the production installation, activation, provider,
 and runtime paths in `~/.noema` on a MacBook Air `Mac17,3` with an Apple M5 and
 32 GB of unified memory. Noema used its pinned llama.cpp b10015 runtime at
@@ -8,7 +16,7 @@ evaluation context, temperature 0, and one active generation at a time.
 
 ## Decision
 
-Gemma 4 E4B IT Q4_K_M is the only model to pass the current 12-case suite, so it
+Gemma 4 E4B IT Q4_K_M was the only model to pass the 12-case suite, so it
 is the sole curated catalog entry and the recommendation for both projected 16
 GB and measured 32 GB Apple unified-memory tiers. Its 5.46 GiB live peak is
 comfortably inside the existing 16 GB fit ceiling. A physical 16 GB acceptance
@@ -99,5 +107,6 @@ which removes the deterministic same-turn cache eviction race.
 - Bytes: `5335289824`
 - License: `Apache-2.0`
 
-Raw machine-local reports are under
-`target/noema-live-validation-20260715-151519/`.
+The committed summary is the durable evidence record.
+Machine-local diagnostic support was written under
+`target/noema-live-validation-20260715-151519/` and might not remain present.

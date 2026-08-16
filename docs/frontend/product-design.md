@@ -41,6 +41,32 @@ Progressive disclosure is not concealment. Keep exact evidence and internals
 reachable through a clear expansion or drill-in, while the default view answers
 the current user question without making them parse the entire system record.
 
+## Progressive Disclosure
+
+Choose the smallest disclosure depth that answers the human's current question.
+Each deeper level must remain reachable from the object that raised the question.
+
+| Depth | Human question | Preferred pattern |
+| --- | --- | --- |
+| Summary | What happened? | One line, state, or result in context. |
+| Explanation | Why did it happen? | Expansion, popover, or detail rail. |
+| Record | Show the saved record. | Object detail with evidence and history. |
+| Internals | Show exact technical data. | Named technical disclosure for owners. |
+| Export | Give me the source record. | Explicit export with scope and omissions. |
+
+Use plain product language before technical nouns. Put identifiers, transport,
+provider internals, raw policy data, and configuration behind named technical
+disclosure unless they change the immediate decision.
+
+Add a persistent destination only when all these conditions are true:
+
+1. Stored state or a bounded read model supports the destination.
+2. A concrete human job does not fit cleanly in the current surface.
+3. The destination answers a human question instead of exposing architecture.
+
+Use an inline event, card, detail rail, or existing route when one can support
+the job. Do not add navigation for proposed state or future product scope.
+
 ## Grouping And Hierarchy
 
 Spacing and containers assert relationships, so every group needs a semantic

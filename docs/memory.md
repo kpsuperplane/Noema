@@ -1,4 +1,4 @@
-# Memory Plan Index
+# Memory Contract Index
 
 This file is an index for the current memory direction, not a standalone
 architecture plan.
@@ -10,9 +10,7 @@ Current authorities:
 - [Current context](context/current.md): latest implemented memory state and
   open loops.
 - [Frontend contract](frontend/current-contract.md): current memory settings
-  route and first-slice visibility boundaries.
-- [Harness memory/context integration](harness/memory-context.md): historical
-  target context for runtime memory integration.
+  route and visibility boundaries.
 
 Current implementation direction:
 
@@ -46,8 +44,8 @@ Current implementation direction:
   `/memory/<article-path>` route; stable ids and relative paths remain valid API
   selectors, including generated ids that end in `.md`.
 - Child pages expose their ordered filesystem ancestors so the shell title row
-  can render a deeply nested, client-side breadcrumb using canonical titles.
-- The canonical SQLite database stores the selected Memory model and source
+  can render a deeply nested, client-side breadcrumb using source titles.
+- SQLite stores the selected Memory model and source
   conversations. A separate SQLite FTS database under `system/indexes/` is a
   disposable projection rebuilt from Markdown.
 - Every ordinary primary-conversation turn receives the bounded root page.
@@ -60,16 +58,16 @@ Current implementation direction:
   cannot be mutated, while icon metadata and new pages remain available.
 - The normal update response can use `metadata_updates` to change an existing
   page icon without reproducing its article body or provenance. The server
-  merges each validated patch against the canonical page snapshot before the
+  merges each validated patch against the source page snapshot before the
   same atomic publication and corrective-retry path.
 - Source arrivals and update transitions publish runtime invalidations; GraphQL
   subscriptions refill the authoritative tree/status snapshot without polling.
 - A structurally invalid model response receives one corrective retry; a second
   invalid response fails the update without advancing the checkpoint.
 - Direct editing, page history, private memory, additional scopes, and vectors
-  are not part of this slice.
+  are not implemented.
 
-Canonical page frontmatter uses schema version 2:
+Source page frontmatter uses schema version 2:
 
 ```yaml
 schema: noema.memory.page/v2
@@ -86,5 +84,5 @@ Kevin prefers default reminders. [^1]
 [^1]: item:human-message item:tool-result
 ```
 
-Older broad memory proposals should be treated as historical target context only
-when they agree with the current context and frontend contract above.
+Git history preserves older memory proposals. The current authorities above
+define implemented behavior.

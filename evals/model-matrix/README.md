@@ -44,6 +44,20 @@ OpenRouter protocol cases run once per candidate and apply to every role, so
 each role has at least five applicable scenarios without repeating identical
 billed calls nine times.
 
+## Evidence validity
+
+The current runner uses suite v9.
+Committed decision summaries are sufficient durable evidence.
+Machine-local plans, checkpoints, responses, comparisons, and generated patches are optional diagnostic support.
+Their absence does not invalidate a committed decision summary.
+
+A suite change does not automatically invalidate an earlier recommendation.
+Rerun when case coverage changes a recommended role's material contract or a named risk.
+A later applied decision supersedes only the provider and role cells that it changes.
+
+Each committed decision records its suite and supersession status.
+Current shipped recommendations remain authoritative in `crates/noema-providers/src/recommendations.rs`.
+
 Primary qualification includes seven non-compensable stateful scenarios. They
 cover a cross-timezone flight and public event discovered on the web, an email
 meeting added to a calendar, an existing meeting updated from the latest email,

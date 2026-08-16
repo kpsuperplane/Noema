@@ -2,6 +2,8 @@
 
 These examples assume the agent can read email, create and modify calendar events, and read and write Notion. Email actions are read-only. Complexity reflects the breadth of context, depth of judgment, and consequences of write actions involved.
 
+Unchecked boxes identify evaluation cases. They do not report incomplete runs.
+
 The prerequisites in each row are task-specific. They build on three baseline requirements: the relevant accounts are connected, the agent has the stated permissions, and the user has authorized the requested scope. Ambiguous or externally consequential calendar changes require confirmation unless an existing policy explicitly allows them.
 
 ## Level 1: Direct lookups and bounded edits

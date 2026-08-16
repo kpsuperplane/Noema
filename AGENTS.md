@@ -34,7 +34,7 @@
 
 - `docs/harness/security.md` is the detailed authority. Use exactly three information classes: **secrets**, **private information**, and **ordinary information**. Trust, provenance, retention, action risk, and memory lifecycle are orthogonal attributes, not additional secrecy levels.
 - Secrets are credential material whose possession grants authority, including passwords, API keys, access/refresh tokens, private keys, session cookies, authorization codes, PKCE verifiers, and recovery codes. Keep them only in explicit credential or protected transient-auth stores, pass them through secure bindings, and never place them in model context, logs, conversation history, ordinary events, artifacts, or exports.
-- Private information may be persisted in its canonical governed store and may reach an LLM intact when the run, scope, purpose, and grants authorize it. When access is not authorized, omit or deny it at the context boundary; do not destructively redact the canonical value. External disclosure is decided by the egress model.
+- Private information may persist in its governed source and may reach an LLM intact when the run, scope, purpose, and grants authorize it. When access is not authorized, omit or deny it at the context boundary; do not destructively redact the source value. External disclosure is decided by the egress model.
 - Ordinary information should remain intact. Do not redact or conceal a value merely because it is an identifier, opaque string, path, URL, hostname, port, model name, provider/account ID, schema field, technical diagnostic, or because its field name contains words such as `authorization`, `secret`, or `cookie`.
 - Redaction is not a substitute for authorization or egress policy. Use typed secret wrappers, exact schema annotations, or credential-store provenance rather than substring, entropy, or English-name matching. Redact only the actual secret-bearing value/component at a forbidden sink, or create an explicitly policy-approved redacted derivative for egress while preserving the governed source.
 - Treat unnecessary concealment of authorized private information or ordinary information as a correctness and observability regression. A secret-handling change needs a paired preservation assertion for representative non-secret values at the same boundary.
@@ -93,7 +93,7 @@
 
 ## Astryx Framework Frontend Guidelines
 Astryx v0.1.9 · 90+ components
-CLI: run every command as `npx @astryxdesign/cli <cmd>` (shown below as `astryx ...`).
+CLI: from `apps/web`, run `bun run astryx -- <cmd>` (shown below as `astryx ...`).
 
 SETUP (once, in your app entry e.g. main.tsx) — without these, components render unstyled:
   import "@astryxdesign/core/reset.css";
