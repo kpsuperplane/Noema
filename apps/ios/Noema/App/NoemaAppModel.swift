@@ -135,7 +135,6 @@ final class NoemaAppModel {
   }
 
   func ingestURL(_ url: URL) {
-    if connectionService.handleOAuthCallback(url) { return }
     let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
     let queryTaskID = components?.queryItems?.first(where: { $0.name == "id" })?.value
     let pathTaskID = String(url.path.dropFirst()).removingPercentEncoding

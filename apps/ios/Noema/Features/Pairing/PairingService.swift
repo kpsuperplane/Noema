@@ -4,7 +4,7 @@ import Foundation
 import Security
 import UIKit
 
-enum ConnectionServiceError: Error, LocalizedError, Sendable {
+enum ConnectionServiceError: Error, LocalizedError {
   case busy
   case cancelled
   case authorizationExpired
@@ -29,7 +29,6 @@ final class ConnectionService: NSObject, ASWebAuthenticationPresentationContextP
   private let profileStore: KeychainProfileStore
   private var isWorking = false
   private var browserSession: ASWebAuthenticationSession?
-  private var browserContinuation: CheckedContinuation<URL, Error>?
 
   init(profileStore: KeychainProfileStore) {
     self.profileStore = profileStore
@@ -112,16 +111,6 @@ final class ConnectionService: NSObject, ASWebAuthenticationPresentationContextP
     }
   }
 
-  func handleOAuthCallback(_ url: URL) -> Bool {
-    guard url.scheme?.lowercased() == "noema",
-          url.host?.lowercased() == "oauth",
-          url.path == "/callback",
-          browserContinuation != nil
-    else { return false }
-    finishBrowserCallback(.success(url), cancelSession: true)
-    return true
-  }
-
   func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
     UIApplication.shared.connectedScenes
       .compactMap { $0 as? UIWindowScene }
@@ -131,46 +120,26 @@ final class ConnectionService: NSObject, ASWebAuthenticationPresentationContextP
 
   private func browserCallback(for url: URL) async throws -> URL {
     try await withCheckedThrowingContinuation { continuation in
-      browserContinuation = continuation
-      let session = ASWebAuthenticationSession(
-        url: url,
-        callback: .customScheme("noema")
-      ) { [weak self] callback, error in
-        let result: Result<URL, ConnectionServiceError>
+      let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "noema") {
+        [weak self] callback, error in
+        self?.browserSession = nil
         if let callback {
-          result = .success(callback)
+          continuation.resume(returning: callback)
         } else if (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin {
-          result = .failure(.cancelled)
+          continuation.resume(throwing: ConnectionServiceError.cancelled)
         } else {
-          result = .failure(.invalidCallback)
-        }
-        Task { @MainActor in
-          self?.finishBrowserCallback(result)
+          continuation.resume(throwing: error ?? ConnectionServiceError.invalidCallback)
         }
       }
       session.presentationContextProvider = self
       session.prefersEphemeralWebBrowserSession = false
       browserSession = session
       guard session.start() else {
-        finishBrowserCallback(.failure(ConnectionServiceError.invalidCallback))
+        browserSession = nil
+        continuation.resume(throwing: ConnectionServiceError.invalidCallback)
         return
       }
     }
-  }
-
-  private func finishBrowserCallback(
-    _ result: Result<URL, ConnectionServiceError>,
-    cancelSession: Bool = false
-  ) {
-    guard let continuation = browserContinuation else { return }
-    browserContinuation = nil
-    let session = browserSession
-    browserSession = nil
-    switch result {
-    case .success(let url): continuation.resume(returning: url)
-    case .failure(let error): continuation.resume(throwing: error)
-    }
-    if cancelSession { session?.cancel() }
   }
 
   private func exchange(
