@@ -14,7 +14,7 @@ struct TasksHumanInterventionsView: View {
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .sheet(isPresented: Binding(
+    .noemaSheet(isPresented: Binding(
       get: { browserURL != nil },
       set: { if !$0 { browserURL = nil } }
     ), onDismiss: {

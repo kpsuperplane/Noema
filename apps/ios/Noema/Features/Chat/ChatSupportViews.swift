@@ -32,13 +32,13 @@ struct TaskReferenceChip: View {
     } label: {
       HStack(spacing: NoemaSpacing.xs) {
         Image(systemName: "checklist")
-          .font(NoemaFont.captionEmphasized)
+          .font(NoemaFont.compactEmphasized)
           .foregroundStyle(NoemaColor.content)
         Image(systemName: statusSymbol)
-          .font(NoemaFont.captionEmphasized)
+          .font(NoemaFont.compactEmphasized)
           .foregroundStyle(statusColor)
         Text(title)
-          .font(NoemaFont.taskPreview.weight(.semibold))
+          .font(NoemaFont.compactEmphasized)
           .foregroundStyle(NoemaColor.content)
           .lineLimit(1)
       }
@@ -160,7 +160,6 @@ struct ChatComposer: View {
 
   private var placeholder: String {
     if let placeholderOverride { return placeholderOverride }
-    if model.isOffline { return "Write a draft while offline" }
     if let name = model.primaryAgentDisplayName, !name.isEmpty { return "Message " + name }
     return "Send a message"
   }
@@ -345,10 +344,10 @@ struct ChatComposer: View {
         guard composerActionSends else { return }
         Task { await model.send() }
       } label: {
-        composerActionLabel(symbol: composerActionSymbol, enabled: composerActionEnabled)
+        composerActionLabel(symbol: composerActionSymbol)
       }
       .buttonStyle(.plain)
-      .disabled(composerActionSends && !canSend)
+      .disabled(!composerActionEnabled)
       .accessibilityHidden(!composerActionSends)
       .accessibilityLabel("Send message")
 
@@ -399,7 +398,7 @@ struct ChatComposer: View {
     }
   }
 
-  private func composerActionLabel(symbol: String, enabled: Bool) -> some View {
+  private func composerActionLabel(symbol: String) -> some View {
     ZStack {
       Image(systemName: symbol)
         .id(symbol)
@@ -407,7 +406,7 @@ struct ChatComposer: View {
         .symbolEffect(.pulse, options: .repeating, isActive: voiceInput.isRecording && !reduceMotion)
     }
     .font(NoemaFont.bodyEmphasized)
-    .foregroundStyle(NoemaColor.pine500.opacity(enabled ? 1 : 0.7))
+    .foregroundStyle(NoemaColor.pine500)
     .animation(reduceMotion ? nil : NoemaSpring.micro, value: symbol)
     .frame(width: 40, height: 40)
     .background(NoemaColor.white, in: NoemaSuperellipse.composer)
@@ -520,7 +519,7 @@ struct ChatInterventionsView: View {
       }
     }
     .frame(maxWidth: 760, alignment: .leading)
-    .sheet(isPresented: Binding(
+    .noemaSheet(isPresented: Binding(
       get: { browserURL != nil },
       set: { if !$0 { browserURL = nil } }
     ), onDismiss: {

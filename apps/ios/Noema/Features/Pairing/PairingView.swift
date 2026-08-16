@@ -101,7 +101,7 @@ struct PairingView: View {
       focusedField = .pairingLink
       input = model.pairingInput
     }
-    .sheet(isPresented: $scannerPresented) {
+    .noemaSheet(isPresented: $scannerPresented) {
       NoemaNativeSheet(title: "Scan pairing QR", onDismiss: { scannerPresented = false }) {
         QRScannerSheet { value in
           scannerPresented = false

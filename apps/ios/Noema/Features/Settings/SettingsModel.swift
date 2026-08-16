@@ -154,16 +154,7 @@ final class SettingsModel {
   var clientsErrorMessage: String?
   var taskModelPoolsErrorMessage: String?
   var acpErrorMessage: String?
-  var isOffline = false {
-    didSet {
-      guard oldValue != isOffline else { return }
-      NoemaDiagnosticTrace.shared.record(
-        category: "settings",
-        event: "offline_changed",
-        fields: ["offline": String(isOffline), "hasSnapshot": String(snapshot != nil)]
-      )
-    }
-  }
+  var isOffline: Bool { connectionStatus?.isDisconnected ?? (client == nil) }
   var isLoadingClients = false
   var isLoadingTaskModelPools = false
   var isLoadingAcpAgents = false
@@ -176,13 +167,17 @@ final class SettingsModel {
   var adapterOAuthState: SettingsAdapterOAuthState?
   var client: ApolloClient?
   var authSubscription: Task<Void, Never>?
+  private let connectionStatus: NoemaConnectionStatus?
+
+  init(connectionStatus: NoemaConnectionStatus?) {
+    self.connectionStatus = connectionStatus
+  }
 
   var canMutate: Bool { client != nil && !isMutating && !isOffline }
 
   func load(client: ApolloClient?) async {
     guard let client else {
       self.client = nil
-      isOffline = true
       errorMessage = "Pair this device with Noema to view settings."
       return
     }
@@ -196,7 +191,6 @@ final class SettingsModel {
         if let data = response.data {
           snapshot = data
           received = true
-          isOffline = false
         }
         if let message = response.errors?.first?.message, !received {
           errorMessage = message
@@ -204,7 +198,6 @@ final class SettingsModel {
       }
       if !received, snapshot == nil { throw SettingsError.unavailable }
     } catch {
-      isOffline = true
       if snapshot == nil { errorMessage = "Settings could not be loaded." }
     }
     isLoading = false
@@ -282,7 +275,6 @@ final class SettingsModel {
         errorMessage: attempt.errorMessage
       )
       startAuthSubscription(attemptID: attempt.attemptId)
-      isOffline = false
       return true
     } catch {
       errorMessage = error.localizedDescription
@@ -326,10 +318,8 @@ final class SettingsModel {
           isCurrent: item.isCurrent
         )
       }
-      isOffline = false
       return pairedClient.isCurrent
     } catch {
-      isOffline = true
       throw error
     }
   }
@@ -777,14 +767,12 @@ final class SettingsModel {
     do {
       let response = try await operation()
       if let message = response.errors?.first?.message { throw SettingsError.server(message) }
-      isOffline = false
       await load(client: client)
       return true
     } catch let error as SettingsError {
       errorMessage = error.localizedDescription
       return false
     } catch {
-      isOffline = true
       errorMessage = error.localizedDescription
       return false
     }

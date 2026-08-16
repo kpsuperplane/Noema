@@ -63,7 +63,7 @@ struct AdapterOauthClientSetupInterventionCard: View {
           .disabled(isOffline || isWorking)
       }
     }
-    .sheet(isPresented: $setupPresented) {
+    .noemaSheet(isPresented: $setupPresented) {
       AdapterCredentialSetupSheet(
         serviceName: setup.displayName,
         title: "Import OAuth client",
@@ -231,12 +231,12 @@ struct AdapterDefinitionInterventionCard: View {
       guard !Task.isCancelled else { return }
       authorizing = false; authorizationExpiresAt = nil; authorizationExpired = true
     }
-    .sheet(isPresented: $detailsPresented) {
+    .noemaSheet(isPresented: $detailsPresented) {
       ChatInterventionSheet(title: "Technical details", subtitle: definition.displayName, detents: [.medium, .large], onClose: { detailsPresented = false }) {
         accessDetails
       }
     }
-    .sheet(isPresented: $credentialSetupPresented) {
+    .noemaSheet(isPresented: $credentialSetupPresented) {
       if let credentialSetup {
         AdapterCredentialSetupSheet(
           serviceName: definition.displayName,
@@ -252,7 +252,7 @@ struct AdapterDefinitionInterventionCard: View {
         )
       }
     }
-    .sheet(isPresented: $policyPresented) {
+    .noemaSheet(isPresented: $policyPresented) {
       ChatInterventionSheet(
         title: "Tool permissions",
         subtitle: definition.displayName,

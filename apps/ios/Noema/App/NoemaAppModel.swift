@@ -49,6 +49,7 @@ final class NoemaAppModel {
   }
 
   var graphQLClient: NoemaGraphQLClient? { graphQL }
+  var isDisconnected: Bool { graphQL?.connectionStatus.isDisconnected ?? false }
 
   func bootstrap() async {
     NoemaDiagnosticTrace.shared.record(category: "app", event: "bootstrap_started")

@@ -37,6 +37,8 @@
 	<string>Noema uses the camera to scan a pairing QR code when you choose Somecan.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Noema uses the microphone when you choose voice input in Chat.</string>
+	<key>NoemaAPNSEnvironment</key>
+	<string>$(APS_ENVIRONMENT)</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Noema uses on-device speech recognition to turn your voice input into a Chat message.</string>
 	<key>NSSupportsLiveActivities</key>

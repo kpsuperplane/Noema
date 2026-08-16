@@ -222,6 +222,23 @@ struct NoemaTopRail: View {
   }
 }
 
+private struct NoemaConnectionBanner: View {
+  var body: some View {
+    HStack(spacing: NoemaSpacing.compact) {
+      Image(systemName: "wifi.slash")
+        .accessibilityHidden(true)
+      Text("Noema is offline.")
+        .font(NoemaFont.captionEmphasized)
+    }
+    .foregroundStyle(NoemaColor.danger)
+    .padding(.horizontal, NoemaSpacing.md)
+    .padding(.vertical, NoemaSpacing.compact)
+    .frame(maxWidth: .infinity)
+    .frame(minHeight: NoemaSpacing.xxl + NoemaSpacing.sm)
+    .accessibilityElement(children: .combine)
+  }
+}
+
 private struct NoemaExpandableRailText: View {
   let label: String
   let expansion: CGFloat
@@ -310,17 +327,22 @@ struct NoemaShellView: View {
   @State private var pageSwipeGeneration = 0
   @State private var shellDragAxis: NoemaShellDragAxis?
   @State private var measuredMobileRevealHeight: CGFloat = 0
+  @State private var measuredConnectionBannerHeight: CGFloat = 0
   @State private var coordinator = NoemaShellCoordinator()
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   init(model: NoemaAppModel) {
     self.model = model
-    _chat = State(initialValue: ChatModel(client: model.graphQLClient?.client, profile: model.profile))
+    _chat = State(initialValue: ChatModel(
+      client: model.graphQLClient?.client,
+      profile: model.profile,
+      connectionStatus: model.graphQLClient?.connectionStatus
+    ))
     _tasks = State(initialValue: model.graphQLClient.map {
-      TasksModel(client: $0.client, profile: model.profile)
+      TasksModel(client: $0.client, profile: model.profile, connectionStatus: $0.connectionStatus)
     })
-    _memory = State(initialValue: MemoryModel())
-    _settings = State(initialValue: SettingsModel())
+    _memory = State(initialValue: MemoryModel(connectionStatus: model.graphQLClient?.connectionStatus))
+    _settings = State(initialValue: SettingsModel(connectionStatus: model.graphQLClient?.connectionStatus))
   }
 
   var body: some View {
@@ -329,7 +351,11 @@ struct NoemaShellView: View {
       let breakpoint = NoemaBreakpoint.resolve(width: proxy.size.width)
       let compact = breakpoint == .compact
       let sidebarWidth: CGFloat = compact ? proxy.size.width : 216
-      let deckTop = safeTop + (coordinator.primaryNavigationHidden ? 0 : 52)
+      let connectionBannerHeight = model.isDisconnected
+        ? max(measuredConnectionBannerHeight, NoemaSpacing.xxl + NoemaSpacing.sm)
+        : 0
+      let shellTop = safeTop + connectionBannerHeight
+      let deckTop = shellTop + (coordinator.primaryNavigationHidden ? 0 : 52)
       let deckLeft: CGFloat = compact || coordinator.secondary == nil ? 0 : sidebarWidth
       let deckRight: CGFloat = compact ? 0 : 8
       let deckBottom: CGFloat = compact ? 0 : 8
@@ -341,6 +367,18 @@ struct NoemaShellView: View {
 
       ZStack(alignment: .topLeading) {
         NoemaColor.pine50.ignoresSafeArea()
+
+        if model.isDisconnected {
+          NoemaConnectionBanner()
+            .onGeometryChange(for: CGFloat.self) { geometry in
+              geometry.size.height
+            } action: { height in
+              measuredConnectionBannerHeight = height
+            }
+            .offset(y: safeTop)
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .zIndex(50)
+        }
 
         if coordinator.secondary != nil {
           NoemaSidebar(
@@ -393,11 +431,15 @@ struct NoemaShellView: View {
             selectionPosition: pageSelectionPosition(width: proxy.size.width),
             agentAvatarActivity: shellAgentAvatarActivity
           )
-            .padding(.top, safeTop)
+            .padding(.top, shellTop)
             .zIndex(40)
         }
       }
       .ignoresSafeArea()
+      .animation(
+        NoemaMotion.animation(NoemaSpring.surface, reduceMotion: reduceMotion),
+        value: model.isDisconnected
+      )
       .onAppear {
         installFallbackNavigation(for: selection)
         routePendingTask()

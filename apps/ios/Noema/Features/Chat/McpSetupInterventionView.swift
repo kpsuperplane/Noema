@@ -73,12 +73,12 @@ struct McpSetupInterventionCard: View {
         server = next
       }
     }
-    .sheet(isPresented: $detailsPresented) {
+    .noemaSheet(isPresented: $detailsPresented) {
       ChatInterventionSheet(title: "Connection details", subtitle: setup.displayName, detents: [.medium, .large], onClose: { detailsPresented = false }) {
         connectionDetails
       }
     }
-    .sheet(isPresented: $policyPresented) {
+    .noemaSheet(isPresented: $policyPresented) {
       ChatInterventionSheet(
         title: "Tool permissions",
         subtitle: setup.displayName,

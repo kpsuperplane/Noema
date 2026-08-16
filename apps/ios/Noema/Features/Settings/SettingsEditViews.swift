@@ -179,7 +179,7 @@ struct SettingsPreferenceEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || isDirty)
-    .sheet(isPresented: $discardPresented) {
+    .noemaSheet(isPresented: $discardPresented) {
       SettingsConfirmationSheet(
         title: "Discard model changes?",
         message: "Any unsaved changes will be lost.",

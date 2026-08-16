@@ -98,8 +98,8 @@ struct LocalModelsSettings: View {
         }
       }
     }
-    .sheet(isPresented: $importPresented) { LocalModelImportEditor(settings: settings) }
-    .sheet(item: $selection) { selection in
+    .noemaSheet(isPresented: $importPresented) { LocalModelImportEditor(settings: settings) }
+    .noemaSheet(item: $selection) { selection in
       switch selection {
       case .installation(let id):
         if let installation = installations.first(where: { $0.installationId == id }) {
@@ -207,7 +207,7 @@ private struct LocalModelInstallationSheet: View {
         }
       }
     }
-    .sheet(isPresented: $removePresented) {
+    .noemaSheet(isPresented: $removePresented) {
       SettingsMutationConfirmationSheet(
         title: "Remove \(installation.name)?",
         message: "This removes \(formatBytes(installation.diskBytes)) from this device. You can install it again later.",
@@ -311,10 +311,10 @@ struct ProvidersSettings: View {
         }
       }
     }
-    .sheet(isPresented: $addPresented) {
+    .noemaSheet(isPresented: $addPresented) {
       ProviderAccountEditor(settings: settings, catalog: providerCatalog)
     }
-    .sheet(item: $selectedAccount) { selected in
+    .noemaSheet(item: $selectedAccount) { selected in
       if let account = accounts.first(where: { $0.providerAccountId == selected.providerAccountID }) {
         ProviderAccountDetailSheet(
           account: account,
@@ -425,15 +425,15 @@ private struct ProviderAccountDetailSheet: View {
         }
       }
     }
-    .sheet(isPresented: $replaceKeyPresented) { ProviderSecretEditor(account: local, settings: settings) }
-    .sheet(isPresented: $clearKeyPresented) {
+    .noemaSheet(isPresented: $replaceKeyPresented) { ProviderSecretEditor(account: local, settings: settings) }
+    .noemaSheet(isPresented: $clearKeyPresented) {
       SettingsMutationConfirmationSheet(
         title: "Clear API key for \(account.displayName)?",
         message: "Noema cannot use this account until you add a key again.",
         confirmTitle: "Clear key"
       ) { await settings.clearProviderSecret(providerAccountID: account.providerAccountId) }
     }
-    .sheet(isPresented: $deletePresented) {
+    .noemaSheet(isPresented: $deletePresented) {
       SettingsMutationConfirmationSheet(
         title: "Delete \(account.displayName)?",
         message: "This removes the account, its stored access, and web tool selections.",
@@ -583,7 +583,7 @@ struct ClientsSettings: View {
         )
       }
     }
-    .sheet(item: $selectedClient) { client in
+    .noemaSheet(item: $selectedClient) { client in
       PairedClientDetailSheet(
         client: client,
         settings: settings,
@@ -666,7 +666,7 @@ private struct PairedClientDetailSheet: View {
         }
       }
     }
-    .sheet(isPresented: $revokePresented, onDismiss: {
+    .noemaSheet(isPresented: $revokePresented, onDismiss: {
       if settings.clients.first(where: { $0.id == client.id })?.isRevoked == true { onClose() }
     }) {
       ClientRevocationSheet(client: client, settings: settings, appModel: appModel)

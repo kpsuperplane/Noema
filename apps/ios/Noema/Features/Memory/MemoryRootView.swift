@@ -139,7 +139,7 @@ private struct MemoryArticleView: View {
     }
     .background(NoemaColor.surface)
     .scrollContentBackground(.hidden)
-    .sheet(item: $selectedCitation) { citation in
+    .noemaSheet(item: $selectedCitation) { citation in
       MemoryCitationSheet(citation: citation)
     }
   }
@@ -456,12 +456,10 @@ private struct MemoryUpdateNotice: View {
   private func statusDetail(_ update: MemoryUpdateStatus) -> String {
     if let error = model.updateErrorMessage { return error }
     if let error = update.error, !error.isEmpty { return error }
-    if let error = model.subscriptionErrorMessage { return error }
     if update.pendingCount > 0 {
       let age = update.updatedAt.flatMap(relativeAge)
       return age.map { "\(update.pendingCount) pending · \($0)" } ?? "\(update.pendingCount) pending"
     }
-    if model.isOffline { return "Cached data · reconnect to update" }
     if let updatedAt = update.updatedAt {
       return relativeAge(updatedAt).map { "Last updated \($0)" } ?? "Last updated"
     }

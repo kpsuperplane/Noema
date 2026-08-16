@@ -80,12 +80,12 @@ private struct TasksDetailContent: View {
       }
       if let completed = acceptedCompletion {
         TasksCompletedTabBar(selection: $selectedTab)
-        if selectedTab == .result {
+        TasksResultPager(selection: $selectedTab) {
           ScrollView {
             TasksCompletedResultView(submission: completed, onArtifact: openArtifact)
           }
           .scrollDismissesKeyboard(.interactively)
-        } else {
+        } transcript: {
           transcriptScroller(submission: completed)
         }
       } else {
@@ -101,69 +101,67 @@ private struct TasksDetailContent: View {
         }
       }
     }
-    .sheet(isPresented: $editPresented) {
+    .noemaSheet(isPresented: $editPresented) {
       TasksInboxEditSheet(model: model, task: detail)
     }
-    .sheet(isPresented: $reopenPresented) {
+    .noemaSheet(isPresented: $reopenPresented) {
       TasksReopenSheet(model: model, task: detail)
     }
-    .sheet(isPresented: $queuePresented) {
+    .noemaSheet(isPresented: $queuePresented) {
       TasksQueueSheet(model: model, task: detail)
     }
-    .sheet(item: $scheduleAction) { action in
+    .noemaSheet(item: $scheduleAction) { action in
       TasksScheduleSheet(model: model, task: detail, action: action)
     }
-    .sheet(item: $selectedArtifact) { selection in
+    .noemaSheet(item: $selectedArtifact) { selection in
       ArtifactVersionSheet(model: ArtifactModel(client: model.client, profile: model.profile), selection: selection)
     }
-    .sheet(isPresented: $cancelPresented) {
+    .noemaSheet(isPresented: $cancelPresented) {
       TasksCancelSheet(model: model, task: detail)
     }
-    .sheet(isPresented: $taskInfoPresented) {
+    .noemaSheet(isPresented: $taskInfoPresented) {
       TasksTaskInfoSheet(detail: detail)
     }
-    .sheet(isPresented: $validationPresented) {
+    .noemaSheet(isPresented: $validationPresented) {
       TasksValidationSheet(criteria: detail.latestSubmission?.criteria ?? detail.criteria)
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
-      if showsContextDock {
-        VStack(spacing: 0) {
-          if !taskInterventions.isEmpty {
-            TasksHumanInterventionsView(model: model, interventions: taskInterventions)
-              .padding(.horizontal, NoemaSpacing.lg)
-              .padding(.bottom, NoemaSpacing.md)
-          }
-          if let gate = detail.activeGate {
-            TasksGatePanel(
-              gate: gate,
-              response: $gateResponse,
-              isConnected: model.isConnected,
-              isSubmitting: model.commandIsPending(taskID: detail.id),
-              errorMessage: model.commandError(taskID: detail.id),
-              canAnswer: hasAction("ANSWER"),
-              canRetry: hasAction("RETRY"),
-              answer: { answer, approval in
-                await model.answer(task: detail, answer: answer, approval: approval)
-              },
-              retry: { note in
-                await model.retry(task: detail, note: note)
-              }
-            )
+      VStack(spacing: 0) {
+        if !taskInterventions.isEmpty {
+          TasksHumanInterventionsView(model: model, interventions: taskInterventions)
             .padding(.horizontal, NoemaSpacing.lg)
-          }
-          TasksTaskContextDock(
-            run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
-            activity: latestRunActivity,
-            criteria: detail.latestSubmission?.criteria ?? detail.criteria,
-            canCancel: hasAction("CANCEL") && model.isConnected,
-            cancel: { cancelPresented = true },
-            showInfo: { taskInfoPresented = true },
-            showValidation: { validationPresented = true }
+            .padding(.bottom, NoemaSpacing.md)
+        }
+        if let gate = detail.activeGate {
+          TasksGatePanel(
+            gate: gate,
+            response: $gateResponse,
+            isConnected: model.isConnected,
+            isSubmitting: model.commandIsPending(taskID: detail.id),
+            errorMessage: model.commandError(taskID: detail.id),
+            canAnswer: hasAction("ANSWER"),
+            canRetry: hasAction("RETRY"),
+            answer: { answer, approval in
+              await model.answer(task: detail, answer: answer, approval: approval)
+            },
+            retry: { note in
+              await model.retry(task: detail, note: note)
+            }
           )
           .padding(.horizontal, NoemaSpacing.lg)
-          .offset(y: detail.activeGate == nil ? 0 : -NoemaSpacing.xxl)
-          .padding(.bottom, detail.activeGate == nil ? 0 : -NoemaSpacing.xxl)
         }
+        TasksTaskContextDock(
+          run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
+          activity: latestRunActivity,
+          criteria: detail.latestSubmission?.criteria ?? detail.criteria,
+          canCancel: hasAction("CANCEL") && model.isConnected,
+          cancel: { cancelPresented = true },
+          showInfo: { taskInfoPresented = true },
+          showValidation: { validationPresented = true }
+        )
+        .padding(.horizontal, NoemaSpacing.lg)
+        .offset(y: detail.activeGate == nil ? 0 : -NoemaSpacing.xxl)
+        .padding(.bottom, detail.activeGate == nil ? 0 : -NoemaSpacing.xxl)
       }
     }
     .onChange(of: detail.activeGate?.id) { _, _ in
@@ -287,10 +285,6 @@ private struct TasksDetailContent: View {
       .filter { $0.runId == runID }
       .max(by: { $0.sequence < $1.sequence })?
       .content
-  }
-
-  private var showsContextDock: Bool {
-    acceptedCompletion == nil || selectedTab == .transcript
   }
 
   private var acceptedCompletion: TasksSubmissionSnapshot? {
@@ -631,7 +625,7 @@ private struct TasksInboxEditSheet: View {
     }
     .noemaTaskSheetPresentation([.medium, .large], regularHeight: 640)
     .interactiveDismissDisabled(isDirty || isSaving)
-    .sheet(isPresented: $discardPresented) {
+    .noemaSheet(isPresented: $discardPresented) {
       TasksDiscardSheet(title: "Discard changes?", message: "Your task edits will be lost.") {
         dismiss()
       }
@@ -757,7 +751,7 @@ private struct TasksReopenSheet: View {
     }
     .noemaTaskSheetPresentation([.height(362)], regularHeight: 500)
     .interactiveDismissDisabled(isDirty || isSubmitting)
-    .sheet(isPresented: $discardPresented) {
+    .noemaSheet(isPresented: $discardPresented) {
       TasksDiscardSheet(title: "Discard feedback?", message: "Your reopen direction will be lost.") {
         dismiss()
       }

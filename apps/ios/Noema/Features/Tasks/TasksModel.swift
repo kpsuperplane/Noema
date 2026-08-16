@@ -30,16 +30,7 @@ final class TasksModel {
   private(set) var isLoadingOlderRunItems = false
   private(set) var isLoadingMoreTasks = false
   private(set) var isLoadingMoreHistory = false
-  private(set) var isConnected = true {
-    didSet {
-      guard oldValue != isConnected else { return }
-      NoemaDiagnosticTrace.shared.record(
-        category: "tasks",
-        event: "connection_changed",
-        fields: ["connected": String(isConnected), "hasTasks": String(hasLoadedTasks)]
-      )
-    }
-  }
+  var isConnected: Bool { !connectionStatus.isDisconnected }
   private(set) var lastError: String?
   private(set) var hasLoadedTasks = false
   private(set) var commandTaskIDs = Set<String>()
@@ -68,10 +59,17 @@ final class TasksModel {
   private(set) var hasMoreTasks = false
   private(set) var hasMoreHistory = false
   private var started = false
+  private let connectionStatus: NoemaConnectionStatus
 
-  init(client: ApolloClient, profile: NoemaProfile? = nil, workspaceId: String = TasksModel.personalWorkspaceId) {
+  init(
+    client: ApolloClient,
+    profile: NoemaProfile? = nil,
+    connectionStatus: NoemaConnectionStatus,
+    workspaceId: String = TasksModel.personalWorkspaceId
+  ) {
     self.client = client
     self.profile = profile
+    self.connectionStatus = connectionStatus
     self.workspaceId = workspaceId
   }
 
@@ -280,7 +278,6 @@ final class TasksModel {
       let query = TasksRunItemsQuery(runId: runId, first: .some(50), after: optional(after))
       let stream = try client.fetch(query: query, cachePolicy: .cacheAndNetwork)
       for try await response in stream {
-        if response.source == .server { isConnected = true }
         if let message = response.errors?.first?.message { throw TasksGraphQLError.server(message) }
         if let result = response.data {
           guard expectedTaskID == detailTaskID, detailTaskID != nil, !Task.isCancelled else { return }
@@ -934,7 +931,6 @@ final class TasksModel {
         )
         for try await value in stream {
           guard !Task.isCancelled else { return }
-          isConnected = true
           eventCursor = value.data?.tasksEvents.cursor ?? eventCursor
           await refresh()
         }
@@ -959,7 +955,6 @@ final class TasksModel {
         )
         for try await value in stream {
           guard !Task.isCancelled else { return }
-          isConnected = true
           eventCursor = value.data?.taskEvents.cursor ?? eventCursor
           await loadDetail(taskId: taskId)
         }
@@ -978,7 +973,6 @@ final class TasksModel {
         let stream = try client.subscribe(subscription: TasksRuntimeEventsSubscription(taskId: taskId))
         for try await value in stream {
           guard !Task.isCancelled else { return }
-          isConnected = true
           if let runId = value.data?.taskRuntimeEvents.runId {
             await loadRunItems(runId: runId)
           }
@@ -1024,7 +1018,6 @@ final class TasksModel {
       detail = mergeDetailCore(source, into: detail)
       isLoadingDetail = false
       if response.source == .server {
-        isConnected = true
         lastError = nil
       }
     case .failure(let error):
@@ -1048,7 +1041,6 @@ final class TasksModel {
       guard let source = response.data?.task.fragments.tasksDetailActivityFields else { return }
       detail = mergeDetailActivity(source, into: detail)
       if response.source == .server {
-        isConnected = true
         lastError = nil
       }
       let runIDs = Set(source.runs.map(\.runId))
@@ -1080,7 +1072,6 @@ final class TasksModel {
       guard let source = response.data?.task.fragments.tasksDetailOutcomeFields else { return }
       detail = mergeDetailOutcome(source, into: detail)
       if response.source == .server {
-        isConnected = true
         lastError = nil
       }
     case .failure(let error):
@@ -1430,7 +1421,6 @@ final class TasksModel {
 
   private func fetch<Query: GraphQLQuery>(_ query: Query) async throws -> GraphQLResponse<Query> where Query.ResponseFormat == SingleResponseFormat {
     let response = try await client.fetchNetworkFirst(query: query)
-    isConnected = response.source == .server
     if let message = response.errors?.first?.message { throw TasksGraphQLError.server(message) }
     guard response.data != nil else { throw ApolloClient.Error.noResults }
     return response
@@ -1446,7 +1436,6 @@ final class TasksModel {
   }
 
   private func record(_ error: Error) {
-    if !(error is TasksGraphQLError) { isConnected = false }
     lastError = error.localizedDescription
   }
 

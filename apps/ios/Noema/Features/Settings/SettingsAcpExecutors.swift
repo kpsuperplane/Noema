@@ -219,7 +219,7 @@ struct AcpWorkExecutorsSettings: View {
         }
       }
     }
-    .sheet(item: $editor) { target in
+    .noemaSheet(item: $editor) { target in
       AcpAgentEditorSheet(target: target, settings: settings)
     }
   }
@@ -349,7 +349,7 @@ struct AcpAgentEditorSheet: View {
       }
     }
     .interactiveDismissDisabled(isSaving || isDirty)
-    .sheet(isPresented: $discardPresented) {
+    .noemaSheet(isPresented: $discardPresented) {
       SettingsConfirmationSheet(
         title: "Discard ACP changes?",
         message: "Any unsaved changes will be lost.",

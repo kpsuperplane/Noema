@@ -113,7 +113,7 @@ struct ProviderAccountEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || isDirty)
-    .sheet(isPresented: $discardPresented) {
+    .noemaSheet(isPresented: $discardPresented) {
       SettingsConfirmationSheet(
         title: "Discard provider account?",
         message: "Any unsaved changes will be lost.",
@@ -174,7 +174,7 @@ private struct ProviderAuthStatus: View {
           .disabled(settings.isMutating)
       }
     }
-    .sheet(isPresented: $showSafari) {
+    .noemaSheet(isPresented: $showSafari) {
       if let url = auth.verificationURL { SafariView(url: url) }
     }
   }
@@ -215,7 +215,7 @@ struct ProviderSecretEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || !secret.isEmpty)
-    .sheet(isPresented: $discardPresented) {
+    .noemaSheet(isPresented: $discardPresented) {
       SettingsConfirmationSheet(
         title: "Discard replacement key?",
         message: "Any unsaved changes will be lost.",
@@ -323,7 +323,7 @@ struct LocalModelImportEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || isDirty)
-    .sheet(isPresented: $discardPresented) {
+    .noemaSheet(isPresented: $discardPresented) {
       SettingsConfirmationSheet(
         title: "Discard model import?",
         message: "Any unsaved changes will be lost.",

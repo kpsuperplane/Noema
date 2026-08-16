@@ -142,6 +142,7 @@ struct ChatFailureView: View {
 private struct ChatScrollGeometry: Equatable {
   let isAtBottom: Bool
   let containerHeight: CGFloat
+  let contentHeight: CGFloat
 }
 
 struct ChatReadyView: View {
@@ -253,7 +254,7 @@ struct ChatReadyView: View {
     GeometryReader { geometry in
       if geometry.size.width < NoemaBreakpoint.regularMinimum - 216 - 8 {
         transcriptSurface
-          .sheet(isPresented: taskDetailPresented) {
+          .noemaSheet(isPresented: taskDetailPresented) {
             taskDetail
           }
       } else {
@@ -264,7 +265,7 @@ struct ChatReadyView: View {
           }
       }
     }
-    .sheet(item: $selectedArtifact) { selection in
+    .noemaSheet(item: $selectedArtifact) { selection in
       ArtifactVersionSheet(model: ArtifactModel(client: model.client, profile: model.profile), selection: selection)
     }
   }
@@ -275,14 +276,7 @@ struct ChatReadyView: View {
         NoemaPageTrack(maxWidth: 760, horizontalPadding: NoemaSpacing.md) {
           LazyVStack(alignment: .leading, spacing: 0) {
             if model.messages.isEmpty {
-              if model.isOffline {
-                SystemNoticeView(
-                  text: "Reconnect to load this conversation.",
-                  symbol: "wifi.slash",
-                  tone: .warning
-                )
-                .containerRelativeFrame(.vertical, alignment: .center)
-              } else if !model.hasLoadedTranscript {
+              if !model.hasLoadedTranscript {
                 ChatTranscriptLoadingSkeleton(horizontalPadding: 0)
                   .containerRelativeFrame(.vertical, alignment: .bottom)
               }
@@ -342,12 +336,15 @@ struct ChatReadyView: View {
           - (geometry.contentOffset.y + geometry.containerSize.height)
         return ChatScrollGeometry(
           isAtBottom: bottomDistance <= NoemaSpacing.sm,
-          containerHeight: geometry.containerSize.height
+          containerHeight: geometry.containerSize.height,
+          contentHeight: geometry.contentSize.height
         )
       } action: { oldGeometry, newGeometry in
         if newGeometry.isAtBottom {
           followBottom = true
-        } else if followBottom, oldGeometry.containerHeight != newGeometry.containerHeight {
+        } else if followBottom,
+                  oldGeometry.containerHeight != newGeometry.containerHeight
+                    || oldGeometry.contentHeight != newGeometry.contentHeight {
           proxy.scrollTo("chat-bottom", anchor: .bottom)
         } else {
           followBottom = false
@@ -386,14 +383,6 @@ struct ChatReadyView: View {
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
       VStack(spacing: NoemaSpacing.xs) {
-        if model.isOffline {
-          NoemaInlineState(
-            message: "Offline — transcript remains available; sending is paused.",
-            symbol: "wifi.slash",
-            tone: .warning
-          )
-          .frame(maxWidth: 760)
-        }
         if !model.interventions.isEmpty {
           ChatInterventionsView(model: model)
         }
@@ -457,7 +446,12 @@ struct ChatReadyView: View {
   @ViewBuilder
   private var taskDetail: some View {
     if let selectedTaskID {
-      ChatTaskDetailSheet(client: model.client, profile: model.profile, taskID: selectedTaskID)
+      ChatTaskDetailSheet(
+        client: model.client,
+        profile: model.profile,
+        connectionStatus: model.connectionStatus,
+        taskID: selectedTaskID
+      )
     }
   }
 

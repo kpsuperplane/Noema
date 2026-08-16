@@ -95,21 +95,7 @@ final class ChatModel {
   private(set) var beforeCursor: String?
   private(set) var isLoadingOlder = false
   private(set) var isSending = false
-  private(set) var isOffline = false {
-    didSet {
-      guard oldValue != isOffline else { return }
-      NoemaDiagnosticTrace.shared.record(
-        category: "chat",
-        event: "offline_changed",
-        fields: [
-          "offline": String(isOffline),
-          "phase": diagnosticPhase,
-          "hasTranscript": String(hasLoadedTranscript),
-          "messageCount": String(messages.count)
-        ]
-      )
-    }
-  }
+  var isOffline: Bool { connectionStatus?.isDisconnected ?? (client == nil) }
   private(set) var errorMessage: String?
   private(set) var interventions: [ChatIntervention] = []
   private(set) var interventionErrors: [String: String] = [:]
@@ -144,6 +130,7 @@ final class ChatModel {
 
   let client: ApolloClient?
   let profile: NoemaProfile?
+  let connectionStatus: NoemaConnectionStatus?
   let onboarding: OnboardingModel?
   private var subscriptionTask: Task<Void, Never>?
   private var transcriptRefreshTask: Task<Bool, Never>?
@@ -167,9 +154,10 @@ final class ChatModel {
     }
   }
 
-  init(client: ApolloClient?, profile: NoemaProfile?) {
+  init(client: ApolloClient?, profile: NoemaProfile?, connectionStatus: NoemaConnectionStatus?) {
     self.client = client
     self.profile = profile
+    self.connectionStatus = connectionStatus
     if let profile {
       let key = "dev.noema.app.ios.dismissed-adapter-setup.\(profile.origin.absoluteString)"
       dismissedAdapterSetupDigests = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
@@ -226,7 +214,6 @@ final class ChatModel {
     } catch {
       NoemaDiagnosticTrace.shared.record(category: "chat", event: "start_failed", error: error)
       errorMessage = error.localizedDescription
-      isOffline = true
       if !hasLoadedTranscript, phase != .onboarding {
         phase = .failed(errorMessage ?? "Noema could not load chat.")
       } else {
@@ -299,10 +286,8 @@ final class ChatModel {
       merge(page.items, prepend: true)
       hasMoreBefore = page.pageInfo.hasMoreBefore
       beforeCursor = page.pageInfo.beforeCursor
-      isOffline = false
     } catch {
       errorMessage = error.localizedDescription
-      isOffline = true
     }
   }
 
@@ -351,7 +336,6 @@ final class ChatModel {
           "clientMessageID": clientMessageID
         ]
       )
-      isOffline = false
     } catch {
       NoemaDiagnosticTrace.shared.record(
         category: "chat",
@@ -378,7 +362,6 @@ final class ChatModel {
       )
       let response = try await client.perform(mutation: NoemaAPI.SendMultipleChoiceSelectionMutation(input: input))
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
-      isOffline = false
     } catch {
       recordMutationError(error)
     }
@@ -400,7 +383,6 @@ final class ChatModel {
     do {
       let response = try await client.perform(mutation: NoemaAPI.TasksAnswerTaskMutation(input: input))
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
-      isOffline = false
       await refreshInterventions(client: client)
     } catch {
       recordMutationError(error)
@@ -420,7 +402,6 @@ final class ChatModel {
     do {
       let response = try await client.perform(mutation: NoemaAPI.TasksRetryTaskMutation(input: input))
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
-      isOffline = false
       await refreshInterventions(client: client)
     } catch {
       recordMutationError(error)
@@ -452,7 +433,6 @@ final class ChatModel {
       )
       let response = try await client.perform(mutation: NoemaAPI.SendA2UIActionMutation(input: input))
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
-      isOffline = false
     } catch {
       recordMutationError(error)
     }
@@ -463,7 +443,6 @@ final class ChatModel {
     interventionErrors[action.actionID] = nil
     do {
       try await HumanInterventionActions.resolve(action, decision: decision, client: client)
-      isOffline = false
       await refreshInterventions(client: client)
     } catch {
       recordInterventionError(error, id: action.actionID)
@@ -478,7 +457,6 @@ final class ChatModel {
       guard let url = try await HumanInterventionActions.startMcpAuthentication(auth, client: client, profile: profile) else {
         throw ChatModelError.emptyResponse
       }
-      isOffline = false
       return url
     } catch {
       recordInterventionError(error, id: auth.requestID)
@@ -491,7 +469,6 @@ final class ChatModel {
     interventionErrors[auth.requestID] = nil
     do {
       try await HumanInterventionActions.skipMcpAuthentication(auth, client: client)
-      isOffline = false
       await refreshInterventions(client: client)
     } catch {
       recordInterventionError(error, id: auth.requestID)
@@ -506,7 +483,6 @@ final class ChatModel {
       guard let url = try await HumanInterventionActions.startAdapterAuthentication(auth, client: client) else {
         throw ChatModelError.emptyResponse
       }
-      isOffline = false
       return url
     } catch {
       recordInterventionError(error, id: auth.requestID)
@@ -517,35 +493,30 @@ final class ChatModel {
   func approveAdapterDefinition(_ definition: AdapterDefinitionModel) async throws {
     guard let client, !isOffline else { throw ChatModelError.offline }
     try await HumanInterventionActions.approve(definition, client: client)
-    isOffline = false
     await refreshInterventions(client: client)
   }
 
   func cancelAdapterDefinition(_ definition: AdapterDefinitionModel) async throws {
     guard let client, !isOffline else { throw ChatModelError.offline }
     try await HumanInterventionActions.cancel(definition, client: client)
-    isOffline = false
     await refreshInterventions(client: client)
   }
 
   func setupAdapterConnection(_ definition: AdapterDefinitionModel, submission: AdapterCredentialSubmission) async throws {
     guard let client, !isOffline else { throw ChatModelError.offline }
     try await HumanInterventionActions.setup(definition, submission: submission, client: client)
-    isOffline = false
     await refreshInterventions(client: client)
   }
 
   func importAdapterOauthClient(_ setup: AdapterOauthClientSetupModel, submission: AdapterCredentialSubmission) async throws {
     guard let client, !isOffline else { throw ChatModelError.offline }
     try await HumanInterventionActions.importOauthClient(setup, submission: submission, client: client)
-    isOffline = false
     await refreshInterventions(client: client)
   }
 
   func startAdapterOauthSetup(_ action: AdapterNextActionModel) async throws -> AdapterOAuthSetupAttempt {
     guard let client, !isOffline else { throw ChatModelError.offline }
     let attempt = try await HumanInterventionActions.startOAuth(action, client: client)
-    isOffline = false
     await refreshInterventions(client: client)
     return attempt
   }
@@ -570,7 +541,6 @@ final class ChatModel {
   ) async throws {
     guard let client, !isOffline else { throw ChatModelError.offline }
     try await HumanInterventionActions.savePolicy(connection, sharing: dataSharingPolicy, unsafeActions: unsafeActionPolicy, client: client)
-    isOffline = false
     await refreshInterventions(client: client)
   }
 
@@ -579,7 +549,6 @@ final class ChatModel {
     interventionErrors[auth.requestID] = nil
     do {
       try await HumanInterventionActions.skipAdapterAuthentication(auth, client: client)
-      isOffline = false
       await refreshInterventions(client: client)
     } catch {
       recordInterventionError(error, id: auth.requestID)
@@ -617,7 +586,6 @@ final class ChatModel {
     guard let client, !isOffline else { return }
     do {
       try await HumanInterventionActions.resolveMcpSetup(setup, mcpServerID: mcpServerID, client: client)
-      isOffline = false
       await refreshInterventions(client: client)
     } catch {
       recordMutationError(error)
@@ -740,14 +708,12 @@ final class ChatModel {
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
       guard let page = response.data?.conversationTranscriptPage else { throw ChatModelError.emptyResponse }
       applyLatest(page)
-      isOffline = false
       phase = .ready
       NoemaDiagnosticTrace.shared.record(category: "chat", event: "transcript_refresh_finished")
       return true
     } catch {
       NoemaDiagnosticTrace.shared.record(category: "chat", event: "transcript_refresh_failed", error: error)
       errorMessage = error.localizedDescription
-      isOffline = true
       if !hasLoadedTranscript { phase = .failed(error.localizedDescription) }
       return false
     }
@@ -812,7 +778,6 @@ final class ChatModel {
             NoemaDiagnosticTrace.shared.record(category: "chat", event: "subscription_connected")
           }
           self?.subscriptionRetryAttempt = 0
-          self?.isOffline = false
           await self?.apply(event)
         }
         guard !Task.isCancelled else { return }
@@ -827,7 +792,6 @@ final class ChatModel {
   }
 
   private func recoverAfterSubscriptionLoss() async {
-    isOffline = true
     isSending = false
     agentStatus = "closed"
     let attempt = nextSubscriptionRetryAttempt()
@@ -1169,21 +1133,10 @@ final class ChatModel {
   }
 
   private func recordMutationError(_ error: Error) {
-    if let modelError = error as? ChatModelError, case .server = modelError {
-      isOffline = false
-    } else {
-      isOffline = true
-    }
     appendError(error.localizedDescription, recoverable: true)
   }
 
   private func recordInterventionError(_ error: Error, id: String) {
-    if let modelError = error as? ChatModelError {
-      if case .offline = modelError { isOffline = true }
-      else { isOffline = false }
-    } else {
-      isOffline = true
-    }
     interventionErrors[id] = error.localizedDescription
   }
 }

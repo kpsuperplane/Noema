@@ -87,19 +87,14 @@ final class MemoryModel {
   private(set) var errorMessage: String?
   private(set) var pageErrorMessage: String?
   private(set) var updateErrorMessage: String?
-  private(set) var subscriptionErrorMessage: String?
-  private(set) var isOffline = false {
-    didSet {
-      guard oldValue != isOffline else { return }
-      NoemaDiagnosticTrace.shared.record(
-        category: "memory",
-        event: "offline_changed",
-        fields: ["offline": String(isOffline), "hasTree": String(tree != nil), "hasArticle": String(article != nil)]
-      )
-    }
-  }
+  var isOffline: Bool { connectionStatus?.isDisconnected ?? (client == nil) }
   private var client: ApolloClient?
+  private let connectionStatus: NoemaConnectionStatus?
   private var subscriptionTask: Task<Void, Never>?
+
+  init(connectionStatus: NoemaConnectionStatus?) {
+    self.connectionStatus = connectionStatus
+  }
 
   var pages: [MemoryPageRef] { tree?.pages ?? [] }
   var update: MemoryUpdateStatus? { tree?.update }
@@ -108,14 +103,13 @@ final class MemoryModel {
   }
 
   var canUpdate: Bool {
-    client != nil && !(update?.active ?? false) && !isUpdating
+    client != nil && !isOffline && !(update?.active ?? false) && !isUpdating
       && ((update?.pendingCount ?? 0) > 0 || updateRetryable)
   }
 
   func load(client: ApolloClient?) async {
     guard let client else {
       self.client = nil
-      isOffline = true
       errorMessage = "Pair this device with Noema to read memory."
       return
     }
@@ -129,19 +123,15 @@ final class MemoryModel {
         if let data = response.data {
           apply(data.memoryTree)
           received = true
-          isOffline = false
         }
         if let firstError = response.errors?.first?.message, tree == nil {
           errorMessage = firstError
-          isOffline = true
         }
       }
       if !received {
-        isOffline = true
         if tree == nil { errorMessage = "Memory is not available yet." }
       }
     } catch {
-      isOffline = true
       if tree == nil { errorMessage = "Memory could not be loaded." }
     }
     isLoading = false
@@ -180,19 +170,15 @@ final class MemoryModel {
         if let data = response.data, let page = data.memoryPage {
           article = Self.article(from: page)
           received = true
-          isOffline = false
         }
         if let firstError = response.errors?.first?.message, !received {
           pageErrorMessage = firstError
-          isOffline = true
         }
       }
       if !received {
-        isOffline = true
         pageErrorMessage = "This memory article is no longer available."
       }
     } catch {
-      isOffline = true
       pageErrorMessage = "This memory article could not be loaded."
     }
   }
@@ -210,9 +196,7 @@ final class MemoryModel {
           MemoryTreeSnapshot(root: $0.root, pages: $0.pages, update: Self.status(from: status, pendingCount: $0.update.pendingCount))
         }
       }
-      isOffline = false
     } catch {
-      isOffline = true
       updateErrorMessage = error.localizedDescription
     }
   }
@@ -228,15 +212,12 @@ final class MemoryModel {
           for try await response in stream {
             guard let data = response.data else { continue }
             attempt = 0
-            self?.subscriptionErrorMessage = nil
             await self?.applySubscription(data.memoryEvents)
           }
           guard !Task.isCancelled else { return }
-          self?.setSubscriptionError()
         } catch is CancellationError {
           return
         } catch {
-          self?.setSubscriptionError()
         }
         attempt = min(attempt + 1, 6)
         let delay = min(1 << min(attempt - 1, 5), 30)
@@ -252,17 +233,11 @@ final class MemoryModel {
     }
   }
 
-  private func setSubscriptionError() {
-    isOffline = true
-    subscriptionErrorMessage = "Update status is reconnecting. The article will refresh when the connection returns."
-  }
-
   private func apply(_ value: NoemaAPI.MemoryTreeQuery.Data.MemoryTree) {
     let root = value.root.map(Self.article(from:))
     let pages = value.pages.map(Self.pageRef(from:))
     let update = Self.status(from: value.updateStatus, pendingCount: value.pendingCount)
     tree = MemoryTreeSnapshot(root: root, pages: pages, update: update)
-    isOffline = false
     if selectedPageID == nil { selectedPageID = root?.id }
     if selectedPageID == root?.id { article = root }
   }
@@ -272,7 +247,6 @@ final class MemoryModel {
     let pages = value.pages.map(Self.pageRef(from:))
     let update = Self.status(from: value.updateStatus, pendingCount: value.pendingCount)
     tree = MemoryTreeSnapshot(root: root, pages: pages, update: update)
-    isOffline = false
     if selectedPageID == nil { selectedPageID = root?.id }
     if selectedPageID == root?.id { article = root }
   }

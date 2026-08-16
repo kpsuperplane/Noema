@@ -26,6 +26,32 @@ export function TaskCompletedBody({
   onLatestRunItemChange?: (runId: string, item: TaskRunItem | null) => void;
 }) {
   const [activeTab, setActiveTab] = React.useState<CompletedTaskTab>("final-response");
+  const swipeOriginRef = React.useRef<{ x: number; y: number } | null>(null);
+
+  function startSwipe(event: React.TouchEvent) {
+    if (event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    swipeOriginRef.current = { x: touch.clientX, y: touch.clientY };
+  }
+
+  function finishSwipe(event: React.TouchEvent) {
+    const origin = swipeOriginRef.current;
+    swipeOriginRef.current = null;
+    const touch = event.changedTouches[0];
+    if (!origin || !touch) return;
+
+    const horizontalDistance = touch.clientX - origin.x;
+    const verticalDistance = touch.clientY - origin.y;
+    if (Math.abs(horizontalDistance) < 56 || Math.abs(horizontalDistance) < Math.abs(verticalDistance) * 1.25) {
+      return;
+    }
+
+    if (horizontalDistance < 0 && activeTab === "final-response") {
+      setActiveTab("transcript");
+    } else if (horizontalDistance > 0 && activeTab === "transcript") {
+      setActiveTab("final-response");
+    }
+  }
 
   return (
     <section aria-label="Completed task result" {...stylex.props(styles.root)}>
@@ -41,23 +67,26 @@ export function TaskCompletedBody({
           <Tab label="Transcript" value="transcript" />
         </TabList>
       </div>
-      <div {...stylex.props(styles.content)}>
+      <div
+        {...stylex.props(styles.content)}
+        onTouchStart={startSwipe}
+        onTouchEnd={finishSwipe}
+        onTouchCancel={() => { swipeOriginRef.current = null; }}
+      >
         {activeTab === "final-response" ? (
           <FinalResponse detail={detail} onOpenDetail={onOpenDetail} />
         ) : (
-          <div {...stylex.props(styles.transcriptContent)}>
-            <div {...stylex.props(styles.transcript)}>
-              <TaskTranscript
-                detail={detail}
-                liveRunItems={liveRunItems}
-                onOpenDetail={onOpenDetail}
-                onLatestRunItemChange={onLatestRunItemChange}
-              />
-            </div>
-            {contextCard}
+          <div {...stylex.props(styles.transcript)}>
+            <TaskTranscript
+              detail={detail}
+              liveRunItems={liveRunItems}
+              onOpenDetail={onOpenDetail}
+              onLatestRunItemChange={onLatestRunItemChange}
+            />
           </div>
         )}
       </div>
+      {contextCard}
     </section>
   );
 }
@@ -129,7 +158,7 @@ function artifactReferenceItem(artifact: TaskArtifact) {
 const styles = stylex.create({
   root: {
     display: "grid",
-    gridTemplateRows: "auto minmax(0, 1fr)",
+    gridTemplateRows: "auto minmax(0, 1fr) auto",
     minWidth: 0,
     minHeight: 0
   },
@@ -141,13 +170,6 @@ const styles = stylex.create({
     minWidth: 0,
     minHeight: 0,
     overflow: "hidden"
-  },
-  transcriptContent: {
-    display: "grid",
-    gridTemplateRows: "minmax(0, 1fr) auto",
-    minWidth: 0,
-    minHeight: 0,
-    height: "100%"
   },
   transcript: {
     minWidth: 0,
