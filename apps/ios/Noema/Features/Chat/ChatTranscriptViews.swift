@@ -381,7 +381,7 @@ struct ToolMarkerView: View {
           }
           Text(markerCount > 1 && expanded ? String(markerCount) + " tool calls" : toolMarkerName(in: collapsedMessages))
             .font(NoemaFont.monoCompact)
-            .foregroundStyle(NoemaColor.contentTertiary)
+            .foregroundStyle(NoemaColor.contentSecondary)
             .lineLimit(1)
             .multilineTextAlignment(.leading)
           if expandable {
@@ -470,7 +470,7 @@ private struct ToolMarkerCallView: View {
           ToolTypeIcon(kind: toolMarkerKind(in: messages))
           Text(toolMarkerName(in: messages))
             .font(NoemaFont.monoCompact)
-            .foregroundStyle(NoemaColor.contentTertiary)
+            .foregroundStyle(NoemaColor.contentSecondary)
             .lineLimit(1)
             .multilineTextAlignment(.leading)
           if !rows.isEmpty {
