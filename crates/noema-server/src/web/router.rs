@@ -25,7 +25,7 @@ use super::{
     authority, clients, passkey, session,
 };
 
-const MAX_OAUTH_QUERY_BYTES: usize = 8 * 1024;
+pub(super) const MAX_OAUTH_QUERY_BYTES: usize = 8 * 1024;
 const MAX_RECOVERY_BODY_BYTES: usize = 1024;
 const MAX_CONCURRENT_HTTP_REQUESTS: usize = 256;
 const NOT_FOUND: &str = "not found";
@@ -93,6 +93,20 @@ pub(crate) fn build_router(state: WebState) -> Router {
         .route("/auth/logout", post(passkey::logout))
         .route("/auth/logout/all", post(passkey::logout_all))
         .route("/auth/passkey/remove", post(passkey::remove_passkey))
+        .route(
+            "/oauth/authorize",
+            get_only!(super::native_oauth::authorize).post(super::native_oauth::approve),
+        )
+        .route(
+            "/oauth/token",
+            post(super::native_oauth::token)
+                .layer(RequestBodyLimitLayer::new(MAX_OAUTH_QUERY_BYTES)),
+        )
+        .route(
+            "/oauth/revoke",
+            post(super::native_oauth::revoke)
+                .layer(RequestBodyLimitLayer::new(MAX_OAUTH_QUERY_BYTES)),
+        )
         .route("/auth/client/pairing/start", post(clients::start_pairing))
         .route(
             "/auth/client/pairing/complete",

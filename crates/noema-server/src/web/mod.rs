@@ -4,6 +4,7 @@ mod assets;
 pub(super) mod authority;
 mod clients;
 mod local_graphql;
+mod native_oauth;
 mod passkey;
 mod router;
 pub(super) mod session;

@@ -342,8 +342,9 @@ async fn recovery_authorizes_one_setup_session_without_authenticating_it() {
 
 #[tokio::test]
 async fn development_mode_keeps_canonical_host_and_origin_checks() {
+    let router = test_router_without_auth().await;
     let (status, _, _) = raw_request(
-        test_router_without_auth().await,
+        router.clone(),
         Request::builder()
             .method(Method::POST)
             .uri("/graphql")
@@ -356,6 +357,20 @@ async fn development_mode_keeps_canonical_host_and_origin_checks() {
     .await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (approval_status, _, _) = raw_request(
+        router,
+        Request::builder()
+            .method(Method::POST)
+            .uri("/oauth/authorize")
+            .header(header::HOST, TEST_AUTHORITY)
+            .header(header::AUTHORIZATION, "Bearer ignored")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("csrf=ignored&decision=approve"))
+            .expect("OAuth approval"),
+    )
+    .await;
+    assert_eq!(approval_status, StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

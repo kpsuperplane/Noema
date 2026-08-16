@@ -133,6 +133,15 @@ impl ClientAuth {
         let Some(token) = raw.strip_prefix("Bearer ") else {
             return Ok(None);
         };
+        if !token.contains('.') && token.len() <= 128 {
+            let candidate_hash = digest::digest(&digest::SHA256, token.as_bytes());
+            let mut hash = [0_u8; 32];
+            hash.copy_from_slice(candidate_hash.as_ref());
+            return store
+                .active_native_oauth_client(hash, unix_timestamp())
+                .await
+                .map(|client_id| client_id.map(|id| noema_api::RequestPrincipal::client(&id)));
+        }
         let (client_id, secret_text, shape_valid) = token
             .split_once('.')
             .map_or(("", token, false), |(client_id, secret_text)| {
@@ -154,6 +163,15 @@ impl ClientAuth {
             && decoded.as_ref().is_some_and(|secret| secret.len() == 32);
         Ok((equal && shape_valid).then(|| noema_api::RequestPrincipal::client(client_id)))
     }
+}
+
+fn unix_timestamp() -> i64 {
+    std::time::SystemTime::UNIX_EPOCH
+        .elapsed()
+        .unwrap_or_default()
+        .as_secs()
+        .try_into()
+        .unwrap_or(i64::MAX)
 }
 
 pub(super) async fn start_pairing(
