@@ -66,11 +66,25 @@ impl RuntimeActor {
         if decision == GovernedActionDecision::Approve
             && current.state == GovernedActionState::AwaitingApproval
             && is_session_bound_browser_action(&current)
-            && !self.browser_session_available(&current).await
         {
-            return self
-                .supersede_and_resume(current, human_id, "browser_session_unavailable")
-                .await;
+            let owner = super::local_tools::browse_owner_key_for_action(&current);
+            let validation = match owner {
+                Some(owner) => {
+                    self.validate_browser_call(&owner, &current.capability_name, &current.arguments)
+                        .await
+                }
+                None => Err(noema_providers::WebBrowseError::SessionNotFound),
+            };
+            if let Err(error) = validation {
+                let reason = match error {
+                    noema_providers::WebBrowseError::StaleSnapshot => "browser_snapshot_stale",
+                    noema_providers::WebBrowseError::ElementNotFound => {
+                        "browser_target_unavailable"
+                    }
+                    _ => "browser_session_unavailable",
+                };
+                return self.supersede_and_resume(current, human_id, reason).await;
+            }
         }
         let action = match (current.state, decision) {
             (GovernedActionState::AwaitingApproval, _) => {
@@ -429,13 +443,6 @@ impl RuntimeActor {
             );
         }
         Ok(availability)
-    }
-
-    async fn browser_session_available(&self, action: &GovernedActionRecord) -> bool {
-        let Ok(backend) = self.web_browse_runtime_provider_resolution().await else {
-            return false;
-        };
-        browser_session_available(Some(&backend), action).await
     }
 
     async fn supersede_and_resume(

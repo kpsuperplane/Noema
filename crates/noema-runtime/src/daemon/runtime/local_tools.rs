@@ -50,8 +50,8 @@ use crate::{WebBackendRequest, WebBackendResolverError};
 use noema_capabilities::web::browse::{BrowseCommand, parse_command};
 use noema_capabilities::web::fetch::WEB_FETCH_TOOL;
 use noema_providers::{
-    DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID, WebBrowseBackendHandle, WebBrowseOwner,
-    WebFetchBackendHandle, WebFetchContext, WebSearchBackendHandle,
+    DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID, WebBrowseBackendHandle, WebBrowseError,
+    WebBrowseOwner, WebFetchBackendHandle, WebFetchContext, WebSearchBackendHandle,
 };
 
 const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated";
@@ -120,6 +120,12 @@ impl RuntimeActor {
                 CapabilityError::Denied,
             );
             return gateway_failure_result(call, failure);
+        }
+        if let Err(error) = self
+            .validate_browser_call(&browse_owner_key_for_turn(turn), &call.name, &call.payload)
+            .await
+        {
+            return browser_validation_failure_result(call, &binding, error);
         }
         let preparation = match self
             .prepare_reviewed_action(turn, agent_identity, call, &binding)
@@ -871,7 +877,7 @@ impl RuntimeActor {
 pub(super) fn browse_owner_key_for_turn(turn: &SuccessfulProviderTurn) -> String {
     match (&turn.task_id, &turn.task_run_fence) {
         (Some(task_id), Some(fence)) => browse_owner_key_for_task(task_id, fence.task_generation),
-        _ => format!("turn:{}", turn.turn_id),
+        _ => format!("conversation:{}", turn.conversation_id),
     }
 }
 
@@ -892,9 +898,22 @@ pub(super) fn browse_owner_key_for_action(
         return Some(browse_owner_key_for_task(task_id, generation));
     }
     action
-        .turn_id
+        .conversation_id
         .as_deref()
-        .map(|turn_id| format!("turn:{turn_id}"))
+        .map(|conversation_id| format!("conversation:{conversation_id}"))
+}
+
+fn browser_validation_failure_result(
+    call: &LocalToolCall,
+    binding: &noema_capabilities::CapabilityBinding,
+    error: WebBrowseError,
+) -> LocalToolResult {
+    let payload = json!({"error": error.to_string()});
+    LocalToolResult::from_call(call, LocalToolKind::WebBrowse, false, payload.clone(), true)
+        .with_persisted(noema_capabilities::PersistedCapabilityPayload {
+            arguments: binding.persist_arguments(&call.payload),
+            output: binding.persist_output(&payload),
+        })
 }
 
 fn web_backend_request(resolved: &super::web_tools::ResolvedWebProvider) -> WebBackendRequest {

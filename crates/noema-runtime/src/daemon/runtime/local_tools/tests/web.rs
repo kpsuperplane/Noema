@@ -1,3 +1,128 @@
+#[test]
+fn foreground_browser_owner_is_conversation_scoped() {
+    let first = test_turn();
+    let mut later = test_turn();
+    later.turn_id = "turn:later".to_string();
+    let mut separate = test_turn();
+    separate.conversation_id = "conversation:separate".to_string();
+
+    assert_eq!(
+        super::browse_owner_key_for_turn(&first),
+        super::browse_owner_key_for_turn(&later),
+    );
+    assert_ne!(
+        super::browse_owner_key_for_turn(&first),
+        super::browse_owner_key_for_turn(&separate),
+    );
+}
+
+#[tokio::test]
+async fn browser_interactions_without_a_live_backend_fail_before_action_review() {
+    let actor = test_actor().await;
+    let mut turn = test_turn();
+    turn.initial_model_tools = test_governed_web_browse_model_tools();
+    let owner = super::browse_owner_key_for_turn(&turn);
+    actor
+        .browser_snapshot_contexts
+        .lock()
+        .expect("browser snapshot context lock")
+        .insert(
+            owner,
+            crate::daemon::runtime::actor::BrowserSnapshotContext {
+                url: "https://example.com/form".to_string(),
+                title: "Newsletter".to_string(),
+                revision: 2,
+                elements: HashMap::from([(
+                    "e6".to_string(),
+                    noema_capabilities::web::browse::BrowseInteractiveElement {
+                        reference: "e6".to_string(),
+                        role: "input".to_string(),
+                        name: "Next calendar event".to_string(),
+                        href: None,
+                        disabled: false,
+                    },
+                )]),
+            },
+        );
+
+    let result = actor
+        .execute_local_tool(
+            &turn,
+            &AgentPromptIdentity {
+                agent_id: "agent:primary".to_string(),
+                display_name: None,
+            },
+            &test_tool_call(
+                noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
+                json!({"snapshot_revision":1,"ref":"e6","action":"fill","value":"Call parents"}),
+            ),
+        )
+        .await;
+
+    assert!(!result.success);
+    assert!(result.blocked_action_request.is_none());
+    assert_eq!(result.payload["error"], "browser worker unavailable");
+    assert!(
+        actor
+            .store
+            .list_pending_governed_actions("human:local", None, None, 10)
+            .await
+            .expect("pending actions")
+            .is_empty(),
+    );
+}
+
+#[tokio::test]
+async fn browser_snapshot_validation_rejects_stale_revision_and_missing_target() {
+    let actor = test_actor().await;
+    let owner = "conversation:current";
+    actor
+        .browser_snapshot_contexts
+        .lock()
+        .expect("browser snapshot context lock")
+        .insert(
+            owner.to_string(),
+            crate::daemon::runtime::actor::BrowserSnapshotContext {
+                url: "https://example.com/form".to_string(),
+                title: "Newsletter".to_string(),
+                revision: 2,
+                elements: HashMap::from([(
+                    "e6".to_string(),
+                    noema_capabilities::web::browse::BrowseInteractiveElement {
+                        reference: "e6".to_string(),
+                        role: "input".to_string(),
+                        name: "Next calendar event".to_string(),
+                        href: None,
+                        disabled: false,
+                    },
+                )]),
+            },
+        );
+
+    assert_eq!(
+        actor.validate_browser_snapshot_call(
+            owner,
+            noema_capabilities::web::browse::parse_command(
+                noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
+                &json!({"snapshot_revision":1,"ref":"e6","action":"fill","value":"Call parents"}),
+            )
+            .expect("interaction"),
+        ),
+        Err(noema_providers::WebBrowseError::StaleSnapshot),
+    );
+    assert_eq!(
+        actor.validate_browser_snapshot_call(
+            owner,
+            noema_capabilities::web::browse::parse_command(
+                noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
+                &json!({"snapshot_revision":2,"ref":"e7","action":"fill","value":"Call parents"}),
+            )
+            .expect("interaction"),
+        ),
+        Err(noema_providers::WebBrowseError::ElementNotFound),
+    );
+}
+
 #[tokio::test]
 async fn web_fetch_runtime_context_uses_only_available_saved_summarizer_selection() {
     let store = crate::test_support::test_store().await;
@@ -118,31 +243,42 @@ async fn browser_approval_persists_page_and_target_review_context() {
             },
         );
 
-    let result = actor
-        .execute_local_tool(
+    let call = test_tool_call(
+        noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
+        json!({"snapshot_revision":3,"ref":"e8","action":"click"}),
+    );
+    let binding = turn
+        .initial_model_tools
+        .bindings
+        .resolve(&call.name)
+        .expect("browser interaction binding");
+    let preparation = actor
+        .prepare_reviewed_action(
             &turn,
             &AgentPromptIdentity {
                 agent_id: "agent:primary".to_string(),
                 display_name: None,
             },
-            &test_tool_call(
-                noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
-                json!({"snapshot_revision":3,"ref":"e8","action":"click"}),
-            ),
+            &call,
+            binding,
         )
         .await;
-
-    let action_id = &result
-        .blocked_action_request
-        .as_ref()
-        .expect("blocked action request")
-        .action_id;
+    let action_id = match preparation.expect("review preparation") {
+        super::super::action_gateway::ReviewedActionPreparation::AwaitingApproval(action) => {
+            action.action_id
+        }
+        _ => panic!("browser interaction must await approval"),
+    };
     let action = actor
         .store
-        .get_governed_action(action_id, 1)
+        .get_governed_action(&action_id, 1)
         .await
         .expect("read action")
         .expect("action");
+    assert_eq!(
+        super::browse_owner_key_for_action(&action).as_deref(),
+        Some(owner.as_str()),
+    );
     assert_eq!(
         action.authorization_context["browser_review_context"],
         json!({

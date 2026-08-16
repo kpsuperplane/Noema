@@ -96,7 +96,7 @@ pub(crate) fn build_action_reviewer_input(
         | noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
         | noema_capabilities::web::browse::WEB_BROWSE_HISTORY_TOOL => json!({
             "browser_session": {
-                "owner_scope": "execution",
+                "owner_scope": "conversation_or_task_generation",
                 "storage_lifetime": "session_only",
                 "durable_profile": false,
                 "cookies_and_storage_destroyed_on_session_end": true,

@@ -27,7 +27,7 @@ use tokio::time::Instant;
 
 use crate::adapters::web::fetch::url_policy::validate_public_web_fetch_url;
 
-const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const POST_NAVIGATION_SETTLE_MS: u64 = 250;
 const SCREENSHOT_RESOURCE_TIMEOUT_MS: u64 = 1_000;
 const MAX_SCREENSHOT_BYTES: usize = 900_000;

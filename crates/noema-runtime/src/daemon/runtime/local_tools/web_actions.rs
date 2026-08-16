@@ -43,6 +43,57 @@ pub(super) fn is_provider_account_unauthenticated_payload(payload: &Value) -> bo
 }
 
 impl RuntimeActor {
+    pub(in crate::daemon::runtime) async fn validate_browser_call(
+        &self,
+        owner_key: &str,
+        name: &str,
+        arguments: &Value,
+    ) -> Result<(), WebBrowseError> {
+        let command = match parse_command(name, arguments) {
+            Ok(BrowseCommand::Interact(request)) => BrowseCommand::Interact(request),
+            Ok(BrowseCommand::History(request)) => BrowseCommand::History(request),
+            _ => return Ok(()),
+        };
+        let provider = self
+            .web_browse_runtime_provider_resolution()
+            .await
+            .map_err(|_| WebBrowseError::Unavailable)?;
+        if !provider.has_session(&WebBrowseOwner::new(owner_key)).await {
+            return Err(WebBrowseError::SessionNotFound);
+        }
+        self.validate_browser_snapshot_call(owner_key, command)
+    }
+
+    pub(super) fn validate_browser_snapshot_call(
+        &self,
+        owner_key: &str,
+        command: BrowseCommand,
+    ) -> Result<(), WebBrowseError> {
+        let contexts = self
+            .browser_snapshot_contexts
+            .lock()
+            .expect("browser snapshot context lock");
+        let context = contexts
+            .get(owner_key)
+            .ok_or(WebBrowseError::SessionNotFound)?;
+        match command {
+            BrowseCommand::Interact(request) => {
+                if request.snapshot_revision != context.revision {
+                    return Err(WebBrowseError::StaleSnapshot);
+                }
+                if !context.elements.contains_key(&request.reference) {
+                    return Err(WebBrowseError::ElementNotFound);
+                }
+            }
+            BrowseCommand::History(request) if request.snapshot_revision != context.revision => {
+                return Err(WebBrowseError::StaleSnapshot);
+            }
+            BrowseCommand::History(_) => {}
+            _ => unreachable!("browser action was filtered above"),
+        }
+        Ok(())
+    }
+
     pub(super) async fn execute_web_search_action(
         &self,
         call_id: Option<String>,

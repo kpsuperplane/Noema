@@ -35,8 +35,8 @@ pub enum WebBrowseError {
     /// The URL targets a private, local, or otherwise blocked address.
     #[error("blocked private or local target")]
     BlockedTarget,
-    /// This execution has no active browser session.
-    #[error("this execution has no active browser session")]
+    /// This conversation or task has no active browser session.
+    #[error("this conversation or task has no active browser session")]
     SessionNotFound,
     /// The process-wide browser session limit has been reached.
     #[error("browser session capacity reached")]
