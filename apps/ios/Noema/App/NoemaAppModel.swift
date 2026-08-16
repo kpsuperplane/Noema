@@ -185,8 +185,8 @@ final class NoemaAppModel {
   func disconnect(registrationsAlreadyRemoved: Bool = false) {
     Task {
       disconnectError = nil
-      let notificationsRemoved: Bool
-      let activitiesRemoved: Bool
+      var notificationsRemoved = false
+      var activitiesRemoved = false
       if registrationsAlreadyRemoved || registrationCleanupComplete {
         notifications.clearLocalRegistration()
         notificationsRemoved = true
@@ -203,12 +203,12 @@ final class NoemaAppModel {
         return
       }
       registrationCleanupComplete = true
-      guard let profile else {
+      guard let storedProfile = profile else {
         disconnectError = "No active server connection is available."
         return
       }
       do {
-        try await connectionService.revoke(profile)
+        try await connectionService.revoke(storedProfile)
       } catch {
         disconnectError = "Noema could not revoke this client. Reconnect before disconnecting."
         return
