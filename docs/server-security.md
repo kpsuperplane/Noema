@@ -589,83 +589,77 @@ The detailed release and cache contract remains in
 OAuth, recovery, artifacts, administration, and external origins remain
 network-only. The worker never retries or navigation-falls-back to those paths.
 
-## 14. Remaining Public-Launch Work
+## 14. Remaining Security Work Before Public Access
 
-The following work remains required before public routing is enabled.
+Feature work blocks public access only when its feature is enabled. Otherwise,
+Noema must disable the feature and its routes.
 
 ### Authentication And Sessions
 
-- Implement multiple named passkeys and immutable schema migration.
-- Implement the setup barrier before every principal type.
-- Retire the printed bootstrap URL and process-local setup capability.
-- Implement runtime `dev_no_auth` with safe defaults and persistent warnings.
-- Implement atomic recovery-code generation, rotation, entry, and enrollment.
-- Fix Origin enforcement for recovery requests with authorization headers.
-- Replace or bound the in-memory session store.
-- Add idle expiry, absolute expiry, session listing, and global logout.
-- Bind sessions to passkeys and the human authentication epoch.
-- Close browser WebSockets after logout, expiry, or global revocation.
-- Add pre-authentication rate, concurrency, and ceremony-capacity limits.
-- Stop active passkey ceremonies from attacker-controlled eviction.
+- Enforce the setup barrier across every browser, native, GraphQL, WebSocket,
+  artifact, OAuth, and GraphiQL route.
+- Remove the printed bootstrap URL and process-local setup authority.
+- Implement runtime `dev_no_auth`, default it to false, and preserve every other
+  security boundary.
+- Implement secure recovery generation, locked config updates, atomic rotation,
+  and restricted setup sessions.
+- Apply recovery body, Host, Origin, rate, and concurrency checks before
+  comparison. Never record recovery candidates.
+- Use maintained WebAuthn code with exact RP ID, origin, user verification, and
+  expiring single-use challenges.
+- Bound sessions and ceremonies. Add expiry, identifier rotation, revocation,
+  and eviction resistance.
+- Bind sessions to passkeys and the authentication epoch. Terminate affected
+  WebSockets after logout, expiry, removal, or revocation.
 
 ### Native Clients
 
-- Replace legacy pairing with Authorization Code and required PKCE.
-- Issue installation-specific native grant identifiers.
-- Implement opaque access tokens and durable refresh-token families.
-- Add atomic rotation, replay detection, expiry, and family revocation.
-- Revoke all legacy native bearer credentials during cutover.
-- Make iOS sign-out and replacement revoke server credentials.
-- Protect the complete desktop profile in the credential store.
-- Keep remote credentials and content outside the desktop webview.
-- Add an explicit iOS redirect policy.
-- Sign and notarize public desktop packages.
+- If native access launches, replace legacy pairing with system-browser
+  Authorization Code, verified `state`, S256 PKCE, and exact redirects.
+- Use a maintained Rust OAuth library. Disable every legacy native authorization
+  route during cutover.
+- Issue revocable access tokens and rotating refresh families. Detect reuse and
+  revoke every legacy credential.
+- Store refresh credentials in protected operating-system storage. Keep bearer
+  credentials outside webviews.
 
 ### API, PWA, And Notifications
 
-- Add GraphQL depth, complexity, alias, batch, timeout, and concurrency limits.
-- Add WebSocket connection, message, operation, and subscription limits.
-- Bind Web Push subscriptions to revocable browser authentication state.
-- Remove orphaned subscriptions after logout or credential reset.
-- Add PWA logout-and-erase, instance binding, and authentication epochs.
-- Keep every private runtime route outside service-worker handling.
-- Make private notification previews an explicit product choice.
-- Add a visible web logout action.
+- Bound HTTP, GraphQL, and WebSocket bodies, cost, execution time, connections,
+  operations, subscriptions, and concurrency.
+- Keep authentication and private runtime routes outside service-worker
+  handling. Apply `no-store` to every private response.
+- Disable private offline snapshots until logout-and-erase, instance binding,
+  and authentication-epoch checks exist.
+- If Push launches, validate current authorization before each delivery.
+  Disable private notification previews by default.
+- Provide accessible logout and global revocation. Terminate affected
+  WebSockets and Push registrations.
 
-### GraphiQL, MCP, And Process Boundaries
+### Debug And Process Boundaries
 
-- Add the default-off GraphiQL configuration and remove third-party runtime scripts.
-- Bind production introspection and schema download to that configuration.
-- Add the central default-off stdio MCP guard before process construction.
-- Show the exact stdio command authority when the operator enables it.
-- Run Noema through the dedicated unprivileged service account.
-- Correct Noema-home ownership and private filesystem modes.
-- Add stable config locking and file-only recovery-field updates.
-- Keep raw MCP and model diagnostics bounded and free of secrets.
+- Disable GraphiQL, schema download, and introspection by default. Require recent
+  authentication and local assets when enabled.
+- Enforce the stdio MCP flag before process construction. When enabled, use
+  exact arguments, no shell, and an environment allowlist.
+- Run Noema with an unprivileged service account, private file modes, and no
+  capabilities. Keep binaries and units root-owned.
 
-### Public Edge And Release Validation
+### Public Edge And Validation
 
-- Deploy the release binary on loopback behind the hardened TLS proxy.
-- Block direct backend access with host firewall rules.
-- Configure safe access logs and callback exclusions.
-- Resolve current RustSec and Bun dependency advisories.
-- Build immutable release assets with locked dependencies.
-- Produce signed packages, checksums, an SBOM, and build provenance.
-- Test fresh setup and existing zero-passkey upgrades.
-- Test recovery concurrency, failed writes, rotation, and rate limits.
-- Test OAuth code replay, refresh reuse, revocation, and WebSocket termination.
-- Run adversarial deployment tests through the final public edge.
-- Complete an external penetration test before general public exposure.
-- Keep Tailscale or equivalent private access as an emergency administration path.
+- Bind Noema to loopback behind HTTPS. Enforce canonical Host and trust
+  forwarding headers only from the proxy.
+- Enforce cookie, Origin, CORS, cache, CSP, and browser security-header rules.
+- Keep access logs, callback logs, errors, and diagnostics bounded and free of
+  secrets.
+- Triage dependency advisories. Block launch only for reachable vulnerabilities
+  within the stated threat model.
+- Test setup bypasses, recovery failures, concurrent rotation, session
+  revocation, OAuth replay, and WebSocket termination.
 
-Before the edge becomes public, a release preflight must verify:
+Before public routing, verify:
 
-- `web.dev_no_auth` is false.
-- The public origin is exact HTTPS.
-- The RP ID matches the public domain.
-- At least one passkey exists.
-- GraphiQL and stdio MCP match explicit deployment choices.
-- The backend listener is loopback-only.
-- Application and edge resource limits are active.
-- The proxy preserves only the configured Host.
-- Recovery-route exposure matches the documented availability decision.
+- `web.dev_no_auth` is false and at least one passkey exists.
+- The public origin uses HTTPS and matches the RP ID.
+- GraphiQL and stdio MCP remain disabled unless explicitly reviewed.
+- The listener is loopback-only. Host enforcement and resource limits are active.
