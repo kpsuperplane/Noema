@@ -9,6 +9,9 @@ It does not describe the current implementation as complete.
 [`docs/harness/security.md`](harness/security.md) remains authoritative for
 information classes, model context, tool governance, and egress policy.
 
+Each requirement applies when its feature is enabled. Until a feature meets its
+requirements, public deployments must disable that feature and its routes.
+
 ## 1. Threat Model
 
 Noema must protect the instance from unauthenticated network access. It must
@@ -31,17 +34,8 @@ One instance has one built-in administrator named `human:local`.
 
 Browser sessions and native clients use different credentials. They receive the
 same application authority after successful authentication.
-The server retains each platform `client_id` and issues a native grant ID.
-The client ID identifies the public app registration. The grant ID identifies
-one installation and authorization.
-
-The grant ID supports:
-
-- Independent revocation
-- Refresh-token ownership
-- Push ownership
-- WebSocket termination
-- Audit attribution
+The server retains each platform `client_id`. Each refresh family identifies
+one installation and owns its revocation, Push, WebSockets, and audit history.
 
 Credential type does not change application authority. A browser session and a
 native client must pass the same authorization checks.
@@ -83,9 +77,8 @@ mode `0600` and belong to the Noema service account.
 Recovery is the only secret permitted in the ordinary startup file. This
 exception does not permit other credentials in that file.
 
-Configuration writes must use a stable cross-process lock and atomic
-replacement. They must change only the file-backed recovery field. They must
-not serialize values resolved from environment variables.
+Recovery writes must serialize and atomically replace only the file-backed
+field. They must preserve unrelated file values and exclude environment values.
 
 ## 4. Required Authentication Mode
 
@@ -135,7 +128,6 @@ The mode has these effects:
 - Passkey login is skipped.
 - Mandatory passkey onboarding is skipped.
 - Existing-passkey confirmation is skipped during passkey management.
-- The UI shows a persistent authentication-disabled warning.
 - Authentication status reports the disabled mode.
 
 Creating a passkey still requires its WebAuthn registration ceremony.
@@ -176,26 +168,19 @@ five minutes, and succeed only once.
 Noema must support multiple passkeys for `human:local`. It must not require more
 than one passkey.
 
-Each passkey record must have:
-
-- Its stable credential identifier
-- A human-visible name
-- Creation time
-- Last-use time
-- Its independent WebAuthn credential state
+Each passkey record has a stable credential identifier and its independent
+WebAuthn credential state.
 
 Authentication must update only the credential that completed the ceremony.
 Registration must exclude credentials already stored for the human.
 Normal passkey addition and removal require recent passkey authentication.
 Development bypass and recovery enrollment are explicit exceptions.
 
-Recent authentication means passkey success in the same session and
-authentication epoch during the previous five minutes.
+Recent authentication means passkey success in the same browser session during
+the previous five minutes.
 
 Normal web settings cannot delete the final passkey. The recovery flow can
 restore access when no usable passkey remains.
-The UI should recommend another passkey when only one exists. It must not block
-the human from continuing.
 
 The RP ID is durable instance identity. Operators must not change it without a
 planned credential migration.
@@ -225,15 +210,7 @@ A configured value must be canonical unpadded base64url that decodes to exactly
 
 Noema must fail startup if it cannot create or securely rotate the code.
 
-Startup must use a stable lock outside `config.yaml`. It must reject a symlink
-or non-regular config file and insecure file permissions.
-
-Each write must use a private temporary file in the same directory. Noema must
-synchronize that file, replace the config atomically, and synchronize its
-parent directory.
-
-The write must preserve unrelated file values and mode `0600`. A structural
-YAML rewrite can normalize comments and formatting.
+Each atomic write must preserve unrelated file values and mode `0600`.
 
 The plaintext field uses a typed secret with redacted debug output. It must not
 enter the ordinary resolved `WebConfig` value.
@@ -246,44 +223,18 @@ print it to ordinary daemon output.
 Recovery uses `POST /auth/recovery` with a bounded body. It never accepts the
 code in a URL, GraphQL operation, or browser storage.
 
-Host, Origin, method, body, and rate checks run before code validation. A
-request becomes an attempt only when its candidate reaches comparison.
-
-After admission, an empty, malformed, or incorrect candidate still rotates the
-code. Envelope rejection and rate rejection do not rotate it.
-
 Origin validation always applies, including when a request has an Authorization
 header. Proxies, browsers, and service workers must not retry this route.
 
-Every admitted candidate triggers replacement. Every completed attempt consumes
-the current code, whether the candidate is correct or incorrect.
+The server serializes recovery attempts. For each parsed candidate, it compares
+the current code in constant time, creates and atomically saves a replacement,
+then returns the captured result.
 
-The server must process one recovery attempt at a time:
+Every parsed candidate triggers replacement, whether correct, malformed, or
+incorrect. Noema returns no match result before the replacement is durable.
 
-1. Acquire the stable recovery lock.
-2. Re-read and capture the current file-backed code.
-3. Compare the candidate in constant time.
-4. Generate a new 32-byte recovery code.
-5. Save and verify the replacement atomically.
-6. Treat the committed file generation as current.
-7. Release the lock.
-8. Return the result of the captured comparison.
-
-Atomic file replacement is the commit point. Before it, the old code remains
-current. After it, the replacement is current.
-
-Noema must not return a candidate-match result before directory synchronization.
-A storage failure returns an operational error and creates no authority.
-
-If a failure occurs before replacement, Noema denies recovery and retains the
-old code. If replacement might have occurred, Noema denies recovery and
-re-reads the file before another attempt.
-
-If that re-read fails, Noema disables recovery until restart. It must never
-continue with cached or memory-only recovery authority.
-
-Concurrent attempts run in lock order. Each committed attempt consumes the code
-current when its comparison starts.
+A persistence failure creates no setup session. The server reloads the config
+before another attempt or disables recovery when it cannot reload safely.
 
 An invalid attempt returns one generic error. The UI tells the human to read the
 new code from `config.yaml` before another attempt.
@@ -316,23 +267,13 @@ Recovery adds access. It does not claim a compromise or remove other access.
 Recovery does not automatically revoke native clients. The human can inspect
 and revoke them after entry.
 
-The server records code attempts and successful recovery as security events.
-Those events contain no candidate, code, hash, or derived code fragment.
-Their retention or aggregation must prevent persistent storage exhaustion.
-
 ### 7.4 Availability Tradeoff
 
 An unauthenticated actor can submit invalid candidates and rotate the code.
 This action cannot grant access, but it can delay legitimate recovery.
 
-Global and source rate limits reduce this denial risk. Requests rejected before
-comparison do not rotate the code.
-
 This availability tradeoff is accepted. The operator can always read the newest
 code from the local startup configuration.
-
-When practical, the public edge should restrict the recovery route to an
-operator network such as Tailscale. Normal login can remain public.
 
 Recovery-code entry is unavailable while `web.dev_no_auth` is enabled.
 
@@ -369,8 +310,8 @@ traffic must not evict active authenticated or setup sessions.
 Logout and expiry must close the session's GraphQL WebSockets. The UI must
 support current-session logout and global browser logout.
 
-Each session records its authenticating passkey and authentication epoch.
-Removing a passkey revokes its sessions and pending ceremonies.
+Each session records its authenticating passkey. Removing a passkey revokes its
+sessions and pending ceremonies.
 
 Passkey changes, native grants, and equivalent sensitive actions require recent
 passkey authentication.
@@ -393,8 +334,8 @@ authentication method or make Noema an external identity provider.
 Each platform has a separate client registration. Neither registration has a
 client secret.
 
-Noema does not add selectable OAuth scopes. It may use one fixed protocol scope
-that represents the complete local-human authority.
+Noema does not add selectable OAuth scopes. Every grant has the complete
+`human:local` authority.
 
 Native authorization uses Authorization Code with PKCE:
 
@@ -406,7 +347,7 @@ Native authorization uses Authorization Code with PKCE:
 - The browser requires recent passkey authentication.
 - Browser approval actions use Origin and CSRF protection.
 - Codes are opaque, short-lived, single-use, and atomically consumed.
-- Codes bind the human, client, redirect, authority, and PKCE challenge.
+- Codes bind the human, client, redirect, and PKCE challenge.
 
 iOS uses an exact claimed HTTPS link when deployment association is practical.
 A fixed custom scheme is an explicit fallback for other self-hosted domains.
@@ -423,10 +364,7 @@ Access and refresh credentials use these rules:
 - Used family members remain recorded until family expiry.
 - Reuse revokes the complete family and its active access tokens.
 - Families have inactivity and absolute expiry.
-- Refresh cannot change the human, client, grant, authority, or audience.
-
-Authorization codes expire after five minutes. Access tokens expire after ten
-minutes. Refresh families expire after 30 idle days or 180 absolute days.
+- Refresh cannot change the human, client, or audience.
 
 Each client serializes refresh work. A lost refresh response requires new
 browser authorization because retry can trigger family replay revocation.
@@ -456,31 +394,24 @@ individual and global native-client revocation.
 Family revocation and expiry close related WebSockets and disable related push
 registrations. Every request checks current token and family state.
 
-Noema must use a maintained Rust OAuth server library for protocol handling. It
-must not implement OAuth from scratch. `oxide-auth` is the first proof-of-fit
-candidate, but its in-memory and signed issuers are not production authorities.
-Noema retains redirect, approval, CSRF, code-use, replay, and revocation policy.
-Composition tests must enforce the complete contract across library boundaries.
-
-The existing Rust `oauth2` crate can support the desktop client. iOS uses the
+Noema uses a maintained Rust OAuth server library. Desktop uses a maintained
+Rust OAuth client library. Noema must not implement OAuth from scratch.
+Noema owns durable token state, rotation, replay, and revocation. iOS uses the
 platform authentication session and networking APIs.
 
 Noema does not add OIDC, ID tokens, UserInfo, JWKS, or OIDC discovery.
+
+Until this contract is complete, public deployments must disable native access.
+The OAuth cutover removes legacy pairing routes and revokes legacy credentials.
 
 ## 10. GraphiQL
 
 `web.graphiql` defaults to `false`.
 
-When disabled, Noema does not register GraphiQL or the schema-download route.
-Production GraphQL introspection also rejects requests. Disabled routes return
-`404`.
+When disabled, Noema does not register the GraphiQL route. It returns `404`.
 
-When enabled, GraphiQL, schema download, and introspection require a browser
-session with recent passkey authentication. Its assets are pinned and served
-by Noema.
-
-GraphiQL must not execute mutable third-party scripts inside Noema's origin.
-Its route uses a dedicated CSP without inline or third-party scripts.
+When enabled, GraphiQL uses normal browser authentication and a restrictive
+CSP. Noema pins and serves its assets without third-party scripts.
 
 ## 11. MCP Stdio Process Authority
 
@@ -495,7 +426,6 @@ When disabled:
 - Every stdio launch fails closed.
 - Existing stdio definitions remain stored but unavailable.
 - Hosted HTTP MCP remains available.
-- The UI hides or disables local-command setup.
 
 When enabled, browser and native clients have equal stdio authority.
 
@@ -515,10 +445,9 @@ NOEMA_WEB__DEV_NO_AUTH=true
 NOEMA_MCP__STDIO_ENABLED=true
 ```
 
-When both values are true, startup must warn that every reachable client can
-execute commands with the Noema service account.
-
-Noema permits the combination. The operator owns its external access controls.
+When both values are true, every reachable client can execute commands with the
+Noema service account. Noema permits the combination. The operator owns its
+external access controls.
 
 ## 12. Service And Public Edge
 
@@ -549,117 +478,49 @@ The edge must apply connection, request, body, header, and pre-authentication
 rate limits. It must not log cookies, authorization headers, OAuth codes, PKCE
 values, recovery candidates, or secret-bearing callback data.
 
+Noema authenticates protected requests before expensive parsing. It bounds
+request bodies and concurrent HTTP and WebSocket connections.
+
 The proxy must preserve the configured public Host. It must not forward an
 untrusted client value through a header that Noema treats as authoritative.
 
 Production errors are bounded and stable. They do not expose stack traces,
-database details, internal paths, or secret values.
+database details, or secret values.
 
-Enable HSTS only after the public domain and every covered subdomain are ready.
+### Public Enablement
+
+Before public routing, verify:
+
+- `web.dev_no_auth` is false and at least one passkey exists.
+- The public origin uses HTTPS and matches the RP ID.
+- GraphiQL and stdio MCP remain disabled unless explicitly enabled.
+- The listener is loopback-only.
+- Canonical Host enforcement and application and edge limits are active.
+
+Triage dependency advisories before public routing. Only reachable
+vulnerabilities within this threat model block access.
+
+Validate setup isolation, development bypass, recovery failure and concurrency,
+session revocation, OAuth replay, and WebSocket termination through the public
+edge.
 
 ## 13. PWA Offline Boundary
 
 Installed PWA data remains protected by the browser profile and device lock.
 Server logout cannot erase data from an offline device.
 
-The server has one durable installation identifier. It changes only when the
-operator creates a new instance or restores data as a new instance.
+Development bypass cannot establish offline authentication or write private
+offline snapshots.
 
-The server also has a monotonic human authentication epoch. Global browser
-logout and every passkey removal increment it.
+Installed mode provides one `Log out and erase this device` action. It deletes
+local private data. When online, it first revokes the server session and Push
+registration. When offline, server authority remains until expiry or later
+revocation.
 
-Each offline snapshot stores both values after authenticated reconciliation.
-An offline client can trust only its last successful comparison.
-
-After network return, the PWA checks both values before showing private data.
-A mismatch deletes the old snapshot, drafts, sentinels, push state, and private
-caches before new reconciliation.
-
-Development bypass disables private snapshot writes. It also clears or
-distrusts any existing authenticated offline sentinel.
-
-Installed mode provides one `Log out and erase this device` action. When online,
-it revokes the server session and push registration before local deletion.
-
-When offline, it deletes local data immediately. It then reports that remote
-revocation was incomplete and recommends global logout from another client.
+Each Push delivery checks the subscription's current authorization. Logout,
+expiry, and revocation disable the related Push registration.
 
 The detailed release and cache contract remains in
 [Installed Web Application](frontend/pwa.md). GraphQL, WebSocket, authentication,
 OAuth, recovery, artifacts, administration, and external origins remain
 network-only. The worker never retries or navigation-falls-back to those paths.
-
-## 14. Remaining Security Work Before Public Access
-
-Feature work blocks public access only when its feature is enabled. Otherwise,
-Noema must disable the feature and its routes.
-
-### Authentication And Sessions
-
-- Enforce the setup barrier across every browser, native, GraphQL, WebSocket,
-  artifact, OAuth, and GraphiQL route.
-- Remove the printed bootstrap URL and process-local setup authority.
-- Implement runtime `dev_no_auth`, default it to false, and preserve every other
-  security boundary.
-- Implement secure recovery generation, locked config updates, atomic rotation,
-  and restricted setup sessions.
-- Apply recovery body, Host, Origin, rate, and concurrency checks before
-  comparison. Never record recovery candidates.
-- Use maintained WebAuthn code with exact RP ID, origin, user verification, and
-  expiring single-use challenges.
-- Bound sessions and ceremonies. Add expiry, identifier rotation, revocation,
-  and eviction resistance.
-- Bind sessions to passkeys and the authentication epoch. Terminate affected
-  WebSockets after logout, expiry, removal, or revocation.
-
-### Native Clients
-
-- If native access launches, replace legacy pairing with system-browser
-  Authorization Code, verified `state`, S256 PKCE, and exact redirects.
-- Use a maintained Rust OAuth library. Disable every legacy native authorization
-  route during cutover.
-- Issue revocable access tokens and rotating refresh families. Detect reuse and
-  revoke every legacy credential.
-- Store refresh credentials in protected operating-system storage. Keep bearer
-  credentials outside webviews.
-
-### API, PWA, And Notifications
-
-- Bound HTTP, GraphQL, and WebSocket bodies, cost, execution time, connections,
-  operations, subscriptions, and concurrency.
-- Keep authentication and private runtime routes outside service-worker
-  handling. Apply `no-store` to every private response.
-- Disable private offline snapshots until logout-and-erase, instance binding,
-  and authentication-epoch checks exist.
-- If Push launches, validate current authorization before each delivery.
-  Disable private notification previews by default.
-- Provide accessible logout and global revocation. Terminate affected
-  WebSockets and Push registrations.
-
-### Debug And Process Boundaries
-
-- Disable GraphiQL, schema download, and introspection by default. Require recent
-  authentication and local assets when enabled.
-- Enforce the stdio MCP flag before process construction. When enabled, use
-  exact arguments, no shell, and an environment allowlist.
-- Run Noema with an unprivileged service account, private file modes, and no
-  capabilities. Keep binaries and units root-owned.
-
-### Public Edge And Validation
-
-- Bind Noema to loopback behind HTTPS. Enforce canonical Host and trust
-  forwarding headers only from the proxy.
-- Enforce cookie, Origin, CORS, cache, CSP, and browser security-header rules.
-- Keep access logs, callback logs, errors, and diagnostics bounded and free of
-  secrets.
-- Triage dependency advisories. Block launch only for reachable vulnerabilities
-  within the stated threat model.
-- Test setup bypasses, recovery failures, concurrent rotation, session
-  revocation, OAuth replay, and WebSocket termination.
-
-Before public routing, verify:
-
-- `web.dev_no_auth` is false and at least one passkey exists.
-- The public origin uses HTTPS and matches the RP ID.
-- GraphiQL and stdio MCP remain disabled unless explicitly reviewed.
-- The listener is loopback-only. Host enforcement and resource limits are active.
