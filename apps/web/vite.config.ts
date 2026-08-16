@@ -74,6 +74,7 @@ export default defineConfig({
         navigateFallbackDenylist: [
           /^\/graphql(?:\/|$)/,
           /^\/auth(?:\/|$)/,
+          /^\/oauth(?:\/|$)/,
           /^\/__noema(?:\/|$)/,
           /^\/(?:mcp|provider|adapter)\/oauth(?:\/|$)/,
           /^\/artifacts\/versions\/[^/]+\/download$/
