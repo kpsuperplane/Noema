@@ -1001,7 +1001,7 @@ final class ChatModel {
   ) -> ChatMessage {
     let kind = convert(item.item)
     return ChatMessage(
-      id: itemID,
+      id: item.item.asActivity?.id ?? itemID,
       cursor: cursor,
       turnID: turnID,
       clientMessageID: clientMessageID,
@@ -1056,7 +1056,7 @@ final class ChatModel {
   ) -> ChatMessage {
     let kind = convert(item)
     return ChatMessage(
-      id: itemID,
+      id: item.asActivity?.id ?? itemID,
       cursor: cursor,
       turnID: turnID,
       clientMessageID: clientMessageID,
