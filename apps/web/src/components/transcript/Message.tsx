@@ -5,8 +5,7 @@ import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import {
   MarkdownContent,
-  type MarkdownComponents,
-  type MarkdownContentProps
+  type MarkdownComponents
 } from "@/components/MarkdownContent";
 import type { IdentityAvatarActivity } from "../IdentityAvatar";
 import type { ProviderUsageDebug } from "./debugUsage";
@@ -14,6 +13,10 @@ import { ExpandableTextBubbleContent } from "./ExpandableTextBubble";
 import { TranscriptChatBubble } from "./TranscriptChatBubble";
 import type { ChatBubbleGroup } from "./renderModel";
 import { TypingMessageContent } from "./TypingMessage";
+import {
+  ProviderCitationMarkdown,
+  type ProviderCitation
+} from "./ProviderCitationSources";
 
 const styles = stylex.create({
   markdown: {
@@ -93,8 +96,7 @@ export function Message({
   debugUsage = null,
   onDebug,
   attachment,
-  bodyFooter,
-  citationSources
+  citations = []
 }: {
   animate: boolean;
   avatarActivity?: IdentityAvatarActivity;
@@ -108,8 +110,7 @@ export function Message({
   debugUsage?: ProviderUsageDebug | null;
   onDebug?: () => void;
   attachment?: ReactNode;
-  bodyFooter?: ReactNode;
-  citationSources?: NonNullable<MarkdownContentProps["sources"]>;
+  citations?: readonly ProviderCitation[];
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const [overflowing, setOverflowing] = React.useState(false);
@@ -130,8 +131,7 @@ export function Message({
         <div {...stylex.props(styles.content)}>
           <ExpandableTextBubbleContent onExpandedChange={setExpanded} onOverflowChange={setOverflowing}>
             <VStack gap={1}>
-              <MessageMarkdown animate={animate} role={role} sources={citationSources} text={text} />
-              {bodyFooter}
+              <MessageMarkdown animate={animate} role={role} citations={citations} text={text} />
             </VStack>
           </ExpandableTextBubbleContent>
           {attachment ? <div {...stylex.props(styles.attachment)}>{attachment}</div> : null}
@@ -156,25 +156,30 @@ export function Message({
 function MessageMarkdown({
   animate,
   role,
-  sources,
+  citations,
   text
 }: {
   animate: boolean;
   role: "user" | "assistant";
-  sources?: NonNullable<MarkdownContentProps["sources"]>;
+  citations: readonly ProviderCitation[];
   text: string;
 }) {
-  return (
-    <MarkdownContent
-      className={
-        role === "user" ? stylex.props(styles.userMarkdown).className : undefined
-      }
-      components={role === "user" ? userMarkdownComponents : undefined}
-      citationStyle="number"
+  return role === "assistant" ? (
+    <ProviderCitationMarkdown
       density="compact"
       headingLevelStart={3}
       isStreaming={animate}
-      sources={sources}
+      citations={citations}
+      text={text}
+      xstyle={styles.markdown}
+    />
+  ) : (
+    <MarkdownContent
+      className={stylex.props(styles.userMarkdown).className}
+      components={userMarkdownComponents}
+      density="compact"
+      headingLevelStart={3}
+      isStreaming={animate}
       xstyle={styles.markdown}
     >
       {text}

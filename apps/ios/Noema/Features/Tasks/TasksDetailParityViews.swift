@@ -210,14 +210,17 @@ struct TasksCompletedResultView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
       if let response = response.nilIfBlank {
-        NoemaMarkdown(response, role: .assistantMessage)
+        ProviderCitationMarkdown(
+          text: response,
+          citations: submission.citations,
+          role: .assistantMessage
+        )
           .textSelection(.enabled)
       } else {
         Text("The accepted response has no text content.")
           .font(NoemaFont.taskTitle)
           .foregroundStyle(NoemaColor.contentSecondary)
       }
-      ProviderCitationLinks(citations: submission.citations)
       if !submission.artifacts.isEmpty {
         VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
           ForEach(submission.artifacts) { artifact in

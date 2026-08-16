@@ -14,8 +14,6 @@ import { Message } from "./Message";
 import { MultipleChoicePrompt } from "./MultipleChoicePrompt";
 import { RenderedTranscriptEntryFrame } from "./RenderedTranscriptEntryFrame";
 import {
-  ProviderCitationTags,
-  providerCitationContent,
   providerCitationsFromMetadata
 } from "./ProviderCitationSources";
 import {
@@ -447,7 +445,6 @@ function renderTranscriptEntry(
   if (entry.type === "assistant") {
     const debugUsage = parseProviderUsageDebug(entry.metadata);
     const citations = providerCitationsFromMetadata(entry.metadata);
-    const citationContent = providerCitationContent(entry.text, citations);
     const debugTarget = messageDebugTarget(
       entry.debugScope,
       debugUsage,
@@ -462,14 +459,9 @@ function renderTranscriptEntry(
         group={bubbleGroup}
         reserveAvatarSpace={reserveAvatarSpace}
         role="assistant"
-        text={citationContent.text}
+        text={entry.text}
         showAvatar={showAvatar}
-        bodyFooter={
-          citationContent.fallbackCitations.length > 0 ? (
-            <ProviderCitationTags citations={citationContent.fallbackCitations} />
-          ) : undefined
-        }
-        citationSources={citationContent.sources}
+        citations={citations}
         debugUsage={debugUsage}
         onDebug={debugTarget ? () => onDebug(debugTarget) : undefined}
         attachment={

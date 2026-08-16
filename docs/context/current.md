@@ -34,7 +34,10 @@ vertical slice or a net-negative reduction.
 - Foreground context compaction is a runtime span in the same message profile.
 - Hosted Codex search requests include ordered action sources. The runtime
   resolves exact private-use citation markers before saving new chat text or
-  task submissions. Task submission citations are immutable child records.
+  task submissions. Provider annotations stay attached to their exact response
+  item through Markdown bubble splitting. Task submission citations are
+  immutable child records. Web and iOS show inline numeric markers. One marker
+  opens the message-owned source view instead of a visible Sources footer.
 - An ordinary tool result and its exact saved call finish in one store
   transaction. The result ID comes from the call item ID. The same result can
   repeat without a duplicate, and different repeat data fails.

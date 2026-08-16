@@ -164,8 +164,7 @@ struct ChatMessageView: View {
       ) {
         ChatBubbleView(lane: .assistant, group: group) {
           VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-            NoemaMarkdown(text, role: .assistantMessage)
-            ProviderCitationLinks(citations: citations)
+            ProviderCitationMarkdown(text: text, citations: citations, role: .assistantMessage)
             ForEach(attachedTaskIDs, id: \.self) { taskID in
               TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
             }

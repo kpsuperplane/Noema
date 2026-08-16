@@ -2,12 +2,8 @@ import * as React from "react";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import * as stylex from "@stylexjs/stylex";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
-import { MarkdownContent } from "@/components/MarkdownContent";
 import { ArtifactReferenceCard } from "@/components/transcript/ArtifactReferenceCard";
-import {
-  ProviderCitationTags,
-  providerCitationContent
-} from "@/components/transcript/ProviderCitationSources";
+import { ProviderCitationMarkdown } from "@/components/transcript/ProviderCitationSources";
 import type { TaskArtifact, TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskTranscript } from "./TaskTranscript";
 
@@ -105,26 +101,23 @@ function FinalResponse({
     : submission.summary?.trim()
       ? submission.summary
       : undefined;
-  const citationContent = providerCitationContent(response ?? "", submission.citations ?? []);
 
   return (
     <div data-slot="task-final-response" {...stylex.props(styles.finalScroller)}>
       <div {...stylex.props(styles.finalContent)}>
         {response ? (
-          <MarkdownContent
+          <ProviderCitationMarkdown
             contentAlign="center"
             contentWidth="min(760px, calc(100% - var(--spacing-6) - var(--spacing-6)))"
             density="default"
             headingLevelStart={1}
-            sources={citationContent.sources}
+            citations={submission.citations ?? []}
+            text={response}
             xstyle={styles.markdown}
-          >
-            {citationContent.text}
-          </MarkdownContent>
+          />
         ) : (
           <p {...stylex.props(styles.empty)}>The accepted response has no text content.</p>
         )}
-        <ProviderCitationTags citations={citationContent.fallbackCitations} />
         {(submission.artifacts ?? []).length > 0 ? (
           <div aria-label="Final response artifacts" {...stylex.props(styles.artifacts)}>
             {(submission.artifacts ?? []).map((artifact) => (

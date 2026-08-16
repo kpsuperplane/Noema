@@ -1,7 +1,16 @@
-import { Citation } from "@astryxdesign/core/Citation";
-import { HStack } from "@astryxdesign/core/Stack";
+import { Divider } from "@astryxdesign/core/Divider";
+import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
 import * as stylex from "@stylexjs/stylex";
-import type { MarkdownSource } from "@/components/MarkdownContent";
+import { useMemo, useState } from "react";
+import {
+  MarkdownContent,
+  type MarkdownComponents,
+  type MarkdownContentProps,
+  type MarkdownSource
+} from "@/components/MarkdownContent";
+import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 
 export type ProviderCitation = {
   title: string;
@@ -10,34 +19,97 @@ export type ProviderCitation = {
   endIndex: number | null;
 };
 
-export type ProviderCitationContent = {
+type ProviderCitationContent = {
   text: string;
   sources: Record<string, MarkdownSource>;
-  fallbackCitations: ProviderCitation[];
+  citations: ProviderCitation[];
+};
+
+type ProviderCitationMarkdownProps = Omit<
+  MarkdownContentProps,
+  "children" | "components" | "sources"
+> & {
+  text: string;
+  citations: readonly ProviderCitation[];
 };
 
 const styles = stylex.create({
-  tags: {
-    paddingBlockEnd: "var(--spacing-1)"
-  }
+  marker: {
+    display: "inline",
+    borderWidth: 0,
+    padding: 0,
+    backgroundColor: "transparent",
+    color: "var(--color-text-accent)",
+    font: "inherit",
+    fontSize: "0.72em",
+    fontWeight: 600,
+    lineHeight: 1,
+    verticalAlign: "super",
+    cursor: "pointer",
+    ":hover": { textDecoration: "underline" },
+    ":focus-visible": {
+      outlineWidth: 2,
+      outlineStyle: "solid",
+      outlineColor: "var(--ring)",
+      outlineOffset: 2
+    }
+  },
+  sourceLink: {
+    display: "block",
+    padding: "var(--spacing-2)",
+    borderRadius: "var(--radius-element)",
+    color: "inherit",
+    textDecoration: "none",
+    cursor: "pointer",
+    ":hover": { backgroundColor: "var(--color-background-muted)" },
+    ":focus-visible": {
+      outlineWidth: 2,
+      outlineStyle: "solid",
+      outlineColor: "var(--ring)",
+      outlineOffset: 2
+    }
+  },
+  sourceNumber: { minWidth: "var(--spacing-4)" },
+  sourceText: { minWidth: 0 },
+  sourceTitle: { overflowWrap: "anywhere" },
+  sourceHost: { overflowWrap: "anywhere" }
 });
 
-export function ProviderCitationTags({ citations }: { citations: readonly ProviderCitation[] }) {
-  if (citations.length === 0) {
-    return null;
-  }
+export function ProviderCitationMarkdown({
+  text,
+  citations,
+  ...markdownProps
+}: ProviderCitationMarkdownProps) {
+  const [open, setOpen] = useState(false);
+  const content = useMemo(() => providerCitationContent(text, citations), [citations, text]);
+  const components = useMemo<MarkdownComponents>(
+    () => ({
+      citation: ({ number }) => (
+        <button
+          type="button"
+          aria-label="Show sources for this message"
+          onClick={() => setOpen(true)}
+          {...stylex.props(styles.marker)}
+        >
+          [{number}]
+        </button>
+      )
+    }),
+    []
+  );
 
   return (
-    <HStack as="nav" aria-label="Sources" gap={1.5} wrap="wrap" xstyle={styles.tags}>
-      {citations.map((citation, index) => (
-        <Citation
-          key={citation.url}
-          number={index + 1}
-          source={{ title: citation.title, url: citation.url }}
-          variant="label"
-        />
-      ))}
-    </HStack>
+    <>
+      <MarkdownContent
+        {...markdownProps}
+        citationStyle="number"
+        components={components}
+        sources={content.sources}
+      >
+        {content.text}
+      </MarkdownContent>
+      <ProviderCitationDialog citations={content.citations} open={open} onOpenChange={setOpen} />
+    </>
   );
 }
 
@@ -70,43 +142,139 @@ export function providerCitationContent(
 ): ProviderCitationContent {
   const sourceIdByUrl = new Map<string, string>();
   const sources: Record<string, MarkdownSource> = {};
+  const uniqueCitations: ProviderCitation[] = [];
   const markersByIndex = new Map<number, Set<string>>();
-  const citedUrls = new Set<string>();
+  const fallbackMarkers = new Set<string>();
 
-  for (const citation of citations) {
-    const { startIndex, endIndex } = citation;
-    if (
-      endIndex === null ||
-      (startIndex !== null && startIndex >= endIndex) ||
-      endIndex > text.length
-    ) {
-      continue;
-    }
+  const orderedCitations = citations
+    .map((citation, inputIndex) => ({ citation, inputIndex }))
+    .sort((left, right) => {
+      const leftEnd = validCitationEnd(text, left.citation);
+      const rightEnd = validCitationEnd(text, right.citation);
+      if (leftEnd === null && rightEnd !== null) return 1;
+      if (leftEnd !== null && rightEnd === null) return -1;
+      if (leftEnd !== rightEnd) return (leftEnd ?? 0) - (rightEnd ?? 0);
+      return left.inputIndex - right.inputIndex;
+    });
 
+  for (const { citation } of orderedCitations) {
     let sourceId = sourceIdByUrl.get(citation.url);
     if (!sourceId) {
       sourceId = unusedSourceId(text, sources, sourceIdByUrl.size + 1);
       sourceIdByUrl.set(citation.url, sourceId);
       sources[sourceId] = { title: citation.title, url: citation.url };
+      uniqueCitations.push(citation);
+    }
+    const endIndex = validCitationEnd(text, citation);
+    if (endIndex === null) {
+      fallbackMarkers.add(sourceId);
+      continue;
     }
     const markers = markersByIndex.get(endIndex) ?? new Set<string>();
     markers.add(sourceId);
     markersByIndex.set(endIndex, markers);
-    citedUrls.add(citation.url);
   }
 
   let citedText = text;
   for (const [index, sourceIds] of [...markersByIndex].sort(([left], [right]) => right - left)) {
-    const markers = [...sourceIds].map((sourceId) => `[${sourceId}]`).join("");
-    citedText = `${citedText.slice(0, index)}${markers}${citedText.slice(index)}`;
+    citedText = `${citedText.slice(0, index)}${citationMarkers(sourceIds)}${citedText.slice(index)}`;
   }
+  if (fallbackMarkers.size > 0) {
+    citedText = `${citedText}${citedText.trim() ? " " : ""}${citationMarkers(fallbackMarkers)}`;
+  }
+  return { text: citedText, sources, citations: uniqueCitations };
+}
 
-  const fallbackCitations = citations.filter(
-    (citation, index) =>
-      !citedUrls.has(citation.url) &&
-      citations.findIndex((candidate) => candidate.url === citation.url) === index
+function validCitationEnd(text: string, citation: ProviderCitation): number | null {
+  const { startIndex, endIndex } = citation;
+  return endIndex !== null &&
+    (startIndex === null || startIndex < endIndex) &&
+    endIndex <= text.length &&
+    isUtf16Boundary(text, endIndex)
+    ? endIndex
+    : null;
+}
+
+function isUtf16Boundary(text: string, index: number): boolean {
+  if (index <= 0 || index >= text.length) return true;
+  const previous = text.charCodeAt(index - 1);
+  const next = text.charCodeAt(index);
+  return !(previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff);
+}
+
+function ProviderCitationDialog({
+  citations,
+  open,
+  onOpenChange
+}: {
+  citations: readonly ProviderCitation[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog
+      isOpen={open}
+      onOpenChange={onOpenChange}
+      purpose="info"
+      width={520}
+      maxHeight="min(680px, calc(100dvh - var(--spacing-8)))"
+      aria-label="Sources"
+    >
+      <Layout
+        height="auto"
+        header={<DialogHeader title="Sources" onOpenChange={onOpenChange} hasDivider />}
+        content={
+          <LayoutContent>
+            <VStack gap={1}>
+              {citations.map((citation, index) => (
+                <VStack key={citation.url} gap={1}>
+                  <a
+                    href={citation.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Source ${index + 1}: ${citation.title}`}
+                    {...stylex.props(styles.sourceLink)}
+                  >
+                    <HStack gap={2} vAlign="start">
+                      <Text
+                        type="supporting"
+                        color="accent"
+                        weight="semibold"
+                        xstyle={styles.sourceNumber}
+                      >
+                        {index + 1}
+                      </Text>
+                      <VStack gap={0.5} xstyle={styles.sourceText}>
+                        <Text type="body" weight="semibold" xstyle={styles.sourceTitle}>
+                          {citation.title}
+                        </Text>
+                        <Text type="supporting" color="secondary" xstyle={styles.sourceHost}>
+                          {sourceHost(citation.url)}
+                        </Text>
+                      </VStack>
+                    </HStack>
+                  </a>
+                  {index + 1 < citations.length ? <Divider /> : null}
+                </VStack>
+              ))}
+            </VStack>
+          </LayoutContent>
+        }
+      />
+    </Dialog>
   );
-  return { text: citedText, sources, fallbackCitations };
+}
+
+function citationMarkers(sourceIds: Iterable<string>): string {
+  return [...sourceIds].map((sourceId) => `[${sourceId}]`).join("");
+}
+
+function sourceHost(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
 }
 
 function unusedSourceId(

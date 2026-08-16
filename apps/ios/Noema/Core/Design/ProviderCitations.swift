@@ -46,37 +46,141 @@ struct ProviderCitation: Identifiable, Hashable, Sendable {
   }
 }
 
-struct ProviderCitationLinks: View {
+struct ProviderCitationMarkdown: View {
+  let text: String
   let citations: [ProviderCitation]
+  let role: NoemaMarkdown.Role
+  @State private var sourcesPresented = false
 
   var body: some View {
-    if !uniqueCitations.isEmpty {
-      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-        Text("Sources")
-          .font(NoemaFont.metadata.weight(.semibold))
-          .foregroundStyle(NoemaColor.contentTertiary)
-        ForEach(Array(uniqueCitations.enumerated()), id: \.element.id) { index, citation in
-          Link(destination: citation.destination) {
-            HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.xs) {
-              Text("\(index + 1)")
-                .font(NoemaFont.metadata.weight(.semibold))
-                .foregroundStyle(NoemaColor.accent)
-              Text(citation.title)
-                .font(NoemaFont.caption)
-                .foregroundStyle(NoemaColor.contentSecondary)
-                .lineLimit(2)
-            }
-          }
-          .accessibilityLabel("Source \(index + 1): \(citation.title)")
-        }
+    let content = ProviderCitationContent(text: text, citations: citations)
+    NoemaMarkdown(content.text, role: role)
+      .environment(\.openURL, OpenURLAction { url in
+        guard url.scheme == ProviderCitationContent.scheme else { return .systemAction }
+        sourcesPresented = true
+        return .handled
+      })
+      .noemaSheet(isPresented: $sourcesPresented) {
+        ProviderCitationSheet(citations: content.citations)
       }
-      .accessibilityElement(children: .contain)
-      .accessibilityLabel("Sources")
+  }
+}
+
+private struct ProviderCitationContent {
+  static let scheme = "noema-provider-citations"
+
+  let text: String
+  let citations: [ProviderCitation]
+
+  init(text: String, citations: [ProviderCitation]) {
+    var sourceNumberByURL: [String: Int] = [:]
+    var uniqueCitations: [ProviderCitation] = []
+    var markersByOffset: [Int: Set<Int>] = [:]
+    var fallbackMarkers = Set<Int>()
+
+    let orderedCitations = citations.enumerated().sorted { left, right in
+      let leftEnd = Self.validEndOffset(text: text, citation: left.element)
+      let rightEnd = Self.validEndOffset(text: text, citation: right.element)
+      if leftEnd == nil, rightEnd != nil { return false }
+      if leftEnd != nil, rightEnd == nil { return true }
+      if leftEnd != rightEnd { return (leftEnd ?? 0) < (rightEnd ?? 0) }
+      return left.offset < right.offset
     }
+
+    for (_, citation) in orderedCitations {
+      let url = citation.destination.absoluteString
+      let number: Int
+      if let existing = sourceNumberByURL[url] {
+        number = existing
+      } else {
+        number = uniqueCitations.count + 1
+        sourceNumberByURL[url] = number
+        uniqueCitations.append(citation)
+      }
+
+      guard let endIndex = Self.validEndOffset(text: text, citation: citation) else {
+        fallbackMarkers.insert(number)
+        continue
+      }
+      markersByOffset[endIndex, default: []].insert(number)
+    }
+
+    var citedText = text
+    for (offset, numbers) in markersByOffset.sorted(by: { $0.key > $1.key }) {
+      guard let utf16Index = citedText.utf16.index(
+        citedText.utf16.startIndex,
+        offsetBy: offset,
+        limitedBy: citedText.utf16.endIndex
+      ), let index = String.Index(utf16Index, within: citedText) else {
+        fallbackMarkers.formUnion(numbers)
+        continue
+      }
+      citedText.insert(contentsOf: Self.markers(numbers), at: index)
+    }
+    if !fallbackMarkers.isEmpty {
+      let separator = citedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : " "
+      citedText.append(separator + Self.markers(fallbackMarkers))
+    }
+
+    self.text = citedText
+    self.citations = uniqueCitations
   }
 
-  private var uniqueCitations: [ProviderCitation] {
-    var seen = Set<String>()
-    return citations.filter { seen.insert($0.destination.absoluteString).inserted }
+  private static func markers(_ numbers: Set<Int>) -> String {
+    numbers.sorted().map { number in
+      "[\\[\(number)\\]](\(scheme)://sources)"
+    }.joined()
+  }
+
+  private static func validEndOffset(text: String, citation: ProviderCitation) -> Int? {
+    guard let endIndex = citation.endIndex,
+          endIndex <= text.utf16.count,
+          citation.startIndex.map({ $0 < endIndex }) ?? true else { return nil }
+    return endIndex
+  }
+}
+
+private struct ProviderCitationSheet: View {
+  let citations: [ProviderCitation]
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    NoemaNativeSheet(title: "Sources", onDismiss: { dismiss() }) {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 0) {
+          ForEach(Array(citations.enumerated()), id: \.element.destination) { index, citation in
+            Link(destination: citation.destination) {
+              HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+                Text("\(index + 1)")
+                  .font(NoemaFont.metadata.weight(.semibold))
+                  .foregroundStyle(NoemaColor.accent)
+                  .frame(minWidth: NoemaSpacing.lg, alignment: .leading)
+                VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+                  Text(citation.title)
+                    .font(NoemaFont.body.weight(.semibold))
+                    .foregroundStyle(NoemaColor.content)
+                    .fixedSize(horizontal: false, vertical: true)
+                  Text(citation.destination.host ?? citation.destination.absoluteString)
+                    .font(NoemaFont.caption)
+                    .foregroundStyle(NoemaColor.contentSecondary)
+                    .lineLimit(2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+              }
+              .padding(.vertical, NoemaSpacing.md)
+              .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Source \(index + 1): \(citation.title)")
+            if index + 1 < citations.count {
+              Divider()
+            }
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, NoemaSpacing.lg)
+      }
+    }
+    .presentationDetents([.medium, .large])
+    .presentationDragIndicator(.visible)
   }
 }

@@ -124,6 +124,13 @@ Memory articles keep prose primary. One numeric citation represents one nearby
 claim. Its hover or focus card shows every exact evidence source with type,
 date, excerpt, and identifier.
 
+Web and iOS use one provider citation contract for Chat messages and completed
+Task results. They number unique URLs in first-use order. Each citation marker
+follows its claim when the provider supplies a valid UTF-16 end offset. A marker
+without a valid offset follows the complete message. Every marker opens one
+message-owned Sources view. Each source shows its title and host and opens the
+exact URL. The message does not show a separate Sources footer.
+
 ## Validation
 
 For frontend changes, run `bun run lint` and `bun run build` from `apps/web`.
