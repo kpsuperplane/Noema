@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 43;
+pub const STORE_SCHEMA_VERSION: usize = 44;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1187,6 +1187,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(LIVE_ACTIVITY_DIAGNOSTICS_SQL),
         M::up(LIVE_ACTIVITY_OBSERVATIONS_RENAME_SQL),
         M::up(TERMINAL_CHILD_STATE_REPAIR_SQL),
+        M::up(MULTIPLE_HUMAN_PASSKEYS_SQL),
     ])
 }
 
@@ -2453,6 +2454,34 @@ CREATE TABLE human_passkeys (
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   FOREIGN KEY (human_id) REFERENCES humans(human_id) ON DELETE CASCADE
 );
+"#;
+
+const MULTIPLE_HUMAN_PASSKEYS_SQL: &str = r#"
+ALTER TABLE human_passkeys RENAME TO human_passkeys_v43;
+
+CREATE TABLE human_passkeys (
+  credential_id TEXT PRIMARY KEY NOT NULL CHECK (credential_id <> ''),
+  human_id TEXT NOT NULL,
+  credential_json TEXT NOT NULL CHECK (json_valid(credential_json)),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (human_id) REFERENCES humans(human_id) ON DELETE CASCADE,
+  UNIQUE (human_id, credential_id)
+);
+
+INSERT INTO human_passkeys (
+  credential_id, human_id, credential_json, created_at, updated_at
+)
+SELECT
+  json_extract(credential_json, '$.cred.cred_id'),
+  human_id,
+  credential_json,
+  created_at,
+  updated_at
+FROM human_passkeys_v43;
+
+DROP TABLE human_passkeys_v43;
+CREATE INDEX human_passkeys_human ON human_passkeys(human_id, created_at, credential_id);
 "#;
 
 const MCP_TOOL_POLICY_SQL: &str = r#"

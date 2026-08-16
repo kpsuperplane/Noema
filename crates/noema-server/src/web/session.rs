@@ -1,6 +1,9 @@
 //! Private in-memory browser sessions and one-shot startup bootstrap.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use ring::rand::{SecureRandom, SystemRandom};
@@ -9,6 +12,9 @@ use tower_sessions::{Session, cookie::Key};
 const AUTHENTICATED_KEY: &str = "authenticated";
 const SETUP_AUTHORIZED_KEY: &str = "setup_authorized";
 const BROWSER_BINDING_KEY: &str = "browser_binding";
+const PASSKEY_ID_KEY: &str = "passkey_id";
+const RECENT_PASSKEY_AT_KEY: &str = "recent_passkey_at";
+const RECENT_PASSKEY_TTL: Duration = Duration::from_secs(5 * 60);
 
 /// Process-local session and startup capability state.
 #[derive(Clone)]
@@ -78,9 +84,16 @@ impl SessionSecurity {
     }
 }
 
-pub(super) async fn authenticate(session: &Session) -> Result<(), tower_sessions::session::Error> {
+pub(super) async fn authenticate(
+    session: &Session,
+    credential_id: &str,
+) -> Result<(), tower_sessions::session::Error> {
     session.clear().await;
     session.insert(AUTHENTICATED_KEY, true).await?;
+    session.insert(PASSKEY_ID_KEY, credential_id).await?;
+    session
+        .insert(RECENT_PASSKEY_AT_KEY, unix_timestamp())
+        .await?;
     session.cycle_id().await
 }
 
@@ -91,6 +104,18 @@ pub(super) async fn is_authenticated(session: &Session) -> bool {
         .ok()
         .flatten()
         .unwrap_or(false)
+}
+
+pub(super) async fn has_recent_passkey(session: &Session) -> bool {
+    let Some(authenticated_at) = session
+        .get::<u64>(RECENT_PASSKEY_AT_KEY)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return false;
+    };
+    unix_timestamp().saturating_sub(authenticated_at) <= RECENT_PASSKEY_TTL.as_secs()
 }
 
 pub(super) async fn authorize_setup(
@@ -131,4 +156,11 @@ pub(super) async fn request_principal(
 ) -> Option<noema_api::RequestPrincipal> {
     (!authentication_required || is_authenticated(session).await)
         .then(noema_api::RequestPrincipal::local)
+}
+
+fn unix_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }

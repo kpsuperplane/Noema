@@ -31,12 +31,11 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
     let passkey_registered = host
         .services()
         .store
-        .local_human_passkey()
+        .local_human_has_passkey()
         .await
         .map_err(|error| {
             WebServerError::Protocol(format!("failed to read passkey state: {error}"))
-        })?
-        .is_some();
+        })?;
     let mut graphql_state = noema_api::graphql::GraphqlState::from_host_services(host.services())
         .with_mcp_oauth_callback_url(format!("{}/mcp/oauth/callback", authority.origin()))
         .with_provider_oauth_callback_url(format!("{}/provider/oauth/callback", authority.origin()))

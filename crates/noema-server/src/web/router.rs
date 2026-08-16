@@ -234,17 +234,17 @@ async fn bootstrap(
     Path(capability): Path<String>,
     session_value: Session,
 ) -> Response {
-    match state.store.local_human_passkey().await {
-        Ok(Some(_)) => return not_found(),
+    match state.store.local_human_has_passkey().await {
+        Ok(true) => return not_found(),
         Err(_) => return internal_error(),
-        Ok(None) => {}
+        Ok(false) => {}
     }
     if !state.sessions.consume(&capability) {
         return not_found();
     }
     #[cfg(test)]
     let result = if state.sessions.test_bootstrap_authenticates() {
-        session::authenticate(&session_value).await
+        session::authenticate(&session_value, "test-passkey").await
     } else {
         session::authorize_setup(&session_value).await
     };

@@ -34,7 +34,7 @@ enum CeremonyState {
     Registration(PasskeyRegistration),
     Authentication {
         state: PasskeyAuthentication,
-        credential_json: String,
+        credentials: Vec<noema_store::HumanPasskeyRecord>,
     },
 }
 
@@ -157,8 +157,8 @@ pub(super) async fn status(State(state): State<WebState>, browser: Session) -> R
         })
         .into_response();
     }
-    let credential_exists = match state.store.local_human_passkey().await {
-        Ok(credential) => credential.is_some(),
+    let credential_exists = match state.store.local_human_has_passkey().await {
+        Ok(exists) => exists,
         Err(_) => {
             return auth_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -180,24 +180,33 @@ pub(super) async fn start_registration(
     State(state): State<WebState>,
     browser: Session,
 ) -> Response {
-    if !session::is_setup_authorized(&browser).await {
+    if !registration_authorized(&state, &browser).await {
         return auth_error(StatusCode::FORBIDDEN, "setup_not_authorized");
     }
-    match state.store.local_human_passkey().await {
-        Ok(Some(_)) => return auth_error(StatusCode::CONFLICT, "passkey_already_registered"),
+    let stored = match state.store.local_human_passkeys().await {
+        Ok(stored) => stored,
         Err(_) => {
             return auth_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "authentication_unavailable",
             );
         }
-        Ok(None) => {}
-    }
+    };
+    let passkeys = match deserialize_passkeys(&stored) {
+        Ok(passkeys) => passkeys,
+        Err(response) => return response,
+    };
+    let excluded = (!passkeys.is_empty()).then(|| {
+        passkeys
+            .iter()
+            .map(|passkey| passkey.cred_id().clone())
+            .collect()
+    });
     let (options, registration) = match state.passkeys.webauthn.start_passkey_registration(
         LOCAL_HUMAN_UUID,
         "human:local",
         "You",
-        None,
+        excluded,
     ) {
         Ok(result) => result,
         Err(_) => return auth_error(StatusCode::INTERNAL_SERVER_ERROR, "ceremony_unavailable"),
@@ -224,7 +233,7 @@ pub(super) async fn finish_registration(
     browser: Session,
     Json(input): Json<FinishRegistration>,
 ) -> Response {
-    if !session::is_setup_authorized(&browser).await {
+    if !registration_authorized(&state, &browser).await {
         return auth_error(StatusCode::FORBIDDEN, "setup_not_authorized");
     }
     let binding = match session::browser_binding(&browser).await {
@@ -256,9 +265,10 @@ pub(super) async fn finish_registration(
             );
         }
     };
+    let credential_id = URL_SAFE_NO_PAD.encode(passkey.cred_id().as_ref());
     match state
         .store
-        .insert_initial_local_human_passkey(&credential_json)
+        .insert_local_human_passkey(&credential_id, &credential_json)
         .await
     {
         Ok(true) => {}
@@ -270,16 +280,18 @@ pub(super) async fn finish_registration(
             );
         }
     }
-    establish_session(&browser).await
+    establish_session(&browser, &credential_id).await
 }
 
 pub(super) async fn start_authentication(
     State(state): State<WebState>,
     browser: Session,
 ) -> Response {
-    let credential_json = match state.store.local_human_passkey().await {
-        Ok(Some(credential)) => credential,
-        Ok(None) => return auth_error(StatusCode::CONFLICT, "setup_required"),
+    let credentials = match state.store.local_human_passkeys().await {
+        Ok(credentials) if credentials.is_empty() => {
+            return auth_error(StatusCode::CONFLICT, "setup_required");
+        }
+        Ok(credentials) => credentials,
         Err(_) => {
             return auth_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -287,19 +299,14 @@ pub(super) async fn start_authentication(
             );
         }
     };
-    let passkey: Passkey = match serde_json::from_str(&credential_json) {
-        Ok(passkey) => passkey,
-        Err(_) => {
-            return auth_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "authentication_unavailable",
-            );
-        }
+    let passkeys = match deserialize_passkeys(&credentials) {
+        Ok(passkeys) => passkeys,
+        Err(response) => return response,
     };
     let (options, authentication) = match state
         .passkeys
         .webauthn
-        .start_passkey_authentication(&[passkey])
+        .start_passkey_authentication(&passkeys)
     {
         Ok(result) => result,
         Err(_) => return auth_error(StatusCode::INTERNAL_SERVER_ERROR, "ceremony_unavailable"),
@@ -312,7 +319,7 @@ pub(super) async fn start_authentication(
         binding,
         CeremonyState::Authentication {
             state: authentication,
-            credential_json,
+            credentials,
         },
     ) {
         Ok(ceremony_id) => Json(CeremonyStart {
@@ -335,7 +342,7 @@ pub(super) async fn finish_authentication(
     };
     let CeremonyState::Authentication {
         state: authentication,
-        credential_json,
+        credentials,
     } = (match state.passkeys.take(&input.ceremony_id, &binding) {
         Ok(ceremony) => ceremony,
         Err(status) => return auth_error(status, "invalid_ceremony"),
@@ -343,17 +350,6 @@ pub(super) async fn finish_authentication(
     else {
         return auth_error(StatusCode::BAD_REQUEST, "invalid_ceremony");
     };
-    if state
-        .store
-        .local_human_passkey()
-        .await
-        .ok()
-        .flatten()
-        .as_deref()
-        != Some(credential_json.as_str())
-    {
-        return auth_error(StatusCode::CONFLICT, "credential_changed");
-    }
     let result = match state
         .passkeys
         .webauthn
@@ -362,7 +358,27 @@ pub(super) async fn finish_authentication(
         Ok(result) => result,
         Err(_) => return auth_error(StatusCode::UNAUTHORIZED, "passkey_rejected"),
     };
-    let mut passkey: Passkey = match serde_json::from_str(&credential_json) {
+    let credential_id = URL_SAFE_NO_PAD.encode(result.cred_id().as_ref());
+    let Some(credential) = credentials
+        .iter()
+        .find(|credential| credential.credential_id == credential_id)
+    else {
+        return auth_error(StatusCode::UNAUTHORIZED, "passkey_rejected");
+    };
+    let current = match state.store.local_human_passkey(&credential_id).await {
+        Ok(Some(current)) => current,
+        Ok(None) => return auth_error(StatusCode::CONFLICT, "credential_changed"),
+        Err(_) => {
+            return auth_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "authentication_unavailable",
+            );
+        }
+    };
+    if current.credential_json != credential.credential_json {
+        return auth_error(StatusCode::CONFLICT, "credential_changed");
+    }
+    let mut passkey: Passkey = match serde_json::from_str(&credential.credential_json) {
         Ok(passkey) => passkey,
         Err(_) => {
             return auth_error(
@@ -383,7 +399,11 @@ pub(super) async fn finish_authentication(
         };
         match state
             .store
-            .compare_and_swap_local_human_passkey(&credential_json, &replacement)
+            .compare_and_swap_local_human_passkey(
+                &credential_id,
+                &credential.credential_json,
+                &replacement,
+            )
             .await
         {
             Ok(true) => {}
@@ -396,7 +416,7 @@ pub(super) async fn finish_authentication(
             }
         }
     }
-    establish_session(&browser).await
+    establish_session(&browser, &credential_id).await
 }
 
 pub(super) async fn logout(browser: Session) -> Response {
@@ -406,11 +426,33 @@ pub(super) async fn logout(browser: Session) -> Response {
     }
 }
 
-async fn establish_session(browser: &Session) -> Response {
-    match session::authenticate(browser).await {
+async fn establish_session(browser: &Session, credential_id: &str) -> Response {
+    match session::authenticate(browser, credential_id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(_) => auth_error(StatusCode::INTERNAL_SERVER_ERROR, "session_unavailable"),
     }
+}
+
+async fn registration_authorized(state: &WebState, browser: &Session) -> bool {
+    if !state.auth_mode.requires_session() || session::is_setup_authorized(browser).await {
+        return true;
+    }
+    session::is_authenticated(browser).await && session::has_recent_passkey(browser).await
+}
+
+fn deserialize_passkeys(
+    stored: &[noema_store::HumanPasskeyRecord],
+) -> Result<Vec<Passkey>, Response> {
+    stored
+        .iter()
+        .map(|credential| serde_json::from_str(&credential.credential_json))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| {
+            auth_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "authentication_unavailable",
+            )
+        })
 }
 
 fn auth_error(status: StatusCode, error: &'static str) -> Response {

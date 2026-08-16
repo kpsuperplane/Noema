@@ -2237,7 +2237,7 @@ async fn immutable_schema_inspection_handles_uri_reserved_path_characters() {
 }
 
 #[tokio::test]
-async fn v43_upgrade_finishes_terminal_child_records_and_matches_fresh_schema() {
+async fn v44_upgrade_preserves_passkeys_repairs_terminal_records_and_matches_fresh_schema() {
     let upgrade_home = TempDir::new().expect("v42 root");
     let upgrade_config = store_config(upgrade_home.path());
     fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
@@ -2246,6 +2246,13 @@ async fn v43_upgrade_finishes_terminal_child_records_and_matches_fresh_schema() 
     store_migrations()
         .to_version(&mut connection, 42)
         .expect("construct v42 schema");
+    connection
+        .execute(
+            r#"INSERT INTO human_passkeys (human_id, credential_json)
+               VALUES ('human:local', '{"cred":{"cred_id":"legacy-credential"}}')"#,
+            [],
+        )
+        .expect("legacy passkey");
     connection
         .execute(
             "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:valid', 'workspace:personal', 'workflow:personal:default', 'stage:personal:done', 'Terminal records', 'system', 'actor:system')",
@@ -2306,9 +2313,10 @@ async fn v43_upgrade_finishes_terminal_child_records_and_matches_fresh_schema() 
                   (SELECT status FROM agent_run_items WHERE item_id = 'run_item:terminal-call'),
                   (SELECT status FROM conversation_items WHERE item_id = 'item:terminal-call'),
                   (SELECT count(*) FROM runtime_debug_spans WHERE span_id IN ('debug_span:terminal-run', 'debug_span:terminal-turn') AND status = 'completed' AND ended_at IS NOT NULL),
+                  (SELECT credential_id FROM human_passkeys WHERE human_id = 'human:local'),
                   (SELECT user_version FROM pragma_user_version)"#,
                 [],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?, row.get::<_, usize>(4)?)),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?, row.get::<_, String>(4)?, row.get::<_, usize>(5)?)),
             )
             .expect("repaired records"),
         (
@@ -2316,17 +2324,18 @@ async fn v43_upgrade_finishes_terminal_child_records_and_matches_fresh_schema() 
             "failed".to_string(),
             "failed".to_string(),
             2,
+            "legacy-credential".to_string(),
             STORE_SCHEMA_VERSION,
         )
     );
     drop(connection);
 
-    let fresh_home = TempDir::new().expect("fresh v43 root");
+    let fresh_home = TempDir::new().expect("fresh v44 root");
     let fresh_config = store_config(fresh_home.path());
     drop(
         NoemaStore::open(&fresh_config)
             .await
-            .expect("fresh v43 schema"),
+            .expect("fresh v44 schema"),
     );
     assert_eq!(
         database_snapshot(&upgrade_config.path).schema_objects,
