@@ -1,32 +1,41 @@
 import * as stylex from "@stylexjs/stylex";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, WifiOff } from "lucide-react";
 import type { ShellAttention } from "./AppShell";
 
 export function ShellAttentionItem({
   attention,
-  compact = false
+  compact = false,
+  offline = false
 }: {
   attention: ShellAttention;
   compact?: boolean;
+  offline?: boolean;
 }) {
   const progress = attention.tone === "progress";
 
   return (
     <div
-      {...stylex.props(styles.root, compact && styles.compact, progress && styles.progress)}
+      {...stylex.props(
+        styles.root,
+        compact && styles.compact,
+        progress && styles.progress,
+        offline && styles.offline
+      )}
       role="status"
       title={compact ? attention.message : undefined}
     >
-      <span {...stylex.props(styles.title, progress && styles.progressTitle)}>
-        {progress ? (
+      <span {...stylex.props(styles.title, progress && styles.progressTitle, offline && styles.offlineTitle)}>
+        {offline ? (
+          <WifiOff size={14} aria-hidden="true" />
+        ) : progress ? (
           <StatusDot variant="neutral" label="Synchronization in progress" />
         ) : (
           <AlertTriangle size={14} aria-hidden="true" />
         )}
-        {attention.title}
+        {offline ? "Noema is offline." : attention.title}
       </span>
-      {!compact || !progress ? (
+      {!offline && (!compact || !progress) ? (
         <span {...stylex.props(styles.message, compact && styles.compactMessage)}>
           {attention.message}
         </span>
@@ -82,5 +91,17 @@ const styles = stylex.create({
   },
   progressTitle: {
     fontWeight: 400
+  },
+  offline: {
+    gap: "var(--spacing-1-5)",
+    minHeight: "var(--spacing-10)",
+    paddingBlock: "var(--spacing-1-5)",
+    paddingInline: "var(--spacing-3)",
+    color: "var(--red-700)"
+  },
+  offlineTitle: {
+    gap: "var(--spacing-1-5)",
+    fontSize: 14,
+    fontWeight: 600
   }
 });

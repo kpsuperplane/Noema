@@ -642,7 +642,13 @@ export function AppShell({
             route={primaryNavigationRoute}
             agentName={status?.primaryAgentDisplayName ?? null}
             agentAvatarActivity={agentAvatarActivity}
-            attention={attention ? <ShellAttentionItem attention={attention} compact /> : null}
+            attention={attention ? (
+              <ShellAttentionItem
+                attention={attention}
+                compact
+                offline={recovery.state === "offline"}
+              />
+            ) : null}
             onNavigate={navigatePrimary}
           />
         </div>
