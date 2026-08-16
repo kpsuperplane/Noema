@@ -755,18 +755,21 @@ fn memory_consolidation(response: &GenerateResponse) -> Result<(), String> {
         path: "root.md".to_string(),
         title: "Kevin".to_string(),
         icon: "user".to_string(),
-        body: "Kevin enjoys outdoor activities.".to_string(),
+        body: "Kevin currently prefers low-carbohydrate meals.[^1]".to_string(),
         hash: "hash-root".to_string(),
         citations: vec![noema_memory::MemoryCitation {
-            sources: vec!["item:existing".to_string()],
+            sources: vec!["item:preference-old".to_string()],
         }],
         parent: None,
         ancestors: Vec::new(),
         children: Vec::new(),
     }];
     let allowed_sources = HashSet::from([
-        "item:existing".to_string(),
-        "item:evaluation-memory".to_string(),
+        "item:preference-old".to_string(),
+        "item:diet-main".to_string(),
+        "item:diet-fiber".to_string(),
+        "item:preference-new".to_string(),
+        "item:guest-meal".to_string(),
     ]);
     let parsed =
         crate::daemon::runtime::parse_memory_change_set(payload, &allowed_sources, &pages)?;
@@ -779,16 +782,39 @@ fn memory_consolidation(response: &GenerateResponse) -> Result<(), String> {
         .changes
         .upserts
         .iter()
-        .find(|change| change.path == "root.md")
-        .ok_or_else(|| "memory consolidation did not update root.md".to_string())?;
-    if !contains_any(&upsert.body, &["skyward-19"])
-        || !upsert
-            .citations
-            .iter()
-            .flat_map(|citation| &citation.sources)
-            .any(|source| source == "item:evaluation-memory")
+        .find(|change| change.path == "root.md");
+    let upsert = upsert.ok_or_else(|| "memory consolidation did not update root.md".to_string())?;
+    let body = upsert.body.to_ascii_lowercase();
+    if ["saturated fat", "protein", "fiber"]
+        .iter()
+        .any(|value| !body.contains(value))
     {
-        return Err("memory consolidation omitted the supplied human evidence".to_string());
+        return Err("memory consolidation omitted implicit preferences".to_string());
+    }
+    if contains_any(
+        &body,
+        &[
+            "ba bar",
+            "saigon",
+            "chicken salad",
+            "carbohydrate",
+            "vegetarian",
+            "guest",
+        ],
+    ) {
+        return Err("memory consolidation retained superseded or temporary details".to_string());
+    }
+    let sources = upsert
+        .citations
+        .iter()
+        .flat_map(|citation| &citation.sources)
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    if ["item:diet-main", "item:diet-fiber"]
+        .iter()
+        .any(|source| !sources.contains(source))
+    {
+        return Err("memory consolidation omitted required source citations".to_string());
     }
     Ok(())
 }
@@ -1254,40 +1280,63 @@ mod tests {
 
     #[test]
     fn memory_consolidation_grade_rejects_invented_sources() {
-        let accepted = tool_response(
-            "noema.submit_memory_changes",
-            serde_json::json!({
-                "upserts": [{
-                    "id": "memory:human:root",
-                    "expected_hash": "hash-root",
-                    "path": "root.md",
-                    "title": "Kevin",
-                    "icon": "user",
-                    "body": "Kevin's preferred aircraft call sign is SKYWARD-19.[^1]",
-                    "citations": [{"sources": ["item:evaluation-memory"]}]
-                }],
-                "metadata_updates": [],
-                "deletes": []
-            }),
-        );
-        assert_eq!(memory_consolidation(&accepted), Ok(()));
-
-        let invented = tool_response(
-            "noema.submit_memory_changes",
-            serde_json::json!({
-                "upserts": [{
-                    "id": "memory:human:root",
-                    "expected_hash": "hash-root",
-                    "path": "root.md",
-                    "title": "Kevin",
-                    "icon": "user",
-                    "body": "Kevin's preferred aircraft call sign is SKYWARD-19.[^1]",
-                    "citations": [{"sources": ["item:invented"]}]
-                }],
-                "metadata_updates": [],
-                "deletes": []
-            }),
+        let invented = memory_response(
+            "Kevin prefers low saturated fat, high protein, and high fiber.[^1]",
+            serde_json::json!([{"sources": ["item:invented"]}]),
         );
         assert!(memory_consolidation(&invented).is_err());
+    }
+
+    #[test]
+    fn memory_consolidation_grade_requires_scoped_implicit_preferences() {
+        let accepted = memory_response(
+            "Kevin currently prefers meals with low saturated fat, high protein, and high fiber.[^1]",
+            serde_json::json!([{"sources": ["item:diet-main", "item:diet-fiber"]}]),
+        );
+        assert_eq!(memory_consolidation(&accepted), Ok(()));
+    }
+
+    #[test]
+    fn memory_consolidation_grade_requires_preference_revision() {
+        for detail in ["low-carbohydrate", "Ba Bar", "Saigon chicken salad"] {
+            let stale = memory_response(
+                &format!(
+                    "Kevin prefers low saturated fat, high protein, and high fiber, including {detail}.[^1]"
+                ),
+                serde_json::json!([{"sources": ["item:diet-main", "item:diet-fiber"]}]),
+            );
+            assert!(memory_consolidation(&stale).is_err());
+        }
+    }
+
+    #[test]
+    fn memory_consolidation_grade_rejects_temporary_constraint_memory() {
+        let retained = memory_response(
+            "Kevin prefers low saturated fat, high protein, and high fiber.[^1] He prefers vegetarian meals for his guest.[^2]",
+            serde_json::json!([
+                {"sources": ["item:diet-main", "item:diet-fiber"]},
+                {"sources": ["item:guest-meal"]}
+            ]),
+        );
+        assert!(memory_consolidation(&retained).is_err());
+    }
+
+    fn memory_response(body: &str, citations: Value) -> GenerateResponse {
+        tool_response(
+            "noema.submit_memory_changes",
+            serde_json::json!({
+                "upserts": [{
+                    "id": "memory:human:root",
+                    "expected_hash": "hash-root",
+                    "path": "root.md",
+                    "title": "Kevin",
+                    "icon": "user",
+                    "body": body,
+                    "citations": citations
+                }],
+                "metadata_updates": [],
+                "deletes": []
+            }),
+        )
     }
 }

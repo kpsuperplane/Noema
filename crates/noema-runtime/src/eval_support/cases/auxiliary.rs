@@ -227,10 +227,10 @@ fn memory_consolidation_request(model_id: &str) -> Result<GenerateRequest, Strin
         path: "root.md".to_string(),
         title: "Kevin".to_string(),
         icon: "user".to_string(),
-        body: "Kevin enjoys outdoor activities.".to_string(),
+        body: "Kevin currently prefers low-carbohydrate meals.[^1]".to_string(),
         hash: "hash-root".to_string(),
         citations: vec![noema_memory::MemoryCitation {
-            sources: vec!["item:existing".to_string()],
+            sources: vec!["item:preference-old".to_string()],
         }],
         parent: None,
         ancestors: Vec::new(),
@@ -238,8 +238,7 @@ fn memory_consolidation_request(model_id: &str) -> Result<GenerateRequest, Strin
     }];
     let editable = HashSet::from(["root.md".to_string()]);
     let catalog = crate::daemon::runtime::memory_prompt_catalog(&pages, &editable)?;
-    let source =
-        "human [item:evaluation-memory] Kevin's preferred aircraft call sign is SKYWARD-19.";
+    let source = "human [item:diet-main] What should I get at Ba Bar if I want low saturated fat and high protein?\nassistant Get the Saigon chicken salad.\nhuman [item:diet-fiber] What if I'd like high fiber too?\nhuman [item:preference-new] I no longer care about low carbohydrates.\nhuman [item:guest-meal] Tonight only, I need vegetarian options because my guest does not eat meat.";
     let tool = memory_changes_tool_spec().map_err(|error| error.to_string())?;
     Ok(GenerateRequest {
         conversation_id: Some("conversation:evaluation".to_string()),
