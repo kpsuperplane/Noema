@@ -39,6 +39,206 @@ const ACCESS_TTL_SECONDS: i64 = 15 * 60;
 const IDLE_TTL_SECONDS: i64 = 30 * 24 * 60 * 60;
 const ABSOLUTE_TTL_SECONDS: i64 = 180 * 24 * 60 * 60;
 
+const AUTHORIZATION_PAGE_STYLE: &str = r#"
+/* This standalone document mirrors Noema tokens without the hashed application bundle. */
+:root {
+  color-scheme: light;
+  --spacing-1: 0.25rem;
+  --spacing-1-5: 0.375rem;
+  --spacing-2: 0.5rem;
+  --spacing-3: 0.75rem;
+  --spacing-4: 1rem;
+  --spacing-6: 1.5rem;
+  --paper-50: #fcfaf5;
+  --paper-100: #f7f2e8;
+  --ink-900: #17160f;
+  --ink-600: #5e5a4b;
+  --clay-600: #b84a28;
+  --pine-600: #176046;
+  --pine-700: #114a37;
+  --surface-page: var(--paper-50);
+  --surface-card: #fff;
+  --border-subtle: rgb(23 22 15 / 0.08);
+  --border-default: rgb(23 22 15 / 0.14);
+  --text-primary: var(--ink-900);
+  --text-secondary: var(--ink-600);
+  --radius-element: 0.625rem;
+  --radius-container: 0.75rem;
+  --shadow-low: 0 0.125rem 0.25rem rgb(23 22 15 / 0.05),
+    0 0.25rem 0.5rem rgb(23 22 15 / 0.08);
+  font-family: "Hanken Grotesk", system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+main {
+  display: grid;
+  min-height: 100svh;
+  place-items: center;
+  padding: var(--spacing-6);
+}
+
+.consent-card {
+  display: flex;
+  width: min(100%, 30rem);
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  padding: var(--spacing-6);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-container);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-low);
+}
+
+.brand-mark {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-element);
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1-5);
+}
+
+p,
+h1 {
+  margin: 0;
+}
+
+.eyebrow {
+  color: var(--clay-600);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+h1 {
+  font-size: clamp(1.75rem, 6vw, 2rem);
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.intro,
+.access-description,
+.revocation {
+  color: var(--text-secondary);
+}
+
+.access {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  padding: var(--spacing-3);
+  border-radius: var(--radius-element);
+  background: var(--paper-100);
+  font-size: 0.875rem;
+}
+
+.access-title {
+  font-weight: 650;
+}
+
+.revocation {
+  font-size: 0.875rem;
+}
+
+form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, auto));
+  justify-content: end;
+  gap: var(--spacing-2);
+}
+
+button {
+  min-width: 7rem;
+  min-height: 2.75rem;
+  padding: var(--spacing-2) var(--spacing-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-element);
+  font: inherit;
+  font-weight: 650;
+  line-height: 1.25;
+  touch-action: manipulation;
+}
+
+button:focus-visible {
+  outline-offset: 3px;
+}
+
+.deny {
+  border-color: var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-primary);
+}
+
+.approve {
+  border-color: var(--pine-600);
+  background: var(--pine-600);
+  color: var(--paper-50);
+}
+
+@media (hover: hover) {
+  .deny:hover {
+    background: var(--paper-100);
+  }
+
+  .approve:hover {
+    border-color: var(--pine-700);
+    background: var(--pine-700);
+  }
+}
+
+@media (max-width: 40rem) {
+  main {
+    place-items: start stretch;
+    padding: 0;
+  }
+
+  .consent-card {
+    width: 100%;
+    min-height: 100svh;
+    padding: var(--spacing-6) var(--spacing-4);
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  button {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (forced-colors: active) {
+  .consent-card,
+  button {
+    border-color: CanvasText;
+  }
+}
+"#;
+
 #[derive(Deserialize)]
 struct ApprovalForm {
     csrf: String,
@@ -70,6 +270,10 @@ pub(super) async fn authorize(
     let Ok(parameters) = unique_parameters(query.as_bytes()) else {
         return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
     };
+    let Some(client_id) = parameters.get("client_id") else {
+        return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
+    };
+    let client_name = display_name(client_id);
     if validate_request_shape(&parameters).is_err()
         || run_authorization(parameters, Consent::Pending).is_err()
     {
@@ -108,7 +312,39 @@ pub(super) async fn authorize(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     Html(format!(
-        "<!doctype html><html><head><meta charset=utf-8><title>Authorize Noema</title></head><body><main><h1>Authorize native access</h1><p>The native Noema client will receive complete access to this instance.</p><form method=post action=/oauth/authorize><input type=hidden name=csrf value={csrf}><button name=decision value=approve>Authorize</button><button name=decision value=deny>Deny</button></form></main></body></html>"
+        r##"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fcfaf5">
+  <title>Connect {client_name} · Noema</title>
+  <link rel="icon" href="/assets/apple-touch-icon.png">
+  <style>{AUTHORIZATION_PAGE_STYLE}</style>
+</head>
+<body>
+  <main>
+    <section class="consent-card" aria-labelledby="consent-title" aria-describedby="consent-summary consent-access">
+      <img class="brand-mark" src="/assets/apple-touch-icon.png" width="40" height="40" alt="">
+      <div class="heading">
+        <p class="eyebrow">Client connection</p>
+        <h1 id="consent-title">Connect <span translate="no">{client_name}</span>?</h1>
+        <p class="intro" id="consent-summary">Connect only if you started this request. Denying it grants no new access.</p>
+      </div>
+      <div class="access" id="consent-access">
+        <p class="access-title">Complete Noema access</p>
+        <p class="access-description"><span translate="no">{client_name}</span> can access all data and actions available through Noema.</p>
+        <p class="revocation">You can revoke this client later in Settings.</p>
+      </div>
+      <form method="post" action="/oauth/authorize">
+        <input type="hidden" name="csrf" value="{csrf}">
+        <button class="deny" type="submit" name="decision" value="deny">Deny</button>
+        <button class="approve" type="submit" name="decision" value="approve">Connect client</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>"##
     ))
     .into_response()
 }

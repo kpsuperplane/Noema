@@ -456,7 +456,9 @@ async fn native_authorization_resumes_after_recent_passkey_authentication() {
     )
     .await;
     assert_eq!(resumed, StatusCode::OK);
-    assert!(String::from_utf8_lossy(&body).contains("Authorize native access"));
+    assert!(
+        String::from_utf8_lossy(&body).contains("<title>Connect Noema Desktop · Noema</title>")
+    );
 }
 
 #[tokio::test]
