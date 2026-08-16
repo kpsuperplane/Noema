@@ -16,11 +16,13 @@ futures-util.workspace = true
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 noema-api = { path = "../noema-api", default-features = false }
 noema-host = { path = "../noema-host", default-features = false, features = ["composition"] }
+oauth2 = { workspace = true, features = ["reqwest", "rustls-tls"] }
 open = "5"
 reqwest.workspace = true
+ring.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = "2"
 tauri-plugin-deep-link = "2.4.9"
 tauri-plugin-single-instance = { version = "2.4.3", features = ["deep-link"] }
 tokio.workspace = true
@@ -29,6 +31,9 @@ url.workspace = true
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
 
 [dev-dependencies]
 tempfile.workspace = true

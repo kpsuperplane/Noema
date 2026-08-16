@@ -1,6 +1,6 @@
 //! Managed local and remote desktop runtime state.
 
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use noema_api::graphql::{self, GraphqlSchema};
 use noema_host::{
@@ -13,13 +13,13 @@ use tokio::sync::{Mutex, watch};
 use crate::{
     desktop_profile::{DesktopProfileStore, DesktopSelection, RemoteMetadata},
     remote_graphql::{RemoteError, RemoteGraphql},
-    remote_pairing::{PairingStage, PendingPairing},
+    remote_oauth::{ConnectionStage, PendingConnection},
 };
 
 pub(crate) struct DesktopState {
     inner: Mutex<DesktopLifecycle<DesktopRuntime>>,
-    profiles: DesktopProfileStore,
-    pending_pairing: Mutex<Option<PendingPairing>>,
+    profiles: Arc<DesktopProfileStore>,
+    pending_connection: Mutex<Option<PendingConnection>>,
 }
 
 #[derive(Clone)]
@@ -35,7 +35,7 @@ pub(crate) struct DesktopConnectionStatus {
     state: &'static str,
     origin: Option<String>,
     message: Option<String>,
-    pending_pairing_origin: Option<String>,
+    pending_connection_origin: Option<String>,
 }
 
 impl DesktopState {
@@ -43,8 +43,8 @@ impl DesktopState {
     pub(crate) fn new(config_path: PathBuf) -> Self {
         Self {
             inner: Mutex::new(DesktopLifecycle::Uninitialized),
-            profiles: DesktopProfileStore::new(config_path),
-            pending_pairing: Mutex::new(None),
+            profiles: Arc::new(DesktopProfileStore::new(config_path)),
+            pending_connection: Mutex::new(None),
         }
     }
 
@@ -56,13 +56,15 @@ impl DesktopState {
             DesktopSelection::Local => {
                 DesktopBackend::Local(Box::new(start_local(local_model_runtime_root).await?))
             }
-            DesktopSelection::Remote(profile) => match RemoteGraphql::new(profile) {
-                Ok(remote) => DesktopBackend::Remote(remote),
-                Err(message) => DesktopBackend::Recovery {
-                    metadata: None,
-                    message,
-                },
-            },
+            DesktopSelection::Remote(profile) => {
+                match RemoteGraphql::new(profile, self.profiles.clone()) {
+                    Ok(remote) => DesktopBackend::Remote(remote),
+                    Err(message) => DesktopBackend::Recovery {
+                        metadata: None,
+                        message,
+                    },
+                }
+            }
             DesktopSelection::Recovery { metadata, message } => {
                 DesktopBackend::Recovery { metadata, message }
             }
@@ -96,12 +98,12 @@ impl DesktopState {
     }
 
     pub(crate) async fn connection_status(&self) -> DesktopConnectionStatus {
-        let pending_pairing_origin = self
-            .pending_pairing
+        let pending_connection_origin = self
+            .pending_connection
             .lock()
             .await
             .as_ref()
-            .map(|pairing| pairing.stage().origin);
+            .map(|connection| connection.stage().origin);
         let backend = {
             let inner = self.inner.lock().await;
             let DesktopLifecycle::Running(runtime) = &*inner else {
@@ -110,7 +112,7 @@ impl DesktopState {
                     state: "unavailable",
                     origin: None,
                     message: Some("Noema lost connection to its app service.".to_string()),
-                    pending_pairing_origin,
+                    pending_connection_origin,
                 };
             };
             runtime.backend.status_target()
@@ -121,7 +123,7 @@ impl DesktopState {
                 state: "ready",
                 origin: None,
                 message: None,
-                pending_pairing_origin,
+                pending_connection_origin,
             },
             StatusTarget::Remote(remote) => {
                 let (state, message) = match remote.health().await {
@@ -144,7 +146,7 @@ impl DesktopState {
                     state,
                     origin: Some(remote.origin().to_string()),
                     message,
-                    pending_pairing_origin,
+                    pending_connection_origin,
                 }
             }
             StatusTarget::Recovery { metadata, message } => DesktopConnectionStatus {
@@ -152,12 +154,12 @@ impl DesktopState {
                 state: "credential_unavailable",
                 origin: metadata.map(|metadata| metadata.origin),
                 message: Some(message),
-                pending_pairing_origin,
+                pending_connection_origin,
             },
         }
     }
 
-    pub(crate) async fn stage_pairing(&self, pairing_uri: &str) -> Result<PairingStage, String> {
+    pub(crate) async fn stage_connection(&self, server: &str) -> Result<ConnectionStage, String> {
         let inner = self.inner.lock().await;
         let DesktopLifecycle::Running(runtime) = &*inner else {
             return Err("Noema lost connection to its app service.".to_string());
@@ -166,26 +168,26 @@ impl DesktopState {
             return Err("Use local Noema before you connect another server.".to_string());
         }
         drop(inner);
-        let pairing = PendingPairing::parse(pairing_uri)?;
-        let stage = pairing.stage();
-        *self.pending_pairing.lock().await = Some(pairing);
+        let connection = PendingConnection::parse(server)?;
+        let stage = connection.stage();
+        *self.pending_connection.lock().await = Some(connection);
         Ok(stage)
     }
 
-    pub(crate) async fn cancel_pairing(&self) {
-        *self.pending_pairing.lock().await = None;
+    pub(crate) async fn cancel_connection(&self) {
+        *self.pending_connection.lock().await = None;
     }
 
-    pub(crate) async fn complete_pairing(&self, display_name: &str) -> Result<(), String> {
-        let pairing = self
-            .pending_pairing
+    pub(crate) async fn complete_connection(&self) -> Result<(), String> {
+        let connection = self
+            .pending_connection
             .lock()
             .await
             .take()
-            .ok_or_else(|| "The pairing link is no longer available.".to_string())?;
-        let profile = pairing.complete(display_name).await?;
+            .ok_or_else(|| "The server connection is no longer available.".to_string())?;
+        let profile = connection.authorize().await?;
         if let Err(error) = self.profiles.save_remote(&profile) {
-            if let Ok(remote) = RemoteGraphql::new(profile) {
+            if let Ok(remote) = RemoteGraphql::new(profile, self.profiles.clone()) {
                 let _ = remote.revoke_self().await;
             }
             return Err(error);

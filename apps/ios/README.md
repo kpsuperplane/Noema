@@ -51,22 +51,21 @@ xcodebuild \
   build
 ```
 
-The app stores one active origin, client identifier, and bearer credential in
-Keychain using `WhenUnlockedThisDeviceOnly`. Apollo stores normalized reads in
-a protected per-client SQLite cache that is excluded from backup. Mutations are
-disabled while disconnected. Subscriptions pause in the background, and
-foreground recovery refetches durable transcript and Tasks event cursors before
-accepting later live events.
+The app stores one origin, client identifier, and rotating refresh credential
+in Keychain. It uses `WhenUnlockedThisDeviceOnly`. Access tokens remain in
+memory. Apollo stores normalized reads in a protected per-client SQLite cache.
+The cache is excluded from backup. Mutations are disabled while disconnected.
+Subscriptions pause in the background. Foreground recovery refetches durable
+transcript and Tasks event cursors before it accepts later live events.
 
 Foreground recovery keeps the last connection presentation until one reconnect
 attempt fails. One shell banner remains visible until the authenticated
 WebSocket and a network-only GraphQL health check both succeed.
 
-Pair from Settings → System → Clients in the authenticated web app. The native
-app accepts the resulting `noema://pair` URI from VisionKit scanning, a deep
-link, or the pasteboard. Disconnecting removes the local Keychain profile;
-revoking a client from either Settings surface invalidates its HTTP, WebSocket,
-and artifact access on the server.
+Create a connection link in Settings → System → Clients. The native app accepts
+the resulting `noema://connect` URI from VisionKit, a deep link, or the
+pasteboard. The system browser uses passkey authorization and PKCE. Disconnect
+revokes the OAuth family before it removes the Keychain profile.
 
 ## Task Live Activities
 

@@ -4,14 +4,12 @@ import UIKit
 struct PairingView: View {
   @Bindable var model: NoemaAppModel
   @State private var input = ""
-  @State private var displayName = UIDevice.current.name
   @State private var scannerPresented = false
   @State private var scannerDetent: PresentationDetent = .large
   @FocusState private var focusedField: Field?
 
   fileprivate enum Field: Hashable {
     case pairingLink
-    case displayName
   }
 
   var body: some View {
@@ -19,19 +17,19 @@ struct PairingView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: NoemaSpacing.xl) {
           VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-            Label("Pair this device", systemImage: "link.badge.plus")
+            Label("Connect this device", systemImage: "link.badge.plus")
               .font(NoemaFont.title)
               .foregroundStyle(NoemaColor.content)
-            Text("Connect to your Noema server with a short-lived pairing link.")
+            Text("Authorize this device with your passkey in the system browser.")
               .font(NoemaFont.body)
               .foregroundStyle(NoemaColor.contentSecondary)
           }
 
           VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-            Text("Pairing link")
+            Text("Server address or connection link")
               .font(NoemaFont.captionEmphasized)
               .foregroundStyle(NoemaColor.contentSecondary)
-            TextField("noema://pair…", text: $input, axis: .vertical)
+            TextField("https://noema.example", text: $input, axis: .vertical)
               .textInputAutocapitalization(.never)
               .autocorrectionDisabled()
               .font(NoemaFont.mono)
@@ -64,8 +62,8 @@ struct PairingView: View {
           }
 
           if let payload = model.pairingPayload {
-            PairingConfirmation(payload: payload, displayName: $displayName, focusedField: $focusedField) {
-              model.completePairing(displayName: displayName)
+            PairingConfirmation(payload: payload) {
+              model.completePairing()
             }
           }
 
@@ -102,7 +100,7 @@ struct PairingView: View {
       input = model.pairingInput
     }
     .noemaSheet(isPresented: $scannerPresented) {
-      NoemaNativeSheet(title: "Scan pairing QR", onDismiss: { scannerPresented = false }) {
+      NoemaNativeSheet(title: "Scan connection QR", onDismiss: { scannerPresented = false }) {
         QRScannerSheet { value in
           scannerPresented = false
           input = value
@@ -117,9 +115,7 @@ struct PairingView: View {
 }
 
 private struct PairingConfirmation: View {
-  let payload: PairingPayload
-  @Binding var displayName: String
-  var focusedField: FocusState<PairingView.Field?>.Binding
+  let payload: ConnectionPayload
   let onConnect: () -> Void
 
   var body: some View {
@@ -133,15 +129,12 @@ private struct PairingConfirmation: View {
           .textSelection(.enabled)
       }
 
-      TextField("Device name", text: $displayName)
-        .textInputAutocapitalization(.words)
-        .focused(focusedField, equals: .displayName)
-        .padding(NoemaSpacing.md)
-        .background(NoemaColor.surfaceSecondary, in: NoemaSuperellipse(cornerRadius: NoemaSpacing.sm))
+      Text("The server will grant complete access to this Noema client.")
+        .font(NoemaFont.caption)
+        .foregroundStyle(NoemaColor.contentSecondary)
 
       Button("Connect", systemImage: "checkmark.circle.fill", action: onConnect)
         .buttonStyle(NoemaActionButtonStyle(variant: .primary))
-        .disabled(!NoemaDisplayName.isValid(displayName))
     }
     .padding(NoemaSpacing.lg)
     .background(NoemaColor.surfaceSecondary, in: NoemaSuperellipse(cornerRadius: NoemaSpacing.md, treatment: .container))

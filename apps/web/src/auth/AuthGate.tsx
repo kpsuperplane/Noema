@@ -28,28 +28,35 @@ type AuthStatus = { state: Exclude<AuthState, "loading" | "unavailable"> };
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const desktop = isTauriRuntime();
+  const nativeAuthorization =
+    !desktop &&
+    new URLSearchParams(window.location.search).get("native_authorization") ===
+      "resume";
   const pwa = React.useSyncExternalStore(
     pwaRuntime.subscribe,
     pwaRuntime.getSnapshot,
     pwaRuntime.getSnapshot
   );
-  const [state, setState] = React.useState<AuthState>(desktop ? "authenticated" : "loading");
+  const [state, setState] = React.useState<AuthState>(
+    desktop ? "authenticated" : "loading"
+  );
   const [working, setWorking] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [recoveryCode, setRecoveryCode] = React.useState("");
 
-  const initializeAuthentication = React.useCallback(async (): Promise<AuthState> => {
-    const next = await readAuthStatus();
-    if (next === "authenticated") {
-      await pwaRuntime.authenticated();
-      return "authenticated";
-    }
-    if (next === "unavailable" && await hasAuthenticatedSentinel()) {
-      pwaRuntime.goOffline();
-      return "authenticated";
-    }
-    return next;
-  }, []);
+  const initializeAuthentication =
+    React.useCallback(async (): Promise<AuthState> => {
+      const next = await readAuthStatus();
+      if (next === "authenticated") {
+        await pwaRuntime.authenticated();
+        return "authenticated";
+      }
+      if (next === "unavailable" && (await hasAuthenticatedSentinel())) {
+        pwaRuntime.goOffline();
+        return "authenticated";
+      }
+      return next;
+    }, []);
 
   React.useEffect(() => {
     if (desktop) return;
@@ -69,6 +76,10 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     try {
       await action();
       await pwaRuntime.authenticated();
+      if (nativeAuthorization) {
+        window.location.replace("/oauth/authorize");
+        return;
+      }
       setState("authenticated");
     } catch (caught) {
       setError(
@@ -120,7 +131,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     void initializeAuthentication().then(setState);
   }
 
-  const visibleState = pwa.state === "auth_required" ? "login_required" : state;
+  const visibleState = nativeAuthorization
+    ? "login_required"
+    : pwa.state === "auth_required"
+      ? "login_required"
+      : state;
 
   if (visibleState === "loading") return <AppBootSkeleton />;
   if (visibleState === "authenticated") return children;
@@ -132,10 +147,18 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   return (
     <SetupFrame>
       <VStack as="section" {...stylex.props(styles.root)}>
-        <VStack gap={3} width="min(480px, 100%)" {...stylex.props(styles.content)}>
+        <VStack
+          gap={3}
+          width="min(480px, 100%)"
+          {...stylex.props(styles.content)}
+        >
           <p {...stylex.props(styles.eyebrow)}>Private server</p>
           <h1 {...stylex.props(styles.title)}>
-            {setupReady ? "Create your Noema passkey" : loginRequired ? "Unlock Noema" : "Secure Noema"}
+            {setupReady
+              ? "Create your Noema passkey"
+              : loginRequired
+                ? "Unlock Noema"
+                : "Secure Noema"}
           </h1>
           <p {...stylex.props(styles.description)}>
             {setupReady
@@ -151,7 +174,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
           {!supported && visibleState !== "unavailable" ? (
             <p {...stylex.props(styles.error)}>
-              This browser does not support the WebAuthn passkey APIs required by Noema.
+              This browser does not support the WebAuthn passkey APIs required
+              by Noema.
             </p>
           ) : null}
           {error ? <p {...stylex.props(styles.error)}>{error}</p> : null}
@@ -209,7 +233,12 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
             </Button>
           ) : null}
           {visibleState === "unavailable" ? (
-            <Button type="button" variant="secondary" label="Try again" onClick={retryStatus}>
+            <Button
+              type="button"
+              variant="secondary"
+              label="Try again"
+              onClick={retryStatus}
+            >
               Try again
             </Button>
           ) : null}
@@ -221,7 +250,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
 async function readAuthStatus(): Promise<AuthState> {
   try {
-    const response = await fetch("/auth/status", { credentials: "same-origin" });
+    const response = await fetch("/auth/status", {
+      credentials: "same-origin"
+    });
     if (!response.ok) return "unavailable";
     return ((await response.json()) as AuthStatus).state;
   } catch {

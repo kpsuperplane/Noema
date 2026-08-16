@@ -75,13 +75,13 @@ final class NoemaGraphQLClient: @unchecked Sendable {
     self.connectionStatus = NoemaConnectionStatus()
     let store = ApolloStore(cache: Self.normalizedCache(for: profile))
     let sessionConfiguration = URLSessionConfiguration.ephemeral
-    sessionConfiguration.httpAdditionalHeaders = ["Authorization": "Bearer \(profile.token)"]
+    sessionConfiguration.httpAdditionalHeaders = ["Authorization": "Bearer \(profile.accessToken)"]
     let http = RequestChainNetworkTransport(
       urlSession: URLSession(configuration: sessionConfiguration),
       interceptorProvider: DefaultInterceptorProvider.shared,
       store: store,
       endpointURL: profile.origin.appending(path: "graphql"),
-      additionalHeaders: ["Authorization": "Bearer \(profile.token)"]
+      additionalHeaders: ["Authorization": "Bearer \(profile.accessToken)"]
     )
 
     let websocketConfiguration = WebSocketTransport.Configuration(

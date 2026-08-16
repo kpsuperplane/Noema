@@ -48,7 +48,6 @@ pub(crate) struct WebState {
     auth_mode: WebAuthMode,
     store: noema_store::NoemaStore,
     passkeys: passkey::PasskeySecurity,
-    client_auth: clients::ClientAuth,
     graphiql_enabled: bool,
     recovery: Option<noema_host::RecoveryCodeStore>,
     websocket_slots: std::sync::Arc<Semaphore>,
@@ -66,7 +65,6 @@ impl WebState {
     ) -> Result<Self, String> {
         let graphql_schema = noema_api::graphql::build_schema(graphql_state.clone());
         let passkeys = passkey::PasskeySecurity::new(&authority)?;
-        let client_auth = clients::ClientAuth::new();
         Ok(Self {
             graphql_state,
             graphql_schema,
@@ -75,7 +73,6 @@ impl WebState {
             auth_mode,
             store,
             passkeys,
-            client_auth,
             graphiql_enabled,
             recovery,
             websocket_slots: std::sync::Arc::new(Semaphore::new(MAX_WEBSOCKET_CONNECTIONS)),

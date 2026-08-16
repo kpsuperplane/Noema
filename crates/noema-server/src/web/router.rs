@@ -107,11 +107,6 @@ pub(crate) fn build_router(state: WebState) -> Router {
             post(super::native_oauth::revoke)
                 .layer(RequestBodyLimitLayer::new(MAX_OAUTH_QUERY_BYTES)),
         )
-        .route("/auth/client/pairing/start", post(clients::start_pairing))
-        .route(
-            "/auth/client/pairing/complete",
-            post(clients::complete_pairing),
-        )
         .route("/mcp/oauth/callback", get_only!(mcp_oauth_callback))
         .route(
             "/provider/oauth/callback/{attempt_id}",

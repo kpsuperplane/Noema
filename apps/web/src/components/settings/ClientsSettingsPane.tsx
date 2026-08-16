@@ -6,7 +6,7 @@ import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
-import { ChevronRight, Copy, RefreshCw } from "lucide-react";
+import { ChevronRight, Copy } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
@@ -22,7 +22,6 @@ import {
 } from "@/generated/graphql";
 import { DeleteConfirmationDialog } from "./DeleteConnectionDialog";
 import { BrowserAccessSettings } from "./BrowserAccessSettings";
-import { startClientPairing, type ClientPairing } from "./clientPairing";
 import { SettingsManagementLayout } from "./SettingsManagementLayout";
 import {
   SettingsList,
@@ -32,7 +31,7 @@ import {
   SettingsTechnicalDetails
 } from "./SettingsPrimitives";
 
-type PairedClient = ClientsQuery["clients"][number];
+type ClientRecord = ClientsQuery["clients"][number];
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
@@ -48,7 +47,7 @@ export function ClientsSettingsPane({ clientId }: { clientId?: string }) {
     { refetchQueries: [{ query: ClientsDocument }], awaitRefetchQueries: true }
   );
   const [pairingOpen, setPairingOpen] = useState(false);
-  const [revokeTarget, setRevokeTarget] = useState<PairedClient | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<ClientRecord | null>(null);
   const clients = result.data?.clients ?? [];
   const activeClients = clients.filter((client) => client.revokedAt === null);
   const revokedClients = clients.filter((client) => client.revokedAt !== null);
@@ -57,7 +56,7 @@ export function ClientsSettingsPane({ clientId }: { clientId?: string }) {
     ?? activeClients[0]
     ?? revokedClients[0];
   const loading = result.loading && !result.data;
-  const queryError = result.error ? "Paired clients could not be loaded." : null;
+  const queryError = result.error ? "Connected clients could not be loaded." : null;
   const mutationError = revokeResult.error ? "Noema could not revoke this client." : null;
 
   useEffect(() => {
@@ -88,9 +87,9 @@ export function ClientsSettingsPane({ clientId }: { clientId?: string }) {
   return <>
     <SettingsManagementLayout
       title="Clients"
-      primaryAction={{ label: "Pair client", onClick: () => setPairingOpen(true) }}
+      primaryAction={{ label: "Connect client", onClick: () => setPairingOpen(true) }}
       detailOpen={clientId !== undefined}
-      detailLabel="Manage paired client"
+      detailLabel="Manage connected client"
       onDetailOpenChange={(open) => {
         if (!open) void navigate({ to: "/settings/system/clients" });
       }}
@@ -115,11 +114,11 @@ export function ClientsSettingsPane({ clientId }: { clientId?: string }) {
         />
       ) : clientId ? (
         <SettingsSectionInset>
-          <p {...stylex.props(styles.mutedText)}>This paired client no longer exists.</p>
+          <p {...stylex.props(styles.mutedText)}>This connected client no longer exists.</p>
         </SettingsSectionInset>
       ) : undefined}
     />
-    <PairClientDialog open={pairingOpen} onOpenChange={setPairingOpen} />
+    <ConnectClientDialog open={pairingOpen} onOpenChange={setPairingOpen} />
     <DeleteConfirmationDialog
       title={revokeTarget ? `Revoke ${revokeTarget.displayName}?` : "Revoke client?"}
       message={revokeTarget?.isCurrent
@@ -145,16 +144,16 @@ function ClientList({
   error,
   onRetry
 }: {
-  activeClients: readonly PairedClient[];
-  revokedClients: readonly PairedClient[];
+  activeClients: readonly ClientRecord[];
+  revokedClients: readonly ClientRecord[];
   selectedClientId?: string;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
 }) {
-  if (loading) return <p {...stylex.props(styles.mutedText)}>Loading paired clients...</p>;
+  if (loading) return <p {...stylex.props(styles.mutedText)}>Loading connected clients...</p>;
   if (error && activeClients.length === 0 && revokedClients.length === 0) return (
-    <SettingsSection title="Paired clients" titleId="client-load-error">
+    <SettingsSection title="Connected clients" titleId="client-load-error">
       <SettingsSectionInset>
         <p role="alert" {...stylex.props(styles.errorText)}>{error}</p>
         <Button type="button" size="sm" variant="secondary" label="Retry" onClick={onRetry} />
@@ -163,7 +162,7 @@ function ClientList({
   );
   return <VStack gap={4}>
     <BrowserAccessSettings />
-    {error ? <SettingsSection title="Paired clients" titleId="client-stale-error">
+    {error ? <SettingsSection title="Connected clients" titleId="client-stale-error">
       <SettingsSectionInset>
         <HStack gap={2} wrap="wrap" vAlign="center">
           <p role="alert" {...stylex.props(styles.errorText)}>{error}</p>
@@ -175,7 +174,7 @@ function ClientList({
       <h2 id="active-clients-title" {...stylex.props(styles.groupTitle)}>Active</h2>
       {activeClients.length > 0 ? activeClients.map((client) => (
         <ClientCard key={client.clientId} client={client} selected={selectedClientId === client.clientId} />
-      )) : <p {...stylex.props(styles.mutedText)}>No active clients are paired.</p>}
+      )) : <p {...stylex.props(styles.mutedText)}>No active clients are connected.</p>}
     </VStack>
     {revokedClients.length > 0 ? (
       <details open={revokedClients.some((client) => client.clientId === selectedClientId)}>
@@ -190,7 +189,7 @@ function ClientList({
   </VStack>;
 }
 
-function ClientCard({ client, selected }: { client: PairedClient; selected: boolean }) {
+function ClientCard({ client, selected }: { client: ClientRecord; selected: boolean }) {
   return (
     <ListCardLink
       to="/settings/system/clients/$clientId"
@@ -212,10 +211,10 @@ function ClientCard({ client, selected }: { client: PairedClient; selected: bool
   );
 }
 
-function ClientDetail({ client, busy, onRevoke }: { client: PairedClient; busy: boolean; onRevoke: () => void }) {
+function ClientDetail({ client, busy, onRevoke }: { client: ClientRecord; busy: boolean; onRevoke: () => void }) {
   return <>
     <VStack gap={0.5} {...stylex.props(styles.detailHeader)}>
-      <span {...stylex.props(styles.eyebrow)}>Paired client</span>
+      <span {...stylex.props(styles.eyebrow)}>Connected client</span>
       <HStack gap={2} wrap="wrap" vAlign="center">
         <h1 {...stylex.props(styles.detailTitle)}>{client.displayName}</h1>
         {client.isCurrent ? <Badge variant="info" label="Current client" /> : null}
@@ -224,7 +223,7 @@ function ClientDetail({ client, busy, onRevoke }: { client: PairedClient; busy: 
     <SettingsSection title="Access" titleId="client-access">
       <SettingsList density="balanced" hasDividers>
         <SettingsListItem label="State" description={client.revokedAt ? "Revoked" : "Active"} />
-        <SettingsListItem label="Paired" description={formatDate(client.createdAt)} />
+        <SettingsListItem label="Connected" description={formatDate(client.createdAt)} />
       </SettingsList>
       <SettingsTechnicalDetails>
         <SettingsList density="compact">
@@ -247,53 +246,33 @@ function ClientDetail({ client, busy, onRevoke }: { client: PairedClient; busy: 
   </>;
 }
 
-function PairClientDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const [pairing, setPairing] = useState<ClientPairing | null>(null);
-  const [pairingError, setPairingError] = useState<string | null>(null);
-  const [pairingStarting, setPairingStarting] = useState(false);
-  const [remainingMs, setRemainingMs] = useState<number | null>(null);
+function ConnectClientDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const [connectionUri, setConnectionUri] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!pairing) return;
-    const update = () => {
-      const next = Math.max(0, pairing.expiresAt - Date.now());
-      setRemainingMs(next);
-      if (next === 0) setPairing(null);
-    };
-    update();
-    const timer = window.setInterval(update, 1000);
-    return () => window.clearInterval(timer);
-  }, [pairing]);
-
-  const startPairing = async () => {
-    setPairing(null);
-    setRemainingMs(null);
-    setPairingError(null);
+  const createConnectionLink = () => {
+    setConnectionUri(null);
+    setConnectionError(null);
     setCopyError(null);
     setCopied(false);
-    setPairingStarting(true);
     try {
-      const next = await startClientPairing();
-      setPairing(next);
-      setRemainingMs(Math.max(0, next.expiresAt - Date.now()));
+      setConnectionUri(clientConnectionUri());
     } catch (error) {
-      setPairingError(error instanceof Error ? error.message : "Client pairing could not start.");
-    } finally {
-      setPairingStarting(false);
+      setConnectionError(error instanceof Error ? error.message : "Noema could not create the connection link.");
     }
   };
 
-  const copyPairingLink = async () => {
-    if (!pairing) return;
+  const copyConnectionLink = async () => {
+    if (!connectionUri) return;
     setCopyError(null);
     if (!navigator.clipboard?.writeText) {
       setCopyError("Copy is unavailable here. Select the link to copy it.");
       return;
     }
     try {
-      await navigator.clipboard.writeText(pairing.pairingUri);
+      await navigator.clipboard.writeText(connectionUri);
       setCopied(true);
     } catch {
       setCopyError("The link could not be copied. Select it to copy manually.");
@@ -301,46 +280,43 @@ function PairClientDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
   };
 
   return (
-    <Dialog isOpen={open} onOpenChange={onOpenChange} purpose="form" width={520} aria-label="Pair a client">
+    <Dialog isOpen={open} onOpenChange={onOpenChange} purpose="form" width={520} aria-label="Connect a client">
       <Layout
         height="auto"
-        header={<DialogHeader title="Pair a client" onOpenChange={onOpenChange} />}
+        header={<DialogHeader title="Connect a client" onOpenChange={onOpenChange} />}
         content={<LayoutContent>
           <VStack gap={3}>
-            <p {...stylex.props(styles.mutedText)}>Create a short-lived link, then scan it with a Noema client.</p>
-            {pairing ? <>
+            <p {...stylex.props(styles.mutedText)}>Create a link, then scan it with a Noema client. The client will request passkey authorization.</p>
+            {connectionUri ? <>
               <VStack as="figure" gap={2} hAlign="center" {...stylex.props(styles.qrFigure)}>
                 <QRCodeSVG
-                  value={pairing.pairingUri}
+                  value={connectionUri}
                   size={200}
                   level="M"
                   marginSize={2}
                   bgColor="var(--color-background-surface)"
                   fgColor="var(--color-text-primary)"
-                  title="Scan this QR code to pair a Noema client"
+                  title="Scan this QR code to connect a Noema client"
                 />
                 <figcaption {...stylex.props(styles.mutedText)}>Scan with the Noema client</figcaption>
               </VStack>
               <HStack gap={2} wrap="wrap" vAlign="center" {...stylex.props(styles.linkRow)}>
-                <code {...stylex.props(styles.pairingLink)}>{pairing.pairingUri}</code>
+                <code {...stylex.props(styles.pairingLink)}>{connectionUri}</code>
                 <Button
                   type="button"
                   variant="secondary"
                   size="sm"
                   label={copied ? "Copied" : "Copy link"}
                   icon={<Copy aria-hidden="true" size={16} />}
-                  onClick={() => void copyPairingLink()}
+                  onClick={() => void copyConnectionLink()}
                 />
               </HStack>
-              <p role="status" {...stylex.props(styles.mutedText)}>Expires in {formatRemaining(remainingMs ?? 0)}</p>
             </> : <Button
               type="button"
-              label={remainingMs === 0 || pairingError ? "Retry pairing" : "Start pairing"}
-              icon={<RefreshCw aria-hidden="true" size={16} />}
-              isLoading={pairingStarting}
-              onClick={() => void startPairing()}
+              label={connectionError ? "Retry" : "Create connection link"}
+              onClick={createConnectionLink}
             />}
-            {pairingError ? <p role="alert" {...stylex.props(styles.errorText)}>{pairingError}</p> : null}
+            {connectionError ? <p role="alert" {...stylex.props(styles.errorText)}>{connectionError}</p> : null}
             {copyError ? <p role="alert" {...stylex.props(styles.errorText)}>{copyError}</p> : null}
           </VStack>
         </LayoutContent>}
@@ -354,11 +330,14 @@ function formatDate(value: string): string {
   return Number.isNaN(date.getTime()) ? "Unknown date" : dateFormatter.format(date);
 }
 
-function formatRemaining(valueMs: number): string {
-  const totalSeconds = Math.max(0, Math.ceil(valueMs / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+function clientConnectionUri(): string {
+  const origin = new URL(window.location.origin);
+  if (origin.protocol !== "https:" || origin.hostname === "localhost" || origin.hostname.endsWith(".localhost")) {
+    throw new Error("Client connections require the public HTTPS Noema origin.");
+  }
+  const connection = new URL("noema://connect");
+  connection.searchParams.set("origin", origin.origin);
+  return connection.toString();
 }
 
 const styles = stylex.create({

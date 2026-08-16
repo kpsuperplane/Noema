@@ -1,128 +1,223 @@
+import AuthenticationServices
+import CryptoKit
 import Foundation
+import Security
+import UIKit
 
-enum PairingServiceError: Error, LocalizedError {
+enum ConnectionServiceError: Error, LocalizedError {
   case busy
-  case invalidDisplayName
+  case cancelled
+  case authorizationExpired
+  case invalidCallback
   case serverRejected(Int)
   case malformedResponse
 
   var errorDescription: String? {
     switch self {
-    case .busy: "A pairing request is already in progress."
-    case .invalidDisplayName: "Enter a device name between 1 and 128 bytes."
-    case .serverRejected(let status): "The Noema server rejected pairing (HTTP \(status))."
-    case .malformedResponse: "The Noema server returned an invalid client credential."
+    case .busy: "A connection request is already in progress."
+    case .cancelled: "The connection request was cancelled."
+    case .authorizationExpired: "This client authorization has expired. Connect this device again."
+    case .invalidCallback: "Noema rejected an invalid authorization response."
+    case .serverRejected(let status): "The Noema server rejected authorization (HTTP \(status))."
+    case .malformedResponse: "The Noema server returned an invalid OAuth response."
     }
   }
 }
 
-actor PairingService {
+@MainActor
+final class ConnectionService: NSObject, ASWebAuthenticationPresentationContextProviding {
   private let profileStore: KeychainProfileStore
-  private var isCompleting = false
+  private var isWorking = false
+  private var browserSession: ASWebAuthenticationSession?
 
   init(profileStore: KeychainProfileStore) {
     self.profileStore = profileStore
   }
 
-  func complete(payload: PairingPayload, displayName: String) async throws -> NoemaProfile {
-    guard !isCompleting else { throw PairingServiceError.busy }
-    guard let name = NoemaDisplayName.normalized(displayName) else {
-      throw PairingServiceError.invalidDisplayName
+  func authorize(payload: ConnectionPayload) async throws -> NoemaProfile {
+    guard !isWorking else { throw ConnectionServiceError.busy }
+    isWorking = true
+    defer { isWorking = false }
+
+    let clientID = "noema-ios:\(try Self.randomBase64URL(bytes: 18))"
+    let verifier = try Self.randomBase64URL(bytes: 32)
+    let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64URLEncoded
+    let state = try Self.randomBase64URL(bytes: 32)
+    var components = URLComponents(
+      url: payload.origin.url.appending(path: "oauth/authorize"),
+      resolvingAgainstBaseURL: false
+    )
+    components?.queryItems = [
+      URLQueryItem(name: "client_id", value: clientID),
+      URLQueryItem(name: "redirect_uri", value: "noema://oauth/callback"),
+      URLQueryItem(name: "response_type", value: "code"),
+      URLQueryItem(name: "state", value: state),
+      URLQueryItem(name: "code_challenge", value: challenge),
+      URLQueryItem(name: "code_challenge_method", value: "S256")
+    ]
+    guard let authorizationURL = components?.url else {
+      throw ConnectionServiceError.malformedResponse
     }
+    let callback = try await browserCallback(for: authorizationURL)
+    guard callback.scheme?.lowercased() == "noema",
+          callback.host?.lowercased() == "oauth",
+          callback.path == "/callback",
+          let callbackComponents = URLComponents(url: callback, resolvingAgainstBaseURL: false),
+          callbackComponents.queryItems?.filter({ $0.name == "state" }).single?.value == state,
+          let code = callbackComponents.queryItems?.filter({ $0.name == "code" }).single?.value,
+          (1...128).contains(code.utf8.count)
+    else { throw ConnectionServiceError.invalidCallback }
 
-    isCompleting = true
-    defer { isCompleting = false }
+    return try await exchange(
+      origin: payload.origin.url,
+      clientID: clientID,
+      fields: [
+        "grant_type": "authorization_code",
+        "client_id": clientID,
+        "redirect_uri": "noema://oauth/callback",
+        "code": code,
+        "code_verifier": verifier
+      ]
+    )
+  }
 
-    var request = URLRequest(url: payload.origin.url.appending(path: "auth/client/pairing/complete"))
-    request.httpMethod = "POST"
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.httpBody = try JSONEncoder().encode(CompleteRequest(
-      pairingID: payload.pairingID,
-      secret: payload.secret,
-      displayName: name
+  func refresh(_ stored: StoredNoemaProfile) async throws -> NoemaProfile {
+    try await exchange(
+      origin: stored.origin,
+      clientID: stored.clientId,
+      fields: [
+        "grant_type": "refresh_token",
+        "refresh_token": stored.refreshToken
+      ]
+    )
+  }
+
+  func refresh(_ profile: NoemaProfile) async throws -> NoemaProfile {
+    try await refresh(StoredNoemaProfile(
+      origin: profile.origin,
+      clientId: profile.clientId,
+      refreshToken: profile.refreshToken
     ))
+  }
 
-    let delegate = PairingRedirectDelegate(origin: payload.origin.url)
-    let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+  func revoke(_ profile: NoemaProfile) async throws {
+    var request = URLRequest(url: profile.origin.appending(path: "oauth/revoke"))
+    request.httpMethod = "POST"
+    request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+    request.httpBody = Self.formBody(["token": profile.refreshToken])
+    let (_, response) = try await URLSession.shared.data(for: request)
+    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+      throw ConnectionServiceError.serverRejected((response as? HTTPURLResponse)?.statusCode ?? 0)
+    }
+  }
+
+  func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+    UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap(\.windows)
+      .first(where: \.isKeyWindow) ?? ASPresentationAnchor()
+  }
+
+  private func browserCallback(for url: URL) async throws -> URL {
+    try await withCheckedThrowingContinuation { continuation in
+      let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "noema") {
+        [weak self] callback, error in
+        self?.browserSession = nil
+        if let callback {
+          continuation.resume(returning: callback)
+        } else if (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin {
+          continuation.resume(throwing: ConnectionServiceError.cancelled)
+        } else {
+          continuation.resume(throwing: error ?? ConnectionServiceError.invalidCallback)
+        }
+      }
+      session.presentationContextProvider = self
+      session.prefersEphemeralWebBrowserSession = false
+      browserSession = session
+      guard session.start() else {
+        browserSession = nil
+        continuation.resume(throwing: ConnectionServiceError.invalidCallback)
+        return
+      }
+    }
+  }
+
+  private func exchange(
+    origin: URL,
+    clientID: String,
+    fields: [String: String]
+  ) async throws -> NoemaProfile {
+    var request = URLRequest(url: origin.appending(path: "oauth/token"))
+    request.httpMethod = "POST"
+    request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+    request.httpBody = Self.formBody(fields)
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.timeoutIntervalForRequest = 30
+    configuration.timeoutIntervalForResource = 30
+    let session = URLSession(configuration: configuration)
     defer { session.invalidateAndCancel() }
     let (data, response) = try await session.data(for: request)
     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-      throw PairingServiceError.serverRejected((response as? HTTPURLResponse)?.statusCode ?? 0)
+      if let error = try? JSONDecoder().decode(TokenErrorResponse.self, from: data),
+         error.error == .invalidGrant {
+        throw ConnectionServiceError.authorizationExpired
+      }
+      throw ConnectionServiceError.serverRejected((response as? HTTPURLResponse)?.statusCode ?? 0)
     }
-
-    let result: CompleteResponse
-    do {
-      result = try JSONDecoder().decode(CompleteResponse.self, from: data)
-    } catch {
-      throw PairingServiceError.malformedResponse
-    }
-    guard Self.isValidClientID(result.clientID), Self.isValidBearer(result.token, clientID: result.clientID) else {
-      throw PairingServiceError.malformedResponse
-    }
-
-    let profile = NoemaProfile(origin: payload.origin.url, clientId: result.clientID, token: result.token)
-    // The credential is written only after the complete response passes every validation above.
+    guard let token = try? JSONDecoder().decode(TokenResponse.self, from: data),
+          (1...128).contains(token.accessToken.utf8.count),
+          (1...128).contains(token.refreshToken.utf8.count),
+          (1...86_400).contains(token.expiresIn)
+    else { throw ConnectionServiceError.malformedResponse }
+    let profile = NoemaProfile(
+      origin: origin,
+      clientId: clientID,
+      refreshToken: token.refreshToken,
+      accessToken: token.accessToken,
+      accessExpiresAt: Date().addingTimeInterval(TimeInterval(token.expiresIn))
+    )
     try await profileStore.replace(with: profile)
     return profile
   }
 
-  private static func isValidClientID(_ value: String) -> Bool {
-    (1...128).contains(value.utf8.count) && value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
+  private static func formBody(_ fields: [String: String]) -> Data? {
+    var components = URLComponents()
+    components.queryItems = fields.sorted(by: { $0.key < $1.key }).map {
+      URLQueryItem(name: $0.key, value: $0.value)
+    }
+    return components.percentEncodedQuery?.data(using: .utf8)
   }
 
-  private static func isValidBearer(_ value: String, clientID: String) -> Bool {
-    guard value.hasPrefix(clientID + ".") else { return false }
-    let encoded = String(value.dropFirst(clientID.count + 1))
-    return encoded.count == 43
-      && encoded.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
-      && Data(base64URLEncoded: encoded)?.count == 32
+  private static func randomBase64URL(bytes: Int) throws -> String {
+    var data = Data(count: bytes)
+    let status = data.withUnsafeMutableBytes { buffer in
+      SecRandomCopyBytes(kSecRandomDefault, bytes, buffer.baseAddress!)
+    }
+    guard status == errSecSuccess else { throw ConnectionServiceError.malformedResponse }
+    return data.base64URLEncoded
   }
 
-  private struct CompleteRequest: Encodable {
-    let pairingID: String
-    let secret: String
-    let displayName: String
+  private struct TokenResponse: Decodable {
+    let accessToken: String
+    let refreshToken: String
+    let expiresIn: Int
 
     enum CodingKeys: String, CodingKey {
-      case pairingID = "pairingId"
-      case secret
-      case displayName
+      case accessToken = "access_token"
+      case refreshToken = "refresh_token"
+      case expiresIn = "expires_in"
     }
   }
 
-  private struct CompleteResponse: Decodable {
-    let clientID: String
-    let token: String
+  private struct TokenErrorResponse: Decodable {
+    let error: TokenError
+  }
 
-    enum CodingKeys: String, CodingKey {
-      case clientID = "clientId"
-      case token
-    }
+  private enum TokenError: String, Decodable {
+    case invalidGrant = "invalid_grant"
   }
 }
 
-private final class PairingRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-  private let origin: URL
-
-  init(origin: URL) {
-    self.origin = origin
-  }
-
-  func urlSession(
-    _ session: URLSession,
-    task: URLSessionTask,
-    willPerformHTTPRedirection response: HTTPURLResponse,
-    newRequest request: URLRequest,
-    completionHandler: @escaping (URLRequest?) -> Void
-  ) {
-    guard let target = request.url,
-          target.scheme?.lowercased() == "https",
-          target.host?.lowercased() == origin.host?.lowercased(),
-          (target.port ?? 443) == (origin.port ?? 443)
-    else {
-      completionHandler(nil)
-      return
-    }
-    completionHandler(request)
-  }
+private extension Array {
+  var single: Element? { count == 1 ? first : nil }
 }

@@ -459,12 +459,12 @@ struct ClientsSettings: View {
     let activeClients = settings.clients.filter { !$0.isRevoked }
     let revokedClients = settings.clients.filter(\.isRevoked)
     VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-      SettingsSectionCard("Pair a client") {
-        Text("Create a short-lived link for a Noema client. The link stays in this page's memory and expires after 10 minutes.")
+      SettingsSectionCard("Connect a client") {
+        Text("Create a connection link. The client will request authorization in the system browser.")
           .font(NoemaFont.caption)
           .foregroundStyle(NoemaColor.contentSecondary)
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-          if let pairing = settings.pairingLink, pairing.expiresAt > context.date {
+        Group {
+          if let pairing = settings.pairingLink {
             VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
               if let image = pairingQRCode(pairing.uri) {
                 VStack(spacing: NoemaSpacing.xs) {
@@ -473,7 +473,7 @@ struct ClientsSettings: View {
                     .resizable()
                     .scaledToFit()
                     .frame(maxWidth: 200)
-                    .accessibilityLabel("Scan this QR code to pair a Noema client")
+                    .accessibilityLabel("Scan this QR code to connect a Noema client")
                   Text("Scan with the Noema client")
                     .font(NoemaFont.caption)
                     .foregroundStyle(NoemaColor.contentSecondary)
@@ -498,16 +498,10 @@ struct ClientsSettings: View {
                   Label("Share link", systemImage: "square.and.arrow.up")
                 }
                 .font(NoemaFont.captionEmphasized)
-                Text("Expires in \(remaining(pairing.expiresAt, at: context.date))")
-                  .font(NoemaFont.caption)
-                  .foregroundStyle(NoemaColor.contentSecondary)
               }
             }
           } else {
             VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-              if settings.pairingLink != nil {
-                NoemaInlineState(message: "This pairing link expired. Start a new link to continue.", symbol: "clock.badge.exclamationmark", tone: .warning)
-              }
               if let error = settings.pairingErrorMessage {
                 Text(error)
                   .font(NoemaFont.caption)
@@ -519,7 +513,7 @@ struct ClientsSettings: View {
                 if settings.isStartingPairing {
                   ProgressView().controlSize(.small)
                 } else {
-                  Label(settings.pairingLink == nil && settings.pairingErrorMessage == nil ? "Start pairing" : "Retry pairing", systemImage: "arrow.clockwise")
+                  Label(settings.pairingLink == nil && settings.pairingErrorMessage == nil ? "Create connection link" : "Retry", systemImage: "arrow.clockwise")
                 }
               }
               .font(NoemaFont.captionEmphasized)
@@ -534,9 +528,9 @@ struct ClientsSettings: View {
           }
         }
       }
-      SettingsSectionCard("Paired clients") {
+      SettingsSectionCard("Connected clients") {
         if settings.isLoadingClients && !settings.hasLoadedClients {
-          NoemaInlineState(message: "Loading paired clients…", symbol: "arrow.triangle.2.circlepath")
+          NoemaInlineState(message: "Loading connected clients…", symbol: "arrow.triangle.2.circlepath")
         } else if let error = settings.clientsErrorMessage, settings.clients.isEmpty {
           NoemaInlineState(message: error, symbol: "wifi.slash", tone: .warning)
           SettingsAction(title: "Retry", symbol: "arrow.clockwise", role: nil, disabled: settings.isOffline) {
@@ -547,7 +541,7 @@ struct ClientsSettings: View {
             .font(NoemaFont.taskTitle)
             .padding(.top, NoemaSpacing.compact)
           if activeClients.isEmpty {
-            NoemaInlineState(message: "No active clients are paired yet.", symbol: "iphone")
+            NoemaInlineState(message: "No active clients are connected yet.", symbol: "iphone")
           } else {
             VStack(spacing: 0) {
               ForEach(Array(activeClients.enumerated()), id: \.element.id) { index, client in
@@ -571,11 +565,11 @@ struct ClientsSettings: View {
         }
       }
       SettingsSectionCard("This app") {
-        Text("Remove this device's saved connection to pair it with another Noema server. This does not revoke the client on the current server.")
+        Text("Remove this device's saved connection to use another Noema server. This action revokes the current client.")
           .font(NoemaFont.caption)
           .foregroundStyle(NoemaColor.contentSecondary)
         SettingsAction(
-          title: "Unpair this app",
+          title: "Disconnect this app",
           symbol: "rectangle.portrait.and.arrow.right",
           role: .destructive,
           disabled: false,
@@ -612,11 +606,6 @@ struct ClientsSettings: View {
     return UIImage(ciImage: output)
   }
 
-  private func remaining(_ expiration: Date, at now: Date) -> String {
-    let seconds = max(0, Int(expiration.timeIntervalSince(now)))
-    return String(format: "%d:%02d", seconds / 60, seconds % 60)
-  }
-
   private func formatted(_ value: String) -> String {
     let parser = ISO8601DateFormatter()
     parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -641,7 +630,7 @@ private struct PairedClientDetailSheet: View {
         SettingsSectionCard("Access") {
           SettingsMetricRow(label: "State", value: client.isRevoked ? "Revoked" : "Active")
           SettingsRowDivider()
-          SettingsMetricRow(label: "Paired", value: formatted(client.createdAt))
+          SettingsMetricRow(label: "Connected", value: formatted(client.createdAt))
           DisclosureGroup("Technical details") {
             VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
               SettingsMetricRow(label: "Client ID", value: client.id)

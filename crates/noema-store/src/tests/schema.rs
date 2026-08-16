@@ -2343,6 +2343,55 @@ async fn v44_upgrade_preserves_passkeys_repairs_terminal_records_and_matches_fre
     );
 }
 
+#[tokio::test]
+async fn v46_upgrade_revokes_legacy_clients_and_matches_fresh_schema() {
+    let upgrade_home = TempDir::new().expect("v45 root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    let mut connection = Connection::open(&upgrade_config.path).expect("v45 database");
+    store_migrations()
+        .to_version(&mut connection, 45)
+        .expect("construct v45 schema");
+    connection
+        .execute(
+            "INSERT INTO clients (client_id, owner_human_id, display_name, token_hash) VALUES ('legacy-client', 'human:local', 'Legacy client', zeroblob(32))",
+            [],
+        )
+        .expect("legacy client");
+    drop(connection);
+
+    drop(
+        NoemaStore::open(&upgrade_config)
+            .await
+            .expect("upgrade v45 database"),
+    );
+    let connection = Connection::open(&upgrade_config.path).expect("upgraded database");
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT auth_kind, revoked_at IS NOT NULL FROM clients WHERE client_id = 'legacy-client'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
+            )
+            .expect("revoked legacy client"),
+        ("legacy_bearer".to_string(), true)
+    );
+    drop(connection);
+
+    let fresh_home = TempDir::new().expect("fresh v46 root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(
+        NoemaStore::open(&fresh_config)
+            .await
+            .expect("fresh v46 schema"),
+    );
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
+    );
+}
+
 fn stage(
     stable_key: &str,
     display_name: &str,

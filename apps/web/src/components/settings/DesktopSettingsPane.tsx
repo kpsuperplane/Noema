@@ -6,11 +6,11 @@ import {
   SettingsList,
   SettingsListItem,
   SettingsRowActions,
-  SettingsSection,
+  SettingsSection
 } from "./SettingsPrimitives";
 
 export function DesktopSettingsPane() {
-  const { status, beginPairing, useLocal } = useDesktopConnection();
+  const { status, beginConnection, useLocal } = useDesktopConnection();
   const remote = status?.mode === "remote";
 
   return (
@@ -44,7 +44,7 @@ export function DesktopSettingsPane() {
                   type="button"
                   size="sm"
                   label="Connect to server"
-                  onClick={beginPairing}
+                  onClick={beginConnection}
                 >
                   Connect to server
                 </Button>

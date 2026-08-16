@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 45;
+pub const STORE_SCHEMA_VERSION: usize = 46;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1189,6 +1189,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(TERMINAL_CHILD_STATE_REPAIR_SQL),
         M::up(MULTIPLE_HUMAN_PASSKEYS_SQL),
         M::up(NATIVE_OAUTH_SQL),
+        M::up(LEGACY_CLIENT_REVOCATION_SQL),
     ])
 }
 
@@ -2554,6 +2555,34 @@ CREATE TABLE native_oauth_access_tokens (
 );
 CREATE INDEX native_oauth_access_tokens_family_active
 ON native_oauth_access_tokens(family_id, expires_at) WHERE revoked_at IS NULL;
+"#;
+
+const LEGACY_CLIENT_REVOCATION_SQL: &str = r#"
+UPDATE clients
+SET revoked_at = COALESCE(revoked_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+WHERE auth_kind = 'legacy_bearer';
+
+UPDATE live_activity_deliveries
+SET status = 'suppressed', last_error_code = 'client_revoked',
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE client_id IN (SELECT client_id FROM clients WHERE auth_kind = 'legacy_bearer')
+  AND event <> 'end' AND status = 'pending';
+
+UPDATE apns_deliveries
+SET status = 'failed', last_error_code = 'client_revoked',
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE client_id IN (SELECT client_id FROM clients WHERE auth_kind = 'legacy_bearer')
+  AND status = 'pending';
+
+DELETE FROM client_notification_registrations
+WHERE client_id IN (SELECT client_id FROM clients WHERE auth_kind = 'legacy_bearer');
+DELETE FROM client_live_activity_registrations
+WHERE client_id IN (SELECT client_id FROM clients WHERE auth_kind = 'legacy_bearer');
+DELETE FROM client_task_activities
+WHERE client_id IN (SELECT client_id FROM clients WHERE auth_kind = 'legacy_bearer');
+DELETE FROM live_activity_deliveries
+WHERE client_id IN (SELECT client_id FROM clients WHERE auth_kind = 'legacy_bearer')
+  AND event <> 'end';
 "#;
 
 const MCP_TOOL_POLICY_SQL: &str = r#"

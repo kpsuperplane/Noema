@@ -15,15 +15,15 @@ struct TrustedOrigin: Codable, Hashable, Sendable {
           components.fragment == nil,
           components.path.isEmpty || components.path == "/",
           !Self.isLocalHost(rawHost)
-    else { throw PairingURIError.untrustedOrigin }
+    else { throw ConnectionURIError.untrustedOrigin }
 
     let host = rawHost.lowercased()
     var value = "https://\(host)"
     if let port = components.port, port != 443 {
-      guard (1...65535).contains(port) else { throw PairingURIError.untrustedOrigin }
+      guard (1...65535).contains(port) else { throw ConnectionURIError.untrustedOrigin }
       value += ":\(port)"
     }
-    guard let canonicalURL = URL(string: value) else { throw PairingURIError.untrustedOrigin }
+    guard let canonicalURL = URL(string: value) else { throw ConnectionURIError.untrustedOrigin }
     self.url = canonicalURL
     self.displayValue = value
   }
@@ -39,46 +39,36 @@ struct TrustedOrigin: Codable, Hashable, Sendable {
   }
 }
 
-struct PairingPayload: Hashable, Sendable {
+struct ConnectionPayload: Hashable, Sendable {
   let origin: TrustedOrigin
-  let pairingID: String
-  let secret: String
 
   init(string: String) throws {
     guard let url = URL(string: string.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-      throw PairingURIError.invalidURI
+      throw ConnectionURIError.invalidURI
     }
     try self.init(url: url)
   }
 
   init(url: URL) throws {
+    if url.scheme?.lowercased() == "https" {
+      self.origin = try TrustedOrigin(url: url)
+      return
+    }
     guard url.scheme?.lowercased() == "noema",
-          url.host?.lowercased() == "pair",
+          url.host?.lowercased() == "connect",
           url.user == nil,
           url.password == nil,
           url.fragment == nil,
           url.path.isEmpty || url.path == "/",
           let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-    else { throw PairingURIError.invalidURI }
+    else { throw ConnectionURIError.invalidURI }
 
     let values = Dictionary(grouping: components.queryItems ?? [], by: \.name)
-    guard values.keys.count == 3,
-          let originValue = values["origin"]?.single?.value,
-          let pairingID = values["pairingId"]?.single?.value,
-          let secret = values["secret"]?.single?.value
-    else { throw PairingURIError.missingField }
-
-    guard (1...128).contains(pairingID.utf8.count), Self.isBase64URL(pairingID) else {
-      throw PairingURIError.invalidPairingID
-    }
-    guard Self.isBase64URL(secret),
-          Data(base64URLEncoded: secret)?.count == 32,
-          secret.count == 43
-    else { throw PairingURIError.invalidSecret }
+    guard values.keys.count == 1,
+          let originValue = values["origin"]?.single?.value
+    else { throw ConnectionURIError.missingField }
 
     self.origin = try TrustedOrigin(url: try Self.originURL(from: originValue))
-    self.pairingID = pairingID
-    self.secret = secret
   }
 
   private static func originURL(from value: String) throws -> URL {
@@ -86,29 +76,22 @@ struct PairingPayload: Hashable, Sendable {
           let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
           components.query == nil,
           components.fragment == nil
-    else { throw PairingURIError.untrustedOrigin }
+    else { throw ConnectionURIError.untrustedOrigin }
     return url
   }
 
-  private static func isBase64URL(_ value: String) -> Bool {
-    !value.isEmpty && value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
-  }
 }
 
-enum PairingURIError: Error, LocalizedError {
+enum ConnectionURIError: Error, LocalizedError {
   case invalidURI
   case missingField
-  case invalidPairingID
-  case invalidSecret
   case untrustedOrigin
 
   var errorDescription: String? {
     switch self {
-    case .invalidURI: "Paste a Noema pairing link."
-    case .missingField: "The pairing link is missing a required field."
-    case .invalidPairingID: "The pairing link has an invalid pairing id."
-    case .invalidSecret: "The pairing link has an invalid pairing secret."
-    case .untrustedOrigin: "Pairing requires a canonical HTTPS origin that is not localhost."
+    case .invalidURI: "Enter a Noema HTTPS server or connection link."
+    case .missingField: "The connection link is missing its server origin."
+    case .untrustedOrigin: "Connection requires a canonical HTTPS origin that is not localhost."
     }
   }
 }

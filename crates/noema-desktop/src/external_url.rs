@@ -3,7 +3,8 @@
 const BROWSER_ERROR: &str = "Noema could not open your browser.";
 
 #[tauri::command]
-pub(crate) async fn open_external_url(url: String) -> Result<(), String> {
+pub(crate) async fn open_external_url(window: tauri::Window, url: String) -> Result<(), String> {
+    crate::graphql_ipc::require_main_window_label(window.label())?;
     if !is_external_web_url(&url) {
         return Err(BROWSER_ERROR.to_string());
     }

@@ -13,7 +13,7 @@ final class NoemaAppModel {
 
   private(set) var state: ConnectionState = .loading
   private(set) var profile: NoemaProfile?
-  private(set) var pairingPayload: PairingPayload?
+  private(set) var pairingPayload: ConnectionPayload?
   private(set) var pairingError: String?
   private(set) var pairingInput = ""
   private(set) var isPairing = false
@@ -25,11 +25,13 @@ final class NoemaAppModel {
   let profileStore: KeychainProfileStore
   let notifications: NoemaNotificationService
   let liveActivities: NoemaLiveActivityService
-  private let pairingService: PairingService
+  private let connectionService: ConnectionService
   private var graphQL: NoemaGraphQLClient?
   private var registrationCleanupComplete = false
   private var latestScenePhase: ScenePhase?
   private var subscriptionLifecycleTask: Task<Void, Never>?
+  private var tokenRefreshTask: Task<Void, Never>?
+  private var hasStoredProfile = false
 
   init() {
     let store = KeychainProfileStore()
@@ -38,7 +40,7 @@ final class NoemaAppModel {
     self.profileStore = store
     self.notifications = notifications
     self.liveActivities = liveActivities
-    self.pairingService = PairingService(profileStore: store)
+    self.connectionService = ConnectionService(profileStore: store)
     NoemaApplicationDelegate.notifications = notifications
     notifications.onChatTap = { [weak self] in
       self?.openChatFromNotification()
@@ -55,28 +57,40 @@ final class NoemaAppModel {
     NoemaDiagnosticTrace.shared.record(category: "app", event: "bootstrap_started")
     do {
       if let stored = try await profileStore.read() {
+        hasStoredProfile = true
+        let restored = try await connectionService.refresh(stored)
         NoemaDiagnosticTrace.shared.record(category: "app", event: "profile_restored")
-        NoemaGraphQLClient.discardStaleCaches(keeping: stored)
-        profile = stored
-        graphQL = NoemaGraphQLClient(profile: stored)
+        NoemaGraphQLClient.discardStaleCaches(keeping: restored)
+        profile = restored
+        graphQL = NoemaGraphQLClient(profile: restored)
         state = .paired
-        await notifications.configure(profile: stored, client: graphQL?.client)
-        await liveActivities.configure(profile: stored, client: graphQL?.client)
+        await notifications.configure(profile: restored, client: graphQL?.client)
+        await liveActivities.configure(profile: restored, client: graphQL?.client)
         notifications.markModelReady()
         applySubscriptionLifecycle()
+        scheduleTokenRefresh()
         NoemaDiagnosticTrace.shared.record(category: "app", event: "bootstrap_finished", fields: ["state": "paired"])
       } else {
+        hasStoredProfile = false
         NoemaGraphQLClient.discardStaleCaches(keeping: nil)
         notifications.markModelNotReady()
         await liveActivities.configure(profile: nil, client: nil)
         state = .unpaired
         NoemaDiagnosticTrace.shared.record(category: "app", event: "bootstrap_finished", fields: ["state": "unpaired"])
       }
+    } catch ConnectionServiceError.authorizationExpired {
+      try? await profileStore.disconnect()
+      hasStoredProfile = false
+      NoemaDiagnosticTrace.shared.record(category: "app", event: "authorization_expired")
+      notifications.markModelNotReady()
+      await liveActivities.configure(profile: nil, client: nil)
+      pairingError = "The saved connection needs authorization again."
+      state = .unpaired
     } catch {
       NoemaDiagnosticTrace.shared.record(category: "app", event: "bootstrap_failed", error: error)
       notifications.markModelNotReady()
       await liveActivities.configure(profile: nil, client: nil)
-      pairingError = "The saved connection could not be read. Pair this device again."
+      pairingError = "The saved connection could not be restored. Connect this device again."
       state = .unpaired
     }
   }
@@ -85,11 +99,16 @@ final class NoemaAppModel {
     pairingInput = value.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !pairingInput.isEmpty else {
       pairingPayload = nil
-      pairingError = "Paste a Noema pairing link."
+      pairingError = "Enter a Noema server address or connection link."
+      return
+    }
+    guard !hasStoredProfile else {
+      pairingPayload = nil
+      pairingError = "Disconnect this app before connecting it to another server."
       return
     }
     do {
-      pairingPayload = try PairingPayload(string: pairingInput)
+      pairingPayload = try ConnectionPayload(string: pairingInput)
       pairingError = nil
     } catch {
       pairingPayload = nil
@@ -99,8 +118,13 @@ final class NoemaAppModel {
 
   func ingestPairingURL(_ url: URL) {
     pairingInput = url.absoluteString
+    guard !hasStoredProfile else {
+      pairingPayload = nil
+      pairingError = "Disconnect this app before connecting it to another server."
+      return
+    }
     do {
-      pairingPayload = try PairingPayload(url: url)
+      pairingPayload = try ConnectionPayload(url: url)
       pairingError = nil
     } catch {
       pairingPayload = nil
@@ -123,24 +147,15 @@ final class NoemaAppModel {
     ingestPairingURL(url)
   }
 
-  func completePairing(displayName: String) {
-    guard let payload = pairingPayload, !isPairing else { return }
-    let replacingExistingProfile = profile != nil
+  func completePairing() {
+    guard let payload = pairingPayload, !hasStoredProfile, !isPairing else { return }
     isPairing = true
     pairingError = nil
     Task {
       do {
-        if replacingExistingProfile {
-          let notificationsRemoved = await notifications.disable()
-          let activitiesRemoved = await liveActivities.disable()
-          guard notificationsRemoved, activitiesRemoved else {
-            pairingError = "Reconnect to the current server before pairing a replacement."
-            isPairing = false
-            return
-          }
-        }
         let previousGraphQL = graphQL
-        let stored = try await pairingService.complete(payload: payload, displayName: displayName)
+        let stored = try await connectionService.authorize(payload: payload)
+        hasStoredProfile = true
         try? await previousGraphQL?.clearCache()
         profile = stored
         graphQL = NoemaGraphQLClient(profile: stored)
@@ -150,6 +165,7 @@ final class NoemaAppModel {
         await liveActivities.configure(profile: stored, client: graphQL?.client)
         notifications.markModelReady()
         applySubscriptionLifecycle()
+        scheduleTokenRefresh()
       } catch {
         pairingError = error.localizedDescription
       }
@@ -181,20 +197,31 @@ final class NoemaAppModel {
       if !notificationsRemoved || !activitiesRemoved {
         disconnectError = notifications.errorMessage
           ?? liveActivities.errorMessage
-          ?? "Reconnect to this server before unpairing."
+          ?? "Reconnect to this server before disconnecting."
         return
       }
       registrationCleanupComplete = true
+      guard let profile else {
+        disconnectError = "No active server connection is available."
+        return
+      }
+      do {
+        try await connectionService.revoke(profile)
+      } catch {
+        disconnectError = "Noema could not revoke this client. Reconnect before disconnecting."
+        return
+      }
       do {
         try await graphQL?.clearCache()
       } catch {
-        disconnectError = "Noema could not remove the offline cache. Try unpairing again."
+        disconnectError = "Noema could not remove the offline cache. Try disconnecting again."
         return
       }
       do {
         try await profileStore.disconnect()
+        hasStoredProfile = false
       } catch {
-        disconnectError = "Noema could not remove the saved connection. Try unpairing again."
+        disconnectError = "Noema could not remove the saved connection. Try disconnecting again."
         return
       }
       notifications.markModelNotReady()
@@ -202,6 +229,8 @@ final class NoemaAppModel {
       await liveActivities.configure(profile: nil, client: nil)
       graphQL = nil
       profile = nil
+      tokenRefreshTask?.cancel()
+      tokenRefreshTask = nil
       registrationCleanupComplete = false
       state = .unpaired
       pairingPayload = nil
@@ -260,6 +289,39 @@ final class NoemaAppModel {
       }
     @unknown default:
       break
+    }
+  }
+
+  private func scheduleTokenRefresh(after retryDelay: TimeInterval? = nil) {
+    tokenRefreshTask?.cancel()
+    guard let profile else { return }
+    let delay = retryDelay ?? max(1, profile.accessExpiresAt.timeIntervalSinceNow - 60)
+    tokenRefreshTask = Task { [weak self] in
+      do {
+        try await Task.sleep(for: .seconds(delay))
+        guard let self, let current = self.profile else { return }
+        let refreshed = try await self.connectionService.refresh(current)
+        guard !Task.isCancelled else { return }
+        await self.graphQL?.pauseSubscriptions()
+        self.profile = refreshed
+        self.graphQL = NoemaGraphQLClient(profile: refreshed)
+        await self.notifications.configure(profile: refreshed, client: self.graphQL?.client)
+        await self.liveActivities.configure(profile: refreshed, client: self.graphQL?.client)
+        self.applySubscriptionLifecycle()
+        self.scheduleTokenRefresh()
+      } catch is CancellationError {
+      } catch ConnectionServiceError.authorizationExpired {
+        try? await self?.profileStore.disconnect()
+        self?.hasStoredProfile = false
+        self?.notifications.markModelNotReady()
+        await self?.liveActivities.configure(profile: nil, client: nil)
+        self?.graphQL = nil
+        self?.profile = nil
+        self?.state = .unpaired
+        self?.pairingError = "The saved connection needs authorization again."
+      } catch {
+        self?.scheduleTokenRefresh(after: 15)
+      }
     }
   }
 

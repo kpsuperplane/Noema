@@ -374,6 +374,53 @@ async fn development_mode_keeps_canonical_host_and_origin_checks() {
 }
 
 #[tokio::test]
+async fn native_authorization_resumes_after_recent_passkey_authentication() {
+    let router = test_router().await;
+    let _ = authenticate(router.clone()).await;
+    let authorization = "/oauth/authorize?client_id=noema-desktop%3Aabcdefghijklmnop&redirect_uri=http%3A%2F%2F127.0.0.1%3A49152%2Foauth%2Fcallback&response_type=code&state=ssssssssssssssssssssssssssssssss&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256";
+    let (redirect, headers, _) =
+        request(router.clone(), empty_request(Method::GET, authorization)).await;
+    assert_eq!(redirect, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers[header::LOCATION].to_str().expect("resume location"),
+        "/?native_authorization=resume"
+    );
+    let pending_cookie = headers[header::SET_COOKIE]
+        .to_str()
+        .expect("pending cookie")
+        .split(';')
+        .next()
+        .expect("pending cookie pair")
+        .to_string();
+    let (authenticated, headers, _) = request(
+        router.clone(),
+        Request::post("/__test/authenticate")
+            .header(header::COOKIE, pending_cookie)
+            .body(Body::empty())
+            .expect("authenticate request"),
+    )
+    .await;
+    assert_eq!(authenticated, StatusCode::NO_CONTENT);
+    let recent_cookie = headers[header::SET_COOKIE]
+        .to_str()
+        .expect("recent cookie")
+        .split(';')
+        .next()
+        .expect("recent cookie pair")
+        .to_string();
+    let (resumed, _, body) = request(
+        router,
+        Request::get("/oauth/authorize")
+            .header(header::COOKIE, recent_cookie)
+            .body(Body::empty())
+            .expect("resume request"),
+    )
+    .await;
+    assert_eq!(resumed, StatusCode::OK);
+    assert!(String::from_utf8_lossy(&body).contains("Authorize native access"));
+}
+
+#[tokio::test]
 async fn development_auth_bypass_allows_graphql_without_bootstrap() {
     let router = test_router_without_auth().await;
     let (status, _, body) = request(
@@ -799,18 +846,44 @@ async fn client_bearer_authorizes_http_and_ws_without_browser_origin_and_revocat
     use futures_util::{SinkExt, StreamExt};
 
     let store = test_store().await;
-    let secret = [6_u8; 32];
-    let hash = digest::digest(&digest::SHA256, &secret);
+    let client_id = "noema-desktop:abcdefghijklmnop";
+    let access = URL_SAFE_NO_PAD.encode([6_u8; 32]);
+    let pkce_value = "p".repeat(44);
+    let access_digest = digest::digest(&digest::SHA256, access.as_bytes());
+    let now: i64 = std::time::SystemTime::UNIX_EPOCH
+        .elapsed()
+        .expect("system time")
+        .as_secs()
+        .try_into()
+        .expect("timestamp");
     store
-        .insert_client(
-            "client-one",
-            "human:local",
-            "Native client",
-            hash.as_ref().try_into().expect("digest length"),
+        .insert_native_oauth_code(
+            [7_u8; 32],
+            noema_store::NewNativeOAuthCode {
+                client_id,
+                display_name: "Native client",
+                redirect_uri: "http://127.0.0.1:49152/oauth/callback",
+                pkce_value: &pkce_value,
+                expires_at: now + 300,
+            },
+            now,
         )
         .await
         .expect("insert client");
-    let bearer = format!("Bearer client-one.{}", URL_SAFE_NO_PAD.encode(secret));
+    store
+        .insert_native_oauth_family(noema_store::NewNativeOAuthFamily {
+            family_id: "0123456789abcdef0123456789abcdef",
+            client_id,
+            access_hash: access_digest.as_ref().try_into().expect("access digest"),
+            refresh_hash: [8_u8; 32],
+            issued_at: now,
+            access_expires_at: now + 900,
+            idle_expires_at: now + 30 * 24 * 60 * 60,
+            absolute_expires_at: now + 180 * 24 * 60 * 60,
+        })
+        .await
+        .expect("insert family");
+    let bearer = format!("Bearer {access}");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind test server");
@@ -942,7 +1015,7 @@ async fn client_bearer_authorizes_http_and_ws_without_browser_origin_and_revocat
         .expect("subscription complete frame")
         .expect("subscription complete");
     store
-        .revoke_client("human:local", "client-one")
+        .revoke_client("human:local", client_id)
         .await
         .expect("revoke client");
     let closed = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())

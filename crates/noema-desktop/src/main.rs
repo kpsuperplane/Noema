@@ -11,7 +11,7 @@ mod external_url;
 mod graphql_ipc;
 mod mcp_oauth_callback;
 mod remote_graphql;
-mod remote_pairing;
+mod remote_oauth;
 
 fn main() {
     if let Some(status) = noema_host::run_browser_worker_if_requested() {
@@ -82,9 +82,9 @@ fn main() {
             mcp_oauth_callback_url,
             desktop_connection_status,
             desktop_retry_remote,
-            desktop_stage_pairing,
-            desktop_cancel_pairing,
-            desktop_complete_pairing,
+            desktop_stage_connection,
+            desktop_cancel_connection,
+            desktop_complete_connection,
             desktop_use_local,
             desktop_forget_remote,
         ])
@@ -96,80 +96,91 @@ fn main() {
     std::process::exit(exit_code);
 }
 
-fn stage_deep_link(app: tauri::AppHandle, pairing_uri: String) {
+fn stage_deep_link(app: tauri::AppHandle, connection_uri: String) {
     tauri::async_runtime::spawn(async move {
         let state = app.state::<desktop_state::DesktopState>();
-        if let Ok(stage) = state.stage_pairing(&pairing_uri).await {
-            let _ = app.emit("desktop_pairing_pending", stage);
+        if let Ok(stage) = state.stage_connection(&connection_uri).await {
+            let _ = app.emit("desktop_connection_pending", stage);
         }
     });
 }
 
 #[tauri::command]
 async fn mcp_oauth_callback_url(
+    window: tauri::Window,
     state: tauri::State<'_, desktop_state::DesktopState>,
 ) -> Result<String, String> {
+    graphql_ipc::require_main_window_label(window.label())?;
     state.mcp_oauth_callback_url().await
 }
 
 #[tauri::command]
 async fn desktop_connection_status(
+    window: tauri::Window,
     state: tauri::State<'_, desktop_state::DesktopState>,
 ) -> Result<desktop_state::DesktopConnectionStatus, String> {
+    graphql_ipc::require_main_window_label(window.label())?;
     Ok(state.connection_status().await)
 }
 
 #[tauri::command]
 async fn desktop_retry_remote(
+    window: tauri::Window,
     state: tauri::State<'_, desktop_state::DesktopState>,
 ) -> Result<desktop_state::DesktopConnectionStatus, String> {
+    graphql_ipc::require_main_window_label(window.label())?;
     Ok(state.connection_status().await)
 }
 
 #[tauri::command]
-async fn desktop_stage_pairing(
+async fn desktop_stage_connection(
     window: tauri::Window,
     state: tauri::State<'_, desktop_state::DesktopState>,
-    pairing_uri: String,
-) -> Result<remote_pairing::PairingStage, String> {
-    if window.label() != "main" {
-        return Err("Noema rejected a request from an unauthorized app window.".to_string());
-    }
-    state.stage_pairing(&pairing_uri).await
+    server: String,
+) -> Result<remote_oauth::ConnectionStage, String> {
+    graphql_ipc::require_main_window_label(window.label())?;
+    state.stage_connection(&server).await
 }
 
 #[tauri::command]
-async fn desktop_cancel_pairing(
+async fn desktop_cancel_connection(
+    window: tauri::Window,
     state: tauri::State<'_, desktop_state::DesktopState>,
 ) -> Result<(), String> {
-    state.cancel_pairing().await;
+    graphql_ipc::require_main_window_label(window.label())?;
+    state.cancel_connection().await;
     Ok(())
 }
 
 #[tauri::command]
-async fn desktop_complete_pairing(
+async fn desktop_complete_connection(
+    window: tauri::Window,
     app: tauri::AppHandle,
     state: tauri::State<'_, desktop_state::DesktopState>,
-    display_name: String,
 ) -> Result<(), String> {
-    state.complete_pairing(&display_name).await?;
+    graphql_ipc::require_main_window_label(window.label())?;
+    state.complete_connection().await?;
     app.restart();
 }
 
 #[tauri::command]
 async fn desktop_use_local(
+    window: tauri::Window,
     app: tauri::AppHandle,
     state: tauri::State<'_, desktop_state::DesktopState>,
 ) -> Result<(), String> {
+    graphql_ipc::require_main_window_label(window.label())?;
     state.disconnect_remote().await?;
     app.restart();
 }
 
 #[tauri::command]
 async fn desktop_forget_remote(
+    window: tauri::Window,
     app: tauri::AppHandle,
     state: tauri::State<'_, desktop_state::DesktopState>,
 ) -> Result<(), String> {
+    graphql_ipc::require_main_window_label(window.label())?;
     state.forget_remote()?;
     app.restart();
 }

@@ -170,7 +170,7 @@ final class ArtifactModel {
   func download(_ url: URL?) async throws -> URL {
     guard let url,
           ArtifactLinkResolver.isTrustedDownloadURL(url, origin: profile?.origin),
-          let token = profile?.token
+          let token = profile?.accessToken
     else {
       throw ArtifactError.untrustedDownload
     }

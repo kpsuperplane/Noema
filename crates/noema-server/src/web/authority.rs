@@ -114,10 +114,7 @@ pub(super) async fn enforce_authority(
     let authorization_replaces_origin = has_authorization
         && request.uri().path() != "/auth/recovery"
         && request.uri().path() != "/oauth/authorize";
-    if needs_origin
-        && !authorization_replaces_origin
-        && request.uri().path() != "/auth/client/pairing/complete"
-    {
+    if needs_origin && !authorization_replaces_origin {
         let valid_origin = headers
             .get(header::ORIGIN)
             .and_then(|value| value.to_str().ok())

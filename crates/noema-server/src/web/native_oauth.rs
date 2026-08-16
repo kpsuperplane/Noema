@@ -6,7 +6,7 @@ use axum::{
     body::{Body as AxumBody, Bytes},
     extract::{RawQuery, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
-    response::{Html, IntoResponse, Response},
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{Duration, TimeZone as _, Utc};
@@ -56,15 +56,16 @@ pub(super) async fn authorize(
     browser: Session,
     RawQuery(query): RawQuery,
 ) -> Response {
-    if state.auth_mode.requires_session()
-        && (!session::is_authenticated(&browser).await
-            || !session::has_recent_passkey(&browser).await)
-    {
-        return oauth_error(StatusCode::UNAUTHORIZED, "login_required");
-    }
-    let Some(query) = query.filter(|value| value.len() <= super::router::MAX_OAUTH_QUERY_BYTES)
-    else {
-        return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
+    let query = match query {
+        Some(query) if query.len() <= super::router::MAX_OAUTH_QUERY_BYTES => query,
+        Some(_) => return oauth_error(StatusCode::BAD_REQUEST, "invalid_request"),
+        None => match browser
+            .remove::<String>(session::NATIVE_OAUTH_RESUME_KEY)
+            .await
+        {
+            Ok(Some(query)) => query,
+            _ => return oauth_error(StatusCode::BAD_REQUEST, "invalid_request"),
+        },
     };
     let Ok(parameters) = unique_parameters(query.as_bytes()) else {
         return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
@@ -74,6 +75,22 @@ pub(super) async fn authorize(
     {
         return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
     }
+    if state.auth_mode.requires_session()
+        && (!session::is_authenticated(&browser).await
+            || !session::has_recent_passkey(&browser).await)
+    {
+        if browser
+            .insert(session::NATIVE_OAUTH_RESUME_KEY, query)
+            .await
+            .is_err()
+        {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        return Redirect::to("/?native_authorization=resume").into_response();
+    }
+    let _ = browser
+        .remove::<String>(session::NATIVE_OAUTH_RESUME_KEY)
+        .await;
     let Ok(csrf) = random_text(32) else {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
@@ -819,9 +836,7 @@ mod tests {
         let access = token["access_token"].as_str().expect("access token");
         let old_refresh = token["refresh_token"].as_str().expect("refresh token");
         assert_eq!(
-            state
-                .client_auth
-                .validate_bearer(&state.store, &format!("Bearer {access}"))
+            crate::web::clients::validate_bearer(&state.store, &format!("Bearer {access}"))
                 .await
                 .expect("access validation")
                 .and_then(|principal| principal.client_id().map(str::to_string)),
@@ -846,9 +861,7 @@ mod tests {
         .await;
         assert_eq!(replay.status(), StatusCode::BAD_REQUEST);
         assert!(
-            state
-                .client_auth
-                .validate_bearer(&state.store, &format!("Bearer {access}"))
+            crate::web::clients::validate_bearer(&state.store, &format!("Bearer {access}"))
                 .await
                 .expect("revoked access validation")
                 .is_none()

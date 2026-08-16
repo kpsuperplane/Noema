@@ -31,14 +31,23 @@ pub(crate) struct RemoteMetadata {
 
 pub(crate) struct RemoteProfile {
     pub(crate) metadata: RemoteMetadata,
-    pub(crate) token: String,
+    pub(crate) refresh_token: String,
+    pub(crate) access_token: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 enum StoredSelection {
     Local,
-    Remote { origin: String, client_id: String },
+    Remote,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredCredential {
+    origin: String,
+    client_id: String,
+    refresh_token: String,
 }
 
 impl DesktopProfileStore {
@@ -73,22 +82,34 @@ impl DesktopProfileStore {
         };
         match selection {
             StoredSelection::Local => DesktopSelection::Local,
-            StoredSelection::Remote { origin, client_id } => {
-                let metadata = RemoteMetadata { origin, client_id };
-                let token = self
+            StoredSelection::Remote => {
+                let profile = self
                     .credential
                     .as_ref()
                     .map_err(|message| message.clone())
                     .and_then(|credential| {
-                        credential.get_password().map_err(|_| {
+                        let saved = credential.get_password().map_err(|_| {
                             "Noema could not read the remote client credential from secure storage."
                                 .to_string()
+                        })?;
+                        let saved: StoredCredential =
+                            serde_json::from_str(&saved).map_err(|_| {
+                                "Noema could not read the protected remote profile.".to_string()
+                            })?;
+                        validate_credential(&saved)?;
+                        Ok(RemoteProfile {
+                            metadata: RemoteMetadata {
+                                origin: saved.origin,
+                                client_id: saved.client_id,
+                            },
+                            refresh_token: saved.refresh_token,
+                            access_token: None,
                         })
                     });
-                match token {
-                    Ok(token) => DesktopSelection::Remote(RemoteProfile { metadata, token }),
+                match profile {
+                    Ok(profile) => DesktopSelection::Remote(profile),
                     Err(message) => DesktopSelection::Recovery {
-                        metadata: Some(metadata),
+                        metadata: None,
                         message,
                     },
                 }
@@ -101,18 +122,34 @@ impl DesktopProfileStore {
             .credential
             .as_ref()
             .map_err(|message| message.clone())?;
-        credential.set_password(&profile.token).map_err(|_| {
-            "Noema could not store the remote client credential securely.".to_string()
-        })?;
-        let selection = StoredSelection::Remote {
+        let saved = StoredCredential {
             origin: profile.metadata.origin.clone(),
             client_id: profile.metadata.client_id.clone(),
+            refresh_token: profile.refresh_token.clone(),
         };
-        if let Err(error) = self.write_selection(&selection) {
+        validate_credential(&saved)?;
+        let saved = serde_json::to_string(&saved)
+            .map_err(|_| "Noema could not encode the protected remote profile.".to_string())?;
+        credential.set_password(&saved).map_err(|_| {
+            "Noema could not store the remote client credential securely.".to_string()
+        })?;
+        if let Err(error) = self.write_selection(&StoredSelection::Remote) {
             let _ = credential.delete_credential();
             return Err(error);
         }
         Ok(())
+    }
+
+    pub(crate) fn save_refresh(
+        &self,
+        metadata: &RemoteMetadata,
+        refresh_token: &str,
+    ) -> Result<(), String> {
+        self.save_remote(&RemoteProfile {
+            metadata: metadata.clone(),
+            refresh_token: refresh_token.to_string(),
+            access_token: None,
+        })
     }
 
     pub(crate) fn clear_remote(&self) -> Result<(), String> {
@@ -158,6 +195,19 @@ impl DesktopProfileStore {
     }
 }
 
+fn validate_credential(credential: &StoredCredential) -> Result<(), String> {
+    if credential.origin.len() > 2048
+        || credential.client_id.len() > 128
+        || credential.refresh_token.len() > 128
+        || credential.origin.is_empty()
+        || credential.client_id.is_empty()
+        || credential.refresh_token.is_empty()
+    {
+        return Err("The protected remote profile is invalid.".to_string());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use keyring::mock::MockCredential;
@@ -181,12 +231,22 @@ mod tests {
                 origin: "https://noema.example".to_string(),
                 client_id: "client-one".to_string(),
             },
-            token: "client-one.private-bearer".to_string(),
+            refresh_token: "private-refresh-token".to_string(),
+            access_token: Some("memory-access-token".to_string()),
         };
         store.save_remote(&profile).expect("save profile");
         let stored = fs::read_to_string(root.path().join("desktop.json")).expect("settings");
-        assert!(stored.contains("https://noema.example"));
-        assert!(!stored.contains("private-bearer"));
+        assert!(!stored.contains("https://noema.example"));
+        assert!(!stored.contains("client-one"));
+        assert!(!stored.contains("private-refresh-token"));
+        let protected = store
+            .credential
+            .as_ref()
+            .expect("credential")
+            .get_password()
+            .expect("protected profile");
+        assert!(protected.contains("private-refresh-token"));
+        assert!(!protected.contains("memory-access-token"));
 
         let unavailable_path = root.path().join("unavailable.json");
         let unavailable = DesktopProfileStore {

@@ -24,7 +24,7 @@ struct ConnectionChangedPayload {
     state: &'static str,
 }
 
-fn require_main_window_label(label: &str) -> Result<(), String> {
+pub(crate) fn require_main_window_label(label: &str) -> Result<(), String> {
     if label == "main" {
         Ok(())
     } else {

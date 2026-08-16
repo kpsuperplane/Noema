@@ -1,6 +1,5 @@
 import React from "react";
 import { Button } from "@astryxdesign/core/Button";
-import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
@@ -21,12 +20,12 @@ export type DesktopConnectionStatus = {
     | "credential_unavailable";
   origin: string | null;
   message: string | null;
-  pendingPairingOrigin: string | null;
+  pendingConnectionOrigin: string | null;
 };
 
 type DesktopConnectionContextValue = {
   status: DesktopConnectionStatus | null;
-  beginPairing(): void;
+  beginConnection(): void;
   useLocal(): void;
 };
 
@@ -40,63 +39,69 @@ export function useDesktopConnection() {
 }
 
 export function DesktopConnectionGate({
-  children,
+  children
 }: {
   children: React.ReactNode;
 }) {
   const desktop = isTauriRuntime();
   const [status, setStatus] = React.useState<DesktopConnectionStatus | null>(
-    null,
+    null
   );
-  const [pairingOpen, setPairingOpen] = React.useState(false);
-  const [pairingOrigin, setPairingOrigin] = React.useState<string | null>(null);
+  const [connectionOpen, setConnectionOpen] = React.useState(false);
+  const [connectionOrigin, setConnectionOrigin] = React.useState<string | null>(
+    null
+  );
   const [disconnectOpen, setDisconnectOpen] = React.useState(false);
   const [disconnecting, setDisconnecting] = React.useState(false);
   const [connectionError, setConnectionError] = React.useState<string | null>(
-    null,
+    null
   );
   const [canForget, setCanForget] = React.useState(false);
   const [forgetOpen, setForgetOpen] = React.useState(false);
   const [forgetting, setForgetting] = React.useState(false);
 
-  const refresh = React.useCallback(async (command = "desktop_connection_status") => {
-    const next = await invokeDesktop<DesktopConnectionStatus>(
-      command,
-    );
-    setStatus(next);
-    if (next.pendingPairingOrigin) {
-      setPairingOrigin(next.pendingPairingOrigin);
-      setPairingOpen(true);
-    }
-  }, []);
+  const refresh = React.useCallback(
+    async (command = "desktop_connection_status") => {
+      const next = await invokeDesktop<DesktopConnectionStatus>(command);
+      setStatus(next);
+      if (next.pendingConnectionOrigin) {
+        setConnectionOrigin(next.pendingConnectionOrigin);
+        setConnectionOpen(true);
+      }
+    },
+    []
+  );
 
   React.useEffect(() => {
     if (!desktop) return;
     let active = true;
     const cleanups: Array<() => void> = [];
-    void refresh().catch(() => {
-      if (active) setStatus(unavailableStatus());
-    });
+    const initialization = window.setTimeout(() => {
+      void refresh().catch(() => {
+        if (active) setStatus(unavailableStatus());
+      });
+    }, 0);
     void listenDesktop("desktop_connection_changed", () => {
       if (active) void refresh();
     }).then((cleanup) => cleanups.push(cleanup));
     void listenDesktop<{ origin: string }>(
-      "desktop_pairing_pending",
+      "desktop_connection_pending",
       (stage) => {
         if (!active) return;
-        setPairingOrigin(stage.origin);
-        setPairingOpen(true);
-      },
+        setConnectionOrigin(stage.origin);
+        setConnectionOpen(true);
+      }
     ).then((cleanup) => cleanups.push(cleanup));
     return () => {
       active = false;
+      window.clearTimeout(initialization);
       for (const cleanup of cleanups) cleanup();
     };
   }, [desktop, refresh]);
 
-  const beginPairing = React.useCallback(() => {
-    setPairingOrigin(null);
-    setPairingOpen(true);
+  const beginConnection = React.useCallback(() => {
+    setConnectionOrigin(null);
+    setConnectionOpen(true);
   }, []);
 
   const useLocal = React.useCallback(() => setDisconnectOpen(true), []);
@@ -131,7 +136,7 @@ export function DesktopConnectionGate({
   if (!status) return <AppBootSkeleton />;
 
   const ready = status.state === "ready";
-  const context = { status, beginPairing, useLocal };
+  const context = { status, beginConnection, useLocal };
   return (
     <DesktopConnectionContext value={context}>
       {ready ? (
@@ -192,11 +197,11 @@ export function DesktopConnectionGate({
           </VStack>
         </SetupFrame>
       )}
-      <DesktopPairingDialog
-        open={pairingOpen}
-        origin={pairingOrigin}
-        onOriginChange={setPairingOrigin}
-        onOpenChange={setPairingOpen}
+      <DesktopConnectionDialog
+        open={connectionOpen}
+        origin={connectionOrigin}
+        onOriginChange={setConnectionOrigin}
+        onOpenChange={setConnectionOpen}
       />
       <DeleteConfirmationDialog
         title="Use local Noema?"
@@ -222,40 +227,39 @@ export function DesktopConnectionGate({
   );
 }
 
-function DesktopPairingDialog({
+function DesktopConnectionDialog({
   open,
   origin,
   onOriginChange,
-  onOpenChange,
+  onOpenChange
 }: {
   open: boolean;
   origin: string | null;
   onOriginChange: (origin: string | null) => void;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [pairingLink, setPairingLink] = React.useState("");
-  const [displayName, setDisplayName] = React.useState("Noema Desktop");
+  const [server, setServer] = React.useState("");
   const [working, setWorking] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   async function close() {
     if (working) return;
-    await invokeDesktop("desktop_cancel_pairing").catch(() => undefined);
-    setPairingLink("");
+    await invokeDesktop("desktop_cancel_connection").catch(() => undefined);
+    setServer("");
     setError(null);
     onOriginChange(null);
     onOpenChange(false);
   }
 
-  async function continuePairing() {
+  async function continueConnection() {
     setWorking(true);
     setError(null);
     try {
       const stage = await invokeDesktop<{ origin: string }>(
-        "desktop_stage_pairing",
-        { pairingUri: pairingLink },
+        "desktop_stage_connection",
+        { server }
       );
-      setPairingLink("");
+      setServer("");
       onOriginChange(stage.origin);
     } catch (caught) {
       setError(errorMessage(caught));
@@ -268,7 +272,7 @@ function DesktopPairingDialog({
     setWorking(true);
     setError(null);
     try {
-      await invokeDesktop("desktop_complete_pairing", { displayName });
+      await invokeDesktop("desktop_complete_connection");
     } catch (caught) {
       setError(errorMessage(caught));
       setWorking(false);
@@ -283,42 +287,30 @@ function DesktopPairingDialog({
       open={open}
       saving={working}
       saveLabel={origin ? "Connect" : "Continue"}
-      saveDisabled={
-        origin
-          ? displayName.trim().length === 0
-          : pairingLink.trim().length === 0
-      }
+      saveDisabled={!origin && server.trim().length === 0}
       error={error}
       onOpenChange={(next) => {
         if (!next) void close();
       }}
-      onSave={origin ? connect : continuePairing}
+      onSave={origin ? connect : continueConnection}
     >
       {origin ? (
         <>
           <p {...stylex.props(styles.dialogCopy)}>
-            This desktop will use the data and settings from this server.
+            The system browser will ask you to authorize complete access for
+            this desktop.
           </p>
           <code {...stylex.props(styles.dialogOrigin)}>{origin}</code>
-          <TextInput
-            label="Client name"
-            value={displayName}
-            isRequired
-            hasAutoFocus
-            onChange={setDisplayName}
-          />
         </>
       ) : (
-        <TextArea
-          label="Pairing link"
-          description="Create a ten-minute pairing link from the server's Client settings."
-          placeholder="noema://pair?…"
-          value={pairingLink}
-          rows={3}
+        <TextInput
+          label="Server address"
+          description="Enter the HTTPS origin for your Noema server."
+          placeholder="https://noema.example"
+          value={server}
           isRequired
           hasAutoFocus
-          hasSpellCheck={false}
-          onChange={setPairingLink}
+          onChange={setServer}
         />
       )}
     </SettingsEditDialog>
@@ -331,7 +323,7 @@ function unavailableStatus(): DesktopConnectionStatus {
     state: "unavailable",
     origin: null,
     message: "Noema could not read its desktop connection state.",
-    pendingPairingOrigin: null,
+    pendingConnectionOrigin: null
   };
 }
 
@@ -348,7 +340,7 @@ const styles = stylex.create({
     minHeight: "100%",
     marginInline: "auto",
     padding: "var(--spacing-6)",
-    justifyContent: "center",
+    justifyContent: "center"
   },
   eyebrow: {
     margin: "var(--spacing-0)",
@@ -356,14 +348,14 @@ const styles = stylex.create({
     fontFamily: "var(--font-mono)",
     fontSize: 12,
     letterSpacing: "0.12em",
-    textTransform: "uppercase",
+    textTransform: "uppercase"
   },
   title: {
     margin: "var(--spacing-0)",
     color: "var(--foreground)",
     fontFamily: "var(--font-heading)",
     fontSize: 28,
-    lineHeight: 1.15,
+    lineHeight: 1.15
   },
   description: { margin: "var(--spacing-0)", color: "var(--muted-foreground)" },
   origin: { overflowWrap: "anywhere", color: "var(--foreground)" },
@@ -373,6 +365,6 @@ const styles = stylex.create({
     padding: "var(--spacing-2)",
     overflowWrap: "anywhere",
     borderRadius: "var(--radius-control)",
-    backgroundColor: "var(--muted)",
-  },
+    backgroundColor: "var(--muted)"
+  }
 });

@@ -3,6 +3,10 @@
 use std::{sync::Arc, time::Duration};
 
 use futures_util::{SinkExt, StreamExt};
+use oauth2::{
+    ClientId, RefreshToken, RequestTokenError, TokenResponse as _, TokenUrl,
+    basic::{BasicClient, BasicErrorResponseType},
+};
 use reqwest::{StatusCode, header};
 use serde_json::{Value, json};
 use tokio_tungstenite::{
@@ -14,7 +18,10 @@ use tokio_tungstenite::{
     },
 };
 
-use crate::{desktop_profile::RemoteProfile, remote_pairing::trusted_origin};
+use crate::{
+    desktop_profile::{DesktopProfileStore, RemoteMetadata, RemoteProfile},
+    remote_oauth::trusted_origin,
+};
 
 const MAX_GRAPHQL_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const RECONNECT_DELAYS: [u64; 5] = [1, 2, 5, 10, 30];
@@ -23,8 +30,7 @@ const WEBSOCKET_TIMEOUT: Duration = Duration::from_secs(15);
 #[derive(Clone)]
 pub(crate) struct RemoteGraphql {
     origin: Arc<str>,
-    client_id: Arc<str>,
-    token: Arc<str>,
+    credentials: Arc<RemoteCredentials>,
     http: reqwest::Client,
 }
 
@@ -45,11 +51,15 @@ pub(crate) enum RemoteSubscriptionEvent {
 enum SubscriptionEnd {
     Complete,
     Transient,
+    Refresh,
     Unauthorized,
 }
 
 impl RemoteGraphql {
-    pub(crate) fn new(profile: RemoteProfile) -> Result<Self, String> {
+    pub(crate) fn new(
+        profile: RemoteProfile,
+        profiles: Arc<DesktopProfileStore>,
+    ) -> Result<Self, String> {
         let origin = trusted_origin(&profile.metadata.origin)?;
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -57,10 +67,26 @@ impl RemoteGraphql {
             .timeout(Duration::from_secs(120))
             .build()
             .map_err(|_| "Noema could not prepare the remote connection.".to_string())?;
+        let oauth_http = oauth2::reqwest::Client::builder()
+            .redirect(oauth2::reqwest::redirect::Policy::none())
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|_| "Noema could not prepare the remote token connection.".to_string())?;
+        let metadata = profile.metadata;
+        let credentials = RemoteCredentials {
+            metadata,
+            profiles,
+            tokens: tokio::sync::Mutex::new(RemoteTokens {
+                refresh: profile.refresh_token,
+                access: profile.access_token,
+            }),
+            http: http.clone(),
+            oauth_http,
+        };
         Ok(Self {
             origin: origin.into(),
-            client_id: profile.metadata.client_id.into(),
-            token: profile.token.into(),
+            credentials: Arc::new(credentials),
             http,
         })
     }
@@ -69,19 +95,16 @@ impl RemoteGraphql {
         &self.origin
     }
 
-    pub(crate) fn client_id(&self) -> &str {
-        &self.client_id
-    }
-
     pub(crate) async fn execute(&self, request: Value) -> Result<Value, RemoteError> {
-        let request = self.build_graphql_request(request)?;
-        let response = self
-            .http
-            .execute(request)
-            .await
-            .map_err(|_| RemoteError::Offline)?;
+        let mut access = self.credentials.access().await?;
+        let mut response = self.send_graphql(&request, &access).await?;
         if response.status() == StatusCode::UNAUTHORIZED {
-            return Err(RemoteError::Unauthorized);
+            self.credentials.invalidate(&access).await;
+            access = self.credentials.access().await?;
+            response = self.send_graphql(&request, &access).await?;
+            if response.status() == StatusCode::UNAUTHORIZED {
+                return Err(RemoteError::Unauthorized);
+            }
         }
         if !response.status().is_success() {
             return Err(RemoteError::InvalidResponse);
@@ -105,20 +128,7 @@ impl RemoteGraphql {
     }
 
     pub(crate) async fn revoke_self(&self) -> Result<(), RemoteError> {
-        let response = self
-            .execute(json!({
-                "query": "mutation DesktopDisconnect($clientId: String!) { revokeClient(clientId: $clientId) { clientId } }",
-                "variables": {"clientId": self.client_id()}
-            }))
-            .await?;
-        if response
-            .get("errors")
-            .and_then(Value::as_array)
-            .is_some_and(|errors| !errors.is_empty())
-        {
-            return Err(RemoteError::InvalidResponse);
-        }
-        Ok(())
+        self.credentials.revoke().await
     }
 
     pub(crate) async fn subscribe<F>(&self, request: Value, mut emit: F)
@@ -136,6 +146,9 @@ impl RemoteGraphql {
                 SubscriptionEnd::Unauthorized => {
                     let _ = emit(RemoteSubscriptionEvent::Unauthorized);
                     return;
+                }
+                SubscriptionEnd::Refresh => {
+                    continue;
                 }
                 SubscriptionEnd::Transient => {
                     if !reported_offline {
@@ -160,7 +173,12 @@ impl RemoteGraphql {
             Ok(request) => request,
             Err(_) => return SubscriptionEnd::Transient,
         };
-        let authorization = match HeaderValue::from_str(&format!("Bearer {}", self.token)) {
+        let access = match self.credentials.access().await {
+            Ok(access) => access,
+            Err(RemoteError::Unauthorized) => return SubscriptionEnd::Unauthorized,
+            Err(_) => return SubscriptionEnd::Transient,
+        };
+        let authorization = match HeaderValue::from_str(&format!("Bearer {access}")) {
             Ok(value) => value,
             Err(_) => return SubscriptionEnd::Unauthorized,
         };
@@ -175,7 +193,8 @@ impl RemoteGraphql {
             match tokio::time::timeout(WEBSOCKET_TIMEOUT, connect_async(request)).await {
                 Ok(Ok(connection)) => connection,
                 Ok(Err(WebSocketError::Http(response))) if response.status().as_u16() == 401 => {
-                    return SubscriptionEnd::Unauthorized;
+                    self.credentials.invalidate(&access).await;
+                    return SubscriptionEnd::Refresh;
                 }
                 Ok(Err(_)) | Err(_) => return SubscriptionEnd::Transient,
             };
@@ -261,11 +280,27 @@ impl RemoteGraphql {
         SubscriptionEnd::Transient
     }
 
-    fn build_graphql_request(&self, body: Value) -> Result<reqwest::Request, RemoteError> {
+    async fn send_graphql(
+        &self,
+        body: &Value,
+        access: &str,
+    ) -> Result<reqwest::Response, RemoteError> {
+        let request = self.build_graphql_request(body, access)?;
+        self.http
+            .execute(request)
+            .await
+            .map_err(|_| RemoteError::Offline)
+    }
+
+    fn build_graphql_request(
+        &self,
+        body: &Value,
+        access: &str,
+    ) -> Result<reqwest::Request, RemoteError> {
         self.http
             .post(format!("{}/graphql", self.origin))
-            .header(header::AUTHORIZATION, format!("Bearer {}", self.token))
-            .json(&body)
+            .header(header::AUTHORIZATION, format!("Bearer {access}"))
+            .json(body)
             .build()
             .map_err(|_| RemoteError::InvalidResponse)
     }
@@ -275,6 +310,83 @@ impl RemoteGraphql {
             "wss://{}/graphql/ws",
             self.origin.trim_start_matches("https://")
         )
+    }
+}
+
+struct RemoteCredentials {
+    metadata: RemoteMetadata,
+    profiles: Arc<DesktopProfileStore>,
+    tokens: tokio::sync::Mutex<RemoteTokens>,
+    http: reqwest::Client,
+    oauth_http: oauth2::reqwest::Client,
+}
+
+struct RemoteTokens {
+    refresh: String,
+    access: Option<String>,
+}
+
+impl RemoteCredentials {
+    async fn access(&self) -> Result<String, RemoteError> {
+        let mut tokens = self.tokens.lock().await;
+        if let Some(access) = &tokens.access {
+            return Ok(access.clone());
+        }
+        let client = BasicClient::new(ClientId::new(self.metadata.client_id.clone()))
+            .set_token_uri(
+                TokenUrl::new(format!("{}/oauth/token", self.metadata.origin))
+                    .map_err(|_| RemoteError::InvalidResponse)?,
+            );
+        let response = client
+            .exchange_refresh_token(&RefreshToken::new(tokens.refresh.clone()))
+            .request_async(&self.oauth_http)
+            .await
+            .map_err(|error| match error {
+                RequestTokenError::ServerResponse(response)
+                    if response.error() == &BasicErrorResponseType::InvalidGrant =>
+                {
+                    RemoteError::Unauthorized
+                }
+                RequestTokenError::Request(_) => RemoteError::Offline,
+                RequestTokenError::ServerResponse(_)
+                | RequestTokenError::Parse(_, _)
+                | RequestTokenError::Other(_) => RemoteError::InvalidResponse,
+            })?;
+        let refresh = response
+            .refresh_token()
+            .ok_or(RemoteError::InvalidResponse)?
+            .secret()
+            .to_string();
+        let access = response.access_token().secret().to_string();
+        self.profiles
+            .save_refresh(&self.metadata, &refresh)
+            .map_err(|_| RemoteError::InvalidResponse)?;
+        tokens.refresh = refresh;
+        tokens.access = Some(access.clone());
+        Ok(access)
+    }
+
+    async fn invalidate(&self, access: &str) {
+        let mut tokens = self.tokens.lock().await;
+        if tokens.access.as_deref() == Some(access) {
+            tokens.access = None;
+        }
+    }
+
+    async fn revoke(&self) -> Result<(), RemoteError> {
+        let refresh = self.tokens.lock().await.refresh.clone();
+        let response = self
+            .http
+            .post(format!("{}/oauth/revoke", self.metadata.origin))
+            .form(&[("token", refresh)])
+            .send()
+            .await
+            .map_err(|_| RemoteError::Offline)?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(RemoteError::InvalidResponse)
+        }
     }
 }
 
@@ -316,15 +428,20 @@ mod tests {
     use crate::desktop_profile::RemoteMetadata;
 
     fn remote() -> RemoteGraphql {
-        let client_id = URL_SAFE_NO_PAD.encode([1_u8; 32]);
-        let token = format!("{client_id}.{}", URL_SAFE_NO_PAD.encode([2_u8; 32]));
-        RemoteGraphql::new(RemoteProfile {
-            metadata: RemoteMetadata {
-                origin: "https://noema.example".to_string(),
-                client_id,
+        let root = tempfile::tempdir().expect("root").keep();
+        let profiles = Arc::new(DesktopProfileStore::new(root.join("desktop.json")));
+        let client_id = format!("noema-desktop:{}", URL_SAFE_NO_PAD.encode([1_u8; 18]));
+        RemoteGraphql::new(
+            RemoteProfile {
+                metadata: RemoteMetadata {
+                    origin: "https://noema.example".to_string(),
+                    client_id,
+                },
+                refresh_token: URL_SAFE_NO_PAD.encode([2_u8; 32]),
+                access_token: Some(URL_SAFE_NO_PAD.encode([3_u8; 32])),
             },
-            token,
-        })
+            profiles,
+        )
         .expect("remote")
     }
 
@@ -332,7 +449,9 @@ mod tests {
     fn graphql_request_keeps_values_and_adds_bearer_authorization() {
         let remote = remote();
         let body = json!({"query": "query Example($value: String!) { echo(value: $value) }", "variables": {"value": "ordinary-value"}});
-        let request = remote.build_graphql_request(body.clone()).expect("request");
+        let request = remote
+            .build_graphql_request(&body, "memory-access")
+            .expect("request");
         assert_eq!(request.url().as_str(), "https://noema.example/graphql");
         assert!(
             request

@@ -1,10 +1,18 @@
 import Foundation
 import Security
 
-struct NoemaProfile: Codable, Hashable, Sendable {
+struct NoemaProfile: Hashable, Sendable {
   let origin: URL
   let clientId: String
-  let token: String
+  let refreshToken: String
+  let accessToken: String
+  let accessExpiresAt: Date
+}
+
+struct StoredNoemaProfile: Codable, Hashable, Sendable {
+  let origin: URL
+  let clientId: String
+  let refreshToken: String
 }
 
 enum KeychainProfileError: Error, LocalizedError {
@@ -25,7 +33,7 @@ actor KeychainProfileStore {
   private let service = "dev.noema.app.ios.profile"
   private let account = "active"
 
-  func read() throws -> NoemaProfile? {
+  func read() throws -> StoredNoemaProfile? {
     var query = baseQuery
     query[kSecReturnData as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -35,11 +43,15 @@ actor KeychainProfileStore {
     if status == errSecItemNotFound { return nil }
     guard status == errSecSuccess else { throw KeychainProfileError.read(status) }
     guard let data = result as? Data else { throw KeychainProfileError.invalidProfile }
-    return try JSONDecoder().decode(NoemaProfile.self, from: data)
+    return try JSONDecoder().decode(StoredNoemaProfile.self, from: data)
   }
 
   func replace(with profile: NoemaProfile) throws {
-    let data = try JSONEncoder().encode(profile)
+    let data = try JSONEncoder().encode(StoredNoemaProfile(
+      origin: profile.origin,
+      clientId: profile.clientId,
+      refreshToken: profile.refreshToken
+    ))
     let updates: [String: Any] = [kSecValueData as String: data]
     let updateStatus = SecItemUpdate(baseQuery as CFDictionary, updates as CFDictionary)
     if updateStatus == errSecSuccess { return }

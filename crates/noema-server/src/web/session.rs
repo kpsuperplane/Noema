@@ -16,6 +16,7 @@ const AUTHENTICATED_KEY: &str = "authenticated";
 const BROWSER_BINDING_KEY: &str = "browser_binding";
 const PASSKEY_ID_KEY: &str = "passkey_id";
 const RECENT_PASSKEY_AT_KEY: &str = "recent_passkey_at";
+pub(super) const NATIVE_OAUTH_RESUME_KEY: &str = "native_oauth_resume";
 const RECENT_PASSKEY_TTL: Duration = Duration::from_secs(5 * 60);
 const SETUP_TTL: Duration = Duration::from_secs(5 * 60);
 const SETUP_REGISTRATION_STARTS: u8 = 8;
@@ -144,12 +145,16 @@ pub(super) async fn authenticate(
     session: &Session,
     credential_id: &str,
 ) -> Result<(), tower_sessions::session::Error> {
+    let native_oauth_resume = session.get::<String>(NATIVE_OAUTH_RESUME_KEY).await?;
     session.clear().await;
     session.insert(AUTHENTICATED_KEY, true).await?;
     session.insert(PASSKEY_ID_KEY, credential_id).await?;
     session
         .insert(RECENT_PASSKEY_AT_KEY, unix_timestamp())
         .await?;
+    if let Some(query) = native_oauth_resume {
+        session.insert(NATIVE_OAUTH_RESUME_KEY, query).await?;
+    }
     session.cycle_id().await
 }
 

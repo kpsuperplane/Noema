@@ -38,14 +38,14 @@ struct SettingsRootView: View {
     .onChange(of: selection) { _, _ in installShellNavigation() }
     .noemaSheet(isPresented: $disconnectPresented) {
       SettingsConfirmationSheet(
-        title: "Unpair this app?",
-        message: "The saved connection will be removed from this device so you can pair with another server. This client will remain listed on the current server until it is revoked there.",
-        confirmTitle: "Unpair"
+        title: "Disconnect this app?",
+        message: "Noema will revoke this client and remove the saved connection from this device.",
+        confirmTitle: "Disconnect"
       ) {
         model.disconnect()
       }
     }
-    .alert("Could not unpair", isPresented: Binding(
+    .alert("Could not disconnect", isPresented: Binding(
       get: { model.disconnectError != nil },
       set: { if !$0 { model.clearDisconnectError() } }
     )) {
