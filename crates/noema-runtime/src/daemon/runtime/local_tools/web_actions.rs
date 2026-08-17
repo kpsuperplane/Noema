@@ -307,18 +307,12 @@ impl RuntimeActor {
     }
 }
 
-fn browser_capability_output(mut payload: Value) -> CapabilityOutput {
-    let screenshot = payload
-        .as_object_mut()
-        .and_then(|output| output.remove("screenshot"));
-    let Some(screenshot) = screenshot else {
+fn browser_capability_output(payload: Value) -> CapabilityOutput {
+    if payload.get("screenshot").is_none() {
         return CapabilityOutput::success(payload);
-    };
-    let mut persisted_output = payload.clone();
-    if let Some(output) = persisted_output.as_object_mut() {
-        output.insert("screenshot".to_string(), screenshot);
     }
-    CapabilityOutput::success(payload).with_persisted_output_source(persisted_output)
+    CapabilityOutput::success(super::browser_model_visible_payload(payload.clone()))
+        .with_persisted_output_source(payload)
 }
 
 fn hosted_web_search_urls(searches: &[noema_providers::GenerateHostedWebSearch]) -> Vec<String> {

@@ -639,15 +639,12 @@ async fn largest_fitting_transcript_prefix(
     }
 
     if low == 0 {
-        let available = budget
+        let available_input_tokens = budget
             .available_input_tokens_with_output_reserve(target_tokens)
-            .map_or_else(|| "unknown".to_string(), |tokens| tokens.to_string());
-        return Err(ProviderError::InvalidRequest {
-            message: format!(
-                "context compaction input exceeds provider context window for a single transcript item; available input tokens: {available}"
-            ),
-        }
-        .into());
+            .expect("an unbounded context budget accepts every compaction input");
+        return Err(RuntimeError::ContextCompactionInputTooLarge {
+            available_input_tokens,
+        });
     }
 
     if best_token_estimate == 0 {
@@ -825,6 +822,54 @@ mod tests {
         assert!(tool_transcript.contains("Noema tool result"));
         assert!(tool_transcript.contains("\"type\":\"function_call_output\""));
         assert!(tool_transcript.contains("Momo"));
+    }
+
+    #[test]
+    fn compaction_transcript_excludes_persisted_browser_screenshots() {
+        let screenshot_data = "x".repeat(600_000);
+        let browser_result = item(
+            1,
+            ConversationItemKind::ToolResult,
+            "Tool result: web.browse.interact",
+            serde_json::json!({
+                "metadata": {
+                    "action": {
+                        "call_id": "call_browser_1",
+                        "name": "web.browse.interact",
+                        "success": true,
+                        "payload": {
+                            "snapshot": {
+                                "url": "https://example.test/reservations",
+                                "title": "Reservations",
+                                "snapshot_revision": 7
+                            },
+                            "screenshot": {
+                                "media_type": "image/png",
+                                "data": screenshot_data,
+                                "width": 1280,
+                                "height": 720
+                            }
+                        }
+                    }
+                }
+            }),
+        );
+
+        let transcript = render_compaction_transcript(std::slice::from_ref(&browser_result));
+
+        assert!(transcript.len() < 2_000);
+        assert!(transcript.contains("https://example.test/reservations"));
+        assert!(transcript.contains("Reservations"));
+        assert!(transcript.contains("snapshot_revision"));
+        assert!(!transcript.contains("screenshot"));
+        assert_eq!(
+            browser_result
+                .payload_json
+                .pointer("/metadata/action/payload/screenshot/data")
+                .and_then(serde_json::Value::as_str)
+                .map(str::len),
+            Some(600_000)
+        );
     }
 
     #[test]

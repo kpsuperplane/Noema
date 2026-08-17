@@ -525,6 +525,12 @@ fn tool_result_input_item(item: &ConversationItemRecord) -> Option<GenerateInput
     let call_id =
         action_string(action, "provider_call_id").or_else(|| action_string(action, "call_id"))?;
     let name = action_string(action, "name")?;
+    let payload = action.get("payload").cloned().unwrap_or(Value::Null);
+    let payload = if name.starts_with("web.browse.") {
+        super::local_tools::browser_model_visible_payload(payload)
+    } else {
+        payload
+    };
     Some(GenerateInputItem::ToolResult(GenerateToolResultInput {
         id: provider_function_call_item_id(action),
         call_id,
@@ -535,7 +541,7 @@ fn tool_result_input_item(item: &ConversationItemRecord) -> Option<GenerateInput
             .get("success")
             .and_then(Value::as_bool)
             .unwrap_or(item.status == noema_conversations::ConversationItemStatus::Completed),
-        payload: action.get("payload").cloned().unwrap_or(Value::Null),
+        payload,
     }))
 }
 

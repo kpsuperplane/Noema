@@ -290,7 +290,7 @@ impl RuntimeActor {
                 self.record_turn_failure_notice(
                     &error_context,
                     format!("Context compaction failed before this turn could run: {error}"),
-                    true,
+                    compaction_failure_is_recoverable(&error),
                     &item_tx,
                 )
                 .await?;
@@ -690,5 +690,30 @@ impl RuntimeActor {
                 Err(error.into())
             }
         }
+    }
+}
+
+fn compaction_failure_is_recoverable(error: &RuntimeError) -> bool {
+    !matches!(error, RuntimeError::ContextCompactionInputTooLarge { .. })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deterministic_compaction_overflow_is_not_recoverable() {
+        assert!(!compaction_failure_is_recoverable(
+            &RuntimeError::ContextCompactionInputTooLarge {
+                available_input_tokens: 1_024,
+            }
+        ));
+        assert!(compaction_failure_is_recoverable(
+            &ProviderError::ProviderUnavailable {
+                provider: "test".to_string(),
+                message: "temporarily unavailable".to_string(),
+            }
+            .into()
+        ));
     }
 }

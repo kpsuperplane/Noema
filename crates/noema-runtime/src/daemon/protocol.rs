@@ -174,6 +174,15 @@ pub enum RuntimeError {
     #[error(transparent)]
     Provider(#[from] ProviderError),
 
+    /// One transcript item cannot fit in a bounded compaction request.
+    #[error(
+        "context compaction input exceeds provider context window for a single transcript item; available input tokens: {available_input_tokens}"
+    )]
+    ContextCompactionInputTooLarge {
+        /// Input tokens available after output and safety reserves.
+        available_input_tokens: u32,
+    },
+
     /// An external effect may have been accepted, but its final outcome is
     /// not trustworthy. The caller must not retry it automatically.
     #[error("external effect outcome is uncertain")]

@@ -56,6 +56,13 @@ use noema_providers::{
 
 const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated";
 
+pub(super) fn browser_model_visible_payload(mut payload: Value) -> Value {
+    if let Some(output) = payload.as_object_mut() {
+        output.remove("screenshot");
+    }
+    payload
+}
+
 pub(super) fn provider_route_digest(route: &ProviderRouteLease) -> String {
     let bytes = serde_json::to_vec(&(route.selection(), route.generation()))
         .expect("provider selection metadata is serializable");
