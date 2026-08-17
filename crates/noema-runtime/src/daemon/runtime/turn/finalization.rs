@@ -499,10 +499,20 @@ pub(crate) struct ParsedMemoryChangeSet {
 fn memory_evidence_payload(item: &noema_conversations::ConversationItemRecord) -> Option<String> {
     match item.kind {
         ConversationItemKind::UserText => item.content_text.clone(),
-        ConversationItemKind::ToolResult => item
-            .payload_json
-            .pointer("/metadata/action/payload")
-            .map(serde_json::Value::to_string),
+        ConversationItemKind::ToolResult => {
+            let action = item.payload_json.pointer("/metadata/action")?;
+            let payload = action.get("payload")?.clone();
+            let payload = if action
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|name| name.starts_with("web.browse."))
+            {
+                super::local_tools::browser_model_visible_payload(payload)
+            } else {
+                payload
+            };
+            Some(payload.to_string())
+        }
         ConversationItemKind::Activity
             if item.payload_json.get("activity_kind").and_then(serde_json::Value::as_str)
                 == Some("tool_result") =>
@@ -737,14 +747,21 @@ mod memory_change_set_tests {
         let human_item = item(ConversationItemKind::UserText, "item:human", "Human evidence", serde_json::json!({}));
         let assistant_item = item(ConversationItemKind::AssistantText, "item:assistant", "Assistant context", serde_json::json!({}));
         let tool_item = item(ConversationItemKind::ToolResult, "item:tool", "Tool result", serde_json::json!({"metadata": {"action": {"payload": {"value": 7}}}}));
+        let browser_item = item(ConversationItemKind::ToolResult, "item:browser", "Browser result", serde_json::json!({"metadata": {"action": {"name": "web.browse.interact", "payload": {"snapshot": {"url": "https://example.test"}, "screenshot": {"data": "encoded-image"}}}}}));
         let human = render_memory_source_item(&human_item).expect("human source");
         let assistant = render_memory_source_item(&assistant_item).expect("assistant context");
         let tool = render_memory_source_item(&tool_item).expect("tool source");
+        let browser = render_memory_source_item(&browser_item).expect("browser source");
 
         assert_eq!(human, "human [item:human] Human evidence");
         assert_eq!(assistant, "assistant Assistant context");
         assert!(!assistant.contains("item:assistant"));
         assert_eq!(tool, "tool result [item:tool] {\"value\":7}");
+        assert_eq!(browser, "tool result [item:browser] {\"snapshot\":{\"url\":\"https://example.test\"}}");
+        assert_eq!(
+            browser_item.payload_json.pointer("/metadata/action/payload/screenshot/data"),
+            Some(&serde_json::json!("encoded-image"))
+        );
     }
 
     #[test]
