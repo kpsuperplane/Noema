@@ -1119,7 +1119,7 @@ input CaptureTaskInput {
 	"""
 	executorAgentId: String
 	"""
-	Optional absolute task working-directory override.
+	Optional absolute Task directory base override.
 	"""
 	cwdOverride: String
 	"""
@@ -1466,10 +1466,6 @@ type CurrentRunSummary {
 	Lineage attempt.
 	"""
 	attemptIndex: Int!
-	"""
-	Contract identity, absent for Planner.
-	"""
-	contractId: String
 	"""
 	Queue timestamp.
 	"""
@@ -3884,10 +3880,6 @@ input ReopenTaskInput {
 	"""
 	requestMarkdown: String
 	"""
-	Complete replacement criteria set.
-	"""
-	replacementCriteria: [TaskValidationCriterionInput!]
-	"""
 	Optional replacement complexity.
 	"""
 	complexity: TaskComplexity
@@ -4573,7 +4565,7 @@ type TaskCard {
 	"""
 	executorBackend: String!
 	"""
-	Explicit task working-directory override.
+	Explicit Task directory base override.
 	"""
 	cwdOverride: String
 	"""
@@ -4633,7 +4625,7 @@ type TaskCommandPayload {
 }
 
 """
-Complexity selected for a new execution contract.
+Complexity selected for Task execution.
 """
 enum TaskComplexity {
 	"""
@@ -4713,7 +4705,7 @@ type TaskDetail {
 	"""
 	executorBackend: String!
 	"""
-	Explicit task working-directory override.
+	Explicit Task directory base override.
 	"""
 	cwdOverride: String
 	"""
@@ -4959,7 +4951,7 @@ input TaskListInput {
 }
 
 """
-Human message in the immutable task history.
+Human message in Task history.
 """
 type TaskMessage {
 	"""
@@ -5244,10 +5236,6 @@ type TaskRun {
 	"""
 	taskGeneration: Int!
 	"""
-	Contract identity, absent for Planner.
-	"""
-	contractId: String
-	"""
 	Attempt index.
 	"""
 	attemptIndex: Int!
@@ -5259,14 +5247,6 @@ type TaskRun {
 	Parent run, when any.
 	"""
 	parentRunId: String
-	"""
-	Submission trigger, when any.
-	"""
-	triggeringSubmissionId: String
-	"""
-	Review trigger, when any.
-	"""
-	triggeringReviewId: String
 	"""
 	Requested model snapshot.
 	"""
@@ -5640,7 +5620,7 @@ type TaskSummary {
 	"""
 	executorBackend: String!
 	"""
-	Explicit task working-directory override.
+	Explicit Task directory base override.
 	"""
 	cwdOverride: String
 	"""
@@ -5683,28 +5663,6 @@ type TaskSummary {
 	Derived attention.
 	"""
 	attention: TaskAttention
-}
-
-"""
-One replacement validation criterion.
-"""
-input TaskValidationCriterionInput {
-	"""
-	Optional stable criterion identity.
-	"""
-	criterionId: String
-	"""
-	One-based ordinal.
-	"""
-	ordinal: Int!
-	"""
-	Criterion description.
-	"""
-	description: String!
-	"""
-	Optional evidence guidance.
-	"""
-	expectedEvidence: String
 }
 
 """
@@ -5981,11 +5939,11 @@ input UpdateInboxTaskInput {
 	"""
 	executorAgentId: String
 	"""
-	Optional replacement absolute task working-directory override.
+	Optional replacement absolute Task directory base override.
 	"""
 	cwdOverride: String
 	"""
-	Explicitly clear the task working-directory override.
+	Explicitly clear the Task directory base override.
 	"""
 	clearCwdOverride: Boolean
 	"""

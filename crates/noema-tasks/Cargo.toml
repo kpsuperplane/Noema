@@ -15,7 +15,6 @@ default = []
 [dependencies]
 cronexpr.workspace = true
 jiff.workspace = true
-noema-artifacts = { path = "../noema-artifacts", default-features = false }
 noema-workspaces = { path = "../noema-workspaces", default-features = false }
 noema-providers = { path = "../noema-providers", default-features = false }
 serde.workspace = true

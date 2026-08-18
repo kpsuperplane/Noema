@@ -674,7 +674,7 @@ async fn explicit_web_provider_selection_replaces_hosted_web_tools() {
 }
 
 #[tokio::test]
-async fn planner_catalog_is_terminal_only() {
+async fn planner_catalog_contains_task_file_tools() {
     let store = crate::test_support::test_store().await;
     let (_, capability_bindings) = ready_mcp_source();
     let tools = build_model_tools_for_role(
@@ -688,7 +688,6 @@ async fn planner_catalog_is_terminal_only() {
             hosted_web_provider_name: Some("OpenAI"),
             ..ProviderToolCapabilities::default()
         },
-        None,
     )
     .await
     .expect("planner tools");
@@ -698,9 +697,16 @@ async fn planner_catalog_is_terminal_only() {
             .iter()
             .map(|tool| tool.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["task.submit_plan", "task.report_blocked"]
+        vec![
+            "task.finish_planning",
+            "task.report_blocked",
+            "task.files.list",
+            "task.files.read",
+            "task.files.write",
+            "task.files.delete",
+        ]
     );
-    assert!(tools.tool_policy.allows_tool(TASK_SUBMIT_PLAN_TOOL));
+    assert!(tools.tool_policy.allows_tool(TASK_FINISH_PLANNING_TOOL));
     assert!(tools.tool_policy.allows_tool(TASK_REPORT_BLOCKED_TOOL));
     assert!(!tools.tool_policy.allows_tool(TASK_LIST_TOOL));
     assert!(!tools.tool_policy.allows_tool("search_memory"));
@@ -770,7 +776,7 @@ async fn transient_outages_preserve_native_catalog_during_outages() {
 }
 
 #[tokio::test]
-async fn background_roles_expose_read_tools_and_terminal_contracts_for_native_tools() {
+async fn background_roles_expose_read_tools_and_terminals_for_native_tools() {
     let store = crate::test_support::test_store().await;
     let (_, capability_bindings) = ready_mcp_source();
 
@@ -781,16 +787,10 @@ async fn background_roles_expose_read_tools_and_terminal_contracts_for_native_to
             ..ProviderToolCapabilities::default()
         };
         for role in [ExecutionRole::TaskExecutor, ExecutionRole::TaskReviewer] {
-            let tools = build_model_tools_for_role(
-                &store,
-                &capability_bindings,
-                role,
-                true,
-                capabilities,
-                None,
-            )
-            .await
-            .expect("role-aware tools");
+            let tools =
+                build_model_tools_for_role(&store, &capability_bindings, role, true, capabilities)
+                    .await
+                    .expect("role-aware tools");
             let provider_tools = tools.provider_tools();
             let names = provider_tools
                 .iter()
@@ -799,9 +799,9 @@ async fn background_roles_expose_read_tools_and_terminal_contracts_for_native_to
 
             let terminal_tools = match role {
                 ExecutionRole::TaskExecutor => {
-                    vec![TASK_SUBMIT_RESULT_TOOL, TASK_REPORT_BLOCKED_TOOL]
+                    vec![TASK_FINISH_EXECUTION_TOOL, TASK_CONTINUE_EXECUTION_TOOL]
                 }
-                ExecutionRole::TaskReviewer => vec![TASK_SUBMIT_REVIEW_TOOL],
+                ExecutionRole::TaskReviewer => vec![TASK_FINISH_REVIEW_TOOL],
                 _ => unreachable!(),
             };
             assert_eq!(&names[..terminal_tools.len()], terminal_tools);
@@ -821,54 +821,13 @@ async fn background_roles_expose_read_tools_and_terminal_contracts_for_native_to
             assert!(!tools.tool_policy.allows_tool(PRESENT_A2UI_TOOL));
             if role == ExecutionRole::TaskExecutor {
                 assert!(tools.tool_policy.allows_tool("artifact.create_local_file"));
-                assert!(tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
-                assert!(
-                    !tools
-                        .tool_policy
-                        .allows_tool(TASK_READ_SUBMISSION_EVIDENCE_TOOL)
-                );
             } else {
                 assert!(!tools.tool_policy.allows_tool("artifact.create_local_file"));
-                assert!(!tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
-                assert!(
-                    tools
-                        .tool_policy
-                        .allows_tool(TASK_READ_SUBMISSION_EVIDENCE_TOOL)
-                );
             }
+            assert!(tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
             assert!(!tools.tool_policy.allows_tool("task.delegate"));
         }
     }
-}
-
-#[test]
-fn correction_executor_exposes_only_review_fenced_submission_evidence() {
-    let initial = role_builtin_tool_specs(
-        ExecutionRole::TaskExecutor,
-        false,
-        Some(&TaskTerminalContract::default()),
-    )
-    .expect("initial Executor tools");
-    assert!(
-        initial
-            .iter()
-            .all(|tool| tool.name.as_str() != TASK_READ_SUBMISSION_EVIDENCE_TOOL)
-    );
-
-    let correction = role_builtin_tool_specs(
-        ExecutionRole::TaskExecutor,
-        false,
-        Some(&TaskTerminalContract {
-            has_correction_review: true,
-            ..TaskTerminalContract::default()
-        }),
-    )
-    .expect("correction Executor tools");
-    assert!(
-        correction
-            .iter()
-            .any(|tool| tool.name.as_str() == TASK_READ_SUBMISSION_EVIDENCE_TOOL)
-    );
 }
 
 #[tokio::test]
@@ -887,7 +846,6 @@ async fn task_executor_can_submit_only_the_exact_pending_connector_proposal() {
         ExecutionRole::TaskExecutor,
         false,
         capabilities,
-        None,
     )
     .await
     .expect("executor tools");

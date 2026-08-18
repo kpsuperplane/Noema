@@ -152,7 +152,6 @@ fn test_turn_with_selection(
         task_id: None,
         task_run_id: None,
         task_run_fence: None,
-        task_terminal_contract: None,
         cwd: None,
         provider_kind: provider_kind.clone(),
         model: model.clone(),

@@ -62,8 +62,6 @@ fn tasks_schema_exposes_exact_detail_attention_and_closed_vocabularies() {
         "TaskRecoveryReason",
         "TaskRunKind",
         "TaskRunStatus",
-        "TaskReviewVerdict",
-        "TaskCriterionOutcome",
         "TaskRunItemKind",
         "TaskRunItemStatus",
     ] {
@@ -74,18 +72,26 @@ fn tasks_schema_exposes_exact_detail_attention_and_closed_vocabularies() {
     }
     for field in [
         "descriptionPreview: String!",
-        "completedResult: TaskSubmission",
-        "citations: [TaskSubmissionCitation!]!",
+        "taskDocument: String!",
+        "reviewDocument: String",
         "messages: [TaskMessage!]!",
         "runs: [TaskRun!]!",
-        "submissions: [TaskSubmission!]!",
-        "reviews: [TaskReview!]!",
         "artifacts: [Artifact!]!",
         "task: TaskCard!",
         "gate: TaskGate",
-        "review: TaskReview",
     ] {
         assert!(sdl.contains(field), "missing schema field {field}");
+    }
+    for removed in [
+        "TaskExecutionContract",
+        "TaskSubmission",
+        "TaskReview",
+        "TaskValidationCriterionInput",
+        "contractId:",
+        "triggeringSubmissionId:",
+        "triggeringReviewId:",
+    ] {
+        assert!(!sdl.contains(removed), "obsolete schema content {removed}");
     }
     assert!(
         sdl.contains("kind: String!"),
@@ -235,10 +241,37 @@ async fn project_folder_and_task_executor_cwd_round_trip_through_graphql() {
         ("/captureTask/task/executorAgentId", serde_json::json!(agent.agent_id)),
         ("/captureTask/task/executorBackend", serde_json::json!("acp")),
         ("/captureTask/task/cwdOverride", serde_json::json!("/tmp/task-work")),
-        ("/captureTask/task/effectiveCwd", serde_json::json!("/tmp/task-work")),
+        (
+            "/captureTask/task/effectiveCwd",
+            serde_json::json!("/tmp/task-work/use-acp"),
+        ),
         ("/captureTask/task/effectiveCwdSource", serde_json::json!("task")),
         ("/captureTask/task/project/folder", serde_json::json!("/srv/code")),
     ]);
+
+    let listed = schema
+        .execute(
+            r#"query {
+              tasks(input: { workspaceId: "workspace:personal" }) {
+                edges { node { effectiveCwd effectiveCwdSource } }
+              }
+            }"#,
+        )
+        .await;
+    let listed = response_json(listed, "tasks json");
+    assert_json_values(
+        &listed,
+        &[
+            (
+                "/tasks/edges/0/node/effectiveCwd",
+                serde_json::json!("/tmp/task-work/use-acp"),
+            ),
+            (
+                "/tasks/edges/0/node/effectiveCwdSource",
+                serde_json::json!("task"),
+            ),
+        ],
+    );
 }
 
 #[tokio::test]
@@ -286,7 +319,8 @@ async fn capture_task_returns_authoritative_task_projection() {
                   revision
                   generation
                   schedule { scheduledFor timeZone recurrenceId recurrenceRevision }
-                  completedResult { submissionId }
+                  taskDocument
+                  reviewDocument
                   artifacts { artifactId }
                 }
                 eventCursor
@@ -307,7 +341,11 @@ async fn capture_task_returns_authoritative_task_projection() {
             ("/captureTask/task/schedule/scheduledFor", json!("2030-01-01T08:00:00Z")),
             ("/captureTask/task/schedule/timeZone", json!("UTC")),
             ("/captureTask/task/schedule/recurrenceRevision", json!(1)),
-            ("/captureTask/task/completedResult", serde_json::Value::Null),
+            (
+                "/captureTask/task/taskDocument",
+                json!("# Capture through Tasks\n\nA durable capture\n"),
+            ),
+            ("/captureTask/task/reviewDocument", serde_json::Value::Null),
             ("/captureTask/task/artifacts", json!([])),
         ],
     );
@@ -368,7 +406,6 @@ async fn task_gate_uses_the_unified_human_intervention_projection_until_resolved
         run_id: claimed.run.run_id,
         lease_token: claimed.lease_token,
         task_generation: claimed.run.task_generation,
-        contract_id: claimed.run.contract_id,
     };
     service
         .start_work_run(
@@ -381,17 +418,15 @@ async fn task_gate_uses_the_unified_human_intervention_projection_until_resolved
         .expect("start planner");
     let blocked = service
         .record_work_run_terminal(
-            noema_store::WorkRunTerminal::Plan(noema_store::SubmitPlan {
+            noema_store::WorkRunTerminal::Blocked(noema_store::ReportTaskBlocked {
                 fence,
-                terminal: noema_store::PlanTerminal::BlockingQuestion {
-                    prompt_markdown: "Which direction should the task take?".to_string(),
-                    context_markdown: "Choose the safest supported direction.".to_string(),
-                    suggested_answers: vec![
-                        "Use the safer route".to_string(),
-                        "Pause for now".to_string(),
-                    ],
-                    gate_kind: noema_tasks::TaskGateKind::Clarification,
-                },
+                prompt_markdown: "Which direction should the task take?".to_string(),
+                context_markdown: "Choose the safest supported direction.".to_string(),
+                suggested_answers: vec![
+                    "Use the safer route".to_string(),
+                    "Pause for now".to_string(),
+                ],
+                gate_kind: noema_tasks::TaskGateKind::Clarification,
             }),
             "actor:agent:test",
             None,

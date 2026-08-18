@@ -154,7 +154,13 @@ fn read_schema_objects(conn: &Connection) -> Vec<(String, String, String, Option
         .expect("prepare schema snapshot");
     let rows = statement
         .query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            let sql: Option<String> = row.get(3)?;
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                sql.map(|sql| sql.replace("REFERENCES \"agent_runs\"", "REFERENCES agent_runs")),
+            ))
         })
         .expect("query schema snapshot");
     rows.collect::<Result<Vec<_>, _>>()

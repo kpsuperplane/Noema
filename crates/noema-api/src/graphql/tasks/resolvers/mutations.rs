@@ -3,8 +3,8 @@ use noema_tasks::{
     AnswerTask, ArchiveProject, CancelTask, CaptureTask, ChangeTaskRecurrence, CreateProject,
     NewTaskRecurrence, NewTaskSchedule, ProjectPrecondition, QueueTask, RecurrenceCommandKind,
     RecurrencePrecondition, ReopenProject, ReopenTask, RetryTask, RunScheduledTaskNow,
-    RunTaskRecurrenceNow, ScheduleTask, TaskContractAmendment, TaskGateId, TaskProvenance,
-    TaskRecurrenceId, TaskSourceKind, UnscheduleTask, UpdateInboxTask, UpdateProject,
+    RunTaskRecurrenceNow, ScheduleTask, TaskGateId, TaskProvenance, TaskRecurrenceId,
+    TaskReopenDirection, TaskSourceKind, UnscheduleTask, UpdateInboxTask, UpdateProject,
     UpdateTaskRecurrence, WorkCommand,
 };
 
@@ -445,23 +445,13 @@ fenced_task_mutation! {
     /// Reopen a completed task with new direction.
     reopen_task(GraphqlReopenTaskInput, input) {
         prepare {
-            let replacement_criteria = input
-                .replacement_criteria
-                .map(|criteria| {
-                    criteria
-                        .into_iter()
-                        .map(GraphqlTaskValidationCriterionInput::try_into_domain)
-                        .collect::<Result<Vec<_>>>()
-                })
-                .transpose()?
-            let amendment = TaskContractAmendment {
+            let direction = TaskReopenDirection {
                 feedback_markdown: input.feedback_markdown,
                 request_markdown: input.request_markdown,
-                replacement_criteria,
                 complexity: input.complexity.map(Into::into),
             }
         }
-        command |meta, precondition| WorkCommand::ReopenTask(ReopenTask { meta, precondition, amendment })
+        command |meta, precondition| WorkCommand::ReopenTask(ReopenTask { meta, precondition, direction })
     }
 }
 

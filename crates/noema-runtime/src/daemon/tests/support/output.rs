@@ -58,12 +58,7 @@ fn task_delegate_tool_call(id: &str, title: &str, valid: bool) -> GenerateToolCa
             "project": {"kind": "none"},
             "execution_intent": {
                 "request_markdown": format!("Complete {title} and report the result."),
-                "complexity": "simple",
-                "criteria": [{
-                    "description": format!("{title} is complete"),
-                    "expected_evidence": "A concise sourced result"
-                }],
-                "execution_plan_markdown": format!("Complete the bounded {title} task.")
+                "complexity": "simple"
             }
         })
     } else {

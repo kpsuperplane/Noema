@@ -6,7 +6,7 @@ use crate::eval_support::{RuntimeEvalRole, runtime_eval_case_descriptors_for_rol
 #[test]
 fn onboarding_case_requires_the_name_tool_for_an_unnamed_agent() {
     let cases = evaluation_cases("local-model").expect("cases");
-    assert_eq!(cases.len(), 31, "qualification request contract changed");
+    assert_eq!(cases.len(), 32, "qualification request contract changed");
     let request = &cases
         .iter()
         .find(|case| case.id == "agent_onboarding_name")
@@ -120,11 +120,11 @@ fn suite_assigns_every_case_to_one_of_the_nine_model_settings() {
         );
     }
     for (role, case_id) in [
-        (RuntimeEvalRole::TaskSimple, "task_planner_simple_contract"),
-        (RuntimeEvalRole::TaskMedium, "task_planner_contract"),
+        (RuntimeEvalRole::TaskSimple, "task_planner_simple_finish"),
+        (RuntimeEvalRole::TaskMedium, "task_planner_finish"),
         (
             RuntimeEvalRole::TaskDifficult,
-            "task_planner_difficult_contract",
+            "task_planner_difficult_finish",
         ),
     ] {
         assert!(
@@ -191,14 +191,11 @@ fn stateful_cases_reserve_every_provider_round() {
 }
 
 #[test]
-fn task_tier_cases_render_the_selected_complexity() {
-    for (case_id, marker) in [
-        ("task_executor_submission", "Complexity: simple"),
-        ("task_executor_medium_submission", "Complexity: medium"),
-        (
-            "task_executor_difficult_submission",
-            "Complexity: difficult",
-        ),
+fn task_tier_cases_receive_candidate_reasoning_effort() {
+    for case_id in [
+        "task_executor_finish",
+        "task_executor_medium_finish",
+        "task_executor_difficult_finish",
     ] {
         let cases = evaluation_cases_for_roles(
             "local-model",
@@ -214,10 +211,6 @@ fn task_tier_cases_render_the_selected_complexity() {
             .iter()
             .find(|case| case.id == case_id)
             .expect("tier case");
-        let GenerateInput::Text(prompt) = &case.request.input else {
-            panic!("task tier case should use text input");
-        };
-        assert!(prompt.contains(marker), "{case_id} omitted {marker}");
         assert_eq!(
             case.request.options.reasoning_effort,
             Some(ReasoningEffort::High),
@@ -227,31 +220,40 @@ fn task_tier_cases_render_the_selected_complexity() {
 }
 
 #[test]
-fn task_cases_render_the_production_work_context_contract() {
+fn task_cases_render_current_task_documents_and_terminals() {
     let cases = evaluation_cases("local-model").expect("cases");
     for (case_id, expected_markers) in [
         (
-            "task_planner_contract",
+            "task_planner_finish",
             [
-                "Authenticated source request:\nFind hikes near Vancouver, BC",
-                "task.submit_plan",
+                "Authenticated source request:\nFind good hikes near Vancouver, BC",
+                "Current TASK.md follows",
             ],
         ),
         (
-            "task_executor_submission",
-            ["Complexity: simple", "Workspace snapshot:"],
+            "task_executor_finish",
+            [
+                "Current TASK.md follows",
+                "Primary recommendation: Cedar Loop",
+            ],
         ),
         (
             "task_reviewer_approval",
-            ["Executor submission:", "criterion:alpha:"],
+            [
+                "Current TASK.md follows",
+                "The launch code is **ORBIT-52**.",
+            ],
         ),
         (
             "task_reviewer_internal_contradiction",
-            ["Executor submission:", "NOVA-11"],
+            ["Current TASK.md follows", "NOVA-11"],
         ),
         (
             "task_executor_blocked",
-            ["criterion_id=criterion:region", "task.report_blocked"],
+            [
+                "required deployment region is missing",
+                "task.report_blocked",
+            ],
         ),
     ] {
         let case = cases
@@ -264,42 +266,39 @@ fn task_cases_render_the_production_work_context_contract() {
         for marker in expected_markers {
             assert!(prompt.contains(marker), "{case_id} omitted {marker}");
         }
-        if case_id != "task_planner_contract" {
+        if case_id != "task_planner_finish" {
             assert!(
                 !prompt.contains("Authenticated source request:"),
                 "{case_id} received source context outside planning"
             );
-        } else {
-            assert!(prompt.contains("one primary recommendation and at most two alternatives"));
-            assert!(prompt.contains("Default to simple"));
-            assert!(prompt.contains("Keep request_markdown to a concise restatement"));
-            assert!(prompt.contains("at most two short execution phases"));
-            assert!(prompt.contains("stop condition explicit"));
         }
     }
 
     let executor = cases
         .iter()
-        .find(|case| case.id == "task_executor_submission")
+        .find(|case| case.id == "task_executor_finish")
         .expect("executor case");
-    let GenerateInput::Text(executor_prompt) = &executor.request.input else {
-        panic!("executor case should use text input");
-    };
-    assert!(executor_prompt.contains("one discovery batch"));
-    assert!(executor_prompt.contains("roughly 180 words"));
-    assert!(executor_prompt.contains("reuse relevant work"));
-    assert!(executor_prompt.contains("complete replacement deliverable"));
-    assert!(executor_prompt.contains("never submit only a patch"));
+    assert!(
+        executor
+            .request
+            .tools
+            .iter()
+            .any(|tool| tool.name.as_str() == "task.finish_execution")
+    );
+    assert!(executor.request.tools.iter().all(|tool| {
+        matches!(
+            tool.name.as_str(),
+            "task.finish_execution" | "task.report_blocked"
+        )
+    }));
 
     let reviewer = cases
         .iter()
         .find(|case| case.id == "task_reviewer_approval")
         .expect("reviewer case");
-    let GenerateInput::Text(reviewer_prompt) = &reviewer.request.input else {
-        panic!("reviewer case should use text input");
-    };
-    assert!(reviewer_prompt.contains("complete authorized evidence"));
-    assert!(reviewer_prompt.contains("prior submissions are not inherited"));
-    assert!(reviewer_prompt.contains("assertion is not a substitute"));
-    assert!(reviewer_prompt.contains("background knowledge"));
+    assert_eq!(reviewer.request.tools.len(), 1);
+    assert_eq!(
+        reviewer.request.tools[0].name.as_str(),
+        "task.finish_review"
+    );
 }

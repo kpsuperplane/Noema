@@ -73,7 +73,14 @@ fn uncertain_gateway_failure_stops_provider_continuation() {
     assert!(!result.success);
     assert!(!result.requires_provider_continuation);
     assert!(result.is_blocked());
-    assert_eq!(result.payload, json!({"error": "capability outcome is uncertain"}));
+    assert_eq!(
+        result.payload,
+        json!({
+            "error": "outcome_uncertain",
+            "message": "capability outcome is uncertain",
+            "recovery": "stop"
+        })
+    );
 }
 
 #[tokio::test]
@@ -571,7 +578,11 @@ async fn unavailable_capability_remains_unadvertised_and_denied() {
     assert!(!result.success);
     assert_eq!(
         result.payload,
-        json!({"error": "capability operation is unavailable"})
+        json!({
+            "error": "unknown_operation",
+            "message": "capability operation is unavailable",
+            "recovery": "stop"
+        })
     );
     assert_eq!(result.persisted.arguments, None);
     assert_eq!(result.persisted.output, None);
@@ -805,7 +816,7 @@ async fn tool_declared_failed_capability_output_is_persisted_as_failed() {
 }
 
 #[tokio::test]
-async fn task_delegate_uses_the_initialized_reviewer_route() {
+async fn task_delegate_initializes_current_task_content() {
     let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     store
@@ -875,14 +886,9 @@ async fn task_delegate_uses_the_initialized_reviewer_route() {
                     "title": "Preserve the source account",
                     "description": "Verify exact task delegation provenance.",
                     "project": {"kind": "none"},
-                    "complexity_hint": "difficult",
                     "execution_intent": {
                         "request_markdown": "Verify exact task delegation provenance.",
-                        "complexity": "simple",
-                        "criteria": [{
-                            "description": "The reviewer retains the source provider account."
-                        }],
-                        "execution_plan_markdown": "Inspect the immutable reviewer selection."
+                        "complexity": "simple"
                     }
                 }),
             ),
@@ -897,24 +903,13 @@ async fn task_delegate_uses_the_initialized_reviewer_route() {
         .await
         .expect("read task")
         .expect("created task");
-    let contract = task.current_contract.expect("created contract");
-    assert_eq!(contract.complexity, noema_tasks::TaskComplexity::Simple);
-    assert_eq!(contract.reviewer_model.provider_kind, "codex");
     assert_eq!(
-        contract.reviewer_model.provider_account_id,
-        "provider_account:codex:default"
+        task.task.execution_complexity,
+        Some(noema_tasks::TaskComplexity::Simple)
     );
-    assert_eq!(
-        contract.reviewer_model.model_profile.as_deref(),
-        Some("gpt-5.6-luna")
-    );
-    assert_eq!(
-        contract.reviewer_model.reasoning_effort,
-        Some(noema_providers::ReasoningEffort::Low)
-    );
-    assert_eq!(
-        contract.reviewer_model.selection_source.as_deref(),
-        Some("agent:task-reviewer")
+    assert!(
+        task.task_document
+            .contains("Verify exact task delegation provenance.")
     );
 }
 

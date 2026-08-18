@@ -2,13 +2,11 @@ use noema_tasks::{AgentRunRecord, RunKind, RunStatus, TaskGateId, WorkDomainErro
 use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::{
-    ReportRunFailure, ReportTaskBlocked, SubmitTaskResult, WorkRunTerminal,
+    ReportRunFailure, ReportTaskBlocked, WorkRunTerminal,
     terminal_helpers::{
-        child_run_event_tx, contract_criterion_ids_tx, latest_run_event_tx,
-        load_terminal_run_identity_tx, notification_queued_event_for_run_tx, submission_matches_tx,
-        validate_namespace,
+        child_run_event_tx, latest_run_event_tx, load_terminal_run_identity_tx,
+        notification_queued_event_for_run_tx,
     },
-    terminal_plan, terminal_review,
 };
 use crate::{
     StoreError,
@@ -54,9 +52,6 @@ pub(super) fn replay_terminal_tx(
             None,
             Some(command.decision.as_str()),
         ),
-        WorkRunTerminal::Plan(command) => terminal_plan::replay_tx(transaction, command),
-        WorkRunTerminal::TaskResult(command) => replay_result_tx(transaction, command),
-        WorkRunTerminal::Review(command) => terminal_review::replay_tx(transaction, command),
         WorkRunTerminal::Blocked(command) => replay_blocked_tx(transaction, command),
     }
 }
@@ -100,24 +95,20 @@ fn replay_file_terminal_tx(
             return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
         }
         return Ok(Some(
-            helpers::task_write(event, run.task_id)
-                .contract(run.contract_id)
-                .run(Some(child_run_id)),
+            helpers::task_write(event, run.task_id).run(Some(child_run_id)),
         ));
     }
     if child.is_some() {
         return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
     }
-    if expected_kind == RunKind::Reviewer {
-        if let Some(replay) = replay_review_gate_tx(transaction, &run)? {
-            return Ok(Some(replay));
-        }
+    if expected_kind == RunKind::Reviewer
+        && let Some(replay) = replay_review_gate_tx(transaction, &run)?
+    {
+        return Ok(Some(replay));
     }
     let event = latest_run_event_tx(transaction, &run.run_id)?;
     Ok(Some(
-        helpers::task_write(event, run.task_id)
-            .contract(run.contract_id)
-            .run(Some(run.run_id)),
+        helpers::task_write(event, run.task_id).run(Some(run.run_id)),
     ))
 }
 
@@ -138,60 +129,8 @@ fn replay_review_gate_tx(
     let event = latest_run_event_tx(transaction, &run.run_id)?;
     Ok(Some(
         helpers::task_write(event, run.task_id.clone())
-            .contract(run.contract_id.clone())
             .gate(Some(TaskGateId::new(gate_id).map_err(StoreError::Work)?))
             .run(Some(run.run_id.clone())),
-    ))
-}
-
-fn replay_result_tx(
-    transaction: &Transaction<'_>,
-    command: &SubmitTaskResult,
-) -> Result<Option<helpers::CommandWrite>, StoreError> {
-    let run = load_terminal_run_identity_tx(transaction, &command.fence, Some(RunKind::Executor))?;
-    let contract_id = command
-        .fence
-        .contract_id
-        .as_ref()
-        .ok_or(StoreError::Work(WorkDomainError::ContractRequired))?;
-    let criterion_ids = contract_criterion_ids_tx(transaction, contract_id)?;
-    let submission = command
-        .submission
-        .normalized(&criterion_ids)
-        .map_err(StoreError::Work)?;
-    if submission.task_id != run.task_id
-        || submission.contract_id != *contract_id
-        || submission.executor_run_id != run.run_id
-    {
-        return Err(StoreError::Work(WorkDomainError::RunFenced));
-    }
-    if let Some(submission_id) = submission.submission_id.as_deref() {
-        validate_namespace(submission_id, "submission:", "submission.submission_id")?;
-    }
-    let existing: Option<(String, String)> = transaction
-        .query_row(
-            "SELECT submission_id, contract_id FROM task_submissions WHERE executor_run_id = ?1",
-            [run.run_id.as_str()],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()?;
-    let Some((existing_id, existing_contract)) = existing else {
-        return Ok(None);
-    };
-    if existing_contract != contract_id.as_str()
-        || !submission_matches_tx(transaction, &existing_id, &submission)?
-    {
-        return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
-    }
-    let child = child_run_event_tx(transaction, &run.run_id)?;
-    let (event, result_run_id) = child.map(|(run_id, event)| (event, run_id)).unwrap_or((
-        latest_run_event_tx(transaction, &run.run_id)?,
-        run.run_id.clone(),
-    ));
-    Ok(Some(
-        helpers::task_write(event, run.task_id)
-            .contract(Some(contract_id.clone()))
-            .run(Some(result_run_id)),
     ))
 }
 
@@ -252,7 +191,6 @@ pub(super) fn replay_blocked_tx(
     Ok(Some(
         helpers::task_write(event, run.task_id)
             .project(project_id)
-            .contract(run.contract_id)
             .gate(Some(TaskGateId::new(gate_id).map_err(StoreError::Work)?))
             .run(Some(run.run_id)),
     ))
@@ -321,7 +259,6 @@ pub(super) fn replay_failure_tx(
     Ok(Some(
         helpers::task_write(event, run.task_id)
             .project(project_id)
-            .contract(run.contract_id)
             .gate(gate_id)
             .run(Some(result_run_id)),
     ))

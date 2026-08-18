@@ -8,7 +8,7 @@ use crate::daemon::artifact_tool::{
 };
 
 #[tokio::test]
-async fn executor_reads_exact_versions_linked_to_its_task_contract() {
+async fn executor_reads_exact_versions_owned_by_its_task() {
     let fixture = executor_fixture("Executor artifact versions").await;
     let created =
         create_linked_artifact(&fixture, "linked.md", &["version one", "version two"]).await;
@@ -30,7 +30,7 @@ async fn executor_reads_exact_versions_linked_to_its_task_contract() {
 }
 
 #[tokio::test]
-async fn executor_rejects_unlinked_and_foreign_artifacts() {
+async fn executor_reads_task_owned_artifacts_and_rejects_foreign_artifacts() {
     let fixture = executor_fixture("Executor artifact scope").await;
     let unlinked = fixture
         .artifact_operations
@@ -70,18 +70,18 @@ async fn executor_rejects_unlinked_and_foreign_artifacts() {
         .await
         .expect("create foreign artifact");
 
-    let unlinked_error = read_artifact(&fixture, &unlinked.artifact.artifact_id, None)
+    let task_owned = read_artifact(&fixture, &unlinked.artifact.artifact_id, None)
         .await
-        .expect_err("unlinked artifact must be rejected");
+        .expect("task-owned artifact must be readable");
     let foreign_error = read_artifact(&fixture, &foreign.artifact.artifact_id, None)
         .await
         .expect_err("foreign artifact must be rejected");
-    assert!(unlinked_error.contains("not linked to an Executor run"));
+    assert_eq!(task_owned["content"].as_str(), Some("unlinked"));
     assert!(foreign_error.contains("not owned by the current task"));
 }
 
 #[tokio::test]
-async fn executor_rejects_artifact_from_prior_same_contract_run() {
+async fn executor_reads_task_owned_artifact_from_prior_run() {
     let fixture = executor_fixture("Executor prior artifact scope").await;
     let created = create_linked_artifact(&fixture, "prior.md", &["prior run output"]).await;
     let artifact_id = created["artifact_id"]
@@ -114,12 +114,10 @@ async fn executor_rejects_artifact_from_prior_same_contract_run() {
         .expect("claim successor")
         .expect("successor Executor");
     assert_ne!(successor.run.run_id, fixture.read_context.run_id);
-    assert_eq!(successor.run.contract_id, fixture.fence.contract_id);
     let successor_fence = WorkRunFence {
         run_id: successor.run.run_id.clone(),
         lease_token: successor.lease_token,
         task_generation: successor.run.task_generation,
-        contract_id: successor.run.contract_id,
     };
     service
         .start_work_run(
@@ -141,11 +139,11 @@ async fn executor_rejects_artifact_from_prior_same_contract_run() {
         agent_id: fixture.agent_id,
         fence: successor_fence,
     };
-    let error = read_artifact(&successor_fixture, &artifact_id, None)
+    let artifact = read_artifact(&successor_fixture, &artifact_id, None)
         .await
-        .expect_err("prior-run artifact must be rejected");
+        .expect("prior task-owned artifact must be readable");
 
-    assert!(error.contains("not linked to the current Executor run"));
+    assert_eq!(artifact["content"].as_str(), Some("prior run output"));
 }
 
 struct ExecutorArtifactFixture {
@@ -173,7 +171,6 @@ async fn executor_fixture(title: &str) -> ExecutorArtifactFixture {
         run_id: claimed.run.run_id.clone(),
         lease_token: claimed.lease_token,
         task_generation: claimed.run.task_generation,
-        contract_id: claimed.run.contract_id.clone(),
     };
     service
         .start_work_run(&fence, "actor:test", None, "correlation:artifact-test")

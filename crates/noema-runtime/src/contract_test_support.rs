@@ -30,8 +30,8 @@ use noema_providers::{
 };
 use noema_store::{AuxiliaryModelTask, NoemaStore, WorkCommandService};
 use noema_tasks::{
-    AgentRunRecord, CommandMeta, DelegateExecutionIntent, DelegateTask, NewTaskValidationCriterion,
-    TaskComplexity, TaskProvenance, TaskRecord, TaskSourceKind, WorkCommand,
+    AgentRunRecord, CommandMeta, DelegateExecutionIntent, DelegateTask, TaskComplexity,
+    TaskProvenance, TaskRecord, TaskSourceKind, WorkCommand,
 };
 use noema_workspaces::WorkspaceId;
 
@@ -209,15 +209,7 @@ pub async fn seed_task_with_executor(
             complexity_hint: None,
             execution_intent: Some(DelegateExecutionIntent {
                 request_markdown: title.to_string(),
-                criteria: vec![NewTaskValidationCriterion {
-                    criterion_id: None,
-                    ordinal: 1,
-                    description: "The seeded runtime task has a complete execution result."
-                        .to_string(),
-                    expected_evidence: None,
-                }],
                 complexity: TaskComplexity::Simple,
-                execution_plan_markdown: Some("Run the seeded task fixture.".to_string()),
             }),
         }))
         .await

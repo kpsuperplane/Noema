@@ -66,12 +66,11 @@ pub(crate) fn open_recovery_gate_tx(
     } = request;
     let gate_id = noema_tasks::TaskGateId::new(allocate_id("gate")).map_err(StoreError::Work)?;
     transaction.execute(
-        "INSERT INTO task_gates (gate_id, task_id, task_generation, contract_id, gate_kind, gate_state, recovery_reason, retry_run_kind, prompt_markdown, context_markdown, opened_by_actor_id, originating_run_id) VALUES (?1, ?2, ?3, ?4, 'recovery', 'open', ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO task_gates (gate_id, task_id, task_generation, gate_kind, gate_state, recovery_reason, retry_run_kind, prompt_markdown, context_markdown, opened_by_actor_id, originating_run_id) VALUES (?1, ?2, ?3, 'recovery', 'open', ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             gate_id.as_str(),
             task.task_id.as_str(),
             task.generation,
-            task.current_contract_id.as_ref().map(ToString::to_string),
             recovery_reason.as_str(),
             retry_run_kind.as_str(),
             prompt,
@@ -149,7 +148,6 @@ pub(crate) fn open_recovery_gate_tx(
     }
     Ok(helpers::task_write(event, task.task_id.clone())
         .project(task.project_id.clone())
-        .contract(task.current_contract_id.clone())
         .gate(Some(gate_id))
         .run(originating_run_id.map(ToOwned::to_owned)))
 }

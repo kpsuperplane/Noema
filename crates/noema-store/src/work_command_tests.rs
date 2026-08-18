@@ -6,15 +6,13 @@ use noema_capabilities::{
 };
 use noema_conversations::{ConversationItemKind, ReplayMode};
 use noema_tasks::{
-    AgentRunItemKind, AgentRunItemStatus, AnswerTask, CancelTask, CaptureTask, CommandMeta,
-    CreateProject, CriterionOutcome, DelegateExecutionIntent, DelegateTask, MissedRunPolicy,
-    NewAgentRunItem, NewTaskRecurrence, NewTaskReview, NewTaskSchedule, NewTaskSubmission,
-    NewTaskValidationCriterion, OverlapPolicy, QueueTask, ReopenTask, RetryTask,
-    RunScheduledTaskNow, RunStatus, RunTaskRecurrenceNow, SafeErrorCode, ScheduleTask,
-    SubmissionCriterionEvidence, TaskAuthorizationContext, TaskComplexity, TaskContractAmendment,
-    TaskGateAnswer, TaskGateId, TaskGateKind, TaskMessageKind, TaskPrecondition, TaskProvenance,
-    TaskRecoveryReason, TaskReviewCriterion, TaskReviewVerdict, TaskSourceKind, UnscheduleTask,
-    UpdateInboxTask, UpdateTaskRecurrence, WorkCommand, WorkDomainError, WorkflowStageBehavior,
+    AgentRunItemKind, AgentRunItemStatus, CancelTask, CaptureTask, CommandMeta, CreateProject,
+    DelegateExecutionIntent, DelegateTask, MissedRunPolicy, NewAgentRunItem, NewTaskRecurrence,
+    NewTaskSchedule, OverlapPolicy, QueueTask, RetryTask, RunScheduledTaskNow, RunStatus,
+    RunTaskRecurrenceNow, SafeErrorCode, ScheduleTask, TaskAuthorizationContext, TaskComplexity,
+    TaskGateKind, TaskPrecondition, TaskProvenance, TaskRecoveryReason, TaskReviewVerdict,
+    TaskSourceKind, UnscheduleTask, UpdateInboxTask, UpdateTaskRecurrence, WorkCommand,
+    WorkDomainError, WorkflowStageBehavior,
 };
 use noema_workspaces::WorkspaceId;
 
@@ -25,10 +23,8 @@ use crate::{
     GovernedRisk, NewCapabilityAuthenticationRequest, NewGovernedAction,
     NewGovernedActionAssessment, NewRuntimeDebugSpan, NoemaStore, ReportRunFailure,
     ReportTaskBlocked, RuntimeDebugMetadata, RuntimeDebugScope, RuntimeDebugSpanCategory,
-    RuntimeDebugSpanStatus, StoreError, SubmitTaskResult, SubmitTaskReview,
-    WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService, WorkEventBeforeQuery,
-    WorkEventQuery, WorkNotificationLeaseRequest, WorkPageSize, WorkRunFence,
-    WorkRunItemOwnerScope, WorkRunTerminal,
+    RuntimeDebugSpanStatus, StoreError, WorkCommandService, WorkEventBeforeQuery, WorkEventQuery,
+    WorkNotificationLeaseRequest, WorkPageSize, WorkRunFence, WorkRunTerminal,
     test_support::{
         initialize_codex_provider_selections, open_ephemeral_store, ready_hosted_provider_registry,
     },
@@ -79,7 +75,6 @@ async fn final_run_status_finishes_active_items_and_debug_spans() {
             run_id: claimed.run.run_id.clone(),
             lease_token: claimed.lease_token,
             task_generation: claimed.run.task_generation,
-            contract_id: claimed.run.contract_id,
         };
         service
             .start_work_run(&fence, ACTOR, None, &format!("correlation:{case}"))
@@ -193,7 +188,6 @@ async fn task_files_carry_execution_across_continuation_and_review() {
         run_id: first.run.run_id.clone(),
         lease_token: first.lease_token,
         task_generation: first.run.task_generation,
-        contract_id: first.run.contract_id,
     };
     service
         .start_work_run(&first_fence, ACTOR, None, "correlation:file-lifecycle:one")
@@ -230,7 +224,6 @@ async fn task_files_carry_execution_across_continuation_and_review() {
         run_id: second.run.run_id.clone(),
         lease_token: second.lease_token,
         task_generation: second.run.task_generation,
-        contract_id: second.run.contract_id,
     };
     service
         .start_work_run(&second_fence, ACTOR, None, "correlation:file-lifecycle:two")
@@ -277,7 +270,6 @@ async fn task_files_carry_execution_across_continuation_and_review() {
         run_id: reviewer.run.run_id.clone(),
         lease_token: reviewer.lease_token,
         task_generation: reviewer.run.task_generation,
-        contract_id: reviewer.run.contract_id,
     };
     service
         .start_work_run(
@@ -510,14 +502,7 @@ fn direct_delegated(key: &str, source: &str) -> WorkCommand {
     };
     command.execution_intent = Some(DelegateExecutionIntent {
         request_markdown: "Perform the exact delegated work".to_string(),
-        criteria: vec![NewTaskValidationCriterion {
-            criterion_id: None,
-            ordinal: 1,
-            description: "Return a result".to_string(),
-            expected_evidence: None,
-        }],
         complexity: TaskComplexity::Simple,
-        execution_plan_markdown: None,
     });
     WorkCommand::DelegateTask(command)
 }
@@ -531,66 +516,6 @@ async fn event_count(store: &NoemaStore) -> i64 {
         })
         .await
         .expect("event count")
-}
-
-#[tokio::test]
-async fn reconciliation_uses_only_the_current_resolved_gate() {
-    let (store, service) = fixture().await;
-    let task = task!(
-        service,
-        direct_delegated("idem:current-gate", "current-gate"),
-        "direct task"
-    );
-    let task_id = task.task_id.to_string();
-    let contract_id = task
-        .current_contract_id
-        .expect("current contract")
-        .to_string();
-    store
-        .with_connection(move |connection| {
-            connection.execute(
-                "UPDATE tasks SET generation = 2, latest_run_id = NULL WHERE task_id = ?1",
-                [&task_id],
-            )?;
-            connection.execute(
-                "UPDATE task_execution_contracts SET task_generation = 2 WHERE contract_id = ?1",
-                [&contract_id],
-            )?;
-            for (name, generation, contract, run_kind, resolved_at) in [
-                ("old", 1, Some(contract_id.as_str()), "planner", "2026-01-01T00:00:01Z"),
-                ("current", 2, Some(contract_id.as_str()), "executor", "2026-01-01T00:00:02Z"),
-                ("replaced", 2, None, "reviewer", "2026-01-01T00:00:03Z"),
-            ] {
-                let gate_id = format!("gate:{name}");
-                let message_id = format!("task_message:{name}");
-                connection.execute(
-                    "INSERT INTO task_gates (gate_id, task_id, task_generation, contract_id, gate_kind, gate_state, recovery_reason, retry_run_kind, prompt_markdown, opened_by_actor_id) VALUES (?1, ?2, ?3, ?4, 'recovery', 'open', 'configuration_unavailable', ?5, 'Retry current work', ?6)",
-                    rusqlite::params![gate_id, task_id, generation, contract, run_kind, ACTOR],
-                )?;
-                connection.execute(
-                    "INSERT INTO task_messages (message_id, task_id, task_generation, contract_id, gate_id, message_kind, body_markdown, author_actor_id) VALUES (?1, ?2, ?3, ?4, ?5, 'retry_note', 'Retry', ?6)",
-                    rusqlite::params![message_id, task_id, generation, contract, gate_id, ACTOR],
-                )?;
-                connection.execute(
-                    "UPDATE task_gates SET gate_state = 'resolved', resolved_by_actor_id = ?2, resolution_message_id = ?3, resolved_at = ?4 WHERE gate_id = ?1",
-                    rusqlite::params![gate_id, ACTOR, message_id, resolved_at],
-                )?;
-            }
-            Ok(())
-        })
-        .await
-        .expect("resolved gate history");
-
-    let envelope = store
-        .load_work_reconciliation_snapshot(&task.task_id)
-        .await
-        .expect("load snapshot")
-        .expect("task snapshot");
-    let action = crate::plan_work_reconciliation(&envelope).expect("valid recovery step");
-    assert_eq!(
-        crate::action_run_kind(&action),
-        Some(noema_tasks::RunKind::Executor)
-    );
 }
 
 #[tokio::test]
@@ -1142,7 +1067,7 @@ async fn inbox_project_update_distinguishes_omitted_replacement_and_explicit_cle
 }
 
 #[tokio::test]
-async fn acp_executor_contract_freezes_launch_revision_and_exact_cwd_precedence() {
+async fn acp_executor_resolves_launch_at_start_and_uses_task_directory_precedence() {
     let (store, service) = fixture().await;
     let agent = store
         .create_acp_agent("Fake ACP", "/bin/false", &["--safe".to_string()])
@@ -1231,6 +1156,30 @@ async fn acp_executor_contract_freezes_launch_revision_and_exact_cwd_precedence(
         .unwrap();
     assert_eq!(updated.connection_revision, 2);
     assert_eq!(project_run.executor.acp.unwrap().command, "/bin/false");
+
+    let claimed = service
+        .claim_next_work_run("worker:acp-current-settings", 60, &[])
+        .await
+        .expect("claim project Task")
+        .expect("queued project Task");
+    assert_eq!(claimed.run.run_id, project_run.run_id);
+    let fence = WorkRunFence {
+        run_id: claimed.run.run_id.clone(),
+        lease_token: claimed.lease_token,
+        task_generation: claimed.run.task_generation,
+    };
+    service
+        .start_work_run(&fence, ACTOR, None, "correlation:acp-current-settings")
+        .await
+        .expect("start project Task");
+    let started = store
+        .get_work_run_record(&fence.run_id)
+        .await
+        .expect("read started run")
+        .expect("started run");
+    let launch = started.executor.acp.expect("current ACP launch");
+    assert_eq!(launch.connection_revision, 2);
+    assert_eq!(launch.command, "/bin/true");
 }
 
 #[tokio::test]
@@ -1279,7 +1228,6 @@ async fn acp_permission_decisions_match_exactly_and_approvals_are_consumed_once(
         run_id: claimed.run.run_id.clone(),
         lease_token: claimed.lease_token,
         task_generation: claimed.run.task_generation,
-        contract_id: claimed.run.contract_id,
     };
     service
         .start_work_run(&fence, ACTOR, None, "correlation:acp:permission")
@@ -1288,7 +1236,6 @@ async fn acp_permission_decisions_match_exactly_and_approvals_are_consumed_once(
     let exact = serde_json::json!({
         "agent_id": "agent:acp:test",
         "task_generation": task.generation,
-        "contract_id": fence.contract_id,
         "tool_call": {"toolCallId": "tool:exact", "rawInput": {"path": "/tmp/exact"}},
         "options": [{"optionId": "allow", "kind": "allow_once"}],
         "allow_once_option_id": "allow",
@@ -1367,7 +1314,6 @@ async fn acp_permission_decisions_match_exactly_and_approvals_are_consumed_once(
         run_id: denied_claim.run.run_id,
         lease_token: denied_claim.lease_token,
         task_generation: denied_claim.run.task_generation,
-        contract_id: denied_claim.run.contract_id,
     };
     service
         .start_work_run(&denied_fence, ACTOR, None, "correlation:acp:denial")
@@ -1430,7 +1376,6 @@ async fn inline_governed_action_cannot_resume_a_later_task_gate() {
         run_id: claimed.run.run_id.clone(),
         lease_token: claimed.lease_token,
         task_generation: claimed.run.task_generation,
-        contract_id: claimed.run.contract_id,
     };
     service
         .start_work_run(&fence, ACTOR, None, "correlation:inline-action-gate")
@@ -1582,7 +1527,6 @@ async fn uncertain_capability_authentication_opens_typed_recovery_gate() {
         run_id: claimed.run.run_id,
         lease_token: claimed.lease_token,
         task_generation: claimed.run.task_generation,
-        contract_id: claimed.run.contract_id,
     };
     service
         .start_work_run(&fence, ACTOR, None, "correlation:auth-uncertain")
@@ -1839,7 +1783,6 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
         run_id: claimed.run.run_id.clone(),
         lease_token: claimed.lease_token,
         task_generation: claimed.run.task_generation,
-        contract_id: claimed.run.contract_id.clone(),
     };
     service
         .start_work_run(&fence, ACTOR, None, "correlation:governed")
@@ -1891,31 +1834,11 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
         run_id: claimed.run.run_id,
         lease_token: claimed.lease_token,
         task_generation: claimed.run.task_generation,
-        contract_id: claimed.run.contract_id,
     };
     service
         .start_work_run(&fence, ACTOR, None, "correlation:governed:retry")
         .await
         .expect("start retry");
-    service
-        .admit_work_run_execution_context(&fence, ACTOR, None, "correlation:governed")
-        .await
-        .expect("admit parent checkpoint");
-    let parent_item_limit =
-        i64::try_from(WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN).expect("lineage limit fits i64");
-    let parent_run_id = fence.run_id.clone();
-    store
-        .with_connection(move |connection| {
-            connection.execute(
-                "WITH RECURSIVE item(n) AS (SELECT 0 UNION ALL SELECT n + 1 FROM item WHERE n < ?2)
-                 INSERT INTO agent_run_items (item_id, run_id, sequence_index, round_index, kind, status, content_text)
-                 SELECT 'run_item:governed:' || n, ?1, n + 1, 0, 'progress_notice', 'completed', replace(printf('%6000c', 'x'), ' ', 'x') || ' parent item ' || n FROM item",
-                rusqlite::params![parent_run_id, parent_item_limit],
-            )?;
-            Ok(())
-        })
-        .await
-        .expect("append oversized parent transcript");
     let action = store
         .create_governed_action(NewGovernedAction {
             owner_human_id: "human:local".to_string(),
@@ -2008,7 +1931,6 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
         run_id: claimed_child.run.run_id,
         lease_token: claimed_child.lease_token,
         task_generation: claimed_child.run.task_generation,
-        contract_id: claimed_child.run.contract_id,
     };
     service
         .start_work_run(&child_fence, ACTOR, None, "correlation:governed:child")
@@ -2018,12 +1940,7 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
         .admit_work_run_execution_context(&child_fence, ACTOR, None, "correlation:governed:child")
         .await
         .expect("admit child from bounded parent transcript");
-    assert!(admitted_child.context.lineage.len() < WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN);
-    assert!(admitted_child.context.lineage.iter().any(|item| {
-        item.content_text
-            .as_deref()
-            .is_some_and(|content| content.ends_with("parent item 24"))
-    }));
+    assert!(admitted_child.context.lineage.is_empty());
     assert_eq!(
         store
             .get_work_run_record(&fence.run_id)
@@ -2032,593 +1949,6 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
             .expect("parent run")
             .status,
         noema_tasks::RunStatus::Completed
-    );
-}
-
-fn delegated_review_case(key: &str, complexity: TaskComplexity) -> WorkCommand {
-    let WorkCommand::DelegateTask(mut command) = delegated(key, "review-case", None) else {
-        unreachable!()
-    };
-    command.execution_intent = Some(DelegateExecutionIntent {
-        request_markdown: "Complete the review fixture.".to_string(),
-        criteria: vec![NewTaskValidationCriterion {
-            criterion_id: Some("criterion:review-case".to_string()),
-            ordinal: 1,
-            description: "The fixture has a complete result.".to_string(),
-            expected_evidence: None,
-        }],
-        complexity,
-        execution_plan_markdown: Some("Use the fixture result.".to_string()),
-    });
-    WorkCommand::DelegateTask(command)
-}
-
-async fn run_review_case(
-    complexity: TaskComplexity,
-    verdict: TaskReviewVerdict,
-) -> (
-    NoemaStore,
-    WorkCommandService,
-    noema_tasks::TaskRecord,
-    serde_json::Value,
-    Option<TaskGateId>,
-) {
-    let (store, service) = fixture().await;
-    let created = service
-        .execute(delegated_review_case(
-            &format!("idem:review-case:{}", complexity.as_str()),
-            complexity,
-        ))
-        .await
-        .expect("delegate review case");
-    let task = created.task.expect("delegated task");
-    let claimed_executor = service
-        .claim_next_work_run("worker:review-case:executor", 60, &[])
-        .await
-        .expect("claim executor")
-        .expect("executor run");
-    let executor_run_id = claimed_executor.run.run_id.clone();
-    let executor_fence = WorkRunFence {
-        run_id: executor_run_id.clone(),
-        lease_token: claimed_executor.lease_token,
-        task_generation: claimed_executor.run.task_generation,
-        contract_id: claimed_executor.run.contract_id.clone(),
-    };
-    let contract_id = executor_fence.contract_id.clone().expect("contract");
-    service
-        .start_work_run(
-            &executor_fence,
-            ACTOR,
-            None,
-            "correlation:review-case:executor",
-        )
-        .await
-        .expect("start executor");
-    let executor_terminal = WorkRunTerminal::TaskResult(SubmitTaskResult {
-        fence: executor_fence,
-        submission: NewTaskSubmission {
-            submission_id: Some("submission:review-case".to_string()),
-            task_id: task.task_id.clone(),
-            contract_id: contract_id.clone(),
-            executor_run_id: executor_run_id.clone(),
-            review_round: 1,
-            summary: "Fixture result".to_string(),
-            result_markdown: "The fixture completed.".to_string(),
-            citations: vec![noema_tasks::TaskSubmissionCitation {
-                title: "Example source".to_string(),
-                url: "https://example.com/source".to_string(),
-                start_index: None,
-                end_index: Some(22),
-            }],
-            criteria: vec![SubmissionCriterionEvidence {
-                criterion_id: "criterion:review-case".to_string(),
-                evidence_markdown: "The fixture result is present.".to_string(),
-            }],
-            artifact_ids: Vec::new(),
-        },
-    });
-    service
-        .record_work_run_terminal(
-            executor_terminal.clone(),
-            ACTOR,
-            None,
-            "correlation:review-case:submission",
-        )
-        .await
-        .expect("submit executor result");
-    service
-        .record_work_run_terminal(
-            executor_terminal,
-            ACTOR,
-            None,
-            "correlation:review-case:submission-replay",
-        )
-        .await
-        .expect("replay exact executor result");
-    let executor_run_for_items = executor_run_id.clone();
-    store
-        .with_connection(move |connection| {
-            let large_payload = serde_json::to_string(&serde_json::json!({
-                "saved_evidence": "x".repeat(70_000)
-            }))?;
-            connection.execute(
-                r#"INSERT INTO agent_run_items (item_id, run_id, sequence_index, round_index, kind, status, content_text, payload_json)
-                 VALUES ('run_item:review-case:executor-text', ?1, (SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM agent_run_items WHERE run_id = ?1), 0, 'assistant_output', 'completed', 'Authorized account label: Personal', '{"source_id":"source:ordinary:1"}')"#,
-                [executor_run_for_items.as_str()],
-            )?;
-            connection.execute(
-                r#"INSERT INTO agent_run_items (item_id, run_id, sequence_index, round_index, kind, status, correlation_id, content_text, payload_json)
-                 VALUES ('run_item:review-case:executor-result', ?1, (SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM agent_run_items WHERE run_id = ?1), 0, 'tool_result', 'failed', 'call:uncertain:1', 'The external outcome is uncertain.', '{"outcome":"uncertain","receipt_id":"receipt:ordinary:1"}')"#,
-                [executor_run_for_items.as_str()],
-            )?;
-            for suffix in ["large-one", "large-two"] {
-                connection.execute(
-                    "INSERT INTO agent_run_items (item_id, run_id, sequence_index, round_index, kind, status, content_text, payload_json) VALUES (?1, ?2, (SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM agent_run_items WHERE run_id = ?2), 0, 'tool_result', 'completed', 'fixture.large_evidence', ?3)",
-                    rusqlite::params![
-                        format!("run_item:review-case:{suffix}"),
-                        executor_run_for_items.as_str(),
-                        large_payload.as_str(),
-                    ],
-                )?;
-            }
-            Ok(())
-        })
-        .await
-        .expect("append executor transcript");
-    let claimed_reviewer = service
-        .claim_next_work_run("worker:review-case:reviewer", 60, &[])
-        .await
-        .expect("claim reviewer")
-        .expect("reviewer run");
-    let reviewer_fence = WorkRunFence {
-        run_id: claimed_reviewer.run.run_id.clone(),
-        lease_token: claimed_reviewer.lease_token,
-        task_generation: claimed_reviewer.run.task_generation,
-        contract_id: claimed_reviewer.run.contract_id.clone(),
-    };
-    service
-        .start_work_run(
-            &reviewer_fence,
-            ACTOR,
-            None,
-            "correlation:review-case:reviewer",
-        )
-        .await
-        .expect("start reviewer");
-    let reviewer_context = service
-        .admit_work_run_execution_context(
-            &reviewer_fence,
-            ACTOR,
-            None,
-            "correlation:review-case:reviewer-context",
-        )
-        .await
-        .expect("admit reviewer context");
-    assert!(reviewer_context.context.lineage.is_empty());
-    assert_eq!(
-        reviewer_context
-            .context
-            .latest_submission
-            .as_ref()
-            .expect("latest submission")
-            .citations[0]
-            .url,
-        "https://example.com/source"
-    );
-    let exact_result = store
-        .read_work_run_item(
-            WorkRunItemOwnerScope {
-                workspace_id: task.workspace_id.clone(),
-                task_id: Some(task.task_id.clone()),
-            },
-            &executor_run_id,
-            "run_item:review-case:executor-result",
-        )
-        .await
-        .expect("read submitted executor item")
-        .expect("submitted executor item");
-    assert_eq!(exact_result.status, AgentRunItemStatus::Failed);
-    assert_eq!(exact_result.payload["outcome"], "uncertain");
-    assert!(reviewer_context.context.latest_submission.is_some());
-    let result = service
-        .record_work_run_terminal(
-            WorkRunTerminal::Review(SubmitTaskReview {
-                fence: reviewer_fence,
-                review: NewTaskReview {
-                    review_id: Some("review:review-case".to_string()),
-                    task_id: task.task_id.clone(),
-                    contract_id,
-                    reviewer_run_id: claimed_reviewer.run.run_id,
-                    reviewed_submission_id: "submission:review-case".to_string(),
-                    review_attempt_index: 1,
-                    supersedes_review_id: None,
-                    overall_verdict: verdict,
-                    human_gate_kind: (verdict == TaskReviewVerdict::NeedsHuman)
-                        .then_some(TaskGateKind::Clarification),
-                    overall_feedback: "All fixture evidence passes.".to_string(),
-                    criteria: vec![TaskReviewCriterion {
-                        criterion_id: "criterion:review-case".to_string(),
-                        outcome: match verdict {
-                            TaskReviewVerdict::Approve => CriterionOutcome::Pass,
-                            TaskReviewVerdict::RequestChanges => CriterionOutcome::Fail,
-                            TaskReviewVerdict::NeedsHuman => CriterionOutcome::Uncertain,
-                        },
-                        evidence_markdown: Some("The submitted evidence is complete.".to_string()),
-                        feedback: (verdict == TaskReviewVerdict::RequestChanges)
-                            .then(|| "The result must include the required value.".to_string()),
-                    }],
-                },
-            }),
-            ACTOR,
-            None,
-            "correlation:review-case:review",
-        )
-        .await
-        .expect("submit reviewer result");
-    let gate_id = result.gate_id.clone();
-    let payload = if verdict == TaskReviewVerdict::RequestChanges {
-        serde_json::json!({})
-    } else {
-        let notification_kind = if verdict == TaskReviewVerdict::Approve {
-            "task_completed"
-        } else {
-            "task_waiting"
-        };
-        let payload_json: String = store
-            .with_connection(|connection| {
-                connection
-                    .query_row(
-                        "SELECT payload_json FROM work_notification_outbox WHERE notification_kind = ?1 ORDER BY notification_id DESC LIMIT 1",
-                        [notification_kind],
-                        |row| row.get(0),
-                    )
-                    .map_err(StoreError::Sqlite)
-            })
-            .await
-            .expect("review notification");
-        serde_json::from_str(&payload_json).expect("notification payload")
-    };
-    (
-        store,
-        service,
-        result.task.expect("review task"),
-        payload,
-        gate_id,
-    )
-}
-
-#[tokio::test]
-async fn approved_reviews_complete_tasks_at_every_complexity() {
-    for complexity in [TaskComplexity::Simple, TaskComplexity::Medium] {
-        let (_, _, task, notification, _) =
-            run_review_case(complexity, TaskReviewVerdict::Approve).await;
-        assert_eq!(task.stage_id.as_str(), noema_tasks::PERSONAL_DONE_STAGE_ID);
-        assert_eq!(
-            task.completed_submission_id.as_deref(),
-            Some("submission:review-case")
-        );
-        assert_eq!(notification["action_needed"], false);
-    }
-}
-
-#[tokio::test]
-async fn executor_context_uses_only_the_review_saved_on_a_correction_run() {
-    let (first_store, first_service) = fixture().await;
-    let first_task = first_service
-        .execute(direct_delegated("idem:first-review-input", "first"))
-        .await
-        .expect("delegate first task")
-        .task
-        .expect("first task");
-    let first_claim = first_service
-        .claim_next_work_run("worker:first-review-input", 60, &[])
-        .await
-        .expect("claim first run")
-        .expect("first run");
-    let first_fence = WorkRunFence {
-        run_id: first_claim.run.run_id.clone(),
-        lease_token: first_claim.lease_token,
-        task_generation: first_claim.run.task_generation,
-        contract_id: first_claim.run.contract_id,
-    };
-    first_service
-        .start_work_run(&first_fence, ACTOR, None, "correlation:first-review-input")
-        .await
-        .expect("start first run");
-    first_store
-        .with_connection(move |connection| {
-            connection.execute(
-                "UPDATE tasks SET latest_review_id = 'review:not-for-first-run' WHERE task_id = ?1",
-                [first_task.task_id.as_str()],
-            )?;
-            Ok(())
-        })
-        .await
-        .expect("change latest review");
-    let first_context = first_store
-        .get_work_run_execution_context(&first_fence.run_id)
-        .await
-        .expect("first context")
-        .expect("first context row");
-    assert!(first_context.latest_review.is_none());
-
-    let (store, service, task, _, _) =
-        run_review_case(TaskComplexity::Medium, TaskReviewVerdict::RequestChanges).await;
-    let correction = service
-        .claim_next_work_run("worker:correction-review-input", 60, &[])
-        .await
-        .expect("claim correction")
-        .expect("correction run");
-    assert_eq!(correction.run.review_round, 2);
-    assert_eq!(
-        correction.run.triggering_review_id.as_deref(),
-        Some("review:review-case")
-    );
-    let correction_fence = WorkRunFence {
-        run_id: correction.run.run_id.clone(),
-        lease_token: correction.lease_token,
-        task_generation: correction.run.task_generation,
-        contract_id: correction.run.contract_id,
-    };
-    service
-        .start_work_run(
-            &correction_fence,
-            ACTOR,
-            None,
-            "correlation:correction-review-input",
-        )
-        .await
-        .expect("start correction");
-    let correction_run_id = correction_fence.run_id.clone();
-    let task_id = task.task_id.clone();
-    store
-        .with_connection(move |connection| {
-            connection.execute(
-                "UPDATE tasks SET latest_review_id = 'review:not-the-trigger' WHERE task_id = ?1",
-                [task_id.as_str()],
-            )?;
-            Ok(())
-        })
-        .await
-        .expect("replace latest review pointer");
-    let exact = store
-        .get_work_run_execution_context(&correction_run_id)
-        .await
-        .expect("correction context")
-        .expect("correction context row");
-    assert_eq!(
-        exact
-            .latest_review
-            .as_ref()
-            .map(|review| review.review_id.as_str()),
-        Some("review:review-case")
-    );
-
-    store
-        .with_connection({
-            let correction_run_id = correction_run_id.clone();
-            move |connection| {
-                connection.execute(
-                    "UPDATE agent_runs SET triggering_review_id = NULL WHERE run_id = ?1",
-                    [correction_run_id],
-                )?;
-                Ok(())
-            }
-        })
-        .await
-        .expect("remove trigger");
-    let missing = store
-        .get_work_run_execution_context(&correction_run_id)
-        .await
-        .expect_err("missing correction review must fail");
-    assert!(matches!(
-        missing,
-        StoreError::InvariantViolation { message }
-            if message.contains("has no triggering review")
-    ));
-
-    let other_task = service
-        .execute(capture("idem:unrelated-review-task", "Other task"))
-        .await
-        .expect("capture other task")
-        .task
-        .expect("other task");
-    store
-        .with_connection({
-            let correction_run_id = correction_run_id.clone();
-            move |connection| {
-                connection.execute(
-                    "UPDATE agent_runs SET triggering_review_id = 'review:review-case' WHERE run_id = ?1",
-                    [correction_run_id],
-                )?;
-                connection.execute(
-                    "UPDATE task_reviews SET task_id = ?1 WHERE review_id = 'review:review-case'",
-                    [other_task.task_id.as_str()],
-                )?;
-                Ok(())
-            }
-        })
-        .await
-        .expect("make review unrelated");
-    let unrelated = store
-        .get_work_run_execution_context(&correction_run_id)
-        .await
-        .expect_err("unrelated correction review must fail");
-    assert!(matches!(
-        unrelated,
-        StoreError::InvariantViolation { message }
-            if message.contains("foreign review")
-    ));
-}
-
-#[tokio::test]
-async fn reviewer_answer_carries_prior_review_into_continuation_context() {
-    let (_, service, waiting, _, gate_id) =
-        run_review_case(TaskComplexity::Medium, TaskReviewVerdict::NeedsHuman).await;
-    service
-        .execute(WorkCommand::AnswerTask(AnswerTask {
-            meta: metadata("idem:review-case:answer"),
-            precondition: precondition(&waiting),
-            gate_id: gate_id.expect("reviewer gate"),
-            answer: TaskGateAnswer {
-                message_markdown: "The secondary evidence is acceptable.".to_string(),
-                approval_decision: None,
-            },
-        }))
-        .await
-        .expect("answer reviewer gate");
-    let claimed = service
-        .claim_next_work_run("worker:review-case:continuation", 60, &[])
-        .await
-        .expect("claim reviewer continuation")
-        .expect("reviewer continuation");
-    assert!(claimed.run.triggering_review_id.is_none());
-    let fence = WorkRunFence {
-        run_id: claimed.run.run_id,
-        lease_token: claimed.lease_token,
-        task_generation: claimed.run.task_generation,
-        contract_id: claimed.run.contract_id,
-    };
-    service
-        .start_work_run(&fence, ACTOR, None, "correlation:review-case:continuation")
-        .await
-        .expect("start reviewer continuation");
-    let admitted = service
-        .admit_work_run_execution_context(
-            &fence,
-            ACTOR,
-            None,
-            "correlation:review-case:continuation-context",
-        )
-        .await
-        .expect("admit reviewer continuation");
-    assert_eq!(
-        admitted
-            .context
-            .latest_review
-            .as_ref()
-            .map(|review| review.review_id.as_str()),
-        Some("review:review-case")
-    );
-}
-
-#[tokio::test]
-async fn reopen_requires_direction_and_queues_a_fresh_contract_generation() {
-    let (store, service, completed, _, _) =
-        run_review_case(TaskComplexity::Medium, TaskReviewVerdict::Approve).await;
-    store
-        .with_connection(|connection| {
-            connection.execute(
-                "UPDATE tasks SET executor_agent_id = 'agent:deleted-acp' WHERE task_id = ?1",
-                [completed.task_id.as_str()],
-            )?;
-            Ok(())
-        })
-        .await
-        .expect("simulate a deleted ACP executor");
-    let command = |feedback_markdown: &str, key: &str| {
-        WorkCommand::ReopenTask(ReopenTask {
-            meta: metadata(key),
-            precondition: TaskPrecondition {
-                task_id: completed.task_id.clone(),
-                expected_revision: completed.revision,
-                expected_generation: completed.generation,
-            },
-            amendment: TaskContractAmendment {
-                feedback_markdown: feedback_markdown.to_string(),
-                request_markdown: None,
-                replacement_criteria: None,
-                complexity: None,
-            },
-        })
-    };
-    work_error!(
-        service,
-        command("  ", "reopen-blank"),
-        StoreError::Work(WorkDomainError::InvalidInput { .. }),
-        "blank reopen direction must fail before mutation"
-    );
-    let reopened = task!(
-        service,
-        command(
-            "Include the newly discovered edge case.",
-            "reopen-completed"
-        ),
-        "reopen completed task"
-    );
-    assert_eq!(
-        reopened.stage_id.as_str(),
-        noema_tasks::PERSONAL_QUEUE_STAGE_ID
-    );
-    assert_eq!(reopened.generation, completed.generation + 1);
-    assert_eq!(
-        reopened.executor_agent_id,
-        noema_tasks::TASK_EXECUTOR_AGENT_ID
-    );
-    assert_ne!(reopened.current_contract_id, completed.current_contract_id);
-    assert!(reopened.completed_submission_id.is_none());
-    assert!(reopened.completed_at.is_none());
-
-    let detail = store
-        .get_work_task(&reopened.task_id)
-        .await
-        .expect("load reopened detail")
-        .expect("reopened detail");
-    assert_eq!(
-        detail.current_run.as_ref().map(|run| run.run_kind),
-        Some(noema_tasks::RunKind::Executor)
-    );
-    assert!(detail.messages.iter().any(|message| {
-        message.body_markdown == "Include the newly discovered edge case."
-            && message.task_generation == reopened.generation
-    }));
-
-    let claimed = service
-        .claim_next_work_run("worker:reopen-context", 60, &[])
-        .await
-        .expect("claim reopened executor")
-        .expect("reopened executor");
-    assert!(claimed.run.triggering_review_id.is_none());
-    let fence = WorkRunFence {
-        run_id: claimed.run.run_id.clone(),
-        lease_token: claimed.lease_token,
-        task_generation: claimed.run.task_generation,
-        contract_id: claimed.run.contract_id.clone(),
-    };
-    service
-        .start_work_run(&fence, ACTOR, None, "correlation:reopen-context")
-        .await
-        .expect("start reopened executor");
-    let admitted = service
-        .admit_work_run_execution_context(
-            &fence,
-            ACTOR,
-            None,
-            "correlation:reopen-context-admission",
-        )
-        .await
-        .expect("admit reopened executor context");
-    assert_eq!(
-        admitted
-            .context
-            .contract
-            .as_ref()
-            .map(|contract| &contract.contract_id),
-        reopened.current_contract_id.as_ref()
-    );
-    assert!(admitted.context.latest_submission.is_none());
-    assert!(admitted.context.latest_review.is_none());
-    let amendment = admitted
-        .context
-        .messages
-        .iter()
-        .find(|message| message.kind == TaskMessageKind::HumanChangeRequest)
-        .expect("reopen amendment");
-    assert_eq!(amendment.contract_id, reopened.current_contract_id);
-    assert_eq!(amendment.review_id, completed.latest_review_id);
-    assert_eq!(
-        amendment.consumed_by_run_id.as_deref(),
-        Some(claimed.run.run_id.as_str())
     );
 }
 

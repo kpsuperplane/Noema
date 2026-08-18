@@ -4,8 +4,6 @@
 pub(crate) mod artifacts;
 #[path = "work_read_events.rs"]
 mod events;
-#[path = "task_reads.rs"]
-pub(crate) mod evidence;
 #[path = "work_read_history.rs"]
 pub(crate) mod history;
 #[path = "work_read_list.rs"]
@@ -16,8 +14,6 @@ pub(crate) mod list_rows;
 mod overview;
 #[path = "work_read_rows.rs"]
 pub(crate) mod rows;
-#[path = "work_read_submission_batch.rs"]
-mod submission_batch;
 #[path = "work_read_task.rs"]
 pub(crate) mod task;
 
@@ -273,6 +269,15 @@ impl NoemaStore {
         let Some(mut detail) = detail else {
             return Ok(None);
         };
+        self.hydrate_work_task_files(&mut detail).await?;
+        Ok(Some(detail))
+    }
+
+    pub(crate) async fn hydrate_work_task_files(
+        &self,
+        detail: &mut WorkTaskDetail,
+    ) -> Result<(), StoreError> {
+        let task_id = detail.task.task_id.clone();
         self.ensure_task_document(&task_id).await.map_err(|error| {
             StoreError::InvariantViolation {
                 message: error.to_string(),
@@ -305,7 +310,7 @@ impl NoemaStore {
             })?
             .to_string_lossy()
             .into_owned();
-        Ok(Some(detail))
+        Ok(())
     }
 }
 

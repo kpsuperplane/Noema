@@ -9,9 +9,8 @@ mod history;
 mod overview;
 
 use noema_tasks::{
-    AgentRunRecord, TaskExecutionContract, TaskGateRecord, TaskId, TaskReviewRecord,
-    TaskSubmissionRecord, WorkEventRecord, WorkReconciliationSnapshot, WorkflowStage,
-    WorkflowStageBehavior,
+    AgentRunRecord, TaskGateRecord, TaskId, WorkEventRecord, WorkReconciliationSnapshot,
+    WorkflowStage, WorkflowStageBehavior,
 };
 use noema_workspaces::{ProjectId, ProjectRecord, WorkspaceId, WorkspaceRecord};
 use serde::{Deserialize, Serialize};
@@ -214,16 +213,10 @@ pub struct WorkReconciliationEnvelope {
     pub task: noema_tasks::TaskRecord,
     /// Current workflow stage definition.
     pub stage: WorkflowStage,
-    /// Immutable contract for the current generation, if any.
-    pub current_contract: Option<TaskExecutionContract>,
     /// Current open gate, if any.
     pub active_gate: Option<TaskGateRecord>,
     /// Most recent run projection, if any.
     pub latest_run: Option<AgentRunRecord>,
-    /// Most recent immutable submission, if any.
-    pub latest_submission: Option<TaskSubmissionRecord>,
-    /// Most recent immutable review, if any.
-    pub latest_review: Option<TaskReviewRecord>,
     /// Pure-domain facts used to choose the next action.
     pub snapshot: WorkReconciliationSnapshot,
 }

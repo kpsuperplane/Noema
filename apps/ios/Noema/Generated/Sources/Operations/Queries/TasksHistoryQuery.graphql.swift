@@ -9,7 +9,7 @@ nonisolated public struct TasksHistoryQuery: GraphQLQuery {
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
       #"query TasksHistory($workspaceId: String!, $projectId: String, $kind: TerminalTaskKind, $text: String, $first: Int = 50, $after: String) { taskHistory( workspaceId: $workspaceId projectId: $projectId kind: $kind text: $text first: $first after: $after ) { __typename edges { __typename cursor node { __typename ...TasksTaskSummaryFields } } pageInfo { __typename ...TasksPageInfoFields } } }"#,
-      fragments: [TasksCurrentRunFields.self, TasksGateFields.self, TasksPageInfoFields.self, TasksProjectFields.self, TasksReviewSummaryFields.self, TasksStageFields.self, TasksTaskSummaryFields.self, TasksWorkspaceFields.self]
+      fragments: [TasksCurrentRunFields.self, TasksGateFields.self, TasksPageInfoFields.self, TasksProjectFields.self, TasksStageFields.self, TasksTaskSummaryFields.self, TasksWorkspaceFields.self]
     ))
 
   public var workspaceId: String
@@ -141,7 +141,7 @@ nonisolated public struct TasksHistoryQuery: GraphQLQuery {
           public var executorAgentId: String { __data["executorAgentId"] }
           /// Assigned executor backend.
           public var executorBackend: String { __data["executorBackend"] }
-          /// Explicit task working-directory override.
+          /// Explicit Task directory base override.
           public var cwdOverride: String? { __data["cwdOverride"] }
           /// Derived effective working directory when already frozen or explicitly configured.
           public var effectiveCwd: String? { __data["effectiveCwd"] }
@@ -165,8 +165,6 @@ nonisolated public struct TasksHistoryQuery: GraphQLQuery {
           public var currentRun: CurrentRun? { __data["currentRun"] }
           /// Open gate projection.
           public var activeGate: ActiveGate? { __data["activeGate"] }
-          /// Latest review projection.
-          public var latestReview: LatestReview? { __data["latestReview"] }
           /// Derived attention.
           public var attention: Attention? { __data["attention"] }
           /// Server-authorized actions.
@@ -190,8 +188,6 @@ nonisolated public struct TasksHistoryQuery: GraphQLQuery {
           public typealias CurrentRun = TasksTaskSummaryFields.CurrentRun
 
           public typealias ActiveGate = TasksTaskSummaryFields.ActiveGate
-
-          public typealias LatestReview = TasksTaskSummaryFields.LatestReview
 
           public typealias Attention = TasksTaskSummaryFields.Attention
         }

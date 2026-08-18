@@ -3,7 +3,7 @@
 use noema_tasks::{
     RunKind, WorkDomainError, WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
 };
-use rusqlite::{OptionalExtension, Transaction, params};
+use rusqlite::{Transaction, params};
 
 use super::{ApplyReconciliation, task_write};
 use crate::{
@@ -17,8 +17,6 @@ struct ReconciliationLineage {
     review_round: u32,
     attempt_index: u32,
     parent_run_id: Option<String>,
-    triggering_submission_id: Option<String>,
-    triggering_review_id: Option<String>,
 }
 
 impl ReconciliationLineage {
@@ -27,8 +25,6 @@ impl ReconciliationLineage {
             review_round,
             attempt_index: 0,
             parent_run_id: None,
-            triggering_submission_id: None,
-            triggering_review_id: None,
         }
     }
 }
@@ -58,8 +54,6 @@ fn reconciliation_lineage_tx(
             review_round: parent.review_round,
             attempt_index,
             parent_run_id: Some(parent.run_id),
-            triggering_submission_id: parent.triggering_submission_id,
-            triggering_review_id: parent.triggering_review_id,
         });
     }
     match (parent.run_kind, run_kind) {
@@ -67,50 +61,16 @@ fn reconciliation_lineage_tx(
             parent_run_id: Some(parent.run_id),
             ..ReconciliationLineage::root(1)
         }),
-        (RunKind::Executor, RunKind::Reviewer) => {
-            let submission_id = task
-                .latest_submission_id
-                .clone()
-                .or(parent.triggering_submission_id)
-                .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
-            let review_round = transaction
-                .query_row(
-                    "SELECT review_round FROM task_submissions WHERE submission_id = ?1",
-                    [submission_id.as_str()],
-                    |row| row.get::<_, i64>(0),
-                )
-                .optional()?
-                .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
-            Ok(ReconciliationLineage {
-                review_round: helpers::nonnegative_u32(review_round, "submission.review_round")?,
-                parent_run_id: Some(parent.run_id),
-                triggering_submission_id: Some(submission_id),
-                ..ReconciliationLineage::root(0)
-            })
-        }
+        (RunKind::Executor, RunKind::Reviewer) => Ok(ReconciliationLineage {
+            review_round: parent.review_round,
+            parent_run_id: Some(parent.run_id),
+            ..ReconciliationLineage::root(0)
+        }),
         (RunKind::Reviewer, RunKind::Executor) => {
             let review_round = helpers::increment(parent.review_round, "run.review_round")?;
-            let persisted_review = transaction
-                .query_row(
-                    "SELECT review_id FROM task_reviews WHERE reviewer_run_id = ?1 ORDER BY review_id DESC LIMIT 1",
-                    [parent.run_id.as_str()],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            let review_id = task
-                .latest_review_id
-                .clone()
-                .or(persisted_review)
-                .ok_or_else(|| StoreError::InvariantViolation {
-                    message: format!(
-                        "reviewer run {} has no persisted review lineage",
-                        parent.run_id
-                    ),
-                })?;
             Ok(ReconciliationLineage {
                 review_round,
                 parent_run_id: Some(parent.run_id),
-                triggering_review_id: Some(review_id),
                 ..ReconciliationLineage::root(0)
             })
         }
@@ -144,8 +104,6 @@ fn queue_lineage_tx(
             &parent,
             helpers::QueuePinnedChildRun {
                 attempt_index: lineage.attempt_index,
-                triggering_submission_id: lineage.triggering_submission_id.as_deref(),
-                triggering_review_id: lineage.triggering_review_id.as_deref(),
                 event: request.event_context(),
             },
         )
@@ -156,13 +114,10 @@ fn queue_lineage_tx(
             task,
             helpers::QueueRun {
                 run_kind,
-                contract_id: task.current_contract_id.as_ref(),
                 planner_complexity: None,
                 review_round: lineage.review_round,
                 attempt_index: lineage.attempt_index,
                 parent_run_id: lineage.parent_run_id.as_deref(),
-                triggering_submission_id: lineage.triggering_submission_id.as_deref(),
-                triggering_review_id: lineage.triggering_review_id.as_deref(),
                 event: request.event_context(),
             },
         )

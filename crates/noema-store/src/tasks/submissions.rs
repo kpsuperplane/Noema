@@ -6,15 +6,14 @@ use noema_tasks::{
     WorkReconciliationAction, WorkReconciliationSnapshot, WorkflowStageBehavior, WorkflowStageId,
     plan_reconciliation_action, reported_failure_facts,
 };
-use rusqlite::{OptionalExtension, Transaction, params};
+use rusqlite::{Transaction, params};
 
 use super::{
     ContinueExecution, FinishExecution, FinishPlanning, FinishReview, ReportRunFailure,
-    ReportTaskBlocked, SubmitPlan, SubmitTaskResult, WorkRunTerminal,
+    ReportTaskBlocked, WorkRunTerminal,
 };
 use crate::{
     StoreError,
-    ids::allocate_id,
     run_items::finish_agent_run_records_tx,
     work_commands::{WorkCommandService, helpers},
     work_events::append_work_event_tx,
@@ -23,17 +22,12 @@ use crate::{
 
 #[path = "../agent_runs/lifecycle.rs"]
 mod terminal_helpers;
-#[path = "../work_run_terminal_plan.rs"]
-mod terminal_plan;
 #[path = "../agent_runs/recovery.rs"]
 mod terminal_replay;
-#[path = "reviews.rs"]
-mod terminal_review;
 
 use terminal_helpers::{
-    OpenGate, bump_task_to_waiting_tx, contract_criterion_ids_tx, insert_gate_tx,
-    load_fenced_run_tx, load_running_fence_tx, mark_run_completed_tx, mark_run_waiting_tx,
-    run_scope, validate_namespace,
+    OpenGate, bump_task_to_waiting_tx, insert_gate_tx, load_fenced_run_tx, load_running_fence_tx,
+    mark_run_completed_tx, mark_run_waiting_tx, run_scope,
 };
 
 impl WorkCommandService {
@@ -67,7 +61,6 @@ impl WorkCommandService {
                 run.status,
                 RunStatus::Running | RunStatus::Completed | RunStatus::WaitingForApproval
             ) || run.task_generation != review.fence.task_generation
-                || run.contract_id != review.fence.contract_id
                 || (run.status == RunStatus::Running
                     && run.lease_token.as_deref() != Some(review.fence.lease_token.as_str()))
             {
@@ -134,30 +127,6 @@ impl WorkCommandService {
                             correlation_id,
                         ),
                         WorkRunTerminal::FinishReview(value) => finish_review_tx(
-                            transaction,
-                            self,
-                            value,
-                            actor_id,
-                            causation_id,
-                            correlation_id,
-                        ),
-                        WorkRunTerminal::Plan(value) => terminal_plan::submit_plan_tx(
-                            transaction,
-                            self,
-                            value,
-                            actor_id,
-                            causation_id,
-                            correlation_id,
-                        ),
-                        WorkRunTerminal::TaskResult(value) => submit_result_tx(
-                            transaction,
-                            self,
-                            value,
-                            actor_id,
-                            causation_id,
-                            correlation_id,
-                        ),
-                        WorkRunTerminal::Review(value) => terminal_review::submit_review_tx(
                             transaction,
                             self,
                             value,
@@ -256,28 +225,33 @@ fn finish_planning_tx(
         "UPDATE tasks SET execution_complexity = ?2 WHERE task_id = (SELECT task_id FROM agent_runs WHERE run_id = ?1)",
         params![command.fence.run_id, command.complexity.as_str()],
     )?;
-    let synthetic = SubmitPlan {
-        fence: command.fence.clone(),
-        terminal: super::PlanTerminal::Complete(super::CompletePlan {
-            request_markdown: "Read the current TASK.md file.".to_string(),
-            execution_plan_markdown: "Work from the current Task files.".to_string(),
-            criteria: vec![noema_tasks::NewTaskValidationCriterion {
-                criterion_id: None,
-                ordinal: 1,
-                description: "The current TASK.md work is complete.".to_string(),
-                expected_evidence: None,
-            }],
-            complexity: command.complexity,
-        }),
-    };
-    terminal_plan::submit_plan_tx(
+    let (run, mut task) = load_running_fence_tx(transaction, &command.fence, RunKind::Planner)?;
+    task.execution_complexity = Some(command.complexity);
+    mark_run_completed_tx(transaction, &run, &command.fence)?;
+    append_work_event_tx(
         transaction,
-        service,
-        &synthetic,
-        actor_id,
-        causation_id,
-        correlation_id,
-    )
+        run_scope(&task, (actor_id, causation_id, correlation_id), &run.run_id),
+        WorkEventPayload::run_completed(run.run_kind, run.task_generation, RunTerminalKind::Plan)
+            .map_err(StoreError::Work)?,
+    )?;
+    let (child_run_id, event) = helpers::queue_run_tx(
+        transaction,
+        service.provider_registry.as_ref(),
+        &task,
+        helpers::QueueRun {
+            run_kind: RunKind::Executor,
+            planner_complexity: None,
+            review_round: 1,
+            attempt_index: 0,
+            parent_run_id: Some(&run.run_id),
+            event: helpers::CommandEventContext {
+                actor_id,
+                causation_id,
+                correlation_id,
+            },
+        },
+    )?;
+    Ok(helpers::task_write(event, task.task_id).run(Some(child_run_id)))
 }
 
 fn finish_execution_tx(
@@ -310,13 +284,10 @@ fn finish_execution_tx(
         &task,
         helpers::QueueRun {
             run_kind: RunKind::Reviewer,
-            contract_id: run.contract_id.as_ref(),
             planner_complexity: None,
             review_round: run.review_round.max(1),
             attempt_index: 0,
             parent_run_id: Some(&run.run_id),
-            triggering_submission_id: None,
-            triggering_review_id: None,
             event: helpers::CommandEventContext {
                 actor_id,
                 causation_id,
@@ -324,9 +295,7 @@ fn finish_execution_tx(
             },
         },
     )?;
-    Ok(helpers::task_write(event, task.task_id)
-        .contract(run.contract_id)
-        .run(Some(reviewer_run_id)))
+    Ok(helpers::task_write(event, task.task_id).run(Some(reviewer_run_id)))
 }
 
 fn continue_execution_tx(
@@ -360,19 +329,14 @@ fn continue_execution_tx(
         &task,
         helpers::QueueRun {
             run_kind: RunKind::Executor,
-            contract_id: run.contract_id.as_ref(),
             planner_complexity: None,
             review_round: run.review_round,
             attempt_index: 0,
             parent_run_id: Some(&run.run_id),
-            triggering_submission_id: None,
-            triggering_review_id: None,
             event: event_context,
         },
     )?;
-    Ok(helpers::task_write(event, task.task_id)
-        .contract(run.contract_id)
-        .run(Some(child_run_id)))
+    Ok(helpers::task_write(event, task.task_id).run(Some(child_run_id)))
 }
 
 fn finish_review_tx(
@@ -446,9 +410,7 @@ fn finish_review_tx(
                 &serde_json::json!({"task_id": task.task_id.as_str(), "action_needed": false}),
             )?
             .unwrap_or(stage_event);
-            Ok(helpers::task_write(event, task.task_id)
-                .contract(run.contract_id)
-                .run(Some(run.run_id)))
+            Ok(helpers::task_write(event, task.task_id).run(Some(run.run_id)))
         }
         TaskReviewVerdict::RequestChanges => {
             mark_run_completed_tx(transaction, &run, &command.fence)?;
@@ -484,19 +446,14 @@ fn finish_review_tx(
                 &task,
                 helpers::QueueRun {
                     run_kind: RunKind::Executor,
-                    contract_id: run.contract_id.as_ref(),
                     planner_complexity: None,
                     review_round: next_round,
                     attempt_index: 0,
                     parent_run_id: Some(&run.run_id),
-                    triggering_submission_id: None,
-                    triggering_review_id: None,
                     event: event_context,
                 },
             )?;
-            Ok(helpers::task_write(event, task.task_id)
-                .contract(run.contract_id)
-                .run(Some(child_run_id)))
+            Ok(helpers::task_write(event, task.task_id).run(Some(child_run_id)))
         }
         TaskReviewVerdict::NeedsHuman => {
             let gate_id = insert_gate_tx(
@@ -551,7 +508,6 @@ fn finish_review_tx(
             )?
             .unwrap_or(waiting_event);
             Ok(helpers::task_write(event, task.task_id)
-                .contract(run.contract_id)
                 .gate(Some(gate_id))
                 .run(Some(run.run_id)))
         }
@@ -594,234 +550,8 @@ fn open_review_recovery_tx(
         .map_err(StoreError::Work)?,
     )?;
     Ok(helpers::task_write(event, task.task_id.clone())
-        .contract(run.contract_id.clone())
         .gate(Some(gate_id))
         .run(Some(run.run_id.clone())))
-}
-
-fn submit_result_tx(
-    transaction: &Transaction<'_>,
-    service: &WorkCommandService,
-    command: &SubmitTaskResult,
-    actor_id: &str,
-    causation_id: Option<&str>,
-    correlation_id: &str,
-) -> Result<helpers::CommandWrite, StoreError> {
-    let (run, task) = load_running_fence_tx(transaction, &command.fence, RunKind::Executor)?;
-    let contract_id = command
-        .fence
-        .contract_id
-        .as_ref()
-        .ok_or(StoreError::Work(WorkDomainError::ContractRequired))?;
-    let criterion_ids = contract_criterion_ids_tx(transaction, contract_id)?;
-    let submission = command
-        .submission
-        .normalized(&criterion_ids)
-        .map_err(StoreError::Work)?;
-    if submission.task_id != task.task_id
-        || submission.contract_id != *contract_id
-        || submission.executor_run_id != run.run_id
-    {
-        return Err(StoreError::Work(WorkDomainError::RunFenced));
-    }
-    let submission_id = submission
-        .submission_id
-        .clone()
-        .unwrap_or_else(|| allocate_id("submission"));
-    validate_namespace(&submission_id, "submission:", "submission.submission_id")?;
-    if task.stage_behavior != WorkflowStageBehavior::Active {
-        return Err(StoreError::Work(WorkDomainError::InvalidTransition));
-    }
-    let artifact_versions = submission
-        .artifact_ids
-        .iter()
-        .map(|artifact_id| {
-            submitted_artifact_version_tx(transaction, artifact_id, &run, &task)
-                .map(|version_id| (artifact_id, version_id))
-        })
-        .collect::<Result<Vec<_>, StoreError>>()?;
-    transaction.execute(
-        "INSERT INTO task_submissions (submission_id, task_id, contract_id, executor_run_id, review_round, summary, result_markdown) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
-            &submission_id,
-            task.task_id.as_str(),
-            contract_id.as_str(),
-            run.run_id,
-            submission.review_round,
-            submission.summary,
-            submission.result_markdown,
-        ],
-    )?;
-    for criterion in &submission.criteria {
-        transaction.execute(
-            "INSERT INTO task_submission_criteria (submission_id, criterion_id, evidence_markdown) VALUES (?1, ?2, ?3)",
-            params![&submission_id, criterion.criterion_id, criterion.evidence_markdown],
-        )?;
-    }
-    for (index, citation) in submission.citations.iter().enumerate() {
-        let ordinal = i64::try_from(index + 1).map_err(|_| {
-            StoreError::Work(WorkDomainError::InvalidInput {
-                field: "submission.citations",
-                message: "citation ordinal exceeds SQLite range".to_string(),
-            })
-        })?;
-        let start_index = citation
-            .start_index
-            .map(i64::try_from)
-            .transpose()
-            .map_err(|_| {
-                StoreError::Work(WorkDomainError::InvalidInput {
-                    field: "submission.citation.start_index",
-                    message: "citation start index exceeds SQLite range".to_string(),
-                })
-            })?;
-        let end_index = citation
-            .end_index
-            .map(i64::try_from)
-            .transpose()
-            .map_err(|_| {
-                StoreError::Work(WorkDomainError::InvalidInput {
-                    field: "submission.citation.end_index",
-                    message: "citation end index exceeds SQLite range".to_string(),
-                })
-            })?;
-        transaction.execute(
-            "INSERT INTO task_submission_citations (submission_id, ordinal, title, url, start_index, end_index) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                &submission_id,
-                ordinal,
-                citation.title,
-                citation.url,
-                start_index,
-                end_index,
-            ],
-        )?;
-    }
-    // The submission row's generated id is used above after insertion.  Keep
-    // the input normalized with the allocated id for the event/result marker.
-    let persisted_submission_id = transaction.query_row(
-        "SELECT submission_id FROM task_submissions WHERE executor_run_id = ?1",
-        [run.run_id.as_str()],
-        |row| row.get::<_, String>(0),
-    )?;
-    for (ordinal, (artifact_id, version_id)) in artifact_versions.iter().enumerate() {
-        let ordinal = i64::try_from(ordinal + 1).map_err(|_| {
-            StoreError::Work(WorkDomainError::InvalidInput {
-                field: "submission.artifact_ids",
-                message: "artifact ordinal exceeds SQLite range".to_string(),
-            })
-        })?;
-        transaction.execute(
-            "INSERT INTO task_submission_artifacts (submission_id, ordinal, artifact_id, artifact_version_id) VALUES (?1, ?2, ?3, ?4)",
-            params![persisted_submission_id, ordinal, artifact_id, version_id],
-        )?;
-    }
-    transaction.execute(
-        "UPDATE tasks SET latest_submission_id = ?2, latest_run_id = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?4",
-        params![task.task_id.as_str(), &persisted_submission_id, run.run_id, task.generation],
-    )?;
-    mark_run_completed_tx(transaction, &run, &command.fence)?;
-    let _submission_event = append_work_event_tx(
-        transaction,
-        run_scope(&task, (actor_id, causation_id, correlation_id), &run.run_id),
-        WorkEventPayload::submission_created(
-            persisted_submission_id.clone(),
-            contract_id.clone(),
-            submission.review_round,
-            u32::try_from(submission.criteria.len()).unwrap_or(u32::MAX),
-            u32::try_from(submission.artifact_ids.len()).unwrap_or(u32::MAX),
-        )
-        .map_err(StoreError::Work)?,
-    )?;
-    let _completed_event = append_work_event_tx(
-        transaction,
-        run_scope(&task, (actor_id, causation_id, correlation_id), &run.run_id),
-        WorkEventPayload::run_completed(
-            run.run_kind,
-            run.task_generation,
-            RunTerminalKind::Submission,
-        )
-        .map_err(StoreError::Work)?,
-    )?;
-    let (reviewer_run_id, review_event) = helpers::queue_run_tx(
-        transaction,
-        service.provider_registry.as_ref(),
-        &task,
-        helpers::QueueRun {
-            run_kind: RunKind::Reviewer,
-            contract_id: Some(contract_id),
-            planner_complexity: None,
-            review_round: submission.review_round,
-            attempt_index: 0,
-            parent_run_id: Some(&run.run_id),
-            triggering_submission_id: Some(&persisted_submission_id),
-            triggering_review_id: None,
-            event: helpers::CommandEventContext {
-                actor_id,
-                causation_id,
-                correlation_id,
-            },
-        },
-    )?;
-    let event = review_event;
-    Ok(helpers::task_write(event, task.task_id)
-        .contract(Some(contract_id.clone()))
-        .run(Some(reviewer_run_id)))
-}
-
-fn submitted_artifact_version_tx(
-    transaction: &Transaction<'_>,
-    artifact_id: &str,
-    run: &noema_tasks::AgentRunRecord,
-    task: &helpers::TaskState,
-) -> Result<String, StoreError> {
-    let artifact = transaction
-        .query_row(
-            "SELECT artifact.owner_object_type, artifact.owner_object_id,
-                    artifact.current_version_id, artifact.created_by_actor_id,
-                    version.created_by_actor_id, artifact.metadata_json
-             FROM artifacts AS artifact
-             JOIN artifact_versions AS version
-               ON version.artifact_version_id = artifact.current_version_id
-              AND version.artifact_id = artifact.artifact_id
-             WHERE artifact.artifact_id = ?1 AND artifact.deleted_at IS NULL",
-            [artifact_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                ))
-            },
-        )
-        .optional()?;
-    let Some((owner_kind, owner_id, version_id, creator_id, version_creator_id, metadata_json)) =
-        artifact
-    else {
-        return Err(StoreError::Work(WorkDomainError::WorkUnavailable));
-    };
-    let metadata: serde_json::Value = serde_json::from_str(&metadata_json)?;
-    let metadata_task_id = metadata.get("task_id").and_then(serde_json::Value::as_str);
-    let metadata_run_id = metadata
-        .get("task_run_id")
-        .and_then(serde_json::Value::as_str);
-    if owner_kind != "task"
-        || owner_id != task.task_id.as_str()
-        || metadata_task_id != Some(task.task_id.as_str())
-        || metadata_run_id != Some(run.run_id.as_str())
-        || creator_id != run.agent_id
-        || version_creator_id != run.agent_id
-        || run.run_kind != RunKind::Executor
-        || run.task_id != task.task_id
-        || run.task_generation != task.generation
-        || run.contract_id != task.current_contract_id
-    {
-        return Err(StoreError::Work(WorkDomainError::RunFenced));
-    }
-    Ok(version_id)
 }
 
 fn report_blocked_tx(
@@ -905,7 +635,6 @@ fn report_blocked_tx(
         event = notification_event;
     }
     Ok(helpers::task_write(event, task.task_id)
-        .contract(run.contract_id)
         .gate(Some(gate_id))
         .run(Some(run.run_id)))
 }
@@ -1014,8 +743,6 @@ fn report_failure_tx_inner(
             &run,
             helpers::QueuePinnedChildRun {
                 attempt_index: next_attempt,
-                triggering_submission_id: run.triggering_submission_id.as_deref(),
-                triggering_review_id: run.triggering_review_id.as_deref(),
                 event: helpers::CommandEventContext {
                     actor_id,
                     causation_id,
@@ -1024,9 +751,7 @@ fn report_failure_tx_inner(
             },
         ) {
             Ok((child_run_id, event)) => {
-                return Ok(helpers::task_write(event, task.task_id)
-                    .contract(run.contract_id)
-                    .run(Some(child_run_id)));
+                return Ok(helpers::task_write(event, task.task_id).run(Some(child_run_id)));
             }
             Err(error) if helpers::provider_route_unavailable(&error) => {
                 let route_error =
@@ -1101,7 +826,6 @@ fn report_failure_tx_inner(
         event = notification_event;
     }
     Ok(helpers::task_write(event, task.task_id)
-        .contract(run.contract_id)
         .gate(Some(gate_id))
         .run(Some(run.run_id)))
 }
@@ -1136,7 +860,6 @@ fn plan_recovery_action(
     );
     plan_reconciliation_action(WorkReconciliationSnapshot {
         stage_behavior: task.stage_behavior,
-        has_current_contract: task.current_contract_id.is_some(),
         failed_run: Some(facts),
         ..WorkReconciliationSnapshot::default()
     })

@@ -6,7 +6,7 @@
 
 nonisolated public struct TasksCurrentRunFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksCurrentRunFields on CurrentRunSummary { __typename runId instanceName kind status attemptIndex contractId queuedAt startedAt updatedAt activityLabel }"#
+    #"fragment TasksCurrentRunFields on CurrentRunSummary { __typename runId instanceName kind status attemptIndex queuedAt startedAt updatedAt activityLabel }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -20,7 +20,6 @@ nonisolated public struct TasksCurrentRunFields: NoemaAPI.SelectionSet, Fragment
     .field("kind", GraphQLEnum<NoemaAPI.TaskRunKind>.self),
     .field("status", GraphQLEnum<NoemaAPI.TaskRunStatus>.self),
     .field("attemptIndex", Int.self),
-    .field("contractId", String?.self),
     .field("queuedAt", String.self),
     .field("startedAt", String?.self),
     .field("updatedAt", String.self),
@@ -40,8 +39,6 @@ nonisolated public struct TasksCurrentRunFields: NoemaAPI.SelectionSet, Fragment
   public var status: GraphQLEnum<NoemaAPI.TaskRunStatus> { __data["status"] }
   /// Lineage attempt.
   public var attemptIndex: Int { __data["attemptIndex"] }
-  /// Contract identity, absent for Planner.
-  public var contractId: String? { __data["contractId"] }
   /// Queue timestamp.
   public var queuedAt: String { __data["queuedAt"] }
   /// Start timestamp.

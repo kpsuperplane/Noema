@@ -204,15 +204,15 @@ struct TasksCompletedTabBar: View {
 }
 
 struct TasksCompletedResultView: View {
-  let submission: TasksSubmissionSnapshot
-  let onArtifact: (TasksArtifactSnapshot) -> Void
+  let taskDocument: String
+  let reviewDocument: String?
 
   var body: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-      if let response = response.nilIfBlank {
+      if let response = taskDocument.nilIfBlank {
         ProviderCitationMarkdown(
           text: response,
-          citations: submission.citations,
+          citations: [],
           role: .assistantMessage
         )
           .textSelection(.enabled)
@@ -221,14 +221,10 @@ struct TasksCompletedResultView: View {
           .font(NoemaFont.taskTitle)
           .foregroundStyle(NoemaColor.contentSecondary)
       }
-      if !submission.artifacts.isEmpty {
-        VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-          ForEach(submission.artifacts) { artifact in
-            ArtifactReferenceView(reference: artifact.reference) { onArtifact(artifact) }
-          }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Final response artifacts")
+      if let reviewDocument = reviewDocument?.nilIfBlank {
+        Divider()
+        NoemaMarkdown(reviewDocument, role: .secondary)
+          .textSelection(.enabled)
       }
     }
     .frame(maxWidth: 760, alignment: .leading)
@@ -236,10 +232,6 @@ struct TasksCompletedResultView: View {
     .padding(.top, NoemaSpacing.lg)
     .padding(.bottom, NoemaSpacing.xxl)
     .frame(maxWidth: .infinity, alignment: .leading)
-  }
-
-  private var response: String {
-    submission.result.nilIfBlank ?? submission.summary
   }
 }
 
@@ -250,22 +242,18 @@ struct TasksTranscriptSection: View {
   let hasMore: Bool
   let isLoadingMore: Bool
   let request: String
-  let submission: TasksSubmissionSnapshot?
   let loadMore: () -> Void
-  let onArtifact: (TasksArtifactSnapshot) -> Void
 
   private enum Event: Identifiable {
     case request(String)
     case message(TasksMessageSnapshot)
     case run(TasksRunSnapshot)
-    case submission(TasksSubmissionSnapshot)
 
     var id: String {
       switch self {
       case .request: "request"
       case .message(let message): "message:\(message.id)"
       case .run(let run): "run:\(run.id)"
-      case .submission(let submission): "submission:\(submission.id)"
       }
     }
 
@@ -274,7 +262,6 @@ struct TasksTranscriptSection: View {
       case .request: ""
       case .message(let message): message.createdAt
       case .run(let run): run.createdAt ?? run.startedAt ?? ""
-      case .submission(let submission): submission.createdAt
       }
     }
   }
@@ -288,7 +275,6 @@ struct TasksTranscriptSection: View {
     for run in runs {
       events.append(.run(run))
     }
-    if let submission { events.append(.submission(submission)) }
     return events.sorted {
       let left = parseTimestamp($0.timestamp) ?? .distantPast
       let right = parseTimestamp($1.timestamp) ?? .distantPast
@@ -342,7 +328,6 @@ struct TasksTranscriptSection: View {
         }
         if run.isTerminal { runBoundary(run, ending: true) }
       }
-    case .submission(let submission): submissionEntry(submission)
     }
   }
 
@@ -539,28 +524,6 @@ struct TasksTranscriptSection: View {
     .padding(.leading, NoemaSpacing.xxl)
   }
 
-  private func submissionEntry(_ submission: TasksSubmissionSnapshot) -> some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-      Text("Submission result")
-        .font(NoemaFont.captionEmphasized)
-        .foregroundStyle(NoemaColor.contentSecondary)
-      if let response = submission.result.nilIfBlank ?? submission.summary.nilIfBlank {
-        messageBubble(body: response, human: false)
-      }
-      if !submission.artifacts.isEmpty {
-        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          Text("Artifacts")
-            .font(NoemaFont.captionEmphasized)
-            .foregroundStyle(NoemaColor.contentSecondary)
-          ForEach(submission.artifacts) { artifact in
-            ArtifactReferenceView(reference: artifact.reference) { onArtifact(artifact) }
-          }
-        }
-      }
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-  }
-
   private func isHumanAuthor(_ author: String) -> Bool {
     let components = author.split(separator: ":", omittingEmptySubsequences: true)
     return components.contains { $0.caseInsensitiveCompare("human") == .orderedSame }
@@ -616,21 +579,6 @@ private extension TasksRunSnapshot {
     case "COMPLETED", "FAILED", "CANCELLED", "INTERRUPTED": true
     default: false
     }
-  }
-}
-
-extension TasksArtifactSnapshot {
-  var reference: ArtifactReferenceModel {
-    ArtifactReferenceModel(
-      artifactID: id,
-      versionID: ArtifactLinkResolver.detailVersionID(storageKind: storageKind, versionID: versionID),
-      title: title,
-      kind: kind,
-      storageKind: storageKind,
-      externalURL: ArtifactLinkResolver.externalURL(externalURL),
-      downloadURL: nil,
-      mediaType: mediaType
-    )
   }
 }
 

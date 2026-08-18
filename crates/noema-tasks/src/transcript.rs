@@ -16,9 +16,9 @@ pub enum AgentRunItemKind, "agent_run_item_kind" {
     ProgressNotice => "progress_notice",
     /// Compacted semantic context.
     ContextCheckpoint => "context_checkpoint",
-    /// Executor terminal submission.
+    /// Historical Executor submission item.
     TaskSubmission => "task_submission",
-    /// Reviewer terminal decision.
+    /// Historical Reviewer decision item.
     TaskReview => "task_review",
     /// Governed artifact reference.
     ArtifactReference => "artifact_reference",

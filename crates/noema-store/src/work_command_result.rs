@@ -1,6 +1,6 @@
 //! Commit-time command snapshots retained for exact receipt replay.
 
-use noema_tasks::{TaskContractId, TaskId, WorkCommandResult};
+use noema_tasks::{TaskId, WorkCommandResult};
 use noema_workspaces::ProjectId;
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +20,6 @@ pub struct CommittedWorkCommandResult {
 pub(crate) struct ReceiptResponse {
     pub task_id: Option<TaskId>,
     pub project_id: Option<ProjectId>,
-    pub contract_id: Option<TaskContractId>,
     pub gate_id: Option<noema_tasks::TaskGateId>,
     pub run_id: Option<String>,
     pub event_id: noema_tasks::WorkEventId,
@@ -42,7 +41,6 @@ impl From<&CommandWrite> for ReceiptResponse {
         Self {
             task_id: value.task_id.clone(),
             project_id: value.project_id.clone(),
-            contract_id: value.contract_id.clone(),
             gate_id: value.gate_id.clone(),
             run_id: value.run_id.clone(),
             event_id: value.event_id.clone(),
@@ -61,7 +59,6 @@ impl From<ReceiptResponse> for CommandWrite {
         Self {
             task_id: value.task_id,
             project_id: value.project_id,
-            contract_id: value.contract_id,
             gate_id: value.gate_id,
             run_id: value.run_id,
             event_id: value.event_id,
@@ -89,7 +86,6 @@ pub(crate) fn materialize_committed_result(
         result: WorkCommandResult {
             task,
             project: write.project_snapshot,
-            contract_id: write.contract_id,
             gate_id: write.gate_id,
             run_id: write.run_id,
             event_id: write.event_id,

@@ -84,12 +84,6 @@ query TasksNeedsYou($workspaceId: String!, $projectId: String, $first: Int = 50,
         summary
         validActions
         gate { ...TasksGateFields }
-        review {
-          reviewId
-          verdict
-          feedback
-          createdAt
-        }
         task { ...TasksTaskCardFields }
       }
     }

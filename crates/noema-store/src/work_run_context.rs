@@ -1,8 +1,8 @@
 //! Read-consistent, bounded execution context for a supervised Work run.
 
 use noema_tasks::{
-    AgentRunItemRecord, AgentRunRecord, ProjectContextSnapshot, RunStatus, TaskGateRecord,
-    TaskMessageKind, TaskMessageRecord, TaskRecord, WorkspaceContextSnapshot,
+    AgentRunItemRecord, AgentRunRecord, ProjectRunContext, RunStatus, TaskGateRecord,
+    TaskMessageKind, TaskMessageRecord, TaskRecord, WorkspaceRunContext,
 };
 use noema_workspaces::{ProjectRecord, WorkspaceRecord};
 use rusqlite::{OptionalExtension, Row, Transaction, params};
@@ -26,10 +26,7 @@ pub(super) const MAX_CONTEXT_PAYLOAD_BYTES: usize = 128 * 1024;
 impl NoemaStore {
     /// Load one run envelope and its bounded, role-relevant durable evidence.
     ///
-    /// All rows are read from one deferred SQLite transaction. Executor and
-    /// Reviewer contexts are fenced to their exact immutable contract;
-    /// Planner contexts deliberately have no contract and use only the bounded
-    /// current workspace/project descriptions that the Planner may normalize.
+    /// All rows are read from one deferred SQLite transaction.
     ///
     /// # Errors
     ///
@@ -95,7 +92,6 @@ pub(super) fn load_work_run_execution_context_tx(
         .belongs_to(&workflow.workflow_id)
         .map_err(StoreError::Work)?;
 
-    let contract = None;
     let (workspace, project) = live_context(&workspace_row, project_row.as_ref())?;
 
     let active_gate = task
@@ -107,8 +103,6 @@ pub(super) fn load_work_run_execution_context_tx(
     let relevant_gates = load_relevant_gates(transaction, &task, &run, active_gate.as_ref())?;
     let messages = load_relevant_messages(transaction, &task, &run, &relevant_gates)?;
 
-    let latest_review = None;
-    let latest_submission = None;
     let lineage = Vec::new();
     Ok(Some(WorkRunExecutionContext {
         run,
@@ -116,14 +110,11 @@ pub(super) fn load_work_run_execution_context_tx(
         source_runtime_environment,
         workflow,
         stage,
-        contract,
         workspace,
         project,
         active_gate,
         relevant_gates,
         messages,
-        latest_submission,
-        latest_review,
         lineage,
     }))
 }
@@ -188,15 +179,15 @@ fn validate_run_task_fence(run: &AgentRunRecord, task: &TaskRecord) -> Result<()
 fn live_context(
     workspace: &WorkspaceRecord,
     project: Option<&ProjectRecord>,
-) -> Result<(WorkspaceContextSnapshot, Option<ProjectContextSnapshot>), StoreError> {
-    let workspace_snapshot = WorkspaceContextSnapshot {
+) -> Result<(WorkspaceRunContext, Option<ProjectRunContext>), StoreError> {
+    let workspace_snapshot = WorkspaceRunContext {
         workspace_id: workspace.workspace_id.clone(),
         name: bounded_text(workspace.name.clone(), "workspace.name")?,
         description: bounded_text(workspace.description.clone(), "workspace.description")?,
     };
     let project_snapshot = project
         .map(|project| {
-            Ok::<ProjectContextSnapshot, StoreError>(ProjectContextSnapshot {
+            Ok::<ProjectRunContext, StoreError>(ProjectRunContext {
                 project_id: project.project_id.clone(),
                 name: bounded_text(project.name.clone(), "project.name")?,
                 description: bounded_text(project.description.clone(), "project.description")?,
@@ -215,7 +206,7 @@ fn load_relevant_gates(
 ) -> Result<Vec<TaskGateRecord>, StoreError> {
     let parent_run_id = run.parent_run_id.as_deref();
     let mut statement = transaction.prepare(
-        "SELECT gate_id, task_id, task_generation, contract_id, gate_kind, gate_state, recovery_reason, retry_run_kind, prompt_markdown, context_markdown, suggested_answers_json, opened_by_actor_id, originating_run_id, resolved_by_actor_id, resolution_message_id, opened_at, resolved_at FROM task_gates WHERE task_id = ?1 AND task_generation = ?2 AND (originating_run_id = ?3 OR originating_run_id = ?4 OR gate_id = ?5 OR resolution_message_id IN (SELECT message_id FROM task_messages WHERE consumed_by_run_id IN (?3, ?4))) ORDER BY opened_at, gate_id LIMIT ?6",
+        "SELECT gate_id, task_id, task_generation, gate_kind, gate_state, recovery_reason, retry_run_kind, prompt_markdown, context_markdown, suggested_answers_json, opened_by_actor_id, originating_run_id, resolved_by_actor_id, resolution_message_id, opened_at, resolved_at FROM task_gates WHERE task_id = ?1 AND task_generation = ?2 AND (originating_run_id = ?3 OR originating_run_id = ?4 OR gate_id = ?5 OR resolution_message_id IN (SELECT message_id FROM task_messages WHERE consumed_by_run_id IN (?3, ?4)) OR gate_id IN (SELECT gate_id FROM task_messages WHERE task_id = ?1 AND task_generation = ?2 AND gate_id IS NOT NULL AND (consumed_by_run_id = ?3 OR consumed_by_run_id = ?4 OR consumed_by_run_id IS NULL))) ORDER BY opened_at, gate_id LIMIT ?6",
     )?;
     let rows = statement.query_map(
         params![
@@ -259,7 +250,7 @@ fn load_relevant_messages(
     gates: &[TaskGateRecord],
 ) -> Result<Vec<TaskMessageRecord>, StoreError> {
     let mut statement = transaction.prepare(
-        "SELECT message_id, task_id, task_generation, contract_id, gate_id, review_id, message_kind, body_markdown, approval_decision, author_actor_id, consumed_by_run_id, consumed_at, created_at FROM task_messages WHERE task_id = ?1 AND task_generation = ?2 AND (consumed_by_run_id = ?3 OR consumed_by_run_id = ?5 OR (consumed_by_run_id IS NULL AND ((message_kind = 'human_change_request' AND contract_id = ?7) OR review_id = ?4 OR gate_id IN (SELECT gate_id FROM task_gates WHERE task_id = ?1 AND task_generation = ?2 AND (originating_run_id = ?3 OR originating_run_id = ?5))))) ORDER BY created_at, message_id LIMIT ?6",
+        "SELECT message_id, task_id, task_generation, gate_id, message_kind, body_markdown, approval_decision, author_actor_id, consumed_by_run_id, consumed_at, created_at FROM task_messages WHERE task_id = ?1 AND task_generation = ?2 AND (consumed_by_run_id = ?3 OR consumed_by_run_id = ?4 OR consumed_by_run_id IS NULL) ORDER BY created_at, message_id LIMIT ?5",
     )?;
     let rows = statement.query_map(
         params![
@@ -268,12 +259,8 @@ fn load_relevant_messages(
                 message: "task generation exceeds SQLite range".to_string()
             })?,
             run.run_id.as_str(),
-            run.triggering_review_id.as_deref(),
             run.parent_run_id.as_deref(),
             (WORK_RUN_CONTEXT_MAX_MESSAGES + 1) as i64,
-            run.contract_id
-                .as_ref()
-                .map(|contract_id| contract_id.as_str()),
         ],
         decode_message,
     )?;

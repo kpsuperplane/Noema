@@ -6,7 +6,7 @@
 
 nonisolated public struct TasksTaskCardFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksTaskCardFields on TaskCard { __typename taskId workspace { __typename ...TasksWorkspaceFields } project { __typename ...TasksProjectFields } title descriptionPreview executorAgentId executorBackend cwdOverride effectiveCwd effectiveCwdSource schedule { __typename scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor } stage { __typename ...TasksStageFields } revision generation createdAt updatedAt completedAt currentRun { __typename ...TasksCurrentRunFields } activeGate { __typename ...TasksGateFields } latestReview { __typename ...TasksReviewSummaryFields } validActions }"#
+    #"fragment TasksTaskCardFields on TaskCard { __typename taskId workspace { __typename ...TasksWorkspaceFields } project { __typename ...TasksProjectFields } title descriptionPreview executorAgentId executorBackend cwdOverride effectiveCwd effectiveCwdSource schedule { __typename scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor } stage { __typename ...TasksStageFields } revision generation createdAt updatedAt completedAt currentRun { __typename ...TasksCurrentRunFields } activeGate { __typename ...TasksGateFields } validActions }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -34,7 +34,6 @@ nonisolated public struct TasksTaskCardFields: NoemaAPI.SelectionSet, Fragment {
     .field("completedAt", String?.self),
     .field("currentRun", CurrentRun?.self),
     .field("activeGate", ActiveGate?.self),
-    .field("latestReview", LatestReview?.self),
     .field("validActions", [GraphQLEnum<NoemaAPI.ValidTaskAction>].self),
   ] }
   @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
@@ -55,7 +54,7 @@ nonisolated public struct TasksTaskCardFields: NoemaAPI.SelectionSet, Fragment {
   public var executorAgentId: String { __data["executorAgentId"] }
   /// Assigned executor backend.
   public var executorBackend: String { __data["executorBackend"] }
-  /// Explicit task working-directory override.
+  /// Explicit Task directory base override.
   public var cwdOverride: String? { __data["cwdOverride"] }
   /// Derived effective working directory when already frozen or explicitly configured.
   public var effectiveCwd: String? { __data["effectiveCwd"] }
@@ -79,8 +78,6 @@ nonisolated public struct TasksTaskCardFields: NoemaAPI.SelectionSet, Fragment {
   public var currentRun: CurrentRun? { __data["currentRun"] }
   /// Open gate projection.
   public var activeGate: ActiveGate? { __data["activeGate"] }
-  /// Latest review projection.
-  public var latestReview: LatestReview? { __data["latestReview"] }
   /// Server-authorized actions.
   public var validActions: [GraphQLEnum<NoemaAPI.ValidTaskAction>] { __data["validActions"] }
 
@@ -264,8 +261,6 @@ nonisolated public struct TasksTaskCardFields: NoemaAPI.SelectionSet, Fragment {
     public var status: GraphQLEnum<NoemaAPI.TaskRunStatus> { __data["status"] }
     /// Lineage attempt.
     public var attemptIndex: Int { __data["attemptIndex"] }
-    /// Contract identity, absent for Planner.
-    public var contractId: String? { __data["contractId"] }
     /// Queue timestamp.
     public var queuedAt: String { __data["queuedAt"] }
     /// Start timestamp.
@@ -339,43 +334,4 @@ nonisolated public struct TasksTaskCardFields: NoemaAPI.SelectionSet, Fragment {
     }
   }
 
-  /// LatestReview
-  ///
-  /// Parent Type: `TaskReviewSummary`
-  nonisolated public struct LatestReview: NoemaAPI.SelectionSet {
-    @_spi(Unsafe) public let __data: DataDict
-    @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
-
-    @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TaskReviewSummary }
-    @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
-      .field("__typename", String.self),
-      .fragment(TasksReviewSummaryFields.self),
-    ] }
-    @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-      TasksTaskCardFields.LatestReview.self,
-      TasksReviewSummaryFields.self
-    ] }
-
-    /// Review identity.
-    public var reviewId: String { __data["reviewId"] }
-    /// Submission evaluated.
-    public var reviewedSubmissionId: String { __data["reviewedSubmissionId"] }
-    /// Review attempt.
-    public var reviewAttemptIndex: Int { __data["reviewAttemptIndex"] }
-    /// Prior review, when any.
-    public var supersedesReviewId: String? { __data["supersedesReviewId"] }
-    /// Verdict.
-    public var verdict: GraphQLEnum<NoemaAPI.TaskReviewVerdict> { __data["verdict"] }
-    /// Safe feedback.
-    public var feedback: String { __data["feedback"] }
-    /// Creation timestamp.
-    public var createdAt: String { __data["createdAt"] }
-
-    public struct Fragments: FragmentContainer {
-      @_spi(Unsafe) public let __data: DataDict
-      @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
-
-      public var tasksReviewSummaryFields: TasksReviewSummaryFields { _toFragment() }
-    }
-  }
 }

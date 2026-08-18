@@ -129,10 +129,7 @@ fn validate_invariants(
         K::ProjectUpdated => changed_fields::<ProjectChangedField>(&object["changed_fields"]),
         K::TaskUpdated => changed_fields::<TaskChangedField>(&object["changed_fields"]),
         K::RecurrenceChanged => string(&object["reason"], "reason").map(drop),
-        K::TaskQueued => {
-            let run = closed::<RunKind>(&object["next_run_kind"], "next_run_kind")?;
-            role_contract(run, !object["contract_id"].is_null(), "task.queued")
-        }
+        K::TaskQueued => closed::<RunKind>(&object["next_run_kind"], "next_run_kind").map(drop),
         K::TaskStageChanged => {
             closed::<TaskStageChangeReason>(&object["reason"], "reason").map(drop)
         }
@@ -170,8 +167,7 @@ fn validate_invariants(
             }
             Ok(())
         }
-        K::RunQueued => validate_run(object, true),
-        K::RunClaimed | K::RunStarted => validate_run(object, false),
+        K::RunQueued | K::RunClaimed | K::RunStarted => validate_run(object),
         K::RunCompleted => validate_terminal_role(
             closed(&object["run_kind"], "run_kind")?,
             closed(&object["terminal_kind"], "terminal_kind")?,
@@ -183,15 +179,12 @@ fn validate_invariants(
     }
 }
 
-fn validate_run(object: &Map<String, Value>, queued: bool) -> Result<(), WorkDomainError> {
+fn validate_run(object: &Map<String, Value>) -> Result<(), WorkDomainError> {
     let run = closed::<RunKind>(&object["run_kind"], "run_kind")?;
     match run {
         RunKind::Planner if number(&object["review_round"], "review_round")? == 0 => {}
         RunKind::Executor | RunKind::Reviewer => positive(&object["review_round"], "review_round")?,
         _ => return Err(invalid_input("review_round", "Planner rounds must be zero")),
-    }
-    if queued {
-        role_contract(run, !object["contract_id"].is_null(), "run.queued")?;
     }
     Ok(())
 }
@@ -282,24 +275,6 @@ fn changed_fields<T: FromStr<Err = WorkDomainError>>(value: &Value) -> Result<()
         }
     }
     Ok(())
-}
-
-fn role_contract(
-    run: RunKind,
-    has_contract: bool,
-    field: &'static str,
-) -> Result<(), WorkDomainError> {
-    if matches!(
-        (run, has_contract),
-        (RunKind::Planner, false) | (RunKind::Executor | RunKind::Reviewer, true)
-    ) {
-        Ok(())
-    } else {
-        Err(invalid_input(
-            field,
-            "run role and contract presence are inconsistent",
-        ))
-    }
 }
 
 fn validate_terminal_role(run: RunKind, terminal: RunTerminalKind) -> Result<(), WorkDomainError> {

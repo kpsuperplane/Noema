@@ -41,28 +41,6 @@ SELECT provider_instance_key, 'task_model_pool', pool_entry_id
 FROM task_model_pool_entries
 WHERE provider_kind = 'local_models' AND enabled = 1
 UNION ALL
-SELECT contract.executor_provider_instance_key, 'task_snapshot', task.task_id
-FROM task_execution_contracts AS contract
-JOIN tasks AS task
-  ON task.task_id = contract.task_id
- AND task.current_contract_id = contract.contract_id
-JOIN workflow_stages AS stage
-  ON stage.workflow_id = task.workflow_id
- AND stage.stage_id = task.stage_id
-WHERE contract.executor_provider_kind = 'local_models'
-  AND stage.system_behavior NOT IN ('terminal_success', 'terminal_cancelled')
-UNION ALL
-SELECT contract.reviewer_provider_instance_key, 'task_snapshot', task.task_id
-FROM task_execution_contracts AS contract
-JOIN tasks AS task
-  ON task.task_id = contract.task_id
- AND task.current_contract_id = contract.contract_id
-JOIN workflow_stages AS stage
-  ON stage.workflow_id = task.workflow_id
- AND stage.stage_id = task.stage_id
-WHERE contract.reviewer_provider_kind = 'local_models'
-  AND stage.system_behavior NOT IN ('terminal_success', 'terminal_cancelled')
-UNION ALL
 SELECT agent_runs.provider_instance_key, 'agent_run_snapshot', agent_runs.run_id
 FROM agent_runs
 LEFT JOIN tasks ON tasks.task_id = agent_runs.task_id

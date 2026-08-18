@@ -1,389 +1,289 @@
-# Tasks Contract
+# Tasks
 
-This document defines the current durable contract for Noema Tasks. It replaces
-the completed design program and multi-agent implementation packets that
-originally built the subsystem. Git history owns those execution details; new
-work should follow the current code and this contract rather than reconstructing
-the old horizontal program.
+This document defines the current durable behavior for Noema Tasks.
+Git owns completed implementation history.
 
 ## Product boundary
 
-Tasks is Noema's durable system for capturing, organizing, executing, reviewing,
-and completing tasks. Chat is the simplest entry point, while `/tasks` provides a
-denser management surface. Both operate on the same task and semantic command
-model.
+Tasks captures, organizes, executes, reviews, and completes durable work.
+Chat is the simplest entry point.
+`/tasks` is the management surface.
 
 The current product has:
 
-- one seeded Personal workspace and one seeded Personal workflow;
-- optional projects that organize tasks without changing their execution;
-- one task record shared by chat, runtime, API, and UI;
-- planner, executor, and reviewer runs supervised by the runtime;
+- one seeded Personal workspace and workflow;
+- optional projects with shared files and resources;
+- one task record across chat, runtime, API, and UI;
+- Planner, Executor, and Reviewer runs;
 - explicit human gates for clarification, approval, and recovery;
-- immutable execution contracts, submissions, and reviews;
+- mutable Task files for content and role handoffs;
 - a monotonic event ledger for audit and client invalidation.
 
-Tasks is a general personal-task system. Repository scanning, branches,
-worktrees, terminals, commits, and pull requests are adapter concerns rather
-than core task concepts.
+Tasks is a general personal-task system.
+Repository tools and delivery systems remain capability concerns.
 
-## State authority
+## State and content authority
 
 Each question has one authority:
 
 | Question | Authority |
 | --- | --- |
-| Where is a task in the workflow? | `tasks.stage_id` |
-| What is an agent doing now? | Current `agent_runs.run_kind` and `agent_runs.status` |
-| What governs this attempt? | Current immutable `task_execution_contracts` generation |
-| Why does the human need to act? | The unresolved `task_gates` record |
-| What completed successfully? | The latest immutable submission and approving independent review |
-| What happened? | Monotonic `work_events` audit records |
+| Where is the Task in its workflow? | `tasks.stage_id` |
+| What is an agent doing now? | Current run kind and status |
+| What work must agents perform? | Current `TASK.md` |
+| What did the Reviewer decide? | Current review decision metadata |
+| What feedback must the Executor address? | Current `REVIEW.md` |
+| Why must the human act? | The unresolved Task gate |
+| What happened? | Monotonic `work_events` records |
 
-Attention labels, valid actions, completion labels, and queue groupings are
-derived projections. They must not become mutable status fields or alternate
-state machines. The event ledger is audit and invalidation data, not a replay
-authority.
+Task content is not a database snapshot.
+Noema does not version plans, results, reviews, or context content.
+Derived labels and valid actions must not become another state machine.
+
+## Task files and directories
+
+Each Task has one working directory.
+
+- A project Task uses `<project>/<task-slug>/`.
+- A projectless Task uses `${NOEMA_HOME}/tasks/<task-slug>/`.
+- An explicit Task directory base remains supported.
+
+Noema allocates the slug once.
+It adds an integer suffix when a path exists.
+A title change does not move the directory.
+
+`TASK.md` is the current Task content and result authority.
+`REVIEW.md` contains the current Reviewer feedback when feedback exists.
+Agents can create other support files when useful.
+
+Project Tasks can read shared files within the project boundary.
+Relative parent paths can reach those files.
+Paths cannot escape the project boundary.
+Projectless Tasks cannot escape their Task directory.
+Symbolic links cannot bypass either boundary.
+
+The Planner and Executor can manage files in the Task directory.
+The Planner and Reviewer can read files within the project boundary.
+The Reviewer cannot directly change Task or project files.
+`task.finish_review` owns each `REVIEW.md` replacement.
+Governed capability tools own Executor writes outside the Task directory.
+
+Task file tools accept relative paths and UTF-8 text.
+Model-facing reads and writes have a 64 KiB limit.
+Writes replace files atomically.
+Task files have no database record, content hash, revision, or snapshot.
 
 ## Workflow
 
-The Personal workflow maps six fixed behaviors to user-facing stages:
+The Personal workflow maps fixed behaviors to user-facing stages:
 
 | Stage | Behavior | Meaning |
 | --- | --- | --- |
 | Inbox | `Intake` | Captured but not authorized to run |
-| Queue | `Dispatch` | Authorized and waiting for the appropriate role |
-| Doing | `Active` | Planning, execution, or automated review is active |
+| Queue | `Dispatch` | Authorized and waiting for a role |
+| Doing | `Active` | Planning, execution, or review is active |
 | Waiting | `HumanGate` | A structured human response is required |
-| Done | `TerminalSuccess` | The reviewer approved the result |
-| Cancelled | `TerminalCancelled` | The human cancelled the task |
+| Done | `TerminalSuccess` | The Reviewer approved the work |
+| Cancelled | `TerminalCancelled` | The human cancelled the Task |
 
-Done and Cancelled remain available through history.
-Stage behavior, rather than display text or English intent matching, controls
-transitions and available operations.
+Stage behavior controls transitions and available operations.
+Display text and free-form intent do not control them.
 
 The normal path is:
 
-1. Capture creates an Inbox task. Queue authorizes planning, while primary-chat
-   delegation may atomically capture and authorize a task.
-2. A Planner produces a complete execution plan or opens a structured gate. A
-   complete delegated intent may skip planning and queue an Executor directly.
-3. The accepted plan becomes a new immutable execution contract. An Executor
-   produces a submission or opens a gate.
-4. A Reviewer independently evaluates the submission. Requested changes queue
-   another bounded execution attempt; approval completes the task in Done.
-5. The human may reopen Done with additional direction, which creates a new
-   contract generation and queues another bounded execution attempt.
+1. Capture creates an Inbox Task.
+2. Queue authorizes planning.
+3. A complete delegated intent can queue execution directly.
+4. The Planner updates `TASK.md` and calls `task.finish_planning`.
+5. The Executor reads current Task files and performs the work.
+6. The Executor calls `task.finish_execution` when review can start.
+7. The Reviewer reads current files and calls `task.finish_review`.
+8. Requested changes queue another Executor against the same files.
+9. Approval completes the Task without copying its content.
 
-## Scheduled execution and Repeat
+The Executor can call `task.continue_execution` when more execution is useful.
+That call queues another Executor without human action.
+`task.report_blocked` remains for a specific missing answer, approval, or requirement.
 
-A one-time schedule extends the existing Task rather than creating a parallel
-object. `scheduled_for` is an exact UTC instant; `schedule_time_zone` retains
-the validated authoring IANA zone for display, and `missed_run_policy` is
-`run_once` by default or `skip`. A scheduled Task remains in Intake but is
-future-authorized: ordinary Queue is unavailable until the runtime's due
-transition. Unschedule returns it to ordinary Inbox, while reschedule replaces
-only future timing and preserves Task identity and authorization.
-
-Repeat creates a `TaskRecurrence` only because repeating work needs continuing
-authority after an occurrence begins. It owns the current future title,
-description, project, authorization context, inclusive `starts_at`, five-field
-cron, timezone, missed-run policy, overlap policy, lifecycle, revision, and next
-due projection. Each occurrence remains an ordinary Task snapshot with its own
-planning, approval, result, retry, cancellation, artifacts, and transcript.
-Template edits never rewrite active or historical Task snapshots.
-
-The first occurrence is the first cron match at or after `starts_at`; enabling
-Repeat on a pending Task preserves that Task as the first occurrence. Removing
-Repeat before execution deletes future recurrence authority and leaves the Task
-scheduled once. Ending recurrence after execution begins prevents future
-materialization without changing active or historical Tasks.
-
-Immutable occurrence rows resolve each local recurrence minute exactly once as
-materialized, skipped, or coalesced. Spring-forward gaps do not execute and a
-fall-back wall-clock minute executes at most once. On recovery or resume,
-`skip` records the missed slot and advances, while `run_once` queues one
-representative occurrence immediately before normal cadence resumes. Overlap
-is `skip` by default, `queue_one` retains one coalesced slot until active work
-settles, and `allow` materializes every live due occurrence under the global
-worker cap.
-
-Run now is explicit execution authority, separate from ordinary Queue. For a
-pending scheduled Task—including the first Task in a recurring series—it queues
-that same Task early and retains its original schedule provenance. For a series
-whose prior occurrences have settled, it creates one manual child snapshot and
-leaves recurrence revision and `next_run_at` unchanged. Manual occurrences are
-identified separately in immutable history. A series manual run fails while
-another occurrence remains nonterminal, preventing an accidental concurrent
-execution; the configured overlap policy continues to govern cron slots only.
-
-Due processing revision-fences the Task or recurrence and commits occurrence
-history, recurrence advancement, Task creation/Queue authorization, audit, and
-invalidation in one idempotent transaction. The Tasks runtime owns one dynamic
-deadline for the earliest Task or recurrence and recomputes it on startup and
-Tasks invalidations; adapter schedules and additional polling loops are not
-schedule authority.
-
-The Tasks surface orders active work as Needs you, Running, Scheduled, Up next,
-then Inbox.
-Scheduled contains ordinary one-time Task rows and one collapsed row per
-recurrence. New task and Inbox task flows use explicit scheduling dialogs with
-timezone, repeat presets or five-field cron, policies, and a five-occurrence
-preview. Existing task detail carries one-time timing actions or recurrence
-lifecycle controls, future-timing edits, and occurrence links back to ordinary
-Task history.
-
-## Commands and transactions
-
-Public mutations use semantic Tasks commands: capture, update Inbox, queue,
-schedule/reschedule/unschedule/run-now, recurrence update/lifecycle/run-now,
-answer, retry, cancel, reopen, delegate, and project
-create/update/archive/reopen. Do not expose a generic `set_stage` operation.
-
-Task commands carry the expected task revision and execution generation.
-Project commands carry the expected project revision. Idempotency keys,
-correlation IDs, actor identity, and causation IDs are command metadata, not
-resolver-local conventions.
-
-The store command service owns each mutation transaction. A successful command
-commits all of the following together when applicable:
-
-- stored task, gate, contract, run, submission, review, or project state;
-- optimistic revision and generation changes;
-- the audit event and required notification outbox records;
-- the idempotency receipt and stable result.
-
-An idempotent retry returns the original result. A stale revision, stale
-generation, invalid stage, wrong gate, or superseded run fails without partial
-effects. API resolvers, runtime workers, and tools must not assemble these
-cross-table transitions themselves.
-
-Cancellation and reopen increment the generation so old runnable work cannot
-mutate the new task lifetime. Reopening Done creates an immutable amended
-contract from the completed contract plus the human's required direction;
-reopening Cancelled queues planning with that direction. Answer and retry
-preserve the generation while resuming the role explicitly recorded by the gate.
+Reopened Tasks reuse their current files.
+Completed views always read current `TASK.md` and optional `REVIEW.md`.
 
 ## Runs, gates, and reconciliation
 
-`RunKind` is Planner, Executor, or Reviewer. `RunStatus` is run-local queue and
-lease state; it is never task workflow state. A run persists its exact provider
-selection, execution policy, generation, contract lineage, parentage, attempt,
-and review round before it becomes runnable.
+`RunKind` is Planner, Executor, or Reviewer.
+`RunStatus` is queue and lease state for one run.
+It is never Task workflow state.
 
-Workers claim bounded leases, heartbeat while active, and publish only through
-role-specific terminal contracts. Generation, lease token, run kind, and
-contract lineage are rechecked when accepting terminal output. Provider calls,
-tool calls, token counts, timing, and errors remain attributable to the run.
+Each run stores its provider selection, execution policy, generation, parentage, attempt, and review round.
+Provider, agent, project, and filesystem settings resolve when each run starts.
 
-Human gates are typed records with one open gate at a time. Clarification and
-approval gates resume the recorded role after a valid answer. Recovery gates
-encode a closed recovery reason and an explicit safe continuation role when a
-retry is allowed. Free-form text does not decide gate semantics.
+Workers claim bounded leases and heartbeat while active.
+Terminal tools verify the current generation, lease, and run kind.
+Provider calls, tool calls, token counts, timing, and errors remain attributable to the run.
 
-Reconciliation derives one next action from durable facts. It may queue the
-role compatible with the current contract, materialize a completed plan, move
-an approved review to terminal Done, resume a resolved gate, open a recovery gate,
-or reject stale runnable work. Contradictory state fails closed or opens an
-invariant-recovery gate; it does not guess from event text.
+Human gates are typed records.
+Only one gate can remain open for a Task.
+Clarification and approval gates resume the recorded role.
+Recovery gates record a closed reason and a safe continuation role.
+Free-form text does not decide gate semantics.
 
-An Active task whose current run is waiting for an action request decision is
-intentionally idle. The run resumes through the action request continuation;
-reconciliation must not reinterpret that pause as missing durable work.
+Reconciliation derives one next action from current operational facts.
+It can queue the required role, resume a gate, complete approval, or reject stale work.
+Contradictory state fails closed or opens recovery.
 
-The essential compatibility rule is simple: Planner runs exist before a
-contract, while Executor and Reviewer runs require a contract. Terminal and
-human-gated tasks cannot retain runnable work.
+An Active Task can wait for an action decision without runnable work.
+The saved action continuation resumes that run.
 
-## Persistence and events
+Terminal and human-gated Tasks cannot retain runnable work.
 
-SQLite owns stored state and is opened only by the Noema server. Schema changes
-append forward-only store migrations so persisted application rows survive
-upgrades; applied migrations are immutable.
+## Context and compaction
 
-Tasks persists concrete workspace, project, workflow, stage, task, contract,
-criterion, gate, run, run-item, submission, review, command-receipt, event, and
-notification records. Foreign keys and unique indexes enforce identity and
-lineage where SQLite can express them; command transactions enforce the
-cross-record behavioral invariants.
+Each role must read the current `TASK.md`.
+Correction Executors also read current `REVIEW.md`.
+Role prompts must not prescribe batches, checklists, or document sections.
 
-`work_events` has a monotonic cursor and stable event identity. It supports
-audit, subscriptions, and invalidation, but clients recover stored state
-through bounded reads after reconnect. Event payloads should identify affected
-objects and facts needed by those consumers, without duplicating the full
-aggregate.
+Generic context compaction remains the only compaction system.
+After compaction, the runtime reads the latest `TASK.md` and adds it as Task data.
+The runtime then applies normal context admission again.
+Task content cannot override runtime policy or role permissions.
 
-Runtime queue claims use transactional leases. Expired or interrupted work is
-reconciled against current generation and durable outputs before retrying, so a
-crash cannot silently duplicate a completed terminal effect.
+Large tool results are bounded before context admission.
+Recoverable action-storage failures preserve provider continuation.
+
+## Scheduling and recurrence
+
+A one-time schedule extends the existing Task.
+`scheduled_for` stores an exact UTC instant.
+`schedule_time_zone` stores the authoring IANA zone.
+The missed-run policy is `run_once` or `skip`.
+
+A scheduled Task remains in Intake until its due transition.
+Unschedule returns it to ordinary Inbox.
+Reschedule replaces only future timing.
+
+Repeat owns continuing authority after one occurrence starts.
+The recurrence stores its current template, schedule, policies, lifecycle, revision, and next due time.
+Each occurrence remains an ordinary Task with its own files, runs, gates, and transcript.
+Template edits do not rewrite existing occurrences.
+
+Occurrence rows resolve each local recurrence minute once.
+Spring-forward gaps do not execute.
+A repeated fall-back minute executes at most once.
+
+`skip` records a missed slot.
+`run_once` queues one representative occurrence before normal cadence resumes.
+Overlap policies are `skip`, `queue_one`, and `allow`.
+
+Run now is separate execution authority.
+For a pending scheduled Task, it runs that same Task early.
+For an established series, it creates one manual occurrence.
+
+Due processing uses revision fences and one idempotent transaction.
+The runtime maintains one dynamic deadline for the next Task or recurrence.
+
+## Commands and persistence
+
+Public mutations use semantic Task commands.
+The API does not expose a generic `set_stage` operation.
+
+Task commands carry the expected revision and generation.
+Project commands carry the expected project revision.
+Command metadata carries identity, correlation, causation, and idempotency data.
+
+The store command service owns each mutation transaction.
+A successful command commits applicable state, audit, notifications, and its idempotency receipt together.
+An idempotent retry returns the original result.
+Stale or invalid commands fail without partial effects.
+
+Cancellation and reopen increment the generation.
+Old work cannot change the new Task lifetime.
+Answer and retry preserve the generation and resume the recorded role.
+
+SQLite stores operational Task state only.
+This includes workflow, gates, runs, run items, decisions, receipts, events, and notifications.
+Task content remains in Task files.
+
+`work_events` provides audit, subscription cursors, and invalidation.
+It is not a replay authority.
+Clients recover current state through bounded reads.
 
 ## Runtime and tools
 
-The runtime owns worker supervision, provider dispatch, bounded context,
-role-specific prompts and tools, lease renewal, and reconciliation scheduling.
-The store remains the authority for admission and transition validity.
+The runtime owns worker supervision, provider dispatch, bounded context, role tools, leases, and reconciliation scheduling.
+The store owns admission and transition validity.
 
-Task workers receive only the context needed for their role: the current task,
-contract, relevant prior output, bounded transcript, provider snapshot, and
-execution policy. They do not receive unrestricted primary-chat authority.
-For chat-originated planning, the exact authenticated source request is shown
-alongside the captured task description so the Planner can unfold necessary
-work without silently expanding the requested outcome or delivery depth. The
-resulting immutable contract remains the Executor's sole request authority;
-contract complexity calibrates its research effort and user-facing detail.
-For a simple contract, the default execution shape is one discovery batch and
-at most one focused verification batch, stopping as soon as every criterion has
-adequate evidence. Its user-facing result should normally stay below roughly
-180 words when the human did not request depth; detailed validation belongs in
-structured criterion evidence. Execution-policy values are safety ceilings for
-runaway work, not effort targets, so they do not authorize broader research.
+Task agents receive only their role context and authorized tools.
+They do not receive unrestricted primary-chat authority.
+Agents decide how to organize long work and whether support files are useful.
 
-Reviewers are independent from Executors but bound to the submitted evidence:
-the immutable contract, result, criterion evidence, and submitted artifacts.
-Each Executor submission is a complete replacement deliverable. A revision run
-may reuse relevant work and passed evidence from prior Executors, but its result
-and artifact manifest must contain the full accepted work; prior submissions are
-not inherited into the completed result. Criterion evidence locates support in
-that deliverable and cannot substitute for required result or artifact content.
-They may reject demonstrated omissions, internal contradictions, artifact
-mismatches, or explicitly required missing evidence, but they cannot invent an
-external contradiction from background knowledge or demand research dimensions
-the criterion did not require. Reviewers receive no web tools and can read an
-artifact only when the submission contains one.
+Task file tools are:
 
-Executor and Reviewer terminal schemas enumerate the current contract's exact
-opaque criterion ids and require one entry for each id. The first malformed
-terminal payload is returned to the same provider conversation for a
-terminal-only repair; a second malformed payload fails non-retryably and opens
-recovery instead of repeating the whole run.
+- `task.files.list`;
+- `task.files.read`;
+- `task.files.write`;
+- `task.files.delete`.
 
-Tool visibility follows capability and approval policy. The primary agent may
-delegate a task through the semantic composition; task agents may publish only
-the structured outputs allowed for their run kind. External writes remain
-governed by the capability system and exact approval state.
+Role terminal tools are:
 
-Task progress and task-originated notices appear in the primary conversation as
-agent-authored updates alongside a durable task attachment. The attachment is
-stored as a `task_reference` conversation item containing only the task id;
-GraphQL clients hydrate the current task projection and subscribe to Tasks events
-so the card stays live. Detailed run transcripts remain attached to the task
-and should not flood the main chat. A successful completion notice also attaches
-every artifact from the accepted submission as a durable artifact reference.
-Noema owns scheduled execution and relays each accepted result through the
-primary conversation. Planners and Executors must not treat those runtime
-behaviors as contract deliverables or ask for another delivery channel. They
-use an external destination only when the authenticated human request names it.
-Every task role continues while a safe, authorized, in-scope action can
-materially improve its required output. A role opens a human gate only when a
-specific answer or approval enables the next action. Otherwise, it finishes
-through its best supported terminal output and explains any shortfall there.
+- `task.finish_planning`;
+- `task.finish_execution`;
+- `task.continue_execution`;
+- `task.finish_review`;
+- `task.report_blocked`.
 
-## API and UI
+External writes remain governed by capability and approval policy.
+ACP and provider agents receive equivalent Task-file behavior.
 
-GraphQL exposes bounded workspace, project, task-list, task-detail, transcript,
-and overview reads; semantic mutations; and a cursor-based Tasks event
-subscription. Inputs map to domain commands, and resolver projections derive
-attention and valid actions from stored facts.
+Task updates appear in the primary conversation with a durable Task reference.
+The reference stores only the Task identity.
+Clients hydrate its current projection and use Task events for invalidation.
 
-Clients must use generated GraphQL types and server-owned valid actions. Do not
-mirror stage-transition rules in TypeScript. After reconnect, clients refetch
-stored-state reads and use the event cursor only to invalidate or advance them.
+Detailed run transcripts remain attached to the Task.
+They must not flood primary chat.
+Completion notices read the current Task files.
 
-The primary chat shows compact task markers and human decisions when action is
-needed. Tasks is the `/tasks` product surface. It contains one task-first
-operational queue, project organization, and task detail. The queue leads with
-decisions that need the human, groups active
-work by the existing Active, Dispatch, and Intake stage behaviors, then ends
-with recent terminal history. One compact card list carries those groups: each
-task card leads with its title and recent activity, keeps status and project as
-supporting context, and opens the persistent task-detail viewer. On wide
-screens, Tasks is an email-style three-pane surface with task folders on the
-left, cards in the center, and the selected task on the right; the folder rail
-collapses behind the list toolbar at medium widths and the detail pane becomes
-a full-screen route on narrow screens. When the only available workspace is
-Personal and it has no projects, the folder navigation is omitted entirely.
-Both surfaces reuse the same task-detail and decision components.
-While a task is active, task detail presents one padded chronological
-conversation stream as the primary surface. After reviewer approval completes
-the task, its body presents the accepted final response by default with the
-chronological transcript available in a neighboring tab. A compact floating
-task card groups server-authorized command icons beside the Tasks and
-information controls. Durable human task input uses the human message lane. Planner,
-Executor, and Review runs are marked inline with role, revision, status, and
-duration, while their persisted transcript items use the existing response and
-activity lanes. Each immutable executor submission appears once as the durable
-result in that chronological stream, followed by its artifact references. Local
-artifact cards open the shared artifact detail viewer; downloading remains an
-explicit action inside that viewer. Artifacts opened from a task are nested
-detail routes with a Back action that restores the mounted task view. Run
-transcripts are merged into one scroll surface; tool activity remains
-expandable in place, and bounded paging continues from the oldest available run
-window. Executor commentary before a non-terminal tool batch is user-visible;
-hidden provider reasoning is not rendered.
+## API and clients
 
-The synthesized initial task message uses the captured task description, never
-the Planner's normalized execution contract. Contract request, plan, and
-criteria remain execution authority and are inspectable through run disclosure
-without being presented as human-authored input.
+GraphQL exposes bounded Task reads, operational runs, transcript activity, semantic mutations, and a cursor-based event subscription.
+Task detail exposes current `TASK.md` and optional `REVIEW.md` content.
+It does not expose removed content histories or snapshots.
 
-The floating task-context card keeps an optional needs-input row and compact
-validation summary above the active-task transcript, and remains available on
-the Transcript tab for completed tasks; the Result tab omits it. The info
-popover exposes compact metadata only; the validation row discloses individual criteria. An
-unresolved clarification, approval, recovery, or permission
-action is attached to the needs-input row, keeping its prompt and controls
-visible until resolved; after resolution, the decision is represented by the
-chronological task stream. Recovery uses one response control: non-empty text
-resolves an eligible Answer, while an empty response requests Retry when the
-gate authorizes it. Clarification gates may also offer direct answer choices;
-selecting one submits that label through the same Answer command, while free
-text remains available for a different response.
-When a clarification supplies direct choices, its prompt stays to one brief
-question and its context does not repeat the choice labels rendered by the
-controls.
-Internal IDs, raw run counters, provider details, and audit evidence stay behind
-progressive disclosure unless they directly explain the next human action.
+Clients use generated GraphQL types and server-owned valid actions.
+They do not mirror stage transitions.
+After reconnect, clients refetch current state and use events for invalidation.
 
-UI hierarchy and behavior follow `docs/frontend/product-design.md`. Backend
-field availability alone is not a reason to display a field, and controls stay
-hidden until their mutation is implemented.
+The Task surface remains task-first and dense.
+Active detail uses one chronological stream.
+Completed detail shows current Task content with the transcript nearby.
+Human decisions remain visible until resolution.
+Internal operational data stays behind progressive disclosure.
+
+UI hierarchy follows `docs/frontend/product-design.md`.
+Backend field availability alone does not justify display.
 
 ## Code ownership
 
-The current implementation is organized by responsibility:
+- `crates/noema-workspaces` owns workspace and project records.
+- `crates/noema-tasks` owns Task workflow, commands, gates, runs, and events.
+- Task modules in `crates/noema-store` own persistence, transitions, leases, and reconciliation.
+- Task modules in `crates/noema-runtime` own supervised execution and Task tools.
+- Task modules in `crates/noema-api` own GraphQL projections and resolvers.
+- `apps/web` and `apps/ios` own client presentation from generated contracts.
 
-- `crates/noema-workspaces` owns workspace and project domain records;
-- `crates/noema-tasks` owns Tasks task, workflow, command, planning, gate, run,
-  event, contract, submission, and review vocabulary;
-- Tasks modules in `crates/noema-store` own SQLite commands, reads, leases,
-  reconciliation, events, and notifications;
-- Tasks modules in `crates/noema-runtime` own supervised task execution and
-  runtime tools;
-- task modules in `crates/noema-api` own GraphQL projections and resolvers;
-- `apps/web` owns chat and `/tasks` presentation using generated contracts.
-
-These are responsibility boundaries, not a mandate to split feature work
-horizontally. New behavior should be implemented as one small vertical slice,
-reuse the existing command path, and follow `docs/development/simplicity.md`.
+These boundaries do not require horizontal feature work.
+Implement new behavior as one small vertical slice.
 
 ## Validation and deferred scope
 
-Tests should concentrate on transition authority, transactional atomicity,
-idempotency, revision/generation fencing, lease races, recovery decisions,
-provider/tool boundaries, and demonstrated regressions. Pass-through mappings,
-enum mirrors, and the same transition repeated at every layer do not need
-separate tests.
+Tests concentrate on transition authority, atomicity, idempotency, fencing, lease races, boundaries, and demonstrated regressions.
+Do not repeat pass-through behavior at every layer.
 
-The following remain outside the current contract until a concrete product
-slice requires them:
+The current scope excludes:
 
-- multiple user-configurable workflows or workspace administration;
-- dependency graphs, collaborative assignment, and multi-user permissions;
-- generic event replay or event-sourced aggregate reconstruction;
-- coding-specific Git, terminal, worktree, and pull-request concepts in core;
-- arbitrary drag-and-drop stage mutation;
-- compatibility machinery for obsolete pre-V1 schemas or APIs.
-
-When behavior changes, update this contract only for durable product or
-authority decisions. Keep implementation plans short, remove completed packets,
-and rely on Git history for execution detail.
+- multiple configurable workflows;
+- workspace administration;
+- collaboration and assignment;
+- dependencies and subtasks;
+- a Task file browser;
+- checklist-specific state;
+- Markdown parsing into a second progress model.

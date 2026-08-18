@@ -10,19 +10,16 @@ use crate::{
         agent_name_tool::update_own_name_tool_spec,
         artifact_tool::artifact_create_local_file_tool_spec,
         task_artifact_tool::{TASK_READ_ARTIFACT_TOOL, task_read_artifact_tool_spec},
-        task_run_context::TaskTerminalContract,
-        task_submission_evidence_tool::{
-            TASK_READ_SUBMISSION_EVIDENCE_TOOL, task_read_submission_evidence_tool_spec,
-        },
         task_tool::{
             TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CONTINUE_EXECUTION_TOOL,
             TASK_FILE_DELETE_TOOL, TASK_FILE_LIST_TOOL, TASK_FILE_READ_TOOL, TASK_FILE_WRITE_TOOL,
-            TASK_LIST_TOOL, TASK_REPORT_BLOCKED_TOOL, TASK_SUBMIT_PLAN_TOOL,
-            TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL, primary_task_tool_specs,
+            TASK_FINISH_EXECUTION_TOOL, TASK_FINISH_PLANNING_TOOL, TASK_FINISH_REVIEW_TOOL,
+            TASK_LIST_TOOL, TASK_REPORT_BLOCKED_TOOL, primary_task_tool_specs,
             task_continue_execution_tool_spec, task_file_delete_tool_spec,
             task_file_list_tool_spec, task_file_read_tool_spec, task_file_write_tool_spec,
-            task_list_scoped_tool_spec, task_report_blocked_tool_spec, task_submit_plan_tool_spec,
-            task_submit_result_tool_spec, task_submit_review_tool_spec,
+            task_finish_execution_tool_spec, task_finish_planning_tool_spec,
+            task_finish_review_tool_spec, task_list_scoped_tool_spec,
+            task_report_blocked_tool_spec,
         },
     },
     search::tool::web_search_tool_spec,
@@ -81,7 +78,6 @@ pub(super) async fn build_model_tools(
         ExecutionRole::PrimaryConversation,
         include_agent_name_tool,
         capabilities,
-        None,
     )
     .await
 }
@@ -97,7 +93,6 @@ pub(super) async fn build_model_tools_for_role(
     role: ExecutionRole,
     include_agent_name_tool: bool,
     capabilities: ProviderToolCapabilities,
-    terminal_contract: Option<&TaskTerminalContract>,
 ) -> Result<ModelTools, ToolContractError> {
     let transport = capabilities.tool_transport;
     let capability_catalog = capability_bindings
@@ -128,7 +123,7 @@ pub(super) async fn build_model_tools_for_role(
         });
     }
 
-    let builtin_tools = role_builtin_tool_specs(role, include_agent_name_tool, terminal_contract)?;
+    let builtin_tools = role_builtin_tool_specs(role, include_agent_name_tool)?;
     let web_search_tool = web_search_tool_spec()?;
     let web_fetch_tool = web_fetch_tool_spec()?;
     let web_browse_tools = noema_capabilities::web::browse::tool_specs()?;
@@ -271,15 +266,11 @@ fn is_background_connector_proposal(role: ExecutionRole, binding: &CapabilityBin
 fn role_builtin_tool_specs(
     role: ExecutionRole,
     include_agent_name_tool: bool,
-    terminal_contract: Option<&TaskTerminalContract>,
 ) -> Result<Vec<ToolSpec>, ToolContractError> {
-    let criterion_ids = terminal_contract
-        .map(|contract| contract.criterion_ids.as_slice())
-        .unwrap_or_default();
     let mut tools = match role {
         ExecutionRole::TaskPlanner => {
             vec![
-                task_submit_plan_tool_spec()?,
+                task_finish_planning_tool_spec()?,
                 task_report_blocked_tool_spec()?,
                 task_file_list_tool_spec()?,
                 task_file_read_tool_spec()?,
@@ -289,7 +280,7 @@ fn role_builtin_tool_specs(
         }
         ExecutionRole::TaskExecutor => {
             vec![
-                task_submit_result_tool_spec(criterion_ids)?,
+                task_finish_execution_tool_spec(&[])?,
                 task_continue_execution_tool_spec()?,
                 task_report_blocked_tool_spec()?,
                 task_list_scoped_tool_spec()?,
@@ -300,18 +291,12 @@ fn role_builtin_tool_specs(
             ]
         }
         ExecutionRole::TaskReviewer => vec![
-            task_submit_review_tool_spec(criterion_ids)?,
+            task_finish_review_tool_spec(&[])?,
             task_file_list_tool_spec()?,
             task_file_read_tool_spec()?,
         ],
         ExecutionRole::PrimaryConversation => Vec::new(),
     };
-    if role == ExecutionRole::TaskReviewer
-        || role == ExecutionRole::TaskExecutor
-            && terminal_contract.is_some_and(|contract| contract.has_correction_review)
-    {
-        tools.push(task_read_submission_evidence_tool_spec()?);
-    }
     if role != ExecutionRole::TaskPlanner {
         tools.extend(builtin_tool_specs(include_agent_name_tool)?);
     }
@@ -319,10 +304,7 @@ fn role_builtin_tool_specs(
         tools.push(present_multiple_choice_tool_spec()?);
         tools.push(present_a2ui_tool_spec()?);
         tools.extend(primary_task_tool_specs()?);
-    } else if role == ExecutionRole::TaskExecutor
-        || role == ExecutionRole::TaskReviewer
-            && terminal_contract.is_some_and(|contract| contract.has_submission_artifacts)
-    {
+    } else if role == ExecutionRole::TaskExecutor || role == ExecutionRole::TaskReviewer {
         tools.push(task_read_artifact_tool_spec()?);
     }
     Ok(tools)
@@ -331,20 +313,17 @@ fn role_builtin_tool_specs(
 #[cfg(feature = "eval-support")]
 pub(crate) fn task_role_builtin_tool_specs(
     role: ExecutionRole,
-    terminal_contract: &TaskTerminalContract,
 ) -> Result<Vec<ToolSpec>, ToolContractError> {
     let mut policy = ToolPolicy::for_role(role);
-    Ok(
-        role_builtin_tool_specs(role, false, Some(terminal_contract))?
-            .into_iter()
-            .filter(|tool| {
-                policy.declare_tool(
-                    tool.name.as_str(),
-                    builtin_tool_access_class(role, tool.name.as_str()),
-                )
-            })
-            .collect(),
-    )
+    Ok(role_builtin_tool_specs(role, false)?
+        .into_iter()
+        .filter(|tool| {
+            policy.declare_tool(
+                tool.name.as_str(),
+                builtin_tool_access_class(role, tool.name.as_str()),
+            )
+        })
+        .collect())
 }
 
 impl ModelTools {
@@ -492,8 +471,7 @@ fn builtin_tool_access_class(role: ExecutionRole, name: &str) -> ToolAccessClass
         | TASK_LIST_TOOL
         | TASK_FILE_LIST_TOOL
         | TASK_FILE_READ_TOOL
-        | TASK_READ_ARTIFACT_TOOL
-        | TASK_READ_SUBMISSION_EVIDENCE_TOOL => ToolAccessClass::ReadOnly,
+        | TASK_READ_ARTIFACT_TOOL => ToolAccessClass::ReadOnly,
         TASK_FILE_WRITE_TOOL | TASK_FILE_DELETE_TOOL => ToolAccessClass::TaskOwnedWrite,
         "artifact.create_local_file"
             if matches!(
@@ -509,9 +487,11 @@ fn builtin_tool_access_class(role: ExecutionRole, name: &str) -> ToolAccessClass
         "artifact.create_local_file" => ToolAccessClass::ConversationWrite,
         // Renaming the primary identity is a foreground-only control action.
         "update_own_name" | TASK_ANSWER_TOOL | TASK_CANCEL_TOOL => ToolAccessClass::Internal,
-        TASK_SUBMIT_PLAN_TOOL | TASK_REPORT_BLOCKED_TOOL => ToolAccessClass::ExecutorTerminal,
-        TASK_SUBMIT_RESULT_TOOL | TASK_CONTINUE_EXECUTION_TOOL => ToolAccessClass::ExecutorTerminal,
-        TASK_SUBMIT_REVIEW_TOOL => ToolAccessClass::ReviewerTerminal,
+        TASK_FINISH_PLANNING_TOOL | TASK_REPORT_BLOCKED_TOOL => ToolAccessClass::ExecutorTerminal,
+        TASK_FINISH_EXECUTION_TOOL | TASK_CONTINUE_EXECUTION_TOOL => {
+            ToolAccessClass::ExecutorTerminal
+        }
+        TASK_FINISH_REVIEW_TOOL => ToolAccessClass::ReviewerTerminal,
         _ => ToolAccessClass::Internal,
     }
 }

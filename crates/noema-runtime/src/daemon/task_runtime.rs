@@ -273,7 +273,6 @@ async fn supervise_claimed_run(
         run_id: run.run_id.clone(),
         lease_token: claimed.lease_token.clone(),
         task_generation: run.task_generation,
-        contract_id: run.contract_id.clone(),
     };
     publish_task_changed(&services.subscriptions, &run.task_id);
     let run_cancellation = CancellationToken::new();

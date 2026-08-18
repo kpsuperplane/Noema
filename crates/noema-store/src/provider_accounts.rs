@@ -496,26 +496,6 @@ fn provider_account_is_referenced(
               WHERE provider_account_id = ?1
               UNION ALL
               SELECT 1
-              FROM task_execution_contracts AS contract
-              JOIN tasks AS task ON task.task_id = contract.task_id
-                                AND task.current_contract_id = contract.contract_id
-              JOIN workflow_stages AS stage
-                ON stage.workflow_id = task.workflow_id
-               AND stage.stage_id = task.stage_id
-              WHERE contract.executor_provider_account_id = ?1
-                AND stage.system_behavior NOT IN ('terminal_success', 'terminal_cancelled')
-              UNION ALL
-              SELECT 1
-              FROM task_execution_contracts AS contract
-              JOIN tasks AS task ON task.task_id = contract.task_id
-                                AND task.current_contract_id = contract.contract_id
-              JOIN workflow_stages AS stage
-                ON stage.workflow_id = task.workflow_id
-               AND stage.stage_id = task.stage_id
-              WHERE contract.reviewer_provider_account_id = ?1
-                AND stage.system_behavior NOT IN ('terminal_success', 'terminal_cancelled')
-              UNION ALL
-              SELECT 1
               FROM agent_runs
               LEFT JOIN tasks ON tasks.task_id = agent_runs.task_id
               LEFT JOIN workflow_stages AS stage

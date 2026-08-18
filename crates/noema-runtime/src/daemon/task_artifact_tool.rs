@@ -1,4 +1,4 @@
-//! Role-fenced access to governed artifacts linked to one task contract.
+//! Role-fenced access to governed artifacts owned by one Task.
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -32,7 +32,7 @@ pub(crate) fn task_read_artifact_tool_spec()
 -> Result<ToolSpec, noema_capabilities::ToolContractError> {
     ToolSpec::new(
         TASK_READ_ARTIFACT_TOOL,
-        "Read bounded UTF-8 content from an artifact version linked to the current task contract. Reviewers are restricted to the submitted manifest; Executors are restricted to task-owned artifacts created by an Executor run on the same contract revision.",
+        "Read bounded UTF-8 content from an artifact version owned by the current Task.",
         json!({
             "type": "object",
             "properties": {
@@ -67,13 +67,7 @@ pub(crate) async fn execute_task_read_artifact(
                 && !envelope.run.cancellation_requested
         })
         .ok_or_else(|| "task artifact context is unavailable".to_string())?;
-    let (artifact, version) = match envelope.run.run_kind {
-        noema_tasks::RunKind::Reviewer => reviewer_artifact(&envelope, &arguments)?,
-        noema_tasks::RunKind::Executor => executor_artifact(store, &envelope, &arguments).await?,
-        noema_tasks::RunKind::Planner => {
-            return Err("Planner cannot read task artifacts".to_string());
-        }
-    };
+    let (artifact, version) = task_artifact(store, &envelope, &arguments).await?;
 
     if !matches!(
         version.storage,
@@ -103,43 +97,7 @@ pub(crate) async fn execute_task_read_artifact(
     }))
 }
 
-fn reviewer_artifact(
-    envelope: &noema_store::WorkRunExecutionContext,
-    arguments: &ReadArtifactArguments,
-) -> Result<
-    (
-        noema_artifacts::ArtifactRecord,
-        noema_artifacts::ArtifactVersionRecord,
-    ),
-    String,
-> {
-    let submission_id = envelope
-        .run
-        .triggering_submission_id
-        .as_deref()
-        .ok_or_else(|| "reviewer run has no submission".to_string())?;
-    let submission = envelope
-        .latest_submission
-        .as_ref()
-        .filter(|submission| submission.submission_id == submission_id)
-        .ok_or_else(|| "submission is unavailable".to_string())?;
-    let linked = submission
-        .artifacts
-        .iter()
-        .find(|linked| {
-            linked.artifact.artifact_id == arguments.artifact_id
-                && arguments
-                    .artifact_version_id
-                    .as_deref()
-                    .is_none_or(|version_id| linked.version.artifact_version_id == version_id)
-        })
-        .ok_or_else(|| {
-            "artifact version is not linked to the submission under review".to_string()
-        })?;
-    Ok((linked.artifact.clone(), linked.version.clone()))
-}
-
-async fn executor_artifact(
+async fn task_artifact(
     store: &NoemaStore,
     envelope: &noema_store::WorkRunExecutionContext,
     arguments: &ReadArtifactArguments,
@@ -159,29 +117,6 @@ async fn executor_artifact(
         != noema_artifacts::ArtifactOwnerRef::task(envelope.task.task_id.as_str())
     {
         return Err("artifact is not owned by the current task".to_string());
-    }
-    let linked_run_id = artifact
-        .artifact
-        .metadata
-        .get("task_run_id")
-        .and_then(Value::as_str)
-        .filter(|run_id| !run_id.trim().is_empty())
-        .ok_or_else(|| "artifact is not linked to an Executor run".to_string())?;
-    if linked_run_id != envelope.run.run_id {
-        return Err("artifact is not linked to the current Executor run".to_string());
-    }
-    let linked_run = store
-        .get_work_run_record(linked_run_id)
-        .await
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "artifact-linked Executor run is unavailable".to_string())?;
-    if linked_run.task_id != envelope.task.task_id
-        || linked_run.task_generation != envelope.run.task_generation
-        || linked_run.contract_id != envelope.run.contract_id
-        || linked_run.run_kind != noema_tasks::RunKind::Executor
-        || linked_run.agent_id != artifact.artifact.created_by_actor_id
-    {
-        return Err("artifact is not linked to this task contract revision".to_string());
     }
     let version = arguments.artifact_version_id.as_deref().map_or_else(
         || Ok(artifact.current_version.clone()),

@@ -162,13 +162,6 @@ struct TasksGateSnapshot: Identifiable, Hashable, Sendable {
   let retryRunKind: String?
 }
 
-struct TasksReviewSnapshot: Identifiable, Hashable, Sendable {
-  let id: String
-  let verdict: String
-  let feedback: String
-  let createdAt: String
-}
-
 struct TasksTaskRow: Identifiable, Hashable, Sendable {
   let id: String
   let workspaceId: String
@@ -185,7 +178,6 @@ struct TasksTaskRow: Identifiable, Hashable, Sendable {
   let completedAt: String?
   let currentRun: TasksRunSnapshot?
   let activeGate: TasksGateSnapshot?
-  let latestReview: TasksReviewSnapshot?
   let validActions: Set<String>
 }
 
@@ -196,7 +188,6 @@ struct TasksAttentionRow: Identifiable, Hashable, Sendable {
   let summary: String
   let task: TasksTaskRow
   let gate: TasksGateSnapshot?
-  let review: TasksReviewSnapshot?
   let validActions: Set<String>
 }
 
@@ -205,36 +196,6 @@ struct TasksMessageSnapshot: Identifiable, Hashable, Sendable {
   let body: String
   let author: String
   let createdAt: String
-}
-
-struct TasksCriterionSnapshot: Identifiable, Hashable, Sendable {
-  let id: String
-  let ordinal: Int
-  let description: String
-  let expectedEvidence: String?
-  let evidence: String?
-  let verdict: String
-}
-
-struct TasksArtifactSnapshot: Identifiable, Hashable, Sendable {
-  let id: String
-  let versionID: String
-  let title: String
-  let kind: String
-  let storageKind: String
-  let mediaType: String?
-  let downloadURL: String?
-  let externalURL: String?
-}
-
-struct TasksSubmissionSnapshot: Identifiable, Hashable, Sendable {
-  let id: String
-  let summary: String
-  let result: String
-  let createdAt: String
-  let citations: [ProviderCitation]
-  let criteria: [TasksCriterionSnapshot]
-  let artifacts: [TasksArtifactSnapshot]
 }
 
 struct TasksDetailSnapshot: Identifiable, Hashable, Sendable {
@@ -250,16 +211,11 @@ struct TasksDetailSnapshot: Identifiable, Hashable, Sendable {
   var updatedAt: String
   var completedAt: String?
   var createdAt: String
-  var complexity: String?
-  var maxReviewRounds: Int?
   var sourceLabel: String?
-  var currentContract: String?
-  var criteria: [TasksCriterionSnapshot]
+  var taskDocument: String
+  var reviewDocument: String?
   var currentRun: TasksRunSnapshot?
   var activeGate: TasksGateSnapshot?
-  var latestSubmission: TasksSubmissionSnapshot?
-  var completedResult: TasksSubmissionSnapshot?
-  var latestReview: TasksReviewSnapshot?
   var messages: [TasksMessageSnapshot]
   var runs: [TasksRunSnapshot]
   var validActions: Set<String>
@@ -278,16 +234,11 @@ extension TasksTaskRow {
       updatedAt: updatedAt,
       completedAt: completedAt,
       createdAt: "",
-      complexity: nil,
-      maxReviewRounds: nil,
       sourceLabel: projectName,
-      currentContract: nil,
-      criteria: [],
+      taskDocument: "",
+      reviewDocument: nil,
       currentRun: currentRun,
       activeGate: gate,
-      latestSubmission: nil,
-      completedResult: nil,
-      latestReview: latestReview,
       messages: [],
       runs: [],
       validActions: validActions

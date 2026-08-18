@@ -50,23 +50,12 @@ fragment TasksGateFields on TaskGate {
   resolution
 }
 
-fragment TasksReviewSummaryFields on TaskReviewSummary {
-  reviewId
-  reviewedSubmissionId
-  reviewAttemptIndex
-  supersedesReviewId
-  verdict
-  feedback
-  createdAt
-}
-
 fragment TasksCurrentRunFields on CurrentRunSummary {
   runId
   instanceName
   kind
   status
   attemptIndex
-  contractId
   queuedAt
   startedAt
   updatedAt
@@ -93,7 +82,6 @@ fragment TasksTaskCardFields on TaskCard {
   completedAt
   currentRun { ...TasksCurrentRunFields }
   activeGate { ...TasksGateFields }
-  latestReview { ...TasksReviewSummaryFields }
   validActions
 }
 
@@ -117,7 +105,6 @@ fragment TasksTaskSummaryFields on TaskSummary {
   completedAt
   currentRun { ...TasksCurrentRunFields }
   activeGate { ...TasksGateFields }
-  latestReview { ...TasksReviewSummaryFields }
   attention {
     kind
     title
@@ -137,69 +124,6 @@ fragment TasksPolicyFields on TaskExecutionPolicy {
   maxReviewRounds
 }
 
-fragment TasksContractFields on TaskExecutionContract {
-  requestMarkdown
-  criteria {
-    criterionId
-    ordinal
-    description
-    expectedEvidence
-  }
-  complexity
-  executionPolicy { ...TasksPolicyFields }
-  executorAgentId
-  executorBackend
-  effectiveCwd
-}
-
-fragment TasksSubmissionFields on TaskSubmission {
-  submissionId
-  contractId
-  executorRunId
-  reviewRound
-  summary
-  resultMarkdown
-  citations {
-    title
-    url
-    startIndex
-    endIndex
-  }
-  criteria {
-    criterionId
-    evidenceMarkdown
-  }
-  artifacts {
-    artifactId
-    artifactVersionId
-    title
-    artifactKind
-    storageKind
-    mediaType
-    downloadUrl
-    externalUrl
-  }
-  createdAt
-}
-
-fragment TasksReviewFields on TaskReview {
-  reviewId
-  contractId
-  reviewerRunId
-  reviewedSubmissionId
-  reviewAttemptIndex
-  supersedesReviewId
-  verdict
-  feedback
-  criteria {
-    criterionId
-    outcome
-    evidenceMarkdown
-    feedback
-  }
-  createdAt
-}
-
 fragment TasksRunFields on TaskRun {
   runId
   instanceName
@@ -207,12 +131,9 @@ fragment TasksRunFields on TaskRun {
   status
   agentId
   taskGeneration
-  contractId
   attemptIndex
   reviewRound
   parentRunId
-  triggeringSubmissionId
-  triggeringReviewId
   model {
     providerKind
     providerAccountId
@@ -280,12 +201,8 @@ fragment TasksDetailActivityFields on TaskDetail {
 
 fragment TasksDetailOutcomeFields on TaskDetail {
   taskId
-  currentContract { ...TasksContractFields }
-  latestSubmission { ...TasksSubmissionFields }
-  completedResult { ...TasksSubmissionFields }
-  latestReview { ...TasksReviewSummaryFields }
-  submissions { ...TasksSubmissionFields }
-  reviews { ...TasksReviewFields }
+  taskDocument
+  reviewDocument
 }
 
 fragment TasksEventFields on TasksEvent {

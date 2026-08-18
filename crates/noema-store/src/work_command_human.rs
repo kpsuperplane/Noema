@@ -26,16 +26,12 @@ struct OriginatingRunRow {
     run_kind: String,
     attempt_index: i64,
     review_round: i64,
-    triggering_submission_id: Option<String>,
-    triggering_review_id: Option<String>,
 }
 
 struct OriginatingRun {
     run_kind: RunKind,
     attempt_index: u32,
     review_round: u32,
-    triggering_submission_id: Option<String>,
-    triggering_review_id: Option<String>,
 }
 
 pub(super) async fn execute(
@@ -75,12 +71,11 @@ async fn answer(
             let message_id = noema_tasks::TaskMessageId::new(allocate_id("task_message"))
                 .map_err(StoreError::Work)?;
             transaction.execute(
-                "INSERT INTO task_messages (message_id, task_id, task_generation, contract_id, gate_id, message_kind, body_markdown, approval_decision, author_actor_id) VALUES (?1, ?2, ?3, ?4, ?5, 'human_answer', ?6, ?7, ?8)",
+                "INSERT INTO task_messages (message_id, task_id, task_generation, gate_id, message_kind, body_markdown, approval_decision, author_actor_id) VALUES (?1, ?2, ?3, ?4, 'human_answer', ?5, ?6, ?7)",
                 params![
                     message_id.as_str(),
                     task_id.as_str(),
                     task.generation,
-                    gate.contract_id.as_ref().map(ToString::to_string),
                     gate.gate_id.as_str(),
                     answer.message_markdown,
                     answer.approval_decision.map(|value| value.as_str()),
@@ -107,7 +102,7 @@ async fn answer(
                     task.generation,
                     TaskMessageKind::HumanAnswer,
                     Some(gate.gate_id.clone()),
-                    gate.contract_id.clone(),
+                    None,
                 )
                 .map_err(StoreError::Work)?,
             )?;
@@ -141,15 +136,13 @@ async fn answer(
                 .map(|originating_run_id| {
                     transaction
                         .query_row(
-                            "SELECT run_kind, attempt_index, review_round, triggering_submission_id, triggering_review_id FROM agent_runs WHERE run_id = ?1",
+                            "SELECT run_kind, attempt_index, review_round FROM agent_runs WHERE run_id = ?1",
                             [originating_run_id],
                             |row| {
                                 Ok(OriginatingRunRow {
                                     run_kind: row.get(0)?,
                                     attempt_index: row.get(1)?,
                                     review_round: row.get(2)?,
-                                    triggering_submission_id: row.get(3)?,
-                                    triggering_review_id: row.get(4)?,
                                 })
                             },
                         )
@@ -168,8 +161,6 @@ async fn answer(
                             row.review_round,
                             "run.review_round",
                         )?,
-                        triggering_submission_id: row.triggering_submission_id,
-                        triggering_review_id: row.triggering_review_id,
                     })
                 })
                 .transpose()?;
@@ -217,20 +208,6 @@ async fn answer(
                 .map_or(u32::from(run_kind != RunKind::Planner), |origin| {
                     origin.review_round
                 });
-            let trigger_submission = (run_kind == RunKind::Reviewer)
-                .then(|| {
-                    originating
-                        .as_ref()
-                        .and_then(|origin| origin.triggering_submission_id.as_deref())
-                })
-                .flatten();
-            let trigger_review = (run_kind == RunKind::Executor)
-                .then(|| {
-                    originating
-                        .as_ref()
-                        .and_then(|origin| origin.triggering_review_id.clone())
-                })
-                .flatten();
             let queued = if let Some(origin_run_id) = origin {
                 let parent = crate::work_runs::rows::load_run_tx(transaction, origin_run_id)?
                     .ok_or_else(|| StoreError::InvariantViolation {
@@ -248,8 +225,6 @@ async fn answer(
                     &parent,
                     helpers::QueuePinnedChildRun {
                         attempt_index,
-                        triggering_submission_id: trigger_submission,
-                        triggering_review_id: trigger_review.as_deref(),
                         event: helpers::event_context(&command.meta),
                     },
                 )
@@ -260,13 +235,10 @@ async fn answer(
                     &task,
                     helpers::QueueRun {
                         run_kind,
-                        contract_id: gate.contract_id.as_ref(),
                         planner_complexity: None,
                         review_round,
                         attempt_index,
                         parent_run_id: origin,
-                        triggering_submission_id: trigger_submission,
-                        triggering_review_id: trigger_review.as_deref(),
                         event: helpers::event_context(&command.meta),
                     },
                 )
@@ -288,7 +260,6 @@ async fn answer(
                 Err(error) => return Err(error),
             };
             Ok(helpers::task_write(run_event, task_id.clone())
-                .contract(gate.contract_id)
                 .gate(Some(gate.gate_id))
                 .run(Some(run_id))
                 .into())
@@ -319,12 +290,11 @@ async fn retry(
             .map_err(StoreError::Work)?;
         let note = command.note.as_deref().unwrap_or("Retry requested.");
         transaction.execute(
-            "INSERT INTO task_messages (message_id, task_id, task_generation, contract_id, gate_id, message_kind, body_markdown, author_actor_id) VALUES (?1, ?2, ?3, ?4, ?5, 'retry_note', ?6, ?7)",
+            "INSERT INTO task_messages (message_id, task_id, task_generation, gate_id, message_kind, body_markdown, author_actor_id) VALUES (?1, ?2, ?3, ?4, 'retry_note', ?5, ?6)",
             params![
                 message_id.as_str(),
                 task_id.as_str(),
                 task.generation,
-                gate.contract_id.as_ref().map(ToString::to_string),
                 gate.gate_id.as_str(),
                 note,
                 command.meta.actor_id,
@@ -364,7 +334,7 @@ async fn retry(
                     task.generation,
                     TaskMessageKind::RetryNote,
                     Some(gate.gate_id.clone()),
-                    gate.contract_id.clone(),
+                    None,
                 )
                 .map_err(StoreError::Work)?,
             )?;
@@ -405,29 +375,16 @@ async fn retry(
                 });
             }
             let review_round = helpers::increment(parent.review_round, "run.review_round")?;
-            let triggering_review_id: String = transaction
-                .query_row(
-                    "SELECT review_id FROM task_reviews WHERE reviewer_run_id = ?1 AND task_id = ?2 AND contract_id = ?3",
-                    params![parent.run_id, task.task_id.as_str(), gate.contract_id.as_ref().map(ToString::to_string)],
-                    |row| row.get(0),
-                )
-                .optional()?
-                .ok_or_else(|| StoreError::InvariantViolation {
-                    message: format!("review recovery gate {} has no review evidence", gate.gate_id),
-                })?;
             helpers::queue_run_tx(
                 transaction,
                 service.provider_registry.as_ref(),
                 &task,
                 helpers::QueueRun {
                     run_kind: RunKind::Executor,
-                    contract_id: gate.contract_id.as_ref(),
                     planner_complexity: None,
                     review_round,
                     attempt_index: 0,
                     parent_run_id: Some(&parent.run_id),
-                    triggering_submission_id: None,
-                    triggering_review_id: Some(&triggering_review_id),
                     event: helpers::event_context(&command.meta),
                 },
             )
@@ -445,8 +402,6 @@ async fn retry(
                 parent,
                 helpers::QueuePinnedChildRun {
                     attempt_index,
-                    triggering_submission_id: parent.triggering_submission_id.as_deref(),
-                    triggering_review_id: parent.triggering_review_id.as_deref(),
                     event: helpers::event_context(&command.meta),
                 },
             )
@@ -457,13 +412,10 @@ async fn retry(
                 &task,
                 helpers::QueueRun {
                     run_kind,
-                    contract_id: gate.contract_id.as_ref(),
                     planner_complexity: None,
                     review_round: u32::from(run_kind != RunKind::Planner),
                     attempt_index: 0,
                     parent_run_id: None,
-                    triggering_submission_id: None,
-                    triggering_review_id: None,
                     event: helpers::event_context(&command.meta),
                 },
             )
@@ -485,7 +437,6 @@ async fn retry(
             Err(error) => return Err(error),
         };
         Ok(helpers::task_write(run_event, task_id.clone())
-            .contract(gate.contract_id)
             .gate(Some(gate.gate_id))
             .run(Some(run_id))
             .into())

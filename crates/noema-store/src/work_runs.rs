@@ -2,11 +2,10 @@
 //!
 //! Runtime workers never mutate Work rows directly.  They submit one of these
 //! validated envelopes to the command service, which applies the lease,
-//! generation, contract, and evidence predicates in one SQLite transaction.
+//! generation, role, and workflow predicates in one SQLite transaction.
 
 use noema_tasks::{
-    AgentRunRecord, NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion, RunKind,
-    RunStatus, SafeErrorCode, TaskComplexity, TaskContractId, TaskGateKind, WorkDomainError,
+    AgentRunRecord, RunStatus, SafeErrorCode, TaskComplexity, TaskGateKind, WorkDomainError,
 };
 use serde::{Deserialize, Serialize};
 
@@ -95,8 +94,6 @@ pub struct WorkRunFence {
     pub lease_token: String,
     /// Task generation captured by the worker.
     pub task_generation: u64,
-    /// Contract expected by Executor/Reviewer terminals.
-    pub contract_id: Option<TaskContractId>,
 }
 
 impl WorkRunFence {
@@ -217,136 +214,6 @@ fn validate_actual(
     }
 }
 
-/// Complete Planner terminal evidence that can be materialized into a
-/// Planned immutable execution contract.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CompletePlan {
-    /// Normalized executable request.
-    pub request_markdown: String,
-    /// Bounded plan retained in the immutable contract.
-    pub execution_plan_markdown: String,
-    /// Exact nonempty criterion set.
-    pub criteria: Vec<NewTaskValidationCriterion>,
-    /// Complexity selected by the planner.
-    pub complexity: TaskComplexity,
-}
-
-/// Planner can either produce a complete contract or pause at a human gate.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PlanTerminal {
-    /// Complete immutable plan/criteria.
-    Complete(CompletePlan),
-    /// Safe blocking question; no contract is created.
-    BlockingQuestion {
-        /// Human-facing question.
-        prompt_markdown: String,
-        /// Bounded context that helps answer it.
-        context_markdown: String,
-        /// Optional direct answers shown to the human.
-        suggested_answers: Vec<String>,
-        /// Clarification or Approval only.
-        gate_kind: TaskGateKind,
-    },
-}
-
-/// Planner terminal command submitted by the leased runtime worker.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SubmitPlan {
-    /// Run lease/generation fence.
-    pub fence: WorkRunFence,
-    /// Terminal evidence variant.
-    pub terminal: PlanTerminal,
-}
-
-impl SubmitPlan {
-    /// Validate fields that do not depend on durable rows.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`WorkDomainError::InvalidInput`] when the fence or plan payload
-    /// is malformed.
-    pub fn validate(&self) -> Result<(), WorkDomainError> {
-        self.fence.validate()?;
-        match &self.terminal {
-            PlanTerminal::Complete(plan) => {
-                if plan.request_markdown.trim().is_empty()
-                    || plan.execution_plan_markdown.trim().is_empty()
-                    || plan.criteria.is_empty()
-                {
-                    return Err(WorkDomainError::InvalidInput {
-                        field: "planner.plan",
-                        message: "request, execution plan, and criteria are required".to_string(),
-                    });
-                }
-            }
-            PlanTerminal::BlockingQuestion {
-                prompt_markdown,
-                suggested_answers,
-                gate_kind,
-                ..
-            } => {
-                if prompt_markdown.trim().is_empty()
-                    || !matches!(
-                        gate_kind,
-                        TaskGateKind::Clarification | TaskGateKind::Approval
-                    )
-                {
-                    return Err(WorkDomainError::InvalidInput {
-                        field: "planner.blocking_question",
-                        message: "prompt and clarification/approval gate are required".to_string(),
-                    });
-                }
-                validate_suggested_answers(suggested_answers, "planner.blocking_question")?;
-            }
-        }
-        Ok(())
-    }
-}
-
-/// Executor terminal command containing complete criterion evidence.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SubmitTaskResult {
-    /// Run lease/generation/contract fence.
-    pub fence: WorkRunFence,
-    /// Immutable submission input.  The service resolves artifact snapshots.
-    pub submission: NewTaskSubmission,
-}
-
-impl SubmitTaskResult {
-    /// Validate shape-only evidence fields before durable criterion coverage is
-    /// checked against the current contract.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`WorkDomainError::InvalidInput`] when the fence or submission
-    /// evidence envelope is malformed.
-    pub fn validate(&self) -> Result<(), WorkDomainError> {
-        self.fence.validate()?;
-        if self.fence.contract_id.is_none() {
-            return Err(WorkDomainError::ContractRequired);
-        }
-        if self.submission.summary.trim().is_empty()
-            || self.submission.result_markdown.trim().is_empty()
-            || self.submission.criteria.is_empty()
-        {
-            return Err(WorkDomainError::InvalidInput {
-                field: "submission",
-                message: "summary, result, and criterion evidence are required".to_string(),
-            });
-        }
-        Ok(())
-    }
-}
-
-/// Reviewer terminal command containing one immutable outcome per criterion.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SubmitTaskReview {
-    /// Run lease/generation/contract fence.
-    pub fence: WorkRunFence,
-    /// Immutable reviewer decision input.
-    pub review: NewTaskReview,
-}
-
 /// Planner completion marker. The plan itself remains in mutable Task files.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FinishPlanning {
@@ -358,6 +225,10 @@ pub struct FinishPlanning {
 
 impl FinishPlanning {
     /// Validate the run fence.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the run fence is invalid.
     pub fn validate(&self) -> Result<(), WorkDomainError> {
         self.fence.validate()
     }
@@ -372,6 +243,10 @@ pub struct FinishExecution {
 
 impl FinishExecution {
     /// Validate the run fence.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the run fence is invalid.
     pub fn validate(&self) -> Result<(), WorkDomainError> {
         self.fence.validate()
     }
@@ -386,6 +261,10 @@ pub struct ContinueExecution {
 
 impl ContinueExecution {
     /// Validate the run fence.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the run fence is invalid.
     pub fn validate(&self) -> Result<(), WorkDomainError> {
         self.fence.validate()
     }
@@ -404,6 +283,10 @@ pub struct FinishReview {
 
 impl FinishReview {
     /// Validate the fence and feedback.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the fence or feedback is invalid.
     pub fn validate(&self) -> Result<(), WorkDomainError> {
         self.fence.validate()?;
         if self.feedback.trim().is_empty() || self.feedback.len() > 20_000 {
@@ -416,33 +299,10 @@ impl FinishReview {
     }
 }
 
-impl SubmitTaskReview {
-    /// Validate shape-only fields; exact criterion/verdict checks happen against
-    /// the current contract's criterion IDs in the transaction.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`WorkDomainError::InvalidInput`] when the fence or review
-    /// envelope is malformed.
-    pub fn validate(&self) -> Result<(), WorkDomainError> {
-        self.fence.validate()?;
-        if self.fence.contract_id.is_none() {
-            return Err(WorkDomainError::ContractRequired);
-        }
-        if self.review.overall_feedback.trim().is_empty() || self.review.criteria.is_empty() {
-            return Err(WorkDomainError::InvalidInput {
-                field: "review",
-                message: "feedback and criterion outcomes are required".to_string(),
-            });
-        }
-        Ok(())
-    }
-}
-
-/// Executor-safe human gate report; it creates no submission.
+/// Planner or Executor request for a human gate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReportTaskBlocked {
-    /// Run lease/generation/contract fence.
+    /// Run lease and generation fence.
     pub fence: WorkRunFence,
     /// Clarification or Approval gate kind.
     pub gate_kind: TaskGateKind,
@@ -550,7 +410,7 @@ pub struct ClaimedWorkRun {
     pub lease_token: String,
 }
 
-/// One runtime terminal submission accepted by the service.
+/// One runtime terminal marker accepted by the service.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WorkRunTerminal {
     /// Planner finished writing the current Task plan.
@@ -561,13 +421,7 @@ pub enum WorkRunTerminal {
     ContinueExecution(ContinueExecution),
     /// Reviewer recorded the current decision and feedback.
     FinishReview(FinishReview),
-    /// Planner complete/blocking result.
-    Plan(SubmitPlan),
-    /// Executor submission result.
-    TaskResult(SubmitTaskResult),
-    /// Reviewer disposition.
-    Review(SubmitTaskReview),
-    /// Executor asks for a human gate without a submission.
+    /// Planner or Executor asks for a human gate.
     Blocked(ReportTaskBlocked),
 }
 
@@ -583,23 +437,7 @@ impl WorkRunTerminal {
             Self::FinishExecution(value) => value.validate(),
             Self::ContinueExecution(value) => value.validate(),
             Self::FinishReview(value) => value.validate(),
-            Self::Plan(value) => value.validate(),
-            Self::TaskResult(value) => value.validate(),
-            Self::Review(value) => value.validate(),
             Self::Blocked(value) => value.validate(),
-        }
-    }
-
-    /// Return its fixed role without inspecting model text.
-    #[must_use]
-    pub const fn run_kind(&self) -> RunKind {
-        match self {
-            Self::FinishPlanning(_) => RunKind::Planner,
-            Self::FinishExecution(_) | Self::ContinueExecution(_) => RunKind::Executor,
-            Self::FinishReview(_) => RunKind::Reviewer,
-            Self::Plan(_) => RunKind::Planner,
-            Self::TaskResult(_) | Self::Blocked(_) => RunKind::Executor,
-            Self::Review(_) => RunKind::Reviewer,
         }
     }
 }

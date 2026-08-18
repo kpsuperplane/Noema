@@ -16,7 +16,7 @@ use noema_providers::{
 use noema_store::WorkCommandService;
 use noema_tasks::{
     CancelTask, CaptureTask, CommandMeta, MissedRunPolicy, NewTaskSchedule, QueueTask, ReopenTask,
-    RunKind, RunStatus, TaskContractAmendment, TaskPrecondition, TaskProvenance, TaskSourceKind,
+    RunKind, RunStatus, TaskPrecondition, TaskProvenance, TaskReopenDirection, TaskSourceKind,
     WorkCommand,
 };
 use noema_workspaces::WorkspaceId;
@@ -172,20 +172,16 @@ impl noema_providers::ProviderOperations for TerminalRepairProvider {
             let Some(result_tool) = request
                 .tools
                 .iter()
-                .find(|tool| tool.name.as_str() == "task.submit_result")
+                .find(|tool| tool.name.as_str() == "task.finish_execution")
             else {
                 return std::future::pending().await;
             };
-            let exact_id = result_tool.input_schema.as_value()["properties"]["criteria"]
-                ["items"]["properties"]["criterion_id"]["enum"][0]
-                .as_str()
-                .expect("executor criterion enum")
-                .to_string();
+            let _ = result_tool;
             let call_index = self.executor_calls.fetch_add(1, Ordering::SeqCst);
-            let criterion_id = if call_index == 0 || self.always_invalid {
-                format!(" {exact_id}")
+            let payload = if call_index == 0 || self.always_invalid {
+                serde_json::json!({"unexpected": true})
             } else {
-                exact_id
+                serde_json::json!({})
             };
             Ok(GenerateResponse {
                 responses: Vec::new(),
@@ -193,16 +189,8 @@ impl noema_providers::ProviderOperations for TerminalRepairProvider {
                     id: Some(format!("call:terminal:{call_index}")),
                     provider_call_id: None,
                     provider_name: None,
-                    name: "task.submit_result".to_string(),
-                    payload: serde_json::json!({
-                        "summary": "done",
-                        "result_markdown": "The requested result.",
-                        "criteria": [{
-                            "criterion_id": criterion_id,
-                            "evidence_markdown": "The result satisfies the criterion."
-                        }],
-                        "artifact_ids": []
-                    }),
+                    name: "task.finish_execution".to_string(),
+                    payload,
                 }],
                 reasoning_items: Vec::new(),
                 hosted_web_searches: Vec::new(),
@@ -603,10 +591,9 @@ async fn cancelled_run_stays_excluded_until_its_provider_future_fully_settles() 
         .execute(WorkCommand::ReopenTask(ReopenTask {
             meta: command_meta("reopen-overlap"),
             precondition: precondition(&cancelled),
-            amendment: TaskContractAmendment {
+            direction: TaskReopenDirection {
                 feedback_markdown: "Try again after the prior run settles.".to_string(),
                 request_markdown: None,
-                replacement_criteria: None,
                 complexity: None,
             },
         }))

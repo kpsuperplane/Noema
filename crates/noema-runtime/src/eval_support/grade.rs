@@ -4,10 +4,10 @@ use noema_providers::GenerateResponse;
 use serde_json::{Value, json};
 
 use crate::daemon::task_run_context::{
-    ExecutorBlockedResponse, ExecutorSubmissionResponse, PlannerPlanResponse, ReviewerResponse,
+    ExecutorBlockedResponse, ExecutorFinishResponse, PlannerPlanResponse, ReviewerResponse,
 };
 
-use super::types::{EvalExpectation, ExecutorScenario, StatefulActionScenario};
+use super::types::{EvalExpectation, StatefulActionScenario};
 
 pub(super) fn grade_response(
     expectation: &EvalExpectation,
@@ -35,7 +35,7 @@ pub(super) fn grade_response(
             Err("stateful action cases must run through the continuation grader".to_string())
         }
         EvalExpectation::SimplePlannerPlan => simple_planner_plan(response),
-        EvalExpectation::ExecutorSubmission(scenario) => executor_submission(response, *scenario),
+        EvalExpectation::ExecutorFinish => executor_finish(response),
         EvalExpectation::ReviewerApproval => reviewer_approval(response),
         EvalExpectation::ReviewerRequestChanges => reviewer_request_changes(response),
         EvalExpectation::BlockedTask => blocked_task(response),
@@ -501,153 +501,47 @@ fn action_success(event_id: &str) -> Value {
 }
 
 fn simple_planner_plan(response: &GenerateResponse) -> Result<(), String> {
-    let payload = only_tool_payload(response, "task.submit_plan")?;
+    let payload = only_tool_payload(response, "task.finish_planning")?;
     serde_json::from_value::<PlannerPlanResponse>(payload.clone())
         .map_err(|error| format!("planner payload failed production decoding: {error}"))?;
-    required_nonempty_string(payload, "request_markdown")?;
-    required_nonempty_string(payload, "execution_plan_markdown")?;
     let complexity = required_nonempty_string(payload, "complexity")?;
     if complexity != "simple" {
         return Err(format!(
             "bounded recommendation planner chose {complexity:?} instead of simple"
         ));
     }
-    let criteria = payload
-        .get("criteria")
-        .and_then(Value::as_array)
-        .filter(|criteria| !criteria.is_empty())
-        .ok_or_else(|| "planner criteria was missing or empty".to_string())?;
-    if criteria.len() > 2 {
-        return Err("bounded recommendation planner emitted more than two criteria".to_string());
-    }
-    if criteria.iter().any(|criterion| {
-        criterion
-            .get("description")
-            .and_then(Value::as_str)
-            .is_none_or(|description| description.trim().is_empty())
-    }) {
-        return Err("planner emitted an empty validation criterion".to_string());
-    }
     Ok(())
 }
 
-fn executor_submission(
-    response: &GenerateResponse,
-    scenario: ExecutorScenario,
-) -> Result<(), String> {
-    let payload = only_tool_payload(response, "task.submit_result")?;
-    serde_json::from_value::<ExecutorSubmissionResponse>(payload.clone())
-        .map_err(|error| format!("executor payload failed production decoding: {error}"))?;
-    required_nonempty_string(payload, "summary")?;
-    let result = required_nonempty_string(payload, "result_markdown")?;
-    let options = ["cedar loop", "alpine pond", "lookout ridge"];
-    let lower = result.to_ascii_lowercase();
-    let mentioned_options = options
-        .iter()
-        .filter(|option| lower.contains(**option))
-        .count();
-    match scenario {
-        ExecutorScenario::SimpleRecommendation => {
-            if result.split_whitespace().count() > 180
-                || mentioned_options == 0
-                || contains_any(result, &["itinerary", "exhaustive"])
-                || !lower.contains("primary recommendation: cedar loop")
-            {
-                return Err(
-                    "simple recommendation added an extra deliverable or omitted a choice"
-                        .to_string(),
-                );
-            }
-            require_criterion_ids(payload, &["criterion:recommendation"])?;
-        }
-        ExecutorScenario::MediumComparison => {
-            if mentioned_options < 2
-                || !contains_any(result, &["distance", " km"])
-                || !contains_any(result, &["easy", "moderate", "hard", "difficulty"])
-                || !lower.contains("primary recommendation: alpine pond")
-            {
-                return Err(
-                    "medium result did not compare the options and select the best fit".to_string(),
-                );
-            }
-            require_criterion_ids(
-                payload,
-                &["criterion:comparison", "criterion:recommendation"],
-            )?;
-        }
-        ExecutorScenario::DifficultRanking => {
-            if mentioned_options != options.len()
-                || !contains_any(result, &["distance", " km"])
-                || !contains_any(result, &["easy", "moderate", "hard", "difficulty"])
-                || !lower.contains("1. alpine pond")
-                || !lower.contains("2. cedar loop")
-                || !lower.contains("3. lookout ridge")
-                || !lower.contains("primary recommendation: alpine pond")
-            {
-                return Err(
-                    "difficult result did not rank every option with the requested tradeoff"
-                        .to_string(),
-                );
-            }
-            require_criterion_ids(
-                payload,
-                &[
-                    "criterion:ranking",
-                    "criterion:tradeoff",
-                    "criterion:recommendation",
-                ],
-            )?;
-        }
-    }
-    let criteria = payload["criteria"]
-        .as_array()
-        .ok_or_else(|| "executor criteria was not an array".to_string())?;
-    if criteria.iter().any(|criterion| {
-        criterion
-            .get("evidence_markdown")
-            .and_then(Value::as_str)
-            .is_none_or(|evidence| evidence.trim().is_empty())
-    }) {
-        return Err("executor omitted criterion evidence".to_string());
-    }
-    Ok(())
+fn executor_finish(response: &GenerateResponse) -> Result<(), String> {
+    let payload = only_tool_payload(response, "task.finish_execution")?;
+    serde_json::from_value::<ExecutorFinishResponse>(payload.clone())
+        .map_err(|error| format!("executor payload failed production decoding: {error}"))
+        .map(drop)
 }
 
 fn reviewer_approval(response: &GenerateResponse) -> Result<(), String> {
-    let payload = only_tool_payload(response, "task.submit_review")?;
+    let payload = only_tool_payload(response, "task.finish_review")?;
     serde_json::from_value::<ReviewerResponse>(payload.clone())
         .map_err(|error| format!("reviewer payload failed production decoding: {error}"))?;
-    if payload["decision"].get("verdict").and_then(Value::as_str) != Some("approve") {
+    if payload.get("decision").and_then(Value::as_str) != Some("approve") {
         return Err(format!(
             "reviewer did not approve the unambiguously correct result: {:?}",
-            payload["decision"].get("verdict")
+            payload.get("decision")
         ));
     }
-    required_nonempty_string(payload, "overall_feedback")?;
-    require_criterion_ids(payload, &["criterion:alpha", "criterion:beta"])?;
-    let criteria = payload["criteria"]
-        .as_array()
-        .ok_or_else(|| "review criteria was not an array".to_string())?;
-    if criteria
-        .iter()
-        .any(|criterion| criterion.get("outcome").and_then(Value::as_str) != Some("pass"))
-    {
-        return Err("reviewer did not pass every satisfied criterion".to_string());
-    }
+    required_nonempty_string(payload, "feedback")?;
     Ok(())
 }
 
 fn reviewer_request_changes(response: &GenerateResponse) -> Result<(), String> {
-    let payload = only_tool_payload(response, "task.submit_review")?;
-    if payload["decision"].get("verdict").and_then(Value::as_str) != Some("request_changes") {
+    let payload = only_tool_payload(response, "task.finish_review")?;
+    serde_json::from_value::<ReviewerResponse>(payload.clone())
+        .map_err(|error| format!("reviewer payload failed production decoding: {error}"))?;
+    if payload.get("decision").and_then(Value::as_str) != Some("request_changes") {
         return Err("reviewer approved an internally contradictory result".to_string());
     }
-    require_criterion_ids(payload, &["criterion:alpha", "criterion:beta"])?;
-    payload["criteria"]
-        .as_array()
-        .is_some_and(|criteria| criteria.iter().any(|item| item["outcome"] == "fail"))
-        .then_some(())
-        .ok_or_else(|| "reviewer did not fail the contradicted criterion".to_string())
+    required_nonempty_string(payload, "feedback").map(drop)
 }
 
 fn blocked_task(response: &GenerateResponse) -> Result<(), String> {
@@ -848,23 +742,6 @@ fn only_tool_payload<'a>(response: &'a GenerateResponse, name: &str) -> Result<&
     Ok(&call.payload)
 }
 
-fn require_criterion_ids(payload: &Value, expected: &[&str]) -> Result<(), String> {
-    let criteria = payload
-        .get("criteria")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "criteria was not an array".to_string())?;
-    let actual = criteria
-        .iter()
-        .filter_map(|criterion| criterion.get("criterion_id").and_then(Value::as_str))
-        .collect::<Vec<_>>();
-    if actual.len() != expected.len() || expected.iter().any(|id| !actual.contains(id)) {
-        return Err(format!(
-            "criterion ids did not match: expected {expected:?}, got {actual:?}"
-        ));
-    }
-    Ok(())
-}
-
 fn required_nonempty_string<'a>(value: &'a Value, field: &str) -> Result<&'a str, String> {
     value
         .get(field)
@@ -908,7 +785,6 @@ mod tests {
             }],
             reasoning_items: Vec::new(),
             hosted_web_searches: Vec::new(),
-            citations: Vec::new(),
             provider: "test".to_string(),
             model: "test".to_string(),
             response_id: None,
@@ -1132,30 +1008,16 @@ mod tests {
     }
 
     #[test]
-    fn task_graders_distinguish_planning_and_executor_tiers() {
+    fn task_graders_accept_only_current_terminal_payloads() {
         let response = tool_response(
-            "task.submit_plan",
-            serde_json::json!({
-                "request_markdown": "Recommend a nearby hike.",
-                "complexity": "simple",
-                "criteria": [{
-                    "description": "The result recommends a suitable hike.",
-                    "expected_evidence": "Identify the primary recommendation."
-                }],
-                "execution_plan_markdown": "Find and recommend one suitable hike."
-            }),
+            "task.finish_planning",
+            serde_json::json!({"complexity": "simple"}),
         );
-
         assert_eq!(simple_planner_plan(&response), Ok(()));
 
         let overclassified = tool_response(
-            "task.submit_plan",
-            serde_json::json!({
-                "request_markdown": "Recommend a nearby hike.",
-                "complexity": "medium",
-                "criteria": [{"description": "The result recommends a hike."}],
-                "execution_plan_markdown": "Find and recommend one suitable hike."
-            }),
+            "task.finish_planning",
+            serde_json::json!({"complexity": "medium"}),
         );
         assert!(
             simple_planner_plan(&overclassified)
@@ -1163,68 +1025,13 @@ mod tests {
                 .contains("instead of simple")
         );
 
-        let simple = tool_response(
-            "task.submit_result",
-            serde_json::json!({
-                "summary": "Recommended the easy option.",
-                "result_markdown": "Cedar Loop is the easy 4 km choice.\n\nPrimary recommendation: Cedar Loop",
-                "criteria": [{"criterion_id": "criterion:recommendation", "evidence_markdown": "Selects the only easy option."}],
-                "artifact_ids": []
-            }),
+        let finish = tool_response("task.finish_execution", serde_json::json!({}));
+        assert_eq!(executor_finish(&finish), Ok(()));
+        let old_payload = tool_response(
+            "task.finish_execution",
+            serde_json::json!({"result_markdown": "obsolete"}),
         );
-        assert_eq!(
-            executor_submission(&simple, ExecutorScenario::SimpleRecommendation),
-            Ok(())
-        );
-        let wrong_easy_choice = tool_response(
-            "task.submit_result",
-            serde_json::json!({
-                "summary": "Recommended a harder option.",
-                "result_markdown": "Alpine Pond is moderate.\n\nPrimary recommendation: Alpine Pond",
-                "criteria": [{"criterion_id": "criterion:recommendation", "evidence_markdown": "Selects Alpine Pond."}],
-                "artifact_ids": []
-            }),
-        );
-        assert!(
-            executor_submission(&wrong_easy_choice, ExecutorScenario::SimpleRecommendation)
-                .is_err()
-        );
-
-        let medium = tool_response(
-            "task.submit_result",
-            serde_json::json!({
-                "summary": "Compared the moderate options.",
-                "result_markdown": "Alpine Pond is the best moderate fit: at 7 km it balances Cedar Loop's easy 4 km distance with a moderate difficulty.\n\nPrimary recommendation: Alpine Pond",
-                "criteria": [
-                    {"criterion_id": "criterion:comparison", "evidence_markdown": "Compares Alpine Pond and Cedar Loop by distance and difficulty."},
-                    {"criterion_id": "criterion:recommendation", "evidence_markdown": "Recommends Alpine Pond."}
-                ],
-                "artifact_ids": []
-            }),
-        );
-        assert_eq!(
-            executor_submission(&medium, ExecutorScenario::MediumComparison),
-            Ok(())
-        );
-        assert!(executor_submission(&medium, ExecutorScenario::DifficultRanking).is_err());
-
-        let difficult = tool_response(
-            "task.submit_result",
-            serde_json::json!({
-                "summary": "Ranked every option under the supplied constraints.",
-                "result_markdown": "1. Alpine Pond is the best balance at 7 km and moderate difficulty.\n2. Cedar Loop is easier and shorter at 4 km.\n3. Lookout Ridge is hardest and longest at 12 km.\n\nPrimary recommendation: Alpine Pond",
-                "criteria": [
-                    {"criterion_id": "criterion:ranking", "evidence_markdown": "Ranks all three hikes."},
-                    {"criterion_id": "criterion:tradeoff", "evidence_markdown": "Compares distance and difficulty."},
-                    {"criterion_id": "criterion:recommendation", "evidence_markdown": "Chooses Alpine Pond."}
-                ],
-                "artifact_ids": []
-            }),
-        );
-        assert_eq!(
-            executor_submission(&difficult, ExecutorScenario::DifficultRanking),
-            Ok(())
-        );
+        assert!(executor_finish(&old_payload).is_err());
     }
 
     #[test]

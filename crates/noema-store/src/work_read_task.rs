@@ -1,11 +1,7 @@
-use noema_tasks::{
-    AgentRunRecord, TaskExecutionContract, TaskGateRecord, TaskId, TaskReviewRecord,
-    TaskSubmissionRecord, WorkflowDefinition, WorkflowStage,
-};
+use noema_tasks::{AgentRunRecord, TaskGateRecord, TaskId, WorkflowDefinition, WorkflowStage};
 use noema_workspaces::{ProjectRecord, WorkspaceRecord};
 use rusqlite::Transaction;
 
-use super::evidence::{load_contract, load_review, load_submission};
 use super::history::WorkTaskHistory;
 use super::rows::{
     derive_attention_actions, load_active_gate, load_current_run, load_project, load_stage,
@@ -18,12 +14,9 @@ pub(crate) struct LoadedWorkTask {
     pub(crate) workspace: WorkspaceRecord,
     pub(crate) project: Option<ProjectRecord>,
     pub(crate) stage: WorkflowStage,
-    pub(crate) current_contract: Option<TaskExecutionContract>,
     pub(crate) latest_run: Option<AgentRunRecord>,
     pub(crate) current_run: Option<AgentRunRecord>,
     pub(crate) active_gate: Option<TaskGateRecord>,
-    pub(crate) latest_submission: Option<TaskSubmissionRecord>,
-    pub(crate) latest_review: Option<TaskReviewRecord>,
 }
 
 pub(crate) fn load_task_facts(
@@ -67,21 +60,6 @@ pub(crate) fn load_task_facts(
         .as_ref()
         .map(|id| load_active_gate(transaction, id))
         .transpose()?;
-    let current_contract = task
-        .current_contract_id
-        .as_ref()
-        .map(|id| load_contract(transaction, id))
-        .transpose()?;
-    let latest_submission = task
-        .latest_submission_id
-        .as_deref()
-        .map(|id| load_submission(transaction, id))
-        .transpose()?;
-    let latest_review = task
-        .latest_review_id
-        .as_deref()
-        .map(|id| load_review(transaction, id))
-        .transpose()?;
     validate_current_links(&task, latest_run.as_ref(), active_gate.as_ref())?;
 
     Ok(Some(LoadedWorkTask {
@@ -89,12 +67,9 @@ pub(crate) fn load_task_facts(
         workspace,
         project,
         stage,
-        current_contract,
         latest_run,
         current_run,
         active_gate,
-        latest_submission,
-        latest_review,
     }))
 }
 

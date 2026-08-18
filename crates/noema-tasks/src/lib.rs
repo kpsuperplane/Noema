@@ -1,8 +1,7 @@
 //! Canonical Noema Work domain contracts.
 //!
-//! This crate owns workflow/stage semantics, task records, immutable execution
-//! contracts, gates/messages, run vocabulary, evidence, commands, event
-//! vocabulary, and pure transition/reconciliation decisions. SQLite,
+//! This crate owns workflow and stage semantics, Task records, gates, run
+//! vocabulary, commands, events, and pure reconciliation decisions. SQLite,
 //! providers, API projections, and UI remain outside the domain boundary.
 
 macro_rules! string_enum {
@@ -51,10 +50,9 @@ macro_rules! string_enum {
 }
 
 mod command;
-mod contract;
-mod criteria;
 mod error;
 mod event;
+mod execution;
 mod gate;
 mod ids;
 mod model_pool;
@@ -64,7 +62,6 @@ mod review;
 mod run;
 mod schedule;
 mod state;
-mod submission;
 mod task;
 mod transcript;
 mod validation;
@@ -77,16 +74,16 @@ pub use command::{
     RunTaskRecurrenceNow, ScheduleTask, TaskPrecondition, UnscheduleTask, UpdateInboxTask,
     UpdateProject, UpdateTaskRecurrence, WorkCommand, WorkCommandResult,
 };
-pub use contract::{
-    AcpExecutorSnapshot, ContractOrigin, ProjectContextSnapshot, TaskContractAmendment,
-    TaskExecutionContract, TaskExecutorBackend, TaskExecutorSelection, WorkspaceContextSnapshot,
-};
-pub use criteria::{NewTaskValidationCriterion, TaskValidationCriterion};
 pub use error::WorkDomainError;
 pub use event::{
-    GateResolutionKind, GateSupersessionReason, NotificationDestination, NotificationKind,
-    ProjectChangedField, RunCancellationReason, RunTerminalKind, SafeErrorCode, TaskChangedField,
-    TaskStageChangeReason, WorkEventContext, WorkEventKind, WorkEventPayload, WorkEventRecord,
+    ContractOrigin, GateResolutionKind, GateSupersessionReason, NotificationDestination,
+    NotificationKind, ProjectChangedField, RunCancellationReason, RunTerminalKind, SafeErrorCode,
+    TaskChangedField, TaskStageChangeReason, WorkEventContext, WorkEventKind, WorkEventPayload,
+    WorkEventRecord,
+};
+pub use execution::{
+    AcpExecutorLaunch, ProjectRunContext, TaskExecutorBackend, TaskExecutorSelection,
+    TaskReopenDirection, WorkspaceRunContext,
 };
 pub use gate::{
     ApprovalDecision, TaskGateAnswer, TaskGateKind, TaskGateRecord, TaskGateState, TaskMessageKind,
@@ -109,10 +106,7 @@ pub use policy::{
     MAX_TASK_AUTOMATIC_RETRIES, MAX_TASK_PROVIDER_CONTINUATIONS, MAX_TASK_REVIEW_ROUNDS,
     MAX_TASK_TOOL_CALLS, TaskExecutionPolicy,
 };
-pub use review::{
-    CriterionOutcome, NewTaskReview, TaskReviewCriterion, TaskReviewRecord, TaskReviewVerdict,
-    validate_review_verdict,
-};
+pub use review::TaskReviewVerdict;
 pub use run::{
     AgentRunHeartbeat, AgentRunRecord, RunKind, RunStatus, TASK_EXECUTOR_AGENT_ID,
     TASK_REVIEWER_AGENT_ID,
@@ -124,10 +118,6 @@ pub use schedule::{
     next_recurrence_at_or_after, parse_utc_instant, recurrence_local_slot, recurrence_preview,
 };
 pub use state::TaskComplexity;
-pub use submission::{
-    NewTaskSubmission, SubmissionCriterionEvidence, TaskSubmissionArtifactRecord,
-    TaskSubmissionCitation, TaskSubmissionRecord,
-};
 pub use task::{
     TASK_AUTHORIZATION_CONTEXT_MAX_MESSAGES, TaskAuthorizationContext, TaskAuthorizationMessage,
     TaskAuthorizationMessageRole, TaskProvenance, TaskRecord, TaskSourceKind,

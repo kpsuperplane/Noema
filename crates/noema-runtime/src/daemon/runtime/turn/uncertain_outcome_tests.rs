@@ -35,7 +35,6 @@ async fn uncertain_foreground_action_fails_with_a_durable_non_retry_notice() {
         task_id: None,
         task_run_id: None,
         task_run_fence: None,
-        task_terminal_contract: None,
         cwd: None,
         provider_kind: "codex".to_string(),
         model: Some("gpt-test".to_string()),

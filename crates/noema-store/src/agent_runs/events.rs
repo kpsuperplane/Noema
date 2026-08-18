@@ -84,7 +84,6 @@ impl WorkCommandService {
                        AND cancellation_requested = 0
                        AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                        AND task_generation = ?11
-                       AND ((contract_id IS NULL AND ?12 IS NULL) OR contract_id = ?12)
                        AND EXISTS (
                          SELECT 1 FROM tasks task
                          WHERE task.task_id = agent_runs.task_id AND task.generation = ?11
@@ -104,7 +103,6 @@ impl WorkCommandService {
                             progress.fence.task_generation,
                             "run_progress.task_generation"
                         )?,
-                        progress.fence.contract_id.as_ref().map(ToString::to_string),
                     ],
                 )?;
                 let updated = rows::load_run_tx(transaction, &run.run_id)?

@@ -9,7 +9,7 @@ nonisolated public struct TasksDetailOutcomeQuery: GraphQLQuery {
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
       #"query TasksDetailOutcome($taskId: String!) { task(taskId: $taskId) { __typename ...TasksDetailOutcomeFields } }"#,
-      fragments: [TasksContractFields.self, TasksDetailOutcomeFields.self, TasksPolicyFields.self, TasksReviewFields.self, TasksReviewSummaryFields.self, TasksSubmissionFields.self]
+      fragments: [TasksDetailOutcomeFields.self]
     ))
 
   public var taskId: String
@@ -54,18 +54,10 @@ nonisolated public struct TasksDetailOutcomeQuery: GraphQLQuery {
 
       /// Task identity.
       public var taskId: String { __data["taskId"] }
-      /// Current immutable contract.
-      public var currentContract: CurrentContract? { __data["currentContract"] }
-      /// Latest immutable submission.
-      public var latestSubmission: LatestSubmission? { __data["latestSubmission"] }
-      /// Reviewer-approved immutable result that completed the task.
-      public var completedResult: CompletedResult? { __data["completedResult"] }
-      /// Latest immutable review.
-      public var latestReview: LatestReview? { __data["latestReview"] }
-      /// Bounded recent submissions.
-      public var submissions: [Submission] { __data["submissions"] }
-      /// Bounded recent reviews.
-      public var reviews: [Review] { __data["reviews"] }
+      /// Current mutable TASK.md content.
+      public var taskDocument: String { __data["taskDocument"] }
+      /// Current mutable REVIEW.md content, when it exists.
+      public var reviewDocument: String? { __data["reviewDocument"] }
 
       public struct Fragments: FragmentContainer {
         @_spi(Unsafe) public let __data: DataDict
@@ -73,18 +65,6 @@ nonisolated public struct TasksDetailOutcomeQuery: GraphQLQuery {
 
         public var tasksDetailOutcomeFields: TasksDetailOutcomeFields { _toFragment() }
       }
-
-      public typealias CurrentContract = TasksDetailOutcomeFields.CurrentContract
-
-      public typealias LatestSubmission = TasksDetailOutcomeFields.LatestSubmission
-
-      public typealias CompletedResult = TasksDetailOutcomeFields.CompletedResult
-
-      public typealias LatestReview = TasksDetailOutcomeFields.LatestReview
-
-      public typealias Submission = TasksDetailOutcomeFields.Submission
-
-      public typealias Review = TasksDetailOutcomeFields.Review
     }
   }
 }

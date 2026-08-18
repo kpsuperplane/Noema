@@ -26,8 +26,7 @@ pub(crate) fn load_task(
                     authorization_context_json, source_kind,
                     source_conversation_id, source_turn_id, source_item_id, source_tool_call_id,
                     created_by_actor_id, generation, revision,
-                    current_contract_id, active_gate_id, latest_run_id, latest_submission_id,
-                    latest_review_id, completed_submission_id, scheduled_for, schedule_time_zone,
+                    active_gate_id, latest_run_id, scheduled_for, schedule_time_zone,
                     missed_run_policy, recurrence_id, recurrence_revision,
                     recurrence_scheduled_for, queued_at, created_at, updated_at,
                     completed_at, cancelled_at, task_directory, execution_complexity,
@@ -72,47 +71,43 @@ pub(crate) fn decode_task_record(row: &Row<'_>) -> rusqlite::Result<noema_tasks:
         },
         generation: positive_u64(row, 16)?,
         revision: positive_u64(row, 17)?,
-        current_contract_id: optional_id(row, 18, noema_tasks::TaskContractId::new)?,
-        active_gate_id: optional_id(row, 19, TaskGateId::new)?,
-        latest_run_id: row.get(20)?,
-        latest_submission_id: row.get(21)?,
-        latest_review_id: row.get(22)?,
-        completed_submission_id: row.get(23)?,
-        scheduled_for: row.get(24)?,
-        schedule_time_zone: row.get(25)?,
+        active_gate_id: optional_id(row, 18, TaskGateId::new)?,
+        latest_run_id: row.get(19)?,
+        scheduled_for: row.get(20)?,
+        schedule_time_zone: row.get(21)?,
         missed_run_policy: row
-            .get::<_, Option<String>>(26)?
+            .get::<_, Option<String>>(22)?
             .map(|value| value.parse())
             .transpose()
-            .map_err(|e| conversion_failure(26, Type::Text, e))?,
-        recurrence_id: optional_id(row, 27, noema_tasks::TaskRecurrenceId::new)?,
+            .map_err(|e| conversion_failure(22, Type::Text, e))?,
+        recurrence_id: optional_id(row, 23, noema_tasks::TaskRecurrenceId::new)?,
         recurrence_revision: row
-            .get::<_, Option<i64>>(28)?
+            .get::<_, Option<i64>>(24)?
             .map(u64::try_from)
             .transpose()
-            .map_err(|e| conversion_failure(28, Type::Integer, e))?,
-        recurrence_scheduled_for: row.get(29)?,
-        queued_at: row.get(30)?,
-        created_at: row.get(31)?,
-        updated_at: row.get(32)?,
-        completed_at: row.get(33)?,
-        cancelled_at: row.get(34)?,
-        task_directory: row.get::<_, Option<String>>(35)?.unwrap_or_else(|| {
+            .map_err(|e| conversion_failure(24, Type::Integer, e))?,
+        recurrence_scheduled_for: row.get(25)?,
+        queued_at: row.get(26)?,
+        created_at: row.get(27)?,
+        updated_at: row.get(28)?,
+        completed_at: row.get(29)?,
+        cancelled_at: row.get(30)?,
+        task_directory: row.get::<_, Option<String>>(31)?.unwrap_or_else(|| {
             row.get::<_, String>(0)
                 .unwrap_or_else(|_| "task:task".to_string())
                 .trim_start_matches("task:")
                 .replace(':', "-")
         }),
         execution_complexity: row
-            .get::<_, Option<String>>(36)?
+            .get::<_, Option<String>>(32)?
             .map(|value| value.parse())
             .transpose()
-            .map_err(|error| conversion_failure(36, Type::Text, error))?,
+            .map_err(|error| conversion_failure(32, Type::Text, error))?,
         current_review_decision: row
-            .get::<_, Option<String>>(37)?
+            .get::<_, Option<String>>(33)?
             .map(|value| value.parse())
             .transpose()
-            .map_err(|error| conversion_failure(37, Type::Text, error))?,
+            .map_err(|error| conversion_failure(33, Type::Text, error))?,
     };
     let normalized = task
         .normalized()
@@ -281,7 +276,7 @@ pub(crate) fn load_gate_optional(
 ) -> Result<Option<TaskGateRecord>, StoreError> {
     let gate = transaction
         .query_row(
-            "SELECT gate_id, task_id, task_generation, contract_id, gate_kind, gate_state,
+            "SELECT gate_id, task_id, task_generation, gate_kind, gate_state,
                     recovery_reason, retry_run_kind, prompt_markdown, context_markdown,
                     suggested_answers_json,
                     opened_by_actor_id, originating_run_id, resolved_by_actor_id,
@@ -304,39 +299,34 @@ pub(crate) fn decode_gate(row: &Row<'_>) -> rusqlite::Result<TaskGateRecord> {
         task_id: TaskId::new(row.get::<_, String>(1)?)
             .map_err(|e| conversion_failure(1, Type::Text, e))?,
         task_generation: positive_u64(row, 2)?,
-        contract_id: row
-            .get::<_, Option<String>>(3)?
-            .map(noema_tasks::TaskContractId::new)
-            .transpose()
+        kind: TaskGateKind::from_str(&row.get::<_, String>(3)?)
             .map_err(|e| conversion_failure(3, Type::Text, e))?,
-        kind: TaskGateKind::from_str(&row.get::<_, String>(4)?)
+        state: TaskGateState::from_str(&row.get::<_, String>(4)?)
             .map_err(|e| conversion_failure(4, Type::Text, e))?,
-        state: TaskGateState::from_str(&row.get::<_, String>(5)?)
-            .map_err(|e| conversion_failure(5, Type::Text, e))?,
         recovery_reason: row
-            .get::<_, Option<String>>(6)?
+            .get::<_, Option<String>>(5)?
             .map(|value| TaskRecoveryReason::from_str(&value))
             .transpose()
-            .map_err(|e| conversion_failure(6, Type::Text, e))?,
+            .map_err(|e| conversion_failure(5, Type::Text, e))?,
         retry_run_kind: row
-            .get::<_, Option<String>>(7)?
+            .get::<_, Option<String>>(6)?
             .map(|value| RunKind::from_str(&value))
             .transpose()
-            .map_err(|e| conversion_failure(7, Type::Text, e))?,
-        prompt_markdown: row.get(8)?,
-        context_markdown: row.get(9)?,
-        suggested_answers: serde_json::from_str(&row.get::<_, String>(10)?)
-            .map_err(|e| conversion_failure(10, Type::Text, e))?,
-        opened_by_actor_id: row.get(11)?,
-        originating_run_id: row.get(12)?,
-        resolved_by_actor_id: row.get(13)?,
+            .map_err(|e| conversion_failure(6, Type::Text, e))?,
+        prompt_markdown: row.get(7)?,
+        context_markdown: row.get(8)?,
+        suggested_answers: serde_json::from_str(&row.get::<_, String>(9)?)
+            .map_err(|e| conversion_failure(9, Type::Text, e))?,
+        opened_by_actor_id: row.get(10)?,
+        originating_run_id: row.get(11)?,
+        resolved_by_actor_id: row.get(12)?,
         resolution_message_id: row
-            .get::<_, Option<String>>(14)?
+            .get::<_, Option<String>>(13)?
             .map(noema_tasks::TaskMessageId::new)
             .transpose()
-            .map_err(|e| conversion_failure(14, Type::Text, e))?,
-        opened_at: row.get(15)?,
-        resolved_at: row.get(16)?,
+            .map_err(|e| conversion_failure(13, Type::Text, e))?,
+        opened_at: row.get(14)?,
+        resolved_at: row.get(15)?,
     })
 }
 

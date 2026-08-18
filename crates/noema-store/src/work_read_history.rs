@@ -86,7 +86,7 @@ fn load_messages(
     }
     let ids_json = serde_json::to_string(ids)?;
     let mut statement = transaction.prepare(
-        "SELECT message_id, task_id, task_generation, contract_id, gate_id, review_id,
+        "SELECT message_id, task_id, task_generation, gate_id,
                 message_kind, body_markdown, approval_decision, author_actor_id,
                 consumed_by_run_id, consumed_at, created_at
          FROM task_messages WHERE message_id IN (SELECT value FROM json_each(?1))",
@@ -108,21 +108,19 @@ pub(crate) fn decode_message(row: &Row<'_>) -> rusqlite::Result<TaskMessageRecor
         task_id: TaskId::new(row.get::<_, String>(1)?)
             .map_err(|error| conversion_failure(1, Type::Text, error))?,
         task_generation: positive_u64(row, 2)?,
-        contract_id: optional_id(row, 3, noema_tasks::TaskContractId::new)?,
-        gate_id: optional_id(row, 4, TaskGateId::new)?,
-        review_id: row.get(5)?,
-        kind: TaskMessageKind::from_str(&row.get::<_, String>(6)?)
-            .map_err(|error| conversion_failure(6, Type::Text, error))?,
-        body_markdown: row.get(7)?,
+        gate_id: optional_id(row, 3, TaskGateId::new)?,
+        kind: TaskMessageKind::from_str(&row.get::<_, String>(4)?)
+            .map_err(|error| conversion_failure(4, Type::Text, error))?,
+        body_markdown: row.get(5)?,
         approval_decision: row
-            .get::<_, Option<String>>(8)?
+            .get::<_, Option<String>>(6)?
             .map(|value| ApprovalDecision::from_str(&value))
             .transpose()
-            .map_err(|error| conversion_failure(8, Type::Text, error))?,
-        author_actor_id: row.get(9)?,
-        consumed_by_run_id: row.get(10)?,
-        consumed_at: row.get(11)?,
-        created_at: row.get(12)?,
+            .map_err(|error| conversion_failure(6, Type::Text, error))?,
+        author_actor_id: row.get(7)?,
+        consumed_by_run_id: row.get(8)?,
+        consumed_at: row.get(9)?,
+        created_at: row.get(10)?,
     })
 }
 

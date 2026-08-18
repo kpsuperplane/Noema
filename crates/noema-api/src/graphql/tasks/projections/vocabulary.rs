@@ -183,22 +183,6 @@ graphql_enum!(
 );
 
 graphql_enum!(
-    /// Immutable reviewer disposition.
-    GraphqlTaskReviewVerdict,
-    "TaskReviewVerdict",
-    noema_tasks::TaskReviewVerdict,
-    { Approve, RequestChanges, NeedsHuman }
-);
-
-graphql_enum!(
-    /// Immutable outcome for one contract criterion.
-    GraphqlTaskCriterionOutcome,
-    "TaskCriterionOutcome",
-    noema_tasks::CriterionOutcome,
-    { Pass, Fail, Uncertain }
-);
-
-graphql_enum!(
     /// Closed durable task-run transcript item kind.
     GraphqlTaskRunItemKind,
     "TaskRunItemKind",

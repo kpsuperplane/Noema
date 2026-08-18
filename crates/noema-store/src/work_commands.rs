@@ -31,7 +31,7 @@ pub(crate) mod tasks;
 pub struct WorkCommandService {
     /// Canonical SQLite store used by every Work transaction.
     pub(crate) store: NoemaStore,
-    /// Ready-provider registry used when a new contract/run snapshot is made.
+    /// Ready-provider registry used when a run starts.
     pub(crate) provider_registry: ProviderRegistryHandle,
 }
 
@@ -98,7 +98,11 @@ impl WorkCommandService {
                 message: error.to_string(),
             })?;
         }
-        crate::work_command_result::materialize_committed_result(write)
+        let mut committed = crate::work_command_result::materialize_committed_result(write)?;
+        if let Some(detail) = committed.task_detail.as_mut() {
+            self.store.hydrate_work_task_files(detail).await?;
+        }
+        Ok(committed)
     }
 }
 
@@ -107,25 +111,10 @@ fn task_document_seed(command: &WorkCommand) -> Option<String> {
         return None;
     };
     let intent = command.execution_intent.as_ref()?;
-    let mut content = format!("# {}\n\n{}\n", command.title, intent.request_markdown);
-    if let Some(plan) = intent.execution_plan_markdown.as_deref() {
-        content.push_str("\n## Supplied plan\n\n");
-        content.push_str(plan);
-        content.push('\n');
-    }
-    if !intent.criteria.is_empty() {
-        content.push_str("\n## Supplied success conditions\n");
-        for criterion in &intent.criteria {
-            content.push_str("\n- ");
-            content.push_str(&criterion.description);
-            if let Some(evidence) = criterion.expected_evidence.as_deref() {
-                content.push_str(" Evidence: ");
-                content.push_str(evidence);
-            }
-        }
-        content.push('\n');
-    }
-    Some(content)
+    Some(format!(
+        "# {}\n\n{}\n",
+        command.title, intent.request_markdown
+    ))
 }
 
 /// Return the canonical command fingerprint used by idempotency receipts.

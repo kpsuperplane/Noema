@@ -29,9 +29,7 @@ pub(crate) fn load_active_fenced_run_tx(
     if run.task_generation != fence.task_generation {
         return Err(StoreError::Work(WorkDomainError::StaleGeneration));
     }
-    if run.contract_id != fence.contract_id
-        || run.lease_token.as_deref() != Some(fence.lease_token.as_str())
-    {
+    if run.lease_token.as_deref() != Some(fence.lease_token.as_str()) {
         return Err(StoreError::Work(WorkDomainError::RunFenced));
     }
     if run.status != expected_status {

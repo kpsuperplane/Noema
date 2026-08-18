@@ -40,7 +40,6 @@ impl RuntimeActor {
         task_id: &str,
         lease_token: &str,
         task_generation: u64,
-        contract_id: Option<&noema_tasks::TaskContractId>,
         phase: &'static str,
         round_index: i64,
         deadline: tokio::time::Instant,
@@ -73,7 +72,6 @@ impl RuntimeActor {
             run_id: run_id.to_string(),
             lease_token: lease_token.to_string(),
             task_generation,
-            contract_id: contract_id.cloned(),
         };
         let fence_for_writer = fence.clone();
         let subscriptions_for_writer = subscriptions.clone();

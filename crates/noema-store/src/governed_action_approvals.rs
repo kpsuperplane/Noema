@@ -232,7 +232,6 @@ pub(crate) fn mark_run_waiting_for_intervention_tx(
             "task action run fence does not match its origin",
         ));
     }
-    let contract_id = fence.contract_id.as_ref().map(ToString::to_string);
     let changed = transaction.execute(
         r#"
         UPDATE agent_runs
@@ -243,16 +242,9 @@ pub(crate) fn mark_run_waiting_for_intervention_tx(
           AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
           AND task_generation = ?4
           AND (SELECT generation FROM tasks WHERE task_id = agent_runs.task_id) = ?4
-          AND ((contract_id IS NULL AND ?5 IS NULL) OR contract_id = ?5)
           AND cancellation_requested = 0
         "#,
-        params![
-            run_id,
-            task_id,
-            fence.lease_token,
-            fence.task_generation,
-            contract_id
-        ],
+        params![run_id, task_id, fence.lease_token, fence.task_generation,],
     )?;
     if changed != 1 {
         return Err(action_conflict("task action lost its live run fence"));

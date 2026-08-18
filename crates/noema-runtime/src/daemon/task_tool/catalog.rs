@@ -11,12 +11,12 @@ use serde_json::{Value, json};
 use super::{
     PROJECT_ARCHIVE_TOOL, PROJECT_CREATE_TOOL, PROJECT_LIST_TOOL, PROJECT_REOPEN_TOOL,
     PROJECT_UPDATE_TOOL, TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CAPTURE_TOOL,
-    TASK_CONTINUE_EXECUTION_TOOL, TASK_DELEGATE_TOOL, TASK_LIST_TOOL, TASK_QUEUE_TOOL,
+    TASK_CONTINUE_EXECUTION_TOOL, TASK_DELEGATE_TOOL, TASK_FINISH_EXECUTION_TOOL,
+    TASK_FINISH_PLANNING_TOOL, TASK_FINISH_REVIEW_TOOL, TASK_LIST_TOOL, TASK_QUEUE_TOOL,
     TASK_RECURRENCE_END_TOOL, TASK_RECURRENCE_PAUSE_TOOL, TASK_RECURRENCE_RESUME_TOOL,
     TASK_RECURRENCE_SKIP_NEXT_TOOL, TASK_RECURRENCE_UPDATE_TOOL, TASK_REOPEN_TOOL,
     TASK_REPORT_BLOCKED_TOOL, TASK_RESCHEDULE_TOOL, TASK_RETRY_TOOL, TASK_RUN_RECURRENCE_NOW_TOOL,
-    TASK_RUN_SCHEDULED_NOW_TOOL, TASK_SCHEDULE_TOOL, TASK_SUBMIT_PLAN_TOOL,
-    TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL, TASK_UNSCHEDULE_TOOL, TASK_UPDATE_TOOL,
+    TASK_RUN_SCHEDULED_NOW_TOOL, TASK_SCHEDULE_TOOL, TASK_UNSCHEDULE_TOOL, TASK_UPDATE_TOOL,
 };
 use noema_tasks::TaskComplexity;
 
@@ -104,15 +104,6 @@ pub(in crate::daemon::task_tool) enum DelegateProjectArguments {
 arguments! { ExecutionIntentArguments {
     request_markdown: String,
     complexity: TaskComplexity,
-    criteria: Vec<CriterionArguments>,
-    #[serde(default)]
-    execution_plan_markdown: Option<String>,
-} }
-
-arguments! { CriterionArguments {
-    description: String,
-    #[serde(default)]
-    expected_evidence: Option<String>,
 } }
 
 arguments! { TaskPreconditionArguments {
@@ -163,8 +154,6 @@ arguments! { ReopenArguments {
     feedback_markdown: String,
     #[serde(default)]
     request_markdown: Option<String>,
-    #[serde(default)]
-    replacement_criteria: Option<Vec<CriterionArguments>>,
     #[serde(default)]
     complexity: Option<TaskComplexity>,
 } }
@@ -219,11 +208,11 @@ pub(crate) fn primary_task_tool_specs()
         (TASK_RECURRENCE_SKIP_NEXT_TOOL, "Skip the next exact recurring slot.", recurrence_fenced_schema()),
         (TASK_RECURRENCE_END_TOOL, "End all future recurrence without changing active work.", recurrence_fenced_schema()),
         (TASK_RUN_RECURRENCE_NOW_TOOL, "Create and start one extra occurrence now without advancing the next scheduled run. This is unavailable while another occurrence is nonterminal.", recurrence_fenced_schema()),
-        (TASK_DELEGATE_TOOL, "Atomically capture and authorize autonomous Work. Preserve the human's requested outcome, scope, and delivery depth in the title and description; do not add optional deliverables or research requirements. Projects are optional: use project.kind none and proceed when the user does not choose one; do not ask for or create a project only to delegate. Use project.kind existing only with an exact project_id returned by project.list. Use complexity_hint only when execution_intent is omitted and planning is needed; execution_intent supplies its own complexity and skips planning.", json!({"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","minLength":1,"maxLength":20000},"project":{"description":"Explicit project placement. Choose none for a projectless task, or existing with an exact project_id returned by project.list.","oneOf":[{"type":"object","properties":{"kind":{"type":"string","enum":["none"]}},"required":["kind"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","enum":["existing"]},"project_id":{"type":"string","minLength":1,"maxLength":255}},"required":["kind","project_id"],"additionalProperties":false}]},"executor_agent_id":{"type":"string","minLength":1,"maxLength":255},"cwd_override":{"type":"string","minLength":1,"maxLength":4096},"complexity_hint":{"type":"string","description":"Planner selection hint. Omit when execution_intent is provided.","enum":["simple","medium","difficult"]},"execution_intent":{"type":"object","description":"Complete execution contract that skips planning. Omit complexity_hint when provided.","properties":{"request_markdown":{"type":"string","minLength":1,"maxLength":20000},"complexity":{"type":"string","enum":["simple","medium","difficult"]},"criteria":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{"description":{"type":"string","minLength":1,"maxLength":4000},"expected_evidence":{"type":"string","maxLength":4000}},"required":["description"],"additionalProperties":false}},"execution_plan_markdown":{"type":"string","maxLength":20000}},"required":["request_markdown","complexity","criteria"],"additionalProperties":false}},"required":["title","description","project"],"additionalProperties":false})),
+        (TASK_DELEGATE_TOOL, "Atomically capture and authorize autonomous Work. Preserve the human's requested outcome, scope, and delivery depth in the title and description; do not add optional deliverables or research requirements. Projects are optional: use project.kind none and proceed when the user does not choose one; do not ask for or create a project only to delegate. Use project.kind existing only with an exact project_id returned by project.list. Use complexity_hint only when execution_intent is omitted and planning is needed; execution_intent supplies its own complexity and skips planning.", json!({"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","minLength":1,"maxLength":20000},"project":{"description":"Explicit project placement. Choose none for a projectless task, or existing with an exact project_id returned by project.list.","oneOf":[{"type":"object","properties":{"kind":{"type":"string","enum":["none"]}},"required":["kind"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","enum":["existing"]},"project_id":{"type":"string","minLength":1,"maxLength":255}},"required":["kind","project_id"],"additionalProperties":false}]},"executor_agent_id":{"type":"string","minLength":1,"maxLength":255},"cwd_override":{"type":"string","minLength":1,"maxLength":4096},"complexity_hint":{"type":"string","description":"Planner selection hint. Omit when execution_intent is provided.","enum":["simple","medium","difficult"]},"execution_intent":{"type":"object","description":"Complete execution intent that skips planning. Omit complexity_hint when provided.","properties":{"request_markdown":{"type":"string","minLength":1,"maxLength":20000},"complexity":{"type":"string","enum":["simple","medium","difficult"]}},"required":["request_markdown","complexity"],"additionalProperties":false}},"required":["title","description","project"],"additionalProperties":false})),
         (TASK_ANSWER_TOOL, "Answer the exact active_gate returned by task.list. This resolves only that occurrence and never edits future recurring authority.", json!({"type":"object","properties":{"task_id":{"type":"string"},"gate_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"answer_markdown":{"type":"string","minLength":1,"maxLength":20000},"approval_decision":{"type":"string","enum":["approved","declined"]}},"required":["task_id","gate_id","expected_revision","expected_generation","answer_markdown"],"additionalProperties":false})),
         (TASK_RETRY_TOOL, "Retry the explicitly named eligible Recovery gate.", json!({"type":"object","properties":{"task_id":{"type":"string"},"gate_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"retry_note":{"type":"string","maxLength":4000}},"required":["task_id","gate_id","expected_revision","expected_generation"],"additionalProperties":false})),
         (TASK_CANCEL_TOOL, "Cancel a nonterminal task and fence active work.", json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"reason":{"type":"string","maxLength":4000}},"required":["task_id","expected_revision","expected_generation"],"additionalProperties":false})),
-        (TASK_REOPEN_TOOL, "Reopen a completed task into Queue with new direction.", json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"feedback_markdown":{"type":"string","minLength":1,"maxLength":20000},"request_markdown":{"type":"string","maxLength":20000},"replacement_criteria":{"type":"array","items":{"type":"object","properties":{"description":{"type":"string","minLength":1},"expected_evidence":{"type":"string"}},"required":["description"],"additionalProperties":false}},"complexity":{"type":"string","enum":["simple","medium","difficult"]}},"required":["task_id","expected_revision","expected_generation","feedback_markdown"],"additionalProperties":false})),
+        (TASK_REOPEN_TOOL, "Reopen a completed task into Queue with new direction.", json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"feedback_markdown":{"type":"string","minLength":1,"maxLength":20000},"request_markdown":{"type":"string","maxLength":20000},"complexity":{"type":"string","enum":["simple","medium","difficult"]}},"required":["task_id","expected_revision","expected_generation","feedback_markdown"],"additionalProperties":false})),
         (PROJECT_CREATE_TOOL, "Create a Personal project container.", json!({"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","maxLength":20000},"folder":{"type":"string","minLength":1,"maxLength":4096}},"required":["name"],"additionalProperties":false})),
         (PROJECT_LIST_TOOL, "List bounded Personal projects.", json!({"type":"object","properties":{"include_archived":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false})),
         (PROJECT_UPDATE_TOOL, "Update a project with its revision fence.", json!({"type":"object","properties":{"project_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"name":{"type":"string","minLength":1},"description":{"type":"string"},"folder":{"type":"string","minLength":1,"maxLength":4096},"clear_folder":{"type":"boolean"}},"required":["project_id","expected_revision"],"additionalProperties":false})),
@@ -274,10 +263,10 @@ fn project_fenced_schema() -> Value {
     json!({"type":"object","properties":{"project_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1}},"required":["project_id","expected_revision"],"additionalProperties":false})
 }
 
-pub(crate) fn task_submit_plan_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError>
-{
+pub(crate) fn task_finish_planning_tool_spec()
+-> Result<ToolSpec, noema_capabilities::ToolContractError> {
     ToolSpec::new(
-        TASK_SUBMIT_PLAN_TOOL,
+        TASK_FINISH_PLANNING_TOOL,
         "Finish planning after the current plan is saved in TASK.md.",
         json!({"type":"object","properties":{"complexity":{"type":"string","enum":["simple","medium","difficult"]}},"required":["complexity"],"additionalProperties":false}),
     )
@@ -292,11 +281,11 @@ pub(crate) fn task_report_blocked_tool_spec()
     )
 }
 
-pub(crate) fn task_submit_result_tool_spec(
+pub(crate) fn task_finish_execution_tool_spec(
     _criterion_ids: &[String],
 ) -> Result<ToolSpec, noema_capabilities::ToolContractError> {
     ToolSpec::new(
-        TASK_SUBMIT_RESULT_TOOL,
+        TASK_FINISH_EXECUTION_TOOL,
         "Finish execution after the current result is saved in TASK.md.",
         json!({"type":"object","properties":{},"additionalProperties":false}),
     )
@@ -311,17 +300,17 @@ pub(crate) fn task_continue_execution_tool_spec()
     )
 }
 
-pub(crate) fn task_submit_review_tool_spec(
+pub(crate) fn task_finish_review_tool_spec(
     _criterion_ids: &[String],
 ) -> Result<ToolSpec, noema_capabilities::ToolContractError> {
     ToolSpec::new(
-        TASK_SUBMIT_REVIEW_TOOL,
+        TASK_FINISH_REVIEW_TOOL,
         "Finish review and replace REVIEW.md with the current feedback.",
         json!({"type":"object","properties":{"decision":{"type":"string","enum":["approve","request_changes","needs_human"]},"feedback":{"type":"string","minLength":1,"maxLength":20000}},"required":["decision","feedback"],"additionalProperties":false}),
     )
 }
 
-/// Build the background-role task inspection contract. The runtime supplies
+/// Build the background-role Task inspection tool. The runtime supplies
 /// the current task id from the leased run, so the model cannot widen this
 /// read to another task by changing arguments.
 pub(crate) fn task_list_scoped_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError>
@@ -379,7 +368,7 @@ mod tests {
 
     #[test]
     fn executor_finish_schema_contains_no_task_content() {
-        let schema = task_submit_result_tool_spec(&[
+        let schema = task_finish_execution_tool_spec(&[
             "criterion:one".to_string(),
             "criterion:two".to_string(),
         ])
@@ -391,7 +380,7 @@ mod tests {
 
     #[test]
     fn reviewer_finish_schema_contains_only_current_decision_and_feedback() {
-        let schema = task_submit_review_tool_spec(&[
+        let schema = task_finish_review_tool_spec(&[
             "criterion:one".to_string(),
             "criterion:two".to_string(),
         ])

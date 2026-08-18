@@ -37,7 +37,6 @@ impl RuntimeActor {
             request.role,
             false,
             capabilities,
-            Some(&request.terminal_contract),
         )
         .await
         .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
@@ -104,7 +103,6 @@ impl RuntimeActor {
                 &request.task_id,
                 &request.lease_token,
                 request.task_generation,
-                request.contract_id.as_ref(),
                 "initial",
                 0,
                 deadline,
@@ -163,7 +161,7 @@ impl RuntimeActor {
                         &mut context,
                         &mut citation_sources,
                         next_provider_round,
-                        "model returned without the required terminal contract",
+                        "model returned without the required terminal tool",
                         deadline,
                         aggregate_usage,
                     )
@@ -247,7 +245,6 @@ impl RuntimeActor {
                 task_id: Some(request.task_id.clone()),
                 task_run_id: Some(request.run_id.clone()),
                 task_run_fence: Some(request.work_run_fence()),
-                task_terminal_contract: Some(request.terminal_contract.clone()),
                 cwd: None,
                 provider_kind: provider_selection.provider_kind.clone(),
                 model: provider_selection.model_profile.clone(),
@@ -396,7 +393,7 @@ impl RuntimeActor {
                         .payload
                         .get("code")
                         .and_then(serde_json::Value::as_str)
-                        == Some("invalid_terminal_contract")
+                        == Some("invalid_task_terminal")
             }) {
                 invalid_terminal_attempts = invalid_terminal_attempts.saturating_add(1);
             }
@@ -416,10 +413,7 @@ impl RuntimeActor {
                 .any(|result| result.requires_provider_continuation)
             {
                 response.usage = aggregate_usage;
-                return Ok(BackgroundTaskGenerateResult {
-                    response,
-                    citation_sources,
-                });
+                return Ok(BackgroundTaskGenerateResult { response });
             }
             let continuation_step = continuation_index + 1;
             progress.mark_continuation_step(continuation_step);
@@ -537,7 +531,7 @@ impl RuntimeActor {
                     .await;
             }
             let terminal_repair = invalid_terminal_attempts == 1;
-            let repair_tools = terminal_contract_tools(&model_tools);
+            let repair_tools = task_terminal_tools(&model_tools);
             let instructions = if terminal_repair {
                 terminal_tool_instructions(
                     "The previous terminal payload was rejected. Correct it using the exact contract below; do not perform more work or call non-terminal tools.",
@@ -614,7 +608,12 @@ impl RuntimeActor {
                 ) => result,
             };
             if propagate_compaction_result(compaction_result)? {
-                append_task_document_after_compaction(&self.store, &request, &mut context).await?;
+                append_task_document_after_compaction(
+                    &self.store,
+                    &request.task_id,
+                    &mut context,
+                )
+                .await?;
                 let readmission = context
                     .compact_to_fit(
                         provider,
@@ -661,7 +660,6 @@ impl RuntimeActor {
                     &request.task_id,
                     &request.lease_token,
                     request.task_generation,
-                    request.contract_id.as_ref(),
                     "continuation",
                     continuation_step as i64,
                     deadline,
@@ -700,7 +698,6 @@ impl RuntimeActor {
                         &request.task_id,
                         &request.lease_token,
                         request.task_generation,
-                        request.contract_id.as_ref(),
                         "continuation",
                         continuation_step as i64,
                         deadline,

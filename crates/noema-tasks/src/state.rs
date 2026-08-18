@@ -1,5 +1,5 @@
 string_enum! {
-/// Bounded complexity selected for a delegated task or execution contract.
+/// Bounded execution complexity selected for a Task.
 pub enum TaskComplexity, "task_complexity" {
     /// Small, low-risk work.
     Simple => "simple",

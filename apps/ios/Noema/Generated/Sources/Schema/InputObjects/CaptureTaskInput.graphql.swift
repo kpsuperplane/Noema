@@ -69,7 +69,7 @@ nonisolated public struct CaptureTaskInput: InputObject {
     set { __data["executorAgentId"] = newValue }
   }
 
-  /// Optional absolute task working-directory override.
+  /// Optional absolute Task directory base override.
   public var cwdOverride: GraphQLNullable<String> {
     get { __data["cwdOverride"] }
     set { __data["cwdOverride"] = newValue }

@@ -1,17 +1,14 @@
 //! Task capture/queue/delegation command transactions.
 
-use noema_providers::{ProviderRegistry, ProviderSelectionSnapshot, ReasoningEffort};
+use noema_providers::ProviderRegistry;
 use noema_tasks::{
-    AcpExecutorSnapshot, CaptureTask, ContractOrigin, DelegateTask, NewTaskValidationCriterion,
-    PERSONAL_INBOX_STAGE_ID, PERSONAL_QUEUE_STAGE_ID, QueueTask, RecurrenceLifecycle,
-    RunScheduledTaskNow, RunTaskRecurrenceNow, ScheduleTask, TaskComplexity, TaskContractId,
-    TaskExecutorBackend, TaskExecutorSelection, TaskSourceKind, UnscheduleTask, UpdateInboxTask,
-    UpdateTaskRecurrence, WorkCommand, WorkDomainError, WorkEventPayload, WorkflowStageBehavior,
-    WorkflowStageId,
+    CaptureTask, DelegateTask, PERSONAL_INBOX_STAGE_ID, PERSONAL_QUEUE_STAGE_ID, QueueTask,
+    RecurrenceLifecycle, RunScheduledTaskNow, RunTaskRecurrenceNow, ScheduleTask, TaskSourceKind,
+    UnscheduleTask, UpdateInboxTask, UpdateTaskRecurrence, WorkCommand, WorkDomainError,
+    WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
 };
 use noema_workspaces::{ProjectId, WorkspaceId};
 use rusqlite::{OptionalExtension, Transaction, params};
-use std::path::Path;
 
 use super::{WorkCommandService, helpers};
 use crate::{
@@ -21,7 +18,6 @@ use crate::{
     },
     ids::allocate_id,
     task_files::allocate_task_directory_tx,
-    tasks::provider_selection::{pool_selection_tx, reviewer_preference_tx},
     work_events::append_work_event_tx,
     work_notifications::enqueue_work_notification_tx,
 };
@@ -726,13 +722,10 @@ pub(crate) fn queue_task_tx(
         &task,
         helpers::QueueRun {
             run_kind: noema_tasks::RunKind::Planner,
-            contract_id: None,
             planner_complexity: None,
             review_round: 0,
             attempt_index: 0,
             parent_run_id: None,
-            triggering_submission_id: None,
-            triggering_review_id: None,
             event: helpers::event_context(meta),
         },
     )?;
@@ -867,10 +860,15 @@ async fn delegate(
                 command.provenance.created_by_actor_id,
             ],
         )?;
-        if let Some(intent) = &command.execution_intent {
+        if let Some(complexity) = command
+            .execution_intent
+            .as_ref()
+            .map(|intent| intent.complexity)
+            .or(command.complexity_hint)
+        {
             transaction.execute(
                 "UPDATE tasks SET execution_complexity = ?2 WHERE task_id = ?1",
-                params![task_id.as_str(), intent.complexity.as_str()],
+                params![task_id.as_str(), complexity.as_str()],
             )?;
         }
         let task = helpers::load_task_state_tx(transaction, &task_id)?;
@@ -892,32 +890,13 @@ async fn delegate(
             noema_tasks::NotificationKind::TaskCreated,
             &serde_json::json!({"task_id": task_id.as_str(), "title": command.title}),
         )?;
-        let contract = if let Some(intent) = &command.execution_intent {
-            let (contract_id, _contract_event) = create_contract_tx(
-                transaction,
-                service.provider_registry.as_ref(),
-                &service.store.default_task_cwd(&task.task_directory),
-                &task,
-                CreateContract {
-                    origin: ContractOrigin::Delegated,
-                    request_markdown: &intent.request_markdown,
-                    execution_plan_markdown: intent.execution_plan_markdown.as_deref(),
-                    criteria: &intent.criteria,
-                    complexity: intent.complexity,
-                    supersedes_contract_id: None,
-                    event: helpers::event_context(&command.meta),
-                },
-            )?;
-            Some(contract_id)
-        } else {
-            None
-        };
-        let next_kind = if contract.is_some() {
+        let direct_execution = command.execution_intent.is_some();
+        let next_kind = if direct_execution {
             noema_tasks::RunKind::Executor
         } else {
             noema_tasks::RunKind::Planner
         };
-        let queued = WorkEventPayload::task_queued(1, 1, contract.clone(), next_kind)
+        let queued = WorkEventPayload::task_queued(1, 1, None, next_kind)
             .map_err(StoreError::Work)?;
         let _queued_event = append_work_event_tx(
             transaction,
@@ -930,20 +909,14 @@ async fn delegate(
             &task,
             helpers::QueueRun {
                 run_kind: next_kind,
-                contract_id: contract.as_ref(),
                 planner_complexity: command.complexity_hint,
-                review_round: u32::from(contract.is_some()),
+                review_round: u32::from(direct_execution),
                 attempt_index: 0,
                 parent_run_id: None,
-                triggering_submission_id: None,
-                triggering_review_id: None,
                 event: helpers::event_context(&command.meta),
             },
         )?;
-        Ok(helpers::task_write(run_event, task_id.clone())
-            .contract(contract)
-            .run(Some(run_id))
-            .into())
+        Ok(helpers::task_write(run_event, task_id.clone()).run(Some(run_id)).into())
     })
     .await
 }
@@ -1044,264 +1017,4 @@ fn validate_executor_agent(
         Some(true) => Ok(()),
         Some(false) | None => Err(StoreError::Work(WorkDomainError::ConfigurationUnavailable)),
     }
-}
-
-/// Create one immutable execution contract and its exact criteria rows.
-pub(crate) struct CreateContract<'a> {
-    pub origin: ContractOrigin,
-    pub request_markdown: &'a str,
-    pub execution_plan_markdown: Option<&'a str>,
-    pub criteria: &'a [NewTaskValidationCriterion],
-    pub complexity: TaskComplexity,
-    pub supersedes_contract_id: Option<&'a TaskContractId>,
-    pub event: helpers::CommandEventContext<'a>,
-}
-
-pub(crate) fn create_contract_tx(
-    transaction: &Transaction<'_>,
-    registry: &ProviderRegistry,
-    default_task_cwd: &Path,
-    task: &helpers::TaskState,
-    request: CreateContract<'_>,
-) -> Result<(TaskContractId, noema_tasks::WorkEventRecord), StoreError> {
-    let executor = select_pool(transaction, request.complexity)?;
-    let reviewer = reviewer_preference_tx(transaction)?;
-    let _executor_ready = crate::provider_selections::prove_selection_ready(&executor, registry)?;
-    let _reviewer_ready = crate::provider_selections::prove_selection_ready(&reviewer, registry)?;
-    let policy = helpers::load_policy_tx(transaction)?;
-    let contract_id = TaskContractId::new(allocate_id("contract")).map_err(StoreError::Work)?;
-    let version: i64 = transaction.query_row(
-        "SELECT COALESCE(MAX(version), 0) + 1 FROM task_execution_contracts WHERE task_id = ?1",
-        [task.task_id.as_str()],
-        |row| row.get(0),
-    )?;
-    if request.origin == ContractOrigin::Planned && request.execution_plan_markdown.is_none() {
-        return Err(StoreError::Work(WorkDomainError::InvalidInput {
-            field: "contract.execution_plan_markdown",
-            message: "planned contract requires a plan".to_string(),
-        }));
-    }
-    let (workspace_name, workspace_description) = transaction.query_row(
-        "SELECT name, description FROM workspaces WHERE workspace_id = ?1",
-        [task.workspace_id.as_str()],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-    )?;
-    let project_context = task
-        .project_id
-        .as_ref()
-        .map(|project_id| {
-            transaction.query_row(
-                "SELECT name, description, folder FROM projects WHERE project_id = ?1",
-                [project_id.as_str()],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                    ))
-                },
-            )
-        })
-        .transpose()?;
-    let executor_selection = if task.executor_agent_id == noema_tasks::TASK_EXECUTOR_AGENT_ID {
-        TaskExecutorSelection::provider()
-    } else {
-        let snapshot = transaction
-            .query_row(
-                "SELECT command, arguments_json, connection_revision, enabled FROM acp_agents WHERE agent_id = ?1 LIMIT 1",
-                [task.executor_agent_id.as_str()],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, bool>(3)?,
-                    ))
-                },
-            )
-            .optional()?
-            .ok_or(StoreError::Work(WorkDomainError::ConfigurationUnavailable))?;
-        if !snapshot.3 {
-            return Err(StoreError::Work(WorkDomainError::ConfigurationUnavailable));
-        }
-        TaskExecutorSelection {
-            agent_id: task.executor_agent_id.clone(),
-            backend: TaskExecutorBackend::Acp,
-            acp: Some(AcpExecutorSnapshot {
-                connection_revision: u64::try_from(snapshot.2).map_err(|_| {
-                    StoreError::InvariantViolation {
-                        message: "ACP connection revision overflow".to_string(),
-                    }
-                })?,
-                command: snapshot.0,
-                arguments: serde_json::from_str(&snapshot.1)?,
-            }),
-        }
-    };
-    let effective_cwd = task
-        .cwd_override
-        .clone()
-        .or_else(|| {
-            project_context
-                .as_ref()
-                .and_then(|value| value.2.as_ref())
-                .map(|folder| {
-                    Path::new(folder)
-                        .join(&task.task_directory)
-                        .to_string_lossy()
-                        .into_owned()
-                })
-        })
-        .unwrap_or_else(|| default_task_cwd.to_string_lossy().into_owned());
-    std::fs::create_dir_all(&effective_cwd).map_err(StoreError::PreparePath)?;
-    let acp_connection_revision = executor_selection
-        .acp
-        .as_ref()
-        .map(|snapshot| snapshot.connection_revision);
-    let acp_launch_json = executor_selection
-        .acp
-        .as_ref()
-        .map(serde_json::to_string)
-        .transpose()?;
-    transaction.execute(
-        r#"INSERT INTO task_execution_contracts (
-             contract_id, task_id, version, task_generation, supersedes_contract_id, origin,
-             request_markdown, execution_plan_markdown, complexity,
-             executor_provider_kind, executor_provider_account_id,
-             executor_provider_instance_key, executor_selection_mode,
-             executor_model_profile, executor_reasoning_effort, executor_fast_mode,
-             executor_selection_source, reviewer_provider_kind,
-             reviewer_provider_account_id, reviewer_provider_instance_key,
-             reviewer_selection_mode, reviewer_model_profile,
-             reviewer_reasoning_effort, reviewer_fast_mode, reviewer_selection_source,
-             max_provider_continuations, max_tool_calls, max_active_minutes,
-             progress_audit_interval, max_automatic_retries, max_review_rounds,
-             workspace_id_snapshot, workspace_name_snapshot,
-             workspace_description_snapshot, project_id_snapshot,
-             project_name_snapshot, project_description_snapshot,
-             project_folder_snapshot, executor_backend_kind, executor_agent_id,
-             executor_acp_connection_revision, executor_acp_launch_json, effective_cwd,
-             created_by_actor_id
-           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                     ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23,
-                     ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33,
-                     ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44)"#,
-        params![
-            contract_id.as_str(),
-            task.task_id.as_str(),
-            version,
-            task.generation,
-            request.supersedes_contract_id.map(ToString::to_string),
-            request.origin.as_str(),
-            request.request_markdown,
-            request.execution_plan_markdown,
-            request.complexity.as_str(),
-            executor.provider_kind,
-            executor.provider_account_id,
-            executor
-                .provider_instance_key
-                .as_ref()
-                .map(ToString::to_string),
-            executor.selection_mode.as_str(),
-            executor.model_profile,
-            executor
-                .reasoning_effort
-                .map(ReasoningEffort::as_persistence_str),
-            executor.fast_mode,
-            executor.selection_source,
-            reviewer.provider_kind,
-            reviewer.provider_account_id,
-            reviewer
-                .provider_instance_key
-                .as_ref()
-                .map(ToString::to_string),
-            reviewer.selection_mode.as_str(),
-            reviewer.model_profile,
-            reviewer
-                .reasoning_effort
-                .map(ReasoningEffort::as_persistence_str),
-            reviewer.fast_mode,
-            reviewer.selection_source,
-            policy.max_provider_continuations,
-            policy.max_tool_calls,
-            policy.max_active_minutes,
-            policy.progress_audit_interval,
-            policy.max_automatic_retries,
-            policy.max_review_rounds,
-            task.workspace_id.as_str(),
-            workspace_name,
-            workspace_description,
-            task.project_id.as_ref().map(ProjectId::as_str),
-            project_context.as_ref().map(|value| value.0.as_str()),
-            project_context.as_ref().map(|value| value.1.as_str()),
-            project_context
-                .as_ref()
-                .and_then(|value| value.2.as_deref()),
-            executor_selection.backend.as_str(),
-            executor_selection.agent_id,
-            acp_connection_revision,
-            acp_launch_json,
-            effective_cwd,
-            request.event.actor_id,
-        ],
-    )?;
-    for criterion in request.criteria {
-        let criterion_id = if let Some(criterion_id) = &criterion.criterion_id {
-            if !criterion_id.starts_with("criterion:") {
-                return Err(StoreError::Work(WorkDomainError::InvalidInput {
-                    field: "contract.criteria.criterion_id",
-                    message: "criterion id must use the criterion: namespace".to_string(),
-                }));
-            }
-            criterion_id.clone()
-        } else {
-            allocate_id("criterion")
-        };
-        transaction.execute(
-            "INSERT INTO task_contract_criteria (criterion_id, contract_id, ordinal, description, expected_evidence) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![criterion_id, contract_id.as_str(), criterion.ordinal, criterion.description, criterion.expected_evidence],
-        )?;
-    }
-    transaction.execute(
-        "UPDATE tasks SET current_contract_id = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1",
-        params![task.task_id.as_str(), contract_id.as_str()],
-    )?;
-    let payload = WorkEventPayload::contract_created(
-        contract_id.clone(),
-        u32::try_from(version).map_err(|_| StoreError::InvariantViolation {
-            message: "contract version overflow".to_string(),
-        })?,
-        task.generation,
-        request.origin,
-        request.complexity,
-        u32::try_from(request.criteria.len()).map_err(|_| StoreError::InvariantViolation {
-            message: "criteria count overflow".to_string(),
-        })?,
-        request.supersedes_contract_id.cloned(),
-    )
-    .map_err(StoreError::Work)?;
-    let event = append_work_event_tx(
-        transaction,
-        request.event.scope(
-            &task.workspace_id,
-            task.project_id.as_ref(),
-            Some(&task.task_id),
-            None,
-        ),
-        payload,
-    )?;
-    Ok((contract_id, event))
-}
-
-fn select_pool(
-    transaction: &Transaction<'_>,
-    complexity: TaskComplexity,
-) -> Result<ProviderSelectionSnapshot, StoreError> {
-    let complexity_str = complexity.as_str();
-    let id: String = transaction.query_row(
-        "SELECT pool_entry_id FROM task_model_pool_entries WHERE complexity = ?1 AND enabled = 1 ORDER BY sort_order, label, pool_entry_id LIMIT 1",
-        [complexity_str],
-        |row| row.get(0),
-    )?;
-    pool_selection_tx(transaction, complexity, &id)
 }

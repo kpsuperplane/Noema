@@ -130,9 +130,7 @@ impl WorkCommandService {
                         .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
                 let envelope = snapshot::derive_envelope(transaction, facts)?;
                 let action = plan_work_reconciliation(&envelope)?;
-                action
-                    .validate_for_contract(envelope.current_contract.is_some())
-                    .map_err(StoreError::Work)?;
+                action.validate().map_err(StoreError::Work)?;
                 let mut task = helpers::load_task_state_tx(transaction, &request.task_id)?;
                 let write = match &action {
                     WorkReconciliationAction::Idle => latest_task_marker(transaction, &task),
@@ -160,33 +158,6 @@ impl WorkCommandService {
                             )
                         }
                     }
-                    WorkReconciliationAction::MoveToDone => {
-                        let review_id = task.latest_review_id.clone().ok_or_else(|| {
-                            StoreError::InvariantViolation {
-                                message: format!("task {} has no approved review", task.task_id),
-                            }
-                        })?;
-                        let submission_id = task.latest_submission_id.clone().ok_or_else(|| {
-                            StoreError::InvariantViolation {
-                                message: format!(
-                                    "task {} has no reviewed submission",
-                                    task.task_id
-                                ),
-                            }
-                        })?;
-                        helpers::complete_review_tx(
-                            transaction,
-                            &mut task,
-                            &review_id,
-                            &submission_id,
-                            helpers::CommandEventContext {
-                                actor_id: &request.actor_id,
-                                causation_id: request.causation_id.as_deref(),
-                                correlation_id: &request.correlation_id,
-                            },
-                            None,
-                        )
-                    }
                     WorkReconciliationAction::OpenRecoveryGate {
                         reason,
                         retry_run_kind,
@@ -199,9 +170,6 @@ impl WorkCommandService {
                     ),
                     WorkReconciliationAction::FenceStaleRuns => {
                         fence_stale_runs_tx(transaction, &task, &request)
-                    }
-                    WorkReconciliationAction::MaterializePlannedContractAndQueueExecutor => {
-                        Err(StoreError::Work(WorkDomainError::ConfigurationUnavailable))
                     }
                 }?;
                 capture_snapshot(transaction, write)
@@ -240,7 +208,6 @@ fn task_write(
 ) -> helpers::CommandWrite {
     helpers::task_write(event, task.task_id.clone())
         .project(task.project_id.clone())
-        .contract(task.current_contract_id.clone())
         .gate(task.active_gate_id.clone())
 }
 
@@ -312,8 +279,8 @@ fn open_recovery_gate_tx(
     }
     let gate_id = noema_tasks::TaskGateId::new(allocate_id("gate")).map_err(StoreError::Work)?;
     transaction.execute(
-        "INSERT INTO task_gates (gate_id, task_id, task_generation, contract_id, gate_kind, gate_state, recovery_reason, retry_run_kind, prompt_markdown, context_markdown, opened_by_actor_id, originating_run_id) VALUES (?1, ?2, ?3, ?4, 'recovery', 'open', ?5, ?6, 'Reconciliation requires a recovery decision.', 'The durable work facts are inconsistent or exhausted.', ?7, ?8)",
-        params![gate_id.as_str(), task.task_id.as_str(), task.generation, task.current_contract_id.as_ref().map(ToString::to_string), reason.as_str(), retry_run_kind.map(|kind| kind.as_str()), request.actor_id, task.latest_run_id],
+        "INSERT INTO task_gates (gate_id, task_id, task_generation, gate_kind, gate_state, recovery_reason, retry_run_kind, prompt_markdown, context_markdown, opened_by_actor_id, originating_run_id) VALUES (?1, ?2, ?3, 'recovery', 'open', ?4, ?5, 'Reconciliation requires a recovery decision.', 'The durable work facts are inconsistent or exhausted.', ?6, ?7)",
+        params![gate_id.as_str(), task.task_id.as_str(), task.generation, reason.as_str(), retry_run_kind.map(|kind| kind.as_str()), request.actor_id, task.latest_run_id],
     )?;
     let revision = helpers::increment(task.revision, "task.revision")?;
     transaction.execute(

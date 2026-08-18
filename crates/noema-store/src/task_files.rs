@@ -587,6 +587,22 @@ mod tests {
             .expect("rows");
         let task_id = TaskId::new("task:files").expect("task id");
 
+        let collision = store
+            .with_connection(|connection| {
+                let transaction = connection.unchecked_transaction()?;
+                let candidate = allocate_task_directory_tx(
+                    &transaction,
+                    &WorkspaceId::new("workspace:personal").expect("workspace id"),
+                    Some(&ProjectId::new("project:files").expect("project id")),
+                    "Long Task",
+                )?;
+                transaction.rollback()?;
+                Ok(candidate)
+            })
+            .await
+            .expect("allocate colliding directory");
+        assert_eq!(collision, "long-task-2");
+
         store
             .ensure_task_document(&task_id)
             .await
@@ -627,6 +643,21 @@ mod tests {
             store.delete_task_file(&task_id, TASK_DOCUMENT).await,
             Err(TaskFileError::RequiredDocument)
         ));
+
+        store
+            .with_connection(|connection| {
+                connection.execute(
+                    "UPDATE tasks SET title = 'Renamed Task' WHERE task_id = 'task:files'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .await
+            .expect("rename Task");
+        assert_eq!(
+            store.task_working_directory(&task_id).await.unwrap(),
+            project.join("long-task")
+        );
 
         #[cfg(unix)]
         {

@@ -199,7 +199,7 @@ Before execution, the gateway checks:
 - The approving human and one-shot decision state.
 - Current capability, authentication, behavior, and source schema.
 - Current grants, connection policy, and destination policy.
-- Current task generation, run, and execution contract when applicable.
+- Current Task generation and run when applicable.
 
 The adapter receives the saved arguments. The model does not regenerate them.
 
@@ -222,7 +222,7 @@ For Tasks:
 1. Save the action request and release the worker claim.
 2. Mark the run as waiting for approval.
 3. Keep the task gate and capability decision as separate authorities.
-4. Resume under the same current task generation and execution contract.
+4. Resume under the same current Task generation and run.
 
 Task recovery and cancellation invalidate stale requests. An executing external
 effect can become `outcome_uncertain`, but it cannot be replayed automatically.

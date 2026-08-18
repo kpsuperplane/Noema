@@ -28,6 +28,7 @@ fn task_card_from_store(value: &WorkTaskSummary) -> async_graphql::Result<Graphq
             .project
             .as_ref()
             .and_then(|project| project.folder.as_deref()),
+        &value.task.task_directory,
     );
     Ok(GraphqlTaskCard {
         task_id: value.task.task_id.to_string(),
@@ -154,11 +155,31 @@ fn task_executor_backend(agent_id: &str) -> String {
     }
 }
 
-fn task_cwd(task_override: Option<&str>, project_folder: Option<&str>) -> (Option<String>, String) {
+fn task_cwd(
+    task_override: Option<&str>,
+    project_folder: Option<&str>,
+    task_directory: &str,
+) -> (Option<String>, String) {
     if let Some(value) = task_override {
-        (Some(value.to_string()), "task".to_string())
+        (
+            Some(
+                std::path::Path::new(value)
+                    .join(task_directory)
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            "task".to_string(),
+        )
     } else if let Some(value) = project_folder {
-        (Some(value.to_string()), "project".to_string())
+        (
+            Some(
+                std::path::Path::new(value)
+                    .join(task_directory)
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            "project".to_string(),
+        )
     } else {
         (None, "default".to_string())
     }

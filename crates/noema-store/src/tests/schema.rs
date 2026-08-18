@@ -707,7 +707,7 @@ async fn acp_executors_upgrade_v28_preserves_provider_history_and_converges() {
         "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:valid', 'workspace:personal', 'workflow:personal:default', 'stage:personal:queue', 'Preserved provider task', 'system', 'actor:system')",
         [],
     ).unwrap();
-    insert_delegated_contract(&connection).unwrap();
+    insert_legacy_delegated_contract(&connection).unwrap();
     connection
         .execute(
             "UPDATE tasks SET current_contract_id = 'contract:one' WHERE task_id = 'task:valid'",
@@ -722,7 +722,7 @@ async fn acp_executors_upgrade_v28_preserves_provider_history_and_converges() {
           max_automatic_retries, max_review_rounds, status
         ) VALUES (
           'run:provider-history', 'Provider history', 'task:valid', 1, 'contract:one', 'executor', 'agent:task-executor',
-          'codex', 'provider_account:codex:default', 'provider_account:codex:default', 'explicit_profile', 'gpt-5.6-luna',
+          'openrouter', 'provider_account:openrouter:default', 'provider_account:openrouter:default', 'explicit_profile', 'openrouter/auto',
           80, 400, 120, 20, 3, 3, 'completed'
         )"#,
         [],
@@ -757,16 +757,16 @@ async fn acp_executors_upgrade_v28_preserves_provider_history_and_converges() {
             [],
             |row| row.get::<_, String>(0),
         )?, "agent:task-executor");
+        assert!(!schema_object_exists(
+            connection,
+            "table",
+            "task_execution_contracts"
+        )?);
         assert_eq!(connection.query_row(
-            "SELECT executor_backend_kind || ':' || executor_agent_id FROM task_execution_contracts WHERE contract_id = 'contract:one'",
+            "SELECT provider_kind || ':' || execution_backend_kind FROM agent_runs WHERE run_id = 'run:provider-history'",
             [],
             |row| row.get::<_, String>(0),
-        )?, "provider:agent:task-executor");
-        assert_eq!(connection.query_row(
-            "SELECT execution_backend_kind FROM agent_runs WHERE run_id = 'run:provider-history'",
-            [],
-            |row| row.get::<_, String>(0),
-        )?, "provider");
+        )?, "openrouter:provider");
         Ok(())
     }).await.unwrap();
 }
@@ -983,10 +983,8 @@ async fn current_schema_enforces_projection_history_and_ledger_invariants() {
         .with_connection(|conn| {
             for table in [
                 "workspaces", "workspace_memberships", "projects", "workflow_definitions",
-                "workflow_stages", "tasks", "task_execution_contracts",
-                "task_contract_criteria", "task_gates", "task_messages", "agent_runs",
-                "task_submissions", "task_submission_citations", "task_reviews", "work_events",
-                "work_notification_outbox", "work_command_receipts",
+                "workflow_stages", "tasks", "task_gates", "task_messages", "agent_runs",
+                "work_events", "work_notification_outbox", "work_command_receipts",
             ] {
                 assert!(schema_object_exists(conn, "table", table)?, "missing table {table}");
             }
@@ -999,10 +997,20 @@ async fn current_schema_enforces_projection_history_and_ledger_invariants() {
             }
             assert!(!schema_object_exists(conn, "table", "task_events")?);
             assert!(!schema_object_exists(conn, "table", "run_events")?);
+            for table in [
+                "task_execution_contracts", "task_contract_criteria", "task_submissions",
+                "task_submission_criteria", "task_submission_artifacts",
+                "task_submission_citations", "task_reviews", "task_review_criteria",
+            ] {
+                assert!(!schema_object_exists(conn, "table", table)?, "obsolete table {table}");
+            }
             assert!(!table_columns(conn, "tasks")?.iter().any(|column| column == "status"));
             let run_columns = table_columns(conn, "agent_runs")?;
             assert!(!run_columns.iter().any(|column| column == "priority"));
             assert!(!run_columns.iter().any(|column| column == "resume_message"));
+            for column in ["contract_id", "triggering_submission_id", "triggering_review_id"] {
+                assert!(!run_columns.iter().any(|found| found == column));
+            }
 
             conn.execute_batch(
                 r#"
@@ -1039,16 +1047,6 @@ async fn current_schema_enforces_projection_history_and_ledger_invariants() {
             assert!(insert_planner_run(conn, "run:two").is_err());
             conn.execute("UPDATE agent_runs SET status = 'completed' WHERE run_id = 'run:one'", [])?;
             insert_planner_run(conn, "run:two")?;
-
-            insert_delegated_contract(conn)?;
-            conn.execute(
-                "INSERT INTO task_contract_criteria (criterion_id, contract_id, ordinal, description) VALUES ('criterion:one', 'contract:one', 1, 'First')",
-                [],
-            )?;
-            assert!(conn.execute(
-                "INSERT INTO task_contract_criteria (criterion_id, contract_id, ordinal, description) VALUES ('criterion:two', 'contract:one', 1, 'Second')",
-                [],
-            ).is_err());
 
             for event_id in ["event:one", "event:two"] {
                 conn.execute(
@@ -1120,7 +1118,7 @@ async fn current_schema_enforces_projection_history_and_ledger_invariants() {
 }
 
 #[tokio::test]
-async fn task_submission_citations_upgrade_version_36_and_match_fresh_schema() {
+async fn version_36_upgrade_removes_submission_citations() {
     let upgraded_home = TempDir::new().expect("citation upgrade root");
     let upgraded_config = store_config(upgraded_home.path());
     fs::create_dir_all(upgraded_config.path.parent().expect("database parent"))
@@ -1138,30 +1136,17 @@ async fn task_submission_citations_upgrade_version_36_and_match_fresh_schema() {
     let upgraded = NoemaStore::open(&upgraded_config)
         .await
         .expect("upgrade citation schema");
-    let fresh_home = TempDir::new().expect("fresh citation root");
-    let fresh = NoemaStore::open(&store_config(fresh_home.path()))
+    upgraded
+        .with_connection(|connection| {
+            assert!(!schema_object_exists(
+                connection,
+                "table",
+                "task_submission_citations"
+            )?);
+            Ok(())
+        })
         .await
-        .expect("create fresh citation schema");
-    let citation_schema = |connection: &mut Connection| -> Result<String, StoreError> {
-        connection
-            .query_row(
-                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'task_submission_citations'",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(StoreError::Sqlite)
-    };
-
-    assert_eq!(
-        upgraded
-            .with_connection(citation_schema)
-            .await
-            .expect("inspect upgraded citation schema"),
-        fresh
-            .with_connection(citation_schema)
-            .await
-            .expect("inspect fresh citation schema")
-    );
+        .expect("inspect upgraded schema");
 }
 
 #[test]
@@ -1484,7 +1469,6 @@ async fn version_eighteen_preserves_accounts_and_expands_every_provider_constrai
                 "conversations",
                 "conversation_context_summaries",
                 "task_model_pool_entries",
-                "task_execution_contracts",
                 "agent_runs",
             ] {
                 let sql: String = conn.query_row(
@@ -2535,7 +2519,6 @@ async fn v48_model_preference_speed_upgrade_defaults_to_standard_and_matches_fre
         "auxiliary_model_preferences",
         "default_model_preference",
         "task_model_pool_entries",
-        "task_execution_contracts",
         "agent_runs",
         "conversation_interactions",
     ] {
@@ -2548,12 +2531,7 @@ async fn v48_model_preference_speed_upgrade_defaults_to_standard_and_matches_fre
                 |row| row.get::<_, i64>(0),
             )
             .expect("fast-mode columns");
-        let expected = if table == "task_execution_contracts" {
-            2
-        } else {
-            1
-        };
-        assert_eq!(fast_columns, expected, "{table}");
+        assert_eq!(fast_columns, 1, "{table}");
     }
     drop(connection);
 
@@ -2695,13 +2673,13 @@ fn insert_planner_run(conn: &Connection, run_id: &str) -> rusqlite::Result<usize
     conn.execute(
         r#"
         INSERT INTO agent_runs (
-          run_id, instance_name, task_id, task_generation, contract_id, run_kind, agent_id,
+          run_id, instance_name, task_id, task_generation, run_kind, agent_id,
           attempt_index, review_round, provider_kind, provider_account_id,
           provider_instance_key, selection_mode, model_profile,
           max_provider_continuations, max_tool_calls, max_active_minutes,
           progress_audit_interval, max_automatic_retries, max_review_rounds, status
         ) VALUES (
-          ?1, ?2, 'task:valid', 1, NULL, 'planner', 'agent:task-executor',
+          ?1, ?2, 'task:valid', 1, 'planner', 'agent:task-executor',
           0, 0, 'codex', 'provider_account:codex:default',
           'provider_account:codex:default', 'explicit_profile', 'gpt-5.6-luna',
           80, 400, 120, 20, 3, 3, 'queued'
@@ -2711,7 +2689,7 @@ fn insert_planner_run(conn: &Connection, run_id: &str) -> rusqlite::Result<usize
     )
 }
 
-fn insert_delegated_contract(conn: &Connection) -> rusqlite::Result<()> {
+fn insert_legacy_delegated_contract(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         r#"
         INSERT INTO task_execution_contracts (

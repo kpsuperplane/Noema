@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use crate::{
-    TaskContractId, TaskGateId, TaskId, WorkDomainError, WorkflowId, WorkflowStageId,
+    TaskGateId, TaskId, WorkDomainError, WorkflowId, WorkflowStageId,
     error::invalid_input,
     validation::{optional as normalize_optional, required},
 };
@@ -173,12 +173,8 @@ pub struct TaskRecord {
     pub provenance: TaskProvenance,
     pub generation: u64,
     pub revision: u64,
-    pub current_contract_id: Option<TaskContractId>,
     pub active_gate_id: Option<TaskGateId>,
     pub latest_run_id: Option<String>,
-    pub latest_submission_id: Option<String>,
-    pub latest_review_id: Option<String>,
-    pub completed_submission_id: Option<String>,
     pub scheduled_for: Option<i64>,
     pub schedule_time_zone: Option<String>,
     pub missed_run_policy: Option<crate::MissedRunPolicy>,

@@ -2,8 +2,7 @@ use noema_providers::ProviderSelectionSnapshot;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    TaskContractId, TaskExecutionPolicy, TaskExecutorSelection, TaskId, WorkDomainError,
-    error::invalid_input,
+    TaskExecutionPolicy, TaskExecutorSelection, TaskId, WorkDomainError, error::invalid_input,
 };
 
 /// Stable built-in agent identity for planner/executor work.
@@ -16,9 +15,9 @@ string_enum! {
 pub enum RunKind, "run.kind" {
     /// Produces a complete plan or opens a blocking gate.
     Planner => "planner",
-    /// Produces an immutable task submission.
+    /// Performs current Task work.
     Executor => "executor",
-    /// Independently evaluates one submission.
+    /// Independently evaluates current Task files.
     Reviewer => "reviewer",
 }
 }
@@ -82,14 +81,11 @@ pub struct AgentRunRecord {
     pub instance_name: String,
     pub task_id: TaskId,
     pub task_generation: u64,
-    pub contract_id: Option<TaskContractId>,
     pub run_kind: RunKind,
     pub agent_id: String,
     pub attempt_index: u32,
     pub review_round: u32,
     pub parent_run_id: Option<String>,
-    pub triggering_submission_id: Option<String>,
-    pub triggering_review_id: Option<String>,
     pub model: ProviderSelectionSnapshot,
     pub executor: TaskExecutorSelection,
     pub effective_cwd: Option<String>,
@@ -119,19 +115,11 @@ pub struct AgentRunRecord {
 }
 
 impl AgentRunRecord {
-    /// Validate the role/contract invariant on a persisted run.
+    /// Validate the role and round invariant on a persisted run.
     /// # Errors
-    /// Returns [`WorkDomainError`] when the run role, contract, review round,
-    /// trigger identities, and built-in agent identity are inconsistent.
-    pub fn validate_contract_lineage(&self) -> Result<(), WorkDomainError> {
-        validate_run_lineage(
-            self.run_kind,
-            self.contract_id.as_ref(),
-            self.review_round,
-            self.triggering_submission_id.as_deref(),
-            self.triggering_review_id.as_deref(),
-            self.agent_id.as_str(),
-        )
+    /// Returns [`WorkDomainError`] when the role, round, or agent is invalid.
+    pub fn validate_lineage(&self) -> Result<(), WorkDomainError> {
+        validate_run_lineage(self.run_kind, self.review_round, self.agent_id.as_str())
     }
 }
 
@@ -145,48 +133,28 @@ pub struct AgentRunHeartbeat {
 
 fn validate_run_lineage(
     kind: RunKind,
-    contract_id: Option<&TaskContractId>,
     review_round: u32,
-    triggering_submission_id: Option<&str>,
-    triggering_review_id: Option<&str>,
     agent_id: &str,
 ) -> Result<(), WorkDomainError> {
-    if let Some(message) = match (kind, contract_id) {
-        (RunKind::Planner, Some(_)) => Some("Planner runs cannot carry a contract"),
-        (RunKind::Executor | RunKind::Reviewer, None) => {
-            Some("Executor and Reviewer runs require a contract")
-        }
-        _ => None,
-    } {
-        return Err(invalid_input("run.contract_id", message));
-    }
     match kind {
         RunKind::Planner => {
-            if review_round != 0
-                || triggering_submission_id.is_some()
-                || triggering_review_id.is_some()
-                || agent_id.trim().is_empty()
-            {
+            if review_round != 0 || agent_id.trim().is_empty() {
                 return Err(invalid_input(
                     "run.lineage",
-                    "Planner runs require round 0, no contract/evidence triggers, and the executor agent",
+                    "Planner runs require round 0 and an agent",
                 ));
             }
         }
         RunKind::Executor => {
-            if review_round == 0 || triggering_submission_id.is_some() || agent_id.trim().is_empty()
-            {
+            if review_round == 0 || agent_id.trim().is_empty() {
                 return Err(invalid_input(
                     "run.lineage",
-                    "Executor runs require a positive review round, no submission trigger, and an agent identity",
+                    "Executor runs require a positive review round and an agent",
                 ));
             }
         }
         RunKind::Reviewer => {
-            if review_round == 0
-                || triggering_review_id.is_some()
-                || agent_id != TASK_REVIEWER_AGENT_ID
-            {
+            if review_round == 0 || agent_id != TASK_REVIEWER_AGENT_ID {
                 return Err(invalid_input(
                     "run.lineage",
                     "Reviewer runs require a positive round and the reviewer agent",

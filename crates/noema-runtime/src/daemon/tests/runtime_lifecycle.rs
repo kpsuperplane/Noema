@@ -326,7 +326,6 @@ pub(crate) async fn seed_waiting_notification(
         run_id: claimed.run.run_id.clone(),
         lease_token: claimed.lease_token,
         task_generation: claimed.run.task_generation,
-        contract_id: claimed.run.contract_id,
     };
     service
         .start_work_run(&fence, "actor:test", None, "correlation:notification-test")
@@ -425,7 +424,6 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
         run_id: claimed.run.run_id.clone(),
         lease_token: claimed.lease_token.clone(),
         task_generation: claimed.run.task_generation,
-        contract_id: claimed.run.contract_id.clone(),
     };
     command_service
         .start_work_run(
@@ -441,7 +439,6 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
         .await
         .expect("read task detail")
         .expect("task detail");
-    let contract = detail.current_contract.expect("execution contract");
 
     let (started_tx, started_rx) = oneshot::channel();
     let (release_tx, release_rx) = oneshot::channel();
@@ -472,7 +469,6 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
     let claimed_run_id = claimed.run.run_id.clone();
     let claimed_lease_token = claimed.lease_token.clone();
     let claimed_task_generation = claimed.run.task_generation;
-    let claimed_contract_id = claimed.run.contract_id.clone();
     let claimed_agent_id = claimed.run.agent_id.clone();
     let claimed_execution_policy = claimed.run.execution_policy;
     let generation_runtime = runtime.clone();
@@ -484,7 +480,6 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
                 task_id: task.task_id.to_string(),
                 lease_token: claimed_lease_token,
                 task_generation: claimed_task_generation,
-                contract_id: claimed_contract_id,
                 cancellation: tokio_util::sync::CancellationToken::new(),
                 agent_id: claimed_agent_id,
                 instance_name: claimed.run.instance_name.clone(),
@@ -501,18 +496,9 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
                     selection
                 },
                 execution_policy: claimed_execution_policy,
-                input: contract.request_markdown.clone(),
+                input: detail.task_document,
                 runtime_environment: None,
-                instructions: "Complete the task and submit the result.".to_string(),
-                terminal_contract: crate::daemon::task_run_context::TaskTerminalContract {
-                    criterion_ids: contract
-                        .criteria
-                        .iter()
-                        .map(|criterion| criterion.criterion_id.clone())
-                        .collect(),
-                    has_submission_artifacts: false,
-                    has_correction_review: false,
-                },
+                instructions: "Complete the task and finish execution.".to_string(),
                 runtime_events: crate::daemon::RuntimeEventRegistry::default(),
             })
             .await
@@ -542,7 +528,7 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
     assert_eq!(response.response.provider, "old-local");
     assert_eq!(response.response.model, "old-model");
     assert_eq!(response.response.tool_calls.len(), 1);
-    assert_eq!(response.response.tool_calls[0].name, "task.submit_result");
+    assert_eq!(response.response.tool_calls[0].name, "task.finish_execution");
     assert_eq!(old_provider.requests.lock().expect("old requests").len(), 2);
     assert!(
         replacement

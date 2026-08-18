@@ -26,16 +26,10 @@ pub struct WorkFailedRunFacts {
 #[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct WorkReconciliationSnapshot {
     pub stage_behavior: WorkflowStageBehavior,
-    pub has_current_contract: bool,
     pub has_open_gate: bool,
     pub has_runnable_run: bool,
     pub has_run_waiting_for_approval: bool,
     pub resolved_gate_resume_run_kind: Option<RunKind>,
-    pub approved_review: bool,
-    pub planner_plan_ready: bool,
-    pub submission_waiting_for_review: bool,
-    pub review_requested_changes: bool,
-    pub review_rounds_exhausted: bool,
     pub failed_run: Option<WorkFailedRunFacts>,
 }
 
@@ -49,16 +43,11 @@ pub enum WorkReconciliationAction {
         /// Role for the one queued child run.
         run_kind: RunKind,
     },
-    /// Atomically materialize the validated Planner plan into an immutable
-    /// contract and queue its first Executor.
-    MaterializePlannedContractAndQueueExecutor,
     /// Atomically move a resolved Waiting task to Queue and enqueue its role.
     MoveToQueueAndQueueRun {
         /// Role resumed after the resolved gate.
         run_kind: RunKind,
     },
-    /// Move an approved review to the Done stage.
-    MoveToDone,
     /// Open a human Recovery gate.
     OpenRecoveryGate {
         /// Closed reason for the gate.
@@ -71,11 +60,11 @@ pub enum WorkReconciliationAction {
 }
 
 impl WorkReconciliationAction {
-    /// Validate run-role compatibility with the current contract presence.
+    /// Validate recovery facts carried by this action.
     /// # Errors
     /// Returns [`WorkDomainError`] when the action has an invalid Recovery
-    /// pairing or its queued role is incompatible with contract presence.
-    pub fn validate_for_contract(&self, has_current_contract: bool) -> Result<(), WorkDomainError> {
+    /// pairing.
+    pub fn validate(&self) -> Result<(), WorkDomainError> {
         if let Self::OpenRecoveryGate {
             reason,
             retry_run_kind,
@@ -86,19 +75,6 @@ impl WorkReconciliationAction {
                 "reconciliation.recovery",
                 "recovery reason and continuation role are inconsistent",
             ));
-        }
-        let run_kind = match self {
-            Self::QueueRun { run_kind } | Self::MoveToQueueAndQueueRun { run_kind } => {
-                Some(*run_kind)
-            }
-            Self::OpenRecoveryGate {
-                retry_run_kind: Some(run_kind),
-                ..
-            } => Some(*run_kind),
-            _ => None,
-        };
-        if let Some(run_kind) = run_kind {
-            validate_role_contract(run_kind, has_current_contract)?;
         }
         Ok(())
     }
@@ -129,10 +105,7 @@ pub fn plan_reconciliation_action(
         } else if snapshot.has_open_gate {
             Ok(WorkReconciliationAction::Idle)
         } else if let Some(run_kind) = snapshot.resolved_gate_resume_run_kind {
-            compatible_action(
-                WorkReconciliationAction::MoveToQueueAndQueueRun { run_kind },
-                snapshot.has_current_contract,
-            )
+            Ok(WorkReconciliationAction::MoveToQueueAndQueueRun { run_kind })
         } else {
             invariant_recovery()
         };
@@ -144,61 +117,20 @@ pub fn plan_reconciliation_action(
         ));
     }
     if snapshot.has_runnable_run {
-        if snapshot.approved_review {
-            return Err(invalid_input(
-                "reconciliation.review",
-                "an approved review cannot coexist with a runnable run",
-            ));
-        }
         return Ok(WorkReconciliationAction::Idle);
     }
     if let Some(failed_run) = snapshot.failed_run {
-        return plan_failed_run_action(failed_run, snapshot.has_current_contract);
+        return plan_failed_run_action(failed_run);
     }
     if snapshot.stage_behavior == Dispatch {
         let run_kind = snapshot
             .resolved_gate_resume_run_kind
-            .or(if snapshot.has_current_contract {
-                Some(RunKind::Executor)
-            } else {
-                Some(RunKind::Planner)
-            })
-            .expect("the fallback dispatch role is always present");
-        return compatible_action(
-            WorkReconciliationAction::QueueRun { run_kind },
-            snapshot.has_current_contract,
-        );
+            .unwrap_or(RunKind::Planner);
+        return Ok(WorkReconciliationAction::QueueRun { run_kind });
     }
     if snapshot.stage_behavior == Active {
         if snapshot.has_run_waiting_for_approval {
             return Ok(WorkReconciliationAction::Idle);
-        }
-        if snapshot.approved_review {
-            return Ok(WorkReconciliationAction::MoveToDone);
-        }
-        if snapshot.planner_plan_ready && !snapshot.has_current_contract {
-            return Ok(WorkReconciliationAction::MaterializePlannedContractAndQueueExecutor);
-        }
-        if snapshot.planner_plan_ready && snapshot.has_current_contract {
-            return Ok(WorkReconciliationAction::QueueRun {
-                run_kind: RunKind::Executor,
-            });
-        }
-        if snapshot.submission_waiting_for_review {
-            return queue(RunKind::Reviewer, snapshot.has_current_contract);
-        }
-        if snapshot.review_requested_changes {
-            return if snapshot.review_rounds_exhausted {
-                compatible_action(
-                    WorkReconciliationAction::OpenRecoveryGate {
-                        reason: TaskRecoveryReason::ReviewRoundsExhausted,
-                        retry_run_kind: Some(RunKind::Executor),
-                    },
-                    snapshot.has_current_contract,
-                )
-            } else {
-                queue(RunKind::Executor, snapshot.has_current_contract)
-            };
         }
         return Ok(WorkReconciliationAction::OpenRecoveryGate {
             reason: TaskRecoveryReason::InvariantFault,
@@ -206,45 +138,6 @@ pub fn plan_reconciliation_action(
         });
     }
     Ok(WorkReconciliationAction::Idle)
-}
-
-fn queue(
-    run_kind: RunKind,
-    has_current_contract: bool,
-) -> Result<WorkReconciliationAction, WorkDomainError> {
-    compatible_action(
-        WorkReconciliationAction::QueueRun { run_kind },
-        has_current_contract,
-    )
-}
-
-fn compatible_action(
-    action: WorkReconciliationAction,
-    has_current_contract: bool,
-) -> Result<WorkReconciliationAction, WorkDomainError> {
-    if action.validate_for_contract(has_current_contract).is_err() {
-        invariant_recovery()
-    } else {
-        Ok(action)
-    }
-}
-
-fn validate_role_contract(
-    run_kind: RunKind,
-    has_current_contract: bool,
-) -> Result<(), WorkDomainError> {
-    let compatible = match run_kind {
-        RunKind::Planner => !has_current_contract,
-        RunKind::Executor | RunKind::Reviewer => has_current_contract,
-    };
-    if compatible {
-        Ok(())
-    } else {
-        Err(invalid_input(
-            "reconciliation.run_kind",
-            "run role and contract presence are inconsistent",
-        ))
-    }
 }
 
 fn validate_failed_run_facts(facts: &WorkFailedRunFacts) -> Result<(), WorkDomainError> {
@@ -291,11 +184,12 @@ fn validate_failed_run_facts(facts: &WorkFailedRunFacts) -> Result<(), WorkDomai
 
 fn plan_failed_run_action(
     facts: WorkFailedRunFacts,
-    has_current_contract: bool,
 ) -> Result<WorkReconciliationAction, WorkDomainError> {
     validate_failed_run_facts(&facts)?;
     if facts.retryable && !facts.retries_exhausted {
-        return queue(facts.run_kind, has_current_contract);
+        return Ok(WorkReconciliationAction::QueueRun {
+            run_kind: facts.run_kind,
+        });
     }
     let reason = facts
         .recovery_reason
@@ -307,13 +201,10 @@ fn plan_failed_run_action(
         | TaskRecoveryReason::UnsafeEffectUncertain
         | TaskRecoveryReason::ConfigurationUnavailable => Some(facts.run_kind),
     };
-    compatible_action(
-        WorkReconciliationAction::OpenRecoveryGate {
-            reason,
-            retry_run_kind,
-        },
-        has_current_contract,
-    )
+    Ok(WorkReconciliationAction::OpenRecoveryGate {
+        reason,
+        retry_run_kind,
+    })
 }
 
 fn invariant_recovery() -> Result<WorkReconciliationAction, WorkDomainError> {

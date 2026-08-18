@@ -59,7 +59,6 @@ export const TasksCurrentRunFields = gql`
     kind
     status
     attemptIndex
-    contractId
     queuedAt
     startedAt
     updatedAt
@@ -247,12 +246,9 @@ export const TasksRunFields = gql`
     status
     agentId
     taskGeneration
-    contractId
     attemptIndex
     reviewRound
     parentRunId
-    triggeringSubmissionId
-    triggeringReviewId
     model { ...TasksModelFields }
     executorBackend
     executorAgentId

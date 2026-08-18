@@ -760,8 +760,8 @@ private struct TasksAttentionCard: View {
         case "RECOVERY": recoveryActions(gate: gate)
         default: clarificationActions(gate: gate)
         }
-      } else if item.review != nil {
-        Button("Open review", systemImage: "arrow.up.right") {
+      } else {
+        Button("Open task", systemImage: "arrow.up.right") {
           selectTask()
         }
         .buttonStyle(NoemaActionButtonStyle(variant: .secondary))

@@ -841,7 +841,7 @@ final class TasksModel {
   func reopen(task: TasksDetailSnapshot, feedback: String, request: String? = nil) async -> Bool {
     guard isConnected else { return false }
     lastError = nil
-    let input = ReopenTaskInput(taskId: task.id, expectedRevision: Int32(task.revision), expectedGeneration: Int32(task.generation), feedbackMarkdown: feedback, requestMarkdown: optional(request), replacementCriteria: .none, complexity: .none, clientMutationId: UUID().uuidString)
+    let input = ReopenTaskInput(taskId: task.id, expectedRevision: Int32(task.revision), expectedGeneration: Int32(task.generation), feedbackMarkdown: feedback, requestMarkdown: optional(request), complexity: .none, clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksReopenTaskMutation(input: input))
       eventCursor = result.reopenTask.eventCursor
@@ -1088,7 +1088,7 @@ final class TasksModel {
     needsYou = page.edges.map { item in
       let node = item.node
       let task = mapCard(node.task.fragments.tasksTaskCardFields)
-      return TasksAttentionRow(id: task.id, kind: node.kind.rawValue, title: node.title, summary: node.summary, task: task, gate: node.gate.map { mapGate($0.fragments.tasksGateFields) }, review: node.review.map { TasksReviewSnapshot(id: $0.reviewId, verdict: $0.verdict.rawValue, feedback: $0.feedback, createdAt: $0.createdAt) }, validActions: Set(node.validActions.map(\.rawValue)))
+      return TasksAttentionRow(id: task.id, kind: node.kind.rawValue, title: node.title, summary: node.summary, task: task, gate: node.gate.map { mapGate($0.fragments.tasksGateFields) }, validActions: Set(node.validActions.map(\.rawValue)))
     }
   }
 
@@ -1109,7 +1109,6 @@ final class TasksModel {
       completedAt: source.completedAt,
       currentRun: source.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) },
       activeGate: source.activeGate.map { mapGate($0.fragments.tasksGateFields) },
-      latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) },
       validActions: Set(source.validActions.map(\.rawValue))
     )
   }
@@ -1131,7 +1130,6 @@ final class TasksModel {
       completedAt: source.completedAt,
       currentRun: source.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) },
       activeGate: source.activeGate.map { mapGate($0.fragments.tasksGateFields) },
-      latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) },
       validActions: Set(source.validActions.map(\.rawValue))
     )
   }
@@ -1164,10 +1162,6 @@ final class TasksModel {
     TasksGateSnapshot(id: source.gateId, kind: source.kind.rawValue, state: source.state.rawValue, prompt: source.prompt, context: source.contextMarkdown, suggestedAnswers: source.suggestedAnswers, recoveryReason: source.recoveryReason?.rawValue, retryRunKind: source.retryRunKind?.rawValue)
   }
 
-  private func mapReview(_ source: TasksReviewSummaryFields) -> TasksReviewSnapshot {
-    TasksReviewSnapshot(id: source.reviewId, verdict: source.verdict.rawValue, feedback: source.feedback, createdAt: source.createdAt)
-  }
-
   private func mergeDetailCore(
     _ source: TasksDetailCoreFields,
     into previous: TasksDetailSnapshot?
@@ -1196,58 +1190,8 @@ final class TasksModel {
     into previous: TasksDetailSnapshot?
   ) -> TasksDetailSnapshot {
     var next = previous ?? emptyDetail(taskId: source.taskId)
-    let contract = source.currentContract?.fragments.tasksContractFields
-    let reviews = source.reviews.map { $0.fragments.tasksReviewFields }
-    let submissions = source.submissions.map { $0.fragments.tasksSubmissionFields }
-    var reviewedCriteria: [String: TasksReviewFields.Criterium] = [:]
-    var reviewCriteriaBySubmission: [String: [String: TasksReviewFields.Criterium]] = [:]
-    for review in reviews {
-      var criteriaForSubmission = reviewCriteriaBySubmission[review.reviewedSubmissionId] ?? [:]
-      for criterion in review.criteria {
-        if reviewedCriteria[criterion.criterionId] == nil { reviewedCriteria[criterion.criterionId] = criterion }
-        if criteriaForSubmission[criterion.criterionId] == nil { criteriaForSubmission[criterion.criterionId] = criterion }
-      }
-      reviewCriteriaBySubmission[review.reviewedSubmissionId] = criteriaForSubmission
-    }
-    var submittedEvidence: [String: String] = [:]
-    for submission in submissions {
-      for criterion in submission.criteria where submittedEvidence[criterion.criterionId] == nil {
-        submittedEvidence[criterion.criterionId] = criterion.evidenceMarkdown
-      }
-    }
-    let contractCriteria = (contract?.criteria ?? []).map {
-      let reviewed = reviewedCriteria[$0.criterionId]
-      return TasksCriterionSnapshot(
-        id: $0.criterionId,
-        ordinal: $0.ordinal,
-        description: $0.description,
-        expectedEvidence: $0.expectedEvidence,
-        evidence: reviewed?.evidenceMarkdown ?? submittedEvidence[$0.criterionId],
-        verdict: reviewed?.outcome.rawValue ?? "PENDING"
-      )
-    }
-    let criteria = Dictionary(uniqueKeysWithValues: contractCriteria.map {
-      ($0.id, ($0.ordinal, $0.description, $0.expectedEvidence))
-    })
-    next.complexity = contract?.complexity.rawValue
-    next.maxReviewRounds = contract?.executionPolicy.maxReviewRounds
-    next.currentContract = contract?.requestMarkdown
-    next.criteria = contractCriteria
-    next.latestSubmission = source.latestSubmission.map {
-      mapSubmission(
-        $0.fragments.tasksSubmissionFields,
-        contractCriteria: criteria,
-        reviewedCriteria: reviewCriteriaBySubmission[$0.submissionId] ?? [:]
-      )
-    }
-    next.completedResult = source.completedResult.map {
-      mapSubmission(
-        $0.fragments.tasksSubmissionFields,
-        contractCriteria: criteria,
-        reviewedCriteria: reviewCriteriaBySubmission[$0.submissionId] ?? [:]
-      )
-    }
-    next.latestReview = source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) }
+    next.taskDocument = source.taskDocument
+    next.reviewDocument = source.reviewDocument
     return next
   }
 
@@ -1263,16 +1207,11 @@ final class TasksModel {
       updatedAt: "",
       completedAt: nil,
       createdAt: "",
-      complexity: nil,
-      maxReviewRounds: nil,
       sourceLabel: nil,
-      currentContract: nil,
-      criteria: [],
+      taskDocument: "",
+      reviewDocument: nil,
       currentRun: nil,
       activeGate: nil,
-      latestSubmission: nil,
-      completedResult: nil,
-      latestReview: nil,
       messages: [],
       runs: [],
       validActions: []
@@ -1280,7 +1219,7 @@ final class TasksModel {
   }
 
   private func mergeCommand(_ source: TasksCommandTaskFields, into previous: TasksDetailSnapshot?) -> TasksDetailSnapshot {
-    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, description: source.description, project: nil, executor: TasksExecutorSnapshot.default, schedule: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, createdAt: "", complexity: nil, maxReviewRounds: nil, sourceLabel: nil, currentContract: nil, criteria: [], currentRun: nil, activeGate: nil, latestSubmission: nil, completedResult: nil, latestReview: nil, messages: [], runs: [], validActions: [])
+    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, description: source.description, project: nil, executor: TasksExecutorSnapshot.default, schedule: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, createdAt: "", sourceLabel: nil, taskDocument: "", reviewDocument: nil, currentRun: nil, activeGate: nil, messages: [], runs: [], validActions: [])
     next.title = source.title
     next.description = source.description
     next.executor = mapExecutor(agentId: source.executorAgentId, backend: source.executorBackend, cwdOverride: source.cwdOverride, effectiveCwd: source.effectiveCwd, effectiveCwdSource: source.effectiveCwdSource)
@@ -1294,35 +1233,6 @@ final class TasksModel {
     next.activeGate = source.activeGate.map { mapGate($0.fragments.tasksGateFields) }
     next.validActions = Set(source.validActions.map(\.rawValue))
     return next
-  }
-
-  private func mapSubmission(
-    _ source: TasksSubmissionFields,
-    contractCriteria: [String: (ordinal: Int, description: String, expectedEvidence: String?)],
-    reviewedCriteria: [String: TasksReviewFields.Criterium]
-  ) -> TasksSubmissionSnapshot {
-    TasksSubmissionSnapshot(
-      id: source.submissionId,
-      summary: source.summary,
-      result: source.resultMarkdown,
-      createdAt: source.createdAt,
-      citations: source.citations.compactMap {
-        ProviderCitation(
-          title: $0.title,
-          url: $0.url,
-          startIndex: $0.startIndex,
-          endIndex: $0.endIndex
-        )
-      },
-      criteria: source.criteria.map {
-        let contract = contractCriteria[$0.criterionId]
-        let reviewed = reviewedCriteria[$0.criterionId]
-        return TasksCriterionSnapshot(id: $0.criterionId, ordinal: contract?.ordinal ?? 0, description: contract?.description ?? $0.criterionId, expectedEvidence: contract?.expectedEvidence, evidence: reviewed?.evidenceMarkdown ?? $0.evidenceMarkdown, verdict: reviewed?.outcome.rawValue ?? "PENDING")
-      },
-      artifacts: source.artifacts.map {
-        TasksArtifactSnapshot(id: $0.artifactId, versionID: $0.artifactVersionId, title: $0.title, kind: $0.artifactKind, storageKind: $0.storageKind.rawValue, mediaType: $0.mediaType, downloadURL: $0.downloadUrl, externalURL: $0.externalUrl)
-      }
-    )
   }
 
   private func mapRecurrence(_ source: TasksTaskRecurrenceQuery.Data.TaskRecurrence) -> TasksRecurrenceSnapshot {

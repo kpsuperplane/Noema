@@ -47,7 +47,7 @@ nonisolated public struct TasksCommandTaskFields: NoemaAPI.SelectionSet, Fragmen
   public var executorAgentId: String { __data["executorAgentId"] }
   /// Assigned executor backend.
   public var executorBackend: String { __data["executorBackend"] }
-  /// Explicit task working-directory override.
+  /// Explicit Task directory base override.
   public var cwdOverride: String? { __data["cwdOverride"] }
   /// Derived or frozen effective working directory.
   public var effectiveCwd: String? { __data["effectiveCwd"] }
@@ -228,8 +228,6 @@ nonisolated public struct TasksCommandTaskFields: NoemaAPI.SelectionSet, Fragmen
     public var status: GraphQLEnum<NoemaAPI.TaskRunStatus> { __data["status"] }
     /// Lineage attempt.
     public var attemptIndex: Int { __data["attemptIndex"] }
-    /// Contract identity, absent for Planner.
-    public var contractId: String? { __data["contractId"] }
     /// Queue timestamp.
     public var queuedAt: String { __data["queuedAt"] }
     /// Start timestamp.

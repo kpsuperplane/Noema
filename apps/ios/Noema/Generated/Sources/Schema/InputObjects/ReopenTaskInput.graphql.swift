@@ -17,7 +17,6 @@ nonisolated public struct ReopenTaskInput: InputObject {
     expectedGeneration: Int32,
     feedbackMarkdown: String,
     requestMarkdown: GraphQLNullable<String> = nil,
-    replacementCriteria: GraphQLNullable<[TaskValidationCriterionInput]> = nil,
     complexity: GraphQLNullable<GraphQLEnum<TaskComplexity>> = nil,
     clientMutationId: String
   ) {
@@ -27,7 +26,6 @@ nonisolated public struct ReopenTaskInput: InputObject {
       "expectedGeneration": expectedGeneration,
       "feedbackMarkdown": feedbackMarkdown,
       "requestMarkdown": requestMarkdown,
-      "replacementCriteria": replacementCriteria,
       "complexity": complexity,
       "clientMutationId": clientMutationId
     ])
@@ -61,12 +59,6 @@ nonisolated public struct ReopenTaskInput: InputObject {
   public var requestMarkdown: GraphQLNullable<String> {
     get { __data["requestMarkdown"] }
     set { __data["requestMarkdown"] = newValue }
-  }
-
-  /// Complete replacement criteria set.
-  public var replacementCriteria: GraphQLNullable<[TaskValidationCriterionInput]> {
-    get { __data["replacementCriteria"] }
-    set { __data["replacementCriteria"] = newValue }
   }
 
   /// Optional replacement complexity.

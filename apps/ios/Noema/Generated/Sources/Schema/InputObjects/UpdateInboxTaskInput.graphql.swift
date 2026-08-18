@@ -87,13 +87,13 @@ nonisolated public struct UpdateInboxTaskInput: InputObject {
     set { __data["executorAgentId"] = newValue }
   }
 
-  /// Optional replacement absolute task working-directory override.
+  /// Optional replacement absolute Task directory base override.
   public var cwdOverride: GraphQLNullable<String> {
     get { __data["cwdOverride"] }
     set { __data["cwdOverride"] = newValue }
   }
 
-  /// Explicitly clear the task working-directory override.
+  /// Explicitly clear the Task directory base override.
   public var clearCwdOverride: GraphQLNullable<Bool> {
     get { __data["clearCwdOverride"] }
     set { __data["clearCwdOverride"] = newValue }

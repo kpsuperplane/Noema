@@ -87,7 +87,7 @@ nonisolated public struct TasksReopenTaskMutation: GraphQLMutation {
         public var executorAgentId: String { __data["executorAgentId"] }
         /// Assigned executor backend.
         public var executorBackend: String { __data["executorBackend"] }
-        /// Explicit task working-directory override.
+        /// Explicit Task directory base override.
         public var cwdOverride: String? { __data["cwdOverride"] }
         /// Derived or frozen effective working directory.
         public var effectiveCwd: String? { __data["effectiveCwd"] }

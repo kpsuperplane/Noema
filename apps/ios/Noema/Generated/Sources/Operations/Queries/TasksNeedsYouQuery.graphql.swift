@@ -8,8 +8,8 @@ nonisolated public struct TasksNeedsYouQuery: GraphQLQuery {
   public static let operationName: String = "TasksNeedsYou"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"query TasksNeedsYou($workspaceId: String!, $projectId: String, $first: Int = 50, $after: String) { needsYou( workspaceId: $workspaceId projectId: $projectId first: $first after: $after ) { __typename edges { __typename cursor node { __typename kind title summary validActions gate { __typename ...TasksGateFields } review { __typename reviewId verdict feedback createdAt } task { __typename ...TasksTaskCardFields } } } pageInfo { __typename ...TasksPageInfoFields } } }"#,
-      fragments: [TasksCurrentRunFields.self, TasksGateFields.self, TasksPageInfoFields.self, TasksProjectFields.self, TasksReviewSummaryFields.self, TasksStageFields.self, TasksTaskCardFields.self, TasksWorkspaceFields.self]
+      #"query TasksNeedsYou($workspaceId: String!, $projectId: String, $first: Int = 50, $after: String) { needsYou( workspaceId: $workspaceId projectId: $projectId first: $first after: $after ) { __typename edges { __typename cursor node { __typename kind title summary validActions gate { __typename ...TasksGateFields } task { __typename ...TasksTaskCardFields } } } pageInfo { __typename ...TasksPageInfoFields } } }"#,
+      fragments: [TasksCurrentRunFields.self, TasksGateFields.self, TasksPageInfoFields.self, TasksProjectFields.self, TasksStageFields.self, TasksTaskCardFields.self, TasksWorkspaceFields.self]
     ))
 
   public var workspaceId: String
@@ -115,7 +115,6 @@ nonisolated public struct TasksNeedsYouQuery: GraphQLQuery {
             .field("summary", String.self),
             .field("validActions", [GraphQLEnum<NoemaAPI.ValidTaskAction>].self),
             .field("gate", Gate?.self),
-            .field("review", Review?.self),
             .field("task", Task.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
@@ -132,8 +131,6 @@ nonisolated public struct TasksNeedsYouQuery: GraphQLQuery {
           public var validActions: [GraphQLEnum<NoemaAPI.ValidTaskAction>] { __data["validActions"] }
           /// Complete related gate evidence, when any.
           public var gate: Gate? { __data["gate"] }
-          /// Complete related review evidence, when any.
-          public var review: Review? { __data["review"] }
           /// Authoritative task card without recursively embedding attention.
           public var task: Task { __data["task"] }
 
@@ -193,35 +190,6 @@ nonisolated public struct TasksNeedsYouQuery: GraphQLQuery {
             }
           }
 
-          /// NeedsYou.Edge.Node.Review
-          ///
-          /// Parent Type: `TaskReview`
-          nonisolated public struct Review: NoemaAPI.SelectionSet {
-            @_spi(Unsafe) public let __data: DataDict
-            @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
-
-            @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TaskReview }
-            @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
-              .field("__typename", String.self),
-              .field("reviewId", String.self),
-              .field("verdict", GraphQLEnum<NoemaAPI.TaskReviewVerdict>.self),
-              .field("feedback", String.self),
-              .field("createdAt", String.self),
-            ] }
-            @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-              TasksNeedsYouQuery.Data.NeedsYou.Edge.Node.Review.self
-            ] }
-
-            /// Review identity.
-            public var reviewId: String { __data["reviewId"] }
-            /// Approve, request_changes, or needs_human.
-            public var verdict: GraphQLEnum<NoemaAPI.TaskReviewVerdict> { __data["verdict"] }
-            /// Safe reviewer feedback.
-            public var feedback: String { __data["feedback"] }
-            /// Creation timestamp.
-            public var createdAt: String { __data["createdAt"] }
-          }
-
           /// NeedsYou.Edge.Node.Task
           ///
           /// Parent Type: `TaskCard`
@@ -253,7 +221,7 @@ nonisolated public struct TasksNeedsYouQuery: GraphQLQuery {
             public var executorAgentId: String { __data["executorAgentId"] }
             /// Assigned executor backend.
             public var executorBackend: String { __data["executorBackend"] }
-            /// Explicit task working-directory override.
+            /// Explicit Task directory base override.
             public var cwdOverride: String? { __data["cwdOverride"] }
             /// Derived effective working directory when already frozen or explicitly configured.
             public var effectiveCwd: String? { __data["effectiveCwd"] }
@@ -277,8 +245,6 @@ nonisolated public struct TasksNeedsYouQuery: GraphQLQuery {
             public var currentRun: CurrentRun? { __data["currentRun"] }
             /// Open gate projection.
             public var activeGate: ActiveGate? { __data["activeGate"] }
-            /// Latest review projection.
-            public var latestReview: LatestReview? { __data["latestReview"] }
             /// Server-authorized actions.
             public var validActions: [GraphQLEnum<NoemaAPI.ValidTaskAction>] { __data["validActions"] }
 
@@ -301,7 +267,6 @@ nonisolated public struct TasksNeedsYouQuery: GraphQLQuery {
 
             public typealias ActiveGate = TasksTaskCardFields.ActiveGate
 
-            public typealias LatestReview = TasksTaskCardFields.LatestReview
           }
         }
       }

@@ -12,10 +12,7 @@ use noema_tasks::NewAgentRunItem;
 
 use crate::{
     agent_execution::ExecutionRole,
-    daemon::{
-        RuntimeEventRegistry, agent_onboarding::AgentPromptIdentity, protocol::RuntimeError,
-        task_run_context::TaskTerminalContract,
-    },
+    daemon::{RuntimeEventRegistry, agent_onboarding::AgentPromptIdentity, protocol::RuntimeError},
 };
 use noema_providers::{
     GenerateInput, GenerateMessage, GenerateMessageRole, GenerateOptions, GenerateRequest,
@@ -36,7 +33,7 @@ use super::{
     task_continuation::{
         add_usage, background_tool_instructions, build_task_finalization_prompt,
         is_task_terminal_tool, is_valid_terminal_tool, render_continuation_tool_names,
-        task_tool_result_transcript_payload, terminal_contract_tools, terminal_tool_instructions,
+        task_terminal_tools, task_tool_result_transcript_payload, terminal_tool_instructions,
     },
     task_transcript::persisted_capability_arguments,
     tool_lifecycle::local_tool_calls,
@@ -56,8 +53,6 @@ pub(crate) struct BackgroundTaskGenerateRequest {
     pub lease_token: String,
     /// Task generation captured when this run was claimed.
     pub task_generation: u64,
-    /// Contract captured when this run was claimed.
-    pub contract_id: Option<noema_tasks::TaskContractId>,
     /// Per-run cancellation propagated through provider and tool futures.
     pub cancellation: CancellationToken,
     /// Built-in agent identity that owns this run.
@@ -76,8 +71,6 @@ pub(crate) struct BackgroundTaskGenerateRequest {
     pub runtime_environment: Option<String>,
     /// System instructions for the executor or reviewer contract.
     pub instructions: String,
-    /// Run-specific terminal payload contract derived from admitted task state.
-    pub terminal_contract: TaskTerminalContract,
     /// Runtime event registry for live task-detail refreshes.
     pub runtime_events: RuntimeEventRegistry,
 }
@@ -85,7 +78,6 @@ pub(crate) struct BackgroundTaskGenerateRequest {
 #[derive(Debug)]
 pub(crate) struct BackgroundTaskGenerateResult {
     pub(crate) response: GenerateResponse,
-    pub(crate) citation_sources: CitationSourceRegistry,
 }
 
 impl BackgroundTaskGenerateRequest {
@@ -94,7 +86,6 @@ impl BackgroundTaskGenerateRequest {
             run_id: self.run_id.clone(),
             lease_token: self.lease_token.clone(),
             task_generation: self.task_generation,
-            contract_id: self.contract_id.clone(),
         }
     }
 }
@@ -130,10 +121,10 @@ fn propagate_compaction_result(result: Result<bool, ProviderError>) -> Result<bo
 
 async fn append_task_document_after_compaction(
     store: &noema_store::NoemaStore,
-    request: &BackgroundTaskGenerateRequest,
+    task_id: &str,
     context: &mut ContinuationContext,
 ) -> Result<(), RuntimeError> {
-    let task_id = noema_tasks::TaskId::new(request.task_id.clone())
+    let task_id = noema_tasks::TaskId::new(task_id.to_string())
         .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
     let task = store
         .read_task_file(&task_id, noema_store::TASK_DOCUMENT)
@@ -235,6 +226,29 @@ mod tests {
         let error = propagate_compaction_result(Err(error)).expect_err("propagate error");
         assert!(matches!(error, RuntimeError::Provider(_)));
         assert!(error.to_string().contains("continuation compaction failed"));
+    }
+
+    #[tokio::test]
+    async fn compaction_reinjects_the_latest_task_document() {
+        let store = crate::test_support::test_store().await;
+        let (task, _) = crate::test_support::seed_task(&store, "Compaction document").await;
+        store
+            .write_task_file(
+                &task.task_id,
+                noema_store::TASK_DOCUMENT,
+                "Latest durable Task state.",
+            )
+            .await
+            .expect("write latest Task document");
+        let mut context = ContinuationContext::new("Old provider context");
+
+        append_task_document_after_compaction(&store, task.task_id.as_str(), &mut context)
+            .await
+            .expect("reinject current Task document");
+
+        let rendered = context.provider_input(true).render_for_token_count();
+        assert!(rendered.contains("Current TASK.md after context compaction follows"));
+        assert!(rendered.contains("Latest durable Task state."));
     }
 
     #[test]

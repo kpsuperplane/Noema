@@ -142,10 +142,7 @@ pub(super) fn resume_waiting_run_tx(
     let mut task = helpers::load_task_state_tx(transaction, &task_id)?;
     let parent = rows::load_run_tx(transaction, parent_run_id)?
         .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
-    if parent.status != RunStatus::WaitingForApproval
-        || parent.task_generation != task.generation
-        || parent.contract_id != task.current_contract_id
-    {
+    if parent.status != RunStatus::WaitingForApproval || parent.task_generation != task.generation {
         return Err(StoreError::Work(WorkDomainError::RunFenced));
     }
     let sequence_index: i64 = transaction.query_row(
@@ -198,8 +195,6 @@ pub(super) fn resume_waiting_run_tx(
         &parent,
         helpers::QueuePinnedChildRun {
             attempt_index,
-            triggering_submission_id: parent.triggering_submission_id.as_deref(),
-            triggering_review_id: parent.triggering_review_id.as_deref(),
             event: helpers::CommandEventContext {
                 actor_id,
                 causation_id: None,

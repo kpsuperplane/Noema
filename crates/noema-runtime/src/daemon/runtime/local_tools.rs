@@ -34,15 +34,11 @@ use crate::daemon::{
     task_artifact_tool::{
         TaskArtifactReadContext, execute_task_read_artifact, is_task_read_artifact_tool,
     },
-    task_submission_evidence_tool::{
-        TaskSubmissionEvidenceContext, execute_task_read_submission_evidence,
-        is_task_read_submission_evidence_tool,
-    },
     task_tool::{
         TASK_LIST_TOOL, TaskDelegateRuntimeContext, execute_primary_task_tool,
         execute_scoped_task_file_tool, execute_scoped_task_list_tool, is_primary_task_tool,
-        is_task_continue_execution_tool, is_task_file_tool, is_task_report_blocked_tool,
-        is_task_submit_plan_tool, is_task_submit_result_tool, is_task_submit_review_tool,
+        is_task_continue_execution_tool, is_task_file_tool, is_task_finish_execution_tool,
+        is_task_finish_planning_tool, is_task_finish_review_tool, is_task_report_blocked_tool,
     },
 };
 use crate::search::tool::is_web_search_tool;
@@ -229,10 +225,10 @@ impl RuntimeActor {
             }
             Err(failure) => {
                 if failure.error == CapabilityError::InvalidArguments
-                    && (is_task_submit_plan_tool(&call.name)
-                        || is_task_submit_result_tool(&call.name)
+                    && (is_task_finish_planning_tool(&call.name)
+                        || is_task_finish_execution_tool(&call.name)
                         || is_task_continue_execution_tool(&call.name)
-                        || is_task_submit_review_tool(&call.name)
+                        || is_task_finish_review_tool(&call.name)
                         || is_task_report_blocked_tool(&call.name))
                 {
                     return LocalToolResult::from_call(
@@ -240,7 +236,7 @@ impl RuntimeActor {
                         LocalToolKind::Gateway,
                         false,
                         json!({
-                            "code": "invalid_terminal_contract",
+                            "code": "invalid_task_terminal",
                             "message": "terminal payload did not match its source input rules",
                         }),
                         true,
@@ -489,26 +485,6 @@ impl RuntimeActor {
                 Err(error) => (false, json!({"error": error})),
             };
             LocalToolResult::from_call(call, LocalToolKind::Gateway, success, payload, true)
-        } else if is_task_read_submission_evidence_tool(&call.name) {
-            let result = match (&turn.task_id, &turn.task_run_id) {
-                (Some(task_id), Some(run_id)) => {
-                    execute_task_read_submission_evidence(
-                        &self.store,
-                        &TaskSubmissionEvidenceContext {
-                            task_id: task_id.clone(),
-                            run_id: run_id.clone(),
-                        },
-                        &call.payload,
-                    )
-                    .await
-                }
-                _ => Err("submission evidence context is unavailable".to_string()),
-            };
-            let (success, payload) = match result {
-                Ok(payload) => (true, payload),
-                Err(error) => (false, json!({"error": error})),
-            };
-            LocalToolResult::from_call(call, LocalToolKind::Gateway, success, payload, true)
         } else if is_task_file_tool(&call.name) && turn.task_run_id.is_some() {
             let result = match turn.task_id.as_deref() {
                 Some(task_id) => {
@@ -604,27 +580,25 @@ impl RuntimeActor {
                 result.payload,
                 true,
             )
-        } else if is_task_submit_plan_tool(&call.name)
-            || is_task_submit_result_tool(&call.name)
+        } else if is_task_finish_planning_tool(&call.name)
+            || is_task_finish_execution_tool(&call.name)
             || is_task_continue_execution_tool(&call.name)
-            || is_task_submit_review_tool(&call.name)
+            || is_task_finish_review_tool(&call.name)
             || is_task_report_blocked_tool(&call.name)
         {
-            match turn.task_terminal_contract.as_ref().map(|contract| {
-                contract.validate(
-                    turn.initial_model_tools.tool_policy.role(),
-                    &call.name,
-                    &call.payload,
-                )
-            }) {
-                Some(Err(message)) => LocalToolResult::from_call(
+            match crate::daemon::task_run_context::validate_task_terminal(
+                turn.initial_model_tools.tool_policy.role(),
+                &call.name,
+                &call.payload,
+            ) {
+                Err(message) => LocalToolResult::from_call(
                     call,
                     LocalToolKind::Gateway,
                     false,
-                    json!({"code": "invalid_terminal_contract", "message": message}),
+                    json!({"code": "invalid_task_terminal", "message": message}),
                     true,
                 ),
-                Some(Ok(())) | None => LocalToolResult::from_call(
+                Ok(()) => LocalToolResult::from_call(
                     call,
                     LocalToolKind::Gateway,
                     true,

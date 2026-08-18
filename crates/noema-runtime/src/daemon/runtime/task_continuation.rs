@@ -1,11 +1,11 @@
-//! Shared prompt, history, terminal-contract, and usage helpers for task continuations.
+//! Shared prompt, history, terminal-tool, and usage helpers for task continuations.
 
 use crate::{
     agent_execution::ExecutionRole,
     daemon::prompts::WEB_FETCH_PROVENANCE_INSTRUCTIONS,
     daemon::task_tool::{
-        is_task_continue_execution_tool, is_task_report_blocked_tool, is_task_submit_result_tool,
-        is_task_submit_review_tool,
+        is_task_continue_execution_tool, is_task_finish_execution_tool, is_task_finish_review_tool,
+        is_task_report_blocked_tool,
     },
 };
 use noema_providers::{ProviderToolTransport, TokenUsage};
@@ -15,14 +15,14 @@ use super::{local_tools::LocalToolResult, model_tools::ModelTools};
 pub(super) fn is_valid_terminal_tool(role: ExecutionRole, name: &str) -> bool {
     match role {
         ExecutionRole::TaskPlanner => {
-            is_task_submit_plan_tool(name) || is_task_report_blocked_tool(name)
+            is_task_finish_planning_tool(name) || is_task_report_blocked_tool(name)
         }
         ExecutionRole::TaskExecutor => {
-            is_task_submit_result_tool(name)
+            is_task_finish_execution_tool(name)
                 || is_task_continue_execution_tool(name)
                 || is_task_report_blocked_tool(name)
         }
-        ExecutionRole::TaskReviewer => is_task_submit_review_tool(name),
+        ExecutionRole::TaskReviewer => is_task_finish_review_tool(name),
         ExecutionRole::PrimaryConversation => false,
     }
 }
@@ -42,7 +42,7 @@ pub(super) fn render_tool_names(tools: &ModelTools) -> String {
     tools.prompt_rows.join("\n")
 }
 
-pub(super) fn terminal_contract_tools(tools: &ModelTools) -> Vec<noema_capabilities::ToolSpec> {
+pub(super) fn task_terminal_tools(tools: &ModelTools) -> Vec<noema_capabilities::ToolSpec> {
     tools
         .bindings
         .iter()
@@ -66,9 +66,7 @@ pub(super) fn terminal_tool_instructions(
 ) -> String {
     let rendered = render_specs(terminal_tools, true);
     let transport_instructions = tool_transport_instructions(tools.transport);
-    format!(
-        "{instructions}\n\nRequired terminal tool contract:\n{rendered}{transport_instructions}"
-    )
+    format!("{instructions}\n\nRequired terminal tools:\n{rendered}{transport_instructions}")
 }
 
 fn render_specs(tools: &[noema_capabilities::ToolSpec], include_schema: bool) -> String {
@@ -104,15 +102,15 @@ pub(super) fn task_tool_result_transcript_payload(result: &LocalToolResult) -> s
 }
 
 pub(super) fn is_task_terminal_tool(name: &str) -> bool {
-    is_task_submit_plan_tool(name)
-        || is_task_submit_result_tool(name)
+    is_task_finish_planning_tool(name)
+        || is_task_finish_execution_tool(name)
         || is_task_continue_execution_tool(name)
-        || is_task_submit_review_tool(name)
+        || is_task_finish_review_tool(name)
         || is_task_report_blocked_tool(name)
 }
 
-fn is_task_submit_plan_tool(name: &str) -> bool {
-    name == crate::daemon::task_tool::TASK_SUBMIT_PLAN_TOOL
+fn is_task_finish_planning_tool(name: &str) -> bool {
+    name == crate::daemon::task_tool::TASK_FINISH_PLANNING_TOOL
 }
 
 pub(super) fn build_task_finalization_prompt(

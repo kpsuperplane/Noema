@@ -88,18 +88,12 @@ nonisolated public struct TasksDetailActivityFields: NoemaAPI.SelectionSet, Frag
     public var agentId: String { __data["agentId"] }
     /// Task generation.
     public var taskGeneration: Int { __data["taskGeneration"] }
-    /// Contract identity, absent for Planner.
-    public var contractId: String? { __data["contractId"] }
     /// Attempt index.
     public var attemptIndex: Int { __data["attemptIndex"] }
     /// Review round.
     public var reviewRound: Int { __data["reviewRound"] }
     /// Parent run, when any.
     public var parentRunId: String? { __data["parentRunId"] }
-    /// Submission trigger, when any.
-    public var triggeringSubmissionId: String? { __data["triggeringSubmissionId"] }
-    /// Review trigger, when any.
-    public var triggeringReviewId: String? { __data["triggeringReviewId"] }
     /// Requested model snapshot.
     public var model: Model { __data["model"] }
     /// Safe actual provider family.

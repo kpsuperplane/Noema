@@ -66,7 +66,7 @@ impl WorkCommandService {
                 recover_expired_runs_tx(transaction, self)?;
                 let run_id: Option<String> = transaction
                     .query_row(
-                        "SELECT queued.run_id FROM agent_runs AS queued JOIN tasks AS task ON task.task_id = queued.task_id WHERE queued.status = 'queued' AND queued.cancellation_requested = 0 AND queued.task_id NOT IN (SELECT value FROM json_each(?1)) AND queued.task_generation = task.generation AND task.stage_id IN ('stage:personal:queue', 'stage:personal:doing') AND ((queued.run_kind = 'planner' AND queued.contract_id IS NULL AND task.current_contract_id IS NULL) OR (queued.run_kind IN ('executor', 'reviewer') AND queued.contract_id IS NOT NULL AND queued.contract_id = task.current_contract_id)) AND NOT EXISTS (SELECT 1 FROM agent_runs AS active WHERE active.task_id = queued.task_id AND active.status IN ('leased', 'running')) ORDER BY queued.queued_at ASC, queued.run_id ASC LIMIT 1",
+                        "SELECT queued.run_id FROM agent_runs AS queued JOIN tasks AS task ON task.task_id = queued.task_id WHERE queued.status = 'queued' AND queued.cancellation_requested = 0 AND queued.task_id NOT IN (SELECT value FROM json_each(?1)) AND queued.task_generation = task.generation AND task.stage_id IN ('stage:personal:queue', 'stage:personal:doing') AND NOT EXISTS (SELECT 1 FROM agent_runs AS active WHERE active.task_id = queued.task_id AND active.status IN ('leased', 'running')) ORDER BY queued.queued_at ASC, queued.run_id ASC LIMIT 1",
                         [excluded_task_ids_json.as_str()],
                         |row| row.get(0),
                     )
@@ -75,7 +75,7 @@ impl WorkCommandService {
                     return Ok(None);
                 };
                 let changed = transaction.execute(
-                    "UPDATE agent_runs SET status = 'leased', lease_owner = ?2, lease_token = ?3, lease_expires_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || ?4 || ' seconds'), heartbeat_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND status = 'queued' AND cancellation_requested = 0 AND task_id NOT IN (SELECT value FROM json_each(?5)) AND task_generation = (SELECT generation FROM tasks WHERE task_id = agent_runs.task_id) AND (SELECT stage_id FROM tasks WHERE task_id = agent_runs.task_id) IN ('stage:personal:queue', 'stage:personal:doing') AND ((run_kind = 'planner' AND contract_id IS NULL AND (SELECT current_contract_id FROM tasks WHERE task_id = agent_runs.task_id) IS NULL) OR (run_kind IN ('executor', 'reviewer') AND contract_id IS NOT NULL AND contract_id = (SELECT current_contract_id FROM tasks WHERE task_id = agent_runs.task_id)))",
+                    "UPDATE agent_runs SET status = 'leased', lease_owner = ?2, lease_token = ?3, lease_expires_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || ?4 || ' seconds'), heartbeat_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND status = 'queued' AND cancellation_requested = 0 AND task_id NOT IN (SELECT value FROM json_each(?5)) AND task_generation = (SELECT generation FROM tasks WHERE task_id = agent_runs.task_id) AND (SELECT stage_id FROM tasks WHERE task_id = agent_runs.task_id) IN ('stage:personal:queue', 'stage:personal:doing')",
                     params![
                         run_id,
                         worker_id,
@@ -155,12 +155,21 @@ impl WorkCommandService {
             .store
             .with_immediate_transaction_retry(|transaction| {
                 let run = rows::load_active_fenced_run_tx(transaction, fence, RunStatus::Leased)?;
+                let task = helpers::load_task_state_tx(transaction, &run.task_id)?;
+                helpers::refresh_run_settings_tx(
+                    transaction,
+                    self.provider_registry.as_ref(),
+                    &task,
+                    &run,
+                )?;
                 rows::execute_fenced_update_tx(
                     transaction,
                     "UPDATE agent_runs SET status = 'running', started_at = COALESCE(started_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND status = 'leased' AND lease_token = ?2 AND cancellation_requested = 0 AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AND task_generation = (SELECT generation FROM tasks WHERE task_id = agent_runs.task_id) AND (SELECT stage_id FROM tasks WHERE task_id = agent_runs.task_id) = 'stage:personal:doing'",
                     params![fence.run_id, fence.lease_token],
                 )?;
-                let task = helpers::load_task_state_tx(transaction, &run.task_id)?;
+                let run = rows::load_run_tx(transaction, &fence.run_id)?.ok_or(
+                    StoreError::Work(WorkDomainError::WorkUnavailable),
+                )?;
                 append_work_event_tx(
                     transaction,
                     rows::event_scope(
@@ -222,7 +231,6 @@ impl WorkCommandService {
                        AND cancellation_requested = 0
                        AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                        AND task_generation = ?4
-                       AND ((contract_id IS NULL AND ?5 IS NULL) OR contract_id = ?5)
                        AND EXISTS (
                          SELECT 1 FROM tasks task
                          WHERE task.task_id = agent_runs.task_id AND task.generation = ?4
@@ -237,7 +245,6 @@ impl WorkCommandService {
                                 message: "generation exceeds SQLite range".to_string(),
                             }
                         ))?,
-                        fence.contract_id.as_ref().map(ToString::to_string),
                     ],
                 )?;
                 let run = rows::load_run_tx(transaction, &fence.run_id)?.ok_or(StoreError::Work(
@@ -351,7 +358,6 @@ fn recover_one_expired_run_tx(
             run_id: run.run_id.clone(),
             lease_token,
             task_generation: run.task_generation,
-            contract_id: run.contract_id.clone(),
         },
         status: RunStatus::Interrupted,
         error_code: noema_tasks::SafeErrorCode::new("lease_expired").map_err(StoreError::Work)?,

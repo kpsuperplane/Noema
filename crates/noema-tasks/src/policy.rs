@@ -12,7 +12,7 @@ pub const DEFAULT_TASK_MAX_ACTIVE_MINUTES: u32 = 120;
 pub const DEFAULT_TASK_PROGRESS_AUDIT_INTERVAL: u32 = 20;
 /// Default automatic infrastructure retry bound.
 pub const DEFAULT_TASK_MAX_AUTOMATIC_RETRIES: u32 = 3;
-/// Default reviewed submission/revision bound.
+/// Default automated review-round bound.
 pub const DEFAULT_TASK_MAX_REVIEW_ROUNDS: u32 = 3;
 /// Hard provider continuation ceiling.
 pub const MAX_TASK_PROVIDER_CONTINUATIONS: u32 = 1_000;

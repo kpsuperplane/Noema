@@ -1,8 +1,7 @@
 use async_graphql::{Enum, InputObject};
 
 use noema_tasks::{
-    ApprovalDecision, MissedRunPolicy, NewTaskValidationCriterion, OverlapPolicy, TaskComplexity,
-    WorkflowStageBehavior,
+    ApprovalDecision, MissedRunPolicy, OverlapPolicy, TaskComplexity, WorkflowStageBehavior,
 };
 
 use super::{GraphqlMissedRunPolicy, GraphqlOverlapPolicy};
@@ -62,7 +61,7 @@ macro_rules! graphql_enum_bridge {
     };
 }
 
-graphql_enum_bridge! { "Complexity selected for a new execution contract." =>
+graphql_enum_bridge! { "Complexity selected for Task execution." =>
     GraphqlTaskComplexity("TaskComplexity") <=> TaskComplexity {
         "Small, low-risk work." => Simple,
         "Typical multi-step work." => Medium,
@@ -185,7 +184,7 @@ graphql_input! { "Capture a task in Inbox." => GraphqlCaptureTaskInput("CaptureT
     "Fuller capture description.", #[graphql(default)] => description: String,
     "Optional one-time or repeating execution schedule." => schedule: Option<GraphqlNewTaskScheduleInput>,
     "Optional configured executor agent; omitted uses Noema's built-in executor." => executor_agent_id: Option<String>,
-    "Optional absolute task working-directory override." => cwd_override: Option<String>,
+    "Optional absolute Task directory base override." => cwd_override: Option<String>,
     "Caller idempotency key." => client_mutation_id: String,
 } }
 
@@ -276,8 +275,8 @@ graphql_input! { "Inbox task edit input." => GraphqlUpdateInboxTaskInput("Update
     "Optional project assignment. Null means omitted unless clearProject is true." => project_id: Option<String>,
     "Explicitly clear the project association." => clear_project: Option<bool>,
     "Optional configured executor agent." => executor_agent_id: Option<String>,
-    "Optional replacement absolute task working-directory override." => cwd_override: Option<String>,
-    "Explicitly clear the task working-directory override." => clear_cwd_override: Option<bool>,
+    "Optional replacement absolute Task directory base override." => cwd_override: Option<String>,
+    "Explicitly clear the Task directory base override." => clear_cwd_override: Option<bool>,
     "Caller idempotency key." => client_mutation_id: String,
 } }
 
@@ -305,35 +304,12 @@ graphql_input! { "Retry an eligible Recovery gate." => GraphqlRetryTaskInput("Re
     "Caller idempotency key." => client_mutation_id: String,
 } }
 
-graphql_input! { "One replacement validation criterion." => GraphqlTaskValidationCriterionInput("TaskValidationCriterionInput") {
-    "Optional stable criterion identity." => criterion_id: Option<String>,
-    "One-based ordinal." => ordinal: i32,
-    "Criterion description." => description: String,
-    "Optional evidence guidance." => expected_evidence: Option<String>,
-} }
-
-impl GraphqlTaskValidationCriterionInput {
-    pub(crate) fn try_into_domain(self) -> async_graphql::Result<NewTaskValidationCriterion> {
-        let ordinal = u32::try_from(self.ordinal)
-            .ok()
-            .filter(|ordinal| *ordinal > 0)
-            .ok_or_else(|| super::resolvers::invalid_input_error("criterion ordinal"))?;
-        Ok(NewTaskValidationCriterion {
-            criterion_id: self.criterion_id,
-            ordinal,
-            description: self.description,
-            expected_evidence: self.expected_evidence,
-        })
-    }
-}
-
 graphql_input! { "Reopen a completed task with new direction." => GraphqlReopenTaskInput("ReopenTaskInput") {
     "Task target." => task_id: String,
     "Expected current revision." => expected_revision: i64,
     "Expected execution generation." => expected_generation: i64,
     "Nonblank feedback." => feedback_markdown: String,
     "Optional replacement request." => request_markdown: Option<String>,
-    "Complete replacement criteria set." => replacement_criteria: Option<Vec<GraphqlTaskValidationCriterionInput>>,
     "Optional replacement complexity." => complexity: Option<GraphqlTaskComplexity>,
     "Caller idempotency key." => client_mutation_id: String,
 } }

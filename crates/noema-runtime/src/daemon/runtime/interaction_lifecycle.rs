@@ -355,7 +355,10 @@ pub(super) fn resolved_interaction_tool_result_item(
                 "payload": payload,
             }}
         }),
-        metadata: json!({"source": "conversation_interaction"}),
+        metadata: json!({
+            "source": "conversation_interaction",
+            "provider": interaction.provider_kind,
+        }),
     }
 }
 

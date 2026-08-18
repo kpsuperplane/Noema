@@ -1,9 +1,9 @@
 use serde_json::{Value, json};
 
 use crate::{
-    ContractOrigin, RunKind, TaskComplexity, TaskContractId, TaskGateId, TaskGateKind,
-    TaskMessageId, TaskMessageKind, TaskRecoveryReason, TaskReviewVerdict, TaskSourceKind,
-    WorkDomainError, WorkflowStageId, error::invalid_input,
+    RunKind, TaskComplexity, TaskContractId, TaskGateId, TaskGateKind, TaskMessageId,
+    TaskMessageKind, TaskRecoveryReason, TaskReviewVerdict, TaskSourceKind, WorkDomainError,
+    WorkflowStageId, error::invalid_input,
 };
 
 #[path = "event_kind.rs"]
@@ -17,6 +17,13 @@ pub use event_kind::{SafeErrorCode, WorkEventKind};
 pub use record::{WorkEventContext, WorkEventRecord};
 
 string_enum! {
+    /// Origin recorded by historical contract-created audit events.
+    pub enum ContractOrigin, "event.contract.origin" {
+        Delegated => "delegated",
+        Planned => "planned",
+        HumanRevision => "human_revision",
+    }
+
     /// Project fields represented by `ProjectUpdated`.
     pub enum ProjectChangedField, "event.project.changed_field" {
         /// Project name.

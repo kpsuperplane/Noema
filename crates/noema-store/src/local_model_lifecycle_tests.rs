@@ -12,7 +12,7 @@ use rusqlite::params;
 use crate::NoemaStore;
 
 #[tokio::test]
-async fn reconstruction_snapshot_contains_canonical_and_future_reference_owners() {
+async fn reconstruction_snapshot_contains_canonical_and_future_run_reference_owners() {
     let store = super::tests::test_store().await;
     let installation = installed(&store, "snapshot", "a").await;
     let ready_selection = super::tests::ready_local_selection(&installation);
@@ -56,9 +56,6 @@ async fn reconstruction_snapshot_contains_canonical_and_future_reference_owners(
         LocalModelInstanceReferenceSource::TaskModelPool {
             pool_entry_id: "task_pool:setting:simple".to_string(),
         },
-        LocalModelInstanceReferenceSource::TaskSnapshot {
-            task_id: "task:lifecycle-future".to_string(),
-        },
         LocalModelInstanceReferenceSource::AgentRunSnapshot {
             run_id: "run:lifecycle-future".to_string(),
         },
@@ -66,27 +63,9 @@ async fn reconstruction_snapshot_contains_canonical_and_future_reference_owners(
         assert!(sources.contains(&expected), "missing source: {expected:?}");
     }
     assert!(
-        !sources.contains(&LocalModelInstanceReferenceSource::TaskSnapshot {
-            task_id: "task:lifecycle-terminal".to_string(),
-        })
-    );
-    assert!(
         !sources.contains(&LocalModelInstanceReferenceSource::AgentRunSnapshot {
             run_id: "run:lifecycle-terminal".to_string(),
         })
-    );
-    assert_eq!(
-        sources
-            .iter()
-            .filter(|source| {
-                **source
-                    == LocalModelInstanceReferenceSource::TaskSnapshot {
-                        task_id: "task:lifecycle-future".to_string(),
-                    }
-            })
-            .count(),
-        1,
-        "executor and reviewer roles collapse to their one task owner source"
     );
 }
 
@@ -429,38 +408,6 @@ async fn seed_task_and_run_references(
                     "#,
                     params![task_id, stage_id],
                 )?;
-                conn.execute(
-                    r#"
-                    INSERT INTO task_execution_contracts (
-                      contract_id, task_id, version, task_generation, origin,
-                      request_markdown, complexity,
-                      executor_provider_kind, executor_provider_account_id,
-                      executor_provider_instance_key, executor_selection_mode,
-                      executor_model_profile, reviewer_provider_kind,
-                      reviewer_provider_account_id, reviewer_provider_instance_key,
-                      reviewer_selection_mode, reviewer_model_profile,
-                      max_provider_continuations, max_tool_calls, max_active_minutes,
-                      progress_audit_interval, max_automatic_retries, max_review_rounds,
-                      workspace_id_snapshot, workspace_name_snapshot,
-                      workspace_description_snapshot, created_by_actor_id
-                    ) VALUES (?1, ?2, 1, 1, 'delegated', 'Exercise lifecycle references', 'simple',
-                              'local_models', ?3, ?4, 'explicit_profile', ?5,
-                              'local_models', ?3, ?4, 'explicit_profile', ?5,
-                              80, 400, 120, 20, 3, 3,
-                              'workspace:personal', 'Personal', '', 'actor:system')
-                    "#,
-                    params![
-                        format!("contract:{task_id}"),
-                        task_id,
-                        LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
-                        installation.provider_instance_key.as_str(),
-                        installation.model_id,
-                    ],
-                )?;
-                conn.execute(
-                    "UPDATE tasks SET current_contract_id = ?2 WHERE task_id = ?1",
-                    params![task_id, format!("contract:{task_id}")],
-                )?;
             }
             for (run_id, task_id, status) in [
                 ("run:lifecycle-future", "task:lifecycle-future", "queued"),
@@ -473,14 +420,14 @@ async fn seed_task_and_run_references(
                 conn.execute(
                     r#"
                     INSERT INTO agent_runs (
-                      run_id, instance_name, task_id, task_generation, contract_id, run_kind, agent_id,
+                      run_id, instance_name, task_id, task_generation, run_kind, agent_id,
                       attempt_index, review_round,
                       provider_kind,
                       provider_account_id, provider_instance_key, selection_mode,
                       model_profile, max_provider_continuations, max_tool_calls,
                       max_active_minutes, progress_audit_interval,
                       max_automatic_retries, max_review_rounds, status
-                    ) VALUES (?1, ?2, ?3, 1, ?8, 'executor', 'agent:task-executor',
+                    ) VALUES (?1, ?2, ?3, 1, 'executor', 'agent:task-executor',
                               0, 1, 'local_models', ?4, ?5, 'explicit_profile', ?6,
                               80, 400, 120, 20, 3, 3, ?7)
                     "#,
@@ -492,7 +439,6 @@ async fn seed_task_and_run_references(
                         installation.provider_instance_key.as_str(),
                         installation.model_id,
                         status,
-                        format!("contract:{task_id}"),
                     ],
                 )?;
             }

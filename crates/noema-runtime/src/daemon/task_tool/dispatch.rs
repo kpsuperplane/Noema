@@ -13,10 +13,10 @@ use noema_tasks::{
     AnswerTask, ArchiveProject, CancelTask, CaptureTask, ChangeTaskRecurrence, CommandMeta,
     CreateProject, DelegateExecutionIntent, DelegateTask, NewTaskRecurrence, NewTaskSchedule,
     QueueTask, RecurrenceCommandKind, RecurrencePrecondition, ReopenProject, ReopenTask, RetryTask,
-    RunScheduledTaskNow, RunTaskRecurrenceNow, ScheduleTask, TaskContractAmendment, TaskGateAnswer,
-    TaskGateId, TaskGateRecord, TaskId, TaskPrecondition, TaskProvenance, TaskRecurrenceId,
-    TaskRecurrenceRecord, TaskSourceKind, UnscheduleTask, UpdateInboxTask, UpdateProject,
-    UpdateTaskRecurrence, WorkCommand, WorkflowStageBehavior,
+    RunScheduledTaskNow, RunTaskRecurrenceNow, ScheduleTask, TaskGateAnswer, TaskGateId,
+    TaskGateRecord, TaskId, TaskPrecondition, TaskProvenance, TaskRecurrenceId,
+    TaskRecurrenceRecord, TaskReopenDirection, TaskSourceKind, UnscheduleTask, UpdateInboxTask,
+    UpdateProject, UpdateTaskRecurrence, WorkCommand, WorkflowStageBehavior,
 };
 use noema_workspaces::{ProjectId, WorkspaceId};
 use serde::de::DeserializeOwned;
@@ -248,23 +248,6 @@ fn parse_arguments<T: DeserializeOwned>(value: Value) -> Result<T, String> {
     serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
-fn criteria(
-    criteria: Vec<super::catalog::CriterionArguments>,
-) -> Result<Vec<noema_tasks::NewTaskValidationCriterion>, String> {
-    criteria
-        .into_iter()
-        .enumerate()
-        .map(|(index, criterion)| {
-            Ok(noema_tasks::NewTaskValidationCriterion {
-                criterion_id: None,
-                ordinal: criterion_ordinal(index)?,
-                description: criterion.description,
-                expected_evidence: criterion.expected_evidence,
-            })
-        })
-        .collect()
-}
-
 async fn execute_primary_inner(
     store: &NoemaStore,
     provider_registry: &noema_providers::ProviderRegistryHandle,
@@ -315,9 +298,7 @@ async fn execute_primary_inner(
                     .map(|intent| -> Result<DelegateExecutionIntent, String> {
                         Ok(DelegateExecutionIntent {
                             request_markdown: intent.request_markdown,
-                            criteria: criteria(intent.criteria)?,
                             complexity: intent.complexity,
-                            execution_plan_markdown: intent.execution_plan_markdown,
                         })
                     })
                     .transpose()?;
@@ -457,14 +438,12 @@ async fn execute_primary_inner(
         }
         TASK_REOPEN_TOOL => {
             execute_command!(service, args, input: ReopenArguments => {
-                let replacement_criteria = input.replacement_criteria.map(criteria).transpose()?;
                 WorkCommand::ReopenTask(ReopenTask {
                     meta: meta(call_id.clone()),
                     precondition: task_precondition(&input.precondition)?,
-                    amendment: TaskContractAmendment {
+                    direction: TaskReopenDirection {
                         feedback_markdown: input.feedback_markdown,
                         request_markdown: input.request_markdown,
-                        replacement_criteria,
                         complexity: input.complexity,
                     },
                 })
@@ -599,13 +578,6 @@ fn project_precondition(
     })
 }
 
-fn criterion_ordinal(index: usize) -> Result<u32, String> {
-    index
-        .checked_add(1)
-        .and_then(|ordinal| u32::try_from(ordinal).ok())
-        .ok_or_else(|| "criterion count exceeds the supported bound".to_string())
-}
-
 async fn command_result_payload(
     store: &NoemaStore,
     result: noema_tasks::WorkCommandResult,
@@ -616,7 +588,7 @@ async fn command_result_payload(
         .and_then(|task| task.recurrence_id.as_ref());
     let recurrence_authority = current_recurrence_authority(store, recurrence_id).await?;
     Ok(
-        json!({"task": result.task.map(|task| json!({"task_id":task.task_id,"title":task.title,"stage_id":task.stage_id,"generation":task.generation,"revision":task.revision,"project_id":task.project_id,"scheduled_for":task.scheduled_for,"schedule_time_zone":task.schedule_time_zone,"recurrence_id":task.recurrence_id,"recurrence_revision":task.recurrence_revision})),"recurrence_authority":recurrence_authority,"project": result.project.map(|project| json!({"project_id":project.project_id,"name":project.name,"description":project.description,"revision":project.revision,"archived":project.archived_at.is_some()})),"contract_id":result.contract_id,"gate_id":result.gate_id,"run_id":result.run_id,"event_id":result.event_id,"event_sequence":result.event_sequence}),
+        json!({"task": result.task.map(|task| json!({"task_id":task.task_id,"title":task.title,"stage_id":task.stage_id,"generation":task.generation,"revision":task.revision,"project_id":task.project_id,"scheduled_for":task.scheduled_for,"schedule_time_zone":task.schedule_time_zone,"recurrence_id":task.recurrence_id,"recurrence_revision":task.recurrence_revision})),"recurrence_authority":recurrence_authority,"project": result.project.map(|project| json!({"project_id":project.project_id,"name":project.name,"description":project.description,"revision":project.revision,"archived":project.archived_at.is_some()})),"gate_id":result.gate_id,"run_id":result.run_id,"event_id":result.event_id,"event_sequence":result.event_sequence}),
     )
 }
 
@@ -789,7 +761,6 @@ mod tests {
             gate_id: TaskGateId::new("gate:current".to_string()).expect("gate id"),
             task_id: task_id("task:current"),
             task_generation: 3,
-            contract_id: None,
             kind: noema_tasks::TaskGateKind::Clarification,
             state: noema_tasks::TaskGateState::Open,
             recovery_reason: None,

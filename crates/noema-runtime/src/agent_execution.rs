@@ -12,11 +12,11 @@ use std::collections::BTreeSet;
 pub enum ExecutionRole {
     /// The primary agent responding in a human conversation.
     PrimaryConversation,
-    /// A background task executor producing a task submission.
+    /// A background Task Executor.
     TaskPlanner,
-    /// A background task executor producing a task submission.
+    /// A background ACP Task Executor.
     TaskExecutor,
-    /// A background reviewer validating a task submission.
+    /// A background Reviewer validating current Task files.
     TaskReviewer,
 }
 
@@ -34,9 +34,9 @@ pub enum ToolAccessClass {
     ConversationWrite,
     /// A tool backed by an external destination.
     ExternalTool,
-    /// A terminal executor contract tool such as `task.submit_result`.
+    /// The terminal Executor tool, such as `task.finish_execution`.
     ExecutorTerminal,
-    /// A terminal reviewer contract tool such as `task.submit_review`.
+    /// The terminal Reviewer tool, such as `task.finish_review`.
     ReviewerTerminal,
     /// An internal identity/control operation.
     Internal,

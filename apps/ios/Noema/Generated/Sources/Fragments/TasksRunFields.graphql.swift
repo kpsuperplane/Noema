@@ -6,7 +6,7 @@
 
 nonisolated public struct TasksRunFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksRunFields on TaskRun { __typename runId instanceName kind status agentId taskGeneration contractId attemptIndex reviewRound parentRunId triggeringSubmissionId triggeringReviewId model { __typename providerKind providerAccountId providerInstanceKey selectionMode modelProfile reasoningEffort selectionSource } actualProviderKind actualModelProfile executionPolicy { __typename ...TasksPolicyFields } errorCode errorMessage providerCallCount toolCallCount inputTokens cachedInputTokens outputTokens activeMilliseconds queuedAt startedAt endedAt createdAt updatedAt }"#
+    #"fragment TasksRunFields on TaskRun { __typename runId instanceName kind status agentId taskGeneration attemptIndex reviewRound parentRunId model { __typename providerKind providerAccountId providerInstanceKey selectionMode modelProfile reasoningEffort selectionSource } actualProviderKind actualModelProfile executionPolicy { __typename ...TasksPolicyFields } errorCode errorMessage providerCallCount toolCallCount inputTokens cachedInputTokens outputTokens activeMilliseconds queuedAt startedAt endedAt createdAt updatedAt }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -21,12 +21,9 @@ nonisolated public struct TasksRunFields: NoemaAPI.SelectionSet, Fragment {
     .field("status", GraphQLEnum<NoemaAPI.TaskRunStatus>.self),
     .field("agentId", String.self),
     .field("taskGeneration", Int.self),
-    .field("contractId", String?.self),
     .field("attemptIndex", Int.self),
     .field("reviewRound", Int.self),
     .field("parentRunId", String?.self),
-    .field("triggeringSubmissionId", String?.self),
-    .field("triggeringReviewId", String?.self),
     .field("model", Model.self),
     .field("actualProviderKind", String?.self),
     .field("actualModelProfile", String?.self),
@@ -61,18 +58,12 @@ nonisolated public struct TasksRunFields: NoemaAPI.SelectionSet, Fragment {
   public var agentId: String { __data["agentId"] }
   /// Task generation.
   public var taskGeneration: Int { __data["taskGeneration"] }
-  /// Contract identity, absent for Planner.
-  public var contractId: String? { __data["contractId"] }
   /// Attempt index.
   public var attemptIndex: Int { __data["attemptIndex"] }
   /// Review round.
   public var reviewRound: Int { __data["reviewRound"] }
   /// Parent run, when any.
   public var parentRunId: String? { __data["parentRunId"] }
-  /// Submission trigger, when any.
-  public var triggeringSubmissionId: String? { __data["triggeringSubmissionId"] }
-  /// Review trigger, when any.
-  public var triggeringReviewId: String? { __data["triggeringReviewId"] }
   /// Requested model snapshot.
   public var model: Model { __data["model"] }
   /// Safe actual provider family.

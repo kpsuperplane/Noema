@@ -31,12 +31,8 @@ const TASK_COLUMNS: &str = "
     task.created_by_actor_id,
     task.generation,
     task.revision,
-    task.current_contract_id,
     task.active_gate_id,
     task.latest_run_id,
-    task.latest_submission_id,
-    task.latest_review_id,
-    task.completed_submission_id,
     task.scheduled_for,
     task.schedule_time_zone,
     task.missed_run_policy,
@@ -377,14 +373,6 @@ fn validate_summary_links(
         .belongs_to(&task.workflow_id)
         .map_err(StoreError::Work)?;
     validate_current_links(task, run, gate)?;
-    let contract_id = task.current_contract_id.as_ref();
-    if run.is_some_and(|run| run.contract_id.as_ref() != contract_id)
-        || gate.is_some_and(|gate| gate.contract_id.as_ref() != contract_id)
-    {
-        return Err(StoreError::InvariantViolation {
-            message: format!("task {} card crosses a current contract link", task.task_id),
-        });
-    }
     validate_lifecycle(task, stage.system_behavior)
 }
 

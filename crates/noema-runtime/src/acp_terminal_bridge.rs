@@ -20,7 +20,6 @@ const MAX_REQUEST_BYTES: u64 = 1_048_576;
 struct TokenClaims<'a> {
     run_id: &'a str,
     task_generation: u64,
-    contract_id: &'a str,
     lease_token: &'a str,
     expires_at: u64,
 }
@@ -66,14 +65,9 @@ impl AcpTerminalBridge {
             .local_addr()
             .map_err(|error| format!("cannot inspect ACP terminal bridge: {error}"))?
             .to_string();
-        let contract_id = fence
-            .contract_id
-            .as_ref()
-            .map_or_else(String::new, ToString::to_string);
         let claims = TokenClaims {
             run_id: &fence.run_id,
             task_generation: fence.task_generation,
-            contract_id: &contract_id,
             lease_token: &fence.lease_token,
             expires_at,
         };
@@ -89,6 +83,7 @@ impl AcpTerminalBridge {
                     Err(error) => Err(format!("ACP terminal bridge accept failed: {error}")),
                 }
             };
+            drop(listener);
             let _ = sender.send(result);
         });
         Ok(Self {
@@ -112,7 +107,6 @@ impl AcpTerminalBridge {
 )]
 mod tests {
     use super::*;
-    use noema_tasks::TaskContractId;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     fn fence(run_id: &str, lease: &str, generation: u64) -> noema_store::WorkRunFence {
@@ -120,7 +114,6 @@ mod tests {
             run_id: run_id.to_string(),
             lease_token: lease.to_string(),
             task_generation: generation,
-            contract_id: Some(TaskContractId::new("contract:test").unwrap()),
         }
     }
 

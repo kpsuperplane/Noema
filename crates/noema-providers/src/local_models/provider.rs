@@ -647,7 +647,6 @@ mod tests {
             }],
             reasoning_items: Vec::new(),
             hosted_web_searches: Vec::new(),
-            citations: Vec::new(),
             provider: LOCAL_MODELS_PROVIDER.to_string(),
             model: "local-8b".to_string(),
             response_id: None,
@@ -680,7 +679,7 @@ mod tests {
     fn required_tool_choice_is_sent_as_native_policy() {
         let request = tool_request(
             vec![test_tool(
-                "task.submit_result",
+                "task.finish_execution",
                 serde_json::json!({
                     "properties": {"summary": {"type": "string"}},
                     "required": ["summary"]

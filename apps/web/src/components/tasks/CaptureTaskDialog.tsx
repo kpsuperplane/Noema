@@ -160,7 +160,7 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                     </select>
                   </VStack>
                   <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}>
-                    <span>Working directory override (optional)</span>
+                    <span>Task directory base (optional)</span>
                     <input value={cwdOverride} placeholder="/absolute/path" {...stylex.props(styles.input)} onChange={(event) => setCwdOverride(event.currentTarget.value)} />
                     <span {...stylex.props(styles.hint)}>{effectiveCwdSummary(cwdOverride, projects.find((project) => project.projectId === projectId)?.folder)}</span>
                   </VStack>
@@ -190,7 +190,7 @@ const styles = stylex.create({
 });
 
 function effectiveCwdSummary(override: string, projectFolder?: string | null): string {
-  if (override.trim()) return `Effective CWD · task · ${override.trim()}`;
-  if (projectFolder) return `Effective CWD · project · ${projectFolder}`;
-  return "Effective CWD · default · Noema task folder (created when queued)";
+  if (override.trim()) return `Task directory · under ${override.trim()}`;
+  if (projectFolder) return `Task directory · under ${projectFolder}`;
+  return "Task directory · Noema Tasks folder (created when queued)";
 }

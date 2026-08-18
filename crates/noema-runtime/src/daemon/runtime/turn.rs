@@ -356,8 +356,6 @@ pub(in crate::daemon) struct SuccessfulProviderTurn {
     pub(in crate::daemon) task_id: Option<String>,
     pub(in crate::daemon) task_run_id: Option<String>,
     pub(in crate::daemon) task_run_fence: Option<noema_store::WorkRunFence>,
-    pub(in crate::daemon) task_terminal_contract:
-        Option<crate::daemon::task_run_context::TaskTerminalContract>,
     pub(in crate::daemon) cwd: Option<String>,
     pub(in crate::daemon) provider_kind: String,
     pub(in crate::daemon) model: Option<String>,

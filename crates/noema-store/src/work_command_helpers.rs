@@ -2,13 +2,9 @@
 
 use std::str::FromStr;
 
-use noema_providers::{
-    ProviderInstanceKey, ProviderSelectionMode, ProviderSelectionSnapshot, ReasoningEffort,
-};
 use noema_tasks::{
-    CaptureTask, DelegateTask, PERSONAL_DONE_STAGE_ID, TaskContractId, TaskExecutionPolicy, TaskId,
-    TaskStageChangeReason, WorkCommand, WorkDomainError, WorkEventPayload, WorkEventRecord,
-    WorkflowStageBehavior, WorkflowStageId,
+    CaptureTask, DelegateTask, TaskExecutionPolicy, TaskId, WorkCommand, WorkDomainError,
+    WorkEventRecord, WorkflowStageBehavior, WorkflowStageId,
 };
 use noema_workspaces::{ProjectId, WorkspaceId};
 use rusqlite::{OptionalExtension, Transaction, params};
@@ -21,8 +17,6 @@ use crate::{
         canonical_command_fingerprint, capture_source_fingerprint, command_actor_id,
         command_idempotency_key, delegate_source_fingerprint,
     },
-    work_events::append_work_event_tx,
-    work_notifications::enqueue_work_notification_tx,
 };
 
 pub(crate) async fn command_transaction(
@@ -61,7 +55,7 @@ mod run_queue;
 
 pub(crate) use run_queue::{
     QueuePinnedChildRun, QueueRun, provider_route_unavailable, queue_pinned_child_run_tx,
-    queue_run_tx,
+    queue_run_tx, refresh_run_settings_tx,
 };
 
 pub(crate) use crate::work_command_result::materialize_result;
@@ -75,11 +69,8 @@ pub(crate) struct TaskState {
     pub stage_behavior: WorkflowStageBehavior,
     pub generation: u64,
     pub revision: u64,
-    pub current_contract_id: Option<TaskContractId>,
     pub active_gate_id: Option<noema_tasks::TaskGateId>,
     pub latest_run_id: Option<String>,
-    pub latest_submission_id: Option<String>,
-    pub latest_review_id: Option<String>,
     pub title: String,
     pub description_markdown: String,
     pub executor_agent_id: String,
@@ -136,79 +127,10 @@ pub(crate) fn event_context(meta: &noema_tasks::CommandMeta) -> CommandEventCont
     }
 }
 
-/// Complete a reviewer-approved submission and enqueue the owner notification.
-///
-/// Callers must have already verified that the review is current and approved.
-/// The approved review is the completion authority.
-pub(crate) fn complete_review_tx(
-    transaction: &Transaction<'_>,
-    task: &mut TaskState,
-    review_id: &str,
-    submission_id: &str,
-    event: CommandEventContext<'_>,
-    run_id: Option<&str>,
-) -> Result<CommandWrite, StoreError> {
-    if task.active_gate_id.is_some() || task.stage_behavior != WorkflowStageBehavior::Active {
-        return Err(StoreError::Work(WorkDomainError::InvalidTransition));
-    }
-    let revision = increment(task.revision, "task.revision")?;
-    let from_stage = task.stage_id.clone();
-    let changed = transaction.execute(
-        "UPDATE tasks SET stage_id = ?2, completed_submission_id = ?3, completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), queued_at = NULL, revision = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?5 AND generation = ?6",
-        params![
-            task.task_id.as_str(),
-            PERSONAL_DONE_STAGE_ID,
-            submission_id,
-            revision,
-            task.revision,
-            task.generation,
-        ],
-    )?;
-    if changed != 1 {
-        return Err(StoreError::Work(WorkDomainError::StaleRevision));
-    }
-    task.stage_id = WorkflowStageId::new(PERSONAL_DONE_STAGE_ID).map_err(StoreError::Work)?;
-    task.stage_behavior = WorkflowStageBehavior::TerminalSuccess;
-    task.revision = revision;
-    let scope = event.task_scope(task, run_id);
-    let _completed_event = append_work_event_tx(
-        transaction,
-        scope.clone(),
-        WorkEventPayload::task_completed(revision, task.generation).map_err(StoreError::Work)?,
-    )?;
-    let mut event = append_work_event_tx(
-        transaction,
-        scope,
-        WorkEventPayload::task_stage_changed(
-            revision,
-            task.generation,
-            from_stage,
-            task.stage_id.clone(),
-            TaskStageChangeReason::Completed,
-        )
-        .map_err(StoreError::Work)?,
-    )?;
-    if let Some(notification_event) = enqueue_work_notification_tx(
-        transaction,
-        &event,
-        noema_tasks::NotificationKind::TaskCompleted,
-        &serde_json::json!({
-            "task_id": task.task_id.as_str(),
-            "submission_id": submission_id,
-            "review_id": review_id,
-            "action_needed": false,
-        }),
-    )? {
-        event = notification_event;
-    }
-    Ok(task_write(event, task.task_id.clone()).contract(task.current_contract_id.clone()))
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct CommandWrite {
     pub task_id: Option<TaskId>,
     pub project_id: Option<ProjectId>,
-    pub contract_id: Option<TaskContractId>,
     pub gate_id: Option<noema_tasks::TaskGateId>,
     pub run_id: Option<String>,
     pub event_id: noema_tasks::WorkEventId,
@@ -230,8 +152,7 @@ pub(crate) fn load_task_state_tx(
         .query_row(
             r#"SELECT t.workspace_id, t.project_id, t.stage_id,
                       s.system_behavior, t.generation, t.revision,
-                      t.current_contract_id, t.active_gate_id, t.latest_run_id,
-                      t.latest_submission_id, t.latest_review_id,
+                      t.active_gate_id, t.latest_run_id,
                       t.title, t.description_markdown, t.executor_agent_id, t.cwd_override,
                       t.task_directory, t.execution_complexity
                FROM tasks t
@@ -249,15 +170,12 @@ pub(crate) fn load_task_state_tx(
                     row.get::<_, i64>(5)?,
                     row.get::<_, Option<String>>(6)?,
                     row.get::<_, Option<String>>(7)?,
-                    row.get::<_, Option<String>>(8)?,
-                    row.get::<_, Option<String>>(9)?,
-                    row.get::<_, Option<String>>(10)?,
-                    row.get::<_, String>(11)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, String>(9)?,
+                    row.get::<_, String>(10)?,
+                    row.get::<_, Option<String>>(11)?,
                     row.get::<_, String>(12)?,
-                    row.get::<_, String>(13)?,
-                    row.get::<_, Option<String>>(14)?,
-                    row.get::<_, String>(15)?,
-                    row.get::<_, Option<String>>(16)?,
+                    row.get::<_, Option<String>>(13)?,
                 ))
             },
         )
@@ -277,26 +195,19 @@ pub(crate) fn load_task_state_tx(
         stage_behavior: WorkflowStageBehavior::from_str(&row.3).map_err(StoreError::Work)?,
         generation,
         revision,
-        current_contract_id: row
-            .6
-            .map(TaskContractId::new)
-            .transpose()
-            .map_err(StoreError::Work)?,
         active_gate_id: row
-            .7
+            .6
             .map(noema_tasks::TaskGateId::new)
             .transpose()
             .map_err(StoreError::Work)?,
-        latest_run_id: row.8,
-        latest_submission_id: row.9,
-        latest_review_id: row.10,
-        title: row.11,
-        description_markdown: row.12,
-        executor_agent_id: row.13,
-        cwd_override: row.14,
-        task_directory: row.15,
+        latest_run_id: row.7,
+        title: row.8,
+        description_markdown: row.9,
+        executor_agent_id: row.10,
+        cwd_override: row.11,
+        task_directory: row.12,
         execution_complexity: row
-            .16
+            .13
             .map(|value| value.parse())
             .transpose()
             .map_err(StoreError::Work)?,
@@ -417,83 +328,6 @@ pub(crate) fn load_policy_tx(
         max_review_rounds: positive_u32(values.5, "policy.max_review_rounds")?,
     };
     policy.validated().map_err(StoreError::Work)
-}
-
-/// Load one provider snapshot from an immutable contract row.
-pub(crate) fn load_contract_model_tx(
-    transaction: &Transaction<'_>,
-    contract_id: &TaskContractId,
-    reviewer: bool,
-) -> Result<ProviderSelectionSnapshot, StoreError> {
-    let columns = if reviewer {
-        "reviewer_provider_kind, reviewer_provider_account_id, reviewer_provider_instance_key, reviewer_selection_mode, reviewer_model_profile, reviewer_reasoning_effort, reviewer_fast_mode, reviewer_selection_source"
-    } else {
-        "executor_provider_kind, executor_provider_account_id, executor_provider_instance_key, executor_selection_mode, executor_model_profile, executor_reasoning_effort, executor_fast_mode, executor_selection_source"
-    };
-    transaction
-        .query_row(
-            &format!("SELECT {columns} FROM task_execution_contracts WHERE contract_id = ?1"),
-            [contract_id.as_str()],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, bool>(6)?,
-                    row.get::<_, Option<String>>(7)?,
-                ))
-            },
-        )
-        .optional()?
-        .ok_or(StoreError::Work(WorkDomainError::ContractRequired))
-        .and_then(provider_snapshot)
-}
-
-pub(crate) fn provider_snapshot(
-    row: (
-        String,
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        bool,
-        Option<String>,
-    ),
-) -> Result<ProviderSelectionSnapshot, StoreError> {
-    Ok(ProviderSelectionSnapshot {
-        provider_kind: row.0,
-        provider_account_id: row.1,
-        provider_instance_key: Some(ProviderInstanceKey::new(row.2).map_err(|error| {
-            StoreError::Work(WorkDomainError::InvalidInput {
-                field: "provider_instance_key",
-                message: error.to_string(),
-            })
-        })?),
-        selection_mode: ProviderSelectionMode::from_str(&row.3).map_err(|error| {
-            StoreError::Work(WorkDomainError::InvalidInput {
-                field: "provider.selection_mode",
-                message: error.to_string(),
-            })
-        })?,
-        model_profile: row.4,
-        reasoning_effort: row
-            .5
-            .map(|value| {
-                ReasoningEffort::from_persistence_str(&value).ok_or_else(|| {
-                    StoreError::Work(WorkDomainError::InvalidInput {
-                        field: "provider.reasoning_effort",
-                        message: format!("unknown value {value}"),
-                    })
-                })
-            })
-            .transpose()?,
-        fast_mode: row.6,
-        selection_source: row.7,
-    })
 }
 
 pub(crate) fn lookup_receipt_tx(
@@ -677,14 +511,12 @@ pub(crate) fn write_marker(
     event: WorkEventRecord,
     task_id: Option<TaskId>,
     project_id: Option<ProjectId>,
-    contract_id: Option<TaskContractId>,
     gate_id: Option<noema_tasks::TaskGateId>,
     run_id: Option<String>,
 ) -> CommandWrite {
     CommandWrite {
         task_id,
         project_id,
-        contract_id,
         gate_id,
         run_id,
         event_id: event.event_id().clone(),
@@ -696,21 +528,16 @@ pub(crate) fn write_marker(
 }
 
 pub(crate) fn task_write(event: WorkEventRecord, task_id: TaskId) -> CommandWrite {
-    write_marker(event, Some(task_id), None, None, None, None)
+    write_marker(event, Some(task_id), None, None, None)
 }
 
 pub(crate) fn project_write(event: WorkEventRecord, project_id: ProjectId) -> CommandWrite {
-    write_marker(event, None, Some(project_id), None, None, None)
+    write_marker(event, None, Some(project_id), None, None)
 }
 
 impl CommandWrite {
     pub(crate) fn project(mut self, project_id: Option<ProjectId>) -> Self {
         self.project_id = project_id;
-        self
-    }
-
-    pub(crate) fn contract(mut self, contract_id: Option<TaskContractId>) -> Self {
-        self.contract_id = contract_id;
         self
     }
 

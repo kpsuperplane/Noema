@@ -3,11 +3,9 @@ import SwiftUI
 struct TasksTaskContextDock: View {
   let run: TasksRunSnapshot?
   let activity: String?
-  let criteria: [TasksCriterionSnapshot]
   let canCancel: Bool
   let cancel: () -> Void
   let showInfo: () -> Void
-  let showValidation: () -> Void
 
   var body: some View {
     VStack(spacing: 0) {
@@ -49,26 +47,6 @@ struct TasksTaskContextDock: View {
       }
       .padding(.horizontal, NoemaSpacing.md)
       .frame(height: 45)
-      if !criteria.isEmpty {
-        Rectangle().fill(NoemaColor.separatorSubtle).frame(height: 1)
-        Button(action: showValidation) {
-          HStack(spacing: NoemaSpacing.xs) {
-            Text("Validation").font(NoemaFont.compactEmphasized)
-            ForEach(criteria.prefix(4)) { criterion in
-              Image(systemName: criterion.verdict.taskCriterionIcon)
-                .font(NoemaFont.compact)
-                .foregroundStyle(criterion.verdict.taskCriterionColor)
-            }
-            Spacer(minLength: 0)
-          }
-          .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Show validation evidence")
-        .foregroundStyle(NoemaColor.contentSecondary)
-        .padding(.horizontal, NoemaSpacing.md)
-        .frame(height: 34)
-      }
     }
     .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaSpacing.xxl, treatment: .container))
     .overlay {
@@ -86,10 +64,8 @@ struct TasksTaskInfoSheet: View {
   var body: some View {
     NoemaNativeSheet(title: "Task information", onDismiss: { dismiss() }) {
       VStack(spacing: NoemaSpacing.compact) {
-        if let complexity = detail.complexity { metadataRow("Complexity", complexity.lowercased().capitalized) }
         metadataRow("Stage", detail.stage.name)
         metadataRow("Revision", String(detail.revision))
-        if let maxReviewRounds = detail.maxReviewRounds { metadataRow("Review limit", "\(maxReviewRounds) rounds") }
         if !detail.createdAt.isEmpty { metadataRow("Created", formattedDate(detail.createdAt)) }
         if let sourceLabel = detail.sourceLabel { metadataRow("From", sourceLabel) }
       }
@@ -122,62 +98,6 @@ struct TasksTaskInfoSheet: View {
   }
 }
 
-struct TasksValidationSheet: View {
-  @Environment(\.dismiss) private var dismiss
-  let criteria: [TasksCriterionSnapshot]
-
-  var body: some View {
-    NoemaNativeSheet(title: "Validation", onDismiss: { dismiss() }) {
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: NoemaSpacing.md) {
-          Text("Evidence for the current task result.")
-            .font(NoemaFont.body)
-            .foregroundStyle(NoemaColor.contentSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-          if criteria.isEmpty {
-            Text("No validation criteria are available yet.")
-              .font(NoemaFont.body)
-              .foregroundStyle(NoemaColor.contentSecondary)
-          } else {
-            ForEach(criteria) { criterion in
-              VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-                HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-                  Image(systemName: criterion.verdict.taskCriterionIcon)
-                    .font(NoemaFont.caption)
-                    .foregroundStyle(criterion.verdict.taskCriterionColor)
-                  Text(criterion.description)
-                    .font(NoemaFont.captionEmphasized)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(criterion.verdict.taskCriterionLabel) validation: \(criterion.description)")
-                if let expected = criterion.expectedEvidence?.taskDockText {
-                  Text("Expected")
-                    .font(NoemaFont.metadata.weight(.semibold))
-                    .foregroundStyle(NoemaColor.contentTertiary)
-                    .padding(.leading, NoemaSpacing.xl)
-                  Text(expected)
-                    .font(NoemaFont.caption)
-                    .foregroundStyle(NoemaColor.contentSecondary)
-                    .padding(.leading, NoemaSpacing.xl)
-                }
-                if let evidence = criterion.evidence?.taskDockText {
-                  Text(evidence)
-                    .font(NoemaFont.caption)
-                    .foregroundStyle(NoemaColor.contentSecondary)
-                    .padding(.leading, NoemaSpacing.xl)
-                }
-              }
-              .frame(maxWidth: .infinity, alignment: .leading)
-            }
-          }
-        }
-        .padding(.horizontal, NoemaSpacing.lg)
-        .padding(.bottom, NoemaSpacing.lg)
-      }
-    }
-    .noemaTaskSheetPresentation([.medium, .large], regularHeight: 620, compactDragIndicator: .visible)
-  }
-}
 
 extension String {
   var taskDockText: String? {

@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 51;
+pub const STORE_SCHEMA_VERSION: usize = 55;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1198,8 +1198,255 @@ pub(super) fn store_migrations() -> Migrations<'static> {
             "",
             crate::task_file_migration::isolate_explicit_task_directories,
         ),
+        M::up(REMOVE_TASK_CONTENT_RECORDS_SQL),
+        M::up(REBUILD_TASK_GATES_AND_MESSAGES_SQL),
+        M::up(REPAIR_AGENT_RUN_FOREIGN_KEYS_SQL),
+        M::up(REPAIR_AGENT_RUN_PROVIDER_CHECK_SQL),
     ])
 }
+
+/// Repair foreign-key SQL rewritten by SQLite during the agent-runs rebuild.
+///
+/// Migration 52 removed its temporary table after SQLite had retargeted child
+/// references to that name. The replacement is exact and resets SQLite's
+/// schema cache before runtime foreign-key enforcement starts.
+const REPAIR_AGENT_RUN_FOREIGN_KEYS_SQL: &str = r#"
+PRAGMA writable_schema = ON;
+UPDATE sqlite_schema
+SET sql = replace(sql, 'agent_runs_v51', 'agent_runs')
+WHERE sql LIKE '%agent_runs_v51%';
+PRAGMA writable_schema = RESET;
+"#;
+
+/// Restore the OpenRouter value accepted before the agent-runs rebuild.
+const REPAIR_AGENT_RUN_PROVIDER_CHECK_SQL: &str = r#"
+PRAGMA writable_schema = ON;
+UPDATE sqlite_schema
+SET sql = replace(
+  sql,
+  "provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')",
+  "provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models', 'openrouter')"
+)
+WHERE type = 'table' AND name = 'agent_runs';
+PRAGMA writable_schema = RESET;
+"#;
+
+/// Remove database Task content after file conversion has completed.
+const REMOVE_TASK_CONTENT_RECORDS_SQL: &str = r#"
+UPDATE tasks
+SET current_contract_id = NULL,
+    latest_submission_id = NULL,
+    latest_review_id = NULL,
+    completed_submission_id = NULL;
+PRAGMA legacy_alter_table = ON;
+DROP INDEX agent_runs_one_runnable_per_task;
+DROP INDEX agent_runs_fifo_claim;
+DROP INDEX agent_runs_task_history;
+DROP INDEX agent_runs_instance_name;
+DROP INDEX agent_runs_expired_leases;
+DROP INDEX agent_runs_contract;
+ALTER TABLE agent_runs RENAME TO agent_runs_v51;
+
+CREATE TABLE agent_runs (
+  run_id TEXT PRIMARY KEY NOT NULL CHECK (run_id GLOB 'run:*'),
+  instance_name TEXT NOT NULL CHECK (trim(instance_name) <> ''),
+  task_id TEXT NOT NULL,
+  task_generation INTEGER NOT NULL CHECK (task_generation >= 1),
+  run_kind TEXT NOT NULL CHECK (run_kind IN ('planner', 'executor', 'reviewer')),
+  agent_id TEXT NOT NULL CHECK (trim(agent_id) <> ''),
+  attempt_index INTEGER NOT NULL DEFAULT 0 CHECK (attempt_index >= 0),
+  review_round INTEGER NOT NULL DEFAULT 0 CHECK (review_round >= 0),
+  parent_run_id TEXT,
+  actual_provider_kind TEXT,
+  actual_model_profile TEXT,
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
+  provider_account_id TEXT NOT NULL CHECK (trim(provider_account_id) <> ''),
+  provider_instance_key TEXT NOT NULL CHECK (trim(provider_instance_key) <> ''),
+  selection_mode TEXT NOT NULL CHECK (selection_mode IN ('explicit_profile', 'provider_default')),
+  model_profile TEXT,
+  reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
+  selection_source TEXT,
+  max_provider_continuations INTEGER NOT NULL CHECK (max_provider_continuations BETWEEN 1 AND 1000),
+  max_tool_calls INTEGER NOT NULL CHECK (max_tool_calls BETWEEN 1 AND 10000),
+  max_active_minutes INTEGER NOT NULL CHECK (max_active_minutes BETWEEN 1 AND 10080),
+  progress_audit_interval INTEGER NOT NULL CHECK (progress_audit_interval >= 1 AND progress_audit_interval <= max_provider_continuations),
+  max_automatic_retries INTEGER NOT NULL CHECK (max_automatic_retries BETWEEN 0 AND 20),
+  max_review_rounds INTEGER NOT NULL CHECK (max_review_rounds BETWEEN 1 AND 20),
+  status TEXT NOT NULL CHECK (status IN ('queued', 'leased', 'running', 'completed', 'waiting_for_approval', 'interrupted', 'failed', 'cancelled')),
+  queued_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  lease_owner TEXT,
+  lease_token TEXT,
+  lease_expires_at TEXT,
+  heartbeat_at TEXT,
+  started_at TEXT,
+  ended_at TEXT,
+  cancellation_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancellation_requested IN (0, 1)),
+  error_code TEXT,
+  error_message TEXT,
+  provider_call_count INTEGER NOT NULL DEFAULT 0 CHECK (provider_call_count >= 0),
+  tool_call_count INTEGER NOT NULL DEFAULT 0 CHECK (tool_call_count >= 0),
+  input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+  cached_input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cached_input_tokens >= 0),
+  output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+  active_milliseconds INTEGER NOT NULL DEFAULT 0 CHECK (active_milliseconds >= 0),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  execution_backend_kind TEXT NOT NULL DEFAULT 'provider' CHECK (execution_backend_kind IN ('provider', 'acp')),
+  acp_connection_revision INTEGER CHECK (acp_connection_revision IS NULL OR acp_connection_revision >= 1),
+  acp_launch_json TEXT CHECK (acp_launch_json IS NULL OR json_valid(acp_launch_json)),
+  effective_cwd TEXT CHECK (effective_cwd IS NULL OR trim(effective_cwd) <> ''),
+  acp_session_id TEXT,
+  fast_mode INTEGER NOT NULL DEFAULT 0 CHECK (fast_mode IN (0, 1)),
+  CHECK (selection_mode = 'provider_default' OR (model_profile IS NOT NULL AND trim(model_profile) <> '')),
+  FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE RESTRICT,
+  FOREIGN KEY (parent_run_id) REFERENCES agent_runs(run_id) ON DELETE RESTRICT
+);
+
+INSERT INTO agent_runs (
+  run_id, instance_name, task_id, task_generation, run_kind, agent_id,
+  attempt_index, review_round, parent_run_id, actual_provider_kind,
+  actual_model_profile, provider_kind, provider_account_id, provider_instance_key,
+  selection_mode, model_profile, reasoning_effort, selection_source,
+  max_provider_continuations, max_tool_calls, max_active_minutes,
+  progress_audit_interval, max_automatic_retries, max_review_rounds, status,
+  queued_at, lease_owner, lease_token, lease_expires_at, heartbeat_at, started_at,
+  ended_at, cancellation_requested, error_code, error_message, provider_call_count,
+  tool_call_count, input_tokens, cached_input_tokens, output_tokens,
+  active_milliseconds, created_at, updated_at, execution_backend_kind,
+  acp_connection_revision, acp_launch_json, effective_cwd, acp_session_id, fast_mode
+)
+SELECT
+  run_id, instance_name, task_id, task_generation, run_kind, agent_id,
+  attempt_index, review_round, parent_run_id, actual_provider_kind,
+  actual_model_profile, provider_kind, provider_account_id, provider_instance_key,
+  selection_mode, model_profile, reasoning_effort, selection_source,
+  max_provider_continuations, max_tool_calls, max_active_minutes,
+  progress_audit_interval, max_automatic_retries, max_review_rounds, status,
+  queued_at, lease_owner, lease_token, lease_expires_at, heartbeat_at, started_at,
+  ended_at, cancellation_requested, error_code, error_message, provider_call_count,
+  tool_call_count, input_tokens, cached_input_tokens, output_tokens,
+  active_milliseconds, created_at, updated_at, execution_backend_kind,
+  acp_connection_revision, acp_launch_json, effective_cwd, acp_session_id, fast_mode
+FROM agent_runs_v51;
+DROP TABLE agent_runs_v51;
+
+CREATE UNIQUE INDEX agent_runs_one_runnable_per_task
+ON agent_runs(task_id) WHERE status IN ('queued', 'leased', 'running');
+CREATE INDEX agent_runs_fifo_claim
+ON agent_runs(status, queued_at, run_id) WHERE status = 'queued';
+CREATE INDEX agent_runs_task_history ON agent_runs(task_id, created_at, run_id);
+CREATE UNIQUE INDEX agent_runs_instance_name ON agent_runs(instance_name);
+CREATE INDEX agent_runs_expired_leases
+ON agent_runs(status, lease_expires_at, run_id) WHERE status IN ('leased', 'running');
+PRAGMA legacy_alter_table = OFF;
+
+DROP TABLE task_submission_citations;
+DROP TABLE task_review_criteria;
+DROP TABLE task_submission_artifacts;
+DROP TABLE task_submission_criteria;
+DROP TABLE task_contract_criteria;
+
+"#;
+
+/// Remove content foreign keys from operational gates and messages.
+const REBUILD_TASK_GATES_AND_MESSAGES_SQL: &str = r#"
+PRAGMA legacy_alter_table = ON;
+DROP INDEX task_gates_one_open_per_task;
+DROP INDEX task_gates_attention;
+DROP INDEX task_messages_pending;
+DROP INDEX task_messages_history;
+ALTER TABLE task_gates RENAME TO task_gates_v52;
+ALTER TABLE task_messages RENAME TO task_messages_v52;
+
+CREATE TABLE task_gates (
+  gate_id TEXT PRIMARY KEY NOT NULL CHECK (gate_id GLOB 'gate:*'),
+  task_id TEXT NOT NULL,
+  task_generation INTEGER NOT NULL CHECK (task_generation >= 1),
+  gate_kind TEXT NOT NULL CHECK (gate_kind IN ('clarification', 'approval', 'recovery')),
+  gate_state TEXT NOT NULL CHECK (gate_state IN ('open', 'resolved', 'superseded')),
+  recovery_reason TEXT CHECK (recovery_reason IS NULL OR recovery_reason IN (
+    'infrastructure_retries_exhausted', 'review_rounds_exhausted',
+    'unsafe_effect_uncertain', 'configuration_unavailable', 'invariant_fault'
+  )),
+  retry_run_kind TEXT CHECK (retry_run_kind IS NULL OR retry_run_kind IN ('planner', 'executor', 'reviewer')),
+  prompt_markdown TEXT NOT NULL CHECK (trim(prompt_markdown) <> ''),
+  context_markdown TEXT NOT NULL DEFAULT '',
+  suggested_answers_json TEXT NOT NULL DEFAULT '[]' CHECK (
+    json_valid(suggested_answers_json) AND json_type(suggested_answers_json) = 'array'
+  ),
+  opened_by_actor_id TEXT NOT NULL CHECK (trim(opened_by_actor_id) <> ''),
+  originating_run_id TEXT,
+  resolved_by_actor_id TEXT,
+  resolution_message_id TEXT,
+  opened_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  resolved_at TEXT,
+  CHECK ((gate_kind = 'recovery' AND recovery_reason IS NOT NULL) OR (gate_kind <> 'recovery' AND recovery_reason IS NULL AND retry_run_kind IS NULL)),
+  CHECK (gate_kind <> 'recovery' OR (recovery_reason = 'invariant_fault' AND retry_run_kind IS NULL) OR (recovery_reason <> 'invariant_fault' AND retry_run_kind IS NOT NULL)),
+  CHECK (
+    (gate_state = 'open' AND resolved_by_actor_id IS NULL AND resolution_message_id IS NULL AND resolved_at IS NULL)
+    OR (gate_state = 'resolved' AND resolved_by_actor_id IS NOT NULL AND resolution_message_id IS NOT NULL AND resolved_at IS NOT NULL)
+    OR (gate_state = 'superseded' AND resolved_by_actor_id IS NOT NULL AND resolution_message_id IS NULL AND resolved_at IS NOT NULL)
+  ),
+  FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE RESTRICT,
+  FOREIGN KEY (originating_run_id) REFERENCES agent_runs(run_id) ON DELETE RESTRICT,
+  FOREIGN KEY (resolution_message_id) REFERENCES task_messages(message_id) ON DELETE RESTRICT
+);
+
+CREATE TABLE task_messages (
+  message_id TEXT PRIMARY KEY NOT NULL CHECK (message_id GLOB 'task_message:*'),
+  task_id TEXT NOT NULL,
+  task_generation INTEGER NOT NULL CHECK (task_generation >= 1),
+  gate_id TEXT,
+  message_kind TEXT NOT NULL CHECK (message_kind IN ('human_answer', 'human_change_request', 'retry_note')),
+  body_markdown TEXT NOT NULL CHECK (trim(body_markdown) <> ''),
+  approval_decision TEXT CHECK (approval_decision IS NULL OR approval_decision IN ('approved', 'declined')),
+  author_actor_id TEXT NOT NULL CHECK (trim(author_actor_id) <> ''),
+  consumed_by_run_id TEXT,
+  consumed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE RESTRICT,
+  FOREIGN KEY (gate_id) REFERENCES task_gates(gate_id) ON DELETE RESTRICT,
+  FOREIGN KEY (consumed_by_run_id) REFERENCES agent_runs(run_id) ON DELETE RESTRICT,
+  CHECK ((consumed_by_run_id IS NULL AND consumed_at IS NULL) OR (consumed_by_run_id IS NOT NULL AND consumed_at IS NOT NULL))
+);
+
+INSERT INTO task_gates (
+  gate_id, task_id, task_generation, gate_kind, gate_state, recovery_reason,
+  retry_run_kind, prompt_markdown, context_markdown, suggested_answers_json,
+  opened_by_actor_id, originating_run_id, resolved_by_actor_id,
+  resolution_message_id, opened_at, resolved_at
+)
+SELECT
+  gate_id, task_id, task_generation, gate_kind, gate_state, recovery_reason,
+  retry_run_kind, prompt_markdown, context_markdown, suggested_answers_json,
+  opened_by_actor_id, originating_run_id, resolved_by_actor_id,
+  resolution_message_id, opened_at, resolved_at
+FROM task_gates_v52;
+
+INSERT INTO task_messages (
+  message_id, task_id, task_generation, gate_id, message_kind, body_markdown,
+  approval_decision, author_actor_id, consumed_by_run_id, consumed_at, created_at
+)
+SELECT
+  message_id, task_id, task_generation, gate_id, message_kind, body_markdown,
+  approval_decision, author_actor_id, consumed_by_run_id, consumed_at, created_at
+FROM task_messages_v52;
+
+DROP TABLE task_messages_v52;
+DROP TABLE task_gates_v52;
+CREATE UNIQUE INDEX task_gates_one_open_per_task
+ON task_gates(task_id) WHERE gate_state = 'open';
+CREATE INDEX task_gates_attention
+ON task_gates(gate_state, gate_kind, opened_at, task_id) WHERE gate_state = 'open';
+CREATE INDEX task_messages_pending
+ON task_messages(task_id, task_generation, created_at, message_id) WHERE consumed_at IS NULL;
+CREATE INDEX task_messages_history ON task_messages(task_id, created_at, message_id);
+PRAGMA legacy_alter_table = OFF;
+
+DROP TABLE task_reviews;
+DROP TABLE task_submissions;
+DROP TABLE task_execution_contracts;
+"#;
 
 /// Current mutable Task-file location and role-transition metadata.
 const MUTABLE_TASK_FILES_SQL: &str = r#"

@@ -356,7 +356,6 @@ fn require_active_fence(
                AND run.status = 'running' AND run.cancellation_requested = 0
                AND run.lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                AND run.task_generation = ?3 AND task.generation = ?3
-               AND ((run.contract_id IS NULL AND ?4 IS NULL) OR run.contract_id = ?4)
                AND task.stage_id = 'stage:personal:doing'
                AND task.latest_run_id = run.run_id",
             params![
@@ -368,7 +367,6 @@ fn require_active_fence(
                         message: "generation exceeds SQLite range".to_string(),
                     }
                 ))?,
-                fence.contract_id.as_ref().map(ToString::to_string),
             ],
             |row| row.get::<_, String>(0),
         )

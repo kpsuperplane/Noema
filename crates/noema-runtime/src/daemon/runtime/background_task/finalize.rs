@@ -18,10 +18,10 @@ impl RuntimeActor {
         let run_fence = request.work_run_fence();
         let now = tokio::time::Instant::now();
         let deadline = task_finalization_deadline(deadline, now);
-        let terminal_tools = terminal_contract_tools(model_tools);
+        let terminal_tools = task_terminal_tools(model_tools);
         if terminal_tools.is_empty() {
             return Err(RuntimeError::Protocol(
-                "task execution role has no terminal contract tool".to_string(),
+                "task execution role has no terminal tool".to_string(),
             ));
         }
         let terminal_bindings = binding_snapshot_for_specs(model_tools, &terminal_tools)?;
@@ -70,7 +70,7 @@ impl RuntimeActor {
             ) => result,
         };
         if propagate_compaction_result(compaction_result)? {
-            append_task_document_after_compaction(&self.store, request, context).await?;
+            append_task_document_after_compaction(&self.store, &request.task_id, context).await?;
             let readmission = context
                 .compact_to_fit(
                     provider,
@@ -117,7 +117,6 @@ impl RuntimeActor {
                 &request.task_id,
                 &request.lease_token,
                 request.task_generation,
-                request.contract_id.as_ref(),
                 "finalization",
                 i64::from(request.execution_policy.max_provider_continuations),
                 deadline,
@@ -153,7 +152,6 @@ impl RuntimeActor {
                     &request.task_id,
                     &request.lease_token,
                     request.task_generation,
-                    request.contract_id.as_ref(),
                     "finalization",
                     i64::from(request.execution_policy.max_provider_continuations),
                     deadline,
@@ -176,7 +174,7 @@ impl RuntimeActor {
             || !is_valid_terminal_tool(request.role, &terminal_calls[0].name)
         {
             return Err(RuntimeError::Protocol(format!(
-                "task terminal contract missing or ambiguous after {reason}"
+                "task terminal tool missing or ambiguous after {reason}"
             )));
         }
         let terminal_call = terminal_calls[0];
@@ -232,10 +230,7 @@ impl RuntimeActor {
             &run_fence,
         )
         .await;
-        Ok(BackgroundTaskGenerateResult {
-            response,
-            citation_sources: std::mem::take(citation_sources),
-        })
+        Ok(BackgroundTaskGenerateResult { response })
     }
 
     async fn persist_progress_notice(

@@ -39,17 +39,10 @@ pub(crate) fn require_origin_execution_live_tx(
               AND runs.lease_token = ?3
               AND runs.lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
               AND runs.task_generation = ?4 AND tasks.generation = ?4
-              AND ((runs.contract_id IS NULL AND ?5 IS NULL) OR runs.contract_id = ?5)
               AND runs.cancellation_requested = 0
               AND tasks.cancelled_at IS NULL AND tasks.completed_at IS NULL
             "#,
-            params![
-                run_id,
-                task_id,
-                fence.lease_token,
-                fence.task_generation,
-                fence.contract_id.as_ref().map(ToString::to_string)
-            ],
+            params![run_id, task_id, fence.lease_token, fence.task_generation,],
             |row| row.get::<_, i64>(0),
         )?
     } else {

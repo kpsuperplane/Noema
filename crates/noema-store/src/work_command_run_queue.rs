@@ -2,9 +2,8 @@
 
 use noema_providers::{ProviderRegistry, ProviderSelectionSnapshot, ReasoningEffort};
 use noema_tasks::{
-    AcpExecutorSnapshot, AgentRunRecord, RunKind, TaskComplexity, TaskContractId,
-    TaskExecutionPolicy, TaskExecutorBackend, TaskExecutorSelection, WorkDomainError,
-    WorkEventRecord,
+    AcpExecutorLaunch, AgentRunRecord, RunKind, TaskComplexity, TaskExecutionPolicy,
+    TaskExecutorBackend, TaskExecutorSelection, WorkDomainError, WorkEventRecord,
 };
 use rusqlite::{Transaction, params};
 
@@ -20,21 +19,16 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct QueueRun<'a> {
     pub run_kind: RunKind,
-    pub contract_id: Option<&'a TaskContractId>,
     pub planner_complexity: Option<TaskComplexity>,
     pub review_round: u32,
     pub attempt_index: u32,
     pub parent_run_id: Option<&'a str>,
-    pub triggering_submission_id: Option<&'a str>,
-    pub triggering_review_id: Option<&'a str>,
     pub event: CommandEventContext<'a>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct QueuePinnedChildRun<'a> {
     pub attempt_index: u32,
-    pub triggering_submission_id: Option<&'a str>,
-    pub triggering_review_id: Option<&'a str>,
     pub event: CommandEventContext<'a>,
 }
 
@@ -90,10 +84,7 @@ pub(crate) fn queue_pinned_child_run_tx(
     parent: &AgentRunRecord,
     request: QueuePinnedChildRun<'_>,
 ) -> Result<(String, WorkEventRecord), StoreError> {
-    if parent.task_id != task.task_id
-        || parent.task_generation != task.generation
-        || parent.contract_id != task.current_contract_id
-    {
+    if parent.task_id != task.task_id || parent.task_generation != task.generation {
         return Err(StoreError::Work(WorkDomainError::RunFenced));
     }
     let model = parent
@@ -108,13 +99,10 @@ pub(crate) fn queue_pinned_child_run_tx(
         .map_err(StoreError::Work)?;
     let request = QueueRun {
         run_kind: parent.run_kind,
-        contract_id: parent.contract_id.as_ref(),
         planner_complexity: None,
         review_round: parent.review_round,
         attempt_index: request.attempt_index,
         parent_run_id: Some(&parent.run_id),
-        triggering_submission_id: request.triggering_submission_id,
-        triggering_review_id: request.triggering_review_id,
         event: request.event,
     };
     insert_run_snapshot_tx(
@@ -161,7 +149,7 @@ fn run_executor_tx(
         }
         (
             TaskExecutorBackend::Acp,
-            Some(AcpExecutorSnapshot {
+            Some(AcpExecutorLaunch {
                 connection_revision: u64::try_from(revision).map_err(|_| {
                     StoreError::InvariantViolation {
                         message: "ACP connection revision exceeds supported range".to_string(),
@@ -222,6 +210,68 @@ pub(crate) fn provider_route_unavailable(error: &StoreError) -> bool {
     )
 }
 
+pub(crate) fn refresh_run_settings_tx(
+    transaction: &Transaction<'_>,
+    registry: &ProviderRegistry,
+    task: &TaskState,
+    run: &AgentRunRecord,
+) -> Result<(), StoreError> {
+    let model = if run.run_kind == RunKind::Reviewer {
+        reviewer_preference_tx(transaction)?
+    } else {
+        let complexity = task.execution_complexity.unwrap_or(TaskComplexity::Medium);
+        let pool_entry_id: String = transaction.query_row(
+            "SELECT pool_entry_id FROM task_model_pool_entries WHERE complexity = ?1 AND enabled = 1 ORDER BY sort_order, label, pool_entry_id LIMIT 1",
+            [complexity.as_str()],
+            |row| row.get(0),
+        )?;
+        pool_selection_tx(transaction, complexity, &pool_entry_id)?
+    };
+    let model = model
+        .normalized_for_persistence()
+        .map_err(|_| StoreError::Work(WorkDomainError::ConfigurationUnavailable))?;
+    let _ready = prove_selection_ready(&model, registry)?;
+    let policy = load_policy_tx(transaction)?
+        .validated()
+        .map_err(StoreError::Work)?;
+    let (executor, effective_cwd) = run_executor_tx(transaction, task, run.run_kind)?;
+    let acp_revision = executor
+        .acp
+        .as_ref()
+        .map(|snapshot| snapshot.connection_revision);
+    let acp_launch_json = executor
+        .acp
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
+    transaction.execute(
+        "UPDATE agent_runs SET agent_id = ?2, provider_kind = ?3, provider_account_id = ?4, provider_instance_key = ?5, selection_mode = ?6, model_profile = ?7, reasoning_effort = ?8, fast_mode = ?9, selection_source = ?10, max_provider_continuations = ?11, max_tool_calls = ?12, max_active_minutes = ?13, progress_audit_interval = ?14, max_automatic_retries = ?15, max_review_rounds = ?16, execution_backend_kind = ?17, acp_connection_revision = ?18, acp_launch_json = ?19, effective_cwd = ?20, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND status = 'leased'",
+        params![
+            run.run_id,
+            executor.agent_id,
+            model.provider_kind,
+            model.provider_account_id,
+            model.provider_instance_key.as_ref().map(ToString::to_string),
+            model.selection_mode.as_str(),
+            model.model_profile,
+            model.reasoning_effort.map(|value| value.as_persistence_str()),
+            model.fast_mode,
+            model.selection_source,
+            policy.max_provider_continuations,
+            policy.max_tool_calls,
+            policy.max_active_minutes,
+            policy.progress_audit_interval,
+            policy.max_automatic_retries,
+            policy.max_review_rounds,
+            executor.backend.as_str(),
+            acp_revision,
+            acp_launch_json,
+            effective_cwd,
+        ],
+    )?;
+    Ok(())
+}
+
 fn insert_run_snapshot_tx(
     transaction: &Transaction<'_>,
     task: &TaskState,
@@ -244,30 +294,26 @@ fn insert_run_snapshot_tx(
         .transpose()?;
     transaction.execute(
         r#"INSERT INTO agent_runs (
-             run_id, instance_name, task_id, task_generation, contract_id, run_kind, agent_id,
-             attempt_index, review_round, parent_run_id, triggering_submission_id,
-             triggering_review_id, provider_kind, provider_account_id,
+             run_id, instance_name, task_id, task_generation, run_kind, agent_id,
+             attempt_index, review_round, parent_run_id, provider_kind, provider_account_id,
              provider_instance_key, selection_mode, model_profile,
              reasoning_effort, fast_mode, selection_source, max_provider_continuations,
              max_tool_calls, max_active_minutes, progress_audit_interval,
              max_automatic_retries, max_review_rounds, execution_backend_kind,
              acp_connection_revision, acp_launch_json, effective_cwd, status
-           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                     ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24,
-                     ?25, ?26, ?27, ?28, ?29, ?30, 'queued')"#,
+           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+                     ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
+                     ?23, ?24, ?25, ?26, ?27, 'queued')"#,
         params![
             run_id,
             instance_name,
             task.task_id.as_str(),
             task.generation,
-            request.contract_id.map(ToString::to_string),
             request.run_kind.as_str(),
             executor.agent_id,
             request.attempt_index,
             request.review_round,
             request.parent_run_id,
-            request.triggering_submission_id,
-            request.triggering_review_id,
             model.provider_kind,
             model.provider_account_id,
             model
@@ -300,7 +346,7 @@ fn insert_run_snapshot_tx(
     let payload = noema_tasks::WorkEventPayload::run_queued(
         request.run_kind,
         task.generation,
-        request.contract_id.cloned(),
+        None,
         request.attempt_index,
         request.review_round,
         request.parent_run_id.map(ToOwned::to_owned),

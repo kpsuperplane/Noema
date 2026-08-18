@@ -258,15 +258,9 @@ pub(crate) async fn execute_acp_run(
         name: terminal.tool,
         payload: terminal.arguments,
     };
-    super::daemon::task_runtime::execution::parse_terminal(
-        run,
-        context,
-        &[call],
-        fence.clone(),
-        &[],
-    )
-    .map(|terminal| AcpRunOutcome::Terminal(Box::new(terminal)))
-    .map_err(crate::daemon::RuntimeError::Protocol)
+    super::daemon::task_runtime::execution::parse_terminal(run, context, &[call], fence.clone())
+        .map(|terminal| AcpRunOutcome::Terminal(Box::new(terminal)))
+        .map_err(crate::daemon::RuntimeError::Protocol)
 }
 
 fn map_process_loss(error: String, approval_was_sent: bool) -> crate::daemon::RuntimeError {
@@ -422,7 +416,6 @@ async fn handle_permission_request(
     let arguments = serde_json::json!({
         "agent_id": run.agent_id,
         "task_generation": run.task_generation,
-        "contract_id": run.contract_id,
         "tool_call": request.tool_call,
         "options": request.options,
         "allow_once_option_id": allow_once.option_id,
@@ -489,7 +482,6 @@ async fn handle_permission_request(
                 "run_id": run.run_id,
                 "task_id": run.task_id,
                 "task_generation": run.task_generation,
-                "contract_id": run.contract_id,
                 "task_authorization": context.task.authorization_context,
                 "exact_request": request,
             }),
@@ -662,7 +654,6 @@ for line in sys.stdin:
             run_id: claimed.run.run_id.clone(),
             lease_token: claimed.lease_token,
             task_generation: claimed.run.task_generation,
-            contract_id: claimed.run.contract_id.clone(),
         };
         service
             .start_work_run(&fence, "actor:test", None, "correlation:test:acp")

@@ -22,7 +22,7 @@ graphql_object_from! { "Task gate category." => pub struct GraphqlTaskGate("Task
     "Resolution message identity, when resolved." => resolution: Option<String> = value.resolution_message_id.map(|id| id.into_string()),
 } }
 
-graphql_object_from! { "Human message in the immutable task history." => pub struct GraphqlTaskMessage("TaskMessage")
+graphql_object_from! { "Human message in Task history." => pub struct GraphqlTaskMessage("TaskMessage")
     from noema_tasks::TaskMessageRecord as value {
     "Message identity." => message_id: String = value.message_id.into_string(),
     "Safe Markdown body." => body_markdown: String = value.body_markdown,
@@ -37,7 +37,6 @@ graphql_object_from! { "Current run projection, intentionally separate from task
     "Planner, Executor, or Reviewer." => kind: GraphqlTaskRunKind = value.run_kind.into(),
     "Run-local queue/lease status." => status: GraphqlTaskRunStatus = value.status.into(),
     "Lineage attempt." => attempt_index: i64 = i64::from(value.attempt_index),
-    "Contract identity, absent for Planner." => contract_id: Option<String> = value.contract_id.map(|id| id.into_string()),
     "Queue timestamp." => queued_at: String = value.queued_at,
     "Start timestamp." => started_at: Option<String> = value.started_at,
     "Last update timestamp." => updated_at: String = value.updated_at,
@@ -52,12 +51,9 @@ graphql_object_from! { "Safe audit projection of one run." => pub struct Graphql
     "Run-local status." => status: GraphqlTaskRunStatus = value.status.into(),
     "Agent identity." => agent_id: String = value.agent_id,
     "Task generation." => task_generation: i64 = exact_u64(value.task_generation)?,
-    "Contract identity, absent for Planner." => contract_id: Option<String> = value.contract_id.map(|id| id.into_string()),
     "Attempt index." => attempt_index: i64 = i64::from(value.attempt_index),
     "Review round." => review_round: i64 = i64::from(value.review_round),
     "Parent run, when any." => parent_run_id: Option<String> = value.parent_run_id,
-    "Submission trigger, when any." => triggering_submission_id: Option<String> = value.triggering_submission_id,
-    "Review trigger, when any." => triggering_review_id: Option<String> = value.triggering_review_id,
     "Requested model snapshot." => model: GraphqlTaskModelSnapshot = value.model.into(),
     "Executor backend frozen into this run." => executor_backend: String = value.executor.backend.to_string(),
     "Executor agent identity frozen into this run." => executor_agent_id: String = value.executor.agent_id,

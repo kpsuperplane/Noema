@@ -3,10 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use crate::{
-    NewTaskSchedule, NewTaskValidationCriterion, TaskComplexity, TaskContractAmendment,
-    TaskContractId, TaskGateAnswer, TaskGateId, TaskId, TaskProvenance, TaskRecurrenceId,
-    WorkDomainError, WorkEventId,
-    criteria::normalize_new_criteria,
+    NewTaskSchedule, TaskComplexity, TaskGateAnswer, TaskGateId, TaskId, TaskProvenance,
+    TaskRecurrenceId, TaskReopenDirection, WorkDomainError, WorkEventId,
     error::invalid_input,
     validation::{optional as normalize_optional, required},
 };
@@ -110,9 +108,7 @@ impl ProjectPrecondition {
 #[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct DelegateExecutionIntent {
     pub request_markdown: String,
-    pub criteria: Vec<NewTaskValidationCriterion>,
     pub complexity: TaskComplexity,
-    pub execution_plan_markdown: Option<String>,
 }
 
 macro_rules! work_commands {
@@ -190,7 +186,7 @@ work_commands! {
     /// Cancel any nonterminal task and fence its runnable work.
     CancelTask => "task.cancel", "Cancel active work." { meta: CommandMeta, precondition: TaskPrecondition, reason: Option<String> }
     /// Reopen terminal history into a fresh queued generation with new direction.
-    ReopenTask => "task.reopen", "Reopen terminal history." { meta: CommandMeta, precondition: TaskPrecondition, amendment: TaskContractAmendment }
+    ReopenTask => "task.reopen", "Reopen terminal history." { meta: CommandMeta, precondition: TaskPrecondition, direction: TaskReopenDirection }
     /// Create an active project container.
     CreateProject => "project.create", "Create project." { meta: CommandMeta, workspace_id: WorkspaceId, name: String, description: String, folder: Option<String> }
     /// Update an existing project name/description.
@@ -329,7 +325,7 @@ impl WorkCommand {
             }
             Self::ReopenTask(mut command) => {
                 command.precondition.validate()?;
-                command.amendment = command.amendment.normalized()?;
+                command.direction = command.direction.normalized()?;
                 Ok(Self::ReopenTask(command))
             }
             Self::CreateProject(mut command) => {
@@ -414,14 +410,9 @@ fn normalize_absolute_path(
 impl DelegateExecutionIntent {
     /// Normalize and validate a complete delegated execution intent.
     /// # Errors
-    /// Returns [`WorkDomainError`] when request, plan, or criteria are invalid.
+    /// Returns [`WorkDomainError`] when the request is blank.
     pub fn normalized(mut self) -> Result<Self, WorkDomainError> {
         self.request_markdown = required(&self.request_markdown, "delegate.request_markdown")?;
-        self.criteria = normalize_new_criteria(&self.criteria)?;
-        self.execution_plan_markdown = self
-            .execution_plan_markdown
-            .map(|value| required(&value, "delegate.execution_plan_markdown"))
-            .transpose()?;
         Ok(self)
     }
 }
@@ -432,7 +423,6 @@ impl DelegateExecutionIntent {
 pub struct WorkCommandResult {
     pub task: Option<crate::TaskRecord>,
     pub project: Option<noema_workspaces::ProjectRecord>,
-    pub contract_id: Option<TaskContractId>,
     pub gate_id: Option<TaskGateId>,
     pub run_id: Option<String>,
     pub event_id: WorkEventId,

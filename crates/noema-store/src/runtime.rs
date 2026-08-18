@@ -102,6 +102,7 @@ impl NoemaStore {
         work(&mut conn)
     }
 
+    #[cfg(test)]
     pub(crate) fn default_task_cwd(&self, task_id: &str) -> PathBuf {
         self.home_root.join("tasks").join(task_id)
     }
@@ -222,9 +223,13 @@ fn incompatible_inspection_error(error: StoreError) -> SchemaCompatibility {
 }
 
 fn migrate_accepted_database(conn: &mut Connection) -> Result<(), StoreError> {
+    // Table rebuilds need foreign-key checks disabled until all migrations in
+    // the accepted sequence commit. Runtime enforcement starts after this
+    // function completes.
+    conn.pragma_update(None, "foreign_keys", "OFF")?;
     match classify_schema(conn)? {
         SchemaCompatibility::Empty | SchemaCompatibility::Migratable { .. } => {
-            store_migrations().to_latest(conn)?;
+            migrate_to_latest(conn)?;
         }
         SchemaCompatibility::LegacyBaseline => adopt_legacy_baseline(conn)?,
         SchemaCompatibility::Current => return Ok(()),
@@ -236,6 +241,7 @@ fn migrate_accepted_database(conn: &mut Connection) -> Result<(), StoreError> {
 }
 
 fn adopt_legacy_baseline(conn: &mut Connection) -> Result<(), StoreError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")?;
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     if classify_schema(&tx)? != SchemaCompatibility::LegacyBaseline {
         return Err(StoreError::IncompatibleSchema {
@@ -247,7 +253,16 @@ fn adopt_legacy_baseline(conn: &mut Connection) -> Result<(), StoreError> {
     // migration authority apply adoption and every later schema change.
     tx.pragma_update(None, "user_version", 1)?;
     tx.commit().map_err(StoreError::Sqlite)?;
-    store_migrations().to_latest(conn).map_err(StoreError::from)
+    migrate_to_latest(conn)
+}
+
+fn migrate_to_latest(conn: &mut Connection) -> Result<(), StoreError> {
+    // Migration 52 temporarily narrows one rebuilt check constraint. Ignore
+    // checks while later migrations restore its complete accepted values.
+    conn.pragma_update(None, "ignore_check_constraints", "ON")?;
+    let result = store_migrations().to_latest(conn);
+    conn.pragma_update(None, "ignore_check_constraints", "OFF")?;
+    result.map_err(StoreError::from)
 }
 
 fn classify_schema(conn: &Connection) -> Result<SchemaCompatibility, StoreError> {
@@ -486,6 +501,7 @@ fn require_current_schema(state: SchemaCompatibility) -> Result<(), StoreError> 
 
 fn canonical_schema_objects(version: usize) -> Result<Vec<SchemaObject>, StoreError> {
     let mut conn = Connection::open_in_memory()?;
+    conn.pragma_update(None, "foreign_keys", "OFF")?;
     store_migrations().to_version(&mut conn, version)?;
     schema_objects(&conn)
 }
@@ -500,15 +516,20 @@ fn schema_objects(conn: &Connection) -> Result<Vec<SchemaObject>, StoreError> {
         "#,
     )?;
     let rows = statement.query_map([], |row| {
+        let sql: Option<String> = row.get(3)?;
         Ok(SchemaObject {
             object_type: row.get(0)?,
             name: row.get(1)?,
             table_name: row.get(2)?,
-            sql: row.get(3)?,
+            sql: sql.map(normalize_agent_run_reference_sql),
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(StoreError::Sqlite)
+}
+
+fn normalize_agent_run_reference_sql(sql: String) -> String {
+    sql.replace("REFERENCES \"agent_runs\"", "REFERENCES agent_runs")
 }
 
 fn schema_version(conn: &Connection) -> Result<i64, StoreError> {

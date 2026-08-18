@@ -9,7 +9,7 @@ nonisolated public struct PendingChatInterventionsQuery: GraphQLQuery {
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
       #"query PendingChatInterventions($conversationId: String, $taskId: String, $projectId: String, $first: Int = 50) { pendingHumanInterventions( conversationId: $conversationId taskId: $taskId projectId: $projectId first: $first ) { __typename ... on TaskAttention { kind title summary gate { __typename ...TasksGateFields } task { __typename ...TasksTaskCardFields } validActions } ... on GovernedAction { actionId revision governedConversationId: conversationId taskId runId capabilityName reviewRoute behavior { __typename readOnly idempotent destructive openWorld } safeSummary target { __typename serviceName connectionLabel serviceId connectionId accountId } disclosure { __typename recipient contentSummary } consequence arguments governedState: state output failureCode } ... on McpAuthenticationIntervention { requestId revision mcpAuthConversationId: conversationId taskId runId mcpAuthServerId: mcpServerId serverDisplayName capabilityName mcpAuthState: state failureCode } ... on AdapterAuthenticationIntervention { requestId revision adapterAuthConversationId: conversationId taskId runId adapterConnectionId serviceDisplayName capabilityName adapterAuthState: state failureCode } ... on McpSetupIntervention { itemId setupConversationId: conversationId setupStatus displayName description serviceUrl endpointUrl oauthSupported discoveredToolCount setupMcpServerId: mcpServerId connectionRevision policyRevision toolCount } ... on AdapterOauthClientSetupIntervention { profileDigest displayName oauthCredentialSetup: credentialSetup { __typename ...AdapterCredentialSetupFields } dependentDefinitions { __typename semanticDigest displayName } } ... on AdapterDefinition { semanticDigest definitionId adapterId displayName definitionRevision sourceReference origin authenticationMode oauthProfileDigest scopes credentialSetup { __typename ...AdapterCredentialSetupFields } accountIdentityOperationId connectionCount reviewed superseded nextAction { __typename kind semanticDigest applicationId expectedApplicationRevision grantId expectedGrantRevision connectionId expectedConnectionRevision expectedPolicyRevision operationIds missingScopes } connections { __typename connectionId status grantId accountId connectionRevision credentialRevision grantRevision policyRevision grantedScopes allowedOperations policyConfigured operationAccess { __typename operationId status missingScopes } } transition { __typename addedOperations changedOperations removedOperations authenticationChanged affectedConnections affectedSchedules authenticationRequiredConnections consolidatedConnections } operations { __typename operationId method path readOnly idempotent destructive openWorld argumentNames responseTransform { __typename language sourceDigest source acceptedContentTypes outputSchemaJson } } } } }"#,
-      fragments: [AdapterCredentialSetupFields.self, TasksCurrentRunFields.self, TasksGateFields.self, TasksProjectFields.self, TasksReviewSummaryFields.self, TasksStageFields.self, TasksTaskCardFields.self, TasksWorkspaceFields.self]
+      fragments: [AdapterCredentialSetupFields.self, TasksCurrentRunFields.self, TasksGateFields.self, TasksProjectFields.self, TasksStageFields.self, TasksTaskCardFields.self, TasksWorkspaceFields.self]
     ))
 
   public var conversationId: GraphQLNullable<String>
@@ -208,7 +208,7 @@ nonisolated public struct PendingChatInterventionsQuery: GraphQLQuery {
           public var executorAgentId: String { __data["executorAgentId"] }
           /// Assigned executor backend.
           public var executorBackend: String { __data["executorBackend"] }
-          /// Explicit task working-directory override.
+          /// Explicit Task directory base override.
           public var cwdOverride: String? { __data["cwdOverride"] }
           /// Derived effective working directory when already frozen or explicitly configured.
           public var effectiveCwd: String? { __data["effectiveCwd"] }
@@ -232,8 +232,6 @@ nonisolated public struct PendingChatInterventionsQuery: GraphQLQuery {
           public var currentRun: CurrentRun? { __data["currentRun"] }
           /// Open gate projection.
           public var activeGate: ActiveGate? { __data["activeGate"] }
-          /// Latest review projection.
-          public var latestReview: LatestReview? { __data["latestReview"] }
           /// Server-authorized actions.
           public var validActions: [GraphQLEnum<NoemaAPI.ValidTaskAction>] { __data["validActions"] }
 
@@ -256,7 +254,6 @@ nonisolated public struct PendingChatInterventionsQuery: GraphQLQuery {
 
           public typealias ActiveGate = TasksTaskCardFields.ActiveGate
 
-          public typealias LatestReview = TasksTaskCardFields.LatestReview
         }
       }
 

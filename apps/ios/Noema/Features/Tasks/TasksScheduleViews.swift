@@ -355,7 +355,7 @@ struct TasksExecutorFields: View {
           .pickerStyle(.menu)
           .tint(NoemaColor.content)
         }
-        TasksSheetField("Working directory override (optional)") {
+        TasksSheetField("Task directory base (optional)") {
           TextField("/absolute/path", text: $cwdOverride)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
@@ -383,10 +383,10 @@ struct TasksExecutorFields: View {
   private let projectFolder: String?
 
   private var summary: String {
-    if let override = cwdOverride.nilIfBlank { return "Effective CWD · task · \(override)" }
-    if let projectFolder { return "Effective CWD · project · \(projectFolder)" }
-    if let effectiveCwd { return "Effective CWD · default · \(effectiveCwd)" }
-    return "Effective CWD · default · Noema task folder (created when queued)"
+    if let override = cwdOverride.nilIfBlank { return "Task directory · under \(override)" }
+    if let projectFolder { return "Task directory · under \(projectFolder)" }
+    if let effectiveCwd { return "Task directory · \(effectiveCwd)" }
+    return "Task directory · Noema Tasks folder (created when queued)"
   }
 }
 

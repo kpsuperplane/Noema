@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    GateResolutionKind, RunKind, TaskContractId, TaskGateId, TaskId, TaskMessageId,
-    WorkDomainError, error::invalid_input,
+    GateResolutionKind, RunKind, TaskGateId, TaskId, TaskMessageId, WorkDomainError,
+    error::invalid_input,
 };
 
 string_enum! {
@@ -174,7 +174,6 @@ pub struct TaskGateRecord {
     pub gate_id: TaskGateId,
     pub task_id: TaskId,
     pub task_generation: u64,
-    pub contract_id: Option<TaskContractId>,
     pub kind: TaskGateKind,
     pub state: TaskGateState,
     pub recovery_reason: Option<TaskRecoveryReason>,
@@ -299,9 +298,7 @@ pub struct TaskMessageRecord {
     pub message_id: TaskMessageId,
     pub task_id: TaskId,
     pub task_generation: u64,
-    pub contract_id: Option<TaskContractId>,
     pub gate_id: Option<TaskGateId>,
-    pub review_id: Option<String>,
     pub kind: TaskMessageKind,
     pub body_markdown: String,
     pub approval_decision: Option<ApprovalDecision>,

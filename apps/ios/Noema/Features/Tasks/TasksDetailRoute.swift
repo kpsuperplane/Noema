@@ -64,9 +64,7 @@ private struct TasksDetailContent: View {
   @State private var queuePresented = false
   @State private var scheduleAction: TasksScheduleAction?
   @State private var cancelPresented = false
-  @State private var selectedArtifact: ArtifactSelection?
   @State private var taskInfoPresented = false
-  @State private var validationPresented = false
   @State private var gateResponse = ""
   @State private var selectedTab: TaskResultTab = .result
   @State private var followsTranscriptBottom = true
@@ -78,18 +76,18 @@ private struct TasksDetailContent: View {
       if detail.schedule != nil {
         TasksRecurrenceSummaryView(model: model, task: detail)
       }
-      if let completed = acceptedCompletion {
+      if detail.stage.behavior == .terminalSuccess {
         TasksCompletedTabBar(selection: $selectedTab)
         TasksResultPager(selection: $selectedTab) {
           ScrollView {
-            TasksCompletedResultView(submission: completed, onArtifact: openArtifact)
+            TasksCompletedResultView(taskDocument: detail.taskDocument, reviewDocument: detail.reviewDocument)
           }
           .scrollDismissesKeyboard(.interactively)
         } transcript: {
-          transcriptScroller(submission: completed)
+          transcriptScroller
         }
       } else {
-        transcriptScroller(submission: detail.latestSubmission)
+        transcriptScroller
       }
     }
     .navigationTitle(detail.title)
@@ -113,17 +111,11 @@ private struct TasksDetailContent: View {
     .noemaSheet(item: $scheduleAction) { action in
       TasksScheduleSheet(model: model, task: detail, action: action)
     }
-    .noemaSheet(item: $selectedArtifact) { selection in
-      ArtifactVersionSheet(model: ArtifactModel(client: model.client, profile: model.profile), selection: selection)
-    }
     .noemaSheet(isPresented: $cancelPresented) {
       TasksCancelSheet(model: model, task: detail)
     }
     .noemaSheet(isPresented: $taskInfoPresented) {
       TasksTaskInfoSheet(detail: detail)
-    }
-    .noemaSheet(isPresented: $validationPresented) {
-      TasksValidationSheet(criteria: detail.latestSubmission?.criteria ?? detail.criteria)
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
       VStack(spacing: 0) {
@@ -153,11 +145,9 @@ private struct TasksDetailContent: View {
         TasksTaskContextDock(
           run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
           activity: latestRunActivity,
-          criteria: detail.latestSubmission?.criteria ?? detail.criteria,
           canCancel: hasAction("CANCEL") && model.isConnected,
           cancel: { cancelPresented = true },
-          showInfo: { taskInfoPresented = true },
-          showValidation: { validationPresented = true }
+          showInfo: { taskInfoPresented = true }
         )
         .padding(.horizontal, NoemaSpacing.lg)
         .offset(y: detail.activeGate == nil ? 0 : -NoemaSpacing.xxl)
@@ -223,7 +213,7 @@ private struct TasksDetailContent: View {
     "\(detail.id):\(detail.messages.count):\(detail.runs.count):\(model.runItems.count):\(model.isLoadingDetail):\(detail.activeGate?.id ?? "none")"
   }
 
-  private func transcriptScroller(submission: TasksSubmissionSnapshot?) -> some View {
+  private var transcriptScroller: some View {
     ScrollViewReader { reader in
       ScrollView {
         VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
@@ -234,9 +224,7 @@ private struct TasksDetailContent: View {
             hasMore: model.hasMoreRunItems,
             isLoadingMore: model.isLoadingOlderRunItems,
             request: detail.description.nilIfBlank ?? detail.title,
-            submission: submission,
-            loadMore: { Task { await model.loadOlderRunItems() } },
-            onArtifact: openArtifact
+            loadMore: { Task { await model.loadOlderRunItems() } }
           )
           Color.clear
             .frame(height: compactPresentation ? 27 : 1)
@@ -270,11 +258,6 @@ private struct TasksDetailContent: View {
     }
   }
 
-  private func openArtifact(_ artifact: TasksArtifactSnapshot) {
-    guard let versionID = artifact.versionID.nilIfBlank else { return }
-    selectedArtifact = ArtifactSelection(versionID: versionID, title: artifact.title, backTitle: "Back to task details")
-  }
-
   private func runDate(_ run: TasksRunSnapshot) -> String {
     run.createdAt ?? run.startedAt ?? ""
   }
@@ -285,10 +268,6 @@ private struct TasksDetailContent: View {
       .filter { $0.runId == runID }
       .max(by: { $0.sequence < $1.sequence })?
       .content
-  }
-
-  private var acceptedCompletion: TasksSubmissionSnapshot? {
-    detail.stage.behavior == .terminalSuccess ? detail.completedResult : nil
   }
 
   private var taskInterventions: [HumanIntervention] {
