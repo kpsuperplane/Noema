@@ -211,7 +211,6 @@ export function PendingHumanInterventionsResult({
     </HStack>
   ) : null;
   const empty = result.data
-    && !result.loading
     && !stale
     && visibleInterventions.length === 0
     ? emptyContent
