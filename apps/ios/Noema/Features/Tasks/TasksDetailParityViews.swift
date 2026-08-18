@@ -242,6 +242,7 @@ struct TasksTranscriptSection: View {
   let hasMore: Bool
   let isLoadingMore: Bool
   let request: String
+  let bottomSpacing: CGFloat
   let loadMore: () -> Void
 
   private enum Event: Identifiable {
@@ -266,7 +267,30 @@ struct TasksTranscriptSection: View {
     }
   }
 
-  private var events: [Event] {
+  private enum Row: Identifiable {
+    case request(String)
+    case message(TasksMessageSnapshot)
+    case runBoundary(TasksRunSnapshot, ending: Bool)
+    case runItem(TasksRunItemSnapshot, result: TasksRunItemSnapshot?)
+    case activity(TasksRunSnapshot, String)
+
+    var id: String {
+      switch self {
+      case .request: "request"
+      case .message(let message): "message:\(message.id)"
+      case .runBoundary(let run, let ending): "run:\(run.id):\(ending ? "end" : "start")"
+      case .runItem(let item, _): "run-item:\(item.id)"
+      case .activity(let run, _): "run:\(run.id):activity"
+      }
+    }
+  }
+
+  private struct OrderedEvent {
+    let event: Event
+    let timestamp: Date
+  }
+
+  private var rows: [Row] {
     var events: [Event] = []
     if let request = request.nilIfBlank, !capturedRequestIsAlreadyShown {
       events.append(.request(request))
@@ -275,10 +299,32 @@ struct TasksTranscriptSection: View {
     for run in runs {
       events.append(.run(run))
     }
-    return events.sorted {
-      let left = parseTimestamp($0.timestamp) ?? .distantPast
-      let right = parseTimestamp($1.timestamp) ?? .distantPast
-      return left == right ? $0.id < $1.id : left < right
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let plain = ISO8601DateFormatter()
+    plain.formatOptions = [.withInternetDateTime]
+    var orderedEvents: [OrderedEvent] = []
+    orderedEvents.reserveCapacity(events.count)
+    for event in events {
+      let timestamp = fractional.date(from: event.timestamp)
+        ?? plain.date(from: event.timestamp)
+        ?? .distantPast
+      orderedEvents.append(OrderedEvent(event: event, timestamp: timestamp))
+    }
+    orderedEvents.sort {
+      $0.timestamp == $1.timestamp ? $0.event.id < $1.event.id : $0.timestamp < $1.timestamp
+    }
+    var itemsByRunID: [String: [TasksRunItemSnapshot]] = [:]
+    for item in runItems { itemsByRunID[item.runId, default: []].append(item) }
+    return orderedEvents.flatMap { orderedEvent -> [Row] in
+      switch orderedEvent.event {
+      case .request(let request):
+        [.request(request)]
+      case .message(let message):
+        [.message(message)]
+      case .run(let run):
+        runRows(run, items: itemsByRunID[run.id] ?? [])
+      }
     }
   }
 
@@ -288,60 +334,56 @@ struct TasksTranscriptSection: View {
   }
 
   var body: some View {
-    Group {
-      if events.isEmpty {
+    let rows = rows
+    LazyVStack(alignment: .leading, spacing: NoemaSpacing.md) {
+      if rows.isEmpty {
         Text("No transcript entries yet.")
           .font(NoemaFont.caption)
           .foregroundStyle(NoemaColor.contentSecondary)
       } else {
-        VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-          if hasMore {
-            Button(isLoadingMore ? "Loading earlier activity…" : "Load earlier activity", action: loadMore)
-              .font(NoemaFont.captionEmphasized)
-              .foregroundStyle(NoemaColor.accent)
-              .disabled(isLoadingMore)
-              .frame(maxWidth: .infinity, alignment: .center)
-          }
-          ForEach(events) { event in eventView(event) }
+        if hasMore {
+          Button(isLoadingMore ? "Loading earlier activity…" : "Load earlier activity", action: loadMore)
+            .font(NoemaFont.captionEmphasized)
+            .foregroundStyle(NoemaColor.accent)
+            .disabled(isLoadingMore)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, NoemaSpacing.xs)
+        ForEach(rows) { row in rowView(row) }
       }
+      Color.clear
+        .frame(height: bottomSpacing)
+        .padding(.top, NoemaSpacing.xs)
+        .id("task-transcript-bottom")
     }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.vertical, NoemaSpacing.xs)
   }
 
   @ViewBuilder
-  private func eventView(_ event: Event) -> some View {
-    switch event {
+  private func rowView(_ row: Row) -> some View {
+    switch row {
     case .request(let request):
       messageEntry(body: request, human: true, label: "Captured request")
     case .message(let message):
       messageEntry(body: message.body, human: isHumanAuthor(message.author))
-    case .run(let run):
-      VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-        runBoundary(run, ending: false)
-        ForEach(runItems.filter { $0.runId == run.id }.sorted { $0.sequence < $1.sequence }) { item in
-          runItemEntry(item)
-        }
-        if runItems.allSatisfy({ $0.runId != run.id }), let activity = run.activity.nilIfBlank {
-          activityRow(run, activity: activity)
-        }
-        if run.isTerminal { runBoundary(run, ending: true) }
-      }
+    case .runBoundary(let run, let ending):
+      runBoundary(run, ending: ending)
+    case .runItem(let item, let result):
+      runItemEntry(item, result: result)
+    case .activity(let run, let activity):
+      activityRow(run, activity: activity)
     }
   }
 
   @ViewBuilder
-  private func runItemEntry(_ item: TasksRunItemSnapshot) -> some View {
+  private func runItemEntry(_ item: TasksRunItemSnapshot, result: TasksRunItemSnapshot?) -> some View {
     switch item.kind.uppercased() {
-    case "MODEL_INPUT", "CONTEXT_CHECKPOINT", "PROGRESS_NOTICE", "TASK_SUBMISSION", "TASK_REVIEW":
-      EmptyView()
     case "ASSISTANT_OUTPUT":
       if let content = item.content?.nilIfBlank { messageEntry(body: content, human: false) }
     case "TOOL_CALL":
-      toolActivityRow(item, result: matchingToolResult(for: item))
+      toolActivityRow(item, result: result)
     case "TOOL_RESULT":
-      if matchingToolCall(for: item) == nil { toolActivityRow(item, result: nil) }
+      toolActivityRow(item, result: nil)
     default:
       HStack(spacing: NoemaSpacing.compact) {
         runItemStatusIcon(item.status)
@@ -359,11 +401,6 @@ struct TasksTranscriptSection: View {
 
   private func toolActivityRow(_ item: TasksRunItemSnapshot, result: TasksRunItemSnapshot?) -> some View {
     ToolMarkerView(client: nil, messages: toolMessages(item, result: result))
-  }
-
-  private func matchingToolResult(for item: TasksRunItemSnapshot) -> TasksRunItemSnapshot? {
-    guard let correlation = item.correlationId else { return nil }
-    return runItems.first { $0.kind.uppercased() == "TOOL_RESULT" && $0.correlationId == correlation }
   }
 
   @ViewBuilder
@@ -384,9 +421,39 @@ struct TasksTranscriptSection: View {
     }
   }
 
-  private func matchingToolCall(for item: TasksRunItemSnapshot) -> TasksRunItemSnapshot? {
-    guard let correlation = item.correlationId else { return nil }
-    return runItems.first { $0.kind.uppercased() == "TOOL_CALL" && $0.correlationId == correlation }
+
+  private func runRows(_ run: TasksRunSnapshot, items: [TasksRunItemSnapshot]) -> [Row] {
+    var rows: [Row] = [.runBoundary(run, ending: false)]
+    var resultsByCorrelation: [String: TasksRunItemSnapshot] = [:]
+    for item in items where item.kind.uppercased() == "TOOL_RESULT" {
+      if let correlation = item.correlationId, resultsByCorrelation[correlation] == nil {
+        resultsByCorrelation[correlation] = item
+      }
+    }
+    let pairedResultIDs = Set(items.compactMap { item -> String? in
+      guard item.kind.uppercased() == "TOOL_CALL", let correlation = item.correlationId else { return nil }
+      return resultsByCorrelation[correlation]?.id
+    })
+    for item in items {
+      switch item.kind.uppercased() {
+      case "MODEL_INPUT", "CONTEXT_CHECKPOINT", "PROGRESS_NOTICE", "TASK_SUBMISSION", "TASK_REVIEW":
+        continue
+      case "ASSISTANT_OUTPUT" where item.content?.nilIfBlank == nil:
+        continue
+      case "TOOL_CALL":
+        let result = item.correlationId.flatMap { resultsByCorrelation[$0] }
+        rows.append(.runItem(item, result: result))
+      case "TOOL_RESULT" where pairedResultIDs.contains(item.id):
+        continue
+      default:
+        rows.append(.runItem(item, result: nil))
+      }
+    }
+    if items.isEmpty, let activity = run.activity.nilIfBlank {
+      rows.append(.activity(run, activity))
+    }
+    if run.isTerminal { rows.append(.runBoundary(run, ending: true)) }
+    return rows
   }
 
   private func toolMessages(_ item: TasksRunItemSnapshot, result: TasksRunItemSnapshot?) -> [ChatMessage] {

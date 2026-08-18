@@ -266,7 +266,6 @@ nonisolated public struct TasksNeedsYouQuery: GraphQLQuery {
             public typealias CurrentRun = TasksTaskCardFields.CurrentRun
 
             public typealias ActiveGate = TasksTaskCardFields.ActiveGate
-
           }
         }
       }

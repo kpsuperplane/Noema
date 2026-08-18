@@ -19,6 +19,7 @@ nonisolated public struct TaskModelPoolEntryInput: InputObject {
     selectionMode: GraphQLEnum<ModelPreferenceSelectionMode>,
     modelProfile: GraphQLNullable<String> = nil,
     reasoningEffort: GraphQLNullable<GraphQLEnum<ReasoningEffort>> = nil,
+    fastMode: Bool,
     enabled: Bool,
     sortOrder: Int32
   ) {
@@ -30,6 +31,7 @@ nonisolated public struct TaskModelPoolEntryInput: InputObject {
       "selectionMode": selectionMode,
       "modelProfile": modelProfile,
       "reasoningEffort": reasoningEffort,
+      "fastMode": fastMode,
       "enabled": enabled,
       "sortOrder": sortOrder
     ])
@@ -75,6 +77,12 @@ nonisolated public struct TaskModelPoolEntryInput: InputObject {
   public var reasoningEffort: GraphQLNullable<GraphQLEnum<ReasoningEffort>> {
     get { __data["reasoningEffort"] }
     set { __data["reasoningEffort"] = newValue }
+  }
+
+  /// Whether this preference requests faster service.
+  public var fastMode: Bool {
+    get { __data["fastMode"] }
+    set { __data["fastMode"] = newValue }
   }
 
   /// Whether this entry can be selected for new tasks.

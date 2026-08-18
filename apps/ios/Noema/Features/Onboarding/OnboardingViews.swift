@@ -562,11 +562,13 @@ private struct ModelSelectionMenu: View {
         VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
           modelMenu
           reasoningMenu
+          speedControl
         }
       } else {
         HStack(spacing: NoemaSpacing.sm) {
           modelMenu
           reasoningMenu
+          speedControl
         }
       }
     }
@@ -606,6 +608,25 @@ private struct ModelSelectionMenu: View {
         alignment: .leading
       )
       .disabled(draft.mode == "NOEMA_RECOMMENDED" || model.isSaving)
+    }
+  }
+
+  @ViewBuilder
+  private var speedControl: some View {
+    if model.supportsFastMode {
+      Picker("Speed", selection: Binding(
+        get: { draft.fastMode },
+        set: { model.updateFastMode(key, enabled: $0) }
+      )) {
+        Text("Standard").tag(false)
+        Text("Fast").tag(true)
+      }
+      .pickerStyle(.segmented)
+      .frame(
+        minWidth: horizontalSizeClass == .compact ? 0 : 160,
+        maxWidth: horizontalSizeClass == .compact ? .infinity : 180
+      )
+      .accessibilityLabel("Model speed")
     }
   }
 

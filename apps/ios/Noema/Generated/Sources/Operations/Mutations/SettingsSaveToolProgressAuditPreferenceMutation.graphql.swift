@@ -8,7 +8,7 @@ nonisolated public struct SettingsSaveToolProgressAuditPreferenceMutation: Graph
   public static let operationName: String = "SettingsSaveToolProgressAuditPreference"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"mutation SettingsSaveToolProgressAuditPreference($input: SaveToolProgressAuditPreferenceInput!) { saveToolProgressAuditPreference(input: $input) { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } }"#
+      #"mutation SettingsSaveToolProgressAuditPreference($input: SaveToolProgressAuditPreferenceInput!) { saveToolProgressAuditPreference(input: $input) { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode fastMode } }"#
     ))
 
   public var input: SaveToolProgressAuditPreferenceInput
@@ -49,6 +49,7 @@ nonisolated public struct SettingsSaveToolProgressAuditPreferenceMutation: Graph
         .field("modelProfile", String?.self),
         .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
         .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
+        .field("fastMode", Bool.self),
       ] }
       @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
         SettingsSaveToolProgressAuditPreferenceMutation.Data.SaveToolProgressAuditPreference.self
@@ -64,6 +65,8 @@ nonisolated public struct SettingsSaveToolProgressAuditPreferenceMutation: Graph
       public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
       /// Whether Noema or the human chooses the concrete model.
       public var selectionMode: GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode> { __data["selectionMode"] }
+      /// Whether this preference requests faster service.
+      public var fastMode: Bool { __data["fastMode"] }
     }
   }
 }

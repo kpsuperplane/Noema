@@ -8,7 +8,7 @@ nonisolated public struct SaveMemoryModelPreferenceMutation: GraphQLMutation {
   public static let operationName: String = "SaveMemoryModelPreference"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"mutation SaveMemoryModelPreference($input: GraphqlSaveMemoryModelPreferenceInput!) { saveMemoryModelPreference(input: $input) { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } }"#
+      #"mutation SaveMemoryModelPreference($input: GraphqlSaveMemoryModelPreferenceInput!) { saveMemoryModelPreference(input: $input) { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode fastMode } }"#
     ))
 
   public var input: GraphqlSaveMemoryModelPreferenceInput
@@ -49,6 +49,7 @@ nonisolated public struct SaveMemoryModelPreferenceMutation: GraphQLMutation {
         .field("modelProfile", String?.self),
         .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
         .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
+        .field("fastMode", Bool.self),
       ] }
       @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
         SaveMemoryModelPreferenceMutation.Data.SaveMemoryModelPreference.self
@@ -64,6 +65,8 @@ nonisolated public struct SaveMemoryModelPreferenceMutation: GraphQLMutation {
       public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
       /// Whether Noema or the human chooses the concrete model.
       public var selectionMode: GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode> { __data["selectionMode"] }
+      /// Whether this preference requests faster service.
+      public var fastMode: Bool { __data["fastMode"] }
     }
   }
 }

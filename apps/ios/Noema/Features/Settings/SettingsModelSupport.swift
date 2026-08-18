@@ -111,27 +111,27 @@ extension SettingsModel {
   }
 
   static func preference(from value: NoemaAPI.SettingsSnapshotQuery.Data.Agent.ModelPreference?) -> SettingsPreference? {
-    value.map { SettingsPreference(providerKind: $0.providerKind, providerAccountId: $0.providerAccountId, modelProfile: $0.modelProfile, reasoningEffort: $0.reasoningEffort?.rawValue, selectionMode: $0.selectionMode.rawValue) }
+    value.map { SettingsPreference(providerKind: $0.providerKind, providerAccountId: $0.providerAccountId, modelProfile: $0.modelProfile, reasoningEffort: $0.reasoningEffort?.rawValue, selectionMode: $0.selectionMode.rawValue, fastMode: $0.fastMode) }
   }
 
   static func preference(from value: NoemaAPI.SettingsSnapshotQuery.Data.MemorySettings.ModelPreference?) -> SettingsPreference? {
-    value.map { SettingsPreference(providerKind: $0.providerKind, providerAccountId: $0.providerAccountId, modelProfile: $0.modelProfile, reasoningEffort: $0.reasoningEffort?.rawValue, selectionMode: $0.selectionMode.rawValue) }
+    value.map { SettingsPreference(providerKind: $0.providerKind, providerAccountId: $0.providerAccountId, modelProfile: $0.modelProfile, reasoningEffort: $0.reasoningEffort?.rawValue, selectionMode: $0.selectionMode.rawValue, fastMode: $0.fastMode) }
   }
 
   static func preference(from value: NoemaAPI.SettingsSnapshotQuery.Data.WebFetchSettings.Summarizer.ModelPreference?) -> SettingsPreference? {
-    value.map { SettingsPreference(providerKind: $0.providerKind, providerAccountId: $0.providerAccountId, modelProfile: $0.modelProfile, reasoningEffort: $0.reasoningEffort?.rawValue, selectionMode: $0.selectionMode.rawValue) }
+    value.map { SettingsPreference(providerKind: $0.providerKind, providerAccountId: $0.providerAccountId, modelProfile: $0.modelProfile, reasoningEffort: $0.reasoningEffort?.rawValue, selectionMode: $0.selectionMode.rawValue, fastMode: $0.fastMode) }
   }
 
   static func preference(from value: NoemaAPI.SettingsSnapshotQuery.Data.PrivacySettings.Reviewer.ModelPreference?) -> SettingsPreference? {
-    value.map { SettingsPreference(providerKind: $0.providerKind, providerAccountId: $0.providerAccountId, modelProfile: $0.modelProfile, reasoningEffort: $0.reasoningEffort?.rawValue, selectionMode: $0.selectionMode.rawValue) }
+    value.map { SettingsPreference(providerKind: $0.providerKind, providerAccountId: $0.providerAccountId, modelProfile: $0.modelProfile, reasoningEffort: $0.reasoningEffort?.rawValue, selectionMode: $0.selectionMode.rawValue, fastMode: $0.fastMode) }
   }
 
   static func preference(from value: NoemaAPI.SettingsSnapshotQuery.Data.UsageSettings.ProgressAudit.ModelPreference?) -> SettingsPreference? {
-    value.map { SettingsPreference(providerKind: $0.providerKind, providerAccountId: $0.providerAccountId, modelProfile: $0.modelProfile, reasoningEffort: $0.reasoningEffort?.rawValue, selectionMode: $0.selectionMode.rawValue) }
+    value.map { SettingsPreference(providerKind: $0.providerKind, providerAccountId: $0.providerAccountId, modelProfile: $0.modelProfile, reasoningEffort: $0.reasoningEffort?.rawValue, selectionMode: $0.selectionMode.rawValue, fastMode: $0.fastMode) }
   }
 
   static func preference(from value: NoemaAPI.SettingsSnapshotQuery.Data.DefaultModelPreference?) -> SettingsPreference? {
-    value.map { SettingsPreference(providerKind: $0.providerKind, providerAccountId: $0.providerAccountId, modelProfile: $0.modelProfile, reasoningEffort: $0.reasoningEffort, selectionMode: $0.selectionMode.rawValue) }
+    value.map { SettingsPreference(providerKind: $0.providerKind, providerAccountId: $0.providerAccountId, modelProfile: $0.modelProfile, reasoningEffort: $0.reasoningEffort, selectionMode: $0.selectionMode.rawValue, fastMode: $0.fastMode) }
   }
 
   static func capabilityDetail(from data: NoemaAPI.CapabilityConnectionQuery.Data) -> SettingsCapabilityDetail? {
@@ -174,6 +174,7 @@ extension SettingsModel {
       modelProfile: value.modelProfile,
       reasoningEffort: value.reasoningEffort?.rawValue,
       selectionMode: value.selectionMode.rawValue,
+      fastMode: value.fastMode,
       enabled: value.enabled,
       sortOrder: value.sortOrder
     )
@@ -191,6 +192,7 @@ extension SettingsModel {
       modelProfile: value.modelProfile,
       reasoningEffort: value.reasoningEffort?.rawValue,
       selectionMode: value.selectionMode.rawValue,
+      fastMode: value.fastMode,
       enabled: value.enabled,
       sortOrder: value.sortOrder
     )

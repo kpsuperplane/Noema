@@ -15,6 +15,7 @@ query SettingsSnapshot {
       modelProfile
       reasoningEffort
       selectionMode
+      fastMode
     }
     modelOptions {
       providerKind
@@ -44,6 +45,7 @@ query SettingsSnapshot {
       modelProfile
       reasoningEffort
       selectionMode
+      fastMode
     }
     modelOptions {
       providerKind
@@ -74,6 +76,7 @@ query SettingsSnapshot {
         modelProfile
         reasoningEffort
         selectionMode
+        fastMode
       }
       modelOptions {
         providerKind
@@ -161,6 +164,7 @@ query SettingsSnapshot {
         modelProfile
         reasoningEffort
         selectionMode
+        fastMode
       }
       modelOptions {
         providerKind
@@ -192,6 +196,7 @@ query SettingsSnapshot {
         modelProfile
         reasoningEffort
         selectionMode
+        fastMode
       }
       modelOptions {
         providerKind
@@ -319,6 +324,7 @@ query SettingsSnapshot {
     selectionMode
     modelProfile
     reasoningEffort
+    fastMode
   }
   providerAccountCatalog {
     providerKind
@@ -438,6 +444,7 @@ query NativeTaskModelPools {
     modelProfile
     reasoningEffort
     selectionMode
+    fastMode
     enabled
     sortOrder
     createdAt
@@ -455,6 +462,7 @@ mutation NativeUpdateTaskModelPoolEntry($poolEntryId: String!, $input: TaskModel
     modelProfile
     reasoningEffort
     selectionMode
+    fastMode
     enabled
     sortOrder
     createdAt
@@ -822,6 +830,7 @@ mutation SaveAgentModelPreference($input: SaveAgentModelPreferenceInput!) {
     modelProfile
     reasoningEffort
     selectionMode
+    fastMode
   }
 }
 
@@ -832,6 +841,7 @@ mutation SaveWebFetchSummarizerPreference($input: SaveWebFetchSummarizerPreferen
     modelProfile
     reasoningEffort
     selectionMode
+    fastMode
   }
 }
 
@@ -850,6 +860,7 @@ mutation SaveActionReviewerPreference($input: SaveActionReviewerPreferenceInput!
     modelProfile
     reasoningEffort
     selectionMode
+    fastMode
   }
 }
 
@@ -860,6 +871,7 @@ mutation SettingsSaveToolProgressAuditPreference($input: SaveToolProgressAuditPr
     modelProfile
     reasoningEffort
     selectionMode
+    fastMode
   }
 }
 
@@ -870,6 +882,7 @@ mutation SettingsSaveDefaultModelPreference($input: SaveDefaultModelPreferenceIn
     selectionMode
     modelProfile
     reasoningEffort
+    fastMode
   }
 }
 

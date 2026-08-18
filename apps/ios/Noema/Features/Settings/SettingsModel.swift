@@ -38,6 +38,10 @@ struct SettingsModelOption: Identifiable, Hashable {
   let disabledReason: String?
   let profiles: [SettingsModelProfile]
   let recommendations: [SettingsModelRecommendation]
+
+  var supportsFastMode: Bool {
+    providerKind == "codex" || providerKind == "openai"
+  }
 }
 
 struct SettingsPreference: Hashable {
@@ -46,6 +50,7 @@ struct SettingsPreference: Hashable {
   let modelProfile: String?
   let reasoningEffort: String?
   let selectionMode: String
+  let fastMode: Bool
 }
 
 struct SettingsCapabilityTool: Identifiable, Hashable {
@@ -345,7 +350,8 @@ final class SettingsModel {
     providerAccountID: String,
     selectionMode: String,
     modelProfile: String?,
-    reasoningEffort: String?
+    reasoningEffort: String?,
+    fastMode: Bool
   ) async -> Bool {
     guard canMutate, let client else { return false }
     return await performMutation {
@@ -356,7 +362,8 @@ final class SettingsModel {
             providerAccountId: providerAccountID,
             selectionMode: GraphQLEnum(Self.selectionMode(from: selectionMode)),
             modelProfile: Self.optional(modelProfile),
-            reasoningEffort: Self.reasoning(from: reasoningEffort)
+            reasoningEffort: Self.reasoning(from: reasoningEffort),
+            fastMode: fastMode
           )
         )
       )
@@ -368,7 +375,8 @@ final class SettingsModel {
     providerAccountID: String,
     selectionMode: String,
     modelProfile: String?,
-    reasoningEffort: String?
+    reasoningEffort: String?,
+    fastMode: Bool
   ) async -> Bool {
     guard canMutate, let client else { return false }
     return await performMutation {
@@ -378,7 +386,8 @@ final class SettingsModel {
             providerAccountId: providerAccountID,
             selectionMode: GraphQLEnum(Self.selectionMode(from: selectionMode)),
             modelProfile: Self.optional(modelProfile),
-            reasoningEffort: Self.reasoning(from: reasoningEffort)
+            reasoningEffort: Self.reasoning(from: reasoningEffort),
+            fastMode: fastMode
           )
         )
       )
@@ -390,7 +399,8 @@ final class SettingsModel {
     providerAccountID: String,
     selectionMode: String,
     modelProfile: String?,
-    reasoningEffort: String?
+    reasoningEffort: String?,
+    fastMode: Bool
   ) async -> Bool {
     guard canMutate, let client else { return false }
     return await performMutation {
@@ -400,7 +410,8 @@ final class SettingsModel {
             providerAccountId: providerAccountID,
             selectionMode: GraphQLEnum(Self.selectionMode(from: selectionMode)),
             modelProfile: Self.optional(modelProfile),
-            reasoningEffort: Self.reasoning(from: reasoningEffort)
+            reasoningEffort: Self.reasoning(from: reasoningEffort),
+            fastMode: fastMode
           )
         )
       )
@@ -412,7 +423,8 @@ final class SettingsModel {
     providerAccountID: String,
     selectionMode: String,
     modelProfile: String?,
-    reasoningEffort: String?
+    reasoningEffort: String?,
+    fastMode: Bool
   ) async -> Bool {
     guard canMutate, let client else { return false }
     return await performMutation {
@@ -422,7 +434,8 @@ final class SettingsModel {
             providerAccountId: providerAccountID,
             selectionMode: GraphQLEnum(Self.selectionMode(from: selectionMode)),
             modelProfile: Self.optional(modelProfile),
-            reasoningEffort: Self.reasoning(from: reasoningEffort)
+            reasoningEffort: Self.reasoning(from: reasoningEffort),
+            fastMode: fastMode
           )
         )
       )
@@ -434,7 +447,8 @@ final class SettingsModel {
     providerAccountID: String,
     selectionMode: String,
     modelProfile: String?,
-    reasoningEffort: String?
+    reasoningEffort: String?,
+    fastMode: Bool
   ) async -> Bool {
     guard canMutate, let client else { return false }
     return await performMutation {
@@ -444,7 +458,8 @@ final class SettingsModel {
             providerAccountId: providerAccountID,
             selectionMode: GraphQLEnum(Self.selectionMode(from: selectionMode)),
             modelProfile: Self.optional(modelProfile),
-            reasoningEffort: Self.reasoning(from: reasoningEffort)
+            reasoningEffort: Self.reasoning(from: reasoningEffort),
+            fastMode: fastMode
           )
         )
       )
@@ -457,7 +472,8 @@ final class SettingsModel {
     providerAccountID: String,
     selectionMode: String,
     modelProfile: String?,
-    reasoningEffort: String?
+    reasoningEffort: String?,
+    fastMode: Bool
   ) async -> Bool {
     guard canMutate, let client else { return false }
     return await performMutation {
@@ -468,7 +484,8 @@ final class SettingsModel {
             providerAccountId: providerAccountID,
             selectionMode: GraphQLEnum(Self.selectionMode(from: selectionMode)),
             modelProfile: Self.optional(modelProfile),
-            reasoningEffort: Self.reasoning(from: reasoningEffort)
+            reasoningEffort: Self.reasoning(from: reasoningEffort),
+            fastMode: fastMode
           )
         )
       )

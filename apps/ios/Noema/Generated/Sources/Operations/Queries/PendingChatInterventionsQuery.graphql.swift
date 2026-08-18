@@ -253,7 +253,6 @@ nonisolated public struct PendingChatInterventionsQuery: GraphQLQuery {
           public typealias CurrentRun = TasksTaskCardFields.CurrentRun
 
           public typealias ActiveGate = TasksTaskCardFields.ActiveGate
-
         }
       }
 

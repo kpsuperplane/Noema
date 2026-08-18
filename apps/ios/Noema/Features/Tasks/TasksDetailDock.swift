@@ -2,7 +2,6 @@ import SwiftUI
 
 struct TasksTaskContextDock: View {
   let run: TasksRunSnapshot?
-  let activity: String?
   let canCancel: Bool
   let cancel: () -> Void
   let showInfo: () -> Void
@@ -20,12 +19,14 @@ struct TasksTaskContextDock: View {
           .frame(width: 30, height: 30)
           .accessibilityLabel("\(run?.instanceName ?? "Task") run")
         VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-          Text(run.map { "\($0.instanceName) · \($0.kind.capitalized)" } ?? "No agent run yet")
+          Text(run?.instanceName ?? "No agent run yet")
             .font(NoemaFont.compactEmphasized)
-          Text(activity?.taskDockText ?? run?.activity.taskDockText ?? "Task context")
-            .font(NoemaFont.monoCompact)
-            .foregroundStyle(NoemaColor.contentSecondary)
-            .lineLimit(1)
+          if let run {
+            Text(run.kind.capitalized)
+              .font(NoemaFont.monoCompact)
+              .foregroundStyle(NoemaColor.contentSecondary)
+              .lineLimit(1)
+          }
         }
         Spacer(minLength: NoemaSpacing.sm)
         if canCancel {
@@ -54,6 +55,85 @@ struct TasksTaskContextDock: View {
         .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
     }
     .shadow(color: NoemaColor.ink900.opacity(0.13), radius: 14, y: 5)
+  }
+}
+
+struct TasksTaskStatusSurface: View {
+  let run: TasksRunSnapshot?
+  let activity: String?
+
+  private var statusText: String {
+    activity?.taskDockText ?? run?.activity.taskDockText ?? fallbackStatus
+  }
+
+  var body: some View {
+    HStack(spacing: NoemaSpacing.compact) {
+      statusIcon
+      Text(statusText)
+        .font(NoemaFont.monoCompact)
+        .foregroundStyle(NoemaColor.contentSecondary)
+        .lineLimit(1)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .padding(.horizontal, NoemaSpacing.md)
+    .padding(.top, NoemaSpacing.xs)
+    .padding(.bottom, NoemaSpacing.xxl + NoemaSpacing.xxs)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(attachedShape.fill(NoemaColor.surface))
+    .overlay { attachedShape.stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+    .shadow(color: NoemaColor.ink900.opacity(0.07), radius: NoemaSpacing.sm, y: NoemaSpacing.xs)
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("Task status: \(statusText)")
+  }
+
+  @ViewBuilder
+  private var statusIcon: some View {
+    switch (run?.status ?? "").uppercased() {
+    case "QUEUED", "LEASED", "STARTED", "RUNNING":
+      Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90")
+        .foregroundStyle(NoemaColor.success)
+        .frame(width: 16)
+    case "FAILED", "INTERRUPTED":
+      Image(systemName: "exclamationmark")
+        .foregroundStyle(NoemaColor.warning)
+        .frame(width: 16)
+    case "CANCELLED":
+      Image(systemName: "xmark")
+        .foregroundStyle(NoemaColor.contentTertiary)
+        .frame(width: 16)
+    case "COMPLETED":
+      Image(systemName: "checkmark")
+        .foregroundStyle(NoemaColor.success)
+        .frame(width: 16)
+    default:
+      Image(systemName: "ellipsis")
+        .foregroundStyle(NoemaColor.contentTertiary)
+        .frame(width: 16)
+    }
+  }
+
+  private var fallbackStatus: String {
+    switch (run?.status ?? "").uppercased() {
+    case "QUEUED": "Queued"
+    case "LEASED", "STARTED": "Starting"
+    case "RUNNING": "Running"
+    case "COMPLETED": "Completed"
+    case "FAILED": "Failed"
+    case "CANCELLED": "Cancelled"
+    case "INTERRUPTED": "Interrupted"
+    case "WAITING_FOR_APPROVAL": "Waiting for approval"
+    default: "No output yet"
+    }
+  }
+
+  private var attachedShape: NoemaSuperellipse {
+    NoemaSuperellipse(
+      topLeftRadius: NoemaSpacing.xxl,
+      topRightRadius: NoemaSpacing.xxl,
+      bottomRightRadius: 0,
+      bottomLeftRadius: 0,
+      treatment: .page
+    )
   }
 }
 

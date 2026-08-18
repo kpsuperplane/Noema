@@ -437,7 +437,7 @@ private struct AgentsSettings: View {
           options: options,
           useCase: taskModelUseCase(pool.complexity),
           enabled: settings.canMutate
-        ) { option, profile, reasoning, selectionMode in
+        ) { option, profile, reasoning, selectionMode, fastMode in
           await settings.updateTaskModelPool(
             pool,
             preference: SettingsPreference(
@@ -445,7 +445,8 @@ private struct AgentsSettings: View {
               providerAccountId: option.providerAccountId,
               modelProfile: profile,
               reasoningEffort: reasoning,
-              selectionMode: selectionMode.rawValue
+              selectionMode: selectionMode.rawValue,
+              fastMode: fastMode
             )
           )
         }
@@ -479,13 +480,14 @@ private struct AgentsSettings: View {
           options: SettingsModel.modelOptions(from: agent.modelOptions),
           useCase: agent.isPrimary ? .primary : .taskReviewer,
           enabled: settings.canMutate
-        ) { option, profile, reasoning, selectionMode in
+        ) { option, profile, reasoning, selectionMode, fastMode in
           await settings.saveAgentModelPreference(
             agentID: agent.agentId,
             providerAccountID: option.providerAccountId,
             selectionMode: selectionMode.rawValue,
             modelProfile: profile,
-            reasoningEffort: reasoning
+            reasoningEffort: reasoning,
+            fastMode: fastMode
           )
         }
       }
@@ -559,12 +561,13 @@ private struct MemorySettings: View {
       options: options,
       useCase: .memoryConsolidation,
       enabled: settings.canMutate
-    ) { option, profile, reasoning, selectionMode in
+    ) { option, profile, reasoning, selectionMode, fastMode in
       let saved = await settings.saveMemoryModelPreference(
         providerAccountID: option.providerAccountId,
         selectionMode: selectionMode.rawValue,
         modelProfile: profile,
-        reasoningEffort: reasoning
+        reasoningEffort: reasoning,
+        fastMode: fastMode
       )
       saveError = saved ? nil : "Noema could not save the memory update model."
       return saved
@@ -638,12 +641,13 @@ private struct WebSettings: View {
                 options: options,
                 useCase: .webFetchSummarizer,
                 enabled: settings.canMutate
-              ) { option, profile, reasoning, selectionMode in
+              ) { option, profile, reasoning, selectionMode, fastMode in
                 let saved = await settings.saveWebFetchSummarizerPreference(
                   providerAccountID: option.providerAccountId,
                   selectionMode: selectionMode.rawValue,
                   modelProfile: profile,
-                  reasoningEffort: reasoning
+                  reasoningEffort: reasoning,
+                  fastMode: fastMode
                 )
                 fetchSaveError = saved ? nil : "Noema could not save the fetch summarizer model."
                 return saved
@@ -1330,12 +1334,13 @@ private struct PrivacySettings: View {
                 useCase: .actionReviewer,
                 enabled: settings.canMutate,
                 requiresExplicitSelection: true
-              ) { option, profile, reasoning, selectionMode in
+              ) { option, profile, reasoning, selectionMode, fastMode in
                 await settings.saveActionReviewerPreference(
                   providerAccountID: option.providerAccountId,
                   selectionMode: selectionMode.rawValue,
                   modelProfile: profile,
-                  reasoningEffort: reasoning
+                  reasoningEffort: reasoning,
+                  fastMode: fastMode
                 )
               }
             }
@@ -1425,12 +1430,13 @@ private struct ExecutionSettings: View {
                   options: options,
                   useCase: .toolProgressAudit,
                   enabled: settings.canMutate
-                ) { option, profile, reasoning, selectionMode in
+                ) { option, profile, reasoning, selectionMode, fastMode in
                   await settings.saveToolProgressAuditPreference(
                     providerAccountID: option.providerAccountId,
                     selectionMode: selectionMode.rawValue,
                     modelProfile: profile,
-                    reasoningEffort: reasoning
+                    reasoningEffort: reasoning,
+                    fastMode: fastMode
                   )
                 }
               }

@@ -140,15 +140,15 @@ query OnboardingModelSetup($providerAccountId: String!) {
       disabledReason
     }
     proposedSelections {
-      noema { selectionMode modelProfile reasoningEffort }
-      simpleTasks { selectionMode modelProfile reasoningEffort }
-      mediumTasks { selectionMode modelProfile reasoningEffort }
-      difficultTasks { selectionMode modelProfile reasoningEffort }
-      taskReviewer { selectionMode modelProfile reasoningEffort }
-      webFetchSummarizer { selectionMode modelProfile reasoningEffort }
-      toolProgressAudit { selectionMode modelProfile reasoningEffort }
-      actionReviewer { selectionMode modelProfile reasoningEffort }
-      memoryConsolidation { selectionMode modelProfile reasoningEffort }
+      noema { selectionMode modelProfile reasoningEffort fastMode }
+      simpleTasks { selectionMode modelProfile reasoningEffort fastMode }
+      mediumTasks { selectionMode modelProfile reasoningEffort fastMode }
+      difficultTasks { selectionMode modelProfile reasoningEffort fastMode }
+      taskReviewer { selectionMode modelProfile reasoningEffort fastMode }
+      webFetchSummarizer { selectionMode modelProfile reasoningEffort fastMode }
+      toolProgressAudit { selectionMode modelProfile reasoningEffort fastMode }
+      actionReviewer { selectionMode modelProfile reasoningEffort fastMode }
+      memoryConsolidation { selectionMode modelProfile reasoningEffort fastMode }
     }
   }
 }
@@ -191,6 +191,7 @@ query LocalModelSettings {
     selectionMode
     modelProfile
     reasoningEffort
+    fastMode
   }
 }
 

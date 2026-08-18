@@ -77,6 +77,7 @@ struct ModelSelectionDraft: Equatable {
   var mode: String
   var profile: String?
   var reasoning: String?
+  var fastMode: Bool
 }
 
 @MainActor
@@ -97,6 +98,10 @@ final class OnboardingModel {
   private(set) var isSaving = false
   private(set) var localSaving = false
   var draft: [String: ModelSelectionDraft] = [:]
+
+  var supportsFastMode: Bool {
+    modelProviderKind == "codex" || modelProviderKind == "openai"
+  }
 
   let client: ApolloClient
   private var authSubscription: Task<Void, Never>?
@@ -271,13 +276,20 @@ final class OnboardingModel {
     draft[key] = ModelSelectionDraft(
       mode: "NOEMA_RECOMMENDED",
       profile: nil,
-      reasoning: recommendedReasoning(for: key)
+      reasoning: recommendedReasoning(for: key),
+      fastMode: supportsFastMode && (draft[key]?.fastMode ?? false)
     )
   }
 
   func updateReasoning(_ key: String, effort: String) {
     guard var value = draft[key] else { return }
     value.reasoning = effort
+    draft[key] = value
+  }
+
+  func updateFastMode(_ key: String, enabled: Bool) {
+    guard var value = draft[key] else { return }
+    value.fastMode = supportsFastMode && enabled
     draft[key] = value
   }
 
@@ -402,26 +414,26 @@ final class OnboardingModel {
         disabledReason: $0.disabledReason
       )
     }
-    let proposals: [(String, String, String?, String?)] = [
-      ("noema", setup.proposedSelections.noema.selectionMode.rawValue, setup.proposedSelections.noema.modelProfile, setup.proposedSelections.noema.reasoningEffort?.rawValue),
-      ("simpleTasks", setup.proposedSelections.simpleTasks.selectionMode.rawValue, setup.proposedSelections.simpleTasks.modelProfile, setup.proposedSelections.simpleTasks.reasoningEffort?.rawValue),
-      ("mediumTasks", setup.proposedSelections.mediumTasks.selectionMode.rawValue, setup.proposedSelections.mediumTasks.modelProfile, setup.proposedSelections.mediumTasks.reasoningEffort?.rawValue),
-      ("difficultTasks", setup.proposedSelections.difficultTasks.selectionMode.rawValue, setup.proposedSelections.difficultTasks.modelProfile, setup.proposedSelections.difficultTasks.reasoningEffort?.rawValue),
-      ("taskReviewer", setup.proposedSelections.taskReviewer.selectionMode.rawValue, setup.proposedSelections.taskReviewer.modelProfile, setup.proposedSelections.taskReviewer.reasoningEffort?.rawValue),
-      ("webFetchSummarizer", setup.proposedSelections.webFetchSummarizer.selectionMode.rawValue, setup.proposedSelections.webFetchSummarizer.modelProfile, setup.proposedSelections.webFetchSummarizer.reasoningEffort?.rawValue),
-      ("toolProgressAudit", setup.proposedSelections.toolProgressAudit.selectionMode.rawValue, setup.proposedSelections.toolProgressAudit.modelProfile, setup.proposedSelections.toolProgressAudit.reasoningEffort?.rawValue),
-      ("memoryConsolidation", setup.proposedSelections.memoryConsolidation.selectionMode.rawValue, setup.proposedSelections.memoryConsolidation.modelProfile, setup.proposedSelections.memoryConsolidation.reasoningEffort?.rawValue)
+    let proposals: [(String, String, String?, String?, Bool)] = [
+      ("noema", setup.proposedSelections.noema.selectionMode.rawValue, setup.proposedSelections.noema.modelProfile, setup.proposedSelections.noema.reasoningEffort?.rawValue, setup.proposedSelections.noema.fastMode),
+      ("simpleTasks", setup.proposedSelections.simpleTasks.selectionMode.rawValue, setup.proposedSelections.simpleTasks.modelProfile, setup.proposedSelections.simpleTasks.reasoningEffort?.rawValue, setup.proposedSelections.simpleTasks.fastMode),
+      ("mediumTasks", setup.proposedSelections.mediumTasks.selectionMode.rawValue, setup.proposedSelections.mediumTasks.modelProfile, setup.proposedSelections.mediumTasks.reasoningEffort?.rawValue, setup.proposedSelections.mediumTasks.fastMode),
+      ("difficultTasks", setup.proposedSelections.difficultTasks.selectionMode.rawValue, setup.proposedSelections.difficultTasks.modelProfile, setup.proposedSelections.difficultTasks.reasoningEffort?.rawValue, setup.proposedSelections.difficultTasks.fastMode),
+      ("taskReviewer", setup.proposedSelections.taskReviewer.selectionMode.rawValue, setup.proposedSelections.taskReviewer.modelProfile, setup.proposedSelections.taskReviewer.reasoningEffort?.rawValue, setup.proposedSelections.taskReviewer.fastMode),
+      ("webFetchSummarizer", setup.proposedSelections.webFetchSummarizer.selectionMode.rawValue, setup.proposedSelections.webFetchSummarizer.modelProfile, setup.proposedSelections.webFetchSummarizer.reasoningEffort?.rawValue, setup.proposedSelections.webFetchSummarizer.fastMode),
+      ("toolProgressAudit", setup.proposedSelections.toolProgressAudit.selectionMode.rawValue, setup.proposedSelections.toolProgressAudit.modelProfile, setup.proposedSelections.toolProgressAudit.reasoningEffort?.rawValue, setup.proposedSelections.toolProgressAudit.fastMode),
+      ("memoryConsolidation", setup.proposedSelections.memoryConsolidation.selectionMode.rawValue, setup.proposedSelections.memoryConsolidation.modelProfile, setup.proposedSelections.memoryConsolidation.reasoningEffort?.rawValue, setup.proposedSelections.memoryConsolidation.fastMode)
     ]
-    draft = Dictionary(uniqueKeysWithValues: proposals.map { ($0.0, ModelSelectionDraft(mode: $0.1, profile: $0.2, reasoning: $0.3)) })
-    if let action = setup.proposedSelections.actionReviewer { draft["actionReviewer"] = ModelSelectionDraft(mode: action.selectionMode.rawValue, profile: action.modelProfile, reasoning: action.reasoningEffort?.rawValue) }
+    draft = Dictionary(uniqueKeysWithValues: proposals.map { ($0.0, ModelSelectionDraft(mode: $0.1, profile: $0.2, reasoning: $0.3, fastMode: $0.4)) })
+    if let action = setup.proposedSelections.actionReviewer { draft["actionReviewer"] = ModelSelectionDraft(mode: action.selectionMode.rawValue, profile: action.modelProfile, reasoning: action.reasoningEffort?.rawValue, fastMode: action.fastMode) }
     stage = .models
   }
 
   private func selectionInput(_ key: String, allowEmpty: Bool = false) -> NoemaAPI.OnboardingModelSelectionInput {
-    let value = draft[key] ?? ModelSelectionDraft(mode: "NOEMA_RECOMMENDED", profile: nil, reasoning: nil)
+    let value = draft[key] ?? ModelSelectionDraft(mode: "NOEMA_RECOMMENDED", profile: nil, reasoning: nil, fastMode: false)
     let mode = NoemaAPI.ModelPreferenceSelectionMode(rawValue: value.mode) ?? .noemaRecommended
     let reasoning = value.reasoning.flatMap { NoemaAPI.ReasoningEffort(rawValue: $0) }.map(GraphQLEnum.init)
-    return NoemaAPI.OnboardingModelSelectionInput(selectionMode: GraphQLEnum(mode), modelProfile: value.profile.map { .some($0) } ?? (allowEmpty ? .none : .none), reasoningEffort: reasoning.map { .some($0) } ?? .none)
+    return NoemaAPI.OnboardingModelSelectionInput(selectionMode: GraphQLEnum(mode), modelProfile: value.profile.map { .some($0) } ?? (allowEmpty ? .none : .none), reasoningEffort: reasoning.map { .some($0) } ?? .none, fastMode: value.fastMode)
   }
 
   private func useCase(for key: String) -> String {

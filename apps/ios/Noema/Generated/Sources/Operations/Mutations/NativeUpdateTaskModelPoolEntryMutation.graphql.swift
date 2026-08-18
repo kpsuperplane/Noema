@@ -8,7 +8,7 @@ nonisolated public struct NativeUpdateTaskModelPoolEntryMutation: GraphQLMutatio
   public static let operationName: String = "NativeUpdateTaskModelPoolEntry"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"mutation NativeUpdateTaskModelPoolEntry($poolEntryId: String!, $input: TaskModelPoolEntryInput!) { updateTaskModelPoolEntry(poolEntryId: $poolEntryId, input: $input) { __typename poolEntryId complexity label providerKind providerAccountId modelProfile reasoningEffort selectionMode enabled sortOrder createdAt updatedAt } }"#
+      #"mutation NativeUpdateTaskModelPoolEntry($poolEntryId: String!, $input: TaskModelPoolEntryInput!) { updateTaskModelPoolEntry(poolEntryId: $poolEntryId, input: $input) { __typename poolEntryId complexity label providerKind providerAccountId modelProfile reasoningEffort selectionMode fastMode enabled sortOrder createdAt updatedAt } }"#
     ))
 
   public var poolEntryId: String
@@ -63,6 +63,7 @@ nonisolated public struct NativeUpdateTaskModelPoolEntryMutation: GraphQLMutatio
         .field("modelProfile", String?.self),
         .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
         .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
+        .field("fastMode", Bool.self),
         .field("enabled", Bool.self),
         .field("sortOrder", Int.self),
         .field("createdAt", String.self),
@@ -88,6 +89,8 @@ nonisolated public struct NativeUpdateTaskModelPoolEntryMutation: GraphQLMutatio
       public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
       /// Whether Noema or the human chooses the concrete model.
       public var selectionMode: GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode> { __data["selectionMode"] }
+      /// Whether this preference requests faster service.
+      public var fastMode: Bool { __data["fastMode"] }
       /// Whether this entry can be selected for new tasks.
       public var enabled: Bool { __data["enabled"] }
       /// Human-controlled ordering within its tier.

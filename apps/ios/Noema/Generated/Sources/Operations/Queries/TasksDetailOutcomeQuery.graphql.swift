@@ -56,6 +56,8 @@ nonisolated public struct TasksDetailOutcomeQuery: GraphQLQuery {
       public var taskId: String { __data["taskId"] }
       /// Current mutable TASK.md content.
       public var taskDocument: String { __data["taskDocument"] }
+      /// Current mutable RESULT.md content, when it exists.
+      public var resultDocument: String? { __data["resultDocument"] }
       /// Current mutable REVIEW.md content, when it exists.
       public var reviewDocument: String? { __data["reviewDocument"] }
 

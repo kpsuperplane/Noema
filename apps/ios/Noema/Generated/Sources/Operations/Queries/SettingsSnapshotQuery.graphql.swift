@@ -8,7 +8,7 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
   public static let operationName: String = "SettingsSnapshot"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"query SettingsSnapshot { localStatus { __typename localService assistantConnection memoryStorage primaryAgentDisplayName } agents { __typename agentId displayName isPrimary modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } memorySettings { __typename modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } webFetchSettings { __typename summarizer { __typename modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } } webToolSettings { __typename search { __typename toolName capabilityId activeProviderAccountId providerOptions { __typename providerAccountId providerKind accountKey displayName capabilityId reliabilityContract dataFlowClass citations directUrlFetch jsRendering authenticatedContext } } fetch { __typename toolName capabilityId activeProviderAccountId providerOptions { __typename providerAccountId providerKind accountKey displayName capabilityId reliabilityContract dataFlowClass citations directUrlFetch jsRendering authenticatedContext } } browse { __typename toolName capabilityId activeProviderAccountId providerOptions { __typename providerAccountId providerKind accountKey displayName capabilityId reliabilityContract dataFlowClass citations directUrlFetch jsRendering authenticatedContext } } } privacySettings { __typename reviewer { __typename modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } } usageSettings { __typename progressAudit { __typename modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } } taskExecutionPolicy { __typename maxProviderContinuations maxToolCalls maxActiveMinutes progressAuditInterval maxAutomaticRetries maxReviewRounds } localModelSetup { __typename isReady runtimeStatus recommendedModel { __typename modelId name license priority repo revision isRecommended compatibleBackend selectedBuild { __typename file sha256 downloadGb backends minRamGb minVramGb } hardwareFit { __typename backend ramGb vramGb unifiedMemory explanation } } installation { __typename installationId modelId name file sourceKind status sha256 completedBytes totalBytes diskBytes backend isActive errorCode errorMessage createdAt updatedAt } } localModelCatalog { __typename modelId name license priority repo revision isRecommended compatibleBackend selectedBuild { __typename file sha256 downloadGb backends minRamGb minVramGb } hardwareFit { __typename backend ramGb vramGb unifiedMemory explanation } } localModelInstallations { __typename installationId modelId name file sourceKind status sha256 completedBytes totalBytes diskBytes backend isActive errorCode errorMessage createdAt updatedAt } defaultModelPreference { __typename providerKind providerAccountId selectionMode modelProfile reasoningEffort } providerAccountCatalog { __typename providerKind displayName preferredAuthMethod supportedAuthMethods capabilities { __typename capabilityId status reliabilityContract dataFlowClass } } providerAccounts { __typename providerAccountId providerKind accountKey displayName authMethod status isActive isDefault lastCheckedAt lastAuthenticatedAt lastErrorCode lastErrorMessage capabilities { __typename capabilityId status reliabilityContract dataFlowClass } } mcps: capabilityIntegrations(kind: MCP) { __typename kind definitionId name sourceRevision reviewed sourceSummary connections { __typename kind definitionId connectionId name connectionLabel sourceRevision connectionRevision credentialRevision grantRevision policyRevision status healthStatus authStatus dataSharingPolicy unsafeActionPolicy toolCount availableToolCount pendingToolCount defaultedToolCount disabledToolCount sourceDetails } } apis: capabilityIntegrations(kind: API) { __typename kind definitionId name sourceRevision reviewed sourceSummary connections { __typename kind definitionId connectionId name connectionLabel sourceRevision connectionRevision credentialRevision grantRevision policyRevision status healthStatus authStatus dataSharingPolicy unsafeActionPolicy toolCount availableToolCount pendingToolCount defaultedToolCount disabledToolCount sourceDetails } } mcpServers { __typename mcpServerId connectionRevision policyRevision displayName transportKind healthStatus authStatus toolCount pendingToolCount browserOauthReauthenticationSupported } }"#
+      #"query SettingsSnapshot { localStatus { __typename localService assistantConnection memoryStorage primaryAgentDisplayName } agents { __typename agentId displayName isPrimary modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode fastMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } memorySettings { __typename modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode fastMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } webFetchSettings { __typename summarizer { __typename modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode fastMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } } webToolSettings { __typename search { __typename toolName capabilityId activeProviderAccountId providerOptions { __typename providerAccountId providerKind accountKey displayName capabilityId reliabilityContract dataFlowClass citations directUrlFetch jsRendering authenticatedContext } } fetch { __typename toolName capabilityId activeProviderAccountId providerOptions { __typename providerAccountId providerKind accountKey displayName capabilityId reliabilityContract dataFlowClass citations directUrlFetch jsRendering authenticatedContext } } browse { __typename toolName capabilityId activeProviderAccountId providerOptions { __typename providerAccountId providerKind accountKey displayName capabilityId reliabilityContract dataFlowClass citations directUrlFetch jsRendering authenticatedContext } } } privacySettings { __typename reviewer { __typename modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode fastMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } } usageSettings { __typename progressAudit { __typename modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode fastMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } } taskExecutionPolicy { __typename maxProviderContinuations maxToolCalls maxActiveMinutes progressAuditInterval maxAutomaticRetries maxReviewRounds } localModelSetup { __typename isReady runtimeStatus recommendedModel { __typename modelId name license priority repo revision isRecommended compatibleBackend selectedBuild { __typename file sha256 downloadGb backends minRamGb minVramGb } hardwareFit { __typename backend ramGb vramGb unifiedMemory explanation } } installation { __typename installationId modelId name file sourceKind status sha256 completedBytes totalBytes diskBytes backend isActive errorCode errorMessage createdAt updatedAt } } localModelCatalog { __typename modelId name license priority repo revision isRecommended compatibleBackend selectedBuild { __typename file sha256 downloadGb backends minRamGb minVramGb } hardwareFit { __typename backend ramGb vramGb unifiedMemory explanation } } localModelInstallations { __typename installationId modelId name file sourceKind status sha256 completedBytes totalBytes diskBytes backend isActive errorCode errorMessage createdAt updatedAt } defaultModelPreference { __typename providerKind providerAccountId selectionMode modelProfile reasoningEffort fastMode } providerAccountCatalog { __typename providerKind displayName preferredAuthMethod supportedAuthMethods capabilities { __typename capabilityId status reliabilityContract dataFlowClass } } providerAccounts { __typename providerAccountId providerKind accountKey displayName authMethod status isActive isDefault lastCheckedAt lastAuthenticatedAt lastErrorCode lastErrorMessage capabilities { __typename capabilityId status reliabilityContract dataFlowClass } } mcps: capabilityIntegrations(kind: MCP) { __typename kind definitionId name sourceRevision reviewed sourceSummary connections { __typename kind definitionId connectionId name connectionLabel sourceRevision connectionRevision credentialRevision grantRevision policyRevision status healthStatus authStatus dataSharingPolicy unsafeActionPolicy toolCount availableToolCount pendingToolCount defaultedToolCount disabledToolCount sourceDetails } } apis: capabilityIntegrations(kind: API) { __typename kind definitionId name sourceRevision reviewed sourceSummary connections { __typename kind definitionId connectionId name connectionLabel sourceRevision connectionRevision credentialRevision grantRevision policyRevision status healthStatus authStatus dataSharingPolicy unsafeActionPolicy toolCount availableToolCount pendingToolCount defaultedToolCount disabledToolCount sourceDetails } } mcpServers { __typename mcpServerId connectionRevision policyRevision displayName transportKind healthStatus authStatus toolCount pendingToolCount browserOauthReauthenticationSupported } }"#
     ))
 
   public init() {}
@@ -151,6 +151,7 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
           .field("modelProfile", String?.self),
           .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
           .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
+          .field("fastMode", Bool.self),
         ] }
         @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
           SettingsSnapshotQuery.Data.Agent.ModelPreference.self
@@ -166,6 +167,8 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
         public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
         /// Whether Noema or the human chooses the concrete model.
         public var selectionMode: GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode> { __data["selectionMode"] }
+        /// Whether this preference requests faster service.
+        public var fastMode: Bool { __data["fastMode"] }
       }
 
       /// Agent.ModelOption
@@ -299,6 +302,7 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
           .field("modelProfile", String?.self),
           .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
           .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
+          .field("fastMode", Bool.self),
         ] }
         @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
           SettingsSnapshotQuery.Data.MemorySettings.ModelPreference.self
@@ -314,6 +318,8 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
         public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
         /// Whether Noema or the human chooses the concrete model.
         public var selectionMode: GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode> { __data["selectionMode"] }
+        /// Whether this preference requests faster service.
+        public var fastMode: Bool { __data["fastMode"] }
       }
 
       /// MemorySettings.ModelOption
@@ -468,6 +474,7 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
             .field("modelProfile", String?.self),
             .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
             .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
+            .field("fastMode", Bool.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
             SettingsSnapshotQuery.Data.WebFetchSettings.Summarizer.ModelPreference.self
@@ -483,6 +490,8 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
           public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
           /// Whether Noema or the human chooses the concrete model.
           public var selectionMode: GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode> { __data["selectionMode"] }
+          /// Whether this preference requests faster service.
+          public var fastMode: Bool { __data["fastMode"] }
         }
 
         /// WebFetchSettings.Summarizer.ModelOption
@@ -853,6 +862,7 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
             .field("modelProfile", String?.self),
             .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
             .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
+            .field("fastMode", Bool.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
             SettingsSnapshotQuery.Data.PrivacySettings.Reviewer.ModelPreference.self
@@ -868,6 +878,8 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
           public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
           /// Whether Noema or the human chooses the concrete model.
           public var selectionMode: GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode> { __data["selectionMode"] }
+          /// Whether this preference requests faster service.
+          public var fastMode: Bool { __data["fastMode"] }
         }
 
         /// PrivacySettings.Reviewer.ModelOption
@@ -1023,6 +1035,7 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
             .field("modelProfile", String?.self),
             .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
             .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
+            .field("fastMode", Bool.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
             SettingsSnapshotQuery.Data.UsageSettings.ProgressAudit.ModelPreference.self
@@ -1038,6 +1051,8 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
           public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
           /// Whether Noema or the human chooses the concrete model.
           public var selectionMode: GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode> { __data["selectionMode"] }
+          /// Whether this preference requests faster service.
+          public var fastMode: Bool { __data["fastMode"] }
         }
 
         /// UsageSettings.ProgressAudit.ModelOption
@@ -1574,6 +1589,7 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
         .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
         .field("modelProfile", String?.self),
         .field("reasoningEffort", String?.self),
+        .field("fastMode", Bool.self),
       ] }
       @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
         SettingsSnapshotQuery.Data.DefaultModelPreference.self
@@ -1588,6 +1604,8 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
       public var modelProfile: String? { __data["modelProfile"] }
       /// Optional provider-specific reasoning effort.
       public var reasoningEffort: String? { __data["reasoningEffort"] }
+      /// Whether this preference requests faster service.
+      public var fastMode: Bool { __data["fastMode"] }
     }
 
     /// ProviderAccountCatalog

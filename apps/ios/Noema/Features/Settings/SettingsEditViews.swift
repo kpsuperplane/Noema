@@ -25,6 +25,7 @@ private struct SettingsPreferenceDraft {
   var selectionMode: String
   var modelProfile: String?
   var reasoningEffort: String?
+  var fastMode: Bool
 }
 
 struct SettingsPreferenceEditor: View {
@@ -50,6 +51,7 @@ struct SettingsPreferenceEditor: View {
       || draft.selectionMode != initialSelectionMode
       || draft.modelProfile != target.preference?.modelProfile
       || draft.reasoningEffort != target.preference?.reasoningEffort
+      || draft.fastMode != (target.preference?.fastMode ?? false)
   }
 
   init(target: SettingsPreferenceTarget, settings: SettingsModel) {
@@ -60,7 +62,8 @@ struct SettingsPreferenceEditor: View {
       providerAccountID: preference?.providerAccountId ?? target.options.first?.providerAccountId ?? "",
       selectionMode: preference?.selectionMode ?? (target.requiresExplicitSelection ? "" : NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue),
       modelProfile: preference?.modelProfile,
-      reasoningEffort: preference?.reasoningEffort
+      reasoningEffort: preference?.reasoningEffort,
+      fastMode: preference?.fastMode ?? false
     ))
   }
 
@@ -149,6 +152,15 @@ struct SettingsPreferenceEditor: View {
               }
             }
           }
+          if target.options.first(where: { $0.providerAccountId == draft.providerAccountID })?.supportsFastMode == true {
+            SettingsSheetField("Speed") {
+              Picker("Speed", selection: $draft.fastMode) {
+                Text("Standard").tag(false)
+                Text("Fast").tag(true)
+              }
+              .pickerStyle(.segmented)
+            }
+          }
         }
         if let error = settings.errorMessage, !isSaving {
           Text(error)
@@ -193,6 +205,7 @@ struct SettingsPreferenceEditor: View {
     .onChange(of: draft.providerAccountID) { _, _ in
       draft.modelProfile = nil
       draft.reasoningEffort = nil
+      draft.fastMode = false
     }
     .onChange(of: draft.selectionMode) { _, mode in
       guard mode == NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue else { return }
@@ -219,10 +232,11 @@ struct SettingsPreferenceEditor: View {
       let reasoningEffort = explicit
         ? (draft.reasoningEffort ?? profile?.defaultReasoningEffort ?? profile?.reasoningEfforts.first)
         : nil
+      let fastMode = option?.supportsFastMode == true && draft.fastMode
       let success: Bool
       switch target.kind {
       case .agent(let agentID):
-        success = await settings.saveAgentModelPreference(agentID: agentID, providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort)
+        success = await settings.saveAgentModelPreference(agentID: agentID, providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort, fastMode: fastMode)
       case .taskPool(let pool):
         guard let option else { isSaving = false; return }
         success = await settings.updateTaskModelPool(
@@ -232,20 +246,21 @@ struct SettingsPreferenceEditor: View {
             providerAccountId: draft.providerAccountID,
             modelProfile: modelProfile,
             reasoningEffort: reasoningEffort,
-            selectionMode: draft.selectionMode
+            selectionMode: draft.selectionMode,
+            fastMode: fastMode
           )
         )
       case .memory:
-        success = await settings.saveMemoryModelPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort)
+        success = await settings.saveMemoryModelPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort, fastMode: fastMode)
       case .webFetch:
-        success = await settings.saveWebFetchSummarizerPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort)
+        success = await settings.saveWebFetchSummarizerPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort, fastMode: fastMode)
       case .privacy:
-        success = await settings.saveActionReviewerPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort)
+        success = await settings.saveActionReviewerPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort, fastMode: fastMode)
       case .usage:
-        success = await settings.saveToolProgressAuditPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort)
+        success = await settings.saveToolProgressAuditPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort, fastMode: fastMode)
       case .defaultModel:
         guard let option else { isSaving = false; return }
-        success = await settings.saveDefaultModelPreference(providerKind: option.providerKind, providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort)
+        success = await settings.saveDefaultModelPreference(providerKind: option.providerKind, providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort, fastMode: fastMode)
       }
       if success { dismiss() } else { isSaving = false }
     }

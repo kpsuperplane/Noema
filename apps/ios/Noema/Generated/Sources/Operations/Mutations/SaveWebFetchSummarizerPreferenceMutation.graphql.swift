@@ -8,7 +8,7 @@ nonisolated public struct SaveWebFetchSummarizerPreferenceMutation: GraphQLMutat
   public static let operationName: String = "SaveWebFetchSummarizerPreference"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"mutation SaveWebFetchSummarizerPreference($input: SaveWebFetchSummarizerPreferenceInput!) { saveWebFetchSummarizerPreference(input: $input) { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } }"#
+      #"mutation SaveWebFetchSummarizerPreference($input: SaveWebFetchSummarizerPreferenceInput!) { saveWebFetchSummarizerPreference(input: $input) { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode fastMode } }"#
     ))
 
   public var input: SaveWebFetchSummarizerPreferenceInput
@@ -49,6 +49,7 @@ nonisolated public struct SaveWebFetchSummarizerPreferenceMutation: GraphQLMutat
         .field("modelProfile", String?.self),
         .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
         .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
+        .field("fastMode", Bool.self),
       ] }
       @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
         SaveWebFetchSummarizerPreferenceMutation.Data.SaveWebFetchSummarizerPreference.self
@@ -64,6 +65,8 @@ nonisolated public struct SaveWebFetchSummarizerPreferenceMutation: GraphQLMutat
       public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
       /// Whether Noema or the human chooses the concrete model.
       public var selectionMode: GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode> { __data["selectionMode"] }
+      /// Whether this preference requests faster service.
+      public var fastMode: Bool { __data["fastMode"] }
     }
   }
 }

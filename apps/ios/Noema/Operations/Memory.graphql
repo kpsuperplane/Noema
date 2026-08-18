@@ -156,5 +156,6 @@ mutation SaveMemoryModelPreference($input: GraphqlSaveMemoryModelPreferenceInput
     modelProfile
     reasoningEffort
     selectionMode
+    fastMode
   }
 }

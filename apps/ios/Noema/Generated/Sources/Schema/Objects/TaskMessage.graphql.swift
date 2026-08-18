@@ -4,7 +4,7 @@
 import ApolloAPI
 
 public extension Objects {
-  /// Human message in the immutable task history.
+  /// Human message in Task history.
   nonisolated static let TaskMessage = ApolloAPI.Object(
     typename: "TaskMessage",
     implementedInterfaces: [],

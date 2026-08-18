@@ -15,13 +15,15 @@ nonisolated public struct SaveToolProgressAuditPreferenceInput: InputObject {
     providerAccountId: String,
     selectionMode: GraphQLEnum<ModelPreferenceSelectionMode>,
     modelProfile: GraphQLNullable<String> = nil,
-    reasoningEffort: GraphQLNullable<GraphQLEnum<ReasoningEffort>> = nil
+    reasoningEffort: GraphQLNullable<GraphQLEnum<ReasoningEffort>> = nil,
+    fastMode: Bool
   ) {
     __data = InputDict([
       "providerAccountId": providerAccountId,
       "selectionMode": selectionMode,
       "modelProfile": modelProfile,
-      "reasoningEffort": reasoningEffort
+      "reasoningEffort": reasoningEffort,
+      "fastMode": fastMode
     ])
   }
 
@@ -46,5 +48,10 @@ nonisolated public struct SaveToolProgressAuditPreferenceInput: InputObject {
   public var reasoningEffort: GraphQLNullable<GraphQLEnum<ReasoningEffort>> {
     get { __data["reasoningEffort"] }
     set { __data["reasoningEffort"] = newValue }
+  }
+
+  public var fastMode: Bool {
+    get { __data["fastMode"] }
+    set { __data["fastMode"] = newValue }
   }
 }
