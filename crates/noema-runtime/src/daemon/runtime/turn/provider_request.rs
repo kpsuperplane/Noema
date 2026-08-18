@@ -90,8 +90,8 @@ impl RuntimeActor {
             json!({
                 "duration_ms": tools_started_at.elapsed().as_millis(),
                 "tool_catalog_count": model_tools.bindings.len(),
-                "callable_tool_count": model_tools.callable_tool_names().len(),
-                "continuation_callable_tool_count": continuation_model_tools.callable_tool_names().len(),
+                "callable_tool_count": model_tools.exposed_tool_names().len(),
+                "continuation_callable_tool_count": continuation_model_tools.exposed_tool_names().len(),
             }),
         );
         self.update_conversation_agent_status(

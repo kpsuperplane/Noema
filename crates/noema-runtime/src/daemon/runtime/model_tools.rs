@@ -398,7 +398,7 @@ impl ModelTools {
         }
     }
 
-    pub(in crate::daemon) fn callable_tool_names(&self) -> Vec<String> {
+    pub(in crate::daemon) fn exposed_tool_names(&self) -> Vec<String> {
         let mut names = self
             .provider_tools
             .iter()
@@ -412,6 +412,21 @@ impl ModelTools {
             names.push("web_search".to_string());
         }
         names
+    }
+
+    pub(in crate::daemon) fn source_tool_names(&self) -> Vec<String> {
+        self.provider_tools
+            .iter()
+            .filter(|tool| self.has_callable_tool(tool.canonical_spec().name.as_str()))
+            .map(|tool| tool.canonical_spec().name.as_str().to_string())
+            .collect()
+    }
+
+    pub(in crate::daemon) fn has_callable_tool(&self, source_name: &str) -> bool {
+        self.provider_tools.iter().any(|tool| {
+            tool.canonical_spec().name.as_str() == source_name
+                && self.tool_policy.allows_tool(source_name)
+        })
     }
 
     pub(in crate::daemon) const fn hosted_web_search(&self) -> bool {

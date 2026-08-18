@@ -19,6 +19,9 @@ Each callable tool has one immutable server-only binding. The binding contains:
 - Execution ownership and destination metadata.
 - Exact persistence rules for arguments and output.
 
+The source tool identity controls runtime policy and capability decisions.
+Provider aliases affect only provider wire encoding and model calls.
+
 The model cannot select an invoker, credential, origin, HTTP method, or policy
 revision. The router resolves the exact binding before it validates input.
 

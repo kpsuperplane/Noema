@@ -676,6 +676,7 @@ fn primary_context(
     catalog_rows: Vec<String>,
     callable_tool_names: Vec<String>,
 ) -> Vec<GenerateMessage> {
+    let source_tool_names = callable_tool_names.clone();
     ModelContextState::new(
         AgentIdentityContext::from(identity),
         RuntimeEnvironmentContext::new(
@@ -684,7 +685,13 @@ fn primary_context(
             "America/Los_Angeles",
             None::<String>,
         ),
-        ToolVisibilityContext::new(transport, callable_tool_names, catalog_rows),
+        ToolVisibilityContext::new(
+            transport,
+            callable_tool_names,
+            source_tool_names,
+            false,
+            catalog_rows,
+        ),
     )
     .full_updates()
     .into_iter()

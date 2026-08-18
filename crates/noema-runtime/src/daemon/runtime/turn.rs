@@ -268,10 +268,16 @@ fn model_context_state(
                 ProviderToolTransport::None
             },
             if tools_enabled {
-                model_tools.callable_tool_names().into_iter().collect()
+                model_tools.exposed_tool_names()
             } else {
                 Vec::new()
             },
+            if tools_enabled {
+                model_tools.source_tool_names()
+            } else {
+                Vec::new()
+            },
+            tools_enabled && model_tools.hosted_web_search(),
             catalog_rows,
         ),
     )

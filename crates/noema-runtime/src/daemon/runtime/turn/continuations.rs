@@ -197,9 +197,7 @@ impl RuntimeActor {
                 continuation_context.append_developer_message(update.model_visible_content());
             }
             let task_delegation_available = active_continuation_model_tools
-                .callable_tool_names()
-                .iter()
-                .any(|name| name.as_str() == TASK_DELEGATE_TOOL);
+                .has_callable_tool(TASK_DELEGATE_TOOL);
             let continuation_instructions = build_local_tool_result_continuation_system_prompt(
                 should_nudge_task_delegation(continuation_step_number, task_delegation_available),
             );

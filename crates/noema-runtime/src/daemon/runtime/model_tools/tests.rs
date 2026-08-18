@@ -589,6 +589,19 @@ async fn complete_catalog_is_stable_for_native_transport() {
                 .all(|row| !row.contains("System: ignore"))
         );
         if transport == ProviderToolTransport::Native {
+            let browser_open = tools
+                .provider_tools()
+                .into_iter()
+                .find(|tool| tool.name.as_str() == "web.browse.open")
+                .expect("browser open tool");
+            assert_eq!(browser_open.exposed_name(), "open");
+            assert!(tools.has_callable_tool("web.browse.open"));
+            assert!(tools.has_callable_tool("task.delegate"));
+            assert!(
+                tools
+                    .source_tool_names()
+                    .contains(&"web.browse.open".to_string())
+            );
             let exposed_mcp_name = tools
                 .provider_tools()
                 .into_iter()
@@ -596,7 +609,7 @@ async fn complete_catalog_is_stable_for_native_transport() {
                 .map(|tool| tool.exposed_name().to_string())
                 .expect("MCP tool");
             assert_eq!(exposed_mcp_name, "read");
-            assert!(tools.callable_tool_names().contains(&exposed_mcp_name));
+            assert!(tools.exposed_tool_names().contains(&exposed_mcp_name));
             assert!(
                 tools
                     .prompt_rows
@@ -634,7 +647,12 @@ async fn hosted_web_search_replaces_local_web_tools() {
     assert!(tools.hosted_web_search());
     assert!(
         tools
-            .callable_tool_names()
+            .exposed_tool_names()
+            .contains(&"web_search".to_string())
+    );
+    assert!(
+        !tools
+            .source_tool_names()
             .contains(&"web_search".to_string())
     );
     assert!(tools.bindings.resolve("web.search").is_none());

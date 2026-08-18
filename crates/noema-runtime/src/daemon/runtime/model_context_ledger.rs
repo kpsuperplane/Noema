@@ -133,6 +133,8 @@ mod tests {
             ToolVisibilityContext::new(
                 noema_providers::ProviderToolTransport::Native,
                 Vec::new(),
+                Vec::new(),
+                false,
                 vec!["- builtin\tread".to_string()],
             ),
         )
