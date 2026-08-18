@@ -248,6 +248,7 @@ async fn assemble_services(
                 .await?;
         }
     }
+    restore_provider_fast_modes(&store, &provider_registry).await?;
     let native_memory = NativeMemory::new(
         paths.root().join("memory/human"),
         paths.root().join("system/indexes/memory.sqlite3"),
@@ -554,6 +555,29 @@ fn register_hosted_providers(
         let account_id = model_provider_account_id(provider_kind)?;
         let key = provider_account_instance_key(account_id)?;
         registry.register(key, provider.clone())?;
+    }
+    Ok(())
+}
+
+async fn restore_provider_fast_modes(
+    store: &NoemaStore,
+    registry: &ProviderRegistryHandle,
+) -> Result<(), RuntimeHostError> {
+    for account in store.active_provider_accounts().await? {
+        if !matches!(account.provider_kind.as_str(), "codex" | "openai") {
+            continue;
+        }
+        let Some(enabled) = account
+            .metadata
+            .get("fast_mode")
+            .and_then(serde_json::Value::as_bool)
+        else {
+            continue;
+        };
+        let key = provider_account_instance_key(&account.provider_account_id)?;
+        if let Ok(lease) = registry.lease(&key) {
+            lease.operations().set_fast_mode(enabled)?;
+        }
     }
     Ok(())
 }

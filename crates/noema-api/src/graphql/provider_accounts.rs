@@ -1,7 +1,7 @@
 use async_graphql::{InputObject, Result, SimpleObject};
 use noema_providers::{
     CreateSecretProviderAccountRequest, ProviderAccountRecord, ProviderCapability,
-    SaveProviderAccountSecretRequest,
+    SaveProviderAccountSecretRequest, provider_account_instance_key,
 };
 
 use super::{
@@ -79,6 +79,8 @@ pub struct GraphqlProviderAccount {
     pub last_error_message: Option<String>,
     /// Provider capabilities available through this account.
     pub capabilities: Vec<GraphqlProviderCapability>,
+    /// Whether future requests use the provider's faster service tier.
+    pub fast_mode: Option<bool>,
 }
 
 impl From<ProviderAccountRecord> for GraphqlProviderAccount {
@@ -97,6 +99,7 @@ impl From<ProviderAccountRecord> for GraphqlProviderAccount {
             last_error_code: account.last_error_code,
             last_error_message: account.last_error_message,
             capabilities: account.capabilities.into_iter().map(Into::into).collect(),
+            fast_mode: None,
         }
     }
 }
@@ -145,13 +148,105 @@ pub struct GraphqlDeleteProviderAccountInput {
     pub provider_account_id: String,
 }
 
+/// Input for changing one provider account's request speed.
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "SetProviderFastModeInput")]
+pub struct GraphqlSetProviderFastModeInput {
+    pub provider_account_id: String,
+    pub enabled: bool,
+}
+
 pub(super) async fn provider_accounts(state: &GraphqlState) -> Result<Vec<GraphqlProviderAccount>> {
     let accounts = state
         .provider_account_operations()?
         .active_accounts()
         .await
         .map_err(graphql_error)?;
-    Ok(accounts.into_iter().map(Into::into).collect())
+    Ok(accounts
+        .into_iter()
+        .map(|account| graphql_provider_account(state, account))
+        .collect())
+}
+
+fn graphql_provider_account(
+    state: &GraphqlState,
+    account: ProviderAccountRecord,
+) -> GraphqlProviderAccount {
+    let fast_mode = provider_supports_fast_mode(&account.provider_kind).then(|| {
+        live_fast_mode(state, &account.provider_account_id)
+            .or_else(|| {
+                account
+                    .metadata
+                    .get("fast_mode")
+                    .and_then(serde_json::Value::as_bool)
+            })
+            .unwrap_or(false)
+    });
+    let mut result = GraphqlProviderAccount::from(account);
+    result.fast_mode = fast_mode;
+    result
+}
+
+fn provider_supports_fast_mode(provider_kind: &str) -> bool {
+    matches!(provider_kind, "codex" | "openai")
+}
+
+fn live_fast_mode(state: &GraphqlState, provider_account_id: &str) -> Option<bool> {
+    let key = provider_account_instance_key(provider_account_id).ok()?;
+    state
+        .provider_registry()
+        .ok()?
+        .lease(&key)
+        .ok()?
+        .operations()
+        .fast_mode()
+}
+
+pub(super) async fn set_provider_fast_mode(
+    state: &GraphqlState,
+    input: GraphqlSetProviderFastModeInput,
+) -> Result<GraphqlProviderAccount> {
+    let store = state.store()?;
+    let mut account = store
+        .get_provider_account(&input.provider_account_id)
+        .await
+        .map_err(graphql_error)?
+        .ok_or_else(|| async_graphql::Error::new("provider account not found"))?;
+    if !provider_supports_fast_mode(&account.provider_kind) {
+        return Err(async_graphql::Error::new(
+            "provider account does not support fast mode",
+        ));
+    }
+    let metadata = account.metadata.as_object_mut().ok_or_else(|| {
+        async_graphql::Error::new("provider account settings have an invalid format")
+    })?;
+    metadata.insert("fast_mode".to_string(), input.enabled.into());
+
+    let key = provider_account_instance_key(&account.provider_account_id).map_err(graphql_error)?;
+    let lease = state.provider_registry()?.lease(&key).ok();
+    let previous_live = lease
+        .as_ref()
+        .and_then(|lease| lease.operations().fast_mode());
+    if let Some(lease) = &lease {
+        if previous_live.is_some() {
+            lease
+                .operations()
+                .set_fast_mode(input.enabled)
+                .map_err(graphql_error)?;
+        }
+    }
+
+    if let Err(error) = store
+        .update_provider_account_metadata(&account.provider_account_id, account.metadata.clone())
+        .await
+    {
+        if let (Some(lease), Some(previous_live)) = (&lease, previous_live) {
+            let _ = lease.operations().set_fast_mode(previous_live);
+        }
+        return Err(graphql_error(error));
+    }
+
+    Ok(graphql_provider_account(state, account))
 }
 
 pub(super) async fn provider_account_catalog(

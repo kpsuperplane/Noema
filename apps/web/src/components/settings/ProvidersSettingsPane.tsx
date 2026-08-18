@@ -9,6 +9,7 @@ import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { MoreMenu } from "@astryxdesign/core/MoreMenu";
 import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
+import { Switch } from "@astryxdesign/core/Switch";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
 import { AlertTriangle, ChevronRight, KeyRound, Plus, Trash2 } from "lucide-react";
@@ -22,6 +23,7 @@ import {
   ProviderAccountsDocument,
   ProviderAuthAttemptEventsDocument,
   SaveProviderSecretInputDocument,
+  SetProviderFastModeDocument,
   StartProviderAuthAttemptDocument,
   WebToolSettingsDocument,
   type ClearProviderSecretMutation,
@@ -33,6 +35,8 @@ import {
   type ProviderAccountsQuery,
   type SaveProviderSecretInputMutation,
   type SaveProviderSecretInputMutationVariables,
+  type SetProviderFastModeMutation,
+  type SetProviderFastModeMutationVariables,
   type StartProviderAuthAttemptMutation
 } from "@/generated/graphql";
 import {
@@ -51,6 +55,7 @@ import { SettingsManagementLayout } from "./SettingsManagementLayout";
 import {
   SettingsList,
   SettingsListItem,
+  SettingsLocalFeedback,
   SettingsSection,
   SettingsSectionInset,
   SettingsTechnicalDetails
@@ -67,6 +72,7 @@ export function ProvidersSettingsPane({ providerAccountId }: { providerAccountId
   const [saveProviderSecretInput, saveSecretResult] = useMutation<SaveProviderSecretInputMutation, SaveProviderSecretInputMutationVariables>(SaveProviderSecretInputDocument, mutationOptions);
   const [clearProviderSecret, clearSecretResult] = useMutation<ClearProviderSecretMutation, ClearProviderSecretMutationVariables>(ClearProviderSecretDocument, mutationOptions);
   const [deleteProviderAccount, deleteResult] = useMutation<DeleteProviderAccountMutation, DeleteProviderAccountMutationVariables>(DeleteProviderAccountDocument, mutationOptions);
+  const [setProviderFastMode, fastModeResult] = useMutation<SetProviderFastModeMutation, SetProviderFastModeMutationVariables>(SetProviderFastModeDocument, mutationOptions);
   const [startProviderAuthAttempt, startAuthResult] = useMutation(StartProviderAuthAttemptDocument);
   const [cancelProviderAuthAttempt] = useMutation(CancelProviderAuthAttemptDocument);
   useSubscription(ProviderAuthAttemptEventsDocument, {
@@ -100,6 +106,7 @@ export function ProvidersSettingsPane({ providerAccountId }: { providerAccountId
   const onSaveProviderSecret = (input: { providerAccountId: string; secret: string }) => saveProviderSecretInput({ variables: { input } });
   const onClearProviderSecret = (input: { providerAccountId: string }) => clearProviderSecret({ variables: { input } });
   const onDeleteProviderAccount = (input: { providerAccountId: string }) => deleteProviderAccount({ variables: { input } });
+  const onSetProviderFastMode = (input: { providerAccountId: string; enabled: boolean }) => setProviderFastMode({ variables: { input } });
   const [addOpen, setAddOpen] = useState(false);
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -154,6 +161,12 @@ export function ProvidersSettingsPane({ providerAccountId }: { providerAccountId
             catalogEntry={catalogEntry}
             busy={mutationSaving}
             supportsSecret={supportsSecret}
+            fastModeSaving={fastModeResult.loading}
+            fastModeError={fastModeResult.error?.message ?? null}
+            onFastModeChange={(enabled) => onSetProviderFastMode({
+              providerAccountId: selectedAccount.providerAccountId,
+              enabled
+            }).then(() => undefined)}
             onReplace={() => setReplaceOpen(true)}
             onClear={() => setClearOpen(true)}
             onDelete={() => setDeleteTargetId(selectedAccount.providerAccountId)}
@@ -323,6 +336,9 @@ function ProviderAccountDetail({
   catalogEntry,
   busy,
   supportsSecret,
+  fastModeSaving,
+  fastModeError,
+  onFastModeChange,
   onReplace,
   onClear,
   onDelete
@@ -331,6 +347,9 @@ function ProviderAccountDetail({
   catalogEntry?: ProviderAccountCatalogEntry;
   busy: boolean;
   supportsSecret: boolean;
+  fastModeSaving: boolean;
+  fastModeError: string | null;
+  onFastModeChange: (enabled: boolean) => Promise<void>;
   onReplace: () => void;
   onClear: () => void;
   onDelete: () => void;
@@ -365,6 +384,30 @@ function ProviderAccountDetail({
         </SettingsSectionInset>
       ) : null}
     </SettingsSection>
+    {account.fastMode !== null ? (
+      <SettingsSection title="Performance" titleId="provider-performance">
+        <SettingsList density="balanced">
+          <SettingsListItem
+            label="Fast mode"
+            description="Faster responses cost more."
+            endContent={
+              <Switch
+                label="Fast mode"
+                isLabelHidden
+                value={account.fastMode}
+                isLoading={fastModeSaving}
+                changeAction={onFastModeChange}
+              />
+            }
+          />
+        </SettingsList>
+        {fastModeError ? (
+          <SettingsLocalFeedback>
+            <p role="alert" {...stylex.props(styles.saveError)}>Fast mode could not be changed.</p>
+          </SettingsLocalFeedback>
+        ) : null}
+      </SettingsSection>
+    ) : null}
     <SettingsSection title="Capabilities" titleId="provider-capabilities">
       {capabilities.length > 0 ? <SettingsList density="balanced" hasDividers>
         {capabilities.map((capability) => (

@@ -1,6 +1,9 @@
 //! Feature-gated store construction support for consumer tests.
 #[cfg(any(test, feature = "test-support"))]
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 #[cfg(any(test, feature = "test-support"))]
 use noema_providers::{
@@ -17,8 +20,10 @@ use tempfile::TempDir;
 use crate::{NoemaStore, StoreConfig, StoreError, WorkCommandService};
 
 #[cfg(any(test, feature = "test-support"))]
-#[derive(Debug)]
-struct ReadyTestProvider;
+#[derive(Debug, Default)]
+struct ReadyTestProvider {
+    fast_mode: AtomicBool,
+}
 
 #[cfg(any(test, feature = "test-support"))]
 fn invariant(error: impl std::fmt::Display) -> StoreError {
@@ -29,6 +34,15 @@ fn invariant(error: impl std::fmt::Display) -> StoreError {
 
 #[cfg(any(test, feature = "test-support"))]
 impl ProviderOperations for ReadyTestProvider {
+    fn fast_mode(&self) -> Option<bool> {
+        Some(self.fast_mode.load(Ordering::Relaxed))
+    }
+
+    fn set_fast_mode(&self, enabled: bool) -> Result<(), noema_providers::ProviderError> {
+        self.fast_mode.store(enabled, Ordering::Relaxed);
+        Ok(())
+    }
+
     fn generate_streaming<'a>(
         &'a self,
         _request: GenerateRequest,
@@ -56,7 +70,7 @@ pub fn register_ready_provider(
     key: ProviderInstanceKey,
 ) -> Result<(), StoreError> {
     registry
-        .register(key, Arc::new(ReadyTestProvider))
+        .register(key, Arc::new(ReadyTestProvider::default()))
         .map(|_| ())
         .map_err(invariant)
 }

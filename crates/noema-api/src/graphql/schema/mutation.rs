@@ -640,6 +640,16 @@ impl MutationRoot {
         provider_accounts::clear_provider_secret(state, input).await
     }
 
+    /// Change the service tier for future requests from one provider account.
+    async fn set_provider_fast_mode(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSetProviderFastModeInput,
+    ) -> Result<GraphqlProviderAccount> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        provider_accounts::set_provider_fast_mode(state, input).await
+    }
+
     /// Hard-delete a user-managed provider account.
     async fn delete_provider_account(
         &self,

@@ -98,12 +98,22 @@ export const ProviderAccountsDocument = gql`
       lastAuthenticatedAt
       lastErrorCode
       lastErrorMessage
+      fastMode
       capabilities {
         capabilityId
         status
         reliabilityContract
         dataFlowClass
       }
+    }
+  }
+`;
+
+export const SetProviderFastModeDocument = gql`
+  mutation SetProviderFastMode($input: SetProviderFastModeInput!) {
+    setProviderFastMode(input: $input) {
+      providerAccountId
+      fastMode
     }
   }
 `;

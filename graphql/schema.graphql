@@ -2771,6 +2771,10 @@ type MutationRoot {
 	"""
 	clearProviderSecret(input: ClearProviderSecretInput!): ProviderAccount!
 	"""
+	Change the service tier for future requests from one provider account.
+	"""
+	setProviderFastMode(input: SetProviderFastModeInput!): ProviderAccount!
+	"""
 	Hard-delete a user-managed provider account.
 	"""
 	deleteProviderAccount(input: DeleteProviderAccountInput!): Boolean!
@@ -3280,6 +3284,10 @@ type ProviderAccount {
 	Provider capabilities available through this account.
 	"""
 	capabilities: [ProviderCapability!]!
+	"""
+	Whether future requests use the provider's faster service tier.
+	"""
+	fastMode: Boolean
 }
 
 """
@@ -4260,6 +4268,14 @@ input SetCapabilityToolEnabledInput {
 	toolId: String!
 	sourceRevision: String!
 	expectedPolicyRevision: Int!
+	enabled: Boolean!
+}
+
+"""
+Input for changing one provider account's request speed.
+"""
+input SetProviderFastModeInput {
+	providerAccountId: String!
 	enabled: Boolean!
 }
 
