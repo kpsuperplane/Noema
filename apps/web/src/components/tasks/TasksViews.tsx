@@ -38,7 +38,7 @@ export function TasksList({
 }) {
   const taskResult = useQuery(TasksListDocument, {
     variables: {
-      input: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, text: query, scope: "ALL" },
+      input: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, text: query, scope: "ACTIVE" },
       first: 100
     },
     fetchPolicy: "cache-and-network"
