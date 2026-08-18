@@ -29,8 +29,7 @@ const WORKER_FORMAT_ENV: &str = "NOEMA_FILE_PARSE_FORMAT";
 const WORKER_MAX_CHARS_ENV: &str = "NOEMA_FILE_PARSE_MAX_CHARS";
 const MAX_DOCUMENT_BYTES: u64 = 32 * 1024 * 1024;
 const WORKER_MEMORY_BYTES: u64 = 512 * 1024 * 1024;
-const WORKER_TIMEOUT: Duration = Duration::from_secs(30);
-const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30);
+const IO_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_DOWNLOAD_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 3;
 const DOWNLOAD_USER_AGENT: &str = "NoemaFileDownload/0.1 (+https://github.com/kpsuperplane/Noema)";
@@ -118,7 +117,7 @@ pub(crate) async fn execute_file_download(
         .map(cap_std::fs::File::into_std)
         .map_err(|_| "temporary download file could not be created".to_string())?;
     let downloaded =
-        match tokio::time::timeout(DOWNLOAD_TIMEOUT, download_into(std_file, &request.url)).await {
+        match tokio::time::timeout(IO_TIMEOUT, download_into(std_file, &request.url)).await {
             Ok(result) => result,
             Err(_) => {
                 let _ = root.remove_file(&temp);
@@ -169,7 +168,7 @@ async fn download_into(
         let response = client
             .get(checked.url.clone())
             .header(header::USER_AGENT, DOWNLOAD_USER_AGENT)
-            .timeout(DOWNLOAD_TIMEOUT)
+            .timeout(IO_TIMEOUT)
             .send()
             .await
             .map_err(|_| "download request failed".to_string())?;
@@ -242,12 +241,8 @@ fn client_for_checked_url(checked: &CheckedUrl) -> Result<Client, String> {
     let mut builder = Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(DOWNLOAD_TIMEOUT);
-    if matches!(checked.url.host(), Some(url::Host::Domain(_))) {
-        let host = checked
-            .url
-            .host_str()
-            .ok_or_else(|| "download URL is invalid".to_string())?;
+        .connect_timeout(IO_TIMEOUT);
+    if let Some(url::Host::Domain(host)) = checked.url.host() {
         builder = builder.resolve_to_addrs(host, &checked.resolved_addrs);
     }
     builder
@@ -257,9 +252,6 @@ fn client_for_checked_url(checked: &CheckedUrl) -> Result<Client, String> {
 
 fn normalized_relative_path(supplied: &str) -> Result<PathBuf, String> {
     let supplied = Path::new(supplied.trim());
-    if supplied.is_absolute() {
-        return Err("file path is outside the working-directory boundary".to_string());
-    }
     let mut relative = PathBuf::new();
     for component in supplied.components() {
         match component {
@@ -277,10 +269,7 @@ fn normalized_relative_path(supplied: &str) -> Result<PathBuf, String> {
 fn prepare_download_parent(root: &Dir, relative: &Path) -> Result<(), String> {
     let mut current = PathBuf::new();
     for component in relative.parent().into_iter().flat_map(Path::components) {
-        let Component::Normal(value) = component else {
-            return Err("file path is outside the working-directory boundary".to_string());
-        };
-        current.push(value);
+        current.push(component.as_os_str());
         match root.symlink_metadata(&current) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
                 return Err("file path contains a symbolic link".to_string());
@@ -349,19 +338,9 @@ fn open_conversation_file(cwd: &str, supplied: &str) -> Result<std::fs::File, St
     let relative = normalized_relative_path(supplied)?;
     let root = Dir::open_ambient_dir(cwd, ambient_authority())
         .map_err(|_| "working directory is unavailable".to_string())?;
-    verify_relative_file(&root, &relative)?;
-    root.open(&relative)
-        .map(cap_std::fs::File::into_std)
-        .map_err(|_| "file could not be opened".to_string())
-}
-
-fn verify_relative_file(root: &Dir, relative: &Path) -> Result<(), String> {
     let mut current = PathBuf::new();
     for component in relative.components() {
-        let Component::Normal(value) = component else {
-            return Err("file path is outside the working-directory boundary".to_string());
-        };
-        current.push(value);
+        current.push(component.as_os_str());
         let metadata = root
             .symlink_metadata(&current)
             .map_err(|_| "file is unavailable".to_string())?;
@@ -369,13 +348,16 @@ fn verify_relative_file(root: &Dir, relative: &Path) -> Result<(), String> {
             return Err("file path contains a symbolic link".to_string());
         }
     }
-    let metadata = root
-        .symlink_metadata(relative)
+    let file = root
+        .open(&relative)
+        .map_err(|_| "file could not be opened".to_string())?;
+    let metadata = file
+        .metadata()
         .map_err(|_| "file is unavailable".to_string())?;
     if !metadata.is_file() {
         return Err("file is not a regular file".to_string());
     }
-    Ok(())
+    Ok(file.into_std())
 }
 
 fn parse_text(
@@ -457,7 +439,7 @@ async fn run_document_worker(
     stdin.write_all(bytes).await.map_err(|_| "worker_failed")?;
     stdin.shutdown().await.map_err(|_| "worker_failed")?;
     drop(stdin);
-    let output = tokio::time::timeout(WORKER_TIMEOUT, child.wait_with_output())
+    let output = tokio::time::timeout(IO_TIMEOUT, child.wait_with_output())
         .await
         .map_err(|_| "worker_timeout")?
         .map_err(|_| "worker_failed")?;
@@ -650,65 +632,4 @@ fn run_worker_process() -> i32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn text_parser_bounds_utf8_without_using_anydoc() {
-        let directory = tempfile::tempdir().expect("directory");
-        let path = directory.path().join("large.csv");
-        std::fs::write(&path, "rank,domain\n1,éxample.com\n".repeat(200)).expect("write");
-        let file = std::fs::File::open(&path).expect("open");
-
-        let response = parse_open_file(file, "large.csv", Some("text/csv"), 1000).await;
-
-        assert_eq!(response.status, FileParseStatus::Converted);
-        assert_eq!(response.parser.as_deref(), Some("utf8"));
-        assert_eq!(response.content_format.as_deref(), Some("csv"));
-        assert_eq!(response.returned_chars, 1000);
-        assert!(response.truncated);
-    }
-
-    #[test]
-    fn unsupported_document_has_a_bounded_result() {
-        let response = convert_document_bytes(b"not a document", Some("bin"), 1000);
-        assert_eq!(response.status, FileParseStatus::Unsupported);
-        assert_eq!(response.error.as_deref(), Some("unsupported_format"));
-        assert!(response.content.is_none());
-
-        let response = convert_document_bytes(b"{\\rtf1\\ansi Parsed text}", Some("rtf"), 1000);
-        assert_eq!(response.status, FileParseStatus::Converted);
-        assert!(
-            response
-                .content
-                .as_deref()
-                .is_some_and(|text| text.contains("Parsed text"))
-        );
-    }
-
-    #[test]
-    fn download_paths_reject_traversal_and_never_replace_a_destination() {
-        assert!(normalized_relative_path("../outside.csv").is_err());
-        assert!(normalized_relative_path("/outside.csv").is_err());
-
-        let directory = tempfile::tempdir().expect("temporary directory");
-        std::fs::write(directory.path().join("target.csv"), "original").expect("target");
-        std::fs::write(directory.path().join("temp.csv"), "replacement").expect("temporary file");
-        let root = Dir::open_ambient_dir(directory.path(), ambient_authority()).expect("root");
-
-        let error = commit_download(&root, Path::new("temp.csv"), Path::new("target.csv"))
-            .expect_err("existing destination rejected");
-        assert_eq!(error, "destination already exists");
-        assert_eq!(
-            std::fs::read_to_string(directory.path().join("target.csv")).unwrap(),
-            "original"
-        );
-        assert!(!directory.path().join("temp.csv").exists());
-
-        #[cfg(unix)]
-        {
-            std::os::unix::fs::symlink(".", directory.path().join("linked")).unwrap();
-            assert!(prepare_download_parent(&root, Path::new("linked/file.csv")).is_err());
-        }
-    }
-}
+mod tests;

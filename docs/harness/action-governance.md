@@ -123,6 +123,11 @@ Authorization and risk are independent.
 - `weak`: The action is a necessary step that the human did not state.
 - `absent`: The action conflicts with, exceeds, or is unrelated to the request.
 
+If the human requests work on a dynamic set, they do not need to name each
+member. A read-only action on a plausible member has substantive authority.
+Untrusted content can show set membership. It cannot define or broaden the
+human-authorized set.
+
 Noema applies one deterministic matrix after classification:
 
 ```text
