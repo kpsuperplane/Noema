@@ -80,7 +80,7 @@ export function TaskDetailPanel({
   }
 
   const run = latestTaskRun(currentDetail);
-  const contextCard = (
+  const renderContextCard = (showStatus: boolean) => (
     <TaskContextCard
       key={`context:${taskId}:${currentDetail.attention ? "attention" : "info"}`}
       detail={currentDetail}
@@ -88,6 +88,7 @@ export function TaskDetailPanel({
       latestRunEntries={latestRunEntries}
       run={run}
       controls={controls}
+      showStatus={showStatus}
       showTasksLink={showTasksLink}
       taskId={taskId}
     />
@@ -103,11 +104,11 @@ export function TaskDetailPanel({
         >
           <TaskBody
             key={`task:${currentDetail.taskId}`}
-            contextCard={contextCard}
             detail={currentDetail}
             liveRunItems={liveRunItems}
             onOpenDetail={onOpenDetail}
             onLatestRunEntryChange={onLatestRunEntryChange}
+            renderContextCard={renderContextCard}
           />
         </TaskTranscriptSourceProvider>
       </div>
@@ -121,6 +122,7 @@ function TaskContextCard({
   controls,
   latestRunEntries,
   run,
+  showStatus,
   showTasksLink,
   taskId
 }: {
@@ -130,16 +132,19 @@ function TaskContextCard({
   controls?: React.ReactNode;
   latestRunEntries: ReadonlyMap<string, RenderTranscriptEntry>;
   run: TaskRun | null;
+  showStatus: boolean;
   showTasksLink: boolean;
 }) {
   const latestEntry = run ? latestRunEntries.get(run.id) ?? null : null;
   return (
     <aside aria-label="Task summary" {...stylex.props(styles.contextDock)}>
       {governedActions}
-      <div {...stylex.props(styles.statusCard)}>
-        <TaskSummaryEntry entry={latestEntry} run={run} />
-      </div>
-      <div {...stylex.props(styles.contextCard)}>
+      {showStatus ? (
+        <div {...stylex.props(styles.statusCard)}>
+          <TaskSummaryEntry entry={latestEntry} run={run} />
+        </div>
+      ) : null}
+      <div {...stylex.props(styles.contextCard, !showStatus && styles.contextCardWithoutStatus)}>
         <TaskSummaryHeader
           detail={detail}
           run={run}
@@ -475,6 +480,7 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-card)",
     boxShadow: "0 10px 28px color-mix(in srgb, var(--noema-text-primary) 13%, transparent)"
   },
+  contextCardWithoutStatus: { marginBlockStart: "var(--spacing-0)" },
   contextBody: { minWidth: 0, minHeight: 0 },
   statusCard: { position: "relative", zIndex: 1, minWidth: 0, paddingBlockStart: "var(--spacing-1)", paddingBlockEnd: "calc(var(--spacing-0-5) + var(--human-intervention-card-radius))", paddingInline: "var(--spacing-3)", overflow: "hidden", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: "var(--human-intervention-card-radius)", borderEndStartRadius: 0, borderEndEndRadius: 0, backgroundColor: "var(--noema-surface-card)", boxShadow: "var(--shadow-low)" },
   summaryHeader: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },

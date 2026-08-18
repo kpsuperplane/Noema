@@ -10,16 +10,16 @@ import { TaskTranscript } from "./TaskTranscript";
 type TaskTab = "result" | "task" | "transcript";
 export function TaskBody({
   detail,
-  contextCard,
   liveRunItems,
   onOpenDetail,
-  onLatestRunEntryChange
+  onLatestRunEntryChange,
+  renderContextCard
 }: {
   detail: TaskDetail;
-  contextCard: React.ReactNode;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   onOpenDetail: (target: ChatDetailTarget) => void;
   onLatestRunEntryChange?: TaskRunLatestEntryChange;
+  renderContextCard: (showStatus: boolean) => React.ReactNode;
 }) {
   const hasResult = Boolean(detail.resultDocument?.trim());
   const tabs = React.useMemo<readonly TaskTab[]>(
@@ -107,7 +107,7 @@ export function TaskBody({
           </div>
         )}
       </div>
-      {contextCard}
+      {renderContextCard(activeTab !== "transcript")}
     </section>
   );
 }
