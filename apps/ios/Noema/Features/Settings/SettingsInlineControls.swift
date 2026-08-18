@@ -3,13 +3,14 @@ import SwiftUI
 
 struct SettingsInlineModelControls: View {
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   let preference: SettingsPreference?
   let options: [SettingsModelOption]
   let useCase: NoemaAPI.NoemaModelUseCase
   let enabled: Bool
   var requiresExplicitSelection = false
-  let save: (SettingsModelOption, String?, String?, NoemaAPI.ModelPreferenceSelectionMode) async -> Bool
+  let save: (SettingsModelOption, String?, String?, NoemaAPI.ModelPreferenceSelectionMode, Bool) async -> Bool
 
   private var option: SettingsModelOption? {
     if requiresExplicitSelection, preference == nil { return nil }
@@ -40,7 +41,17 @@ struct SettingsInlineModelControls: View {
   }
 
   private var usesStackedLayout: Bool {
-    dynamicTypeSize.isAccessibilitySize
+    horizontalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize
+  }
+
+  private var supportsFastMode: Bool {
+    option?.supportsFastMode == true
+  }
+
+  private var fastMode: Bool {
+    supportsFastMode
+      && preference?.providerAccountId == option?.providerAccountId
+      && preference?.fastMode == true
   }
 
   var body: some View {
@@ -49,11 +60,13 @@ struct SettingsInlineModelControls: View {
         VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
           modelMenu
           if profile?.reasoningEfforts.isEmpty == false { reasoningMenu }
+          if supportsFastMode { speedControl }
         }
       } else {
         HStack(spacing: NoemaSpacing.sm) {
           modelMenu
           if profile?.reasoningEfforts.isEmpty == false { reasoningMenu }
+          if supportsFastMode { speedControl }
         }
       }
     }
@@ -65,13 +78,13 @@ struct SettingsInlineModelControls: View {
       ForEach(options) { option in
         if let recommendation = option.recommendations.first(where: { $0.useCase == useCase }) {
           Button("Noema recommended · \(recommendationLabel(recommendation, in: option))") {
-            Task { _ = await save(option, nil, nil, .noemaRecommended) }
+            Task { _ = await save(option, nil, nil, .noemaRecommended, fastMode(for: option)) }
           }
           .disabled(option.disabledReason != nil || recommendation.disabledReason != nil)
         }
         ForEach(option.profiles.filter { $0.disabledReason == nil }) { profile in
           Button(profile.label) {
-            Task { _ = await save(option, profile.id, profile.defaultReasoningEffort ?? profile.reasoningEfforts.first, .explicitProfile) }
+            Task { _ = await save(option, profile.id, profile.defaultReasoningEffort ?? profile.reasoningEfforts.first, .explicitProfile, fastMode(for: option)) }
           }
           .disabled(option.disabledReason != nil)
         }
@@ -100,7 +113,7 @@ struct SettingsInlineModelControls: View {
       if let option, let profile {
         ForEach(profile.reasoningEfforts, id: \.self) { effort in
           Button(effort.replacingOccurrences(of: "_", with: " ").capitalized) {
-            Task { _ = await save(option, profile.id, effort, .explicitProfile) }
+            Task { _ = await save(option, profile.id, effort, .explicitProfile, fastMode) }
           }
         }
       }
@@ -125,6 +138,40 @@ struct SettingsInlineModelControls: View {
     .buttonStyle(.plain)
     .disabled(!enabled || profile?.reasoningEfforts.isEmpty != false || isRecommended)
     .opacity(isRecommended ? 0.62 : 1)
+  }
+
+  private var speedControl: some View {
+    Picker("Speed", selection: Binding(
+      get: { fastMode },
+      set: { enabled in
+        guard let option else { return }
+        Task {
+          _ = await save(
+            option,
+            isRecommended ? nil : profile?.id,
+            isRecommended ? nil : reasoning,
+            isRecommended ? .noemaRecommended : .explicitProfile,
+            enabled
+          )
+        }
+      }
+    )) {
+      Text("Standard").tag(false)
+      Text("Fast").tag(true)
+    }
+    .pickerStyle(.segmented)
+    .frame(
+      minWidth: usesStackedLayout ? 0 : 160,
+      maxWidth: usesStackedLayout ? .infinity : 180
+    )
+    .disabled(!enabled)
+    .accessibilityLabel("Model speed")
+  }
+
+  private func fastMode(for candidate: SettingsModelOption) -> Bool {
+    candidate.supportsFastMode
+      && candidate.providerAccountId == option?.providerAccountId
+      && preference?.fastMode == true
   }
 
   private func recommendationLabel(_ recommendation: SettingsModelRecommendation, in option: SettingsModelOption) -> String {

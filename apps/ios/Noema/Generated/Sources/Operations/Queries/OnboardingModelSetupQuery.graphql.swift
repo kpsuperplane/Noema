@@ -8,7 +8,7 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
   public static let operationName: String = "OnboardingModelSetup"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"query OnboardingModelSetup($providerAccountId: String!) { onboardingModelSetup(providerAccountId: $providerAccountId) { __typename providerKind providerAccountId providerDisplayName profiles { __typename id label disabledReason reasoningEfforts defaultReasoningEffort } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } proposedSelections { __typename noema { __typename selectionMode modelProfile reasoningEffort } simpleTasks { __typename selectionMode modelProfile reasoningEffort } mediumTasks { __typename selectionMode modelProfile reasoningEffort } difficultTasks { __typename selectionMode modelProfile reasoningEffort } taskReviewer { __typename selectionMode modelProfile reasoningEffort } webFetchSummarizer { __typename selectionMode modelProfile reasoningEffort } toolProgressAudit { __typename selectionMode modelProfile reasoningEffort } actionReviewer { __typename selectionMode modelProfile reasoningEffort } memoryConsolidation { __typename selectionMode modelProfile reasoningEffort } } } }"#
+      #"query OnboardingModelSetup($providerAccountId: String!) { onboardingModelSetup(providerAccountId: $providerAccountId) { __typename providerKind providerAccountId providerDisplayName profiles { __typename id label disabledReason reasoningEfforts defaultReasoningEffort } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } proposedSelections { __typename noema { __typename selectionMode modelProfile reasoningEffort fastMode } simpleTasks { __typename selectionMode modelProfile reasoningEffort fastMode } mediumTasks { __typename selectionMode modelProfile reasoningEffort fastMode } difficultTasks { __typename selectionMode modelProfile reasoningEffort fastMode } taskReviewer { __typename selectionMode modelProfile reasoningEffort fastMode } webFetchSummarizer { __typename selectionMode modelProfile reasoningEffort fastMode } toolProgressAudit { __typename selectionMode modelProfile reasoningEffort fastMode } actionReviewer { __typename selectionMode modelProfile reasoningEffort fastMode } memoryConsolidation { __typename selectionMode modelProfile reasoningEffort fastMode } } } }"#
     ))
 
   public var providerAccountId: String
@@ -166,6 +166,7 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
             .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
             .field("modelProfile", String?.self),
             .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
+            .field("fastMode", Bool.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
             OnboardingModelSetupQuery.Data.OnboardingModelSetup.ProposedSelections.Noema.self
@@ -177,6 +178,8 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
           public var modelProfile: String? { __data["modelProfile"] }
           /// Provider-supported reasoning effort.
           public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
+          /// Whether this assignment requests faster service.
+          public var fastMode: Bool { __data["fastMode"] }
         }
 
         /// OnboardingModelSetup.ProposedSelections.SimpleTasks
@@ -192,6 +195,7 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
             .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
             .field("modelProfile", String?.self),
             .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
+            .field("fastMode", Bool.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
             OnboardingModelSetupQuery.Data.OnboardingModelSetup.ProposedSelections.SimpleTasks.self
@@ -203,6 +207,8 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
           public var modelProfile: String? { __data["modelProfile"] }
           /// Provider-supported reasoning effort.
           public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
+          /// Whether this assignment requests faster service.
+          public var fastMode: Bool { __data["fastMode"] }
         }
 
         /// OnboardingModelSetup.ProposedSelections.MediumTasks
@@ -218,6 +224,7 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
             .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
             .field("modelProfile", String?.self),
             .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
+            .field("fastMode", Bool.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
             OnboardingModelSetupQuery.Data.OnboardingModelSetup.ProposedSelections.MediumTasks.self
@@ -229,6 +236,8 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
           public var modelProfile: String? { __data["modelProfile"] }
           /// Provider-supported reasoning effort.
           public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
+          /// Whether this assignment requests faster service.
+          public var fastMode: Bool { __data["fastMode"] }
         }
 
         /// OnboardingModelSetup.ProposedSelections.DifficultTasks
@@ -244,6 +253,7 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
             .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
             .field("modelProfile", String?.self),
             .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
+            .field("fastMode", Bool.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
             OnboardingModelSetupQuery.Data.OnboardingModelSetup.ProposedSelections.DifficultTasks.self
@@ -255,6 +265,8 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
           public var modelProfile: String? { __data["modelProfile"] }
           /// Provider-supported reasoning effort.
           public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
+          /// Whether this assignment requests faster service.
+          public var fastMode: Bool { __data["fastMode"] }
         }
 
         /// OnboardingModelSetup.ProposedSelections.TaskReviewer
@@ -270,6 +282,7 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
             .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
             .field("modelProfile", String?.self),
             .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
+            .field("fastMode", Bool.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
             OnboardingModelSetupQuery.Data.OnboardingModelSetup.ProposedSelections.TaskReviewer.self
@@ -281,6 +294,8 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
           public var modelProfile: String? { __data["modelProfile"] }
           /// Provider-supported reasoning effort.
           public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
+          /// Whether this assignment requests faster service.
+          public var fastMode: Bool { __data["fastMode"] }
         }
 
         /// OnboardingModelSetup.ProposedSelections.WebFetchSummarizer
@@ -296,6 +311,7 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
             .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
             .field("modelProfile", String?.self),
             .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
+            .field("fastMode", Bool.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
             OnboardingModelSetupQuery.Data.OnboardingModelSetup.ProposedSelections.WebFetchSummarizer.self
@@ -307,6 +323,8 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
           public var modelProfile: String? { __data["modelProfile"] }
           /// Provider-supported reasoning effort.
           public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
+          /// Whether this assignment requests faster service.
+          public var fastMode: Bool { __data["fastMode"] }
         }
 
         /// OnboardingModelSetup.ProposedSelections.ToolProgressAudit
@@ -322,6 +340,7 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
             .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
             .field("modelProfile", String?.self),
             .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
+            .field("fastMode", Bool.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
             OnboardingModelSetupQuery.Data.OnboardingModelSetup.ProposedSelections.ToolProgressAudit.self
@@ -333,6 +352,8 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
           public var modelProfile: String? { __data["modelProfile"] }
           /// Provider-supported reasoning effort.
           public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
+          /// Whether this assignment requests faster service.
+          public var fastMode: Bool { __data["fastMode"] }
         }
 
         /// OnboardingModelSetup.ProposedSelections.ActionReviewer
@@ -348,6 +369,7 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
             .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
             .field("modelProfile", String?.self),
             .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
+            .field("fastMode", Bool.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
             OnboardingModelSetupQuery.Data.OnboardingModelSetup.ProposedSelections.ActionReviewer.self
@@ -359,6 +381,8 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
           public var modelProfile: String? { __data["modelProfile"] }
           /// Provider-supported reasoning effort.
           public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
+          /// Whether this assignment requests faster service.
+          public var fastMode: Bool { __data["fastMode"] }
         }
 
         /// OnboardingModelSetup.ProposedSelections.MemoryConsolidation
@@ -374,6 +398,7 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
             .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
             .field("modelProfile", String?.self),
             .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
+            .field("fastMode", Bool.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
             OnboardingModelSetupQuery.Data.OnboardingModelSetup.ProposedSelections.MemoryConsolidation.self
@@ -385,6 +410,8 @@ nonisolated public struct OnboardingModelSetupQuery: GraphQLQuery {
           public var modelProfile: String? { __data["modelProfile"] }
           /// Provider-supported reasoning effort.
           public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
+          /// Whether this assignment requests faster service.
+          public var fastMode: Bool { __data["fastMode"] }
         }
       }
     }

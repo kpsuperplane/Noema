@@ -8,7 +8,7 @@ nonisolated public struct SettingsSaveDefaultModelPreferenceMutation: GraphQLMut
   public static let operationName: String = "SettingsSaveDefaultModelPreference"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"mutation SettingsSaveDefaultModelPreference($input: SaveDefaultModelPreferenceInput!) { saveDefaultModelPreference(input: $input) { __typename providerKind providerAccountId selectionMode modelProfile reasoningEffort } }"#
+      #"mutation SettingsSaveDefaultModelPreference($input: SaveDefaultModelPreferenceInput!) { saveDefaultModelPreference(input: $input) { __typename providerKind providerAccountId selectionMode modelProfile reasoningEffort fastMode } }"#
     ))
 
   public var input: SaveDefaultModelPreferenceInput
@@ -49,6 +49,7 @@ nonisolated public struct SettingsSaveDefaultModelPreferenceMutation: GraphQLMut
         .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
         .field("modelProfile", String?.self),
         .field("reasoningEffort", String?.self),
+        .field("fastMode", Bool.self),
       ] }
       @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
         SettingsSaveDefaultModelPreferenceMutation.Data.SaveDefaultModelPreference.self
@@ -63,6 +64,8 @@ nonisolated public struct SettingsSaveDefaultModelPreferenceMutation: GraphQLMut
       public var modelProfile: String? { __data["modelProfile"] }
       /// Optional provider-specific reasoning effort.
       public var reasoningEffort: String? { __data["reasoningEffort"] }
+      /// Whether this preference requests faster service.
+      public var fastMode: Bool { __data["fastMode"] }
     }
   }
 }

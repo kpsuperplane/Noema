@@ -8,7 +8,7 @@ nonisolated public struct LocalModelSettingsQuery: GraphQLQuery {
   public static let operationName: String = "LocalModelSettings"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"query LocalModelSettings { localModelSetup { __typename isReady runtimeStatus recommendedModel { __typename ...NativeLocalModelCatalogEntryFields } installation { __typename ...NativeLocalModelInstallationFields } } localModelCatalog { __typename ...NativeLocalModelCatalogEntryFields } localModelInstallations { __typename ...NativeLocalModelInstallationFields } defaultModelPreference { __typename providerKind providerAccountId selectionMode modelProfile reasoningEffort } }"#,
+      #"query LocalModelSettings { localModelSetup { __typename isReady runtimeStatus recommendedModel { __typename ...NativeLocalModelCatalogEntryFields } installation { __typename ...NativeLocalModelInstallationFields } } localModelCatalog { __typename ...NativeLocalModelCatalogEntryFields } localModelInstallations { __typename ...NativeLocalModelInstallationFields } defaultModelPreference { __typename providerKind providerAccountId selectionMode modelProfile reasoningEffort fastMode } }"#,
       fragments: [NativeLocalModelCatalogEntryFields.self, NativeLocalModelInstallationFields.self]
     ))
 
@@ -298,6 +298,7 @@ nonisolated public struct LocalModelSettingsQuery: GraphQLQuery {
         .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
         .field("modelProfile", String?.self),
         .field("reasoningEffort", String?.self),
+        .field("fastMode", Bool.self),
       ] }
       @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
         LocalModelSettingsQuery.Data.DefaultModelPreference.self
@@ -312,6 +313,8 @@ nonisolated public struct LocalModelSettingsQuery: GraphQLQuery {
       public var modelProfile: String? { __data["modelProfile"] }
       /// Optional provider-specific reasoning effort.
       public var reasoningEffort: String? { __data["reasoningEffort"] }
+      /// Whether this preference requests faster service.
+      public var fastMode: Bool { __data["fastMode"] }
     }
   }
 }

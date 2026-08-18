@@ -8,7 +8,7 @@ nonisolated public struct SaveActionReviewerPreferenceMutation: GraphQLMutation 
   public static let operationName: String = "SaveActionReviewerPreference"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"mutation SaveActionReviewerPreference($input: SaveActionReviewerPreferenceInput!) { saveActionReviewerPreference(input: $input) { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } }"#
+      #"mutation SaveActionReviewerPreference($input: SaveActionReviewerPreferenceInput!) { saveActionReviewerPreference(input: $input) { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode fastMode } }"#
     ))
 
   public var input: SaveActionReviewerPreferenceInput
@@ -49,6 +49,7 @@ nonisolated public struct SaveActionReviewerPreferenceMutation: GraphQLMutation 
         .field("modelProfile", String?.self),
         .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
         .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
+        .field("fastMode", Bool.self),
       ] }
       @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
         SaveActionReviewerPreferenceMutation.Data.SaveActionReviewerPreference.self
@@ -64,6 +65,8 @@ nonisolated public struct SaveActionReviewerPreferenceMutation: GraphQLMutation 
       public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
       /// Whether Noema or the human chooses the concrete model.
       public var selectionMode: GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode> { __data["selectionMode"] }
+      /// Whether this preference requests faster service.
+      public var fastMode: Bool { __data["fastMode"] }
     }
   }
 }

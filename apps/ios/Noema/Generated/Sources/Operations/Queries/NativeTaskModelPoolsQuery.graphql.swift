@@ -8,7 +8,7 @@ nonisolated public struct NativeTaskModelPoolsQuery: GraphQLQuery {
   public static let operationName: String = "NativeTaskModelPools"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"query NativeTaskModelPools { taskModelPools { __typename poolEntryId complexity label providerKind providerAccountId modelProfile reasoningEffort selectionMode enabled sortOrder createdAt updatedAt } }"#
+      #"query NativeTaskModelPools { taskModelPools { __typename poolEntryId complexity label providerKind providerAccountId modelProfile reasoningEffort selectionMode fastMode enabled sortOrder createdAt updatedAt } }"#
     ))
 
   public init() {}
@@ -46,6 +46,7 @@ nonisolated public struct NativeTaskModelPoolsQuery: GraphQLQuery {
         .field("modelProfile", String?.self),
         .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
         .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
+        .field("fastMode", Bool.self),
         .field("enabled", Bool.self),
         .field("sortOrder", Int.self),
         .field("createdAt", String.self),
@@ -71,6 +72,8 @@ nonisolated public struct NativeTaskModelPoolsQuery: GraphQLQuery {
       public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
       /// Whether Noema or the human chooses the concrete model.
       public var selectionMode: GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode> { __data["selectionMode"] }
+      /// Whether this preference requests faster service.
+      public var fastMode: Bool { __data["fastMode"] }
       /// Whether this entry can be selected for new tasks.
       public var enabled: Bool { __data["enabled"] }
       /// Human-controlled ordering within its tier.

@@ -12,6 +12,7 @@ struct SettingsTaskModelPool: Identifiable, Hashable {
   let modelProfile: String?
   let reasoningEffort: String?
   let selectionMode: String
+  let fastMode: Bool
   let enabled: Bool
   let sortOrder: Int
 
@@ -25,7 +26,8 @@ struct SettingsTaskModelPool: Identifiable, Hashable {
       providerAccountId: providerAccountID,
       modelProfile: modelProfile,
       reasoningEffort: reasoningEffort,
-      selectionMode: selectionMode
+      selectionMode: selectionMode,
+      fastMode: fastMode
     )
   }
 }
@@ -68,7 +70,7 @@ extension SettingsModel {
       selectionMode: GraphQLEnum(SettingsModel.selectionMode(from: next.selectionMode)),
       modelProfile: SettingsModel.optional(next.modelProfile),
       reasoningEffort: SettingsModel.reasoning(from: next.reasoningEffort),
-      fastMode: false,
+      fastMode: next.fastMode,
       enabled: enabled ?? pool.enabled,
       sortOrder: Int32(clamping: pool.sortOrder)
     )
