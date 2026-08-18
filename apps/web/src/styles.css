@@ -120,6 +120,7 @@ button,
 [role="radio"],
 [role="switch"],
 [role="tab"],
+input[type="checkbox"],
 label,
 select,
 summary {

@@ -1,3 +1,4 @@
+import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Icon } from "@astryxdesign/core/Icon";
 import {
   Selector,
@@ -5,10 +6,6 @@ import {
   type SelectorOptionType
 } from "@astryxdesign/core/Selector";
 import { HStack, StackItem } from "@astryxdesign/core/Stack";
-import {
-  SegmentedControl,
-  SegmentedControlItem
-} from "@astryxdesign/core/SegmentedControl";
 import * as stylex from "@stylexjs/stylex";
 import { Sparkles } from "lucide-react";
 import type { CSSProperties } from "react";
@@ -97,8 +94,15 @@ export function ControlledModelPreferenceSelect({
         : ""
     : "";
   return (
-    <HStack gap={2} wrap="wrap" vAlign="center" {...stylex.props(styles.field)}>
-      <HStack gap={2} wrap="wrap" {...stylex.props(styles.controls)}>
+    <HStack
+      gap={2}
+      wrap="wrap"
+      vAlign="center"
+      role="group"
+      aria-label={ariaLabel}
+      {...stylex.props(styles.field)}
+    >
+      <HStack gap={2} wrap="wrap" vAlign="center" {...stylex.props(styles.controls)}>
         <StackItem
           size="fill"
           {...stylex.props(styles.modelControl)}
@@ -180,22 +184,17 @@ export function ControlledModelPreferenceSelect({
           </StackItem>
         ) : null}
         {supportsFastMode ? (
-          <StackItem size="fill" {...stylex.props(styles.speedControl)}>
-            <SegmentedControl
-              label={`${ariaLabel} speed`}
-              value={selection.fastMode ? "fast" : "standard"}
-              layout="fill"
+          <StackItem crossAlignSelf="center" {...stylex.props(styles.speedControl)}>
+            <CheckboxInput
+              label="Fast"
+              value={selection.fastMode}
               size="sm"
               isDisabled={disabled}
               onChange={(value) => onChange({
                 ...selection,
-                fastMode: value === "fast"
+                fastMode: value
               })}
-              xstyle={styles.segmentedControl}
-            >
-              <SegmentedControlItem value="standard" label="Standard" />
-              <SegmentedControlItem value="fast" label="Fast" />
-            </SegmentedControl>
+            />
           </StackItem>
         ) : null}
       </HStack>
@@ -287,21 +286,15 @@ const styles = stylex.create({
     }
   },
   modelControl: {
-    minWidth: 0,
-    flex: "1 1 15rem",
-    "@media (max-width: 620px)": {
-      flexBasis: "100%"
-    }
+    minWidth: "8rem",
+    flex: "1 1 8rem"
   },
   effortControl: {
-    minWidth: 0,
-    flex: "1 1 7rem"
+    width: "6rem",
+    minWidth: "5.5rem",
+    flex: "0 1 6rem"
   },
   speedControl: {
-    minWidth: 0,
-    flex: "1 1 12rem"
-  },
-  segmentedControl: {
-    width: "100%"
+    flex: "0 0 auto"
   }
 });
