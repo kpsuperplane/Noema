@@ -7,6 +7,7 @@ import {
   MarkdownContent,
   type MarkdownComponents
 } from "@/components/MarkdownContent";
+import { RollingSwap } from "@/components/RollingText";
 import type { IdentityAvatarActivity } from "../IdentityAvatar";
 import type { ProviderUsageDebug } from "./debugUsage";
 import { ExpandableTextBubbleContent } from "./ExpandableTextBubble";
@@ -99,6 +100,7 @@ export function Message({
   text,
   showAvatar,
   reserveAvatarSpace = true,
+  rollingText = false,
   singleLine = false,
   variant = "message",
   debugUsage = null,
@@ -114,6 +116,7 @@ export function Message({
   text: string;
   showAvatar: boolean;
   reserveAvatarSpace?: boolean;
+  rollingText?: boolean;
   singleLine?: boolean;
   variant?: "message" | "typing";
   debugUsage?: ProviderUsageDebug | null;
@@ -140,7 +143,13 @@ export function Message({
         <div {...stylex.props(styles.content)}>
           {singleLine ? (
             <div {...stylex.props(styles.singleLine)}>
-              <MessageMarkdown animate={animate} role={role} citations={citations} text={text} />
+              {rollingText ? (
+                <RollingSwap transitionKey={text}>
+                  <MessageMarkdown animate={animate} role={role} citations={citations} text={text} />
+                </RollingSwap>
+              ) : (
+                <MessageMarkdown animate={animate} role={role} citations={citations} text={text} />
+              )}
             </div>
           ) : (
             <ExpandableTextBubbleContent onExpandedChange={setExpanded} onOverflowChange={setOverflowing}>

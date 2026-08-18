@@ -202,7 +202,8 @@ export function ToolMarker({
   interactive = true,
   presentation = "activity",
   expandedMarkers,
-  onToggleMarker
+  onToggleMarker,
+  animateText = false
 }: {
   data: ToolMarkerData;
   open: boolean;
@@ -213,6 +214,7 @@ export function ToolMarker({
   presentation?: ToolMarkerPresentation;
   expandedMarkers?: ReadonlySet<string>;
   onToggleMarker?: (id: string) => void;
+  animateText?: boolean;
 }) {
   const calls = toolMarkerCalls(data);
   const [lastCollapsedCallKey, setLastCollapsedCallKey] = useState<string | null>(
@@ -316,7 +318,12 @@ export function ToolMarker({
           onClick={call.expandable ? onToggle : undefined}
           title={call.status === "error" ? call.errorMessage : undefined}
         >
-          <ToolMarkerRowContent call={call} open={call.expandable && open} presentation={presentation} />
+          <ToolMarkerRowContent
+            animateText={animateText}
+            call={call}
+            open={call.expandable && open}
+            presentation={presentation}
+          />
         </button>
         <SpringDisclosure open={Boolean(renderDetail && call.expandable && open && call.resultDetail)}>
           <div {...stylex.props(styles.detail)}>{call.resultDetail}</div>

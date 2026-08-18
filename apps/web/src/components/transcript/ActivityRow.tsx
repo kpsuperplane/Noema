@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { ChevronDown } from "lucide-react";
+import { RollingText } from "@/components/RollingText";
 import { SpringDisclosure } from "@/motion/SpringDisclosure";
 import { statusLabel } from "@/shared/format";
 import type { TurnTranscriptItem } from "@/shared/types";
@@ -57,11 +58,13 @@ export function ActivityRow({
   item,
   open,
   onToggle,
+  animateText = false,
   singleLine = false
 }: {
   item: Extract<TurnTranscriptItem, { kind: "activity" }>;
   open: boolean;
   onToggle: () => void;
+  animateText?: boolean;
   singleLine?: boolean;
 }) {
   const status = statusLabel(item.status);
@@ -77,11 +80,12 @@ export function ActivityRow({
   const avatar = activityInstanceName(item)
     ? <IdentityAvatar actorId={`subagent:${activityInstanceName(item)}`} actorType="agent" focusable={false} size="xs" />
     : undefined;
+  const renderText = (value: string) => animateText ? <RollingText value={value} /> : value;
 
   if (item.activity_kind === "task_run_start" || item.activity_kind === "task_run_end") {
     return (
       <TranscriptSystemNotice avatar={avatar} role={item.status === "FAILED" ? "alert" : "status"} singleLine={singleLine} tone={noticeTone}>
-        {item.title}
+        {renderText(item.title)}
       </TranscriptSystemNotice>
     );
   }
@@ -89,7 +93,7 @@ export function ActivityRow({
   if (item.activity_kind === "authentication_request") {
     return (
       <TranscriptSystemNotice role="status" singleLine={singleLine} tone="default">
-        {item.title}
+        {renderText(item.title)}
       </TranscriptSystemNotice>
     );
   }
@@ -98,11 +102,11 @@ export function ActivityRow({
     return (
       <div {...stylex.props(styles.root)}>
         <TranscriptAttachmentCard
-          title={item.title}
-          description={item.summary || undefined}
+          title={renderText(item.title)}
+          description={item.summary ? renderText(item.summary) : undefined}
           meta={
             <span {...stylex.props(styles.toggleMeta)}>
-              {status}
+              {renderText(status)}
               <ChevronDown
                 aria-hidden="true"
                 size={14}
@@ -128,7 +132,7 @@ export function ActivityRow({
 
   return (
     <TranscriptSystemNotice role={item.status === "FAILED" ? "alert" : "status"} singleLine={singleLine} tone={noticeTone}>
-      {item.summary || item.title}
+      {renderText(item.summary || item.title)}
     </TranscriptSystemNotice>
   );
 }

@@ -79,14 +79,15 @@ export function TaskDetailQueryPanel({
       <TaskDetailPanel
         detail={detail}
         error={result.error ? "Task details could not be loaded." : null}
-        governedActions={(
+        loading={result.loading}
+        onOpenDetail={onOpenDetail}
+        renderSecondarySurface={(status) => (
           <PendingHumanInterventionsResult
+            emptyContent={status}
             placement="dock"
             result={interventionResult}
           />
         )}
-        loading={result.loading}
-        onOpenDetail={onOpenDetail}
         controls={controls}
         showTasksLink={showTasksLink}
         taskId={taskId}

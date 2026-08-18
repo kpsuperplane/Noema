@@ -1,12 +1,17 @@
 import * as stylex from "@stylexjs/stylex";
-import { AnimatePresence, useReducedMotion } from "motion/react";
+import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
-import { forwardRef, type ComponentProps } from "react";
+import { forwardRef, type ComponentProps, type ReactNode } from "react";
 import { springs } from "@/motion/springs";
 
 const WORD_STAGGER_SECONDS = 0.016;
 const MAX_STAGGER_INDEX = 7;
 
+const rollingTextUnitMotion = {
+  initial: { opacity: 0, y: "0.8em", rotateX: -22 },
+  animate: { opacity: 1, y: 0, rotateX: 0 },
+  exit: { opacity: 0, y: "-0.6em", rotateX: 22 }
+} as const;
 type RollingTextProps = Omit<ComponentProps<typeof m.span>, "children"> & {
   value: string;
 };
@@ -40,6 +45,15 @@ const styles = stylex.create({
   },
   word: {
     display: "inline-block",
+    backfaceVisibility: "hidden",
+    transformOrigin: "50% 50%"
+  },
+  swapRoot: {
+    overflow: "hidden"
+  },
+  swapLayer: {
+    gridArea: "1 / 1",
+    minWidth: 0,
     backfaceVisibility: "hidden",
     transformOrigin: "50% 50%"
   },
@@ -77,6 +91,60 @@ export function RollingText({ value, className, style, ...props }: RollingTextPr
   );
 }
 
+export function RollingSwap({
+  children,
+  className,
+  style,
+  transitionKey,
+  ...props
+}: Omit<ComponentProps<typeof m.div>, "children"> & {
+  children: ReactNode;
+  transitionKey: string;
+}) {
+  const reduceMotion = useReducedMotion();
+  const rootStyles = stylex.props(styles.visual, styles.swapRoot);
+  const mergedClassName = [rootStyles.className, className].filter(Boolean).join(" ") || undefined;
+  return (
+    <m.div
+      {...props}
+      layout={reduceMotion ? false : "size"}
+      layoutDependency={transitionKey}
+      className={mergedClassName}
+      style={{ ...rootStyles.style, ...style }}
+      transition={{ layout: springs.standard }}
+    >
+      <AnimatePresence initial={false} mode="popLayout">
+        <RollingSwapLayer key={transitionKey} reduceMotion={Boolean(reduceMotion)}>
+          {children}
+        </RollingSwapLayer>
+      </AnimatePresence>
+    </m.div>
+  );
+}
+
+function RollingSwapLayer({
+  children,
+  reduceMotion
+}: {
+  children: ReactNode;
+  reduceMotion: boolean;
+}) {
+  const isPresent = useIsPresent();
+  return (
+    <m.div
+      aria-hidden={!isPresent}
+      inert={!isPresent}
+      initial={reduceMotion ? false : rollingTextUnitMotion.initial}
+      animate={rollingTextUnitMotion.animate}
+      exit={reduceMotion ? undefined : rollingTextUnitMotion.exit}
+      transition={reduceMotion ? { duration: 0 } : springs.micro}
+      {...stylex.props(styles.swapLayer)}
+    >
+      {children}
+    </m.div>
+  );
+}
+
 const RollingTextLayer = forwardRef<HTMLSpanElement, { value: string; reduceMotion: boolean }>(
   function RollingTextLayer({ value, reduceMotion }, ref) {
     const segments = rollingTextSegments(value);
@@ -95,9 +163,9 @@ const RollingTextLayer = forwardRef<HTMLSpanElement, { value: string; reduceMoti
           return (
             <m.span
               key={`${index}:${segment.text}`}
-              initial={reduceMotion ? false : { opacity: 0, y: "0.8em", rotateX: -22 }}
-              animate={{ opacity: 1, y: 0, rotateX: 0 }}
-              exit={reduceMotion ? undefined : { opacity: 0, y: "-0.6em", rotateX: 22 }}
+              initial={reduceMotion ? false : rollingTextUnitMotion.initial}
+              animate={rollingTextUnitMotion.animate}
+              exit={reduceMotion ? undefined : rollingTextUnitMotion.exit}
               transition={{ ...springs.micro, delay }}
               {...stylex.props(styles.word)}
             >

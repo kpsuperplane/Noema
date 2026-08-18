@@ -38,6 +38,7 @@ import {
 import { TasksTaskRuntimeEventsDocument } from "@/graphql/tasksOperations";
 import { McpChatSetupCard } from "@/components/mcp/McpChatSetupCard";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
+import { RollingSwap } from "@/components/RollingText";
 import { springs } from "@/motion/springs";
 import { HumanInterventionCard } from "./HumanInterventionCard";
 import {
@@ -143,56 +144,107 @@ export function PendingHumanInterventionsResult({
     });
   }, []);
   const stale = Boolean(result.error);
-  const list = visibleInterventions.length ? (
-    <HumanInterventionMotionItem key="pending-human-interventions">
-      <VStack gap={0}>
-        {placement === "chat" && visibleInterventions.length > 1 ? (
-          <HStack hAlign="between" vAlign="center" gap={1} {...stylex.props(styles.queueNavigation)}>
-            <span aria-live="polite" {...stylex.props(styles.queuePosition)}>
-              {selectedChatInterventionIndex + 1} of {visibleInterventions.length} waiting
-            </span>
-            <HStack gap={1}>
-              <IconButton
-                type="button"
-                size="sm"
-                variant="ghost"
-                label="Previous request"
-                tooltip="Previous request"
-                icon={<ChevronLeft aria-hidden="true" size={15} />}
-                isDisabled={selectedChatInterventionIndex === 0}
-                xstyle={styles.queueAction}
-                onClick={() => {
-                  const previous = visibleInterventions[selectedChatInterventionIndex - 1];
-                  if (previous) setSelectedChatInterventionKey(humanInterventionKey(previous));
-                }}
-              />
-              <IconButton
-                type="button"
-                size="sm"
-                variant="ghost"
-                label="Next request"
-                tooltip="Next request"
-                icon={<ChevronRight aria-hidden="true" size={15} />}
-                isDisabled={selectedChatInterventionIndex === visibleInterventions.length - 1}
-                xstyle={styles.queueAction}
-                onClick={() => {
-                  const next = visibleInterventions[selectedChatInterventionIndex + 1];
-                  if (next) setSelectedChatInterventionKey(humanInterventionKey(next));
-                }}
-              />
-            </HStack>
+  const listContent = visibleInterventions.length ? (
+    <VStack gap={0}>
+      {placement === "chat" && visibleInterventions.length > 1 ? (
+        <HStack hAlign="between" vAlign="center" gap={1} {...stylex.props(styles.queueNavigation)}>
+          <span aria-live="polite" {...stylex.props(styles.queuePosition)}>
+            {selectedChatInterventionIndex + 1} of {visibleInterventions.length} waiting
+          </span>
+          <HStack gap={1}>
+            <IconButton
+              type="button"
+              size="sm"
+              variant="ghost"
+              label="Previous request"
+              tooltip="Previous request"
+              icon={<ChevronLeft aria-hidden="true" size={15} />}
+              isDisabled={selectedChatInterventionIndex === 0}
+              xstyle={styles.queueAction}
+              onClick={() => {
+                const previous = visibleInterventions[selectedChatInterventionIndex - 1];
+                if (previous) setSelectedChatInterventionKey(humanInterventionKey(previous));
+              }}
+            />
+            <IconButton
+              type="button"
+              size="sm"
+              variant="ghost"
+              label="Next request"
+              tooltip="Next request"
+              icon={<ChevronRight aria-hidden="true" size={15} />}
+              isDisabled={selectedChatInterventionIndex === visibleInterventions.length - 1}
+              xstyle={styles.queueAction}
+              onClick={() => {
+                const next = visibleInterventions[selectedChatInterventionIndex + 1];
+                if (next) setSelectedChatInterventionKey(humanInterventionKey(next));
+              }}
+            />
           </HStack>
-        ) : null}
-        <HumanInterventionList
-          interventions={presentedInterventions}
-          placement={placement}
-          onResolved={() => void result.refetch().catch(() => undefined)}
-          onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
-          initialAnimation={false}
-        />
-      </VStack>
+        </HStack>
+      ) : null}
+      <HumanInterventionList
+        interventions={presentedInterventions}
+        placement={placement}
+        onResolved={() => void result.refetch().catch(() => undefined)}
+        onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
+        initialAnimation={false}
+      />
+    </VStack>
+  ) : null;
+  const list = listContent ? (
+    <HumanInterventionMotionItem key="pending-human-interventions">
+      {listContent}
     </HumanInterventionMotionItem>
   ) : null;
+  const queryError = stale ? (
+    <HStack as="div" role="alert" gap={2} align="center" justify="between" wrap="wrap" {...stylex.props(styles.queryError)}>
+      <span>Response options could not load. Shown details may be out of date.</span>
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        label="Retry"
+        isLoading={result.loading}
+        onClick={() => void result.refetch().catch(() => undefined)}
+      />
+    </HStack>
+  ) : null;
+  const empty = result.data
+    && !result.loading
+    && !stale
+    && visibleInterventions.length === 0
+    ? emptyContent
+    : null;
+
+  if (placement === "dock") {
+    const interventionContent = stale && listContent ? (
+      <fieldset disabled {...stylex.props(styles.staleInterventions)}>
+        {listContent}
+      </fieldset>
+    ) : listContent;
+    const content = interventionContent ?? (
+      empty ? <div {...stylex.props(styles.dockStatus)}>{empty}</div> : null
+    );
+    return (
+      <>
+        <AnimatePresence initial={false}>
+          {content ? (
+            <HumanInterventionMotionItem key="task-secondary-surface" slide>
+              <RollingSwap
+                transitionKey={interventionContent ? "intervention" : "status"}
+                style={{ overflow: "visible" }}
+              >
+                {content}
+              </RollingSwap>
+            </HumanInterventionMotionItem>
+          ) : null}
+        </AnimatePresence>
+        {queryError}
+      </>
+    );
+  }
+
   return (
     <>
       {stale && list ? (
@@ -202,20 +254,8 @@ export function PendingHumanInterventionsResult({
       ) : (
         <AnimatePresence>{list}</AnimatePresence>
       )}
-      {stale ? (
-        <HStack as="div" role="alert" gap={2} align="center" justify="between" wrap="wrap" {...stylex.props(styles.queryError)}>
-          <span>Response options could not load. Shown details may be out of date.</span>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            label="Retry"
-            isLoading={result.loading}
-            onClick={() => void result.refetch().catch(() => undefined)}
-          />
-        </HStack>
-      ) : null}
-      {result.data && !result.loading && !stale && visibleInterventions.length === 0 ? emptyContent : null}
+      {queryError}
+      {empty}
     </>
   );
 }
@@ -278,18 +318,21 @@ export function HumanInterventionList({
 export function HumanInterventionMotionItem({
   children,
   exitGap,
-  role
+  role,
+  slide = false
 }: {
   children: React.ReactNode;
   exitGap?: string;
   role?: React.AriaRole;
+  slide?: boolean;
 }) {
   const isPresent = useIsPresent();
   const reduceMotion = useReducedMotion();
   const collapsed = {
     height: 0,
     opacity: 0,
-    marginBottom: exitGap ? `calc(-1 * ${exitGap})` : "calc(-1 * var(--human-intervention-motion-gap, 0px))"
+    marginBottom: exitGap ? `calc(-1 * ${exitGap})` : "calc(-1 * var(--human-intervention-motion-gap, 0px))",
+    y: slide ? "var(--spacing-2)" : 0
   };
   return (
     <m.div
@@ -298,7 +341,7 @@ export function HumanInterventionMotionItem({
       role={role}
       layout={reduceMotion ? false : "position"}
       initial={reduceMotion ? false : collapsed}
-      animate={{ height: "auto", opacity: 1, marginBottom: "0px" }}
+      animate={{ height: "auto", opacity: 1, marginBottom: "0px", y: 0 }}
       exit={collapsed}
       transition={reduceMotion ? { duration: 0 } : springs.standard}
       {...stylex.props(styles.motionItem)}
@@ -1044,6 +1087,9 @@ const styles = stylex.create({
     paddingBlockStart: "var(--spacing-2)",
     paddingInline: "var(--spacing-0)",
     paddingBlockEnd: "var(--spacing-0)",
+    marginBlockEnd: "calc(-1 * var(--human-intervention-card-overlap, var(--spacing-6)))"
+  },
+  dockStatus: {
     marginBlockEnd: "calc(-1 * var(--human-intervention-card-overlap, var(--spacing-6)))"
   },
   taskList: {

@@ -7,10 +7,12 @@ import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { IdentityAvatar } from "@/components/IdentityAvatar";
-import { ActivityRow } from "@/components/transcript/ActivityRow";
+import { RollingSwap, RollingText } from "@/components/RollingText";
+import { ActivityRow, activityRendersAsSystemNotice } from "@/components/transcript/ActivityRow";
 import { Message } from "@/components/transcript/Message";
 import type { RenderTranscriptEntry } from "@/components/transcript/renderModel";
 import { ToolMarker } from "@/components/transcript/ToolMarker";
+import { TranscriptSystemNotice } from "@/components/transcript/TranscriptSystemNotice";
 import { springs } from "@/motion/springs";
 import type { TaskDetail, TaskRun, TaskRunItem, TaskRunStatus } from "./taskTypes";
 import { TaskBody } from "./TaskBody";
@@ -25,7 +27,7 @@ export function TaskDetailPanel({
   error = null,
   liveRunItems,
   controls,
-  governedActions,
+  renderSecondarySurface,
   onOpenDetail,
   showTasksLink = false
 }: {
@@ -36,7 +38,7 @@ export function TaskDetailPanel({
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   controls?: React.ReactNode;
   showTasksLink?: boolean;
-  governedActions?: React.ReactNode;
+  renderSecondarySurface?: (status: React.ReactNode | null) => React.ReactNode;
   onOpenDetail: (target: ChatDetailTarget) => void;
 }) {
   const currentDetail = detail?.taskId === taskId ? detail : null;
@@ -84,11 +86,11 @@ export function TaskDetailPanel({
     <TaskContextCard
       key={`context:${taskId}:${currentDetail.attention ? "attention" : "info"}`}
       detail={currentDetail}
-      governedActions={governedActions}
       latestRunEntries={latestRunEntries}
+      renderSecondarySurface={renderSecondarySurface}
       run={run}
       controls={controls}
-      showStatus={showStatus}
+      showStatus={showStatus && currentDetail.status !== "done"}
       showTasksLink={showTasksLink}
       taskId={taskId}
     />
@@ -118,9 +120,9 @@ export function TaskDetailPanel({
 
 function TaskContextCard({
   detail,
-  governedActions,
   controls,
   latestRunEntries,
+  renderSecondarySurface,
   run,
   showStatus,
   showTasksLink,
@@ -128,23 +130,29 @@ function TaskContextCard({
 }: {
   taskId: string;
   detail: TaskDetail;
-  governedActions?: React.ReactNode;
   controls?: React.ReactNode;
   latestRunEntries: ReadonlyMap<string, RenderTranscriptEntry>;
+  renderSecondarySurface?: (status: React.ReactNode | null) => React.ReactNode;
   run: TaskRun | null;
   showStatus: boolean;
   showTasksLink: boolean;
 }) {
   const latestEntry = run ? latestRunEntries.get(run.id) ?? null : null;
+  const status = showStatus ? (
+    <div {...stylex.props(styles.statusCard)}>
+      <TaskSummaryEntry entry={latestEntry} run={run} />
+    </div>
+  ) : null;
+  const secondarySurface = renderSecondarySurface
+    ? renderSecondarySurface(status)
+    : status;
   return (
     <aside aria-label="Task summary" {...stylex.props(styles.contextDock)}>
-      {governedActions}
-      {showStatus ? (
-        <div {...stylex.props(styles.statusCard)}>
-          <TaskSummaryEntry entry={latestEntry} run={run} />
-        </div>
-      ) : null}
-      <div {...stylex.props(styles.contextCard, !showStatus && styles.contextCardWithoutStatus)}>
+      {secondarySurface}
+      <div {...stylex.props(
+        styles.contextCard,
+        (!showStatus || renderSecondarySurface) && styles.contextCardWithoutStatus
+      )}>
         <TaskSummaryHeader
           detail={detail}
           run={run}
@@ -360,10 +368,26 @@ function TaskSummaryEntry({
   entry: RenderTranscriptEntry | null;
   run: TaskRun | null;
 }) {
+  const kind = taskSummaryEntryKind(entry);
+  return (
+    <RollingSwap transitionKey={kind}>
+      <TaskSummaryEntryContent entry={entry} run={run} />
+    </RollingSwap>
+  );
+}
+
+function TaskSummaryEntryContent({
+  entry,
+  run
+}: {
+  entry: RenderTranscriptEntry | null;
+  run: TaskRun | null;
+}) {
   if (entry?.kind === "tool_marker" || entry?.kind === "tool_marker_group") {
     return (
       <div {...stylex.props(styles.summaryEntry)}>
         <ToolMarker
+          animateText
           data={entry.kind === "tool_marker"
             ? { kind: "tool", marker: entry.marker }
             : { kind: "tool_group", markers: entry.markers }}
@@ -382,6 +406,7 @@ function TaskSummaryEntry({
           animate={false}
           reserveAvatarSpace={false}
           role="assistant"
+          rollingText
           showAvatar={false}
           singleLine
           text={entry.entry.text}
@@ -392,15 +417,26 @@ function TaskSummaryEntry({
   if (entry?.kind === "entry" && entry.entry.type === "activity") {
     return (
       <div {...stylex.props(styles.summaryEntry)}>
-        <ActivityRow item={entry.entry.item} onToggle={() => {}} open={false} singleLine />
+        <ActivityRow animateText item={entry.entry.item} onToggle={() => {}} open={false} singleLine />
       </div>
     );
   }
   return (
     <div {...stylex.props(styles.summaryEntry)}>
-      <span {...stylex.props(styles.summaryOutput)}>{latestRunOutput(run)}</span>
+      <TranscriptSystemNotice role="status" singleLine>
+        <RollingText value={latestRunOutput(run)} {...stylex.props(styles.summaryOutput)} />
+      </TranscriptSystemNotice>
     </div>
   );
+}
+
+function taskSummaryEntryKind(entry: RenderTranscriptEntry | null): "activity_card" | "activity_notice" | "message" | "status" | "tool" {
+  if (entry?.kind === "tool_marker" || entry?.kind === "tool_marker_group") return "tool";
+  if (entry?.kind === "entry" && entry.entry.type === "assistant") return "message";
+  if (entry?.kind === "entry" && entry.entry.type === "activity") {
+    return activityRendersAsSystemNotice(entry.entry.item) ? "activity_notice" : "activity_card";
+  }
+  return "status";
 }
 
 function latestRunOutput(run: TaskRun | null): string {
