@@ -442,25 +442,11 @@ impl RuntimeActor {
                 };
                 self.persist_progress_notice(
                     &request,
-                    &format!("Task progress stopped after {reason}; finalizing current work."),
+                    &format!("Task progress reached a checkpoint after {reason}."),
                 )
                 .await;
-                return self
-                    .finalize_background_task(
-                        &request,
-                        provider,
-                        &conversation_id,
-                        &model_tools,
-                        capabilities,
-                        response_continuation,
-                        &mut context,
-                        &mut citation_sources,
-                        next_provider_round,
-                        reason,
-                        deadline,
-                        aggregate_usage,
-                    )
-                    .await;
+                context.append_developer_message(build_task_checkpoint_prompt().to_string());
+                progress.reset_window();
             }
             let audit_interval = usize::try_from(request.execution_policy.progress_audit_interval)
                 .unwrap_or(usize::MAX);
