@@ -132,13 +132,16 @@ function TaskContextCard({
   run: TaskRun | null;
   showTasksLink: boolean;
 }) {
+  const latestEntry = run ? latestRunEntries.get(run.id) ?? null : null;
   return (
     <aside aria-label="Task summary" {...stylex.props(styles.contextDock)}>
       {governedActions}
+      <div {...stylex.props(styles.statusCard)}>
+        <TaskSummaryEntry entry={latestEntry} run={run} />
+      </div>
       <div {...stylex.props(styles.contextCard)}>
         <TaskSummaryHeader
           detail={detail}
-          latestRunEntries={latestRunEntries}
           run={run}
           controls={controls}
           showTasksLink={showTasksLink}
@@ -154,20 +157,17 @@ function TaskContextCard({
 
 function TaskSummaryHeader({
   detail,
-  latestRunEntries,
   run,
   controls,
   showTasksLink,
   taskId
 }: {
   detail: TaskDetail;
-  latestRunEntries: ReadonlyMap<string, RenderTranscriptEntry>;
   run: TaskRun | null;
   controls?: React.ReactNode;
   showTasksLink: boolean;
   taskId: string;
 }) {
-  const latestEntry = run ? latestRunEntries.get(run.id) ?? null : null;
   return (
     <header {...stylex.props(styles.summaryHeader, !run && styles.summaryHeaderWithoutAvatar)}>
       {run ? (
@@ -200,7 +200,6 @@ function TaskSummaryHeader({
         ) : null}
         <TaskInfoTrigger detail={detail} />
       </span>
-      <TaskSummaryEntry entry={latestEntry} run={run} />
     </header>
   );
 }
@@ -463,10 +462,11 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     position: "relative",
-    zIndex: 1,
+    zIndex: 2,
     minWidth: 0,
     minHeight: 0,
     flex: "0 0 auto",
+    marginBlockStart: "calc(-1 * var(--spacing-3))",
     overflow: "hidden",
     borderWidth: 1,
     borderStyle: "solid",
@@ -476,14 +476,15 @@ const styles = stylex.create({
     boxShadow: "0 10px 28px color-mix(in srgb, var(--noema-text-primary) 13%, transparent)"
   },
   contextBody: { minWidth: 0, minHeight: 0 },
-  summaryHeader: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", columnGap: "var(--spacing-2)", rowGap: "var(--spacing-1)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
+  statusCard: { position: "relative", zIndex: 1, minWidth: 0, marginInline: "var(--spacing-1)", paddingBlockStart: "var(--spacing-2)", paddingBlockEnd: "calc(var(--spacing-2) + var(--spacing-3))", paddingInline: "var(--spacing-3)", overflow: "hidden", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: "var(--human-intervention-card-radius)", backgroundColor: "var(--noema-surface-card)", boxShadow: "var(--shadow-low)" },
+  summaryHeader: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
   summaryHeaderWithoutAvatar: { gridTemplateColumns: "minmax(0, 1fr) auto" },
   summaryAvatar: { position: "relative", width: 28, height: 28 },
   summaryAvatarLayer: { position: "absolute", inset: 0, display: "flex" },
   summaryCopy: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
   summaryTitle: { minWidth: 0, color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, lineHeight: 1.35, overflow: "hidden", overflowWrap: "anywhere", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   summaryOutput: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  summaryEntry: { display: "block", gridColumn: "1 / -1", minWidth: 0, overflow: "hidden" },
+  summaryEntry: { display: "block", minWidth: 0, overflow: "hidden" },
   summaryActions: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)" },
   summaryControlsHost: { display: "inline-flex", alignItems: "center" },
   summaryAction: { width: 28, height: 28 },
