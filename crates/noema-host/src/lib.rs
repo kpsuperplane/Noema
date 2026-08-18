@@ -37,6 +37,15 @@ pub use runtime_host::{
 pub fn run_browser_worker_if_requested() -> Option<i32> {
     noema_providers::run_browser_worker_if_requested()
 }
+
+/// Run the private file parser when the process has worker arguments.
+///
+/// The application entrypoint must exit with the returned status.
+#[cfg(feature = "composition")]
+#[must_use]
+pub fn run_file_parse_worker_if_requested() -> Option<i32> {
+    noema_runtime::run_file_parse_worker_if_requested()
+}
 #[cfg(feature = "composition")]
 pub use runtime_host::{
     start_from_loaded_config, start_from_process_env,

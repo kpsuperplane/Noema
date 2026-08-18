@@ -479,6 +479,7 @@ async fn complete_catalog_is_stable_for_native_transport() {
             vec![
                 "read_memory_page",
                 "search_memory",
+                "file.parse",
                 "update_own_name",
                 "artifact.create_local_file",
                 "noema.present_multiple_choice",
@@ -698,6 +699,7 @@ async fn planner_catalog_contains_task_file_tools() {
             .map(|tool| tool.name.as_str())
             .collect::<Vec<_>>(),
         vec![
+            "file.parse",
             "task.finish_planning",
             "task.report_blocked",
             "task.files.list",
@@ -708,6 +710,7 @@ async fn planner_catalog_contains_task_file_tools() {
     );
     assert!(tools.tool_policy.allows_tool(TASK_FINISH_PLANNING_TOOL));
     assert!(tools.tool_policy.allows_tool(TASK_REPORT_BLOCKED_TOOL));
+    assert!(tools.tool_policy.allows_tool("file.parse"));
     assert!(!tools.tool_policy.allows_tool(TASK_LIST_TOOL));
     assert!(!tools.tool_policy.allows_tool("search_memory"));
     assert!(!tools.tool_policy.allows_tool("web.fetch"));

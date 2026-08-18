@@ -261,6 +261,28 @@ impl NoemaStore {
         String::from_utf8(bytes).map_err(|_| TaskFileError::InvalidFile)
     }
 
+    /// Open one regular Task or project file through the Task read boundary.
+    ///
+    /// # Errors
+    /// Returns [`TaskFileError`] when the Task, path, or file is unsafe.
+    pub async fn open_task_file_for_read(
+        &self,
+        task_id: &TaskId,
+        path: &str,
+    ) -> Result<std::fs::File, TaskFileError> {
+        let access = self.task_file_access(task_id).await?;
+        let relative = access.resolve(path, false)?;
+        verify_components(&access.boundary, &relative, false)?;
+        let metadata = access.boundary.symlink_metadata(&relative)?;
+        if metadata.file_type().is_symlink() {
+            return Err(TaskFileError::SymbolicLink);
+        }
+        if !metadata.is_file() {
+            return Err(TaskFileError::InvalidFile);
+        }
+        Ok(access.boundary.open(&relative)?.into_std())
+    }
+
     /// Atomically create or replace one bounded UTF-8 Task file.
     ///
     /// # Errors

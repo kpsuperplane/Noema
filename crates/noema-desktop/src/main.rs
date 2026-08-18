@@ -17,6 +17,9 @@ fn main() {
     if let Some(status) = noema_host::run_browser_worker_if_requested() {
         std::process::exit(status);
     }
+    if let Some(status) = noema_host::run_file_parse_worker_if_requested() {
+        std::process::exit(status);
+    }
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(
             |app, _arguments, _directory| {

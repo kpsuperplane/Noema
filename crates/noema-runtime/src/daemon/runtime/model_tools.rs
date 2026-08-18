@@ -29,7 +29,7 @@ use noema_capabilities::{
     ArtifactPayloadSanitizer, CapabilityAvailabilityNotice, CapabilityAvailabilityStatus,
     CapabilityBinding, CapabilityBindingSourceError, CapabilityBindingSourceHandle,
     CapabilityCatalogBuilder, CapabilityCatalogSnapshot, CapabilityExecutionDecision,
-    CapabilityScope, CapabilityTarget, CapabilityToolBehavior, InvokerKey,
+    CapabilityScope, CapabilityTarget, CapabilityToolBehavior, FilePayloadSanitizer, InvokerKey,
     RedactingPayloadSanitizer, ToolContractError, ToolName, ToolSpec, WebBrowsePayloadSanitizer,
     WebFetchPayloadSanitizer, tool_enablement_name,
 };
@@ -180,6 +180,8 @@ pub(super) async fn build_model_tools_for_role(
             BindingPersistence::Memory
         } else if tool.name.as_str() == "artifact.create_local_file" {
             BindingPersistence::Artifact
+        } else if tool.name.as_str() == noema_capabilities::file::FILE_PARSE_TOOL {
+            BindingPersistence::File
         } else {
             BindingPersistence::Redacted
         };
@@ -270,6 +272,7 @@ fn role_builtin_tool_specs(
     let mut tools = match role {
         ExecutionRole::TaskPlanner => {
             vec![
+                noema_capabilities::file::parse_tool_spec()?,
                 task_finish_planning_tool_spec()?,
                 task_report_blocked_tool_spec()?,
                 task_file_list_tool_spec()?,
@@ -472,6 +475,7 @@ fn builtin_tool_access_class(role: ExecutionRole, name: &str) -> ToolAccessClass
         | TASK_FILE_LIST_TOOL
         | TASK_FILE_READ_TOOL
         | TASK_READ_ARTIFACT_TOOL => ToolAccessClass::ReadOnly,
+        noema_capabilities::file::FILE_PARSE_TOOL => ToolAccessClass::ReadOnly,
         TASK_FILE_WRITE_TOOL | TASK_FILE_DELETE_TOOL => ToolAccessClass::TaskOwnedWrite,
         "artifact.create_local_file"
             if matches!(
@@ -528,6 +532,7 @@ fn builtin_tool_specs(include_agent_name_tool: bool) -> Result<Vec<ToolSpec>, To
     let mut specs = vec![
         read_memory_page_tool_spec()?,
         native_search_memory_tool_spec()?,
+        noema_capabilities::file::parse_tool_spec()?,
     ];
     if include_agent_name_tool {
         specs.push(update_own_name_tool_spec()?);
@@ -656,6 +661,7 @@ enum BindingPersistence {
     WebBrowse,
     Artifact,
     Memory,
+    File,
 }
 
 #[derive(Debug, Default)]
@@ -761,6 +767,7 @@ fn runtime_binding(
         BindingPersistence::WebBrowse => Arc::new(WebBrowsePayloadSanitizer),
         BindingPersistence::Artifact => Arc::new(ArtifactPayloadSanitizer),
         BindingPersistence::Memory => Arc::new(NativeMemoryPayloadSanitizer),
+        BindingPersistence::File => Arc::new(FilePayloadSanitizer),
     };
     let validator = jsonschema::options()
         .with_draft(jsonschema::Draft::Draft202012)

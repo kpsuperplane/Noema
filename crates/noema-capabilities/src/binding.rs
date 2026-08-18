@@ -1,7 +1,7 @@
 //! Immutable server-only capability bindings and persistence views.
 
 use crate::{
-    CapabilityDestination, CapabilityFuture, InvokerKey, ToolName, ToolSpec,
+    CapabilityDestination, CapabilityFuture, InvokerKey, ToolName, ToolSpec, file,
     normalize_capability_connection_label, sanitize_standard_credentials, web,
 };
 use serde_json::{Value, json};
@@ -173,6 +173,18 @@ impl PayloadSanitizer for WebFetchPayloadSanitizer {
     fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
         Some(sanitize_standard_credentials(
             &web::fetch::sanitize_payload_for_storage(arguments),
+        ))
+    }
+}
+
+/// Omit parsed file content while preserving safe file and URL metadata.
+#[derive(Debug, Default)]
+pub struct FilePayloadSanitizer;
+
+impl PayloadSanitizer for FilePayloadSanitizer {
+    fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
+        Some(sanitize_standard_credentials(
+            &file::sanitize_payload_for_storage(arguments),
         ))
     }
 }

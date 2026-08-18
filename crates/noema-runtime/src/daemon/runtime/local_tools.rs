@@ -41,6 +41,7 @@ use crate::daemon::{
         is_task_finish_planning_tool, is_task_finish_review_tool, is_task_report_blocked_tool,
     },
 };
+use crate::file_tools::execute_file_parse;
 use crate::search::tool::is_web_search_tool;
 use crate::web_fetch::tool::is_web_fetch_tool;
 use crate::{WebBackendRequest, WebBackendResolverError};
@@ -485,6 +486,19 @@ impl RuntimeActor {
                 Err(error) => (false, json!({"error": error})),
             };
             LocalToolResult::from_call(call, LocalToolKind::Gateway, success, payload, true)
+        } else if call.name == noema_capabilities::file::FILE_PARSE_TOOL {
+            let result = execute_file_parse(
+                &self.store,
+                turn.task_id.as_deref(),
+                turn.cwd.as_deref(),
+                &call.payload,
+            )
+            .await;
+            let (success, payload) = match result {
+                Ok(payload) => (true, payload),
+                Err(error) => (false, json!({"error": error})),
+            };
+            LocalToolResult::from_call(call, LocalToolKind::File, success, payload, true)
         } else if is_task_file_tool(&call.name) && turn.task_run_id.is_some() {
             let result = match turn.task_id.as_deref() {
                 Some(task_id) => {

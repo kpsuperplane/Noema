@@ -9,6 +9,7 @@ pub(super) enum LocalToolKind {
     Memory,
     AgentName,
     Artifact,
+    File,
     WebSearch,
     WebFetch,
     WebBrowse,

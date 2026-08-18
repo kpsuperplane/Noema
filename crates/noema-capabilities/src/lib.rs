@@ -9,6 +9,7 @@ mod authentication;
 mod binding;
 mod composite;
 mod credential_sanitization;
+pub mod file;
 mod integration;
 mod metadata;
 mod policy;
@@ -26,8 +27,8 @@ pub use binding::{
     CapabilityBindingSourceHandle, CapabilityCatalogBuilder, CapabilityCatalogError,
     CapabilityCatalogResult, CapabilityCatalogSnapshot, CapabilityExecutionDecision,
     CapabilityScope, CapabilityServiceContext, CapabilityServiceContextError, CapabilityTarget,
-    CapabilityToolBehavior, OmitPayloadSanitizer, OperationToken, PayloadSanitizer,
-    PersistedCapabilityPayload, RedactingPayloadSanitizer, ToolInputCheck,
+    CapabilityToolBehavior, FilePayloadSanitizer, OmitPayloadSanitizer, OperationToken,
+    PayloadSanitizer, PersistedCapabilityPayload, RedactingPayloadSanitizer, ToolInputCheck,
     WebBrowsePayloadSanitizer, WebFetchPayloadSanitizer,
 };
 pub use composite::CompositeCapabilityBindingSource;
