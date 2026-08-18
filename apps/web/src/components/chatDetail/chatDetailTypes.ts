@@ -6,6 +6,10 @@ export type ChatDetailTarget =
   | {
       type: "task";
       taskId: string;
+    }
+  | {
+      type: "recurrence";
+      recurrenceId: string;
     };
 
 export function artifactDetailTarget(version: string | null | undefined): ChatDetailTarget | null {

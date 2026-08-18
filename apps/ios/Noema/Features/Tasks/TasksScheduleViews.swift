@@ -491,110 +491,37 @@ struct TasksScheduleSheet: View {
 struct TasksRecurrenceSummaryView: View {
   @Bindable var model: TasksModel
   let task: TasksDetailSnapshot
-  @Environment(NoemaShellCoordinator.self) private var coordinator
-  @State private var recurrence: TasksRecurrenceSnapshot?
-  @State private var recurrenceLoadFailed = false
+  let onOpenRecurrence: ((String) -> Void)?
   @State private var scheduleAction: TasksScheduleAction?
-  @State private var editing = false
-  @State private var confirmingEnd = false
   @State private var isSubmitting = false
   @State private var errorMessage: String?
 
   var body: some View {
     Group {
       if let schedule = task.schedule {
-        if schedule.recurrenceId == nil {
-          oneTimeBody(schedule: schedule)
-        } else if let recurrence {
-          recurrenceBody(schedule: schedule, recurrence: recurrence)
+        if let recurrenceID = schedule.recurrenceId {
+          HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.xs) {
+            Button("View recurring task") { onOpenRecurrence?(recurrenceID) }
+              .buttonStyle(.plain)
+              .font(NoemaFont.captionEmphasized)
+              .foregroundStyle(NoemaColor.accent)
+              .disabled(onOpenRecurrence == nil)
+            Text("· This occurrence · \(label(schedule.scheduledFor, timeZone: schedule.timeZone))")
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.contentSecondary)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, NoemaSpacing.md)
+          .padding(.vertical, NoemaSpacing.sm)
+          .overlay(alignment: .top) { Rectangle().fill(NoemaColor.separatorSubtle).frame(height: 1) }
         } else {
-          Text(recurrenceLoadFailed
-            ? "Schedule details could not be loaded."
-            : "Repeating from \(label(schedule.scheduledFor, timeZone: schedule.timeZone))")
-            .font(NoemaFont.caption)
-            .foregroundStyle(recurrenceLoadFailed ? NoemaColor.danger : NoemaColor.contentSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, NoemaSpacing.md)
-            .padding(.vertical, NoemaSpacing.sm)
-            .overlay(alignment: .top) { Rectangle().fill(NoemaColor.separatorSubtle).frame(height: 1) }
+          oneTimeBody(schedule: schedule)
         }
       }
-    }
-    .task(id: task.schedule?.recurrenceId) {
-      recurrenceLoadFailed = false
-      guard let id = task.schedule?.recurrenceId else { recurrence = nil; return }
-      recurrence = await model.loadRecurrence(recurrenceId: id)
-      recurrenceLoadFailed = recurrence == nil
     }
     .noemaSheet(item: $scheduleAction) { action in
       TasksScheduleSheet(model: model, task: task, action: action)
     }
-    .noemaSheet(isPresented: $editing) {
-      if let recurrence { TasksRecurrenceEditSheet(model: model, recurrence: recurrence) { refresh() } }
-    }
-    .confirmationDialog("End recurring schedule?", isPresented: $confirmingEnd, titleVisibility: .visible) {
-      Button("End schedule", role: .destructive) { run(.end) }
-      Button("Cancel", role: .cancel) {}
-    } message: {
-      Text("No future tasks will be created. This task and earlier runs stay unchanged.")
-    }
-  }
-
-  @ViewBuilder
-  private func recurrenceBody(schedule: TasksScheduleSnapshot, recurrence: TasksRecurrenceSnapshot) -> some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-        VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-          Text(TasksScheduleFormatting.recurrenceSummary(recurrence.cronExpression))
-            .font(NoemaFont.captionEmphasized)
-          Text(occurrenceLabel(schedule: schedule, recurrence: recurrence))
-            .font(NoemaFont.metadata)
-            .foregroundStyle(NoemaColor.contentSecondary)
-          if recurrence.lifecycle == "ACTIVE", let next = recurrence.nextRunAt {
-            Text("Following run · \(label(next, timeZone: recurrence.timeZone))")
-              .font(NoemaFont.metadata)
-              .foregroundStyle(NoemaColor.contentTertiary)
-          }
-        }
-        Spacer(minLength: NoemaSpacing.sm)
-        Menu {
-          if task.validActions.contains("RUN_NOW"), recurrence.lifecycle != "ENDED" { Button("Run now", systemImage: "play") { run(.runNow) } }
-          if recurrence.lifecycle != "ENDED" {
-            Button("Edit schedule", systemImage: "pencil") { editing = true }
-            Button(recurrence.lifecycle == "ACTIVE" ? "Pause future runs" : "Resume future runs", systemImage: recurrence.lifecycle == "ACTIVE" ? "pause" : "play") { run(recurrence.lifecycle == "ACTIVE" ? .pause : .resume) }
-            Button("Skip next run", systemImage: "forward.end") { run(.skip) }
-            Button("End recurring schedule", systemImage: "stop.circle", role: .destructive) { confirmingEnd = true }
-          }
-        } label: {
-          Image(systemName: "ellipsis.circle")
-            .frame(width: 30, height: 30)
-        }
-        .buttonStyle(.plain)
-        .disabled(isSubmitting || !model.isConnected)
-      }
-      if !recurrence.occurrences.isEmpty {
-        DisclosureGroup("Schedule history (\(recurrence.occurrences.count))") {
-          VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-            ForEach(recurrence.occurrences) { occurrence in
-              if let taskID = occurrence.taskId {
-                Button { coordinator.openTask(taskID) } label: {
-                  occurrenceRow(occurrence, recurrence: recurrence)
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("Opens this scheduled task")
-              } else {
-                occurrenceRow(occurrence, recurrence: recurrence)
-              }
-            }
-          }
-          .padding(.top, NoemaSpacing.xs)
-        }
-      }
-      if let errorMessage { Text(errorMessage).font(NoemaFont.metadata).foregroundStyle(NoemaColor.danger) }
-    }
-    .padding(.horizontal, NoemaSpacing.md)
-    .padding(.vertical, NoemaSpacing.sm)
-    .overlay(alignment: .top) { Rectangle().fill(NoemaColor.separatorSubtle).frame(height: 1) }
   }
 
   private func oneTimeBody(schedule: TasksScheduleSnapshot) -> some View {
@@ -637,28 +564,176 @@ struct TasksRecurrenceSummaryView: View {
     }
   }
 
-  private func run(_ action: TasksRecurrenceAction) {
-    guard let recurrence else { return }
-    Task {
-      isSubmitting = true
-      errorMessage = nil
-      if await model.changeRecurrence(recurrence, action: action) {
-        self.recurrence = await model.refreshRecurrence(recurrence)
+  private func label(_ raw: String, timeZone: String) -> String {
+    guard let date = TasksISO8601.date(from: raw) else { return raw }
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.timeZone = TimeZone(identifier: timeZone) ?? .current
+    formatter.dateFormat = "EEE, MMM d, h:mm a z"
+    return formatter.string(from: date)
+  }
+}
+
+struct TasksRecurrenceDetailRoute: View {
+  @Bindable var model: TasksModel
+  let recurrenceId: String
+  var compactPresentation = false
+  let onOpenTask: (String) -> Void
+  @Environment(\.dismiss) private var dismiss
+  @State private var recurrence: TasksRecurrenceSnapshot?
+  @State private var loadFailed = false
+  @State private var editing = false
+  @State private var confirmingEnd = false
+  @State private var isSubmitting = false
+  @State private var errorMessage: String?
+
+  var body: some View {
+    Group {
+      if compactPresentation {
+        NoemaNativeSheet(title: recurrence?.title ?? "Recurring task", onDismiss: { dismiss() }) {
+          content
+        }
       } else {
-        errorMessage = model.lastError ?? "Noema could not update the recurring schedule."
+        content
       }
-      isSubmitting = false
+    }
+    .task(id: recurrenceId) { await load() }
+    .noemaSheet(isPresented: $editing) {
+      if let recurrence { TasksRecurrenceEditSheet(model: model, recurrence: recurrence) { refresh() } }
+    }
+    .confirmationDialog("End recurring task?", isPresented: $confirmingEnd, titleVisibility: .visible) {
+      Button("End recurring task", role: .destructive) { run(.end) }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("No future Tasks will be created. Existing occurrences stay unchanged.")
     }
   }
 
-  private func refresh() {
-    guard let recurrence else { return }
-    Task { self.recurrence = await model.refreshRecurrence(recurrence) }
+  @ViewBuilder
+  private var content: some View {
+    if let recurrence {
+      ScrollView {
+        VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+          scheduleSection(recurrence)
+          occurrencesSection(recurrence)
+        }
+        .frame(maxWidth: 760, alignment: .leading)
+        .padding(NoemaSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .center)
+      }
+      .background(NoemaColor.surface)
+      .navigationTitle(recurrence.title)
+      .navigationBarTitleDisplayMode(.inline)
+    } else if loadFailed {
+      NoemaDeckState(
+        title: "Recurring task unavailable",
+        message: model.lastError ?? "This recurring task could not be loaded.",
+        symbol: "calendar.badge.exclamationmark",
+        tone: .warning,
+        actionTitle: model.isConnected ? "Try again" : nil,
+        action: model.isConnected ? { Task { await load() } } : nil
+      )
+    } else {
+      ProgressView("Loading recurring task…")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
   }
 
-  private func occurrenceLabel(schedule: TasksScheduleSnapshot, recurrence: TasksRecurrenceSnapshot) -> String {
-    let prefix = recurrence.lifecycle == "ENDED" ? "Ended" : recurrence.lifecycle == "PAUSED" ? "Paused" : "This occurrence"
-    return "\(prefix) · \(label(schedule.scheduledFor, timeZone: recurrence.timeZone))"
+  private func scheduleSection(_ recurrence: TasksRecurrenceSnapshot) -> some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      HStack(alignment: .top, spacing: NoemaSpacing.md) {
+        VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+          Text(recurrence.lifecycle.capitalized)
+            .font(NoemaFont.metadata.weight(.semibold))
+            .foregroundStyle(NoemaColor.contentTertiary)
+          Text(TasksScheduleFormatting.recurrenceSummary(recurrence.cronExpression))
+            .font(NoemaFont.bodyEmphasized)
+          if recurrence.lifecycle == "ACTIVE", let next = recurrence.nextRunAt {
+            Text("Next run · \(label(next, timeZone: recurrence.timeZone))")
+              .font(NoemaFont.metadata)
+              .foregroundStyle(NoemaColor.contentSecondary)
+          }
+          Text(recurrence.timeZone)
+            .font(NoemaFont.metadata)
+            .foregroundStyle(NoemaColor.contentTertiary)
+        }
+        Spacer(minLength: NoemaSpacing.sm)
+        if recurrence.lifecycle != "ENDED" {
+          Menu {
+            Button("Run now", systemImage: "play") { run(.runNow) }
+            Button("Edit schedule", systemImage: "pencil") { editing = true }
+            Button(
+              recurrence.lifecycle == "ACTIVE" ? "Pause future runs" : "Resume future runs",
+              systemImage: recurrence.lifecycle == "ACTIVE" ? "pause" : "play"
+            ) { run(recurrence.lifecycle == "ACTIVE" ? .pause : .resume) }
+            Button("Skip next run", systemImage: "forward.end") { run(.skip) }
+              .disabled(recurrence.nextRunAt == nil)
+            Button("End recurring task", systemImage: "stop.circle", role: .destructive) { confirmingEnd = true }
+          } label: {
+            Image(systemName: "ellipsis.circle").frame(width: 30, height: 30)
+          }
+          .buttonStyle(.plain)
+          .disabled(isSubmitting || !model.isConnected)
+          .accessibilityLabel("Recurring task actions")
+        }
+      }
+      if !recurrence.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        Text(recurrence.description)
+          .font(NoemaFont.body)
+          .foregroundStyle(NoemaColor.contentSecondary)
+      }
+      if let errorMessage {
+        Text(errorMessage).font(NoemaFont.metadata).foregroundStyle(NoemaColor.danger)
+      }
+    }
+    .padding(NoemaSpacing.md)
+    .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
+    .overlay { NoemaSuperellipse(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+  }
+
+  private func occurrencesSection(_ recurrence: TasksRecurrenceSnapshot) -> some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+        Text("Occurrences").font(NoemaFont.captionEmphasized)
+        Spacer(minLength: NoemaSpacing.sm)
+        Text("\(recurrence.occurrences.count)")
+          .font(NoemaFont.monoTiny)
+          .foregroundStyle(NoemaColor.contentTertiary)
+      }
+      if recurrence.occurrences.isEmpty {
+        Text("No occurrences yet.")
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.contentTertiary)
+      } else {
+        VStack(alignment: .leading, spacing: 0) {
+          ForEach(recurrence.occurrences) { occurrence in
+            if let taskID = occurrence.taskId {
+              Button { onOpenTask(taskID) } label: { occurrenceRow(occurrence, recurrence: recurrence) }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens this occurrence")
+            } else {
+              occurrenceRow(occurrence, recurrence: recurrence)
+            }
+            Divider()
+          }
+        }
+      }
+    }
+    .padding(NoemaSpacing.md)
+    .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
+    .overlay { NoemaSuperellipse(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+  }
+
+  private func occurrenceRow(_ occurrence: TasksRecurrenceOccurrenceSnapshot, recurrence: TasksRecurrenceSnapshot) -> some View {
+    HStack(spacing: NoemaSpacing.sm) {
+      Text(label(occurrence.scheduledFor, timeZone: recurrence.timeZone)).font(NoemaFont.metadata)
+      Spacer(minLength: NoemaSpacing.sm)
+      Text(occurrenceLabel(occurrence))
+        .font(NoemaFont.metadata)
+        .foregroundStyle(NoemaColor.contentTertiary)
+    }
+    .padding(.vertical, NoemaSpacing.sm)
+    .contentShape(Rectangle())
   }
 
   private func occurrenceLabel(_ occurrence: TasksRecurrenceOccurrenceSnapshot) -> String {
@@ -670,18 +745,6 @@ struct TasksRecurrenceSummaryView: View {
     }
   }
 
-  private func occurrenceRow(_ occurrence: TasksRecurrenceOccurrenceSnapshot, recurrence: TasksRecurrenceSnapshot) -> some View {
-    HStack(spacing: NoemaSpacing.sm) {
-      Text(label(occurrence.scheduledFor, timeZone: recurrence.timeZone))
-        .font(NoemaFont.metadata)
-      Spacer(minLength: NoemaSpacing.sm)
-      Text(occurrenceLabel(occurrence))
-        .font(NoemaFont.metadata)
-        .foregroundStyle(NoemaColor.contentTertiary)
-    }
-    .contentShape(Rectangle())
-  }
-
   private func label(_ raw: String, timeZone: String) -> String {
     guard let date = TasksISO8601.date(from: raw) else { return raw }
     let formatter = DateFormatter()
@@ -691,6 +754,30 @@ struct TasksRecurrenceSummaryView: View {
     return formatter.string(from: date)
   }
 
+  private func load() async {
+    loadFailed = false
+    recurrence = await model.loadRecurrence(recurrenceId: recurrenceId)
+    loadFailed = recurrence == nil
+  }
+
+  private func refresh() {
+    guard let recurrence else { return }
+    Task { self.recurrence = await model.refreshRecurrence(recurrence) }
+  }
+
+  private func run(_ action: TasksRecurrenceAction) {
+    guard let recurrence else { return }
+    Task {
+      isSubmitting = true
+      errorMessage = nil
+      if await model.changeRecurrence(recurrence, action: action) {
+        self.recurrence = await model.refreshRecurrence(recurrence)
+      } else {
+        errorMessage = model.lastError ?? "Noema could not update this recurring task."
+      }
+      isSubmitting = false
+    }
+  }
 }
 
 struct TasksRecurrenceEditSheet: View {

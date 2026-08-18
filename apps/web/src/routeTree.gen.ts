@@ -21,6 +21,7 @@ import { Route as SettingsModelsRouteImport } from './routes/settings/models'
 import { Route as SettingsMemoryRouteImport } from './routes/settings/memory'
 import { Route as SettingsAgentsRouteImport } from './routes/settings/agents'
 import { Route as MemorySplatRouteImport } from './routes/memory/$'
+import { Route as TasksRecurrencesRecurrenceIdRouteImport } from './routes/tasks/recurrences/$recurrenceId'
 import { Route as SettingsToolsWebRouteImport } from './routes/settings/tools/web'
 import { Route as SettingsToolsMcpsRouteImport } from './routes/settings/tools/mcps'
 import { Route as SettingsToolsApisRouteImport } from './routes/settings/tools/apis'
@@ -97,6 +98,12 @@ const MemorySplatRoute = MemorySplatRouteImport.update({
   path: '/$',
   getParentRoute: () => MemoryRoute,
 } as any)
+const TasksRecurrencesRecurrenceIdRoute =
+  TasksRecurrencesRecurrenceIdRouteImport.update({
+    id: '/recurrences/$recurrenceId',
+    path: '/recurrences/$recurrenceId',
+    getParentRoute: () => TasksRoute,
+  } as any)
 const SettingsToolsWebRoute = SettingsToolsWebRouteImport.update({
   id: '/tools/web',
   path: '/tools/web',
@@ -202,6 +209,7 @@ export interface FileRoutesByFullPath {
   '/settings/tools/apis': typeof SettingsToolsApisRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
+  '/tasks/recurrences/$recurrenceId': typeof TasksRecurrencesRecurrenceIdRoute
   '/settings/models/catalog/$modelId': typeof SettingsModelsCatalogModelIdRoute
   '/settings/models/installations/$installationId': typeof SettingsModelsInstallationsInstallationIdRoute
   '/settings/system/clients/$clientId': typeof SettingsSystemClientsClientIdRoute
@@ -228,6 +236,7 @@ export interface FileRoutesByTo {
   '/settings/tools/apis': typeof SettingsToolsApisRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
+  '/tasks/recurrences/$recurrenceId': typeof TasksRecurrencesRecurrenceIdRoute
   '/settings/models/catalog/$modelId': typeof SettingsModelsCatalogModelIdRoute
   '/settings/models/installations/$installationId': typeof SettingsModelsInstallationsInstallationIdRoute
   '/settings/system/clients/$clientId': typeof SettingsSystemClientsClientIdRoute
@@ -258,6 +267,7 @@ export interface FileRoutesById {
   '/settings/tools/apis': typeof SettingsToolsApisRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
+  '/tasks/recurrences/$recurrenceId': typeof TasksRecurrencesRecurrenceIdRoute
   '/settings/models/catalog_/$modelId': typeof SettingsModelsCatalogModelIdRoute
   '/settings/models/installations_/$installationId': typeof SettingsModelsInstallationsInstallationIdRoute
   '/settings/system/clients_/$clientId': typeof SettingsSystemClientsClientIdRoute
@@ -289,6 +299,7 @@ export interface FileRouteTypes {
     | '/settings/tools/apis'
     | '/settings/tools/mcps'
     | '/settings/tools/web'
+    | '/tasks/recurrences/$recurrenceId'
     | '/settings/models/catalog/$modelId'
     | '/settings/models/installations/$installationId'
     | '/settings/system/clients/$clientId'
@@ -315,6 +326,7 @@ export interface FileRouteTypes {
     | '/settings/tools/apis'
     | '/settings/tools/mcps'
     | '/settings/tools/web'
+    | '/tasks/recurrences/$recurrenceId'
     | '/settings/models/catalog/$modelId'
     | '/settings/models/installations/$installationId'
     | '/settings/system/clients/$clientId'
@@ -344,6 +356,7 @@ export interface FileRouteTypes {
     | '/settings/tools/apis'
     | '/settings/tools/mcps'
     | '/settings/tools/web'
+    | '/tasks/recurrences/$recurrenceId'
     | '/settings/models/catalog_/$modelId'
     | '/settings/models/installations_/$installationId'
     | '/settings/system/clients_/$clientId'
@@ -444,6 +457,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/memory/$'
       preLoaderRoute: typeof MemorySplatRouteImport
       parentRoute: typeof MemoryRoute
+    }
+    '/tasks/recurrences/$recurrenceId': {
+      id: '/tasks/recurrences/$recurrenceId'
+      path: '/recurrences/$recurrenceId'
+      fullPath: '/tasks/recurrences/$recurrenceId'
+      preLoaderRoute: typeof TasksRecurrencesRecurrenceIdRouteImport
+      parentRoute: typeof TasksRoute
     }
     '/settings/tools/web': {
       id: '/settings/tools/web'
@@ -629,11 +649,13 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 interface TasksRouteChildren {
   TasksTaskIdRoute: typeof TasksTaskIdRoute
   TasksIndexRoute: typeof TasksIndexRoute
+  TasksRecurrencesRecurrenceIdRoute: typeof TasksRecurrencesRecurrenceIdRoute
 }
 
 const TasksRouteChildren: TasksRouteChildren = {
   TasksTaskIdRoute: TasksTaskIdRoute,
   TasksIndexRoute: TasksIndexRoute,
+  TasksRecurrencesRecurrenceIdRoute: TasksRecurrencesRecurrenceIdRoute,
 }
 
 const TasksRouteWithChildren = TasksRoute._addFileChildren(TasksRouteChildren)

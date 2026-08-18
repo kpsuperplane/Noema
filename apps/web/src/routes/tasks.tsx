@@ -12,7 +12,13 @@ function TasksLayoutRoute() {
   const navigate = Route.useNavigate();
   const matchRoute = useMatchRoute();
   const taskMatch = matchRoute({ to: "/tasks/$taskId" });
+  const recurrenceMatch = matchRoute({ to: "/tasks/recurrences/$recurrenceId" });
   const selectedTaskId = taskMatch ? taskMatch.taskId : undefined;
+  const selectedDetail = recurrenceMatch
+    ? { type: "recurrence" as const, recurrenceId: recurrenceMatch.recurrenceId }
+    : selectedTaskId
+      ? { type: "task" as const, taskId: selectedTaskId }
+      : undefined;
 
   const closeTask = () => {
     void navigate({ to: "/tasks", search, replace: true });
@@ -21,8 +27,8 @@ function TasksLayoutRoute() {
   return (
     <TasksSurface
       search={search}
-      selectedTaskId={selectedTaskId}
-      onCloseTask={selectedTaskId ? closeTask : undefined}
+      selectedDetail={selectedDetail}
+      onCloseDetail={selectedDetail ? closeTask : undefined}
     />
   );
 }

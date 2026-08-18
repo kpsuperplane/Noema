@@ -202,6 +202,9 @@ The recurrence stores its current template, schedule, policies, lifecycle, revis
 Each occurrence remains an ordinary Task with its own files, runs, gates, and transcript.
 Template edits do not rewrite existing occurrences.
 
+Clients open a recurrence as its own schedule and occurrence-history view.
+Clients open each occurrence as an ordinary Task and provide a link to its recurrence.
+
 Occurrence rows resolve each local recurrence minute once.
 Spring-forward gaps do not execute.
 A repeated fall-back minute executes at most once.

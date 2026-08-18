@@ -18,6 +18,7 @@ import {
 } from "./ArtifactDetailPanel";
 import type { ChatDetailTarget } from "./chatDetailTypes";
 import { TaskDetailQueryPanel } from "./task/TaskDetailQueryPanel";
+import { TaskRecurrenceDetailPanel } from "../tasks/TaskRecurrenceDetailPanel";
 import { ChatDetailCloseButton } from "./ChatDetailCloseButton";
 
 export function ChatDetailRail({
@@ -65,8 +66,11 @@ function RoutedChatDetailRail({
   const artifactCloseButtonRef = React.useRef<HTMLButtonElement>(null);
   const hasEnteredRef = React.useRef(!animateEntrance);
   const returnFocusRef = React.useRef<HTMLElement | null>(null);
-  const taskTargetId = initialTarget.type === "task" ? initialTarget.taskId : null;
+  const primaryTarget = initialTarget.type === "artifact" ? null : initialTarget;
+  const taskTargetId = primaryTarget?.type === "task" ? primaryTarget.taskId : null;
+  const recurrenceTargetId = primaryTarget?.type === "recurrence" ? primaryTarget.recurrenceId : null;
   const [taskTitleState, setTaskTitleState] = React.useState<{ taskId: string; title: string } | null>(null);
+  const [recurrenceTitle, setRecurrenceTitle] = React.useState("Recurring task");
   const [artifactDetailState, setArtifactDetailState] = React.useState<{
     version: string;
     detail: ArtifactDetail | null;
@@ -80,7 +84,7 @@ function RoutedChatDetailRail({
   const title = artifactDetail?.title ??
     latestArtifactDetail?.title ??
     (target.type === "artifact" ? "Artifact" : "Task details");
-  const taskTitle = taskTargetId && taskTitleState?.taskId === taskTargetId
+  const primaryTitle = recurrenceTargetId ? recurrenceTitle : taskTargetId && taskTitleState?.taskId === taskTargetId
     ? taskTitleState.title
     : "Task details";
   const handleTaskTitleChange = React.useCallback((nextTitle: string) => {
@@ -108,9 +112,9 @@ function RoutedChatDetailRail({
 
   React.useEffect(() => {
     if ((isModal || isContained) && isPresent && (reduceMotion || hasEnteredRef.current)) {
-      const closeButton = target.type === "task"
-        ? taskCloseButtonRef.current
-        : artifactCloseButtonRef.current;
+      const closeButton = target.type === "artifact"
+        ? artifactCloseButtonRef.current
+        : taskCloseButtonRef.current;
       closeButton?.focus({ preventScroll: true });
     }
   }, [isContained, isModal, isPresent, reduceMotion, target]);
@@ -173,7 +177,7 @@ function RoutedChatDetailRail({
       data-state={isPresent ? "open" : "exiting"}
       aria-modal={isModal ? "true" : undefined}
       aria-hidden={isPresent ? undefined : "true"}
-      aria-label={target.type === "task" ? "Task details" : "Artifact details"}
+      aria-label={target.type === "task" ? "Task details" : target.type === "recurrence" ? "Recurring task details" : "Artifact details"}
       ref={railRef}
       role={isModal ? "dialog" : isContained ? "region" : "complementary"}
       inert={!isPresent}
@@ -189,29 +193,29 @@ function RoutedChatDetailRail({
         if (definition === "visible") {
           hasEnteredRef.current = true;
           if (isModal && isPresent) {
-            const closeButton = target.type === "task"
-              ? taskCloseButtonRef.current
-              : artifactCloseButtonRef.current;
+            const closeButton = target.type === "artifact"
+              ? artifactCloseButtonRef.current
+              : taskCloseButtonRef.current;
             closeButton?.focus({ preventScroll: true });
           }
         }
       }}
     >
       <div data-slot="chat-detail-rail-surface" {...stylex.props(styles.surface)}>
-        {taskTargetId ? (
+        {primaryTarget ? (
           <m.div
             data-slot="chat-detail-task-route"
-            aria-hidden={target.type !== "task" ? "true" : undefined}
-            inert={target.type !== "task"}
+            aria-hidden={target.type === "artifact" ? "true" : undefined}
+            inert={target.type === "artifact"}
             variants={taskRouteVariants}
             initial={false}
-            animate={target.type === "task" ? "visible" : "nested"}
+            animate={target.type === "artifact" ? "nested" : "visible"}
             transition={reduceMotion ? { duration: 0 } : springs.surface}
             {...stylex.props(styles.routeFrame)}
           >
             <header {...stylex.props(styles.header, styles.taskHeader)}>
               <div {...stylex.props(styles.taskTitleBar)}>
-                <h2 {...stylex.props(styles.title)}>{taskTitle}</h2>
+                <h2 {...stylex.props(styles.title)}>{primaryTitle}</h2>
                 <div {...stylex.props(styles.taskHeaderActions)}>
                   <ChatDetailCloseButton
                     closeButtonRef={taskCloseButtonRef}
@@ -221,12 +225,12 @@ function RoutedChatDetailRail({
               </div>
             </header>
             <div {...stylex.props(styles.body, styles.taskBody)}>
-              <TaskDetailQueryPanel
+              {taskTargetId ? <TaskDetailQueryPanel
                 onOpenDetail={openDetail}
                 onTaskTitleChange={handleTaskTitleChange}
                 showTasksLink={showTasksLink}
                 taskId={taskTargetId}
-              />
+              /> : recurrenceTargetId ? <TaskRecurrenceDetailPanel recurrenceId={recurrenceTargetId} onTitleChange={setRecurrenceTitle} /> : null}
             </div>
           </m.div>
         ) : null}
@@ -326,7 +330,9 @@ function ArtifactRouteFrame({
 }
 
 function detailTargetKey(target: ChatDetailTarget): string {
-  return target.type === "task" ? `task:${target.taskId}` : `artifact:${target.version}`;
+  if (target.type === "task") return `task:${target.taskId}`;
+  if (target.type === "recurrence") return `recurrence:${target.recurrenceId}`;
+  return `artifact:${target.version}`;
 }
 
 const chatDetailRailVariants: Variants = {

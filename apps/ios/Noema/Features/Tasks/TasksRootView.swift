@@ -2,6 +2,11 @@ import Foundation
 import NoemaAPI
 import SwiftUI
 
+enum TasksSelection: Hashable {
+  case task(String)
+  case recurrence(String)
+}
+
 struct TasksRootView: View {
   let appModel: NoemaAppModel
   @State private var tasksModel: TasksModel?
@@ -41,7 +46,7 @@ struct TasksRootView: View {
 private struct TasksSurface: View {
   @Bindable var model: TasksModel
   @Environment(NoemaShellCoordinator.self) private var shellCoordinator
-  @State private var selectedTaskId: String?
+  @State private var selection: TasksSelection?
   @State private var capturePresented = false
   @State private var projectEditor: TasksProjectSnapshot?
   @State private var createProjectPresented = false
@@ -69,7 +74,7 @@ private struct TasksSurface: View {
     .onChange(of: shellCoordinator.requestedTaskID) { _, _ in openRequestedTask() }
     .onChange(of: model.projects) { _, _ in registerSecondaryNavigation() }
     .onChange(of: model.selectedProjectId) { _, _ in
-      selectedTaskId = nil
+      selection = nil
       registerSecondaryNavigation()
     }
     .onChange(of: model.workspace?.id) { _, _ in registerSecondaryNavigation() }
@@ -78,29 +83,27 @@ private struct TasksSurface: View {
   private var compactSurface: some View {
     TasksListDeck(
       model: model,
-      selectedTaskId: $selectedTaskId,
+      selection: $selection,
       capturePresented: $capturePresented,
       createProjectPresented: $createProjectPresented,
       projectEditor: $projectEditor
     )
     .noemaSheet(isPresented: taskDetailPresented) {
-      if let selectedTaskId {
-        TasksDetailRoute(model: model, taskId: selectedTaskId, compactPresentation: true)
-          .noemaMobileDrawerPresentation()
-      }
+      selectedRoute(compactPresentation: true)
+        .noemaMobileDrawerPresentation()
     }
   }
 
   private var taskDetailPresented: Binding<Bool> {
     Binding(
-      get: { selectedTaskId != nil },
-      set: { if !$0 { selectedTaskId = nil } }
+      get: { selection != nil },
+      set: { if !$0 { selection = nil } }
     )
   }
 
   private func openRequestedTask() {
     guard let taskID = shellCoordinator.requestedTaskID else { return }
-    selectedTaskId = taskID
+    selection = .task(taskID)
     shellCoordinator.requestedTaskID = nil
   }
 
@@ -108,7 +111,7 @@ private struct TasksSurface: View {
     HStack(spacing: 0) {
       TasksListDeck(
         model: model,
-        selectedTaskId: $selectedTaskId,
+        selection: $selection,
         capturePresented: $capturePresented,
         createProjectPresented: $createProjectPresented,
         projectEditor: $projectEditor,
@@ -121,9 +124,9 @@ private struct TasksSurface: View {
         .frame(width: 1)
 
       Group {
-        if let selectedTaskId {
+        if selection != nil {
           NavigationStack {
-            TasksDetailRoute(model: model, taskId: selectedTaskId)
+            selectedRoute(compactPresentation: false)
           }
         } else {
           NoemaDeckState(title: "Select a task", message: "Needs You and recent tasks stay visible in the task list.", symbol: "checklist")
@@ -132,6 +135,28 @@ private struct TasksSurface: View {
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .background(NoemaColor.surface)
+  }
+
+  @ViewBuilder
+  private func selectedRoute(compactPresentation: Bool) -> some View {
+    switch selection {
+    case let .task(taskID):
+      TasksDetailRoute(
+        model: model,
+        taskId: taskID,
+        compactPresentation: compactPresentation,
+        onOpenRecurrence: { selection = .recurrence($0) }
+      )
+    case let .recurrence(recurrenceID):
+      TasksRecurrenceDetailRoute(
+        model: model,
+        recurrenceId: recurrenceID,
+        compactPresentation: compactPresentation,
+        onOpenTask: { selection = .task($0) }
+      )
+    case nil:
+      EmptyView()
+    }
   }
 
   private func registerSecondaryNavigation() {
@@ -213,7 +238,7 @@ private struct TasksSurface: View {
 
 struct TasksListDeck: View {
   @Bindable var model: TasksModel
-  @Binding var selectedTaskId: String?
+  @Binding var selection: TasksSelection?
   @Binding var capturePresented: Bool
   @Binding var createProjectPresented: Bool
   @Binding var projectEditor: TasksProjectSnapshot?
@@ -315,7 +340,7 @@ struct TasksListDeck: View {
                       wide: wide,
                       isSelected: selectedTaskId == item.task.id
                     ) {
-                      selectedTaskId = item.task.id
+                      selection = .task(item.task.id)
                     }
                   }
                 }
@@ -413,6 +438,11 @@ struct TasksListDeck: View {
     return model.pendingInterventions.filter { $0.taskID != selectedTaskId }
   }
 
+  private var selectedTaskId: String? {
+    if case let .task(taskID) = selection { return taskID }
+    return nil
+  }
+
   @ViewBuilder
   private func taskGroup(_ title: String, tasks: [TasksTaskRow]) -> some View {
     if !tasks.isEmpty {
@@ -441,13 +471,15 @@ struct TasksListDeck: View {
             )
           }
           ForEach(recurringTasks) { task in
-            TasksRecurrenceCard(
-              model: model,
-              task: task,
-              needsAttention: needsYouTaskIds.contains(task.id),
-              selected: wide && selectedTaskId == task.id,
-              select: { selectedTaskId = task.id }
-            )
+            if let recurrenceID = task.schedule?.recurrenceId {
+              TasksRecurrenceCard(
+                model: model,
+                task: task,
+                needsAttention: needsYouTaskIds.contains(task.id),
+                selected: wide && selection == .recurrence(recurrenceID),
+                select: { selection = .recurrence(recurrenceID) }
+              )
+            }
           }
         }
       }
@@ -462,14 +494,14 @@ struct TasksListDeck: View {
   ) -> some View {
     if wide {
       Button {
-        selectedTaskId = task.id
+        selection = .task(task.id)
       } label: {
         TasksTaskCard(task: task, statusOverride: statusOverride, timestamp: timestamp, selected: selectedTaskId == task.id)
       }
       .buttonStyle(.plain)
     } else {
       Button {
-        selectedTaskId = task.id
+        selection = .task(task.id)
       } label: {
         TasksTaskCard(task: task, statusOverride: statusOverride, timestamp: timestamp)
       }

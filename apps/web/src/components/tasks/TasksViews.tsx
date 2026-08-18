@@ -281,10 +281,11 @@ function RecurrenceTaskCard({ task }: { task: TasksTask }) {
   return (
     <TaskCard
       taskId={task.taskId}
+      recurrenceId={recurrenceId}
       title={recurrence?.title ?? task.title}
       note={`${repeat} · Next ${timestampLabel(nextRun)}`}
       project={task.project?.name}
-      status={taskStatusFromProjection(task)}
+      status="queued"
       statusLabel={recurrence?.lifecycle === "PAUSED" ? "Paused" : task.attention ? "Needs you" : "Recurring"}
       timestamp={nextRun}
     />
@@ -300,8 +301,9 @@ function SectionHeader({ id, title, count, attention = false }: { id: string; ti
   );
 }
 
-function TaskCard({ taskId, title, note, project, status, statusLabel, timestamp, listItem = true, attached = false }: {
+function TaskCard({ taskId, recurrenceId, title, note, project, status, statusLabel, timestamp, listItem = true, attached = false }: {
   taskId: string;
+  recurrenceId?: string;
   title: string;
   note?: string | null;
   project?: string | null;
@@ -313,8 +315,8 @@ function TaskCard({ taskId, title, note, project, status, statusLabel, timestamp
 }) {
   const link = (
     <ListCardLink
-      to="/tasks/$taskId"
-      params={{ taskId }}
+      to={recurrenceId ? "/tasks/recurrences/$recurrenceId" : "/tasks/$taskId"}
+      params={recurrenceId ? { recurrenceId } : { taskId }}
       search={(current) => normalizeTasksSearch(current)}
       activeOptions={{ exact: true, includeSearch: false }}
       activeProps={{ selected: true, "aria-current": "page" }}

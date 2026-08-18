@@ -6,6 +6,7 @@ import { MasterDetailLayout } from "@/components/shell/MasterDetailLayout";
 import { ShellPageLayout, ShellPageTrack } from "@/components/shell/ShellPageLayout";
 import { TasksEventsDocument } from "@/generated/graphql";
 import { ChatDetailRail } from "../chatDetail/ChatDetailRail";
+import type { ChatDetailTarget } from "../chatDetail/chatDetailTypes";
 import type { TasksSearch } from "./tasksTypes";
 import { CaptureTaskDialog } from "./CaptureTaskDialog";
 import { TasksToolbar } from "./TasksToolbar";
@@ -15,11 +16,12 @@ import { PERSONAL_WORKSPACE_ID } from "./tasksTypes";
 import { useTaskProjects } from "./useTaskProjects";
 import { useTasksEventInvalidation } from "./useTasksEventInvalidation";
 
-export function TasksSurface({ search, selectedTaskId, onCloseTask }: {
+export function TasksSurface({ search, selectedDetail, onCloseDetail }: {
   search: TasksSearch;
-  selectedTaskId?: string;
-  onCloseTask?: () => void;
+  selectedDetail?: Extract<ChatDetailTarget, { type: "task" | "recurrence" }>;
+  onCloseDetail?: () => void;
 }) {
+  const selectedTaskId = selectedDetail?.type === "task" ? selectedDetail.taskId : undefined;
   const client = useApolloClient();
   const projectsResult = useTaskProjects();
   const projects = projectsResult.projects;
@@ -59,10 +61,10 @@ export function TasksSurface({ search, selectedTaskId, onCloseTask }: {
     <ShellPageLayout width="fluid">
       <section aria-labelledby="tasks-page-title" {...stylex.props(styles.surface)}>
         <MasterDetailLayout
-          detailOpen={Boolean(selectedTaskId)}
+          detailOpen={Boolean(selectedDetail)}
           detailLabel="Task and artifact details"
           onDetailOpenChange={(open) => {
-            if (!open) onCloseTask?.();
+            if (!open) onCloseDetail?.();
           }}
           list={
             <VStack {...stylex.props(styles.listScroller)}>
@@ -87,11 +89,11 @@ export function TasksSurface({ search, selectedTaskId, onCloseTask }: {
               </section>
             </VStack>
           }
-          detail={selectedTaskId ? (
+          detail={selectedDetail ? (
             <ChatDetailRail
               animateEntrance={false}
-              target={{ type: "task", taskId: selectedTaskId }}
-              onClose={() => onCloseTask?.()}
+              target={selectedDetail}
+              onClose={() => onCloseDetail?.()}
               showTasksLink={false}
             />
           ) : null}

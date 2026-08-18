@@ -5,6 +5,7 @@ struct TasksDetailRoute: View {
   @Bindable var model: TasksModel
   let taskId: String
   var compactPresentation = false
+  var onOpenRecurrence: ((String) -> Void)?
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
@@ -29,7 +30,7 @@ struct TasksDetailRoute: View {
   private var routeContent: some View {
     VStack(spacing: 0) {
       if let detail = model.detail, detail.id == taskId {
-        TasksDetailContent(model: model, detail: detail, compactPresentation: compactPresentation)
+        TasksDetailContent(model: model, detail: detail, compactPresentation: compactPresentation, onOpenRecurrence: onOpenRecurrence)
       } else if model.isLoadingDetail {
         ProgressView("Loading task…")
           .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -59,6 +60,7 @@ private struct TasksDetailContent: View {
   @Bindable var model: TasksModel
   let detail: TasksDetailSnapshot
   let compactPresentation: Bool
+  let onOpenRecurrence: ((String) -> Void)?
   @State private var editPresented = false
   @State private var reopenPresented = false
   @State private var queuePresented = false
@@ -72,17 +74,23 @@ private struct TasksDetailContent: View {
   @State private var completedInitialHydration = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-  init(model: TasksModel, detail: TasksDetailSnapshot, compactPresentation: Bool) {
+  init(
+    model: TasksModel,
+    detail: TasksDetailSnapshot,
+    compactPresentation: Bool,
+    onOpenRecurrence: ((String) -> Void)?
+  ) {
     self.model = model
     self.detail = detail
     self.compactPresentation = compactPresentation
+    self.onOpenRecurrence = onOpenRecurrence
     _selectedTab = State(initialValue: detail.resultDocument?.nilIfBlank == nil ? .task : .result)
   }
 
   var body: some View {
     VStack(spacing: 0) {
       if detail.schedule != nil {
-        TasksRecurrenceSummaryView(model: model, task: detail)
+        TasksRecurrenceSummaryView(model: model, task: detail, onOpenRecurrence: onOpenRecurrence)
       }
       TasksDetailTabBar(selection: $selectedTab, tabs: availableTabs)
       TasksDetailPager(selection: $selectedTab, tabs: availableTabs) {
