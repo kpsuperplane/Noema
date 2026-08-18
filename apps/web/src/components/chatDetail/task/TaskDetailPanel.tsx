@@ -179,9 +179,11 @@ function TaskSummaryHeader({
       ) : null}
       <div {...stylex.props(styles.summaryCopy)}>
         <strong {...stylex.props(styles.summaryTitle)}>
-          {run ? `${run.instanceName} · ${capitalize(run.role)}` : "No agent run yet"}
+          {run ? run.instanceName : "No agent run yet"}
         </strong>
-        <TaskSummaryEntry entry={latestEntry} run={run} />
+        {run ? (
+          <span {...stylex.props(styles.summaryOutput)}>{capitalize(run.role)}</span>
+        ) : null}
       </div>
       <span {...stylex.props(styles.summaryActions)}>
         {controls ? <span {...stylex.props(styles.summaryControlsHost)}>{controls}</span> : null}
@@ -198,6 +200,7 @@ function TaskSummaryHeader({
         ) : null}
         <TaskInfoTrigger detail={detail} />
       </span>
+      <TaskSummaryEntry entry={latestEntry} run={run} />
     </header>
   );
 }
@@ -389,7 +392,11 @@ function TaskSummaryEntry({
       </div>
     );
   }
-  return <span {...stylex.props(styles.summaryOutput)}>{latestRunOutput(run)}</span>;
+  return (
+    <div {...stylex.props(styles.summaryEntry)}>
+      <span {...stylex.props(styles.summaryOutput)}>{latestRunOutput(run)}</span>
+    </div>
+  );
 }
 
 function latestRunOutput(run: TaskRun | null): string {
@@ -469,14 +476,14 @@ const styles = stylex.create({
     boxShadow: "0 10px 28px color-mix(in srgb, var(--noema-text-primary) 13%, transparent)"
   },
   contextBody: { minWidth: 0, minHeight: 0 },
-  summaryHeader: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
+  summaryHeader: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", columnGap: "var(--spacing-2)", rowGap: "var(--spacing-1)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
   summaryHeaderWithoutAvatar: { gridTemplateColumns: "minmax(0, 1fr) auto" },
   summaryAvatar: { position: "relative", width: 28, height: 28 },
   summaryAvatarLayer: { position: "absolute", inset: 0, display: "flex" },
   summaryCopy: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
   summaryTitle: { minWidth: 0, color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, lineHeight: 1.35, overflow: "hidden", overflowWrap: "anywhere", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   summaryOutput: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  summaryEntry: { display: "block", minWidth: 0, overflow: "hidden" },
+  summaryEntry: { display: "block", gridColumn: "1 / -1", minWidth: 0, overflow: "hidden" },
   summaryActions: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)" },
   summaryControlsHost: { display: "inline-flex", alignItems: "center" },
   summaryAction: { width: 28, height: 28 },
