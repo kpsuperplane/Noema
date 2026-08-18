@@ -13,7 +13,7 @@ use crate::agent_execution::ExecutionRole;
 use crate::daemon::prompts::CITATION_OUTPUT_INSTRUCTIONS;
 
 const CONTEXT_TEXT_LIMIT: usize = 64 * 1024;
-const EXECUTOR_DELIVERY_POLICY: &str = "Noema uses the current RESULT.md as the submitted Task result. Add another delivery destination only when the Task request requires it. If TASK.md lacks enough progress state, list Task files and read relevant support files before repeating work. Before task.continue_execution, save completed progress and the exact next action in TASK.md. A new run automatically receives TASK.md, not support-file contents. Reference every needed support file and its next unread item in TASK.md.";
+const EXECUTOR_DELIVERY_POLICY: &str = "Noema uses the current RESULT.md as the submitted Task result. Add another delivery destination only when the Task request requires it. If TASK.md lacks enough progress state, list Task files and read relevant support files before repeating work. Never guess values that TASK.md omits. Read the referenced support file before acting on those values. Before task.continue_execution, save completed progress and the exact next action in TASK.md. A new run automatically receives TASK.md, not support-file contents. Reference every needed support file and its next unread item in TASK.md.";
 const PLANNER_DELIVERY_POLICY: &str = "Noema uses the current TASK.md throughout execution. Add another delivery destination only when the authenticated source request requires it.";
 const TASK_PERSISTENCE_POLICY: &str = "Continue while a safe, authorized, in-scope action can materially improve the required output. Use task.continue_execution when another run can make progress. Open a human gate when a specific answer, approval, credential, source, or scope choice can enable progress. Finish with a limitation report when the requested outcome is impossible for Noema and no human response, retry, continuation, or authorized alternate can produce it. Physical actions that require embodiment are obvious limitations and need no attempted tool call. One failed tool call, transient failure, or per-run ceiling is not a system limitation.";
 
@@ -363,7 +363,7 @@ mod tests {
         assert!(handling.contains("schedule is already configured in America/Los_Angeles"));
         assert!(EXECUTOR_DELIVERY_POLICY.contains("current RESULT.md"));
         assert!(EXECUTOR_DELIVERY_POLICY.contains("Task request requires"));
-        assert!(EXECUTOR_DELIVERY_POLICY.contains("before repeating work"));
+        assert!(EXECUTOR_DELIVERY_POLICY.contains("Never guess values that TASK.md omits"));
         assert!(EXECUTOR_DELIVERY_POLICY.contains("exact next action in TASK.md"));
         assert!(EXECUTOR_DELIVERY_POLICY.contains("not support-file contents"));
         assert!(PLANNER_DELIVERY_POLICY.contains("authenticated source request requires"));

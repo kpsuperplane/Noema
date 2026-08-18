@@ -167,6 +167,7 @@ The Executor reads current `TASK.md`, optional `RESULT.md`, and optional `REVIEW
 The Reviewer reads current `TASK.md`, required `RESULT.md`, and optional `REVIEW.md`.
 Role prompts must not prescribe batches, checklists, or document sections.
 Before a continuation, the Executor records completed progress, the exact next action, and needed support-file references in `TASK.md`.
+If `TASK.md` omits a needed value, the Executor reads its referenced support file and does not guess the value.
 The runtime rejects continuation when another tool action occurs after the latest successful `TASK.md` write.
 An audit checkpoint keeps normal file tools available until the Executor saves that state.
 Repeated arguments or failures also request a checkpoint before terminal-only finalization.
