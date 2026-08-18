@@ -70,6 +70,7 @@ private struct TasksDetailContent: View {
   @State private var followsTranscriptBottom = true
   @State private var initialScrollTaskID: String?
   @State private var completedInitialHydration = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   init(model: TasksModel, detail: TasksDetailSnapshot, compactPresentation: Bool) {
     self.model = model
@@ -127,40 +128,24 @@ private struct TasksDetailContent: View {
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
       VStack(spacing: 0) {
-        if !taskInterventions.isEmpty {
-          TasksHumanInterventionsView(model: model, interventions: taskInterventions)
-            .padding(.horizontal, NoemaSpacing.lg)
-            .padding(.bottom, NoemaSpacing.md)
-        }
-        if let gate = detail.activeGate {
-          TasksGatePanel(
-            gate: gate,
-            response: $gateResponse,
-            isConnected: model.isConnected,
-            isSubmitting: model.commandIsPending(taskID: detail.id),
-            errorMessage: model.commandError(taskID: detail.id),
-            canAnswer: hasAction("ANSWER"),
-            canRetry: hasAction("RETRY"),
-            answer: { answer, approval in
-              await model.answer(task: detail, answer: answer, approval: approval)
-            },
-            retry: { note in
-              await model.retry(task: detail, note: note)
-            }
-          )
-          .padding(.horizontal, NoemaSpacing.lg)
+        if hasSecondarySurface {
+          secondarySurface
+            .id(secondarySurfaceKey)
+            .transition(secondarySurfaceTransition)
+            .zIndex(1)
         }
         TasksTaskContextDock(
           run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
-          activity: latestRunActivity,
           canCancel: hasAction("CANCEL") && model.isConnected,
           cancel: { cancelPresented = true },
           showInfo: { taskInfoPresented = true }
         )
-        .padding(.horizontal, NoemaSpacing.lg)
-        .offset(y: detail.activeGate == nil ? 0 : -NoemaSpacing.xxl)
-        .padding(.bottom, detail.activeGate == nil ? 0 : -NoemaSpacing.xxl)
+        .offset(y: hasSecondarySurface ? -NoemaSpacing.xxl : 0)
+        .padding(.bottom, hasSecondarySurface ? -NoemaSpacing.xxl : 0)
+        .zIndex(2)
       }
+      .padding(.horizontal, NoemaSpacing.lg)
+      .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: secondarySurfaceKey)
     }
     .onChange(of: detail.activeGate?.id) { _, _ in
       gateResponse = ""
@@ -291,6 +276,63 @@ private struct TasksDetailContent: View {
 
   private var taskInterventions: [HumanIntervention] {
     model.pendingInterventions.filter { $0.taskID == detail.id }
+  }
+
+  private var shouldShowStatus: Bool {
+    selectedTab != .transcript
+      && detail.stage.behavior != .terminalSuccess
+  }
+
+  private var hasSecondarySurface: Bool {
+    !taskInterventions.isEmpty || detail.activeGate != nil || shouldShowStatus
+  }
+
+  private var secondarySurfaceKey: String {
+    let interventionIDs = taskInterventions.map(\.id).joined(separator: ":")
+    return "\(interventionIDs):\(detail.activeGate?.id ?? "none"):\(shouldShowStatus ? "status" : "none")"
+  }
+
+  @ViewBuilder
+  private var secondarySurface: some View {
+    VStack(spacing: NoemaSpacing.sm) {
+      if !taskInterventions.isEmpty {
+        TasksHumanInterventionsView(
+          model: model,
+          interventions: taskInterventions,
+          attachedToDock: detail.activeGate == nil
+        )
+      }
+      if let gate = detail.activeGate {
+        TasksGatePanel(
+          gate: gate,
+          response: $gateResponse,
+          isConnected: model.isConnected,
+          isSubmitting: model.commandIsPending(taskID: detail.id),
+          errorMessage: model.commandError(taskID: detail.id),
+          canAnswer: hasAction("ANSWER"),
+          canRetry: hasAction("RETRY"),
+          answer: { answer, approval in
+            await model.answer(task: detail, answer: answer, approval: approval)
+          },
+          retry: { note in
+            await model.retry(task: detail, note: note)
+          }
+        )
+      } else if taskInterventions.isEmpty && shouldShowStatus {
+        TasksTaskStatusSurface(
+          run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
+          activity: latestRunActivity
+        )
+      }
+    }
+  }
+
+  private var secondarySurfaceTransition: AnyTransition {
+    guard !reduceMotion else { return .identity }
+    return .asymmetric(
+      insertion: .move(edge: .bottom).combined(with: .opacity),
+      removal: .move(edge: .top).combined(with: .opacity)
+    )
   }
 }
 

@@ -5,12 +5,32 @@ import SwiftUI
 struct TasksHumanInterventionsView: View {
   @Bindable var model: TasksModel
   let interventions: [HumanIntervention]
+  var attachedToDock = false
   @State private var browserURL: URL?
 
   var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      ForEach(interventions) { intervention in
-        card(for: intervention)
+    Group {
+      if attachedToDock {
+        VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+          ForEach(interventions) { intervention in
+            content(for: intervention)
+            if intervention.id != interventions.last?.id {
+              Divider().overlay(NoemaColor.separatorSubtle)
+            }
+          }
+        }
+        .padding(.horizontal, NoemaSpacing.md)
+        .padding(.top, NoemaSpacing.md)
+        .padding(.bottom, NoemaSpacing.xxl + NoemaSpacing.md)
+        .background(attachedShape.fill(NoemaColor.surface))
+        .overlay { attachedShape.stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+        .shadow(color: NoemaColor.ink900.opacity(0.13), radius: 14, y: -NoemaSpacing.xs)
+      } else {
+        VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+          ForEach(interventions) { intervention in
+            card(for: intervention)
+          }
+        }
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -28,19 +48,34 @@ struct TasksHumanInterventionsView: View {
   private func card(for intervention: HumanIntervention) -> some View {
     NoemaCard(padding: NoemaSpacing.md, cornerRadius: 18) {
       VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-        switch intervention {
-        case let .governed(action): governed(action, intervention: intervention)
-        case let .mcpAuth(auth): mcpAuth(auth)
-        case let .adapterAuth(auth): adapterAuth(auth)
-        case let .setup(setup): setupCard(setup)
-        case let .oauthClientSetup(setup): oauthClientSetup(setup)
-        case let .adapterDefinition(definition): adapterDefinition(definition)
-        case .attention:
-          EmptyView()
-        }
+        content(for: intervention)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }
+  }
+
+  @ViewBuilder
+  private func content(for intervention: HumanIntervention) -> some View {
+    switch intervention {
+    case let .governed(action): governed(action, intervention: intervention)
+    case let .mcpAuth(auth): mcpAuth(auth)
+    case let .adapterAuth(auth): adapterAuth(auth)
+    case let .setup(setup): setupCard(setup)
+    case let .oauthClientSetup(setup): oauthClientSetup(setup)
+    case let .adapterDefinition(definition): adapterDefinition(definition)
+    case .attention:
+      EmptyView()
+    }
+  }
+
+  private var attachedShape: NoemaSuperellipse {
+    NoemaSuperellipse(
+      topLeftRadius: NoemaSpacing.xxl,
+      topRightRadius: NoemaSpacing.xxl,
+      bottomRightRadius: 0,
+      bottomLeftRadius: 0,
+      treatment: .page
+    )
   }
 
   @ViewBuilder
