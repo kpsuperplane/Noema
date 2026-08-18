@@ -2354,6 +2354,16 @@ async fn reviewer_answer_carries_prior_review_into_continuation_context() {
 async fn reopen_requires_direction_and_queues_a_fresh_contract_generation() {
     let (store, service, completed, _, _) =
         run_review_case(TaskComplexity::Medium, TaskReviewVerdict::Approve).await;
+    store
+        .with_connection(|connection| {
+            connection.execute(
+                "UPDATE tasks SET executor_agent_id = 'agent:deleted-acp' WHERE task_id = ?1",
+                [completed.task_id.as_str()],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("simulate a deleted ACP executor");
     let command = |feedback_markdown: &str, key: &str| {
         WorkCommand::ReopenTask(ReopenTask {
             meta: metadata(key),
@@ -2389,6 +2399,10 @@ async fn reopen_requires_direction_and_queues_a_fresh_contract_generation() {
         noema_tasks::PERSONAL_QUEUE_STAGE_ID
     );
     assert_eq!(reopened.generation, completed.generation + 1);
+    assert_eq!(
+        reopened.executor_agent_id,
+        noema_tasks::TASK_EXECUTOR_AGENT_ID
+    );
     assert_ne!(reopened.current_contract_id, completed.current_contract_id);
     assert!(reopened.completed_submission_id.is_none());
     assert!(reopened.completed_at.is_none());

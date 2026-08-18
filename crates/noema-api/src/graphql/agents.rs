@@ -253,6 +253,13 @@ pub struct GraphqlUpdateAcpAgentInput {
 }
 
 #[derive(Clone, Debug, InputObject)]
+#[graphql(name = "DeleteAcpAgentInput")]
+pub struct GraphqlDeleteAcpAgentInput {
+    pub agent_id: String,
+    pub expected_revision: i64,
+}
+
+#[derive(Clone, Debug, InputObject)]
 #[graphql(name = "TestAcpAgentInput")]
 pub struct GraphqlTestAcpAgentInput {
     pub agent_id: String,
@@ -393,6 +400,21 @@ pub(super) async fn update_acp_agent(
         .await
         .map_err(graphql_error)?
         .try_into()
+}
+
+pub(super) async fn delete_acp_agent(
+    state: &GraphqlState,
+    principal: &str,
+    input: GraphqlDeleteAcpAgentInput,
+) -> Result<bool> {
+    require_local_owner(principal)?;
+    let revision = u64::try_from(input.expected_revision)
+        .map_err(|_| graphql_error("expectedRevision must be positive"))?;
+    state
+        .store()?
+        .delete_acp_agent(&input.agent_id, revision)
+        .await
+        .map_err(graphql_error)
 }
 
 pub(super) async fn test_acp_agent(

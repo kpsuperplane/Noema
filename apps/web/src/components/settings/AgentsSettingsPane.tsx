@@ -14,6 +14,7 @@ import {
   AgentsDocument,
   AuthenticateAcpAgentDocument,
   CreateAcpAgentDocument,
+  DeleteAcpAgentDocument,
   SaveAgentModelPreferenceDocument,
   TaskModelPoolsDocument,
   TestAcpAgentDocument,
@@ -36,6 +37,7 @@ import type {
   ModelProviderOption
 } from "./modelPreferenceTypes";
 import { agentDisplayName, selectedModelWarning } from "./agentMetadata";
+import { DeleteConfirmationDialog } from "./DeleteConnectionDialog";
 import { SettingsEditDialog } from "./SettingsEditDialog";
 import {
   SettingsList,
@@ -74,6 +76,10 @@ export function AgentsSettingsPane() {
   const [updateAcpAgent, updateAcpState] = useMutation(UpdateAcpAgentDocument, mutationOptions);
   const [testAcpAgent, testAcpState] = useMutation(TestAcpAgentDocument, mutationOptions);
   const [authenticateAcpAgent, authenticateAcpState] = useMutation(AuthenticateAcpAgentDocument, mutationOptions);
+  const [deleteAcpAgent, deleteAcpState] = useMutation(DeleteAcpAgentDocument, {
+    refetchQueries: [{ query: AcpAgentsDocument }, { query: AgentsDocument }],
+    awaitRefetchQueries: true
+  });
   const agents = agentsResult.data?.agents ?? [];
   const loading = agentsResult.loading && !agentsResult.data;
   const error = agentsResult.error?.message ?? null;
@@ -91,12 +97,25 @@ export function AgentsSettingsPane() {
   const acpAgents = acpAgentsResult.data?.acpAgents ?? [];
   const acpLoading = acpAgentsResult.loading && !acpAgentsResult.data;
   const acpError = acpAgentsResult.error?.message ?? createAcpState.error?.message ?? updateAcpState.error?.message ?? testAcpState.error?.message ?? authenticateAcpState.error?.message ?? null;
-  const acpBusy = createAcpState.loading || updateAcpState.loading || testAcpState.loading || authenticateAcpState.loading;
+  const acpBusy = createAcpState.loading || updateAcpState.loading || testAcpState.loading || authenticateAcpState.loading || deleteAcpState.loading;
   const onCreateAcpAgent = (input: { displayName: string; command: string; arguments: string[] }) => createAcpAgent({ variables: { input } });
   const onUpdateAcpAgent = (input: { agentId: string; expectedRevision: number; displayName: string; command: string; arguments: string[]; enabled: boolean }) => updateAcpAgent({ variables: { input } });
   const onTestAcpAgent = (input: { agentId: string; expectedRevision: number }) => testAcpAgent({ variables: { input } });
   const onAuthenticateAcpAgent = (input: { agentId: string; expectedRevision: number; methodId: string }) => authenticateAcpAgent({ variables: { input } });
   const [editingAcpAgent, setEditingAcpAgent] = React.useState<AcpAgent | "new" | null>(null);
+  const [deletingAcpAgent, setDeletingAcpAgent] = React.useState<AcpAgent | null>(null);
+  const onDeleteAcpAgent = async () => {
+    if (!deletingAcpAgent) return;
+    try {
+      await deleteAcpAgent({ variables: { input: {
+        agentId: deletingAcpAgent.agentId,
+        expectedRevision: deletingAcpAgent.connectionRevision
+      } } });
+      setDeletingAcpAgent(null);
+    } catch {
+      // Keep the dialog open so the local error can be retried.
+    }
+  };
   if (loading) {
     return <p {...stylex.props(styles.mutedText)}>Loading agents...</p>;
   }
@@ -152,7 +171,12 @@ export function AgentsSettingsPane() {
                           onClick: () => void onAuthenticateAcpAgent({ agentId: agent.agentId, expectedRevision: agent.connectionRevision, methodId: method.id })
                         })),
                         { label: "Test", onClick: () => void onTestAcpAgent({ agentId: agent.agentId, expectedRevision: agent.connectionRevision }) },
-                        { label: "Edit", onClick: () => setEditingAcpAgent(agent) }
+                        { label: "Edit", onClick: () => setEditingAcpAgent(agent) },
+                        { type: "divider" },
+                        { label: "Delete", onClick: () => {
+                          deleteAcpState.reset();
+                          setDeletingAcpAgent(agent);
+                        } }
                       ]}
                     />
                   }
@@ -180,6 +204,18 @@ export function AgentsSettingsPane() {
         onClose={() => setEditingAcpAgent(null)}
         onCreate={onCreateAcpAgent}
         onUpdate={onUpdateAcpAgent}
+      />
+      <DeleteConfirmationDialog
+        title={deletingAcpAgent ? `Delete ${deletingAcpAgent.displayName}?` : "Delete ACP executor?"}
+        message="This removes its Noema launch setup and authentication history. Reassign or cancel current tasks, and end recurring schedules, first. Reopened tasks use the built-in executor. Credentials stored by the external executable remain. You cannot undo this."
+        open={deletingAcpAgent !== null}
+        submitting={deleteAcpState.loading}
+        error={deleteAcpState.error?.message ?? null}
+        confirmLabel="Delete executor"
+        onOpenChange={(open) => {
+          if (!open && !deleteAcpState.loading) setDeletingAcpAgent(null);
+        }}
+        onConfirm={() => void onDeleteAcpAgent()}
       />
     </VStack>
   );

@@ -690,6 +690,16 @@ impl MutationRoot {
         agents::update_acp_agent(ctx.data_unchecked::<GraphqlState>(), principal, input).await
     }
 
+    /// Hard-delete one configured ACP executor.
+    async fn delete_acp_agent(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlDeleteAcpAgentInput,
+    ) -> Result<bool> {
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        agents::delete_acp_agent(ctx.data_unchecked::<GraphqlState>(), principal, input).await
+    }
+
     /// Initialize one ACP executable and persist its safe implementation metadata.
     async fn test_acp_agent(
         &self,

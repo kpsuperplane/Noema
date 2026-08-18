@@ -123,10 +123,13 @@ mod tests {
                   createAcpAgent(input: {
                     displayName: "Foreign", command: "/bin/false"
                   }) { agentId }
+                  deleteAcpAgent(input: {
+                    agentId: "agent:foreign", expectedRevision: 1
+                  })
                 }"#,
             )
             .await;
-        assert_eq!(mutation_response.errors.len(), 4);
+        assert_eq!(mutation_response.errors.len(), 5);
         assert!(mutation_response.errors.iter().all(|error| {
             error.message.contains("request is unauthenticated")
         }));
@@ -191,6 +194,11 @@ mod tests {
     mod settings {
         use super::*;
         include!("schema_tests/settings.rs");
+    }
+
+    mod acp_agent_delete {
+        use super::*;
+        include!("schema_tests/acp_agent_delete_tests.rs");
     }
 
     mod mcp_boundaries {

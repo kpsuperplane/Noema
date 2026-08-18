@@ -96,6 +96,7 @@ pub(super) async fn execute(
         next_task.latest_run_id = None;
         next_task.latest_submission_id = None;
         next_task.latest_review_id = None;
+        next_task.executor_agent_id = executor_for_reopen(transaction, &task.executor_agent_id)?;
         let (contract_id, _) = super::super::tasks::create_contract_tx(
             transaction,
             service.provider_registry.as_ref(),
@@ -117,8 +118,8 @@ pub(super) async fn execute(
             params![message_id.as_str(), task_id.as_str(), next_generation, contract_id.as_str(), review_id, command.amendment.feedback_markdown, command.meta.actor_id],
         )?;
         transaction.execute(
-            "UPDATE tasks SET generation = ?2, revision = ?3, stage_id = ?4, current_contract_id = ?5, active_gate_id = NULL, latest_run_id = NULL, latest_submission_id = NULL, latest_review_id = NULL, completed_submission_id = NULL, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), completed_at = NULL, cancelled_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?6 AND revision = ?7",
-            params![task_id.as_str(), next_generation, next_revision, PERSONAL_QUEUE_STAGE_ID, contract_id.as_str(), task.generation, task.revision],
+            "UPDATE tasks SET generation = ?2, revision = ?3, stage_id = ?4, current_contract_id = ?5, active_gate_id = NULL, latest_run_id = NULL, latest_submission_id = NULL, latest_review_id = NULL, completed_submission_id = NULL, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), completed_at = NULL, cancelled_at = NULL, executor_agent_id = ?8, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?6 AND revision = ?7",
+            params![task_id.as_str(), next_generation, next_revision, PERSONAL_QUEUE_STAGE_ID, contract_id.as_str(), task.generation, task.revision, next_task.executor_agent_id],
         )?;
         let _message_event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&next_task, None), WorkEventPayload::task_message_appended(message_id, next_generation, TaskMessageKind::HumanChangeRequest, None, Some(contract_id.clone())).map_err(StoreError::Work)?)?;
         let _reopened_event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&next_task, None), WorkEventPayload::task_reopened(next_revision, next_generation, next_task.stage_id.clone()).map_err(StoreError::Work)?)?;
@@ -177,6 +178,7 @@ fn reopen_cancelled_tx(
     next_task.latest_run_id = None;
     next_task.latest_submission_id = None;
     next_task.latest_review_id = None;
+    next_task.executor_agent_id = executor_for_reopen(transaction, &task.executor_agent_id)?;
     let message_id =
         noema_tasks::TaskMessageId::new(allocate_id("task_message")).map_err(StoreError::Work)?;
     transaction.execute(
@@ -184,8 +186,8 @@ fn reopen_cancelled_tx(
         params![message_id.as_str(), task.task_id.as_str(), next_generation, command.amendment.feedback_markdown, command.meta.actor_id],
     )?;
     transaction.execute(
-        "UPDATE tasks SET generation = ?2, revision = ?3, stage_id = ?4, current_contract_id = NULL, active_gate_id = NULL, latest_run_id = NULL, latest_submission_id = NULL, latest_review_id = NULL, completed_submission_id = NULL, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), completed_at = NULL, cancelled_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?5 AND revision = ?6",
-        params![task.task_id.as_str(), next_generation, next_revision, PERSONAL_QUEUE_STAGE_ID, task.generation, task.revision],
+        "UPDATE tasks SET generation = ?2, revision = ?3, stage_id = ?4, current_contract_id = NULL, active_gate_id = NULL, latest_run_id = NULL, latest_submission_id = NULL, latest_review_id = NULL, completed_submission_id = NULL, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), completed_at = NULL, cancelled_at = NULL, executor_agent_id = ?7, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?5 AND revision = ?6",
+        params![task.task_id.as_str(), next_generation, next_revision, PERSONAL_QUEUE_STAGE_ID, task.generation, task.revision, next_task.executor_agent_id],
     )?;
     let event_context = helpers::event_context(&command.meta);
     let _message_event = append_work_event_tx(
@@ -241,4 +243,23 @@ fn reopen_cancelled_tx(
         },
     )?;
     Ok(helpers::task_write(run_event, task.task_id).run(Some(run_id)))
+}
+
+fn executor_for_reopen(
+    transaction: &Transaction<'_>,
+    current_agent_id: &str,
+) -> Result<String, StoreError> {
+    if current_agent_id == noema_tasks::TASK_EXECUTOR_AGENT_ID {
+        return Ok(current_agent_id.to_string());
+    }
+    let configured = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM acp_agents WHERE agent_id = ?1)",
+        [current_agent_id],
+        |row| row.get::<_, bool>(0),
+    )?;
+    Ok(if configured {
+        current_agent_id.to_string()
+    } else {
+        noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string()
+    })
 }

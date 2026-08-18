@@ -251,6 +251,12 @@ export const UpdateAcpAgentDocument = gql`
   ${AcpAgentFields}
 `;
 
+export const DeleteAcpAgentDocument = gql`
+  mutation DeleteAcpAgent($input: DeleteAcpAgentInput!) {
+    deleteAcpAgent(input: $input)
+  }
+`;
+
 export const TestAcpAgentDocument = gql`
   mutation TestAcpAgent($input: TestAcpAgentInput!) {
     testAcpAgent(input: $input) { ...AcpAgentFields }

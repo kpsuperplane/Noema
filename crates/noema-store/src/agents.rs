@@ -263,6 +263,82 @@ impl NoemaStore {
         .await
     }
 
+    /// Hard-delete one unreferenced ACP executor and its mutable setup state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the revision is stale, current work still names
+    /// the executor, or the durable write fails. A missing executor returns
+    /// `Ok(false)`.
+    pub async fn delete_acp_agent(
+        &self,
+        agent_id: &str,
+        expected_revision: u64,
+    ) -> Result<bool, StoreError> {
+        let agent_id = agent_id.to_string();
+        let expected_revision =
+            i64::try_from(expected_revision).map_err(|_| StoreError::AcpAgentRevisionConflict {
+                agent_id: agent_id.clone(),
+            })?;
+        self.with_immediate_transaction_retry(|tx| {
+            let current_revision = tx
+                .query_row(
+                    "SELECT connection_revision FROM acp_agents WHERE agent_id = ?1",
+                    [&agent_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?;
+            let Some(current_revision) = current_revision else {
+                return Ok(false);
+            };
+            if current_revision != expected_revision {
+                return Err(StoreError::AcpAgentRevisionConflict {
+                    agent_id: agent_id.clone(),
+                });
+            }
+            let authentication_pending = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM acp_auth_attempts WHERE agent_id = ?1 AND state = 'pending')",
+                [&agent_id],
+                |row| row.get::<_, bool>(0),
+            )?;
+            if authentication_pending {
+                return Err(StoreError::AcpAgentAuthenticationInProgress {
+                    agent_id: agent_id.clone(),
+                });
+            }
+            if acp_agent_is_referenced(tx, &agent_id)? {
+                return Err(StoreError::AcpAgentInUse {
+                    agent_id: agent_id.clone(),
+                });
+            }
+
+            tx.execute(
+                "DELETE FROM agent_runtime_preferences WHERE agent_id = ?1",
+                [&agent_id],
+            )?;
+            tx.execute(
+                "DELETE FROM acp_auth_attempts WHERE agent_id = ?1",
+                [&agent_id],
+            )?;
+            let deleted_configuration = tx.execute(
+                "DELETE FROM acp_agents WHERE agent_id = ?1 AND connection_revision = ?2",
+                params![agent_id, expected_revision],
+            )?;
+            let deleted_identity = tx.execute(
+                "DELETE FROM agents WHERE agent_id = ?1 AND system_role IS NULL",
+                [&agent_id],
+            )?;
+            if deleted_configuration != 1 || deleted_identity != 1 {
+                return Err(StoreError::InvariantViolation {
+                    message: "guarded ACP executor delete changed an unexpected row count"
+                        .to_string(),
+                });
+            }
+            Ok(true)
+        })
+        .await
+    }
+
     /// Persist the bounded result of an ACP initialization probe.
     ///
     /// # Errors
@@ -527,6 +603,34 @@ fn load_acp_agent_tx(
     )
     .optional()
     .map_err(StoreError::Sqlite)
+}
+
+fn acp_agent_is_referenced(
+    transaction: &rusqlite::Transaction<'_>,
+    agent_id: &str,
+) -> Result<bool, StoreError> {
+    transaction
+        .query_row(
+            r#"
+            SELECT EXISTS (
+              SELECT 1
+              FROM tasks AS task
+              JOIN workflow_stages AS stage
+                ON stage.workflow_id = task.workflow_id
+               AND stage.stage_id = task.stage_id
+              WHERE task.executor_agent_id = ?1
+                AND stage.system_behavior NOT IN ('terminal_success', 'terminal_cancelled')
+              UNION ALL
+              SELECT 1
+              FROM task_recurrences
+              WHERE executor_agent_id = ?1
+                AND lifecycle <> 'ended'
+            )
+            "#,
+            [agent_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(StoreError::Sqlite)
 }
 
 fn acp_agent_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AcpAgentRecord> {

@@ -173,6 +173,26 @@ pub enum StoreError {
         /// Missing agent id.
         agent_id: String,
     },
+    /// A current task or continuing schedule still names the ACP agent.
+    #[error(
+        "Reassign or cancel current tasks, and end recurring schedules, before deleting this executor"
+    )]
+    AcpAgentInUse {
+        /// Referenced ACP agent id.
+        agent_id: String,
+    },
+    /// The ACP agent has an active external authentication attempt.
+    #[error("Wait for ACP authentication to finish before deleting this executor")]
+    AcpAgentAuthenticationInProgress {
+        /// ACP agent with active authentication.
+        agent_id: String,
+    },
+    /// The ACP agent changed after the caller read it.
+    #[error("ACP executor settings changed. Refresh Settings before deleting")]
+    AcpAgentRevisionConflict {
+        /// Stale ACP agent id.
+        agent_id: String,
+    },
     /// Agent display name input was empty after trimming whitespace.
     #[error("agent display name cannot be empty")]
     AgentDisplayNameEmpty,

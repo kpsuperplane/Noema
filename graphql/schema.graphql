@@ -1507,6 +1507,11 @@ type DefaultModelPreference {
 	reasoningEffort: String
 }
 
+input DeleteAcpAgentInput {
+	agentId: String!
+	expectedRevision: Int!
+}
+
 """
 Delete one exact filesystem-canonical adapter connection revision.
 """
@@ -2790,6 +2795,10 @@ type MutationRoot {
 	Replace one ACP launch configuration or disable it.
 	"""
 	updateAcpAgent(input: UpdateAcpAgentInput!): AcpAgent!
+	"""
+	Hard-delete one configured ACP executor.
+	"""
+	deleteAcpAgent(input: DeleteAcpAgentInput!): Boolean!
 	"""
 	Initialize one ACP executable and persist its safe implementation metadata.
 	"""

@@ -30,7 +30,7 @@ use super::{
     },
     agents::{
         self, GraphqlAcpAgent, GraphqlAgent, GraphqlAgentModelPreference,
-        GraphqlAuthenticateAcpAgentInput, GraphqlCreateAcpAgentInput,
+        GraphqlAuthenticateAcpAgentInput, GraphqlCreateAcpAgentInput, GraphqlDeleteAcpAgentInput,
         GraphqlSaveAgentModelPreferenceInput, GraphqlTestAcpAgentInput, GraphqlUpdateAcpAgentInput,
     },
     apns::{
