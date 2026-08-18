@@ -334,6 +334,42 @@ pub(crate) fn task_list_scoped_tool_spec() -> Result<ToolSpec, noema_capabilitie
     )
 }
 
+pub(crate) fn task_file_list_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError>
+{
+    ToolSpec::new(
+        super::TASK_FILE_LIST_TOOL,
+        "List one directory inside the current Task's authorized filesystem boundary.",
+        json!({"type":"object","properties":{"path":{"type":"string","maxLength":4096,"default":"."}},"additionalProperties":false}),
+    )
+}
+
+pub(crate) fn task_file_read_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError>
+{
+    ToolSpec::new(
+        super::TASK_FILE_READ_TOOL,
+        "Read one UTF-8 text file inside the current Task's authorized filesystem boundary.",
+        json!({"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":4096}},"required":["path"],"additionalProperties":false}),
+    )
+}
+
+pub(crate) fn task_file_write_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError>
+{
+    ToolSpec::new(
+        super::TASK_FILE_WRITE_TOOL,
+        "Atomically create or replace one UTF-8 text file inside the current Task directory.",
+        json!({"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":4096},"content":{"type":"string","maxLength":65536}},"required":["path","content"],"additionalProperties":false}),
+    )
+}
+
+pub(crate) fn task_file_delete_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError>
+{
+    ToolSpec::new(
+        super::TASK_FILE_DELETE_TOOL,
+        "Delete one text file inside the current Task directory. TASK.md cannot be deleted.",
+        json!({"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":4096}},"required":["path"],"additionalProperties":false}),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

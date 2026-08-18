@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 48;
+pub const STORE_SCHEMA_VERSION: usize = 49;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1192,8 +1192,34 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(LEGACY_CLIENT_REVOCATION_SQL),
         M::up(WEB_PUSH_SESSION_BINDING_SQL),
         M::up(MODEL_PREFERENCE_FAST_MODE_SQL),
+        M::up(MUTABLE_TASK_FILES_SQL),
     ])
 }
+
+/// Current mutable Task-file location and role-transition metadata.
+const MUTABLE_TASK_FILES_SQL: &str = r#"
+ALTER TABLE tasks
+ADD COLUMN task_directory TEXT CHECK (
+  task_directory IS NULL OR (trim(task_directory) <> '' AND task_directory NOT LIKE '%/%' AND instr(task_directory, '\') = 0)
+);
+ALTER TABLE tasks
+ADD COLUMN execution_complexity TEXT CHECK (
+  execution_complexity IS NULL OR execution_complexity IN ('simple', 'medium', 'difficult')
+);
+ALTER TABLE tasks
+ADD COLUMN current_review_decision TEXT CHECK (
+  current_review_decision IS NULL OR current_review_decision IN ('approve', 'request_changes', 'needs_human')
+);
+UPDATE tasks
+SET task_directory = replace(substr(task_id, 6), ':', '-')
+WHERE task_directory IS NULL;
+CREATE UNIQUE INDEX tasks_project_directory
+ON tasks(project_id, task_directory)
+WHERE project_id IS NOT NULL;
+CREATE UNIQUE INDEX tasks_projectless_directory
+ON tasks(workspace_id, task_directory)
+WHERE project_id IS NULL;
+"#;
 
 /// Per-preference speed selection for every model-preference owner.
 const MODEL_PREFERENCE_FAST_MODE_SQL: &str = r#"

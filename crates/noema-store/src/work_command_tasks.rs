@@ -20,6 +20,7 @@ use crate::{
         bounded_authorization_context_json, conversation_authorization_context,
     },
     ids::allocate_id,
+    task_files::allocate_task_directory_tx,
     tasks::provider_selection::{pool_selection_tx, reviewer_preference_tx},
     work_events::append_work_event_tx,
     work_notifications::enqueue_work_notification_tx,
@@ -118,16 +119,22 @@ async fn capture(
             &command.title,
             &command.description_markdown,
         )?;
+        let task_directory = allocate_task_directory_tx(
+            transaction,
+            &workspace_id,
+            command.project_id.as_ref(),
+            &command.title,
+        )?;
         transaction.execute(
             r#"INSERT INTO tasks (
                      task_id, workspace_id, project_id, workflow_id, stage_id,
-                     title, description_markdown, executor_agent_id, cwd_override,
+                     title, description_markdown, executor_agent_id, cwd_override, task_directory,
                      authorization_context_json, source_kind,
                      source_conversation_id, source_turn_id, source_item_id,
                      source_tool_call_id, created_by_actor_id, scheduled_for, schedule_time_zone,
                      missed_run_policy
-                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                             ?15, ?16, ?17, ?18, ?19)"#,
+                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+                             ?16, ?17, ?18, ?19, ?20)"#,
             params![
                 task_id.as_str(),
                 workspace_id.as_str(),
@@ -138,6 +145,7 @@ async fn capture(
                 command.description_markdown,
                 executor_agent_id,
                 command.cwd_override,
+                task_directory,
                 authorization_context,
                 command.provenance.source_kind.as_str(),
                 command.provenance.conversation_id,
@@ -824,14 +832,20 @@ async fn delegate(
             &command.title,
             &command.description_markdown,
         )?;
+        let task_directory = allocate_task_directory_tx(
+            transaction,
+            &workspace_id,
+            command.project_id.as_ref(),
+            &command.title,
+        )?;
         transaction.execute(
             r#"INSERT INTO tasks (
                      task_id, workspace_id, project_id, workflow_id, stage_id,
-                     title, description_markdown, executor_agent_id, cwd_override,
+                     title, description_markdown, executor_agent_id, cwd_override, task_directory,
                      authorization_context_json, source_kind,
                      source_conversation_id, source_turn_id, source_item_id,
                      source_tool_call_id, created_by_actor_id, queued_at
-                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
                              strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"#,
             params![
                 task_id.as_str(),
@@ -843,6 +857,7 @@ async fn delegate(
                 command.description_markdown,
                 executor_agent_id,
                 command.cwd_override,
+                task_directory,
                 authorization_context,
                 TaskSourceKind::ChatDelegate.as_str(),
                 command.provenance.conversation_id,
@@ -875,7 +890,7 @@ async fn delegate(
             let (contract_id, _contract_event) = create_contract_tx(
                 transaction,
                 service.provider_registry.as_ref(),
-                &service.store.default_task_cwd(task.task_id.as_str()),
+                &service.store.default_task_cwd(&task.task_directory),
                 &task,
                 CreateContract {
                     origin: ContractOrigin::Delegated,
@@ -1120,16 +1135,19 @@ pub(crate) fn create_contract_tx(
     let effective_cwd = task
         .cwd_override
         .clone()
-        .or_else(|| project_context.as_ref().and_then(|value| value.2.clone()))
+        .or_else(|| {
+            project_context
+                .as_ref()
+                .and_then(|value| value.2.as_ref())
+                .map(|folder| {
+                    Path::new(folder)
+                        .join(&task.task_directory)
+                        .to_string_lossy()
+                        .into_owned()
+                })
+        })
         .unwrap_or_else(|| default_task_cwd.to_string_lossy().into_owned());
-    if task.cwd_override.is_none()
-        && project_context
-            .as_ref()
-            .and_then(|value| value.2.as_ref())
-            .is_none()
-    {
-        std::fs::create_dir_all(default_task_cwd).map_err(StoreError::PreparePath)?;
-    }
+    std::fs::create_dir_all(&effective_cwd).map_err(StoreError::PreparePath)?;
     let acp_connection_revision = executor_selection
         .acp
         .as_ref()

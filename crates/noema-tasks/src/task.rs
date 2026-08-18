@@ -166,6 +166,9 @@ pub struct TaskRecord {
     pub description_markdown: String,
     pub executor_agent_id: String,
     pub cwd_override: Option<String>,
+    pub task_directory: String,
+    pub execution_complexity: Option<crate::TaskComplexity>,
+    pub current_review_decision: Option<crate::TaskReviewVerdict>,
     pub authorization_context: TaskAuthorizationContext,
     pub provenance: TaskProvenance,
     pub generation: u64,
@@ -201,6 +204,13 @@ impl TaskRecord {
         normalized.executor_agent_id =
             required(&normalized.executor_agent_id, "task.executor_agent_id")?;
         normalized.cwd_override = normalize_optional(normalized.cwd_override.as_deref());
+        normalized.task_directory = required(&normalized.task_directory, "task.directory")?;
+        if Path::new(&normalized.task_directory).components().count() != 1 {
+            return Err(invalid_input(
+                "task.directory",
+                "Task directory must be one relative path component",
+            ));
+        }
         if normalized
             .cwd_override
             .as_deref()

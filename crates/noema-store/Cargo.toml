@@ -15,6 +15,7 @@ test-support = []
 
 [dependencies]
 base64.workspace = true
+cap-std.workspace = true
 noema-artifacts = { path = "../noema-artifacts", default-features = false }
 noema-capabilities = { path = "../noema-capabilities", default-features = false }
 noema-capability-adapters = { path = "../noema-capabilities/adapters", default-features = false }

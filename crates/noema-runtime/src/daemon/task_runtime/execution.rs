@@ -31,6 +31,11 @@ pub(super) async fn execute_run(
     fence: &WorkRunFence,
     cancellation: &CancellationToken,
 ) -> Result<(), RuntimeError> {
+    services
+        .store
+        .ensure_task_document(&run.task_id)
+        .await
+        .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
     let command_service =
         WorkCommandService::new(services.store.clone(), services.provider_registry.clone());
     let correlation_id = format!("correlation:run:{}", run.run_id);

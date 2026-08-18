@@ -52,6 +52,7 @@ mod runtime_debug;
 mod schema;
 mod sqlite;
 mod task_execution_policy;
+mod task_files;
 mod task_model_pools;
 mod tasks;
 mod web_push;
@@ -119,6 +120,9 @@ pub use runtime::{NoemaStore, StoreConfig};
 pub use runtime_debug::{
     NewRuntimeDebugSpan, RuntimeDebugChildSpan, RuntimeDebugMetadata, RuntimeDebugProfileRecord,
     RuntimeDebugScope, RuntimeDebugSpanCategory, RuntimeDebugSpanRecord, RuntimeDebugSpanStatus,
+};
+pub use task_files::{
+    TASK_DOCUMENT, TASK_FILE_TEXT_LIMIT, TASK_REVIEW, TaskFileEntry, TaskFileError,
 };
 pub use web_push::{
     ClaimedWebPushDelivery, NewWebPushSubscription, WebPushIdentity, WebPushPrimaryCheckpoint,

@@ -10,10 +10,14 @@ mod catalog;
 mod dispatch;
 
 pub(crate) use catalog::{
-    primary_task_tool_specs, task_list_scoped_tool_spec, task_report_blocked_tool_spec,
-    task_submit_plan_tool_spec, task_submit_result_tool_spec, task_submit_review_tool_spec,
+    primary_task_tool_specs, task_file_delete_tool_spec, task_file_list_tool_spec,
+    task_file_read_tool_spec, task_file_write_tool_spec, task_list_scoped_tool_spec,
+    task_report_blocked_tool_spec, task_submit_plan_tool_spec, task_submit_result_tool_spec,
+    task_submit_review_tool_spec,
 };
-pub(crate) use dispatch::{execute_primary_task_tool, execute_scoped_task_list_tool};
+pub(crate) use dispatch::{
+    execute_primary_task_tool, execute_scoped_task_file_tool, execute_scoped_task_list_tool,
+};
 
 pub(crate) const TASK_CAPTURE_TOOL: &str = "task.capture";
 pub(crate) const TASK_LIST_TOOL: &str = "task.list";
@@ -43,6 +47,10 @@ pub(crate) const TASK_SUBMIT_PLAN_TOOL: &str = "task.submit_plan";
 pub(crate) const TASK_SUBMIT_RESULT_TOOL: &str = "task.submit_result";
 pub(crate) const TASK_SUBMIT_REVIEW_TOOL: &str = "task.submit_review";
 pub(crate) const TASK_REPORT_BLOCKED_TOOL: &str = "task.report_blocked";
+pub(crate) const TASK_FILE_LIST_TOOL: &str = "task.files.list";
+pub(crate) const TASK_FILE_READ_TOOL: &str = "task.files.read";
+pub(crate) const TASK_FILE_WRITE_TOOL: &str = "task.files.write";
+pub(crate) const TASK_FILE_DELETE_TOOL: &str = "task.files.delete";
 
 /// Trusted source context captured from the active primary turn.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,4 +127,12 @@ pub(crate) fn is_task_submit_review_tool(name: &str) -> bool {
 #[must_use]
 pub(crate) fn is_task_report_blocked_tool(name: &str) -> bool {
     name == TASK_REPORT_BLOCKED_TOOL
+}
+
+#[must_use]
+pub(crate) fn is_task_file_tool(name: &str) -> bool {
+    matches!(
+        name,
+        TASK_FILE_LIST_TOOL | TASK_FILE_READ_TOOL | TASK_FILE_WRITE_TOOL | TASK_FILE_DELETE_TOOL
+    )
 }

@@ -49,7 +49,10 @@ const TASK_COLUMNS: &str = "
     task.created_at,
     task.updated_at,
     task.completed_at,
-    task.cancelled_at
+    task.cancelled_at,
+    task.task_directory,
+    task.execution_complexity,
+    task.current_review_decision
 ";
 
 const STAGE_COLUMNS: &str = "

@@ -25,6 +25,7 @@ use serde_json::{Value, json};
 use super::{
     PROJECT_ARCHIVE_TOOL, PROJECT_CREATE_TOOL, PROJECT_LIST_TOOL, PROJECT_REOPEN_TOOL,
     PROJECT_UPDATE_TOOL, TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CAPTURE_TOOL, TASK_DELEGATE_TOOL,
+    TASK_FILE_DELETE_TOOL, TASK_FILE_LIST_TOOL, TASK_FILE_READ_TOOL, TASK_FILE_WRITE_TOOL,
     TASK_LIST_TOOL, TASK_QUEUE_TOOL, TASK_RECURRENCE_END_TOOL, TASK_RECURRENCE_PAUSE_TOOL,
     TASK_RECURRENCE_RESUME_TOOL, TASK_RECURRENCE_SKIP_NEXT_TOOL, TASK_RECURRENCE_UPDATE_TOOL,
     TASK_REOPEN_TOOL, TASK_RESCHEDULE_TOOL, TASK_RETRY_TOOL, TASK_RUN_RECURRENCE_NOW_TOOL,
@@ -79,6 +80,98 @@ pub(crate) async fn execute_scoped_task_list_tool(
 ) -> TaskToolResult {
     let result = execute_scoped_task_list_inner(store, task_id, payload).await;
     task_tool_result(TASK_LIST_TOOL, call_id, result)
+}
+
+/// Execute one file operation for the Task attached to the active run.
+pub(crate) async fn execute_scoped_task_file_tool(
+    store: &NoemaStore,
+    task_id: &str,
+    role: crate::agent_execution::ExecutionRole,
+    name: &str,
+    call_id: Option<String>,
+    payload: &Value,
+) -> TaskToolResult {
+    let result = execute_scoped_task_file_inner(store, task_id, role, name, payload).await;
+    task_tool_result(name, call_id, result)
+}
+
+async fn execute_scoped_task_file_inner(
+    store: &NoemaStore,
+    task_id: &str,
+    role: crate::agent_execution::ExecutionRole,
+    name: &str,
+    payload: &Value,
+) -> Result<Value, String> {
+    let arguments = payload
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| payload.clone());
+    let task_id = TaskId::new(task_id.trim().to_string()).map_err(|error| error.to_string())?;
+    let path = arguments.get("path").and_then(Value::as_str).unwrap_or(".");
+    match name {
+        TASK_FILE_LIST_TOOL => {
+            let entries = store
+                .list_task_files(&task_id, path)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(json!({"entries": entries}))
+        }
+        TASK_FILE_READ_TOOL => {
+            require_path(&arguments)?;
+            let content = store
+                .read_task_file(&task_id, path)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(json!({"path": path, "content": content}))
+        }
+        TASK_FILE_WRITE_TOOL => {
+            require_file_writer(role)?;
+            require_path(&arguments)?;
+            let content = arguments
+                .get("content")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "task.files.write requires content".to_string())?;
+            store
+                .write_task_file(&task_id, path, content)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(json!({"path": path}))
+        }
+        TASK_FILE_DELETE_TOOL => {
+            require_file_writer(role)?;
+            require_path(&arguments)?;
+            store
+                .delete_task_file(&task_id, path)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(json!({"path": path}))
+        }
+        _ => Err("unknown Task file operation".to_string()),
+    }
+}
+
+fn require_path(arguments: &Value) -> Result<(), String> {
+    if arguments
+        .get("path")
+        .and_then(Value::as_str)
+        .is_some_and(|path| !path.trim().is_empty())
+    {
+        Ok(())
+    } else {
+        Err("Task file path is required".to_string())
+    }
+}
+
+fn require_file_writer(role: crate::agent_execution::ExecutionRole) -> Result<(), String> {
+    if matches!(
+        role,
+        crate::agent_execution::ExecutionRole::TaskPlanner
+            | crate::agent_execution::ExecutionRole::TaskExecutor
+    ) {
+        Ok(())
+    } else {
+        Err("This Task role cannot change Task files".to_string())
+    }
 }
 
 async fn execute_scoped_task_list_inner(

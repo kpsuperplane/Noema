@@ -7,9 +7,13 @@ use noema_tasks::{
     PERSONAL_INBOX_STAGE_ID, RecurrenceOccurrenceResolution, RecurrenceOccurrenceTrigger, TaskId,
     TaskSourceKind, WorkEventPayload, WorkflowStageId,
 };
+use noema_workspaces::{ProjectId, WorkspaceId};
 use rusqlite::{OptionalExtension, Transaction, params};
 
-use crate::{NoemaStore, StoreError, ids::allocate_id, work_events::append_work_event_tx};
+use crate::{
+    NoemaStore, StoreError, ids::allocate_id, task_files::allocate_task_directory_tx,
+    work_events::append_work_event_tx,
+};
 
 use super::{WorkCommandService, helpers, tasks};
 
@@ -458,12 +462,26 @@ fn materialize_occurrence_tx(
         }
     }
     let task_id = TaskId::new(allocate_id("task")).map_err(StoreError::Work)?;
+    let workspace_id =
+        WorkspaceId::new(recurrence.workspace_id.clone()).map_err(StoreError::Workspace)?;
+    let project_id = recurrence
+        .project_id
+        .as_ref()
+        .map(|value| ProjectId::new(value.clone()))
+        .transpose()
+        .map_err(StoreError::Workspace)?;
+    let task_directory = allocate_task_directory_tx(
+        transaction,
+        &workspace_id,
+        project_id.as_ref(),
+        &recurrence.title,
+    )?;
     transaction.execute(
-        "INSERT INTO tasks (task_id, workspace_id, project_id, workflow_id, stage_id, title, description_markdown, executor_agent_id, cwd_override, authorization_context_json, source_kind, created_by_actor_id, scheduled_for, schedule_time_zone, missed_run_policy, recurrence_id, recurrence_revision, recurrence_scheduled_for) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+        "INSERT INTO tasks (task_id, workspace_id, project_id, workflow_id, stage_id, title, description_markdown, executor_agent_id, cwd_override, task_directory, authorization_context_json, source_kind, created_by_actor_id, scheduled_for, schedule_time_zone, missed_run_policy, recurrence_id, recurrence_revision, recurrence_scheduled_for) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         params![task_id.as_str(), recurrence.workspace_id, recurrence.project_id,
             noema_tasks::PERSONAL_WORKFLOW_ID, PERSONAL_INBOX_STAGE_ID, recurrence.title,
             recurrence.description, recurrence.executor_agent_id, recurrence.cwd_override,
-            recurrence.authorization, TaskSourceKind::System.as_str(), meta.actor_id,
+            task_directory, recurrence.authorization, TaskSourceKind::System.as_str(), meta.actor_id,
             scheduled_for, recurrence.time_zone, recurrence.missed.as_str(), recurrence_id,
             recurrence.revision, scheduled_for],
     )?;

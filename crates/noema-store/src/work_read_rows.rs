@@ -30,7 +30,8 @@ pub(crate) fn load_task(
                     latest_review_id, completed_submission_id, scheduled_for, schedule_time_zone,
                     missed_run_policy, recurrence_id, recurrence_revision,
                     recurrence_scheduled_for, queued_at, created_at, updated_at,
-                    completed_at, cancelled_at
+                    completed_at, cancelled_at, task_directory, execution_complexity,
+                    current_review_decision
              FROM tasks WHERE task_id = ?1 LIMIT 1",
             [task_id.as_str()],
             decode_task_record,
@@ -96,6 +97,17 @@ pub(crate) fn decode_task_record(row: &Row<'_>) -> rusqlite::Result<noema_tasks:
         updated_at: row.get(32)?,
         completed_at: row.get(33)?,
         cancelled_at: row.get(34)?,
+        task_directory: row.get(35)?,
+        execution_complexity: row
+            .get::<_, Option<String>>(36)?
+            .map(|value| value.parse())
+            .transpose()
+            .map_err(|error| conversion_failure(36, Type::Text, error))?,
+        current_review_decision: row
+            .get::<_, Option<String>>(37)?
+            .map(|value| value.parse())
+            .transpose()
+            .map_err(|error| conversion_failure(37, Type::Text, error))?,
     };
     let normalized = task
         .normalized()

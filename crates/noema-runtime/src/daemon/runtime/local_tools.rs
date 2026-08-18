@@ -40,8 +40,9 @@ use crate::daemon::{
     },
     task_tool::{
         TASK_LIST_TOOL, TaskDelegateRuntimeContext, execute_primary_task_tool,
-        execute_scoped_task_list_tool, is_primary_task_tool, is_task_report_blocked_tool,
-        is_task_submit_plan_tool, is_task_submit_result_tool, is_task_submit_review_tool,
+        execute_scoped_task_file_tool, execute_scoped_task_list_tool, is_primary_task_tool,
+        is_task_file_tool, is_task_report_blocked_tool, is_task_submit_plan_tool,
+        is_task_submit_result_tool, is_task_submit_review_tool,
     },
 };
 use crate::search::tool::is_web_search_tool;
@@ -507,6 +508,33 @@ impl RuntimeActor {
                 Err(error) => (false, json!({"error": error})),
             };
             LocalToolResult::from_call(call, LocalToolKind::Gateway, success, payload, true)
+        } else if is_task_file_tool(&call.name) && turn.task_run_id.is_some() {
+            let result = match turn.task_id.as_deref() {
+                Some(task_id) => {
+                    execute_scoped_task_file_tool(
+                        &self.store,
+                        task_id,
+                        turn.initial_model_tools.tool_policy.role(),
+                        &call.name,
+                        call.call_id.clone(),
+                        &call.payload,
+                    )
+                    .await
+                }
+                None => crate::daemon::task_tool::TaskToolResult {
+                    call_id: call.call_id.clone(),
+                    name: call.name.clone(),
+                    success: false,
+                    payload: json!({"code": "invalid_context", "message": "Task file context is unavailable"}),
+                },
+            };
+            LocalToolResult::from_call(
+                call,
+                LocalToolKind::Gateway,
+                result.success,
+                result.payload,
+                true,
+            )
         } else if call.name == TASK_LIST_TOOL && turn.task_run_id.is_some() {
             let result = match turn.task_id.as_deref() {
                 Some(task_id) => {

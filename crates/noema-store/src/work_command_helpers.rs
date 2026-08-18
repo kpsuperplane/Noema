@@ -84,6 +84,9 @@ pub(crate) struct TaskState {
     pub description_markdown: String,
     pub executor_agent_id: String,
     pub cwd_override: Option<String>,
+    pub task_directory: String,
+    pub execution_complexity: Option<noema_tasks::TaskComplexity>,
+    pub current_review_decision: Option<noema_tasks::TaskReviewVerdict>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -236,7 +239,8 @@ pub(crate) fn load_task_state_tx(
                       s.system_behavior, t.generation, t.revision,
                       t.current_contract_id, t.active_gate_id, t.latest_run_id,
                       t.latest_submission_id, t.latest_review_id,
-                      t.title, t.description_markdown, t.executor_agent_id, t.cwd_override
+                      t.title, t.description_markdown, t.executor_agent_id, t.cwd_override,
+                      t.task_directory, t.execution_complexity, t.current_review_decision
                FROM tasks t
                JOIN workflow_stages s
                  ON s.workflow_id = t.workflow_id AND s.stage_id = t.stage_id
@@ -259,6 +263,9 @@ pub(crate) fn load_task_state_tx(
                     row.get::<_, String>(12)?,
                     row.get::<_, String>(13)?,
                     row.get::<_, Option<String>>(14)?,
+                    row.get::<_, String>(15)?,
+                    row.get::<_, Option<String>>(16)?,
+                    row.get::<_, Option<String>>(17)?,
                 ))
             },
         )
@@ -295,6 +302,17 @@ pub(crate) fn load_task_state_tx(
         description_markdown: row.12,
         executor_agent_id: row.13,
         cwd_override: row.14,
+        task_directory: row.15,
+        execution_complexity: row
+            .16
+            .map(|value| value.parse())
+            .transpose()
+            .map_err(StoreError::Work)?,
+        current_review_decision: row
+            .17
+            .map(|value| value.parse())
+            .transpose()
+            .map_err(StoreError::Work)?,
     })
 }
 
