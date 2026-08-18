@@ -14,7 +14,7 @@ struct TasksTaskContextDock: View {
           actorID: "subagent:\(run?.instanceName ?? "Task")",
           actorType: .agent,
           activity: avatarMotion.activity,
-          animated: false
+          animated: avatarMotion.animated
         )
           .frame(width: 30, height: 30)
           .accessibilityLabel("\(run?.instanceName ?? "Task") run")
