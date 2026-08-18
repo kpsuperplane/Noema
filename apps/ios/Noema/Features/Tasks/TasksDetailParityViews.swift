@@ -282,6 +282,11 @@ struct TasksTranscriptSection: View {
     }
   }
 
+  private struct OrderedEvent {
+    let event: Event
+    let timestamp: Date
+  }
+
   private var rows: [Row] {
     var events: [Event] = []
     if let request = request.nilIfBlank, !capturedRequestIsAlreadyShown {
@@ -295,15 +300,21 @@ struct TasksTranscriptSection: View {
     fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     let plain = ISO8601DateFormatter()
     plain.formatOptions = [.withInternetDateTime]
-    let orderedEvents = events.map { event in
-      (event, fractional.date(from: event.timestamp) ?? plain.date(from: event.timestamp) ?? .distantPast)
-    }.sorted {
-      $0.1 == $1.1 ? $0.0.id < $1.0.id : $0.1 < $1.1
+    var orderedEvents: [OrderedEvent] = []
+    orderedEvents.reserveCapacity(events.count)
+    for event in events {
+      let timestamp = fractional.date(from: event.timestamp)
+        ?? plain.date(from: event.timestamp)
+        ?? .distantPast
+      orderedEvents.append(OrderedEvent(event: event, timestamp: timestamp))
+    }
+    orderedEvents.sort {
+      $0.timestamp == $1.timestamp ? $0.event.id < $1.event.id : $0.timestamp < $1.timestamp
     }
     var itemsByRunID: [String: [TasksRunItemSnapshot]] = [:]
     for item in runItems { itemsByRunID[item.runId, default: []].append(item) }
-    return orderedEvents.flatMap { event, _ in
-      switch event {
+    return orderedEvents.flatMap { orderedEvent -> [Row] in
+      switch orderedEvent.event {
       case .request(let request):
         [.request(request)]
       case .message(let message):
