@@ -14,7 +14,7 @@ struct TasksTaskContextDock: View {
           actorID: "subagent:\(run?.instanceName ?? "Task")",
           actorType: .agent,
           activity: avatarMotion.activity,
-          animated: avatarMotion.animated
+          animated: false
         )
           .frame(width: 30, height: 30)
           .accessibilityLabel("\(run?.instanceName ?? "Task") run")
@@ -61,7 +61,6 @@ struct TasksTaskContextDock: View {
 struct TasksTaskStatusSurface: View {
   let run: TasksRunSnapshot?
   let activity: String?
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var statusText: String {
     activity?.taskDockText ?? run?.activity.taskDockText ?? fallbackStatus
@@ -70,16 +69,11 @@ struct TasksTaskStatusSurface: View {
   var body: some View {
     HStack(spacing: NoemaSpacing.compact) {
       statusIcon
-      ZStack(alignment: .leading) {
-        Text(statusText)
-          .id(statusText)
-          .transition(statusTransition)
-      }
-      .font(NoemaFont.monoCompact)
-      .foregroundStyle(NoemaColor.contentSecondary)
-      .lineLimit(1)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .clipped()
+      Text(statusText)
+        .font(NoemaFont.monoCompact)
+        .foregroundStyle(NoemaColor.contentSecondary)
+        .lineLimit(1)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
     .padding(.horizontal, NoemaSpacing.md)
     .padding(.top, NoemaSpacing.xs)
@@ -88,7 +82,6 @@ struct TasksTaskStatusSurface: View {
     .background(attachedShape.fill(NoemaColor.surface))
     .overlay { attachedShape.stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
     .shadow(color: NoemaColor.ink900.opacity(0.07), radius: NoemaSpacing.sm, y: NoemaSpacing.xs)
-    .animation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion), value: statusText)
     .accessibilityElement(children: .combine)
     .accessibilityLabel("Task status: \(statusText)")
   }
@@ -97,9 +90,8 @@ struct TasksTaskStatusSurface: View {
   private var statusIcon: some View {
     switch (run?.status ?? "").uppercased() {
     case "QUEUED", "LEASED", "STARTED", "RUNNING":
-      ProgressView()
-        .controlSize(.mini)
-        .tint(NoemaColor.success)
+      Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90")
+        .foregroundStyle(NoemaColor.success)
         .frame(width: 16)
     case "FAILED", "INTERRUPTED":
       Image(systemName: "exclamationmark")
@@ -132,14 +124,6 @@ struct TasksTaskStatusSurface: View {
     case "WAITING_FOR_APPROVAL": "Waiting for approval"
     default: "No output yet"
     }
-  }
-
-  private var statusTransition: AnyTransition {
-    guard !reduceMotion else { return .identity }
-    return .asymmetric(
-      insertion: .move(edge: .bottom).combined(with: .opacity),
-      removal: .move(edge: .top).combined(with: .opacity)
-    )
   }
 
   private var attachedShape: NoemaSuperellipse {
