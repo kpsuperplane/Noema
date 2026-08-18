@@ -346,27 +346,7 @@ pub(crate) async fn parse_open_file(
 }
 
 fn open_conversation_file(cwd: &str, supplied: &str) -> Result<std::fs::File, String> {
-    let supplied = Path::new(supplied.trim());
-    if supplied.is_absolute()
-        || supplied
-            .components()
-            .any(|part| part == Component::ParentDir)
-    {
-        return Err("file path is outside the working-directory boundary".to_string());
-    }
-    let mut relative = PathBuf::new();
-    for component in supplied.components() {
-        match component {
-            Component::Normal(value) => relative.push(value),
-            Component::CurDir => {}
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                return Err("file path is outside the working-directory boundary".to_string());
-            }
-        }
-    }
-    if relative.as_os_str().is_empty() {
-        return Err("file path is required".to_string());
-    }
+    let relative = normalized_relative_path(supplied)?;
     let root = Dir::open_ambient_dir(cwd, ambient_authority())
         .map_err(|_| "working directory is unavailable".to_string())?;
     verify_relative_file(&root, &relative)?;

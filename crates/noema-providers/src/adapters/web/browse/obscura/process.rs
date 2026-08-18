@@ -51,6 +51,9 @@ impl WorkerHandle {
     }
 
     pub(super) fn cancel(&self) {
+        self.0
+            .alive
+            .store(false, std::sync::atomic::Ordering::Release);
         self.0.cancellation.cancel();
     }
 }

@@ -31,6 +31,10 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const POST_NAVIGATION_SETTLE_MS: u64 = 250;
 const SCREENSHOT_RESOURCE_TIMEOUT_MS: u64 = 1_000;
 const MAX_SCREENSHOT_BYTES: usize = 900_000;
+#[cfg(not(test))]
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(test)]
+const COMMAND_TIMEOUT: Duration = Duration::from_millis(250);
 
 pub(crate) struct ObscuraBrowseBackend {
     inner: Arc<BackendInner>,
@@ -274,13 +278,17 @@ async fn dispatch(
         .send(WorkerRequest { command, response })
         .await
         .map_err(|_| WebBrowseError::Unavailable)?;
-    receiver.await.unwrap_or({
-        Err(if outcome_uncertain {
+    tokio::time::timeout(COMMAND_TIMEOUT, receiver)
+        .await
+        .map_err(|_| {
+            worker.cancel();
+            WebBrowseError::Timeout
+        })?
+        .unwrap_or(Err(if outcome_uncertain {
             WebBrowseError::OutcomeUncertain
         } else {
             WebBrowseError::Unavailable
-        })
-    })
+        }))
 }
 
 struct WorkerState {
@@ -994,6 +1002,35 @@ mod tests {
                 })
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unresponsive_worker_times_out_and_removes_the_session() {
+        let script = r#"printf '{"version":1,"ready":true}\n'; read -r _request; sleep 300"#;
+        let backend = ObscuraBrowseBackend::with_launch(
+            1,
+            WorkerLaunch::command(
+                PathBuf::from("/bin/sh"),
+                vec!["-c".to_string(), script.to_string()],
+            ),
+        );
+        let owner = WebBrowseOwner::new("turn:timeout");
+
+        assert_eq!(
+            backend
+                .execute(
+                    &owner,
+                    BrowseCommand::Open(BrowseNavigationRequest {
+                        url: "https://example.com".to_string(),
+                        reason: None,
+                        wait_until: BrowseWaitUntil::Load,
+                    }),
+                )
+                .await,
+            Err(WebBrowseError::Timeout)
+        );
+        assert!(!backend.has_session(&owner).await);
     }
 
     #[cfg(target_os = "linux")]
