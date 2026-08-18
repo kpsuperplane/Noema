@@ -421,7 +421,7 @@ final class OnboardingModel {
     let value = draft[key] ?? ModelSelectionDraft(mode: "NOEMA_RECOMMENDED", profile: nil, reasoning: nil)
     let mode = NoemaAPI.ModelPreferenceSelectionMode(rawValue: value.mode) ?? .noemaRecommended
     let reasoning = value.reasoning.flatMap { NoemaAPI.ReasoningEffort(rawValue: $0) }.map(GraphQLEnum.init)
-    return NoemaAPI.OnboardingModelSelectionInput(selectionMode: GraphQLEnum(mode), modelProfile: value.profile.map { .some($0) } ?? (allowEmpty ? .none : .none), reasoningEffort: reasoning.map { .some($0) } ?? .none)
+    return NoemaAPI.OnboardingModelSelectionInput(selectionMode: GraphQLEnum(mode), modelProfile: value.profile.map { .some($0) } ?? (allowEmpty ? .none : .none), reasoningEffort: reasoning.map { .some($0) } ?? .none, fastMode: false)
   }
 
   private func useCase(for key: String) -> String {

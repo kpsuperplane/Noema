@@ -3,7 +3,7 @@
 
 @_spi(Internal) import ApolloAPI
 
-/// Complexity selected for a new execution contract.
+/// Complexity selected for Task execution.
 nonisolated public enum TaskComplexity: String, EnumType {
   /// Small, low-risk work.
   case simple = "SIMPLE"

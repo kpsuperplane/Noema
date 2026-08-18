@@ -333,5 +333,4 @@ nonisolated public struct TasksTaskCardFields: NoemaAPI.SelectionSet, Fragment {
       public var tasksGateFields: TasksGateFields { _toFragment() }
     }
   }
-
 }

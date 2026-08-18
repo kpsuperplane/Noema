@@ -68,6 +68,7 @@ extension SettingsModel {
       selectionMode: GraphQLEnum(SettingsModel.selectionMode(from: next.selectionMode)),
       modelProfile: SettingsModel.optional(next.modelProfile),
       reasoningEffort: SettingsModel.reasoning(from: next.reasoningEffort),
+      fastMode: false,
       enabled: enabled ?? pool.enabled,
       sortOrder: Int32(clamping: pool.sortOrder)
     )

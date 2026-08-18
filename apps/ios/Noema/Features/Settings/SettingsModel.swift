@@ -356,7 +356,8 @@ final class SettingsModel {
             providerAccountId: providerAccountID,
             selectionMode: GraphQLEnum(Self.selectionMode(from: selectionMode)),
             modelProfile: Self.optional(modelProfile),
-            reasoningEffort: Self.reasoning(from: reasoningEffort)
+            reasoningEffort: Self.reasoning(from: reasoningEffort),
+            fastMode: false
           )
         )
       )
@@ -378,7 +379,8 @@ final class SettingsModel {
             providerAccountId: providerAccountID,
             selectionMode: GraphQLEnum(Self.selectionMode(from: selectionMode)),
             modelProfile: Self.optional(modelProfile),
-            reasoningEffort: Self.reasoning(from: reasoningEffort)
+            reasoningEffort: Self.reasoning(from: reasoningEffort),
+            fastMode: false
           )
         )
       )
@@ -400,7 +402,8 @@ final class SettingsModel {
             providerAccountId: providerAccountID,
             selectionMode: GraphQLEnum(Self.selectionMode(from: selectionMode)),
             modelProfile: Self.optional(modelProfile),
-            reasoningEffort: Self.reasoning(from: reasoningEffort)
+            reasoningEffort: Self.reasoning(from: reasoningEffort),
+            fastMode: false
           )
         )
       )
@@ -422,7 +425,8 @@ final class SettingsModel {
             providerAccountId: providerAccountID,
             selectionMode: GraphQLEnum(Self.selectionMode(from: selectionMode)),
             modelProfile: Self.optional(modelProfile),
-            reasoningEffort: Self.reasoning(from: reasoningEffort)
+            reasoningEffort: Self.reasoning(from: reasoningEffort),
+            fastMode: false
           )
         )
       )
@@ -444,7 +448,8 @@ final class SettingsModel {
             providerAccountId: providerAccountID,
             selectionMode: GraphQLEnum(Self.selectionMode(from: selectionMode)),
             modelProfile: Self.optional(modelProfile),
-            reasoningEffort: Self.reasoning(from: reasoningEffort)
+            reasoningEffort: Self.reasoning(from: reasoningEffort),
+            fastMode: false
           )
         )
       )
@@ -468,7 +473,8 @@ final class SettingsModel {
             providerAccountId: providerAccountID,
             selectionMode: GraphQLEnum(Self.selectionMode(from: selectionMode)),
             modelProfile: Self.optional(modelProfile),
-            reasoningEffort: Self.reasoning(from: reasoningEffort)
+            reasoningEffort: Self.reasoning(from: reasoningEffort),
+            fastMode: false
           )
         )
       )
