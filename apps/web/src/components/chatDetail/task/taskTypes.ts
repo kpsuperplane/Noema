@@ -133,6 +133,7 @@ export type TaskDetail = {
   reviewerModel?: TaskModelSnapshot | null;
   reviewerModelInherited?: boolean;
   revisions: readonly TaskRevision[];
+  contributorInstanceNames: readonly string[];
   canCancel?: boolean;
   canResume?: boolean;
   blockingQuestion?: string | null;

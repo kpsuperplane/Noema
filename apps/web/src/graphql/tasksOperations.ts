@@ -182,6 +182,7 @@ export const TasksTaskDetailDocument = gql`
       runs {
         ...TasksRunFields
       }
+      contributorInstanceNames
     }
   }
   ${TasksCommandTaskFields}

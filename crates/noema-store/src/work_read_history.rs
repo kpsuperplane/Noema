@@ -16,6 +16,7 @@ const DETAIL_HISTORY_LIMIT: usize = 20;
 pub(crate) struct WorkTaskHistory {
     pub messages: Vec<TaskMessageRecord>,
     pub runs: Vec<AgentRunRecord>,
+    pub contributor_instance_names: Vec<String>,
 }
 
 pub(crate) fn load_task_history(
@@ -41,7 +42,22 @@ pub(crate) fn load_task_history(
             load_runs,
             "run",
         )?,
+        contributor_instance_names: load_contributor_instance_names(transaction, task_id)?,
     })
+}
+
+fn load_contributor_instance_names(
+    transaction: &Transaction<'_>,
+    task_id: &TaskId,
+) -> Result<Vec<String>, StoreError> {
+    let mut statement = transaction.prepare(
+        "SELECT instance_name FROM agent_runs WHERE task_id = ?1 \
+         GROUP BY instance_name ORDER BY MIN(created_at), instance_name",
+    )?;
+    statement
+        .query_map([task_id.as_str()], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(StoreError::Sqlite)
 }
 
 fn load_recent<T: Clone>(
@@ -139,4 +155,54 @@ fn validate_message(message: &TaskMessageRecord) -> Result<(), StoreError> {
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::{Connection, params};
+
+    #[test]
+    fn contributor_names_include_every_distinct_task_run_instance() {
+        let mut connection = Connection::open_in_memory().expect("open SQLite");
+        connection
+            .execute_batch(
+                "CREATE TABLE agent_runs (
+                    task_id TEXT NOT NULL,
+                    instance_name TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )",
+            )
+            .expect("create agent runs");
+        let transaction = connection.transaction().expect("start transaction");
+        let task_id = TaskId::new("task:contributors").expect("task id");
+        for index in 0..=DETAIL_HISTORY_LIMIT {
+            transaction
+                .execute(
+                    "INSERT INTO agent_runs (task_id, instance_name, created_at) VALUES (?1, ?2, ?3)",
+                    params![task_id.as_str(), format!("Agent {index:02}"), format!("2026-01-01T00:00:{index:02}Z")],
+                )
+                .expect("insert contributor");
+        }
+        transaction
+            .execute(
+                "INSERT INTO agent_runs (task_id, instance_name, created_at) VALUES (?1, 'Agent 00', '2026-01-01T00:01:00Z')",
+                [task_id.as_str()],
+            )
+            .expect("insert repeated contributor");
+        transaction
+            .execute(
+                "INSERT INTO agent_runs (task_id, instance_name, created_at) VALUES ('task:other', 'Other Agent', '2026-01-01T00:00:00Z')",
+                [],
+            )
+            .expect("insert other task contributor");
+
+        let contributors =
+            load_contributor_instance_names(&transaction, &task_id).expect("load contributors");
+
+        assert_eq!(contributors.len(), DETAIL_HISTORY_LIMIT + 1);
+        assert_eq!(contributors.first().map(String::as_str), Some("Agent 00"));
+        assert_eq!(contributors.last().map(String::as_str), Some("Agent 20"));
+        assert!(!contributors.iter().any(|name| name == "Other Agent"));
+    }
 }

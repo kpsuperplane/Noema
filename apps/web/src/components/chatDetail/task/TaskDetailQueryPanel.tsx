@@ -140,6 +140,7 @@ function mapTaskDetail(task: TasksDetail): TaskDetail {
     sourceLabel: sourceLabel(task),
     currentRevision: task.generation,
     revisions,
+    contributorInstanceNames: task.contributorInstanceNames,
     canCancel: task.validActions.includes("CANCEL"),
     canResume: false,
     blockingQuestion: task.activeGate?.prompt ?? null,

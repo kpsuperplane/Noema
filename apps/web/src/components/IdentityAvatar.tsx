@@ -92,6 +92,7 @@ export function IdentityAvatar({
   audioLevel,
   className,
   focusable = true,
+  label,
   size = "default"
 }: {
   activity?: IdentityAvatarActivity;
@@ -101,6 +102,7 @@ export function IdentityAvatar({
   audioLevel?: number;
   className?: string;
   focusable?: boolean;
+  label?: string;
   size?: "xs" | "nav" | "default" | "sm" | "lg";
 }) {
   const [focused, setFocused] = React.useState(false);
@@ -125,7 +127,7 @@ export function IdentityAvatar({
     <span
       {...rootProps}
       {...rootClassNameProp}
-      aria-label={actorType === "human" ? "Human avatar" : "Agent avatar"}
+      aria-label={label ?? (actorType === "human" ? "Human avatar" : "Agent avatar")}
       data-avatar-seed={avatarSeed}
       data-avatar-variant={avatarVariant}
       onBlur={() => setFocused(false)}
@@ -137,6 +139,7 @@ export function IdentityAvatar({
       } : undefined}
       role="img"
       tabIndex={focusable ? -1 : undefined}
+      title={label}
     >
       <Avatar
         {...avatarClassNameProp}

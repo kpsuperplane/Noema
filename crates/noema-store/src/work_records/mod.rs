@@ -200,6 +200,8 @@ pub struct WorkTaskDetail {
     pub messages: Vec<noema_tasks::TaskMessageRecord>,
     /// Bounded recent runs, newest first.
     pub runs: Vec<AgentRunRecord>,
+    /// Every distinct run instance name, ordered by first contribution.
+    pub contributor_instance_names: Vec<String>,
     /// Bounded current task artifacts, newest first.
     pub artifacts: Vec<WorkTaskArtifact>,
     /// Derived human-attention classification.

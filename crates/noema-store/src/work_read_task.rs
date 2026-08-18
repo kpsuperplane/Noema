@@ -97,6 +97,7 @@ impl LoadedWorkTask {
             active_gate: self.active_gate,
             messages: history.messages,
             runs: history.runs,
+            contributor_instance_names: history.contributor_instance_names,
             artifacts,
             attention,
             valid_actions,

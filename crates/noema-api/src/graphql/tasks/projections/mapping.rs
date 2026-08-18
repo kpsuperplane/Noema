@@ -142,6 +142,7 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         active_gate: current_gate,
         messages,
         runs,
+        contributor_instance_names: value.contributor_instance_names,
         artifacts,
         attention,
         valid_actions: value.valid_actions.into_iter().map(Into::into).collect(),

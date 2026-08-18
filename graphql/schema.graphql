@@ -4757,6 +4757,10 @@ type TaskDetail {
 	"""
 	runs: [TaskRun!]!
 	"""
+	Every distinct agent instance that contributed to this task.
+	"""
+	contributorInstanceNames: [String!]!
+	"""
 	Bounded current artifacts.
 	"""
 	artifacts: [Artifact!]!

@@ -1,8 +1,9 @@
 import * as React from "react";
+import { AvatarGroup } from "@astryxdesign/core/AvatarGroup";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Popover } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
-import { ExternalLink, Info } from "lucide-react";
+import { Check, ExternalLink, Info } from "lucide-react";
 import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
@@ -181,20 +182,43 @@ function TaskSummaryHeader({
   showTasksLink: boolean;
   taskId: string;
 }) {
+  const completed = detail.status === "done";
+  const contributors = completed ? detail.contributorInstanceNames : [];
   return (
-    <header {...stylex.props(styles.summaryHeader, !run && styles.summaryHeaderWithoutAvatar)}>
-      {run ? (
+    <header {...stylex.props(styles.summaryHeader, !run && !completed && styles.summaryHeaderWithoutAvatar)}>
+      {run || completed ? (
         <span {...stylex.props(styles.summaryAvatar)}>
           <AnimatePresence initial={false}>
-            <TaskSummaryAvatar key={run.id} run={run} />
+            <TaskSummaryAvatar
+              key={completed ? "task-completed" : run?.id}
+              completed={completed}
+              run={run}
+            />
           </AnimatePresence>
         </span>
       ) : null}
       <div {...stylex.props(styles.summaryCopy)}>
         <strong {...stylex.props(styles.summaryTitle)}>
-          {run ? run.instanceName : "No agent run yet"}
+          {completed ? "Task Completed" : run ? run.instanceName : "No agent run yet"}
         </strong>
-        {run ? (
+        {completed && contributors.length ? (
+          <AvatarGroup aria-label="Agents that worked on this task" size="xsm">
+            {contributors.map((instanceName, index) => (
+              <IdentityAvatar
+                key={instanceName}
+                actorId={`subagent:${instanceName}`}
+                actorType="agent"
+                className={stylex.props(
+                  styles.contributorAvatar,
+                  index > 0 && styles.contributorAvatarOverlap
+                ).className}
+                focusable={false}
+                label={instanceName}
+                size="xs"
+              />
+            ))}
+          </AvatarGroup>
+        ) : run ? (
           <span {...stylex.props(styles.summaryOutput)}>{capitalize(run.role)}</span>
         ) : null}
       </div>
@@ -217,10 +241,16 @@ function TaskSummaryHeader({
   );
 }
 
-function TaskSummaryAvatar({ run }: { run: TaskRun }) {
+function TaskSummaryAvatar({
+  completed,
+  run
+}: {
+  completed: boolean;
+  run: TaskRun | null;
+}) {
   const isPresent = useIsPresent();
   const reduceMotion = useReducedMotion();
-  const avatarMotion = taskRunAvatarMotion(run.status);
+  const avatarMotion = run ? taskRunAvatarMotion(run.status) : null;
   return (
     <m.span
       aria-hidden={!isPresent}
@@ -231,13 +261,19 @@ function TaskSummaryAvatar({ run }: { run: TaskRun }) {
       transition={reduceMotion ? { duration: 0 } : springs.standard}
       {...stylex.props(styles.summaryAvatarLayer)}
     >
-      <IdentityAvatar
-        activity={avatarMotion.activity}
-        actorId={`subagent:${run.instanceName}`}
-        actorType="agent"
-        animated={avatarMotion.animated}
-        size="sm"
-      />
+      {completed ? (
+        <span {...stylex.props(styles.completedAvatar)}>
+          <Check aria-hidden="true" size={16} strokeWidth={2.5} />
+        </span>
+      ) : run && avatarMotion ? (
+        <IdentityAvatar
+          activity={avatarMotion.activity}
+          actorId={`subagent:${run.instanceName}`}
+          actorType="agent"
+          animated={avatarMotion.animated}
+          size="sm"
+        />
+      ) : null}
     </m.span>
   );
 }
@@ -523,6 +559,9 @@ const styles = stylex.create({
   summaryHeaderWithoutAvatar: { gridTemplateColumns: "minmax(0, 1fr) auto" },
   summaryAvatar: { position: "relative", width: 28, height: 28 },
   summaryAvatarLayer: { position: "absolute", inset: 0, display: "flex" },
+  completedAvatar: { display: "inline-flex", width: "100%", height: "100%", alignItems: "center", justifyContent: "center", borderRadius: 999, cornerShape: "var(--corner-shape-full)", backgroundColor: "var(--color-success)", color: "var(--color-on-accent)" },
+  contributorAvatar: { boxSizing: "content-box", borderWidth: 2, borderStyle: "solid", borderColor: "var(--noema-surface-card)" },
+  contributorAvatarOverlap: { marginInlineStart: "calc(-1 * var(--spacing-1))" },
   summaryCopy: { display: "grid", minWidth: 0, gap: "var(--spacing-0)" },
   summaryTitle: { minWidth: 0, color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, lineHeight: 1.35, overflow: "hidden", overflowWrap: "anywhere", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   summaryOutput: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
