@@ -220,25 +220,22 @@ private struct TasksDetailContent: View {
   private var transcriptScroller: some View {
     ScrollViewReader { reader in
       ScrollView {
-        VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-          TasksTranscriptSection(
-            messages: detail.messages,
-            runs: detail.runs,
-            runItems: model.runItems,
-            hasMore: model.hasMoreRunItems,
-            isLoadingMore: model.isLoadingOlderRunItems,
-            request: detail.description.nilIfBlank ?? detail.title,
-            loadMore: { Task { await model.loadOlderRunItems() } }
-          )
-          Color.clear
-            .frame(height: compactPresentation ? 27 : 1)
-            .id("task-transcript-bottom")
-        }
+        TasksTranscriptSection(
+          messages: detail.messages,
+          runs: detail.runs,
+          runItems: model.runItems,
+          hasMore: model.hasMoreRunItems,
+          isLoadingMore: model.isLoadingOlderRunItems,
+          request: detail.description.nilIfBlank ?? detail.title,
+          bottomSpacing: compactPresentation ? 27 : 1,
+          loadMore: { Task { await model.loadOlderRunItems() } }
+        )
         .frame(maxWidth: 820, alignment: .leading)
         .padding(.horizontal, NoemaSpacing.lg)
         .padding(.vertical, NoemaSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .center)
       }
+      .defaultScrollAnchor(.bottom)
       .scrollDismissesKeyboard(.interactively)
       .onScrollGeometryChange(for: Bool.self) { geometry in
         geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 44
