@@ -8,10 +8,69 @@ pub(crate) use items::{append_conversation_item_tx, load_conversation_item};
 
 use noema_conversations::{ConversationRecord, NewConversation};
 use rusqlite::{OptionalExtension, params};
+use std::path::{Path, PathBuf};
 
 use super::{NoemaStore, StoreError, ids::allocate_id, sqlite::serialize_json};
 
 impl NoemaStore {
+    /// Return one conversation's durable working directory.
+    ///
+    /// An explicit directory replaces the stored value. A conversation without
+    /// a value receives a directory under the Noema home.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the conversation or directory is unavailable.
+    pub async fn conversation_working_directory(
+        &self,
+        conversation_id: &str,
+        requested: Option<&str>,
+    ) -> Result<PathBuf, StoreError> {
+        let stored = self
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT cwd FROM conversations WHERE conversation_id = ?1 AND deleted_at IS NULL",
+                        [conversation_id],
+                        |row| row.get::<_, Option<String>>(0),
+                    )
+                    .optional()
+                    .map_err(StoreError::from)
+            })
+            .await?
+            .ok_or_else(|| StoreError::InvariantViolation {
+                message: format!("conversation {conversation_id} is unavailable"),
+            })?;
+
+        let explicit = requested.map(str::trim).filter(|path| !path.is_empty());
+        let path = explicit
+            .map(PathBuf::from)
+            .or_else(|| stored.map(PathBuf::from))
+            .unwrap_or_else(|| self.home_root.join("conversations").join(conversation_id));
+        let path = std::path::absolute(path).map_err(StoreError::PreparePath)?;
+        if explicit.is_some() {
+            let metadata = std::fs::metadata(&path).map_err(StoreError::PreparePath)?;
+            if !metadata.is_dir() {
+                return Err(StoreError::InvariantViolation {
+                    message: "conversation working directory is not a directory".to_string(),
+                });
+            }
+        } else {
+            std::fs::create_dir_all(&path).map_err(StoreError::PreparePath)?;
+        }
+        reject_working_directory_symlinks(&path)?;
+        let normalized = path.to_string_lossy().into_owned();
+        self.with_connection(|connection| {
+            connection.execute(
+                "UPDATE conversations SET cwd = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE conversation_id = ?1",
+                params![conversation_id, normalized],
+            )?;
+            Ok(())
+        })
+        .await?;
+        Ok(path)
+    }
+
     /// Create a durable conversation row.
     ///
     /// # Errors
@@ -313,4 +372,18 @@ impl NoemaStore {
             })
         }
     }
+}
+
+fn reject_working_directory_symlinks(path: &Path) -> Result<(), StoreError> {
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        current.push(component.as_os_str());
+        let metadata = std::fs::symlink_metadata(&current).map_err(StoreError::PreparePath)?;
+        if metadata.file_type().is_symlink() {
+            return Err(StoreError::InvariantViolation {
+                message: "conversation working directory contains a symbolic link".to_string(),
+            });
+        }
+    }
+    Ok(())
 }

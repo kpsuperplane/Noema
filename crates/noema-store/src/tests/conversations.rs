@@ -1,6 +1,59 @@
 use super::test_store;
 
 #[tokio::test]
+async fn conversation_working_directory_is_allocated_and_persisted() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("conversation");
+
+    let first = store
+        .conversation_working_directory(&conversation.conversation_id, None)
+        .await
+        .expect("allocate working directory");
+    let second = store
+        .conversation_working_directory(&conversation.conversation_id, None)
+        .await
+        .expect("reload working directory");
+
+    assert!(first.is_absolute());
+    assert!(first.is_dir());
+    assert_eq!(first, second);
+    assert!(first.ends_with(format!("conversations/{}", conversation.conversation_id)));
+}
+
+#[tokio::test]
+async fn explicit_conversation_working_directory_replaces_default() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("conversation");
+    let explicit = tempfile::tempdir().expect("explicit directory");
+
+    let selected = store
+        .conversation_working_directory(
+            &conversation.conversation_id,
+            Some(&explicit.path().to_string_lossy()),
+        )
+        .await
+        .expect("select working directory");
+    let reloaded = store
+        .conversation_working_directory(&conversation.conversation_id, None)
+        .await
+        .expect("reload working directory");
+
+    assert_eq!(
+        selected,
+        std::path::absolute(explicit.path()).expect("absolute")
+    );
+    assert_eq!(selected, reloaded);
+}
+
+#[tokio::test]
 async fn final_tool_result_finishes_exact_call_and_repeats_without_a_duplicate() {
     use noema_conversations::{
         ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, ReplayMode,

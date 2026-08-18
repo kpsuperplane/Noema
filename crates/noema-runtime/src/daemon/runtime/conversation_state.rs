@@ -12,13 +12,14 @@ impl RuntimeActor {
             .store
             .next_conversation_turn_index(conversation_id)
             .await?;
-        let cwd = cwd_override.or_else(|| {
-            self.conversations
-                .get(conversation_id)
-                .and_then(|conversation| conversation.cwd.clone())
-        });
+        let cwd = self
+            .store
+            .conversation_working_directory(conversation_id, cwd_override.as_deref())
+            .await?
+            .to_string_lossy()
+            .into_owned();
         let conversation = ActiveConversation {
-            cwd,
+            cwd: Some(cwd),
             next_turn_index,
         };
         self.conversations
