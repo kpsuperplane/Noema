@@ -31,6 +31,7 @@ Each question has one authority:
 | Where is the Task in its workflow? | `tasks.stage_id` |
 | What is an agent doing now? | Current run kind and status |
 | What work must agents perform? | Current `TASK.md` |
+| What result did the Executor submit? | Current `RESULT.md` |
 | What did the Reviewer decide? | Current review decision metadata |
 | What feedback must the Executor address? | Current `REVIEW.md` |
 | Why must the human act? | The unresolved Task gate |
@@ -52,7 +53,8 @@ Noema allocates the slug once.
 It adds an integer suffix when a path exists.
 A title change does not move the directory.
 
-`TASK.md` is the current Task content and result authority.
+`TASK.md` contains the current request, plan, working notes, progress, and open questions.
+`RESULT.md` contains the current submitted result when one exists.
 `REVIEW.md` contains the current Reviewer feedback when feedback exists.
 Agents can create other support files when useful.
 
@@ -63,6 +65,7 @@ Projectless Tasks cannot escape their Task directory.
 Symbolic links cannot bypass either boundary.
 
 The Planner and Executor can manage files in the Task directory.
+Task file tools cannot delete `TASK.md` or `RESULT.md`.
 The Planner and Reviewer can read files within the project boundary.
 The Reviewer cannot directly change Task or project files.
 `task.finish_review` owns each `REVIEW.md` replacement.
@@ -96,9 +99,9 @@ The normal path is:
 3. A complete delegated intent can queue execution directly.
 4. The Planner updates `TASK.md` and calls `task.finish_planning`.
 5. The Executor reads current Task files and performs the work.
-6. The Executor calls `task.finish_execution` when review can start.
-7. The Reviewer reads current files and calls `task.finish_review`.
-8. Requested changes queue another Executor against the same files.
+6. The Executor writes `RESULT.md` and calls `task.finish_execution`.
+7. The Reviewer checks `RESULT.md` against `TASK.md` and calls `task.finish_review`.
+8. Requested changes queue another Executor, which replaces `RESULT.md`.
 9. Approval completes the Task without copying its content.
 
 The Executor can call `task.continue_execution` when more execution is useful.
@@ -106,7 +109,7 @@ That call queues another Executor without human action.
 `task.report_blocked` remains for a specific missing answer, approval, or requirement.
 
 Reopened Tasks reuse their current files.
-Completed views always read current `TASK.md` and optional `REVIEW.md`.
+Completed views read current `TASK.md` and optional `RESULT.md` separately.
 
 ## Runs, gates, and reconciliation
 
@@ -138,12 +141,13 @@ Terminal and human-gated Tasks cannot retain runnable work.
 
 ## Context and compaction
 
-Each role must read the current `TASK.md`.
-Correction Executors also read current `REVIEW.md`.
+The Planner reads current `TASK.md`.
+The Executor reads current `TASK.md`, optional `RESULT.md`, and optional `REVIEW.md`.
+The Reviewer reads current `TASK.md`, required `RESULT.md`, and optional `REVIEW.md`.
 Role prompts must not prescribe batches, checklists, or document sections.
 
 Generic context compaction remains the only compaction system.
-After compaction, the runtime reads the latest `TASK.md` and adds it as Task data.
+After compaction, the runtime reloads the same current files for the active role.
 The runtime then applies normal context admission again.
 Task content cannot override runtime policy or role permissions.
 
@@ -245,7 +249,7 @@ Completion notices read the current Task files.
 ## API and clients
 
 GraphQL exposes bounded Task reads, operational runs, transcript activity, semantic mutations, and a cursor-based event subscription.
-Task detail exposes current `TASK.md` and optional `REVIEW.md` content.
+Task detail exposes current `TASK.md`, optional `RESULT.md`, and optional `REVIEW.md` content.
 It does not expose removed content histories or snapshots.
 
 Clients use generated GraphQL types and server-owned valid actions.
@@ -253,8 +257,9 @@ They do not mirror stage transitions.
 After reconnect, clients refetch current state and use events for invalidation.
 
 The Task surface remains task-first and dense.
-Task detail defaults to current `TASK.md` content in every stage.
-The transcript remains available beside it.
+Task detail shows `Result`, `Task`, and `Transcript` in that order when a result exists.
+It omits `Result` when `RESULT.md` is absent or blank.
+An initial Task opening defaults to `Result` when available and to `Task` otherwise.
 Human decisions remain visible until resolution.
 Internal operational data stays behind progressive disclosure.
 

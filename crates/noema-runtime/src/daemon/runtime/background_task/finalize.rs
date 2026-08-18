@@ -70,7 +70,13 @@ impl RuntimeActor {
             ) => result,
         };
         if propagate_compaction_result(compaction_result)? {
-            append_task_document_after_compaction(&self.store, &request.task_id, context).await?;
+            append_task_files_after_compaction(
+                &self.store,
+                &request.task_id,
+                request.role,
+                context,
+            )
+            .await?;
             let readmission = context
                 .compact_to_fit(
                     provider,

@@ -286,7 +286,7 @@ pub(crate) fn task_finish_execution_tool_spec(
 ) -> Result<ToolSpec, noema_capabilities::ToolContractError> {
     ToolSpec::new(
         TASK_FINISH_EXECUTION_TOOL,
-        "Finish execution after the current result is saved in TASK.md.",
+        "Finish execution after the current result is saved in RESULT.md.",
         json!({"type":"object","properties":{},"additionalProperties":false}),
     )
 }
@@ -357,7 +357,7 @@ pub(crate) fn task_file_delete_tool_spec() -> Result<ToolSpec, noema_capabilitie
 {
     ToolSpec::new(
         super::TASK_FILE_DELETE_TOOL,
-        "Delete one text file inside the current Task directory. TASK.md cannot be deleted.",
+        "Delete one text file inside the current Task directory. TASK.md and RESULT.md cannot be deleted.",
         json!({"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":4096}},"required":["path"],"additionalProperties":false}),
     )
 }

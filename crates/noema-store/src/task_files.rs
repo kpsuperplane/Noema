@@ -18,6 +18,8 @@ use crate::{NoemaStore, StoreError};
 
 /// Main mutable Task document.
 pub const TASK_DOCUMENT: &str = "TASK.md";
+/// Current mutable submitted result.
+pub const TASK_RESULT: &str = "RESULT.md";
 /// Current mutable review feedback.
 pub const TASK_REVIEW: &str = "REVIEW.md";
 /// Maximum UTF-8 text accepted by one model-facing file operation.
@@ -114,8 +116,8 @@ pub enum TaskFileError {
     /// The requested model-facing operation exceeds its text limit.
     #[error("Task file exceeds the 64 KiB model-facing limit")]
     TooLarge,
-    /// `TASK.md` cannot be removed through the Task file tools.
-    #[error("TASK.md cannot be deleted")]
+    /// Required Task documents cannot be removed through Task file tools.
+    #[error("TASK.md and RESULT.md cannot be deleted")]
     RequiredDocument,
     /// The filesystem operation failed.
     #[error("Task file operation failed: {0}")]
@@ -282,7 +284,7 @@ impl NoemaStore {
         atomic_write(&access.boundary, &relative, content.as_bytes())
     }
 
-    /// Delete one regular Task file while preserving `TASK.md`.
+    /// Delete one regular Task file while preserving required Task documents.
     ///
     /// # Errors
     /// Returns [`TaskFileError`] when the Task or path is unsafe.
@@ -293,7 +295,9 @@ impl NoemaStore {
     ) -> Result<(), TaskFileError> {
         let access = self.task_file_access(task_id).await?;
         let relative = access.resolve_task_owned(path)?;
-        if relative == access.task_relative.join(TASK_DOCUMENT) {
+        if relative == access.task_relative.join(TASK_DOCUMENT)
+            || relative == access.task_relative.join(TASK_RESULT)
+        {
             return Err(TaskFileError::RequiredDocument);
         }
         verify_components(&access.boundary, &relative, false)?;

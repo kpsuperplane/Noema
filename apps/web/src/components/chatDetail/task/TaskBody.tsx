@@ -6,7 +6,7 @@ import { ProviderCitationMarkdown } from "@/components/transcript/ProviderCitati
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskTranscript } from "./TaskTranscript";
 
-type TaskTab = "task" | "transcript";
+type TaskTab = "result" | "task" | "transcript";
 export function TaskBody({
   detail,
   contextCard,
@@ -20,8 +20,29 @@ export function TaskBody({
   onOpenDetail: (target: ChatDetailTarget) => void;
   onLatestRunItemChange?: (runId: string, item: TaskRunItem | null) => void;
 }) {
-  const [activeTab, setActiveTab] = React.useState<TaskTab>("task");
+  const hasResult = Boolean(detail.resultDocument?.trim());
+  const tabs = React.useMemo<readonly TaskTab[]>(
+    () => hasResult ? ["result", "task", "transcript"] : ["task", "transcript"],
+    [hasResult]
+  );
+  const [tabState, setTabState] = React.useState(() => ({
+    taskId: detail.taskId,
+    hasResult,
+    activeTab: (hasResult ? "result" : "task") as TaskTab
+  }));
+  let activeTab = tabState.activeTab;
   const swipeOriginRef = React.useRef<{ x: number; y: number } | null>(null);
+
+  if (tabState.taskId !== detail.taskId || tabState.hasResult !== hasResult) {
+    activeTab = tabState.taskId !== detail.taskId
+      ? hasResult ? "result" : "task"
+      : activeTab === "result" && !hasResult ? "task" : activeTab;
+    setTabState({ taskId: detail.taskId, hasResult, activeTab });
+  }
+
+  function selectTab(tab: TaskTab) {
+    setTabState((current) => ({ ...current, activeTab: tab }));
+  }
 
   function startSwipe(event: React.TouchEvent) {
     if (event.touches.length !== 1) return;
@@ -41,10 +62,11 @@ export function TaskBody({
       return;
     }
 
-    if (horizontalDistance < 0 && activeTab === "task") {
-      setActiveTab("transcript");
-    } else if (horizontalDistance > 0 && activeTab === "transcript") {
-      setActiveTab("task");
+    const currentIndex = tabs.indexOf(activeTab);
+    const nextIndex = horizontalDistance < 0 ? currentIndex + 1 : currentIndex - 1;
+    const nextTab = tabs[nextIndex];
+    if (nextTab) {
+      selectTab(nextTab);
     }
   }
 
@@ -54,10 +76,11 @@ export function TaskBody({
         <TabList
           aria-label="Task detail view"
           hasDivider
-          onChange={(value) => setActiveTab(value as TaskTab)}
+          onChange={(value) => selectTab(value as TaskTab)}
           size="sm"
           value={activeTab}
         >
+          {hasResult ? <Tab label="Result" value="result" /> : null}
           <Tab label="Task" value="task" />
           <Tab label="Transcript" value="transcript" />
         </TabList>
@@ -68,8 +91,10 @@ export function TaskBody({
         onTouchEnd={finishSwipe}
         onTouchCancel={() => { swipeOriginRef.current = null; }}
       >
-        {activeTab === "task" ? (
-          <TaskDocument detail={detail} />
+        {activeTab === "result" ? (
+          <TaskDocument fileName="RESULT.md" text={detail.resultDocument ?? ""} />
+        ) : activeTab === "task" ? (
+          <TaskDocument fileName="TASK.md" text={detail.taskDocument} />
         ) : (
           <div {...stylex.props(styles.transcript)}>
             <TaskTranscript
@@ -86,8 +111,8 @@ export function TaskBody({
   );
 }
 
-function TaskDocument({ detail }: { detail: TaskDetail }) {
-  const response = detail.taskDocument.trim() || undefined;
+function TaskDocument({ fileName, text }: { fileName: string; text: string }) {
+  const response = text.trim() || undefined;
 
   return (
     <div data-slot="task-document" {...stylex.props(styles.taskScroller)}>
@@ -103,21 +128,8 @@ function TaskDocument({ detail }: { detail: TaskDetail }) {
             xstyle={styles.markdown}
           />
         ) : (
-          <p {...stylex.props(styles.empty)}>TASK.md has no text content.</p>
+          <p {...stylex.props(styles.empty)}>{fileName} has no text content.</p>
         )}
-        {detail.reviewDocument?.trim() ? (
-          <section aria-label="Review feedback" {...stylex.props(styles.review)}>
-            <ProviderCitationMarkdown
-              contentAlign="center"
-              contentWidth="min(760px, calc(100% - var(--spacing-6) - var(--spacing-6)))"
-              density="default"
-              headingLevelStart={2}
-              citations={[]}
-              text={detail.reviewDocument}
-              xstyle={styles.markdown}
-            />
-          </section>
-        ) : null}
       </div>
     </div>
   );
@@ -162,7 +174,6 @@ const styles = stylex.create({
     fontSize: 14,
     lineHeight: 1.6
   },
-  review: { borderTop: "1px solid var(--noema-border-subtle)", paddingBlockStart: "var(--spacing-4)" },
   empty: {
     width: "calc(100% - var(--spacing-6) - var(--spacing-6))",
     maxWidth: 760,

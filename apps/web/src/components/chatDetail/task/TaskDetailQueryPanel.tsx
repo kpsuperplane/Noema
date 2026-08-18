@@ -132,6 +132,7 @@ function mapTaskDetail(task: TasksDetail): TaskDetail {
     stageBehavior: task.stage.behavior,
     capturedRequest: task.description.trim() || task.title,
     taskDocument: task.taskDocument,
+    resultDocument: task.resultDocument,
     reviewDocument: task.reviewDocument,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,

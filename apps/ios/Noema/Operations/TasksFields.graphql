@@ -202,6 +202,7 @@ fragment TasksDetailActivityFields on TaskDetail {
 fragment TasksDetailOutcomeFields on TaskDetail {
   taskId
   taskDocument
+  resultDocument
   reviewDocument
 }
 

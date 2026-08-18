@@ -1,18 +1,24 @@
 import SwiftUI
 import UIKit
 
-struct TasksResultPager<ResultContent: View, TranscriptContent: View>: UIViewControllerRepresentable {
-  @Binding var selection: TaskResultTab
+struct TasksDetailPager<ResultContent: View, TaskContent: View, TranscriptContent: View>: UIViewControllerRepresentable {
+  @Binding var selection: TaskDetailTab
+  let tabs: [TaskDetailTab]
   let resultContent: ResultContent
+  let taskContent: TaskContent
   let transcriptContent: TranscriptContent
 
   init(
-    selection: Binding<TaskResultTab>,
+    selection: Binding<TaskDetailTab>,
+    tabs: [TaskDetailTab],
     @ViewBuilder result: () -> ResultContent,
+    @ViewBuilder task: () -> TaskContent,
     @ViewBuilder transcript: () -> TranscriptContent
   ) {
     _selection = selection
+    self.tabs = tabs
     resultContent = result()
+    taskContent = task()
     transcriptContent = transcript()
   }
 
@@ -34,17 +40,20 @@ struct TasksResultPager<ResultContent: View, TranscriptContent: View>: UIViewCon
   }
 
   final class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
-    private var parent: TasksResultPager
+    private var parent: TasksDetailPager
     private let resultController: UIHostingController<ResultContent>
+    private let taskController: UIHostingController<TaskContent>
     private let transcriptController: UIHostingController<TranscriptContent>
     private var isTransitioning = false
 
-    init(parent: TasksResultPager) {
+    init(parent: TasksDetailPager) {
       self.parent = parent
       resultController = UIHostingController(rootView: parent.resultContent)
+      taskController = UIHostingController(rootView: parent.taskContent)
       transcriptController = UIHostingController(rootView: parent.transcriptContent)
       super.init()
       resultController.view.backgroundColor = .clear
+      taskController.view.backgroundColor = .clear
       transcriptController.view.backgroundColor = .clear
     }
 
@@ -54,14 +63,16 @@ struct TasksResultPager<ResultContent: View, TranscriptContent: View>: UIViewCon
       pageController.setViewControllers([controller(for: parent.selection)], direction: .forward, animated: false)
     }
 
-    func update(parent: TasksResultPager, on pageController: UIPageViewController, animated: Bool) {
+    func update(parent: TasksDetailPager, on pageController: UIPageViewController, animated: Bool) {
       self.parent = parent
       guard !isTransitioning else { return }
 
       updateHostedContent()
       guard currentTab(in: pageController) != parent.selection else { return }
 
-      let direction: UIPageViewController.NavigationDirection = parent.selection == .result ? .reverse : .forward
+      let oldIndex = currentTab(in: pageController).flatMap { parent.tabs.firstIndex(of: $0) } ?? 0
+      let newIndex = parent.tabs.firstIndex(of: parent.selection) ?? 0
+      let direction: UIPageViewController.NavigationDirection = newIndex < oldIndex ? .reverse : .forward
       isTransitioning = true
       pageController.setViewControllers([controller(for: parent.selection)], direction: direction, animated: animated) { [weak self] _ in
         guard let self else { return }
@@ -74,14 +85,14 @@ struct TasksResultPager<ResultContent: View, TranscriptContent: View>: UIViewCon
       _: UIPageViewController,
       viewControllerBefore viewController: UIViewController
     ) -> UIViewController? {
-      viewController === transcriptController ? resultController : nil
+      adjacentController(before: viewController)
     }
 
     func pageViewController(
       _: UIPageViewController,
       viewControllerAfter viewController: UIViewController
     ) -> UIViewController? {
-      viewController === resultController ? transcriptController : nil
+      adjacentController(after: viewController)
     }
 
     func pageViewController(
@@ -104,20 +115,45 @@ struct TasksResultPager<ResultContent: View, TranscriptContent: View>: UIViewCon
       update(parent: parent, on: pageController, animated: false)
     }
 
-    private func controller(for tab: TaskResultTab) -> UIViewController {
+    private func controller(for tab: TaskDetailTab) -> UIViewController {
       switch tab {
       case .result: resultController
+      case .task: taskController
       case .transcript: transcriptController
       }
     }
 
-    private func currentTab(in pageController: UIPageViewController) -> TaskResultTab? {
+    private func currentTab(in pageController: UIPageViewController) -> TaskDetailTab? {
       guard let current = pageController.viewControllers?.first else { return nil }
-      return current === resultController ? .result : .transcript
+      if current === resultController { return .result }
+      if current === taskController { return .task }
+      return .transcript
+    }
+
+    private func adjacentController(before viewController: UIViewController) -> UIViewController? {
+      guard let tab = tab(for: viewController), let index = parent.tabs.firstIndex(of: tab), index > 0 else {
+        return nil
+      }
+      return controller(for: parent.tabs[index - 1])
+    }
+
+    private func adjacentController(after viewController: UIViewController) -> UIViewController? {
+      guard let tab = tab(for: viewController), let index = parent.tabs.firstIndex(of: tab), index + 1 < parent.tabs.count else {
+        return nil
+      }
+      return controller(for: parent.tabs[index + 1])
+    }
+
+    private func tab(for viewController: UIViewController) -> TaskDetailTab? {
+      if viewController === resultController { return .result }
+      if viewController === taskController { return .task }
+      if viewController === transcriptController { return .transcript }
+      return nil
     }
 
     private func updateHostedContent() {
       resultController.rootView = parent.resultContent
+      taskController.rootView = parent.taskContent
       transcriptController.rootView = parent.transcriptContent
     }
   }

@@ -66,27 +66,35 @@ private struct TasksDetailContent: View {
   @State private var cancelPresented = false
   @State private var taskInfoPresented = false
   @State private var gateResponse = ""
-  @State private var selectedTab: TaskResultTab = .result
+  @State private var selectedTab: TaskDetailTab
   @State private var followsTranscriptBottom = true
   @State private var initialScrollTaskID: String?
   @State private var completedInitialHydration = false
+
+  init(model: TasksModel, detail: TasksDetailSnapshot, compactPresentation: Bool) {
+    self.model = model
+    self.detail = detail
+    self.compactPresentation = compactPresentation
+    _selectedTab = State(initialValue: detail.resultDocument?.nilIfBlank == nil ? .task : .result)
+  }
 
   var body: some View {
     VStack(spacing: 0) {
       if detail.schedule != nil {
         TasksRecurrenceSummaryView(model: model, task: detail)
       }
-      if detail.stage.behavior == .terminalSuccess {
-        TasksCompletedTabBar(selection: $selectedTab)
-        TasksResultPager(selection: $selectedTab) {
-          ScrollView {
-            TasksCompletedResultView(taskDocument: detail.taskDocument, reviewDocument: detail.reviewDocument)
-          }
-          .scrollDismissesKeyboard(.interactively)
-        } transcript: {
-          transcriptScroller
+      TasksDetailTabBar(selection: $selectedTab, tabs: availableTabs)
+      TasksDetailPager(selection: $selectedTab, tabs: availableTabs) {
+        ScrollView {
+          TasksDocumentView(document: detail.resultDocument ?? "", fileName: "RESULT.md")
         }
-      } else {
+        .scrollDismissesKeyboard(.interactively)
+      } task: {
+        ScrollView {
+          TasksDocumentView(document: detail.taskDocument, fileName: "TASK.md")
+        }
+        .scrollDismissesKeyboard(.interactively)
+      } transcript: {
         transcriptScroller
       }
     }
@@ -159,8 +167,19 @@ private struct TasksDetailContent: View {
     }
     .onChange(of: detail.id) { _, _ in
       gateResponse = ""
-      selectedTab = .result
+      selectedTab = detail.resultDocument?.nilIfBlank == nil ? .task : .result
     }
+    .onChange(of: detail.resultDocument?.nilIfBlank != nil) { _, hasResult in
+      if !hasResult, selectedTab == .result {
+        selectedTab = .task
+      }
+    }
+  }
+
+  private var availableTabs: [TaskDetailTab] {
+    detail.resultDocument?.nilIfBlank == nil
+      ? [.task, .transcript]
+      : [.result, .task, .transcript]
   }
 
   private var taskActionsMenu: some View {

@@ -145,6 +145,10 @@ surface abstraction.
 The web app uses Astryx and StyleX. Generated GraphQL types are the client
 contract; do not add hand-maintained mirrors for generated query shapes.
 
+Task detail reads `Result` from `RESULT.md` and `Task` from `TASK.md`.
+It shows `Result`, `Task`, and `Transcript` in that order when a result exists.
+It omits blank results and never appends `REVIEW.md` to either document view.
+
 Memory articles keep prose primary. One numeric citation represents one nearby
 claim. Its hover or focus card shows every exact evidence source with type,
 date, excerpt, and identifier.

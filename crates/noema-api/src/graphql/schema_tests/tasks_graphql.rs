@@ -73,6 +73,7 @@ fn tasks_schema_exposes_exact_detail_attention_and_closed_vocabularies() {
     for field in [
         "descriptionPreview: String!",
         "taskDocument: String!",
+        "resultDocument: String",
         "reviewDocument: String",
         "messages: [TaskMessage!]!",
         "runs: [TaskRun!]!",
@@ -296,7 +297,7 @@ async fn task_mutations_reject_whitespace_idempotency_aliases() {
 #[tokio::test]
 async fn capture_task_returns_authoritative_task_projection() {
     let store = crate::test_support::test_store().await;
-    let schema = build_schema(GraphqlState::for_tests_with_store(store));
+    let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
     let response = schema
         .execute(
             r#"mutation {
@@ -320,6 +321,7 @@ async fn capture_task_returns_authoritative_task_projection() {
                   generation
                   schedule { scheduledFor timeZone recurrenceId recurrenceRevision }
                   taskDocument
+                  resultDocument
                   reviewDocument
                   artifacts { artifactId }
                 }
@@ -345,6 +347,7 @@ async fn capture_task_returns_authoritative_task_projection() {
                 "/captureTask/task/taskDocument",
                 json!("# Capture through Tasks\n\nA durable capture\n"),
             ),
+            ("/captureTask/task/resultDocument", serde_json::Value::Null),
             ("/captureTask/task/reviewDocument", serde_json::Value::Null),
             ("/captureTask/task/artifacts", json!([])),
         ],
@@ -355,6 +358,27 @@ async fn capture_task_returns_authoritative_task_projection() {
             .is_some_and(|cursor| !cursor.is_empty())
     );
     assert!(data["captureTask"]["task"]["schedule"]["recurrenceId"].as_str().is_some());
+    let task_id = noema_tasks::TaskId::new(
+        data["captureTask"]["task"]["taskId"]
+            .as_str()
+            .expect("Task id")
+            .to_string(),
+    )
+    .expect("valid Task id");
+    store
+        .write_task_file(&task_id, noema_store::TASK_RESULT, "Current result.\n")
+        .await
+        .expect("write current result");
+    let current = response_json(
+        schema
+            .execute(format!(
+                "query {{ task(taskId: \"{}\") {{ resultDocument }} }}",
+                task_id.as_str()
+            ))
+            .await,
+        "current Task result",
+    );
+    assert_eq!(current["task"]["resultDocument"], json!("Current result.\n"));
 }
 
 #[tokio::test]

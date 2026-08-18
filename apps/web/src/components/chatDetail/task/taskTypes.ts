@@ -122,6 +122,7 @@ export type TaskDetail = {
   stageBehavior: TaskStageBehavior;
   capturedRequest: string;
   taskDocument: string;
+  resultDocument?: string | null;
   reviewDocument?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;

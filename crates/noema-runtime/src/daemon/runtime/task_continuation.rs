@@ -126,7 +126,7 @@ pub(super) fn build_task_finalization_prompt(
             if reason.contains("human input") {
                 "Call task.report_blocked exactly once with the blocking question and the work completed so far."
             } else {
-                "Save the best current result in TASK.md. Then call task.finish_execution exactly once."
+                "Save the best current result in RESULT.md. Then call task.finish_execution exactly once."
             }
         }
         ExecutionRole::TaskReviewer => {

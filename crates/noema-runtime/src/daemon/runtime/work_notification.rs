@@ -206,9 +206,14 @@ fn build_notification_prompt(kind: NotificationKind, task: &noema_store::WorkTas
         prompt.push_str(&gate.context_markdown);
         prompt.push('\n');
     }
-    prompt.push_str("Current Task result:\n");
+    prompt.push_str("Current Task notes:\n");
     prompt.push_str(&task.task_document);
     prompt.push('\n');
+    if let Some(result) = task.result_document.as_deref() {
+        prompt.push_str("Current submitted result:\n");
+        prompt.push_str(result);
+        prompt.push('\n');
+    }
     if !task.artifacts.is_empty() {
         prompt.push_str(
             "Accepted result artifacts will be attached automatically after your text. Refer to them naturally when useful; do not emit structured artifact-selection output.\nArtifact manifest:\n",

@@ -1,8 +1,9 @@
 import Foundation
 import SwiftUI
 
-enum TaskResultTab: String, CaseIterable, Identifiable {
+enum TaskDetailTab: String, Identifiable {
   case result
+  case task
   case transcript
 
   var id: String { rawValue }
@@ -164,13 +165,14 @@ struct TasksCancelSheet: View {
   }
 }
 
-struct TasksCompletedTabBar: View {
-  @Binding var selection: TaskResultTab
+struct TasksDetailTabBar: View {
+  @Binding var selection: TaskDetailTab
+  let tabs: [TaskDetailTab]
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     HStack(spacing: NoemaSpacing.xxs) {
-      ForEach(TaskResultTab.allCases) { tab in
+      ForEach(tabs) { tab in
         Button {
           withAnimation(NoemaMotion.animation(NoemaSpring.surface, reduceMotion: reduceMotion)) {
             selection = tab
@@ -203,13 +205,13 @@ struct TasksCompletedTabBar: View {
   }
 }
 
-struct TasksCompletedResultView: View {
-  let taskDocument: String
-  let reviewDocument: String?
+struct TasksDocumentView: View {
+  let document: String
+  let fileName: String
 
   var body: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-      if let response = taskDocument.nilIfBlank {
+      if let response = document.nilIfBlank {
         ProviderCitationMarkdown(
           text: response,
           citations: [],
@@ -217,14 +219,9 @@ struct TasksCompletedResultView: View {
         )
           .textSelection(.enabled)
       } else {
-        Text("The accepted response has no text content.")
+        Text("\(fileName) has no text content.")
           .font(NoemaFont.taskTitle)
           .foregroundStyle(NoemaColor.contentSecondary)
-      }
-      if let reviewDocument = reviewDocument?.nilIfBlank {
-        Divider()
-        NoemaMarkdown(reviewDocument, role: .secondary)
-          .textSelection(.enabled)
       }
     }
     .frame(maxWidth: 760, alignment: .leading)

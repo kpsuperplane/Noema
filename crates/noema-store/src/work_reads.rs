@@ -289,6 +289,19 @@ impl NoemaStore {
             .map_err(|error| StoreError::InvariantViolation {
                 message: error.to_string(),
             })?;
+        detail.result_document = match self.read_task_file(&task_id, crate::TASK_RESULT).await {
+            Ok(content) => Some(content),
+            Err(crate::TaskFileError::Io(error))
+                if error.kind() == std::io::ErrorKind::NotFound =>
+            {
+                None
+            }
+            Err(error) => {
+                return Err(StoreError::InvariantViolation {
+                    message: error.to_string(),
+                });
+            }
+        };
         detail.review_document = match self.read_task_file(&task_id, crate::TASK_REVIEW).await {
             Ok(content) => Some(content),
             Err(crate::TaskFileError::Io(error))

@@ -90,6 +90,7 @@ impl LoadedWorkTask {
             project: self.project,
             stage: self.stage,
             task_document: String::new(),
+            result_document: None,
             review_document: None,
             working_directory: String::new(),
             current_run: self.current_run,

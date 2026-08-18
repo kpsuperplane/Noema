@@ -1191,6 +1191,7 @@ final class TasksModel {
   ) -> TasksDetailSnapshot {
     var next = previous ?? emptyDetail(taskId: source.taskId)
     next.taskDocument = source.taskDocument
+    next.resultDocument = source.resultDocument
     next.reviewDocument = source.reviewDocument
     return next
   }
@@ -1209,6 +1210,7 @@ final class TasksModel {
       createdAt: "",
       sourceLabel: nil,
       taskDocument: "",
+      resultDocument: nil,
       reviewDocument: nil,
       currentRun: nil,
       activeGate: nil,
@@ -1219,7 +1221,7 @@ final class TasksModel {
   }
 
   private func mergeCommand(_ source: TasksCommandTaskFields, into previous: TasksDetailSnapshot?) -> TasksDetailSnapshot {
-    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, description: source.description, project: nil, executor: TasksExecutorSnapshot.default, schedule: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, createdAt: "", sourceLabel: nil, taskDocument: "", reviewDocument: nil, currentRun: nil, activeGate: nil, messages: [], runs: [], validActions: [])
+    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, description: source.description, project: nil, executor: TasksExecutorSnapshot.default, schedule: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, createdAt: "", sourceLabel: nil, taskDocument: "", resultDocument: nil, reviewDocument: nil, currentRun: nil, activeGate: nil, messages: [], runs: [], validActions: [])
     next.title = source.title
     next.description = source.description
     next.executor = mapExecutor(agentId: source.executorAgentId, backend: source.executorBackend, cwdOverride: source.cwdOverride, effectiveCwd: source.effectiveCwd, effectiveCwdSource: source.effectiveCwdSource)

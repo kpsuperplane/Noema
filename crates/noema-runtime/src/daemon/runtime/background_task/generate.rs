@@ -608,9 +608,10 @@ impl RuntimeActor {
                 ) => result,
             };
             if propagate_compaction_result(compaction_result)? {
-                append_task_document_after_compaction(
+                append_task_files_after_compaction(
                     &self.store,
                     &request.task_id,
+                    request.role,
                     &mut context,
                 )
                 .await?;

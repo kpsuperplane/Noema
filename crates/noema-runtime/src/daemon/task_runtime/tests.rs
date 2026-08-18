@@ -722,7 +722,11 @@ async fn runtime_shutdown_queues_an_interrupted_run_for_retry() {
 #[tokio::test]
 async fn malformed_terminal_is_repaired_in_the_same_executor_run() {
     let store = crate::test_support::test_store().await;
-    let (_task, run) = crate::test_support::seed_task(&store, "Terminal repair").await;
+    let (task, run) = crate::test_support::seed_task(&store, "Terminal repair").await;
+    store
+        .write_task_file(&task.task_id, noema_store::TASK_RESULT, "Repaired result.")
+        .await
+        .expect("write result");
     let provider = Arc::new(TerminalRepairProvider::new(false));
     let (runtime, task_runtime) =
         start_task_runtime(provider.clone(), &store, RuntimeEventRegistry::default()).await;

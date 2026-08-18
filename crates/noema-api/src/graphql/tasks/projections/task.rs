@@ -96,6 +96,7 @@ graphql_object! { "Full task detail projection." => pub struct GraphqlTaskDetail
     "Full title." => title: String,
     "Full description Markdown." => description: String,
     "Current mutable TASK.md content." => task_document: String,
+    "Current mutable RESULT.md content, when it exists." => result_document: Option<String>,
     "Current mutable REVIEW.md content, when it exists." => review_document: Option<String>,
     "The only task-level state." => stage: GraphqlWorkflowStage,
     "Optimistic revision." => revision: i64,

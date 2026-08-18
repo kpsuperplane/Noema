@@ -39,10 +39,11 @@ slice or a net-negative reduction.
   execute a reviewed external write when that classification permits it.
 - A human decision approves or declines one exact action request. Approval is
   one-shot and is consumed during execution admission.
-- A correction Executor reads the current `TASK.md` and `REVIEW.md` files.
+- A correction Executor reads current `TASK.md`, `RESULT.md`, and `REVIEW.md` files.
 - Task state changes use a current-run check. Old generations and stale worker
   claims cannot change the current task.
-- `TASK.md` is the mutable Task content and result authority.
+- `TASK.md` is the mutable Task request, plan, notes, progress, and questions authority.
+  `RESULT.md` is the mutable submitted result authority.
   `REVIEW.md` contains current Reviewer feedback when feedback exists.
 - Planner, Executor, and Reviewer handoffs use current Task files.
   Noema does not store content snapshots for those handoffs.

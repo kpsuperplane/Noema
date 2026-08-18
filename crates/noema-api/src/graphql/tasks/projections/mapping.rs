@@ -123,6 +123,7 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         title: value.task.title,
         description: value.task.description_markdown,
         task_document: value.task_document,
+        result_document: value.result_document,
         review_document: value.review_document,
         stage: value.stage.into(),
         revision: exact_u64(value.task.revision)?,

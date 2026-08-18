@@ -166,6 +166,7 @@ export const TasksTaskDetailDocument = gql`
         conversationId
       }
       taskDocument
+      resultDocument
       reviewDocument
       attention {
         kind

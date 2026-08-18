@@ -60,6 +60,58 @@ fn v50_task_file_conversion_preserves_existing_task_document_and_retries() {
     assert!(explicit.contains("Explicit request."));
 }
 
+#[test]
+fn v56_result_migration_copies_only_submitted_tasks_and_preserves_results() {
+    let home = TempDir::new().expect("temp store root");
+    let database = home.path().join("db/noema.sqlite3");
+    fs::create_dir_all(database.parent().expect("database parent")).expect("database directory");
+    let mut connection = Connection::open(&database).expect("open database");
+    store_migrations()
+        .to_version(&mut connection, 55)
+        .expect("migrate to v55");
+    for (id, directory, stage) in [
+        ("task:submitted", "submitted", "stage:personal:done"),
+        ("task:pending", "pending", "stage:personal:queue"),
+        ("task:preserved", "preserved", "stage:personal:done"),
+    ] {
+        connection
+            .execute(
+                "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, description_markdown, executor_agent_id, task_directory, source_kind, created_by_actor_id) VALUES (?1, 'workspace:personal', 'workflow:personal:default', ?2, ?1, '', 'agent:system:task-executor', ?3, 'system', 'actor:system')",
+                params![id, stage, directory],
+            )
+            .expect("insert Task");
+        let root = home.path().join("tasks").join(directory);
+        fs::create_dir_all(&root).expect("Task directory");
+        fs::write(root.join("TASK.md"), format!("Current {id}\n")).expect("Task file");
+    }
+    fs::write(
+        home.path().join("tasks/preserved/RESULT.md"),
+        "Existing result\n",
+    )
+    .expect("existing result");
+
+    store_migrations()
+        .to_latest(&mut connection)
+        .expect("migrate to v56");
+
+    assert_eq!(
+        fs::read_to_string(home.path().join("tasks/submitted/RESULT.md")).expect("copied result"),
+        "Current task:submitted\n"
+    );
+    assert!(!home.path().join("tasks/pending/RESULT.md").exists());
+    assert_eq!(
+        fs::read_to_string(home.path().join("tasks/preserved/RESULT.md"))
+            .expect("preserved result"),
+        "Existing result\n"
+    );
+    assert_eq!(
+        connection
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))
+            .expect("schema version"),
+        56
+    );
+}
+
 #[tokio::test]
 async fn fresh_migrations_are_exact_idempotent_and_enforce_foreign_keys() {
     let home = TempDir::new().expect("temp store root");

@@ -51,6 +51,48 @@ impl WorkCommandService {
                 message: "actor and correlation identifiers are required".to_string(),
             }));
         }
+        if let WorkRunTerminal::FinishExecution(execution) = &terminal {
+            let run = self
+                .store
+                .get_work_run_record(&execution.fence.run_id)
+                .await?
+                .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
+            if !matches!(run.status, RunStatus::Running | RunStatus::Completed)
+                || run.task_generation != execution.fence.task_generation
+                || (run.status == RunStatus::Running
+                    && run.lease_token.as_deref() != Some(execution.fence.lease_token.as_str()))
+            {
+                return Err(StoreError::Work(WorkDomainError::RunFenced));
+            }
+            if run.status == RunStatus::Running {
+                let result = match self
+                    .store
+                    .read_task_file(&run.task_id, crate::TASK_RESULT)
+                    .await
+                {
+                    Ok(content) => content,
+                    Err(crate::TaskFileError::Io(error))
+                        if error.kind() == std::io::ErrorKind::NotFound =>
+                    {
+                        return Err(StoreError::Work(WorkDomainError::InvalidInput {
+                            field: "result_document",
+                            message: "RESULT.md must contain the submitted result".to_string(),
+                        }));
+                    }
+                    Err(error) => {
+                        return Err(StoreError::InvariantViolation {
+                            message: error.to_string(),
+                        });
+                    }
+                };
+                if result.trim().is_empty() {
+                    return Err(StoreError::Work(WorkDomainError::InvalidInput {
+                        field: "result_document",
+                        message: "RESULT.md must contain the submitted result".to_string(),
+                    }));
+                }
+            }
+        }
         let review_backup = if let WorkRunTerminal::FinishReview(review) = &terminal {
             let run = self
                 .store

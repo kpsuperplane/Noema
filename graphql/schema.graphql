@@ -4681,6 +4681,10 @@ type TaskDetail {
 	"""
 	taskDocument: String!
 	"""
+	Current mutable RESULT.md content, when it exists.
+	"""
+	resultDocument: String
+	"""
 	Current mutable REVIEW.md content, when it exists.
 	"""
 	reviewDocument: String

@@ -186,6 +186,8 @@ pub struct WorkTaskDetail {
     pub stage: WorkflowStage,
     /// Current mutable Task document.
     pub task_document: String,
+    /// Current mutable submitted result, when it exists.
+    pub result_document: Option<String>,
     /// Current mutable review feedback, when review has started.
     pub review_document: Option<String>,
     /// Current Task working directory resolved from live project state.

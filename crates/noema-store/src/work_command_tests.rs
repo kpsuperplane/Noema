@@ -171,6 +171,82 @@ async fn final_run_status_finishes_active_items_and_debug_spans() {
 }
 
 #[tokio::test]
+async fn finish_execution_requires_nonblank_result() {
+    let (store, service) = fixture().await;
+    let task = service
+        .execute(direct_delegated("idem:required-result", "required-result"))
+        .await
+        .expect("delegate Task")
+        .task
+        .expect("Task");
+    let claimed = service
+        .claim_next_work_run("worker:required-result", 60, &[])
+        .await
+        .expect("claim Executor")
+        .expect("Executor");
+    let fence = WorkRunFence {
+        run_id: claimed.run.run_id,
+        lease_token: claimed.lease_token,
+        task_generation: claimed.run.task_generation,
+    };
+    service
+        .start_work_run(&fence, ACTOR, None, "correlation:required-result")
+        .await
+        .expect("start Executor");
+    for (case, content) in [("missing", None), ("blank", Some(" \n"))] {
+        if let Some(content) = content {
+            store
+                .write_task_file(&task.task_id, crate::TASK_RESULT, content)
+                .await
+                .expect("write blank result");
+        }
+        let error = service
+            .record_work_run_terminal(
+                WorkRunTerminal::FinishExecution(FinishExecution {
+                    fence: fence.clone(),
+                }),
+                ACTOR,
+                None,
+                &format!("correlation:required-result:{case}"),
+            )
+            .await
+            .expect_err("reject invalid result");
+        assert!(matches!(
+            error,
+            StoreError::Work(WorkDomainError::InvalidInput {
+                field: "result_document",
+                ..
+            })
+        ));
+    }
+}
+
+#[tokio::test]
+async fn required_task_documents_cannot_be_deleted() {
+    let (store, service) = fixture().await;
+    let task = service
+        .execute(direct_delegated("idem:required-files", "required-files"))
+        .await
+        .expect("delegate Task")
+        .task
+        .expect("Task");
+    store
+        .ensure_task_document(&task.task_id)
+        .await
+        .expect("create Task document");
+    store
+        .write_task_file(&task.task_id, crate::TASK_RESULT, "Current result.")
+        .await
+        .expect("write result");
+    for required in [crate::TASK_DOCUMENT, crate::TASK_RESULT] {
+        assert!(matches!(
+            store.delete_task_file(&task.task_id, required).await,
+            Err(crate::TaskFileError::RequiredDocument)
+        ));
+    }
+}
+
+#[tokio::test]
 async fn task_files_carry_execution_across_continuation_and_review() {
     let (store, service) = fixture().await;
     let task = service
@@ -232,7 +308,7 @@ async fn task_files_carry_execution_across_continuation_and_review() {
     store
         .write_task_file(
             &task.task_id,
-            crate::TASK_DOCUMENT,
+            crate::TASK_RESULT,
             "Completed file result.\n",
         )
         .await
@@ -313,7 +389,11 @@ async fn task_files_carry_execution_across_continuation_and_review() {
         .await
         .expect("read Task")
         .expect("Task");
-    assert_eq!(detail.task_document, "Completed file result.\n");
+    assert!(detail.task_document.contains("file-lifecycle"));
+    assert_eq!(
+        detail.result_document.as_deref(),
+        Some("Completed file result.\n")
+    );
     assert_eq!(
         detail.review_document.as_deref(),
         Some("The current Task result is complete.")

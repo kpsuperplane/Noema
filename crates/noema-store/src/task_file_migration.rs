@@ -100,6 +100,76 @@ pub(crate) fn isolate_explicit_task_directories(transaction: &Transaction<'_>) -
     Ok(())
 }
 
+pub(crate) fn create_result_documents(transaction: &Transaction<'_>) -> HookResult {
+    let database_path: String = transaction.query_row(
+        "SELECT file FROM pragma_database_list WHERE name = 'main'",
+        [],
+        |row| row.get(0),
+    )?;
+    let home_root = infer_home_root(Path::new(&database_path));
+    let mut statement = transaction.prepare(
+        r#"SELECT t.task_id, t.cwd_override, t.task_directory, p.folder
+           FROM tasks AS t
+           JOIN workflow_stages AS stage
+             ON stage.workflow_id = t.workflow_id AND stage.stage_id = t.stage_id
+           LEFT JOIN projects AS p ON p.project_id = t.project_id
+           WHERE stage.system_behavior = 'terminal_success'
+              OR EXISTS (
+                   SELECT 1 FROM agent_runs AS run
+                   WHERE run.task_id = t.task_id AND run.run_kind = 'reviewer'
+              )
+           ORDER BY t.task_id"#,
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, Option<String>>(3)?,
+        ))
+    })?;
+    for row in rows {
+        let (task_id, cwd_override, task_directory, project_folder) = row?;
+        let task_root = cwd_override
+            .map(|root| PathBuf::from(root).join(&task_directory))
+            .or_else(|| project_folder.map(|project| PathBuf::from(project).join(&task_directory)))
+            .unwrap_or_else(|| home_root.join("tasks").join(&task_directory));
+        copy_result_document(&task_id, &task_root)
+            .map_err(|error| HookError::Hook(error.to_string()))?;
+    }
+    Ok(())
+}
+
+fn copy_result_document(task_id: &str, task_root: &Path) -> std::io::Result<()> {
+    reject_symlink_components(task_root)?;
+    let result_path = task_root.join(crate::TASK_RESULT);
+    if entry_exists(&result_path)? {
+        return Ok(());
+    }
+    let task_path = task_root.join(crate::TASK_DOCUMENT);
+    let metadata = fs::symlink_metadata(&task_path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("required TASK.md is unsafe for {task_id}"),
+        ));
+    }
+    if metadata.len() > TASK_FILE_TEXT_LIMIT as u64 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("required TASK.md exceeds 64 KiB for {task_id}"),
+        ));
+    }
+    let content = fs::read(&task_path)?;
+    std::str::from_utf8(&content).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("required TASK.md is not UTF-8 for {task_id}"),
+        )
+    })?;
+    atomic_write(&result_path, &content)
+}
+
 struct LegacyTask {
     task_id: String,
     title: String,
