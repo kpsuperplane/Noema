@@ -1,5 +1,4 @@
 /target/
-/attach
 /apps/web/target/
 /crates/noema-memory/target/
 /crates/noema-server/target/
