@@ -203,7 +203,13 @@ impl NoemaStore {
         let access = self.task_file_access(task_id).await?;
         let relative = access.resolve(path, true)?;
         verify_components(&access.boundary, &relative, false)?;
-        let directory = access.boundary.open_dir(&relative)?;
+        let directory = access
+            .boundary
+            .open_dir(if relative.as_os_str().is_empty() {
+                Path::new(".")
+            } else {
+                &relative
+            })?;
         let mut entries = Vec::new();
         for entry in directory.entries()? {
             let entry = entry?;
@@ -674,5 +680,29 @@ mod tests {
                 Err(TaskFileError::SymbolicLink)
             ));
         }
+    }
+
+    #[tokio::test]
+    async fn standalone_task_lists_its_root_directory() {
+        let home = tempfile::tempdir().expect("home");
+        let store = NoemaStore::open(&StoreConfig::new(home.path().join("db/noema.sqlite3")))
+            .await
+            .expect("store");
+        store
+            .with_connection(|connection| {
+                connection.execute(
+                    "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, description_markdown, executor_agent_id, task_directory, source_kind, created_by_actor_id) VALUES ('task:standalone-files', 'workspace:personal', 'workflow:personal:default', 'stage:personal:queue', 'Standalone', '', 'agent:system:task-executor', 'standalone', 'system', 'actor:system')",
+                    [],
+                )?;
+                Ok(())
+            })
+            .await
+            .expect("Task");
+        let task_id = TaskId::new("task:standalone-files").expect("Task id");
+        store.ensure_task_document(&task_id).await.expect("TASK.md");
+
+        let entries = store.list_task_files(&task_id, ".").await.expect("list");
+
+        assert!(entries.iter().any(|entry| entry.path == TASK_DOCUMENT));
     }
 }

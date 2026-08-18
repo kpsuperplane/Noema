@@ -47,6 +47,10 @@ slice or a net-negative reduction.
   `REVIEW.md` contains current Reviewer feedback when feedback exists.
 - Planner, Executor, and Reviewer handoffs use current Task files.
   Noema does not store content snapshots for those handoffs.
+- An Executor can submit an honest limitation report for an impossible outcome.
+  Human-resolvable blocks and per-run ceilings do not qualify as system limitations.
+- Every Task role run receives a fresh current clock.
+  Captured request time remains separate data for interpreting the original request.
 - A final task transaction finishes active run items and open debug spans.
   Unknown external outcomes are not retried automatically.
 - Provider request settings do not authorize returned tool input. Every returned

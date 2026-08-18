@@ -106,7 +106,12 @@ The normal path is:
 
 The Executor can call `task.continue_execution` when more execution is useful.
 That call queues another Executor without human action.
-`task.report_blocked` remains for a specific missing answer, approval, or requirement.
+The Executor calls `task.report_blocked` when a specific human response can enable progress.
+The Executor can submit a limitation report when the requested outcome is impossible for Noema.
+Physical actions that require embodiment are obvious limitations.
+A limitation report is also valid for a missing capability or enforced hard limit.
+It is not valid when retry, continuation, human input, or another authorized approach can complete the Task.
+The Reviewer approves an honest limitation report as a completed Task result.
 
 Reopened Tasks reuse their current files.
 Completed views read current `TASK.md` and optional `RESULT.md` separately.
@@ -145,6 +150,12 @@ The Planner reads current `TASK.md`.
 The Executor reads current `TASK.md`, optional `RESULT.md`, and optional `REVIEW.md`.
 The Reviewer reads current `TASK.md`, required `RESULT.md`, and optional `REVIEW.md`.
 Role prompts must not prescribe batches, checklists, or document sections.
+
+Each role receives a fresh current run clock as system context.
+Scheduled Tasks use their schedule timezone.
+Other Tasks use the source request timezone when one was captured.
+The captured request date and time remain Task data for interpreting relative terms in the original request.
+They never replace the current run clock.
 
 Generic context compaction remains the only compaction system.
 After compaction, the runtime reloads the same current files for the active role.

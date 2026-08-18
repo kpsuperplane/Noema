@@ -123,11 +123,7 @@ pub(super) fn build_task_finalization_prompt(
             "Save the current plan in TASK.md. Then call task.finish_planning or task.report_blocked exactly once."
         }
         ExecutionRole::TaskExecutor => {
-            if reason.contains("human input") {
-                "Call task.report_blocked exactly once with the blocking question and the work completed so far."
-            } else {
-                "Save the best current result in RESULT.md. Then call task.finish_execution exactly once."
-            }
+            "Choose one terminal from current durable evidence. Call task.finish_execution only when the existing RESULT.md completes the Task or truthfully reports an impossible system limitation. Call task.continue_execution when another run can make progress. Call task.report_blocked when a specific human response can enable progress. A per-run ceiling or one failed tool call is not a system limitation."
         }
         ExecutionRole::TaskReviewer => {
             "Call task.finish_review exactly once with the most defensible decision and concise feedback."
@@ -135,7 +131,7 @@ pub(super) fn build_task_finalization_prompt(
         ExecutionRole::PrimaryConversation => "Return the best final response now.",
     };
     format!(
-        "The execution must stop because: {reason}.\n{terminal_instruction}\nDo not call any external tools. Do not discard useful completed work.\n\nOriginal request:\n{original_input}"
+        "The current run must stop because: {reason}.\n{terminal_instruction}\nCall exactly one role-valid terminal tool. Do not call other tools. Do not discard useful completed work.\n\nOriginal request:\n{original_input}"
     )
 }
 
@@ -203,5 +199,26 @@ mod tests {
 
         assert!(payload.get("arguments").is_none());
         assert_eq!(payload["payload"]["status"], "review_required");
+    }
+
+    #[test]
+    fn executor_finalization_does_not_infer_outcome_from_reason_text() {
+        let ordinary = build_task_finalization_prompt(
+            ExecutionRole::TaskExecutor,
+            "tool-call safety ceiling reached",
+            "Complete the Task.",
+        );
+        let human = build_task_finalization_prompt(
+            ExecutionRole::TaskExecutor,
+            "progress audit requires human input",
+            "Complete the Task.",
+        );
+
+        for prompt in [ordinary, human] {
+            assert!(prompt.contains("task.finish_execution"));
+            assert!(prompt.contains("task.continue_execution"));
+            assert!(prompt.contains("task.report_blocked"));
+            assert!(prompt.contains("impossible system limitation"));
+        }
     }
 }

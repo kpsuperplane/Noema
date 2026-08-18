@@ -258,7 +258,7 @@ async fn generate_once(
     fence: &WorkRunFence,
     cancellation: &CancellationToken,
     prompt: TaskRolePrompt,
-    runtime_environment: Option<String>,
+    runtime_environment: Option<crate::daemon::runtime::model_context::RuntimeEnvironmentContext>,
     subscriptions: &RuntimeEventRegistry,
 ) -> Result<BackgroundTaskGenerateResult, RuntimeError> {
     let request = background_task_generate_request(
@@ -277,7 +277,7 @@ fn background_task_generate_request(
     fence: &WorkRunFence,
     cancellation: &CancellationToken,
     prompt: TaskRolePrompt,
-    runtime_environment: Option<String>,
+    runtime_environment: Option<crate::daemon::runtime::model_context::RuntimeEnvironmentContext>,
     subscriptions: &RuntimeEventRegistry,
 ) -> BackgroundTaskGenerateRequest {
     BackgroundTaskGenerateRequest {
@@ -298,19 +298,22 @@ fn background_task_generate_request(
     }
 }
 
-fn task_runtime_environment(context: &WorkRunExecutionContext) -> Option<String> {
-    context.task.schedule_time_zone.as_deref().map_or_else(
-        || context.source_runtime_environment.clone(),
-        |time_zone| {
-            Some(
-                crate::daemon::runtime::turn::current_runtime_environment_with_timezone(
-                    None,
-                    Some(time_zone),
-                )
-                .render(),
-            )
-        },
-    )
+fn task_runtime_environment(
+    context: &WorkRunExecutionContext,
+) -> Option<crate::daemon::runtime::model_context::RuntimeEnvironmentContext> {
+    let time_zone = task_time_zone(
+        context.task.schedule_time_zone.as_deref(),
+        context.source_runtime_environment.as_ref(),
+    );
+    Some(crate::daemon::runtime::turn::current_runtime_environment_with_timezone(None, time_zone))
+}
+
+fn task_time_zone<'a>(
+    schedule_time_zone: Option<&'a str>,
+    request_environment: Option<&'a noema_store::TaskRequestEnvironment>,
+) -> Option<&'a str> {
+    schedule_time_zone
+        .or_else(|| request_environment.map(|environment| environment.timezone.as_str()))
 }
 
 fn publish_committed(subscriptions: &RuntimeEventRegistry, context: &WorkRunExecutionContext) {
@@ -338,4 +341,27 @@ fn parse_payload<T: serde::de::DeserializeOwned>(
 ) -> Result<T, String> {
     serde_json::from_value(call.payload.clone())
         .map_err(|error| format!("invalid {label} payload: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn task_clock_prefers_schedule_then_request_timezone() {
+        let request = noema_store::TaskRequestEnvironment {
+            current_date: "2026-08-17".to_string(),
+            current_time: "2026-08-17T17:00:00-07:00".to_string(),
+            timezone: "America/Los_Angeles".to_string(),
+        };
+
+        assert_eq!(
+            task_time_zone(None, Some(&request)),
+            Some("America/Los_Angeles")
+        );
+        assert_eq!(
+            task_time_zone(Some("Europe/Paris"), Some(&request)),
+            Some("Europe/Paris")
+        );
+    }
 }

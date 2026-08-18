@@ -63,7 +63,7 @@ impl RuntimeActor {
         );
         let initial_provider_input = task_initial_provider_input(
             &request.input,
-            request.runtime_environment.as_deref(),
+            request.runtime_environment.as_ref(),
         );
         let mut context = ContinuationContext::from_provider_input(initial_provider_input.clone());
         let initial_request = GenerateRequest {
@@ -254,7 +254,10 @@ impl RuntimeActor {
                 initial_stream_id: format!("task_stream:{}:{continuation_index}", request.run_id),
                 response: response.clone(),
                 agent_identity: agent_identity.clone(),
-                runtime_environment: current_runtime_environment(None),
+                runtime_environment: request
+                    .runtime_environment
+                    .clone()
+                    .unwrap_or_else(|| current_runtime_environment(None)),
                 tool_capabilities: capabilities,
                 initial_model_tools: model_tools.clone(),
                 continuation_model_tools: model_tools.clone(),

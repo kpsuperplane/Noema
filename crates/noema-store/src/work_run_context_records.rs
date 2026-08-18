@@ -14,6 +14,17 @@ pub const WORK_RUN_CONTEXT_MAX_GATES: usize = 32;
 pub const WORK_RUN_CONTEXT_MAX_LINEAGE_RUNS: usize = 4;
 /// Maximum number of transcript items copied for each lineage run.
 pub const WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN: usize = 24;
+
+/// Calendar context captured with the human request that created a Task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskRequestEnvironment {
+    /// Human-local date when the source request was made.
+    pub current_date: String,
+    /// Human-local timestamp when the source request was made.
+    pub current_time: String,
+    /// Human-local IANA timezone when the source request was made.
+    pub timezone: String,
+}
 /// One run execution envelope and only the bounded durable evidence a
 /// planner, executor, or reviewer needs at its safe run boundary.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -23,8 +34,8 @@ pub struct WorkRunExecutionContext {
     pub run: AgentRunRecord,
     /// Current task projection fenced by `run.task_generation`.
     pub task: TaskRecord,
-    /// Runtime environment saved immediately before the task's source human item.
-    pub source_runtime_environment: Option<String>,
+    /// Calendar context saved immediately before the Task's source human item.
+    pub source_runtime_environment: Option<TaskRequestEnvironment>,
     /// Workflow definition and stage that describe the current task stage.
     pub workflow: WorkflowDefinition,
     /// Current workflow stage.

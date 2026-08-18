@@ -26,6 +26,7 @@ use super::{
     context_window::{ContextAdmission, RequestContext, admit_request, hard_overflow_error},
     continuation_context::ContinuationContext,
     local_tool_results::LocalToolResult,
+    model_context::RuntimeEnvironmentContext,
     model_tools::{ModelTools, build_model_tools_for_role},
     progress::{ContinuationProgressTracker, DeterministicProgressStop},
     progress_audit::ProgressAuditDecision,
@@ -68,7 +69,7 @@ pub(crate) struct BackgroundTaskGenerateRequest {
     /// User/task prompt supplied to the provider.
     pub input: String,
     /// Exact local runtime environment that governs relative-date reasoning.
-    pub runtime_environment: Option<String>,
+    pub runtime_environment: Option<RuntimeEnvironmentContext>,
     /// System instructions for the executor or reviewer contract.
     pub instructions: String,
     /// Runtime event registry for live task-detail refreshes.
@@ -90,14 +91,17 @@ impl BackgroundTaskGenerateRequest {
     }
 }
 
-fn task_initial_provider_input(input: &str, runtime_environment: Option<&str>) -> GenerateInput {
+fn task_initial_provider_input(
+    input: &str,
+    runtime_environment: Option<&RuntimeEnvironmentContext>,
+) -> GenerateInput {
     runtime_environment.map_or_else(
         || GenerateInput::Text(input.to_string()),
         |environment| {
             GenerateInput::Messages(vec![
                 GenerateMessage {
                     role: GenerateMessageRole::System,
-                    content: environment.to_string(),
+                    content: environment.render(),
                 },
                 GenerateMessage {
                     role: GenerateMessageRole::User,
@@ -247,8 +251,14 @@ mod tests {
 
     #[test]
     fn task_runtime_environment_has_system_authority() {
+        let environment = RuntimeEnvironmentContext::new(
+            "2026-08-12",
+            "2026-08-12T12:00:00-07:00",
+            "America/Los_Angeles",
+            None::<String>,
+        );
         let GenerateInput::Messages(messages) =
-            task_initial_provider_input("Find tonight's event.", Some("current_date: 2026-08-12"))
+            task_initial_provider_input("Find tonight's event.", Some(&environment))
         else {
             panic!("expected messages");
         };

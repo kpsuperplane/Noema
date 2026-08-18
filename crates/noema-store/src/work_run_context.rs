@@ -15,7 +15,8 @@ use crate::{
         load_workspace, validate_current_links,
     },
     work_run_context_records::{
-        WORK_RUN_CONTEXT_MAX_GATES, WORK_RUN_CONTEXT_MAX_MESSAGES, WorkRunExecutionContext,
+        TaskRequestEnvironment, WORK_RUN_CONTEXT_MAX_GATES, WORK_RUN_CONTEXT_MAX_MESSAGES,
+        WorkRunExecutionContext,
     },
     work_runs::rows::load_run_tx,
 };
@@ -122,17 +123,20 @@ pub(super) fn load_work_run_execution_context_tx(
 fn load_source_runtime_environment(
     transaction: &Transaction<'_>,
     provenance: &noema_tasks::TaskProvenance,
-) -> Result<Option<String>, StoreError> {
+) -> Result<Option<TaskRequestEnvironment>, StoreError> {
     let (Some(conversation_id), Some(item_id)) = (
         provenance.conversation_id.as_deref(),
         provenance.item_id.as_deref(),
     ) else {
         return Ok(None);
     };
-    transaction
+    let values = transaction
         .query_row(
             r#"
-            SELECT context.content_text
+            SELECT
+              json_extract(context.payload_json, '$.model_context_update.snapshot.value.current_date'),
+              json_extract(context.payload_json, '$.model_context_update.snapshot.value.current_time'),
+              json_extract(context.payload_json, '$.model_context_update.snapshot.value.timezone')
             FROM conversation_items AS source
             JOIN conversation_items AS context
               ON context.conversation_id = source.conversation_id
@@ -152,11 +156,23 @@ fn load_source_runtime_environment(
             LIMIT 1
             "#,
             params![item_id, conversation_id],
-            |row| row.get::<_, String>(0),
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
         )
-        .optional()?
-        .map(|value| bounded_text(value, "task.source_runtime_environment"))
-        .transpose()
+        .optional()?;
+    let Some((Some(current_date), Some(current_time), Some(timezone))) = values else {
+        return Ok(None);
+    };
+    Ok(Some(TaskRequestEnvironment {
+        current_date: bounded_text(current_date, "task.request_environment.current_date")?,
+        current_time: bounded_text(current_time, "task.request_environment.current_time")?,
+        timezone: bounded_text(timezone, "task.request_environment.timezone")?,
+    }))
 }
 
 fn validate_run_task_fence(run: &AgentRunRecord, task: &TaskRecord) -> Result<(), StoreError> {
@@ -337,7 +353,6 @@ mod source_runtime_environment_tests {
     #[tokio::test]
     async fn task_source_keeps_the_last_runtime_environment_before_the_human_item() {
         let store = crate::tests::test_store().await;
-        let environment = r"NOEMA_MODEL_CONTEXT_UPDATE\ncurrent_date: 2026-08-12";
         let provenance = TaskProvenance {
             source_kind: TaskSourceKind::ChatDelegate,
             conversation_id: Some("conversation:test".to_string()),
@@ -358,17 +373,17 @@ mod source_runtime_environment_tests {
                       ('item:old-environment', 'conversation:test', 1,
                        'model_context_update', 'completed', 'agent:primary',
                        'NOEMA_MODEL_CONTEXT_UPDATE\ncurrent_date: 2026-08-11',
-                       '{"model_context_update":{"section_id":"runtime.environment"}}'),
+                       '{"model_context_update":{"section_id":"runtime.environment","operation":"full","snapshot":{"section_id":"runtime.environment","value":{"current_date":"2026-08-11","current_time":"2026-08-11T17:00:00-07:00","timezone":"America/Los_Angeles","cwd":null}}}}'),
                       ('item:environment', 'conversation:test', 2,
                        'model_context_update', 'completed', 'agent:primary',
                        'NOEMA_MODEL_CONTEXT_UPDATE\ncurrent_date: 2026-08-12',
-                       '{"model_context_update":{"section_id":"runtime.environment"}}'),
+                       '{"model_context_update":{"section_id":"runtime.environment","operation":"replacement","snapshot":{"section_id":"runtime.environment","value":{"current_date":"2026-08-12","current_time":"2026-08-12T17:00:00-07:00","timezone":"America/Los_Angeles","cwd":null}}}}'),
                       ('item:human', 'conversation:test', 3, 'user_text',
                        'completed', 'human:local', 'Find tonight''s concert.', '{}'),
                       ('item:later-environment', 'conversation:test', 4,
                        'model_context_update', 'completed', 'agent:primary',
                        'NOEMA_MODEL_CONTEXT_UPDATE\ncurrent_date: 2026-08-13',
-                       '{"model_context_update":{"section_id":"runtime.environment"}}');
+                       '{"model_context_update":{"section_id":"runtime.environment","operation":"replacement","snapshot":{"section_id":"runtime.environment","value":{"current_date":"2026-08-13","current_time":"2026-08-13T17:00:00-07:00","timezone":"America/Los_Angeles","cwd":null}}}}');
                     "#,
                 )?;
                 let transaction = connection.transaction()?;
@@ -377,6 +392,13 @@ mod source_runtime_environment_tests {
             .await
             .expect("source environment");
 
-        assert_eq!(found.as_deref(), Some(environment));
+        assert_eq!(
+            found,
+            Some(TaskRequestEnvironment {
+                current_date: "2026-08-12".to_string(),
+                current_time: "2026-08-12T17:00:00-07:00".to_string(),
+                timezone: "America/Los_Angeles".to_string(),
+            })
+        );
     }
 }
