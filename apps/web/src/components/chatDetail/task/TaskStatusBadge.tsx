@@ -55,14 +55,12 @@ export function taskStatusFromProjection(task: {
   attention?: unknown | null;
   stage: { behavior: TaskStageBehavior };
   currentRun?: { kind: string } | null;
-  latestReview?: { verdict: string } | null;
 }): TaskStatus {
   if (task.completedAt || task.stage.behavior === "TERMINAL_SUCCESS") return "done";
   if (task.attention || task.stage.behavior === "HUMAN_GATE") return "waiting_for_human";
   if (task.stage.behavior === "TERMINAL_CANCELLED") return "cancelled";
   if (task.stage.behavior === "ACTIVE") {
     if (task.currentRun?.kind === "REVIEWER") return "reviewing";
-    if (task.latestReview?.verdict === "REQUEST_CHANGES") return "revision_requested";
     return "executing";
   }
   return "queued";

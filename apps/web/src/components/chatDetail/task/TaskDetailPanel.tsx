@@ -9,7 +9,6 @@ import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { IdentityAvatar } from "@/components/IdentityAvatar";
 import { springs } from "@/motion/springs";
 import type { TaskDetail, TaskRun, TaskRunItem, TaskRunStatus } from "./taskTypes";
-import { TaskCriterionStatusPopover } from "./TaskCriteria";
 import { TaskCompletedBody } from "./TaskCompletedBody";
 import { taskStageLabel } from "./TaskOverview";
 import { TaskTranscript } from "./TaskTranscript";
@@ -82,14 +81,14 @@ export function TaskDetailPanel({
       taskId={taskId}
     />
   );
-  const completedResult = currentDetail.stageBehavior === "TERMINAL_SUCCESS" ? currentDetail.completedResult : null;
+  const completed = currentDetail.stageBehavior === "TERMINAL_SUCCESS";
 
   return (
     <div data-slot="task-detail-view-viewport" {...stylex.props(styles.viewport)}>
       <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
-        {completedResult ? (
+        {completed ? (
           <TaskCompletedBody
-            key={`completed:${currentDetail.taskId}:${completedResult.id}`}
+            key={`completed:${currentDetail.taskId}`}
             contextCard={contextCard}
             detail={currentDetail}
             liveRunItems={liveRunItems}
@@ -106,7 +105,7 @@ export function TaskDetailPanel({
             />
           </div>
         )}
-        {!completedResult ? contextCard : null}
+        {!completed ? contextCard : null}
       </div>
     </div>
   );
@@ -127,7 +126,6 @@ function TaskContextCard({
   latestRunItems: ReadonlyMap<string, TaskRunItem>;
   showTasksLink: boolean;
 }) {
-  const hasValidation = detail.criteria.length > 0;
   return (
     <aside aria-label="Task summary" {...stylex.props(styles.contextDock)}>
       {governedActions}
@@ -141,7 +139,6 @@ function TaskContextCard({
         />
         <div {...stylex.props(styles.contextBody)}>
           {detail.schedule ? <TaskScheduleSummary schedule={detail.schedule} canRunRecurrenceNow={detail.stageBehavior === "TERMINAL_SUCCESS" || detail.stageBehavior === "TERMINAL_CANCELLED"} /> : null}
-          {hasValidation ? <TaskValidationRow criteria={detail.criteria} /> : null}
         </div>
       </div>
     </aside>
@@ -289,21 +286,6 @@ function TaskInfoTrigger({ detail }: { detail: TaskDetail }) {
   );
 }
 
-function TaskValidationRow({ criteria }: { criteria: TaskDetail["criteria"] }) {
-  return (
-    <section aria-label="Validation" {...stylex.props(styles.validationRow)}>
-      <div {...stylex.props(styles.validationHeader)}>
-        <span {...stylex.props(styles.validationLabel)}>Validation</span>
-        <span {...stylex.props(styles.validationStatuses)}>
-          {criteria.map((criterion) => (
-            <TaskCriterionStatusPopover key={criterion.id} criterion={criterion} />
-          ))}
-        </span>
-      </div>
-    </section>
-  );
-}
-
 function TaskInfoPopoverContent({ detail }: { detail: TaskDetail }) {
   return (
     <div {...stylex.props(styles.infoContent)}>
@@ -317,10 +299,8 @@ function TaskInfoMetadata({ detail }: { detail: TaskDetail }) {
   const provenance = [detail.createdBy, detail.sourceLabel].filter(Boolean).join(" · ");
   return (
     <dl {...stylex.props(styles.metadataSection, styles.metadata)}>
-      {detail.complexity ? <MetadataRow label="Complexity" value={capitalize(detail.complexity)} /> : null}
       <MetadataRow label="Stage" value={taskStageLabel(detail)} />
       {revision > 0 ? <MetadataRow label="Revision" value={`${revision}`} /> : null}
-      {detail.maxReviewRounds ? <MetadataRow label="Review limit" value={`${detail.maxReviewRounds} rounds`} /> : null}
       {detail.createdAt ? <MetadataRow label="Created" value={formatDate(detail.createdAt)} /> : null}
       {provenance ? <MetadataRow label="From" value={provenance} /> : null}
     </dl>
@@ -455,10 +435,6 @@ const styles = stylex.create({
   summaryAction: { width: 28, height: 28 },
   infoButton: { display: "inline-flex", width: 28, height: 28, alignItems: "center", justifyContent: "center", borderWidth: 0, borderRadius: 999, cornerShape: "var(--corner-shape-full)", backgroundColor: "transparent", color: "var(--noema-text-muted)", cursor: "pointer", ":hover": { backgroundColor: "var(--noema-surface-hover)", color: "var(--noema-text-primary)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
   infoPopover: { maxHeight: "min(70vh, 520px)", overflowX: "hidden", overflowY: "auto", padding: "var(--spacing-0)", borderRadius: "var(--radius-container)" },
-  validationRow: { display: "grid", minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)" },
-  validationHeader: { display: "flex", width: "100%", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
-  validationLabel: { color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700 },
-  validationStatuses: { display: "inline-flex", minWidth: 0, alignItems: "center", gap: "var(--spacing-1)" },
   infoContent: { display: "grid", minWidth: 0, overflow: "hidden", borderRadius: "inherit", backgroundColor: "var(--noema-surface-card)" },
   metadataSection: { paddingBlock: "var(--spacing-3)", paddingInline: "var(--spacing-3)" },
   metadata: { display: "grid", gap: "var(--spacing-1-5)", margin: "var(--spacing-0)" },

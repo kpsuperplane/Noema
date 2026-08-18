@@ -8,8 +8,6 @@ export type TaskStatus =
   | "failed"
   | "cancelled";
 
-export type TaskComplexity = "simple" | "medium" | "difficult";
-
 export type TaskStageBehavior =
   | "ACTIVE"
   | "DISPATCH"
@@ -30,10 +28,6 @@ export type TaskRunStatus =
   | "failed"
   | "cancelled";
 
-export type TaskCriterionVerdict = "pending" | "pass" | "fail" | "uncertain";
-
-export type TaskReviewVerdict = "approve" | "request_changes" | "needs_human";
-
 export type TaskAttentionKind =
   | "CLARIFICATION_REQUIRED"
   | "APPROVAL_REQUIRED"
@@ -47,49 +41,12 @@ export type TaskModelSnapshot = {
   inherited?: boolean;
 };
 
-export type TaskCriterion = {
-  id: string;
-  position: number;
-  text: string;
-  expectedEvidence?: string | null;
-  verdict?: TaskCriterionVerdict | null;
-  evidence?: string | null;
-};
-
 export type TaskToolActivity = {
   id: string;
   title: string;
   summary?: string | null;
   status?: "running" | "completed" | "failed" | null;
   occurredAt?: string | null;
-};
-
-export type TaskSubmission = {
-  id: string;
-  executorRunId: string;
-  revision?: number | null;
-  summary?: string | null;
-  result?: string | null;
-  evidence?: string | null;
-  citations?: readonly ProviderCitation[];
-  artifacts?: readonly TaskArtifact[];
-  createdAt?: string | null;
-};
-
-export type TaskCriterionReview = {
-  criterionId: string;
-  verdict: Exclude<TaskCriterionVerdict, "pending">;
-  feedback?: string | null;
-  evidence?: string | null;
-};
-
-export type TaskReview = {
-  id: string;
-  reviewerRunId?: string | null;
-  verdict: TaskReviewVerdict;
-  summary?: string | null;
-  criteria: readonly TaskCriterionReview[];
-  createdAt?: string | null;
 };
 
 export type TaskRunItem = {
@@ -146,21 +103,8 @@ export type TaskRun = {
 export type TaskRevision = {
   revision: number;
   executors: readonly TaskRun[];
-  submission?: TaskSubmission | null;
   reviewers: readonly TaskRun[];
-  review?: TaskReview | null;
   latestRunId?: string | null;
-};
-
-export type TaskArtifact = {
-  id: string;
-  versionId?: string | null;
-  title: string;
-  kind?: string | null;
-  storageKind?: "external_url" | "local_file" | null;
-  mediaType?: string | null;
-  downloadUrl?: string | null;
-  externalUrl?: string | null;
 };
 
 export type TaskDetail = {
@@ -176,19 +120,17 @@ export type TaskDetail = {
   } | null;
   status: TaskStatus;
   stageBehavior: TaskStageBehavior;
-  complexity: TaskComplexity | null;
   capturedRequest: string;
-  criteria: readonly TaskCriterion[];
+  taskDocument: string;
+  reviewDocument?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
   createdBy?: string | null;
   sourceLabel?: string | null;
   currentRevision?: number | null;
-  maxReviewRounds?: number | null;
   executorModel?: TaskModelSnapshot | null;
   reviewerModel?: TaskModelSnapshot | null;
   reviewerModelInherited?: boolean;
-  completedResult?: TaskSubmission | null;
   revisions: readonly TaskRevision[];
   canCancel?: boolean;
   canResume?: boolean;

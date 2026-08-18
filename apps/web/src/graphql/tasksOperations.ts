@@ -1,15 +1,11 @@
 import { gql } from "@apollo/client";
 import {
   TasksCommandTaskFields,
-  TasksContractFields,
   TasksEventFields,
   TasksGateFields,
   TasksPageInfoFields,
   TasksProjectFields,
-  TasksReviewFields,
-  TasksReviewSummaryFields,
   TasksRunFields,
-  TasksSubmissionFields,
   TasksTaskCardFields,
   TasksTaskSummaryFields
 } from "./tasksFragments";
@@ -62,12 +58,6 @@ export const TasksNeedsYouDocument = gql`
           validActions
           gate {
             ...TasksGateFields
-          }
-          review {
-            reviewId
-            verdict
-            feedback
-            createdAt
           }
           task {
             ...TasksTaskCardFields
@@ -175,15 +165,8 @@ export const TasksTaskDetailDocument = gql`
       source {
         conversationId
       }
-      currentContract {
-        ...TasksContractFields
-      }
-      latestReview {
-        ...TasksReviewSummaryFields
-      }
-      completedResult {
-        ...TasksSubmissionFields
-      }
+      taskDocument
+      reviewDocument
       attention {
         kind
         title
@@ -198,21 +181,11 @@ export const TasksTaskDetailDocument = gql`
       runs {
         ...TasksRunFields
       }
-      submissions {
-        ...TasksSubmissionFields
-      }
-      reviews {
-        ...TasksReviewFields
-      }
     }
   }
   ${TasksCommandTaskFields}
   ${TasksProjectFields}
-  ${TasksContractFields}
-  ${TasksSubmissionFields}
-  ${TasksReviewSummaryFields}
   ${TasksRunFields}
-  ${TasksReviewFields}
 `;
 
 export const TasksTaskRunItemsDocument = gql`

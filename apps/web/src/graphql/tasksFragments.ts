@@ -52,18 +52,6 @@ export const TasksGateFields = gql`
   }
 `;
 
-export const TasksReviewSummaryFields = gql`
-  fragment TasksReviewSummaryFields on TaskReviewSummary {
-    reviewId
-    reviewedSubmissionId
-    reviewAttemptIndex
-    supersedesReviewId
-    verdict
-    feedback
-    createdAt
-  }
-`;
-
 export const TasksCurrentRunFields = gql`
   fragment TasksCurrentRunFields on CurrentRunSummary {
     runId
@@ -116,16 +104,12 @@ export const TasksTaskCardFields = gql`
     activeGate {
       ...TasksGateFields
     }
-    latestReview {
-      ...TasksReviewSummaryFields
-    }
     validActions
   }
   ${TasksProjectFields}
   ${TasksStageFields}
   ${TasksCurrentRunFields}
   ${TasksGateFields}
-  ${TasksReviewSummaryFields}
 `;
 
 export const TasksTaskSummaryFields = gql`
@@ -165,9 +149,6 @@ export const TasksTaskSummaryFields = gql`
     activeGate {
       ...TasksGateFields
     }
-    latestReview {
-      ...TasksReviewSummaryFields
-    }
     attention {
       kind
       title
@@ -183,7 +164,6 @@ export const TasksTaskSummaryFields = gql`
   ${TasksStageFields}
   ${TasksCurrentRunFields}
   ${TasksGateFields}
-  ${TasksReviewSummaryFields}
 `;
 
 export const TasksEventFields = gql`
@@ -256,49 +236,6 @@ export const TasksPolicyFields = gql`
     progressAuditInterval
     maxAutomaticRetries
     maxReviewRounds
-  }
-`;
-
-export const TasksContractFields = gql`
-  fragment TasksContractFields on TaskExecutionContract {
-    requestMarkdown
-    criteria { criterionId ordinal description expectedEvidence }
-    complexity
-    executionPolicy { ...TasksPolicyFields }
-    executorAgentId
-    executorBackend
-    effectiveCwd
-  }
-  ${TasksPolicyFields}
-`;
-
-export const TasksSubmissionFields = gql`
-  fragment TasksSubmissionFields on TaskSubmission {
-    submissionId
-    contractId
-    executorRunId
-    reviewRound
-    summary
-    resultMarkdown
-    citations { title url startIndex endIndex }
-    criteria { criterionId evidenceMarkdown }
-    artifacts { artifactId artifactVersionId title artifactKind storageKind mediaType downloadUrl externalUrl }
-    createdAt
-  }
-`;
-
-export const TasksReviewFields = gql`
-  fragment TasksReviewFields on TaskReview {
-    reviewId
-    contractId
-    reviewerRunId
-    reviewedSubmissionId
-    reviewAttemptIndex
-    supersedesReviewId
-    verdict
-    feedback
-    criteria { criterionId outcome evidenceMarkdown feedback }
-    createdAt
   }
 `;
 

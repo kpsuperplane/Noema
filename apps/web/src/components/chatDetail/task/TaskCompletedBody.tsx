@@ -2,9 +2,8 @@ import * as React from "react";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import * as stylex from "@stylexjs/stylex";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
-import { ArtifactReferenceCard } from "@/components/transcript/ArtifactReferenceCard";
 import { ProviderCitationMarkdown } from "@/components/transcript/ProviderCitationSources";
-import type { TaskArtifact, TaskDetail, TaskRunItem } from "./taskTypes";
+import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskTranscript } from "./TaskTranscript";
 
 type CompletedTaskTab = "final-response" | "transcript";
@@ -70,7 +69,7 @@ export function TaskCompletedBody({
         onTouchCancel={() => { swipeOriginRef.current = null; }}
       >
         {activeTab === "final-response" ? (
-          <FinalResponse detail={detail} onOpenDetail={onOpenDetail} />
+          <FinalResponse detail={detail} />
         ) : (
           <div {...stylex.props(styles.transcript)}>
             <TaskTranscript
@@ -87,20 +86,8 @@ export function TaskCompletedBody({
   );
 }
 
-function FinalResponse({
-  detail,
-  onOpenDetail
-}: {
-  detail: TaskDetail;
-  onOpenDetail: (target: ChatDetailTarget) => void;
-}) {
-  const submission = detail.completedResult;
-  if (!submission) return null;
-  const response = submission.result?.trim()
-    ? submission.result
-    : submission.summary?.trim()
-      ? submission.summary
-      : undefined;
+function FinalResponse({ detail }: { detail: TaskDetail }) {
+  const response = detail.taskDocument.trim() || undefined;
 
   return (
     <div data-slot="task-final-response" {...stylex.props(styles.finalScroller)}>
@@ -111,41 +98,29 @@ function FinalResponse({
             contentWidth="min(760px, calc(100% - var(--spacing-6) - var(--spacing-6)))"
             density="default"
             headingLevelStart={1}
-            citations={submission.citations ?? []}
+            citations={[]}
             text={response}
             xstyle={styles.markdown}
           />
         ) : (
           <p {...stylex.props(styles.empty)}>The accepted response has no text content.</p>
         )}
-        {(submission.artifacts ?? []).length > 0 ? (
-          <div aria-label="Final response artifacts" {...stylex.props(styles.artifacts)}>
-            {(submission.artifacts ?? []).map((artifact) => (
-              <ArtifactReferenceCard
-                key={artifact.id}
-                item={artifactReferenceItem(artifact)}
-                onOpenDetail={onOpenDetail}
-              />
-            ))}
-          </div>
+        {detail.reviewDocument?.trim() ? (
+          <section aria-label="Review feedback" {...stylex.props(styles.review)}>
+            <ProviderCitationMarkdown
+              contentAlign="center"
+              contentWidth="min(760px, calc(100% - var(--spacing-6) - var(--spacing-6)))"
+              density="default"
+              headingLevelStart={2}
+              citations={[]}
+              text={detail.reviewDocument}
+              xstyle={styles.markdown}
+            />
+          </section>
         ) : null}
       </div>
     </div>
   );
-}
-
-function artifactReferenceItem(artifact: TaskArtifact) {
-  return {
-    kind: "artifact_reference" as const,
-    artifact_id: artifact.id,
-    artifact_version_id: artifact.versionId ?? null,
-    title: artifact.title,
-    artifact_kind: artifact.kind ?? "artifact",
-    storage_kind: artifact.storageKind ?? "local_file",
-    external_url: artifact.externalUrl ?? null,
-    download_url: artifact.downloadUrl ?? null,
-    media_type: artifact.mediaType ?? null
-  };
 }
 
 const styles = stylex.create({
@@ -187,14 +162,7 @@ const styles = stylex.create({
     fontSize: 14,
     lineHeight: 1.6
   },
-  artifacts: {
-    display: "grid",
-    gap: "var(--spacing-2)",
-    width: "calc(100% - var(--spacing-6) - var(--spacing-6))",
-    maxWidth: 760,
-    marginInline: "auto",
-    justifyItems: "start"
-  },
+  review: { borderTop: "1px solid var(--noema-border-subtle)", paddingBlockStart: "var(--spacing-4)" },
   empty: {
     width: "calc(100% - var(--spacing-6) - var(--spacing-6))",
     maxWidth: 760,
