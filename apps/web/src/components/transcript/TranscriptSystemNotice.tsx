@@ -21,6 +21,9 @@ const styles = stylex.create({
     textAlign: "center",
     wordBreak: "break-word"
   },
+  singleLineRoot: {
+    textAlign: "start"
+  },
   content: {
     display: "inline-flex",
     maxWidth: "100%",
@@ -57,7 +60,10 @@ const styles = stylex.create({
     wordBreak: "break-word"
   },
   singleLineContent: {
-    flexWrap: "nowrap"
+    width: "100%",
+    justifyContent: "flex-start",
+    flexWrap: "nowrap",
+    textAlign: "start"
   },
   singleLineMessage: {
     overflow: "hidden",
@@ -98,6 +104,7 @@ export function TranscriptSystemNotice({
     <div
       {...stylex.props(
         styles.root,
+        singleLine && styles.singleLineRoot,
         tone === "default" && styles.defaultTone,
         tone === "success" && styles.successTone,
         tone === "warning" && styles.warningTone,
@@ -105,12 +112,12 @@ export function TranscriptSystemNotice({
       )}
       role={role ?? "status"}
     >
-      <span {...stylex.props(styles.rule)} aria-hidden="true" />
+      {singleLine ? null : <span {...stylex.props(styles.rule)} aria-hidden="true" />}
       <span {...stylex.props(styles.content, singleLine && styles.singleLineContent)}>
         <span {...stylex.props(styles.avatar)} aria-hidden="true">{leading}</span>
         <span {...stylex.props(styles.message, singleLine && styles.singleLineMessage)}>{children}</span>
       </span>
-      <span {...stylex.props(styles.rule)} aria-hidden="true" />
+      {singleLine ? null : <span {...stylex.props(styles.rule)} aria-hidden="true" />}
     </div>
   );
 }
