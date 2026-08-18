@@ -380,8 +380,7 @@ impl WorkerState {
         let raw = self
             .page
             .evaluate_with_timeout(SNAPSHOT_SCRIPT, Duration::from_millis(500));
-        let raw: RawSnapshot =
-            serde_json::from_value(raw).map_err(|_| WebBrowseError::Unavailable)?;
+        let raw = parse_snapshot(raw)?;
         self.revision = self.revision.saturating_add(1);
         let max_chars = max_chars.clamp(1_000, MAX_SNAPSHOT_CHARS);
         let (text, text_truncated) = truncate_chars(raw.text, max_chars);
@@ -523,6 +522,10 @@ impl WorkerState {
 struct RawSnapshot {
     text: String,
     elements: Vec<RawElement>,
+}
+
+fn parse_snapshot(raw: Value) -> Result<RawSnapshot, WebBrowseError> {
+    serde_json::from_value(raw).map_err(|_| WebBrowseError::NavigationFailed)
 }
 
 #[derive(Deserialize)]
@@ -688,6 +691,14 @@ mod tests {
     #[cfg(unix)]
     use std::path::PathBuf;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn invalid_document_snapshot_is_not_a_worker_failure() {
+        assert!(matches!(
+            parse_snapshot(Value::Null),
+            Err(WebBrowseError::NavigationFailed)
+        ));
+    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn embedded_obscura_snapshots_and_emits_trusted_interactions() {
