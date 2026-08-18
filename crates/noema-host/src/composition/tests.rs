@@ -1,49 +1,5 @@
 use super::*;
 
-#[tokio::test]
-async fn stored_fast_mode_is_restored_to_the_ready_provider() {
-    let store = noema_store::test_support::open_ephemeral_store()
-        .await
-        .expect("open store");
-    let account = store
-        .ensure_default_provider_account()
-        .await
-        .expect("Codex account");
-    store
-        .update_provider_account_metadata(
-            &account.provider_account_id,
-            serde_json::json!({ "fast_mode": true, "profiles": [] }),
-        )
-        .await
-        .expect("save fast mode");
-    let registry = noema_store::test_support::ready_hosted_provider_registry([
-        "provider_account:codex:default",
-    ])
-    .expect("ready provider registry");
-    let key = provider_account_instance_key(&account.provider_account_id).expect("provider key");
-    assert_eq!(
-        registry
-            .lease(&key)
-            .expect("provider lease")
-            .operations()
-            .fast_mode(),
-        Some(false)
-    );
-
-    restore_provider_fast_modes(&store, &registry)
-        .await
-        .expect("restore fast mode");
-
-    assert_eq!(
-        registry
-            .lease(&key)
-            .expect("provider lease")
-            .operations()
-            .fast_mode(),
-        Some(true)
-    );
-}
-
 #[test]
 fn process_env_entrypoint_initializes_and_loads_first_run_home() {
     run_startup_entrypoint_child("process_env");

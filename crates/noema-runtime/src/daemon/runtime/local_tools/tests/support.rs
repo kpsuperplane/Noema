@@ -142,6 +142,7 @@ fn test_turn_with_selection(
     let provider_kind = selection.provider_kind.clone();
     let model = selection.model_profile.clone();
     let reasoning_effort = selection.reasoning_effort;
+    let fast_mode = selection.fast_mode;
     SuccessfulProviderTurn {
         conversation_id: "conversation:test".to_string(),
         turn_id: "turn:test".to_string(),
@@ -156,6 +157,7 @@ fn test_turn_with_selection(
         provider_kind: provider_kind.clone(),
         model: model.clone(),
         reasoning_effort,
+        fast_mode,
         provider_route: crate::test_support::provider_route(selection, local_tool_test_provider()),
         initial_stream_id: "stream:test".to_string(),
         response: GenerateResponse {

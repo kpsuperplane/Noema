@@ -398,6 +398,7 @@ impl RuntimeActor {
                         GenerateOnceModelPolicy::Selection => {
                             request.model = selection.model_profile.clone();
                             request.options.reasoning_effort = selection.reasoning_effort;
+                            request.options.fast_mode = selection.fast_mode;
                         }
                         GenerateOnceModelPolicy::ProviderToolClassification => {
                             let Some(model) =
@@ -416,6 +417,7 @@ impl RuntimeActor {
                         }
                     }
                     request.options.reasoning_effort = selection.reasoning_effort;
+                    request.options.fast_mode = selection.fast_mode;
                     self.tasks.spawn(async move {
                         let mut ignore_event = |_| {};
                         let result = provider

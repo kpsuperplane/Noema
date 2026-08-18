@@ -39,6 +39,7 @@ pub struct GraphqlSaveWebFetchSummarizerPreferenceInput {
     pub model_profile: Option<String>,
     /// Optional explicit reasoning effort for reasoning-capable model profiles.
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
+    pub fast_mode: bool,
 }
 
 pub(super) async fn web_fetch_settings(state: &GraphqlState) -> Result<GraphqlWebFetchSettings> {
@@ -62,6 +63,7 @@ pub(super) async fn save_web_fetch_summarizer_preference(
         input.selection_mode,
         input.model_profile,
         input.reasoning_effort,
+        input.fast_mode,
         "graphql_web_fetch_preference",
     )
     .await

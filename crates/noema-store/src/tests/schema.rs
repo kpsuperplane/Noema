@@ -2466,6 +2466,60 @@ fn stage(
     )
 }
 
+#[tokio::test]
+async fn v48_model_preference_speed_upgrade_defaults_to_standard_and_matches_fresh_schema() {
+    let upgrade_home = TempDir::new().expect("v47 root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    let mut connection = Connection::open(&upgrade_config.path).expect("v47 database");
+    store_migrations()
+        .to_version(&mut connection, 47)
+        .expect("construct v47 schema");
+    store_migrations()
+        .to_latest(&mut connection)
+        .expect("upgrade to v48");
+
+    for table in [
+        "agent_runtime_preferences",
+        "auxiliary_model_preferences",
+        "default_model_preference",
+        "task_model_pool_entries",
+        "task_execution_contracts",
+        "agent_runs",
+        "conversation_interactions",
+    ] {
+        let fast_columns = connection
+            .query_row(
+                &format!(
+                    "SELECT count(*) FROM pragma_table_info('{table}') WHERE name LIKE '%fast_mode' AND \"notnull\" = 1 AND dflt_value = '0'"
+                ),
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("fast-mode columns");
+        let expected = if table == "task_execution_contracts" {
+            2
+        } else {
+            1
+        };
+        assert_eq!(fast_columns, expected, "{table}");
+    }
+    drop(connection);
+
+    let fresh_home = TempDir::new().expect("fresh v48 root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(
+        NoemaStore::open(&fresh_config)
+            .await
+            .expect("fresh v48 schema"),
+    );
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
+    );
+}
+
 fn count_where(conn: &Connection, table: &str, predicate: &str) -> rusqlite::Result<i64> {
     conn.query_row(
         &format!("SELECT COUNT(*) FROM {table} WHERE {predicate}"),

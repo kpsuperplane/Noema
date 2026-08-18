@@ -100,17 +100,15 @@ async fn sends_codex_input_as_response_message_list() {
     let provider = provider_from_config(CodexProviderConfig {
         base_url,
         default_model: Some("gpt-test".to_string()),
-        fast_mode: false,
         client_version: Some("0.144.0".to_string()),
         ..CodexProviderConfig::default()
     })
     .expect("provider");
-    assert_eq!(provider.fast_mode(), Some(false));
-    provider.set_fast_mode(true).expect("enable fast mode");
-
+    let mut request = GenerateRequest::text("Hello?");
+    request.options.fast_mode = true;
     let mut events = Vec::new();
     let response = provider
-        .generate_streaming(GenerateRequest::text("Hello?"), &mut |event| {
+        .generate_streaming(request, &mut |event| {
             events.push(event);
         })
         .await

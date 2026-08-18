@@ -124,6 +124,9 @@ pub struct ProviderSelectionSnapshot {
     pub model_profile: Option<String>,
     /// Explicit reasoning effort, when requested.
     pub reasoning_effort: Option<ReasoningEffort>,
+    /// Request faster service when the selected provider supports it.
+    #[serde(default)]
+    pub fast_mode: bool,
     /// Human/system source of the selection, retained for auditability.
     pub selection_source: Option<String>,
 }
@@ -145,6 +148,7 @@ impl ProviderSelectionSnapshot {
             selection_mode: ProviderSelectionMode::ExplicitProfile,
             model_profile: Some(model_profile.into()),
             reasoning_effort,
+            fast_mode: false,
             selection_source,
         }
     }
@@ -164,6 +168,7 @@ impl ProviderSelectionSnapshot {
             selection_mode: ProviderSelectionMode::ProviderDefault,
             model_profile: None,
             reasoning_effort,
+            fast_mode: false,
             selection_source,
         }
     }
@@ -185,6 +190,9 @@ impl ProviderSelectionSnapshot {
         let provider_account_id = self.provider_account_id.trim();
         if provider_account_id.is_empty() {
             return Err(ProviderSelectionError::EmptyField("provider_account_id"));
+        }
+        if self.fast_mode && !matches!(provider_kind.as_str(), "codex" | "openai") {
+            return Err(ProviderSelectionError::UnsupportedFastMode { provider_kind });
         }
         let provider_instance_key = self
             .provider_instance_key
@@ -218,6 +226,7 @@ impl ProviderSelectionSnapshot {
                 selection_mode: self.selection_mode,
                 model_profile,
                 reasoning_effort: self.reasoning_effort,
+                fast_mode: self.fast_mode,
                 selection_source,
             }),
         }
@@ -244,6 +253,12 @@ pub enum ProviderSelectionError {
     /// A provider family is not supported by Noema's model plane.
     #[error("unsupported model provider: {provider_kind}")]
     UnsupportedProvider {
+        /// Provider family that was rejected.
+        provider_kind: String,
+    },
+    /// Fast mode is available only for Codex and OpenAI selections.
+    #[error("fast mode is not supported by model provider: {provider_kind}")]
+    UnsupportedFastMode {
         /// Provider family that was rejected.
         provider_kind: String,
     },
@@ -311,6 +326,32 @@ mod tests {
                 .model_profile,
             None
         );
+    }
+
+    #[test]
+    fn fast_mode_is_limited_to_codex_and_openai_selections() {
+        let mut openai = ProviderSelectionSnapshot::explicit(
+            "openai",
+            "provider_account:openai:default",
+            "gpt-5.6",
+            None,
+            None,
+        );
+        openai.fast_mode = true;
+        assert!(openai.normalized().is_ok());
+
+        let mut local = ProviderSelectionSnapshot::explicit(
+            "local_models",
+            "provider_account:local_models:default",
+            "local",
+            None,
+            None,
+        );
+        local.fast_mode = true;
+        assert!(matches!(
+            local.normalized(),
+            Err(ProviderSelectionError::UnsupportedFastMode { .. })
+        ));
     }
 
     #[test]

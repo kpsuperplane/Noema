@@ -357,7 +357,7 @@ impl NoemaStore {
             conn.query_row(
                 r#"
                 SELECT provider_kind, provider_account_id, provider_instance_key,
-                       selection_mode, model_profile, reasoning_effort, updated_at
+                       selection_mode, model_profile, reasoning_effort, fast_mode, updated_at
                 FROM default_model_preference
                 WHERE preference_id = 'default'
                 "#,
@@ -382,6 +382,7 @@ impl NoemaStore {
         provider_kind: &str,
         provider_account_id: &str,
         preference: &ModelPreferenceSelection,
+        fast_mode: bool,
         ready_selection: &ProviderReadySelection,
     ) -> Result<DefaultModelPreferenceRecord, StoreError> {
         let provider_kind = provider_kind.trim().to_ascii_lowercase();
@@ -397,7 +398,7 @@ impl NoemaStore {
                     .to_string(),
             });
         }
-        let selection = match preference {
+        let mut selection = match preference {
             ModelPreferenceSelection::NoemaRecommended => ready_selection.selection().clone(),
             ModelPreferenceSelection::ExplicitProfile {
                 model_profile,
@@ -410,6 +411,7 @@ impl NoemaStore {
                 Some("default_model_preference".to_string()),
             ),
         };
+        selection.fast_mode = fast_mode;
         self.with_immediate_transaction_retry(|transaction| {
             let selection =
                 resolve_new_canonical_selection_tx(transaction, &selection, Some(ready_selection))?;
@@ -434,7 +436,8 @@ fn default_preference_from_row(
         provider_account_id: row.get(1)?,
         provider_instance_key: parse_column(row, 2)?,
         selection: model_preference_selection_column(row, 3, 4, 5)?,
-        updated_at: row.get(6)?,
+        fast_mode: row.get::<_, i64>(6)? != 0,
+        updated_at: row.get(7)?,
     })
 }
 
@@ -445,7 +448,7 @@ fn default_preference_in_transaction(
         .query_row(
             r#"
             SELECT provider_kind, provider_account_id, provider_instance_key,
-                   selection_mode, model_profile, reasoning_effort, updated_at
+                   selection_mode, model_profile, reasoning_effort, fast_mode, updated_at
             FROM default_model_preference
             WHERE preference_id = 'default'
             "#,

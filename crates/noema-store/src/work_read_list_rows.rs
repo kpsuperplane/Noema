@@ -85,7 +85,7 @@ pub(crate) fn load_runs(
                 ar.max_active_minutes, ar.progress_audit_interval,
                 ar.max_automatic_retries, ar.max_review_rounds,
                 ar.execution_backend_kind, ar.acp_connection_revision, ar.acp_launch_json,
-                ar.effective_cwd, ar.acp_session_id
+                ar.effective_cwd, ar.acp_session_id, ar.fast_mode
          FROM agent_runs ar
          LEFT JOIN task_execution_contracts contract ON contract.contract_id = ar.contract_id
          WHERE ar.run_id IN (SELECT value FROM json_each(?1))",
@@ -119,6 +119,7 @@ fn decode_run(row: &Row<'_>) -> rusqlite::Result<AgentRunRecord> {
                     .ok_or_else(|| invalid_sql(17, "unknown reasoning effort"))
             })
             .transpose()?,
+        fast_mode: strict_bool(row, 52)?,
         selection_source: row.get(18)?,
     };
     if model

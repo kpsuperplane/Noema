@@ -149,6 +149,7 @@ async fn web_fetch_runtime_context_uses_only_available_saved_summarizer_selectio
                 model_profile: "default".to_string(),
                 reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
             },
+            fast_mode: false,
         },
     )
     .await;

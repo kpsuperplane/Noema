@@ -39,6 +39,7 @@ pub struct GraphqlSaveToolProgressAuditPreferenceInput {
     pub model_profile: Option<String>,
     /// Optional explicit reasoning effort for reasoning-capable model profiles.
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
+    pub fast_mode: bool,
 }
 
 pub(super) async fn usage_settings(state: &GraphqlState) -> Result<GraphqlUsageSettings> {
@@ -62,6 +63,7 @@ pub(super) async fn save_tool_progress_audit_preference(
         input.selection_mode,
         input.model_profile,
         input.reasoning_effort,
+        input.fast_mode,
         "graphql_progress_audit_preference",
     )
     .await

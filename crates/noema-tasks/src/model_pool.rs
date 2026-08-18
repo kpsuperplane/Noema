@@ -20,6 +20,7 @@ pub struct NewTaskModelPoolEntry {
     pub provider_kind: String,
     pub provider_account_id: String,
     pub selection: ModelPreferenceSelection,
+    pub fast_mode: bool,
     pub enabled: bool,
     pub sort_order: i64,
 }
@@ -77,6 +78,7 @@ impl NewTaskModelPoolEntry {
             provider_kind,
             provider_account_id,
             selection,
+            fast_mode: self.fast_mode,
             enabled: self.enabled,
             sort_order: self.sort_order,
         })

@@ -104,6 +104,7 @@ pub struct GraphqlSaveMemoryModelPreferenceInput {
     pub selection_mode: GraphqlModelPreferenceSelectionMode,
     pub model_profile: Option<String>,
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
+    pub fast_mode: bool,
 }
 
 pub async fn memory_tree(state: &GraphqlState) -> Result<GraphqlNativeMemoryTree> {
@@ -230,6 +231,7 @@ pub async fn save_memory_model_preference(
         input.selection_mode,
         input.model_profile,
         input.reasoning_effort,
+        input.fast_mode,
         "graphql_memory_model_preference",
     )
     .await

@@ -80,6 +80,7 @@ impl RuntimeActor {
             instructions: Some(instructions.clone()),
             options: GenerateOptions {
                 reasoning_effort: request.provider_selection.reasoning_effort,
+                fast_mode: request.provider_selection.fast_mode,
                 max_output_tokens: Some(8_000),
                 previous_response_id: continuation_input.previous_response_id,
                 store_response: response_continuation.store_response(),
@@ -115,6 +116,7 @@ impl RuntimeActor {
                 instructions: Some(instructions),
                 options: GenerateOptions {
                     reasoning_effort: request.provider_selection.reasoning_effort,
+                    fast_mode: request.provider_selection.fast_mode,
                     max_output_tokens: Some(8_000),
                     store_response: response_continuation.store_response(),
                     ..GenerateOptions::default()

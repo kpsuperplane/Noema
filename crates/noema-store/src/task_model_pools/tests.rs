@@ -118,6 +118,7 @@ async fn ensuring_defaults_preserves_user_edits() {
             model_profile: "gpt-5.6-terra".to_string(),
             reasoning_effort: Some(ReasoningEffort::High),
         },
+        fast_mode: true,
         enabled: true,
         sort_order: 0,
     };
@@ -149,6 +150,7 @@ async fn ensuring_defaults_preserves_user_edits() {
     assert_eq!(edited.label.as_deref(), Some("My fast model"));
     assert_eq!(edited.model.model_profile.as_deref(), Some("gpt-5.6-terra"));
     assert_eq!(edited.model.reasoning_effort, Some(ReasoningEffort::High));
+    assert!(edited.model.fast_mode);
     assert!(matches!(
         edited.preference,
         noema_providers::ModelPreferenceSelection::ExplicitProfile { .. }
@@ -297,6 +299,7 @@ fn pool_update(
         provider_kind: existing.model.provider_kind.clone(),
         provider_account_id: existing.model.provider_account_id.clone(),
         selection: existing.preference.clone(),
+        fast_mode: existing.model.fast_mode,
         enabled,
         sort_order: existing.sort_order,
     }

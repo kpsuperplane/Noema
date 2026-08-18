@@ -43,7 +43,6 @@ model: yaml-model
 reasoning_effort: medium
 openai:
   base_url: https://yaml.example/v1
-  fast_mode: false
   organization_id: yaml-org
   project_id: yaml-project
   timeout_seconds: 22
@@ -59,7 +58,6 @@ openai:
             ("NOEMA_OPENAI__ORGANIZATION_ID", "env-org"),
             ("NOEMA_OPENAI__PROJECT_ID", "env-project"),
             ("NOEMA_OPENAI__TIMEOUT_SECONDS", "33"),
-            ("NOEMA_OPENAI__FAST_MODE", "true"),
             ("NOEMA_MODEL", "env-model"),
             ("NOEMA_REASONING_EFFORT", "high"),
         ],
@@ -82,7 +80,6 @@ openai:
     assert_eq!(openai.organization_id.as_deref(), Some("env-org"));
     assert_eq!(openai.project_id.as_deref(), Some("env-project"));
     assert_eq!(openai.timeout_seconds, 33);
-    assert!(openai.fast_mode);
 
     // Case: resolved_config_debug_redacts_openai_env_credential.
     const SENTINEL: &str = "noema-debug-secret-sentinel";

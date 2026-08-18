@@ -89,7 +89,7 @@ use super::{
         self, GraphqlCapabilityFeatures, GraphqlClearProviderSecretInput,
         GraphqlCreateProviderAccountInput, GraphqlDeleteProviderAccountInput,
         GraphqlProviderAccount, GraphqlProviderAccountCatalogEntry, GraphqlProviderCapability,
-        GraphqlProviderSecretInput, GraphqlSetProviderFastModeInput,
+        GraphqlProviderSecretInput,
     },
     runtime_debug::{self, GraphqlRuntimeDebugProfile, GraphqlRuntimeDebugProfileInput},
     tasks::{

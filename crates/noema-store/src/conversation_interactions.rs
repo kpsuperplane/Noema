@@ -93,6 +93,7 @@ pub struct NewConversationInteraction {
     pub credential_revision: u64,
     pub model: String,
     pub reasoning_effort: Option<String>,
+    pub fast_mode: bool,
     pub tool_catalog_digest: String,
     pub request: Value,
     pub projection: Value,
@@ -115,6 +116,7 @@ pub struct ConversationInteractionRecord {
     pub credential_revision: u64,
     pub model: String,
     pub reasoning_effort: Option<String>,
+    pub fast_mode: bool,
     pub tool_catalog_digest: String,
     pub request: Value,
     pub projection: Value,
@@ -159,7 +161,7 @@ impl NoemaStore {
             let provider_item = append_conversation_item_tx(tx, provider_call_item_id.clone(), provider_tool_call.clone())?;
             let projection_item = append_conversation_item_tx(tx, projection_item_id.clone(), projection.clone())?;
             tx.execute(
-                "INSERT INTO conversation_interactions (interaction_id, conversation_id, originating_turn_id, kind, provider_call_id, canonical_tool_name, provider_tool_name, provider_kind, provider_account_id, provider_instance_key, selection_mode, credential_revision, model, reasoning_effort, tool_catalog_digest, request_json, projection_json, provider_call_item_id, projection_item_id, lifecycle_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, 'pending')",
+                "INSERT INTO conversation_interactions (interaction_id, conversation_id, originating_turn_id, kind, provider_call_id, canonical_tool_name, provider_tool_name, provider_kind, provider_account_id, provider_instance_key, selection_mode, credential_revision, model, reasoning_effort, fast_mode, tool_catalog_digest, request_json, projection_json, provider_call_item_id, projection_item_id, lifecycle_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, 'pending')",
                 params![
                     interaction.interaction_id,
                     interaction.conversation_id,
@@ -175,6 +177,7 @@ impl NoemaStore {
                     i64::try_from(interaction.credential_revision).map_err(|_| conflict("credential revision exceeds SQLite integer range"))?,
                     interaction.model,
                     interaction.reasoning_effort,
+                    interaction.fast_mode,
                     interaction.tool_catalog_digest,
                     request_json,
                     projection_json,
@@ -461,7 +464,7 @@ fn reclaim_expired_tx(tx: &Transaction<'_>) -> Result<usize, StoreError> {
         .map_err(StoreError::Sqlite)
 }
 
-const INTERACTION_FIELDS: &str = "SELECT interaction_id, conversation_id, originating_turn_id, kind, provider_call_id, canonical_tool_name, provider_tool_name, provider_kind, provider_account_id, provider_instance_key, selection_mode, credential_revision, model, reasoning_effort, tool_catalog_digest, request_json, projection_json, provider_call_item_id, projection_item_id, revision, lifecycle_status, resolution_item_id, tool_result_item_id, resolution_json, client_message_id, resume_claim_owner, resume_claim_token, resume_claim_expires_at, terminal_error, resolved_at, completed_at, created_at, updated_at FROM conversation_interactions";
+const INTERACTION_FIELDS: &str = "SELECT interaction_id, conversation_id, originating_turn_id, kind, provider_call_id, canonical_tool_name, provider_tool_name, provider_kind, provider_account_id, provider_instance_key, selection_mode, credential_revision, model, reasoning_effort, tool_catalog_digest, request_json, projection_json, provider_call_item_id, projection_item_id, revision, lifecycle_status, resolution_item_id, tool_result_item_id, resolution_json, client_message_id, resume_claim_owner, resume_claim_token, resume_claim_expires_at, terminal_error, resolved_at, completed_at, created_at, updated_at, fast_mode FROM conversation_interactions";
 
 struct InteractionRow {
     values: [String; 9],
@@ -471,6 +474,7 @@ struct InteractionRow {
     credential_revision: i64,
     model: String,
     reasoning_effort: Option<String>,
+    fast_mode: bool,
     tool_catalog_digest: String,
     request_json: String,
     projection_json: String,
@@ -530,6 +534,7 @@ fn interaction_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Interaction
         completed_at: row.get(30)?,
         created_at: row.get(31)?,
         updated_at: row.get(32)?,
+        fast_mode: row.get(33)?,
     })
 }
 
@@ -551,6 +556,7 @@ fn parse_row(row: InteractionRow) -> Result<ConversationInteractionRecord, Store
         })?,
         model: row.model,
         reasoning_effort: row.reasoning_effort,
+        fast_mode: row.fast_mode,
         tool_catalog_digest: row.tool_catalog_digest,
         request: deserialize_json(row.request_json)?,
         projection: deserialize_json(row.projection_json)?,

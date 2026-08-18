@@ -257,13 +257,13 @@ fn insert_run_snapshot_tx(
              attempt_index, review_round, parent_run_id, triggering_submission_id,
              triggering_review_id, provider_kind, provider_account_id,
              provider_instance_key, selection_mode, model_profile,
-             reasoning_effort, selection_source, max_provider_continuations,
+             reasoning_effort, fast_mode, selection_source, max_provider_continuations,
              max_tool_calls, max_active_minutes, progress_audit_interval,
              max_automatic_retries, max_review_rounds, execution_backend_kind,
              acp_connection_revision, acp_launch_json, effective_cwd, status
            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
                      ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24,
-                     ?25, ?26, ?27, ?28, ?29, 'queued')"#,
+                     ?25, ?26, ?27, ?28, ?29, ?30, 'queued')"#,
         params![
             run_id,
             instance_name,
@@ -288,6 +288,7 @@ fn insert_run_snapshot_tx(
             model
                 .reasoning_effort
                 .map(ReasoningEffort::as_persistence_str),
+            model.fast_mode,
             model.selection_source,
             policy.max_provider_continuations,
             policy.max_tool_calls,

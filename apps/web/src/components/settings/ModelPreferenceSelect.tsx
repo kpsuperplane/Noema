@@ -63,14 +63,14 @@ function resolveInitialModelSelection(
   requireExplicitSelection: boolean
 ): ModelPreferenceSaveInput {
   if (requireExplicitSelection && !preference) {
-    return { providerAccountId: "", selectionMode: "EXPLICIT_PROFILE", modelProfile: null, reasoningEffort: null };
+    return { providerAccountId: "", selectionMode: "EXPLICIT_PROFILE", modelProfile: null, reasoningEffort: null, fastMode: false };
   }
   const preferredProvider = preference
     ? options.find((option) => option.providerAccountId === preference.providerAccountId)
     : null;
   const provider = preferredProvider ?? options[0];
   if (!provider) {
-    return { providerAccountId: "", selectionMode: "EXPLICIT_PROFILE", modelProfile: null, reasoningEffort: null };
+    return { providerAccountId: "", selectionMode: "EXPLICIT_PROFILE", modelProfile: null, reasoningEffort: null, fastMode: false };
   }
   if (
     preference?.selectionMode === "NOEMA_RECOMMENDED" &&
@@ -80,7 +80,8 @@ function resolveInitialModelSelection(
       providerAccountId: provider.providerAccountId,
       selectionMode: "NOEMA_RECOMMENDED",
       modelProfile: null,
-      reasoningEffort: null
+      reasoningEffort: null,
+      fastMode: preference.fastMode
     };
   }
   if (!preference && !requireExplicitSelection) {
@@ -92,7 +93,8 @@ function resolveInitialModelSelection(
         providerAccountId: provider.providerAccountId,
         selectionMode: "NOEMA_RECOMMENDED",
         modelProfile: null,
-        reasoningEffort: null
+        reasoningEffort: null,
+        fastMode: false
       };
     }
   }
@@ -105,6 +107,7 @@ function resolveInitialModelSelection(
     providerAccountId: provider.providerAccountId,
     selectionMode: "EXPLICIT_PROFILE",
     modelProfile: preferredProfile ?? provider.profiles[0]?.id ?? "",
-    reasoningEffort: preferredProfile ? preference?.reasoningEffort ?? null : null
+    reasoningEffort: preferredProfile ? preference?.reasoningEffort ?? null : null,
+    fastMode: preferredProfile ? preference?.fastMode ?? false : false
   };
 }

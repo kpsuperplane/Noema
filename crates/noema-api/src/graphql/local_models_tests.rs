@@ -28,6 +28,7 @@ async fn generic_default_preference_rejects_ambiguous_local_model_selection() {
             selection_mode: GraphqlModelPreferenceSelectionMode::ExplicitProfile,
             model_profile: Some("shared-model".to_string()),
             reasoning_effort: None,
+            fast_mode: false,
         },
     )
     .await
@@ -177,6 +178,7 @@ async fn local_model_catalog_setup_and_agent_preferences_follow_exact_installati
             selection_mode: GraphqlModelPreferenceSelectionMode::ExplicitProfile,
             model_profile: Some("gemma-4-e4b-it".to_string()),
             reasoning_effort: None,
+            fast_mode: false,
         },
     )
     .await

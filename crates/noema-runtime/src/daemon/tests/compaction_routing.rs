@@ -353,6 +353,7 @@ async fn primary_preference_change_applies_to_next_turn_without_rerouting_in_fli
                 model_profile: "codex-in-flight".to_string(),
                 reasoning_effort: None,
             },
+            fast_mode: false,
         },
     )
     .await;
@@ -415,6 +416,7 @@ async fn primary_preference_change_applies_to_next_turn_without_rerouting_in_fli
                 model_profile: "default".to_string(),
                 reasoning_effort: None,
             },
+            fast_mode: false,
         },
     )
     .await;

@@ -34,6 +34,7 @@ struct ProgressAuditModel {
     route: ProviderRouteLease,
     model_profile: String,
     reasoning_effort: Option<noema_providers::ReasoningEffort>,
+    fast_mode: bool,
 }
 
 impl RuntimeActor {
@@ -73,6 +74,7 @@ impl RuntimeActor {
                     options: GenerateOptions {
                         generation_priority: GenerationPriority::Background,
                         reasoning_effort: audit_model.reasoning_effort,
+                        fast_mode: audit_model.fast_mode,
                         ..GenerateOptions::default()
                     },
                     tools,
@@ -107,10 +109,12 @@ impl RuntimeActor {
             )
         })?;
         let reasoning_effort = selection.reasoning_effort;
+        let fast_mode = selection.fast_mode;
         Ok(ProgressAuditModel {
             route,
             model_profile,
             reasoning_effort,
+            fast_mode,
         })
     }
 }
@@ -361,6 +365,7 @@ mod tests {
                     model_profile: "default".to_string(),
                     reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
                 },
+                fast_mode: false,
             },
         )
         .await;

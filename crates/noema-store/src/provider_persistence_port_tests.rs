@@ -179,6 +179,7 @@ async fn sqlite_provider_accounts_seed_and_list() {
                     model_profile: "gpt-test".to_string(),
                     reasoning_effort: None,
                 },
+                fast_mode: false,
             },
             &ready,
         )
@@ -451,6 +452,7 @@ async fn canonical_reference_write_and_account_delete_never_leave_a_dangling_sel
             model_profile: "gpt-test".to_string(),
             reasoning_effort: None,
         },
+        fast_mode: false,
     };
     let ready_selection = super::tests::ready_provider_selection(super::tests::provider_selection(
         "codex",

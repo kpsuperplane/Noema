@@ -75,6 +75,7 @@ impl RuntimeActor {
             options: GenerateOptions {
                 hosted_web_search: model_tools.hosted_web_search(),
                 reasoning_effort: provider_selection.reasoning_effort,
+                fast_mode: provider_selection.fast_mode,
                 max_output_tokens: Some(8_000),
                 store_response: response_continuation.store_response(),
                 ..GenerateOptions::default()
@@ -251,6 +252,7 @@ impl RuntimeActor {
                 provider_kind: provider_selection.provider_kind.clone(),
                 model: provider_selection.model_profile.clone(),
                 reasoning_effort: provider_selection.reasoning_effort,
+                fast_mode: provider_selection.fast_mode,
                 provider_route: Arc::clone(&provider_route),
                 initial_stream_id: format!("task_stream:{}:{continuation_index}", request.run_id),
                 response: response.clone(),
@@ -622,6 +624,7 @@ impl RuntimeActor {
                 options: GenerateOptions {
                     hosted_web_search: !terminal_repair && model_tools.hosted_web_search(),
                     reasoning_effort: provider_selection.reasoning_effort,
+                    fast_mode: provider_selection.fast_mode,
                     max_output_tokens: Some(8_000),
                     previous_response_id: continuation_input.previous_response_id.clone(),
                     store_response: response_continuation.store_response(),
@@ -660,6 +663,7 @@ impl RuntimeActor {
                     options: GenerateOptions {
                         hosted_web_search: !terminal_repair && model_tools.hosted_web_search(),
                         reasoning_effort: provider_selection.reasoning_effort,
+                        fast_mode: provider_selection.fast_mode,
                         max_output_tokens: Some(8_000),
                         store_response: response_continuation.store_response(),
                         ..GenerateOptions::default()

@@ -41,15 +41,16 @@ pub(super) fn pool_entry_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<T
         }),
     );
     model.provider_instance_key = Some(provider_instance_key);
+    model.fast_mode = row.get::<_, i64>(9)? != 0;
     Ok(TaskModelPoolEntry {
         pool_entry_id: pool_entry_id.clone(),
         complexity,
         label: row.get(2)?,
         model,
         preference,
-        enabled: row.get::<_, i64>(9)? != 0,
-        sort_order: row.get(10)?,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
+        enabled: row.get::<_, i64>(10)? != 0,
+        sort_order: row.get(11)?,
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
     })
 }

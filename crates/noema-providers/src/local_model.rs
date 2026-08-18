@@ -377,6 +377,8 @@ pub struct DefaultModelPreferenceRecord {
     pub provider_instance_key: ProviderInstanceKey,
     /// Whether Noema or the human chooses the concrete model.
     pub selection: ModelPreferenceSelection,
+    /// Whether this preference requests faster service.
+    pub fast_mode: bool,
     /// Last update timestamp.
     pub updated_at: String,
 }

@@ -146,6 +146,8 @@ pub struct GraphqlOnboardingModelSelection {
     pub model_profile: Option<String>,
     /// Provider-supported reasoning effort.
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
+    /// Whether this assignment requests faster service.
+    pub fast_mode: bool,
 }
 
 /// Complete user-facing first-run model assignment set.
@@ -182,6 +184,7 @@ pub struct GraphqlOnboardingModelSelectionInput {
     pub selection_mode: GraphqlModelPreferenceSelectionMode,
     pub model_profile: Option<String>,
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
+    pub fast_mode: bool,
 }
 
 /// Complete first-run model assignment input.
@@ -326,6 +329,7 @@ fn proposed_model_selections(
             selection_mode: GraphqlModelPreferenceSelectionMode::NoemaRecommended,
             model_profile: None,
             reasoning_effort: None,
+            fast_mode: false,
         };
         return Ok(GraphqlOnboardingModelSelections {
             noema: recommended.clone(),
@@ -369,6 +373,7 @@ fn proposed_model_selection(
         reasoning_effort: profile
             .default_reasoning_effort
             .or_else(|| profile.reasoning_efforts.first().copied()),
+        fast_mode: false,
     }
 }
 
@@ -487,6 +492,7 @@ async fn ready_setup_selection(
         Some("onboarding_model_selection".to_string()),
     );
     selection.provider_instance_key = Some(ready.key().clone());
+    selection.fast_mode = selected.fast_mode;
     Ok(ReadyProviderSetupSelection {
         role,
         selection,

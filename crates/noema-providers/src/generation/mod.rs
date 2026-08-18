@@ -32,23 +32,6 @@ pub const DEFAULT_TOOL_CLASSIFICATION_MODEL: &str = "gpt-5.4-mini";
 // `dyn ModelProvider`, so the public future-bound tradeoff is intentional.
 /// A model backend that can produce structured output from a generation request.
 pub trait ModelProvider: Send + Sync {
-    /// Return whether this provider sends requests in fast mode.
-    fn fast_mode(&self) -> Option<bool> {
-        None
-    }
-
-    /// Change fast mode for future requests.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ProviderError::InvalidRequest`] when the provider does not
-    /// support fast mode.
-    fn set_fast_mode(&self, _enabled: bool) -> Result<(), ProviderError> {
-        Err(ProviderError::InvalidRequest {
-            message: "provider does not support fast mode".to_string(),
-        })
-    }
-
     /// Generate a response for the given request.
     ///
     /// # Errors

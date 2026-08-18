@@ -22,7 +22,8 @@ pub(crate) fn pool_selection_tx(
         .query_row(
             r#"
             SELECT complexity, provider_kind, provider_account_id,
-                   provider_instance_key, selection_mode, model_profile, reasoning_effort, enabled
+                   provider_instance_key, selection_mode, model_profile, reasoning_effort,
+                   fast_mode, enabled
             FROM task_model_pool_entries
             WHERE pool_entry_id = ?1
             LIMIT 1
@@ -38,6 +39,7 @@ pub(crate) fn pool_selection_tx(
                     row.get::<_, Option<String>>(5)?,
                     row.get::<_, Option<String>>(6)?,
                     row.get::<_, i64>(7)? != 0,
+                    row.get::<_, i64>(8)? != 0,
                 ))
             },
         )
@@ -59,7 +61,7 @@ pub(crate) fn pool_selection_tx(
             ),
         });
     }
-    if !row.7 {
+    if !row.8 {
         return Err(StoreError::InvariantViolation {
             message: format!("task model pool entry is disabled: {pool_entry_id}"),
         });
@@ -75,6 +77,7 @@ pub(crate) fn pool_selection_tx(
         row.2,
         row.3,
         preference,
+        row.7,
         model_use_case(complexity),
         selection_source,
     )?;
@@ -89,7 +92,7 @@ pub(crate) fn reviewer_preference_tx(
         .query_row(
             r#"
             SELECT provider_kind, provider_account_id, provider_instance_key,
-                   selection_mode, model_profile, reasoning_effort
+                   selection_mode, model_profile, reasoning_effort, fast_mode
             FROM agent_runtime_preferences
             WHERE agent_id = ?1
             LIMIT 1
@@ -103,6 +106,7 @@ pub(crate) fn reviewer_preference_tx(
                     row.get::<_, String>(3)?,
                     row.get::<_, Option<String>>(4)?,
                     row.get::<_, Option<String>>(5)?,
+                    row.get::<_, i64>(6)? != 0,
                 ))
             },
         )
@@ -116,6 +120,7 @@ pub(crate) fn reviewer_preference_tx(
         row.1,
         row.2,
         preference,
+        row.6,
         NoemaModelUseCase::TaskReviewer,
         "agent:task-reviewer",
     )?;
@@ -127,6 +132,7 @@ fn effective_selection(
     provider_account_id: String,
     provider_instance_key: String,
     preference: ModelPreferenceSelection,
+    fast_mode: bool,
     use_case: NoemaModelUseCase,
     selection_source: &str,
 ) -> Result<ProviderSelectionSnapshot, StoreError> {
@@ -156,6 +162,7 @@ fn effective_selection(
         Some(selection_source.to_string()),
     );
     selection.provider_instance_key = Some(provider_instance_key);
+    selection.fast_mode = fast_mode;
     Ok(selection)
 }
 

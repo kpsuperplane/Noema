@@ -557,6 +557,7 @@ mod tests {
             ),
             summarizer_model: "gpt-5.4-mini".to_string(),
             summarizer_reasoning_effort: None,
+            summarizer_fast_mode: false,
             generation_priority: crate::GenerationPriority::Foreground,
         }
     }

@@ -98,6 +98,7 @@ function toPreference(value: NonNullable<NativeMemorySettings>["modelPreference"
         selectionMode: value.selectionMode,
         modelProfile: value.modelProfile,
         reasoningEffort: value.reasoningEffort,
+        fastMode: value.fastMode,
       }
     : null;
 }

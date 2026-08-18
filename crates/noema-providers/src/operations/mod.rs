@@ -29,23 +29,6 @@ pub type ProviderContextFuture<'a> =
 /// returned future cancels the caller's interest without introducing a second
 /// provider cancellation contract.
 pub trait ProviderOperations: Debug + Send + Sync {
-    /// Return whether this provider sends requests in fast mode.
-    fn fast_mode(&self) -> Option<bool> {
-        None
-    }
-
-    /// Change fast mode for future requests.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ProviderError::InvalidRequest`] when the provider does not
-    /// support fast mode.
-    fn set_fast_mode(&self, _enabled: bool) -> Result<(), ProviderError> {
-        Err(ProviderError::InvalidRequest {
-            message: "provider does not support fast mode".to_string(),
-        })
-    }
-
     /// Generate a response for the given request.
     ///
     /// # Errors
@@ -142,14 +125,6 @@ impl<T> ProviderOperations for ErasedModelProvider<T>
 where
     T: ModelProvider + Debug + 'static,
 {
-    fn fast_mode(&self) -> Option<bool> {
-        ModelProvider::fast_mode(&self.0)
-    }
-
-    fn set_fast_mode(&self, enabled: bool) -> Result<(), ProviderError> {
-        ModelProvider::set_fast_mode(&self.0, enabled)
-    }
-
     fn generate<'a>(
         &'a self,
         request: GenerateRequest,

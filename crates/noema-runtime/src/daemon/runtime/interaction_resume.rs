@@ -299,6 +299,7 @@ impl RuntimeActor {
             options: noema_providers::GenerateOptions {
                 generation_priority: GenerationPriority::Foreground,
                 reasoning_effort: selection.reasoning_effort,
+                fast_mode: selection.fast_mode,
                 ..noema_providers::GenerateOptions::default()
             },
             tools: model_tools.provider_tools(),
@@ -347,6 +348,7 @@ impl RuntimeActor {
             provider_kind: selection.provider_kind.clone(),
             model,
             reasoning_effort: selection.reasoning_effort,
+            fast_mode: selection.fast_mode,
             provider_route: route,
             initial_stream_id: assistant_stream_id(
                 &interaction.originating_turn_id,
@@ -402,6 +404,7 @@ fn interaction_selection(
         ),
     };
     selection.provider_instance_key = Some(instance_key);
+    selection.fast_mode = interaction.fast_mode;
     selection
         .normalized_for_persistence()
         .map_err(|error| RuntimeError::Protocol(error.to_string()))

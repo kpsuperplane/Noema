@@ -189,6 +189,7 @@ impl RuntimeActor {
                     instructions: Some(planned.instructions),
                     options: GenerateOptions {
                         reasoning_effort: selection.reasoning_effort,
+                        fast_mode: selection.fast_mode,
                         ..GenerateOptions::default()
                     },
                     tools: Vec::new(),

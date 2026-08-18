@@ -89,6 +89,7 @@ pub(super) struct CompactionRequest<'a> {
     pub(super) provider_kind: &'a str,
     pub(super) model_profile: Option<&'a str>,
     pub(super) reasoning_effort: Option<noema_providers::ReasoningEffort>,
+    pub(super) fast_mode: bool,
     pub(super) budget: ContextBudget,
     pub(super) mode: CompactionMode,
 }
@@ -179,6 +180,7 @@ pub(super) async fn compact_active_summary_smaller(
         input,
         target_tokens,
         request.reasoning_effort,
+        request.fast_mode,
         request.mode,
     )
     .await?;
@@ -297,6 +299,7 @@ async fn compact_context_with_target(
         input,
         target_tokens,
         request.reasoning_effort,
+        request.fast_mode,
         request.mode,
     )
     .await?;
@@ -403,6 +406,7 @@ async fn generate_compaction_summary(
     input: String,
     target_tokens: u32,
     reasoning_effort: Option<noema_providers::ReasoningEffort>,
+    fast_mode: bool,
     mode: CompactionMode,
 ) -> Result<GenerateResponse, ProviderError> {
     let mut ignore_event = |_: GenerateStreamEvent| {};
@@ -420,6 +424,7 @@ async fn generate_compaction_summary(
                     },
                     max_output_tokens: Some(target_tokens),
                     reasoning_effort,
+                    fast_mode,
                     ..GenerateOptions::default()
                 },
                 tools: Vec::new(),

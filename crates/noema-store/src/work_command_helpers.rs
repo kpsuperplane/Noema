@@ -421,9 +421,9 @@ pub(crate) fn load_contract_model_tx(
     reviewer: bool,
 ) -> Result<ProviderSelectionSnapshot, StoreError> {
     let columns = if reviewer {
-        "reviewer_provider_kind, reviewer_provider_account_id, reviewer_provider_instance_key, reviewer_selection_mode, reviewer_model_profile, reviewer_reasoning_effort, reviewer_selection_source"
+        "reviewer_provider_kind, reviewer_provider_account_id, reviewer_provider_instance_key, reviewer_selection_mode, reviewer_model_profile, reviewer_reasoning_effort, reviewer_fast_mode, reviewer_selection_source"
     } else {
-        "executor_provider_kind, executor_provider_account_id, executor_provider_instance_key, executor_selection_mode, executor_model_profile, executor_reasoning_effort, executor_selection_source"
+        "executor_provider_kind, executor_provider_account_id, executor_provider_instance_key, executor_selection_mode, executor_model_profile, executor_reasoning_effort, executor_fast_mode, executor_selection_source"
     };
     transaction
         .query_row(
@@ -437,7 +437,8 @@ pub(crate) fn load_contract_model_tx(
                     row.get::<_, String>(3)?,
                     row.get::<_, Option<String>>(4)?,
                     row.get::<_, Option<String>>(5)?,
-                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, bool>(6)?,
+                    row.get::<_, Option<String>>(7)?,
                 ))
             },
         )
@@ -454,6 +455,7 @@ pub(crate) fn provider_snapshot(
         String,
         Option<String>,
         Option<String>,
+        bool,
         Option<String>,
     ),
 ) -> Result<ProviderSelectionSnapshot, StoreError> {
@@ -484,7 +486,8 @@ pub(crate) fn provider_snapshot(
                 })
             })
             .transpose()?,
-        selection_source: row.6,
+        fast_mode: row.6,
+        selection_source: row.7,
     })
 }
 

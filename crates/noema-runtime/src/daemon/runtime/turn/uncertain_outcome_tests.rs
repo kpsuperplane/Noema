@@ -40,6 +40,7 @@ async fn uncertain_foreground_action_fails_with_a_durable_non_retry_notice() {
         provider_kind: "codex".to_string(),
         model: Some("gpt-test".to_string()),
         reasoning_effort: None,
+        fast_mode: false,
         provider_route: crate::test_support::provider_route(selection, provider),
         initial_stream_id: "stream:test".to_string(),
         response: GenerateResponse::final_text("", "codex", "gpt-test"),

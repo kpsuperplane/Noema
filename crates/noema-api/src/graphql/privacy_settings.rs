@@ -40,6 +40,7 @@ pub struct GraphqlSaveActionReviewerPreferenceInput {
     pub model_profile: Option<String>,
     /// Optional explicit reasoning effort for reasoning-capable model profiles.
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
+    pub fast_mode: bool,
 }
 
 pub(super) async fn privacy_settings(state: &GraphqlState) -> Result<GraphqlPrivacySettings> {
@@ -63,6 +64,7 @@ pub(super) async fn save_action_reviewer_preference(
         input.selection_mode,
         input.model_profile,
         input.reasoning_effort,
+        input.fast_mode,
         "graphql_action_reviewer_preference",
     )
     .await

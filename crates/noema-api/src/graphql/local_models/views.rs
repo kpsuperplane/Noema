@@ -136,6 +136,7 @@ pub(super) fn default_preference_view(
         selection_mode,
         model_profile,
         reasoning_effort,
+        fast_mode: preference.fast_mode,
     }
 }
 

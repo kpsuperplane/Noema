@@ -24,6 +24,8 @@ pub struct NewAgentRuntimePreference {
     pub provider_account_id: String,
     /// Whether Noema or the human chooses the concrete model.
     pub selection: ModelPreferenceSelection,
+    /// Whether this preference requests faster service.
+    pub fast_mode: bool,
 }
 
 /// Persisted agent runtime preference.
@@ -39,6 +41,8 @@ pub struct AgentRuntimePreferenceRecord {
     pub provider_instance_key: ProviderInstanceKey,
     /// Whether Noema or the human chooses the concrete model.
     pub selection: ModelPreferenceSelection,
+    /// Whether this preference requests faster service.
+    pub fast_mode: bool,
 }
 
 impl NoemaStore {
@@ -55,7 +59,8 @@ impl NoemaStore {
             conn.query_row(
                 r#"
                 SELECT agent_id, provider_kind, provider_account_id,
-                       provider_instance_key, selection_mode, model_profile, reasoning_effort
+                       provider_instance_key, selection_mode, model_profile, reasoning_effort,
+                       fast_mode
                 FROM agent_runtime_preferences
                 WHERE agent_id = ?1
                 LIMIT 1
@@ -82,7 +87,7 @@ impl NoemaStore {
         preference: NewAgentRuntimePreference,
         ready_selection: &ProviderReadySelection,
     ) -> Result<AgentRuntimePreferenceRecord, StoreError> {
-        let explicit = match &preference.selection {
+        let mut explicit = match &preference.selection {
             ModelPreferenceSelection::ExplicitProfile {
                 model_profile,
                 reasoning_effort,
@@ -95,6 +100,7 @@ impl NoemaStore {
             ),
             ModelPreferenceSelection::NoemaRecommended => ready_selection.selection().clone(),
         };
+        explicit.fast_mode = preference.fast_mode;
         self.with_immediate_transaction_retry(|transaction| {
             let exists = transaction
                 .query_row(
@@ -127,6 +133,7 @@ impl NoemaStore {
                     .clone()
                     .ok_or(StoreError::ProviderInstanceKeyMissing)?,
                 selection: preference.selection.clone(),
+                fast_mode: preference.fast_mode,
             })
         })
         .await
@@ -140,5 +147,6 @@ fn preference_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRuntime
         provider_account_id: row.get(2)?,
         provider_instance_key: parse_column(row, 3)?,
         selection: model_preference_selection_column(row, 4, 5, 6)?,
+        fast_mode: row.get::<_, i64>(7)? != 0,
     })
 }

@@ -65,7 +65,8 @@ impl NoemaStore {
                     r#"
                     SELECT pool_entry_id, complexity, label, provider_kind,
                            provider_account_id, provider_instance_key, selection_mode,
-                           model_profile, reasoning_effort, enabled, sort_order, created_at, updated_at
+                           model_profile, reasoning_effort, fast_mode, enabled, sort_order,
+                           created_at, updated_at
                     FROM task_model_pool_entries
                     WHERE pool_entry_id = ?1
                     LIMIT 1
@@ -108,8 +109,9 @@ impl NoemaStore {
                     selection_mode = ?7,
                     model_profile = ?8,
                     reasoning_effort = ?9,
-                    enabled = ?10,
-                    sort_order = ?11,
+                    fast_mode = ?10,
+                    enabled = ?11,
+                    sort_order = ?12,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE pool_entry_id = ?1
                 "#,
@@ -129,6 +131,7 @@ impl NoemaStore {
                         .selection
                         .reasoning_effort()
                         .map(noema_providers::ReasoningEffort::as_persistence_str),
+                    input.fast_mode,
                     input.enabled,
                     input.sort_order,
                 ],
@@ -158,13 +161,15 @@ fn preference_route(
         .ok_or_else(|| StoreError::InvariantViolation {
             message: "provider has no Noema recommendation for this task tier".to_string(),
         })?;
-    Ok(ProviderSelectionSnapshot::explicit(
+    let mut selection = ProviderSelectionSnapshot::explicit(
         input.provider_kind.clone(),
         input.provider_account_id.clone(),
         model_profile,
         reasoning_effort,
         Some("task_model_pool_setting".to_string()),
-    ))
+    );
+    selection.fast_mode = input.fast_mode;
+    Ok(selection)
 }
 
 fn requested_route_matches(
@@ -176,4 +181,5 @@ fn requested_route_matches(
         && existing.selection_mode == requested.selection_mode
         && existing.model_profile == requested.model_profile
         && existing.reasoning_effort == requested.reasoning_effort
+        && existing.fast_mode == requested.fast_mode
 }

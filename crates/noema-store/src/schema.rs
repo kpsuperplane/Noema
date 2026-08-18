@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 47;
+pub const STORE_SCHEMA_VERSION: usize = 48;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1191,8 +1191,29 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(NATIVE_OAUTH_SQL),
         M::up(LEGACY_CLIENT_REVOCATION_SQL),
         M::up(WEB_PUSH_SESSION_BINDING_SQL),
+        M::up(MODEL_PREFERENCE_FAST_MODE_SQL),
     ])
 }
+
+/// Per-preference speed selection for every model-preference owner.
+const MODEL_PREFERENCE_FAST_MODE_SQL: &str = r#"
+ALTER TABLE agent_runtime_preferences
+ADD COLUMN fast_mode INTEGER NOT NULL DEFAULT 0 CHECK (fast_mode IN (0, 1));
+ALTER TABLE auxiliary_model_preferences
+ADD COLUMN fast_mode INTEGER NOT NULL DEFAULT 0 CHECK (fast_mode IN (0, 1));
+ALTER TABLE default_model_preference
+ADD COLUMN fast_mode INTEGER NOT NULL DEFAULT 0 CHECK (fast_mode IN (0, 1));
+ALTER TABLE task_model_pool_entries
+ADD COLUMN fast_mode INTEGER NOT NULL DEFAULT 0 CHECK (fast_mode IN (0, 1));
+ALTER TABLE task_execution_contracts
+ADD COLUMN executor_fast_mode INTEGER NOT NULL DEFAULT 0 CHECK (executor_fast_mode IN (0, 1));
+ALTER TABLE task_execution_contracts
+ADD COLUMN reviewer_fast_mode INTEGER NOT NULL DEFAULT 0 CHECK (reviewer_fast_mode IN (0, 1));
+ALTER TABLE agent_runs
+ADD COLUMN fast_mode INTEGER NOT NULL DEFAULT 0 CHECK (fast_mode IN (0, 1));
+ALTER TABLE conversation_interactions
+ADD COLUMN fast_mode INTEGER NOT NULL DEFAULT 0 CHECK (fast_mode IN (0, 1));
+"#;
 
 /// Finish child records left active under final Tasks runs and conversation turns.
 const TERMINAL_CHILD_STATE_REPAIR_SQL: &str = r#"

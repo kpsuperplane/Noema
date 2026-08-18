@@ -205,6 +205,7 @@ async fn activation_assigns_every_current_model_workload_atomically() {
             model_profile: created.model_id.clone(),
             reasoning_effort: None,
         },
+        fast_mode: false,
     };
     let mut mismatched = ready_selection.selection().clone();
     mismatched.provider_instance_key = Some(
@@ -282,11 +283,13 @@ async fn provider_account_and_default_changes_preserve_explicit_workload_selecti
                 model_profile: "gpt-5.6-luna".to_string(),
                 reasoning_effort: Some(noema_providers::ReasoningEffort::High),
             },
+            true,
             &ready_selection,
         )
         .await
         .expect("save default");
     assert_eq!(preference.provider_kind, "codex");
+    assert!(preference.fast_mode);
     assert_eq!(
         preference.provider_instance_key,
         provider_account_instance_key("provider_account:codex:default")

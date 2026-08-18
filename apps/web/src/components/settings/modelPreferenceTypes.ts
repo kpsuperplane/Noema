@@ -35,6 +35,7 @@ export type ModelPreference = {
   selectionMode: ModelPreferenceSelectionMode;
   modelProfile?: string | null;
   reasoningEffort?: ReasoningEffort | null;
+  fastMode: boolean;
 };
 
 export type ModelPreferenceSaveInput = {
@@ -42,4 +43,5 @@ export type ModelPreferenceSaveInput = {
   selectionMode: ModelPreferenceSelectionMode;
   modelProfile?: string | null;
   reasoningEffort?: ReasoningEffort | null;
+  fastMode: boolean;
 };

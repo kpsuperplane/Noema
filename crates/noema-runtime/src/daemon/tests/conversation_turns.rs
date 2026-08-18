@@ -333,6 +333,7 @@ async fn assert_primary_preference_routes(
                     model_profile: model_profile.to_string(),
                     reasoning_effort,
                 },
+                fast_mode: false,
             },
         )
         .await;

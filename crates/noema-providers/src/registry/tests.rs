@@ -264,6 +264,7 @@ fn ready_selection_proof_holds_the_exact_generation_through_retirement() {
             selection_mode: ProviderSelectionMode::ExplicitProfile,
             model_profile: Some("ready-model".to_string()),
             reasoning_effort: None,
+            fast_mode: false,
             selection_source: Some("test".to_string()),
         })
         .expect("ready proof");
@@ -287,6 +288,7 @@ fn ready_selection_proof_holds_the_exact_generation_through_retirement() {
             selection_mode: ProviderSelectionMode::ProviderDefault,
             model_profile: None,
             reasoning_effort: None,
+            fast_mode: false,
             selection_source: None,
         })
         .expect_err("unregistered selection");

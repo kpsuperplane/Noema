@@ -341,6 +341,7 @@ struct BackgroundContextCompactionSchedule {
     provider_kind: String,
     model_profile: Option<String>,
     reasoning_effort: Option<noema_providers::ReasoningEffort>,
+    fast_mode: bool,
     provider_route: Arc<ProviderRouteLease>,
     next_turn_index: u64,
 }
@@ -361,6 +362,7 @@ pub(in crate::daemon) struct SuccessfulProviderTurn {
     pub(in crate::daemon) provider_kind: String,
     pub(in crate::daemon) model: Option<String>,
     pub(in crate::daemon) reasoning_effort: Option<noema_providers::ReasoningEffort>,
+    pub(in crate::daemon) fast_mode: bool,
     pub(in crate::daemon) provider_route: Arc<ProviderRouteLease>,
     pub(in crate::daemon) initial_stream_id: String,
     pub(in crate::daemon) response: GenerateResponse,

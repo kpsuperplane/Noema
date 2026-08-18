@@ -189,7 +189,8 @@ function toSelectionInput(
   return {
     selectionMode: selection.selectionMode,
     modelProfile: selection.modelProfile ?? null,
-    reasoningEffort: selection.reasoningEffort ?? null
+    reasoningEffort: selection.reasoningEffort ?? null,
+    fastMode: selection.fastMode
   };
 }
 
@@ -224,7 +225,8 @@ function fromPreference(selection: ModelPreferenceSaveInput): OnboardingModelSel
   return {
     selectionMode: selection.selectionMode,
     modelProfile: selection.modelProfile,
-    reasoningEffort: selection.reasoningEffort ?? null
+    reasoningEffort: selection.reasoningEffort ?? null,
+    fastMode: selection.fastMode
   };
 }
 

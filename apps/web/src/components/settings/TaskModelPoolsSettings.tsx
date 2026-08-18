@@ -37,7 +37,8 @@ export function TaskModelPoolsSettings({
     providerAccountId: entry.providerAccountId,
     selectionMode: entry.selectionMode,
     modelProfile: entry.modelProfile,
-    reasoningEffort: entry.reasoningEffort
+    reasoningEffort: entry.reasoningEffort,
+    fastMode: entry.fastMode
   }, modelOptions, complexityUseCase(entry.complexity)));
 
   return (
@@ -91,7 +92,8 @@ function PoolEntryRow({
     providerAccountId: entry.providerAccountId,
     selectionMode: entry.selectionMode,
     modelProfile: entry.modelProfile,
-    reasoningEffort: entry.reasoningEffort
+    reasoningEffort: entry.reasoningEffort,
+    fastMode: entry.fastMode
   };
 
   const save = (next: ModelPreferenceSaveInput, enabled = entry.enabled) => {
@@ -105,6 +107,7 @@ function PoolEntryRow({
       selectionMode: next.selectionMode,
       modelProfile: next.modelProfile ?? null,
       reasoningEffort: next.reasoningEffort ?? null,
+      fastMode: next.fastMode,
       enabled,
       sortOrder: entry.sortOrder
     });

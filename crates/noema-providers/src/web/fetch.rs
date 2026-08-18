@@ -19,6 +19,8 @@ pub struct WebFetchContext {
     pub summarizer_model: String,
     /// Optional summarization reasoning effort.
     pub summarizer_reasoning_effort: Option<ReasoningEffort>,
+    /// Whether summarization requests use faster service.
+    pub summarizer_fast_mode: bool,
     /// Scheduling priority for summarization calls.
     pub generation_priority: GenerationPriority,
 }

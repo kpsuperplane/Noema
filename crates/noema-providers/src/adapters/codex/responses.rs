@@ -1,12 +1,6 @@
 //! Provider adapter for Codex direct Responses API calls.
 
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use super::{catalog::latest_codex_client_version, oauth::chatgpt_account_id_from_access_token};
 use crate::adapters::{
@@ -43,7 +37,6 @@ pub struct CodexResponsesProvider {
     resolved_client_version: Arc<OnceCell<String>>,
     credentials: CodexCredentialSource,
     config: CodexProviderConfig,
-    fast_mode: Arc<AtomicBool>,
     system_errors: Option<SystemErrorLogger>,
 }
 
@@ -128,7 +121,6 @@ impl CodexResponsesProvider {
                 provider_account_id,
                 access,
             },
-            fast_mode: Arc::new(AtomicBool::new(config.fast_mode)),
             system_errors: config.system_errors.clone(),
             config,
         })
@@ -267,7 +259,7 @@ impl CodexResponsesProvider {
                 self.schema_request_capabilities(Some(&model)),
                 CODEX_RESPONSES_PROFILE,
             )?;
-        body.set_fast_mode(self.fast_mode.load(Ordering::Relaxed));
+        body.set_fast_mode(request.options.fast_mode);
         let diagnostics = ResponsesDiagnosticContext::new(
             self.system_errors.clone(),
             "codex",
@@ -313,15 +305,6 @@ impl CodexResponsesProvider {
 }
 
 impl ModelProvider for CodexResponsesProvider {
-    fn fast_mode(&self) -> Option<bool> {
-        Some(self.fast_mode.load(Ordering::Relaxed))
-    }
-
-    fn set_fast_mode(&self, enabled: bool) -> Result<(), ProviderError> {
-        self.fast_mode.store(enabled, Ordering::Relaxed);
-        Ok(())
-    }
-
     fn default_tool_classification_model(&self) -> Option<String> {
         Some(
             self.config

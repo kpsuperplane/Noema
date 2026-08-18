@@ -1145,11 +1145,11 @@ pub(crate) fn create_contract_tx(
              request_markdown, execution_plan_markdown, complexity,
              executor_provider_kind, executor_provider_account_id,
              executor_provider_instance_key, executor_selection_mode,
-             executor_model_profile, executor_reasoning_effort,
+             executor_model_profile, executor_reasoning_effort, executor_fast_mode,
              executor_selection_source, reviewer_provider_kind,
              reviewer_provider_account_id, reviewer_provider_instance_key,
              reviewer_selection_mode, reviewer_model_profile,
-             reviewer_reasoning_effort, reviewer_selection_source,
+             reviewer_reasoning_effort, reviewer_fast_mode, reviewer_selection_source,
              max_provider_continuations, max_tool_calls, max_active_minutes,
              progress_audit_interval, max_automatic_retries, max_review_rounds,
              workspace_id_snapshot, workspace_name_snapshot,
@@ -1161,7 +1161,7 @@ pub(crate) fn create_contract_tx(
            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
                      ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23,
                      ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33,
-                     ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42)"#,
+                     ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44)"#,
         params![
             contract_id.as_str(),
             task.task_id.as_str(),
@@ -1183,6 +1183,7 @@ pub(crate) fn create_contract_tx(
             executor
                 .reasoning_effort
                 .map(ReasoningEffort::as_persistence_str),
+            executor.fast_mode,
             executor.selection_source,
             reviewer.provider_kind,
             reviewer.provider_account_id,
@@ -1195,6 +1196,7 @@ pub(crate) fn create_contract_tx(
             reviewer
                 .reasoning_effort
                 .map(ReasoningEffort::as_persistence_str),
+            reviewer.fast_mode,
             reviewer.selection_source,
             policy.max_provider_continuations,
             policy.max_tool_calls,

@@ -93,6 +93,8 @@ pub struct GraphqlAgentModelPreference {
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
     /// Whether Noema or the human chooses the concrete model.
     pub selection_mode: GraphqlModelPreferenceSelectionMode,
+    /// Whether this preference requests faster service.
+    pub fast_mode: bool,
 }
 
 /// Noema's current concrete recommendation for one workload.
@@ -155,6 +157,8 @@ pub struct GraphqlSaveAgentModelPreferenceInput {
     pub model_profile: Option<String>,
     /// Optional explicit reasoning effort for reasoning-capable model profiles.
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
+    /// Whether this preference requests faster service.
+    pub fast_mode: bool,
 }
 
 /// Readiness of a configured ACP executable.
@@ -306,6 +310,7 @@ impl GraphqlAgent {
                     preference.provider_kind,
                     preference.provider_account_id,
                     preference.selection,
+                    preference.fast_mode,
                 )
             }),
             model_options: model_options.to_vec(),
@@ -317,6 +322,7 @@ fn graphql_agent_preference(
     provider_kind: String,
     provider_account_id: String,
     selection: ModelPreferenceSelection,
+    fast_mode: bool,
 ) -> GraphqlAgentModelPreference {
     let (model_profile, reasoning_effort) = match &selection {
         ModelPreferenceSelection::NoemaRecommended => (None, None),
@@ -331,6 +337,7 @@ fn graphql_agent_preference(
         model_profile,
         reasoning_effort: reasoning_effort.map(Into::into),
         selection_mode: (&selection).into(),
+        fast_mode,
     }
 }
 
@@ -603,6 +610,7 @@ pub(super) async fn save_agent_model_preference(
         provider_kind: account.provider_kind,
         provider_account_id: account.provider_account_id,
         selection,
+        fast_mode: input.fast_mode,
     };
     let saved = store
         .upsert_agent_runtime_preference_with_ready_selection(preference, &ready_selection)
@@ -612,6 +620,7 @@ pub(super) async fn save_agent_model_preference(
         saved.provider_kind,
         saved.provider_account_id,
         saved.selection,
+        saved.fast_mode,
     ))
 }
 
@@ -727,6 +736,7 @@ pub(super) async fn auxiliary_model_settings(
                 preference.provider_kind,
                 preference.provider_account_id,
                 preference.selection,
+                preference.fast_mode,
             )
         });
     Ok(AuxiliaryModelSettings {
@@ -742,6 +752,7 @@ pub(super) async fn save_auxiliary_model_preference(
     selection_mode: GraphqlModelPreferenceSelectionMode,
     model_profile: Option<String>,
     reasoning_effort: Option<GraphqlReasoningEffort>,
+    fast_mode: bool,
     provenance: &'static str,
 ) -> Result<GraphqlAgentModelPreference> {
     let store = state.store()?;
@@ -774,6 +785,7 @@ pub(super) async fn save_auxiliary_model_preference(
                 provider_kind: account.provider_kind,
                 provider_account_id: account.provider_account_id,
                 selection,
+                fast_mode,
             },
             &ready_selection,
         )
@@ -783,6 +795,7 @@ pub(super) async fn save_auxiliary_model_preference(
         saved.provider_kind,
         saved.provider_account_id,
         saved.selection,
+        saved.fast_mode,
     ))
 }
 

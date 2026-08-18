@@ -13,7 +13,6 @@ use crate::{
 };
 use noema_home::SystemErrorLogger;
 use reqwest::header::{HeaderMap, HeaderName};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 /// Provider implementation backed by the `OpenAI` Responses API.
@@ -21,7 +20,6 @@ use std::time::Duration;
 pub struct OpenAiProvider {
     transport: ResponsesTransport,
     config: OpenAiProviderConfig,
-    fast_mode: AtomicBool,
     system_errors: Option<SystemErrorLogger>,
 }
 
@@ -57,7 +55,6 @@ impl OpenAiProvider {
         let transport = ResponsesTransport::new(client, config.base_url.clone())?;
         Ok(Self {
             transport,
-            fast_mode: AtomicBool::new(config.fast_mode),
             system_errors: config.system_errors.clone(),
             config,
         })
@@ -128,15 +125,6 @@ fn normalize_config(
 }
 
 impl ModelProvider for OpenAiProvider {
-    fn fast_mode(&self) -> Option<bool> {
-        Some(self.fast_mode.load(Ordering::Relaxed))
-    }
-
-    fn set_fast_mode(&self, enabled: bool) -> Result<(), ProviderError> {
-        self.fast_mode.store(enabled, Ordering::Relaxed);
-        Ok(())
-    }
-
     fn default_tool_classification_model(&self) -> Option<String> {
         Some(
             self.config
@@ -206,7 +194,7 @@ impl ModelProvider for OpenAiProvider {
                 self.schema_request_capabilities(Some(&model)),
                 OPENAI_RESPONSES_PROFILE,
             )?;
-        body.set_fast_mode(self.fast_mode.load(Ordering::Relaxed));
+        body.set_fast_mode(request.options.fast_mode);
 
         let diagnostics = ResponsesDiagnosticContext::new(
             self.system_errors.clone(),
@@ -273,16 +261,13 @@ mod tests {
             default_model: "default-model".to_string(),
             tool_classification_model: None,
             reasoning_effort: None,
-            fast_mode: false,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
             system_errors: None,
         })
         .expect("provider");
-        assert_eq!(provider.fast_mode(), Some(false));
-        provider.set_fast_mode(true).expect("enable fast mode");
-
         let mut request = GenerateRequest::text("Hello?");
         request.model = Some("gpt-test".to_string());
+        request.options.fast_mode = true;
         let response = provider.generate(request).await.expect("response");
 
         let captured = request_rx.await.expect("captured request");
@@ -429,7 +414,6 @@ mod tests {
             default_model: "default-model".to_string(),
             tool_classification_model: None,
             reasoning_effort: None,
-            fast_mode: false,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
             system_errors: None,
         }

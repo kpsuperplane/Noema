@@ -163,6 +163,7 @@ impl RuntimeActor {
                         .reasoning_effort
                         .map(ReasoningEffort::as_persistence_str)
                         .map(str::to_string),
+                    fast_mode: selection.fast_mode,
                     tool_catalog_digest: tool_catalog_digest(turn),
                     request: call.payload.clone(),
                     projection,

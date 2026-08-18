@@ -672,10 +672,12 @@ impl RuntimeActor {
             "web.fetch summarizer selection has no concrete model profile".to_string()
         })?;
         let summarizer_reasoning_effort = selection.reasoning_effort;
+        let summarizer_fast_mode = selection.fast_mode;
         Ok(WebFetchContext {
             summarizer_route,
             summarizer_model,
             summarizer_reasoning_effort,
+            summarizer_fast_mode,
             generation_priority,
         })
     }

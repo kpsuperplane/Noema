@@ -78,6 +78,7 @@ graphql_input! { "Input for replacing one human-controlled executor pool entry."
     "Whether Noema or the human chooses the concrete model." => selection_mode: GraphqlModelPreferenceSelectionMode,
     "Exact provider model/profile for an explicit selection." => model_profile: Option<String>,
     "Optional reasoning effort." => reasoning_effort: Option<GraphqlReasoningEffort>,
+    "Whether this preference requests faster service." => fast_mode: bool,
     "Whether this entry can be selected for new tasks." => enabled: bool,
     "Human-controlled ordering within its tier." => sort_order: i32,
 } }

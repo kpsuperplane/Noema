@@ -5,6 +5,10 @@ import {
   type SelectorOptionType
 } from "@astryxdesign/core/Selector";
 import { HStack, StackItem } from "@astryxdesign/core/Stack";
+import {
+  SegmentedControl,
+  SegmentedControlItem
+} from "@astryxdesign/core/SegmentedControl";
 import * as stylex from "@stylexjs/stylex";
 import { Sparkles } from "lucide-react";
 import type { CSSProperties } from "react";
@@ -68,6 +72,9 @@ export function ControlledModelPreferenceSelect({
   const selectedProvider = options.find(
     (provider) => provider.providerAccountId === selection.providerAccountId
   );
+  const supportsFastMode = selectedProvider
+    ? fastModeProvider(selectedProvider.providerKind)
+    : false;
   const selectedProfile = selectedProvider?.profiles.find(
     (profile) => selection.selectionMode === "EXPLICIT_PROFILE" && profile.id === selection.modelProfile
   );
@@ -91,11 +98,10 @@ export function ControlledModelPreferenceSelect({
     : "";
   return (
     <HStack gap={2} wrap="wrap" vAlign="center" {...stylex.props(styles.field)}>
-      <HStack gap={2} wrap="nowrap" {...stylex.props(styles.controls)}>
+      <HStack gap={2} wrap="wrap" {...stylex.props(styles.controls)}>
         <StackItem
           size="fill"
           {...stylex.props(styles.modelControl)}
-          style={{ flex: "1 1 15rem" }}
         >
           <Selector
             isLabelHidden
@@ -125,19 +131,26 @@ export function ControlledModelPreferenceSelect({
             onChange={(value) => {
               const next = parseModelOptionValue(value);
               if (!next || value === selectedValue) return;
-              if (next.selectionMode === "NOEMA_RECOMMENDED") {
-                onChange(next);
-                return;
-              }
               const provider = options.find(
                 (candidate) => candidate.providerAccountId === next.providerAccountId
               );
+              const fastMode = Boolean(
+                provider
+                && fastModeProvider(provider.providerKind)
+                && next.providerAccountId === selection.providerAccountId
+                && selection.fastMode
+              );
+              if (next.selectionMode === "NOEMA_RECOMMENDED") {
+                onChange({ ...next, fastMode });
+                return;
+              }
               const profile = provider?.profiles.find(
                 (candidate) => candidate.id === next.modelProfile
               );
               const efforts = profile?.reasoningEfforts ?? [];
               onChange({
                 ...next,
+                fastMode,
                 reasoningEffort: efforts.length > 0
                   ? profile?.defaultReasoningEffort ?? efforts[0] ?? null
                   : null
@@ -149,7 +162,6 @@ export function ControlledModelPreferenceSelect({
           <StackItem
             size="fill"
             {...stylex.props(styles.effortControl)}
-            style={{ flex: "0 1 7rem" }}
           >
             <Selector
               isLabelHidden
@@ -165,6 +177,25 @@ export function ControlledModelPreferenceSelect({
                 reasoningEffort: value as ReasoningEffort
               })}
             />
+          </StackItem>
+        ) : null}
+        {supportsFastMode ? (
+          <StackItem size="fill" {...stylex.props(styles.speedControl)}>
+            <SegmentedControl
+              label={`${ariaLabel} speed`}
+              value={selection.fastMode ? "fast" : "standard"}
+              layout="fill"
+              size="sm"
+              isDisabled={disabled}
+              onChange={(value) => onChange({
+                ...selection,
+                fastMode: value === "fast"
+              })}
+              xstyle={styles.segmentedControl}
+            >
+              <SegmentedControlItem value="standard" label="Standard" />
+              <SegmentedControlItem value="fast" label="Fast" />
+            </SegmentedControl>
           </StackItem>
         ) : null}
       </HStack>
@@ -197,7 +228,8 @@ function parseModelOptionValue(value: string): ModelPreferenceSaveInput | null {
         providerAccountId: parsed[0],
         selectionMode: "NOEMA_RECOMMENDED",
         modelProfile: null,
-        reasoningEffort: null
+        reasoningEffort: null,
+        fastMode: false
       };
     }
     if (
@@ -209,7 +241,8 @@ function parseModelOptionValue(value: string): ModelPreferenceSaveInput | null {
       return {
         providerAccountId: parsed[0],
         selectionMode: "EXPLICIT_PROFILE",
-        modelProfile: parsed[2]
+        modelProfile: parsed[2],
+        fastMode: false
       };
     }
   } catch {
@@ -222,6 +255,10 @@ function reasoningEffortLabel(value: ReasoningEffort): string {
   return value === "XHIGH"
     ? "XHigh"
     : value.charAt(0) + value.slice(1).toLowerCase();
+}
+
+function fastModeProvider(providerKind: string): boolean {
+  return providerKind === "codex" || providerKind === "openai";
 }
 
 function modelPresentation(providerKind: string, label: string) {
@@ -242,7 +279,7 @@ const styles = stylex.create({
     }
   },
   controls: {
-    width: "calc(15rem + var(--spacing-2) + 7rem)",
+    width: "min(100%, 38rem)",
     justifyContent: "flex-end",
     "@media (max-width: 620px)": {
       width: "100%",
@@ -250,9 +287,21 @@ const styles = stylex.create({
     }
   },
   modelControl: {
-    minWidth: 0
+    minWidth: 0,
+    flex: "1 1 15rem",
+    "@media (max-width: 620px)": {
+      flexBasis: "100%"
+    }
   },
   effortControl: {
-    minWidth: 0
+    minWidth: 0,
+    flex: "1 1 7rem"
+  },
+  speedControl: {
+    minWidth: 0,
+    flex: "1 1 12rem"
+  },
+  segmentedControl: {
+    width: "100%"
   }
 });

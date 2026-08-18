@@ -98,6 +98,7 @@ pub(in crate::graphql) async fn update_task_model_pool_entry(
     let retains_exact_route = existing.model.provider_kind
         == input.provider_kind.trim().to_ascii_lowercase()
         && existing.model.provider_account_id == input.provider_account_id.trim()
+        && existing.model.fast_mode == input.fast_mode
         && match (&existing.preference, input.selection_mode) {
             (
                 noema_providers::ModelPreferenceSelection::NoemaRecommended,
@@ -128,6 +129,7 @@ pub(in crate::graphql) async fn update_task_model_pool_entry(
             provider_kind: existing.model.provider_kind,
             provider_account_id: existing.model.provider_account_id,
             selection: existing.preference,
+            fast_mode: input.fast_mode,
             enabled: input.enabled,
             sort_order: i64::from(input.sort_order),
         };
@@ -172,6 +174,7 @@ pub(in crate::graphql) async fn update_task_model_pool_entry(
         provider_kind: account.provider_kind,
         provider_account_id: account.provider_account_id,
         selection,
+        fast_mode: input.fast_mode,
         enabled: input.enabled,
         sort_order: i64::from(input.sort_order),
     };
@@ -275,6 +278,7 @@ mod tests {
             selection_mode: (&entry.preference).into(),
             model_profile: entry.preference.model_profile().map(str::to_string),
             reasoning_effort: entry.preference.reasoning_effort().map(Into::into),
+            fast_mode: entry.model.fast_mode,
             enabled: true,
             sort_order: i32::try_from(entry.sort_order).expect("sort order"),
         };

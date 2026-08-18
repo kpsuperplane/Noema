@@ -18,7 +18,8 @@ impl NoemaStore {
                 r#"
                 SELECT pool_entry_id, complexity, label, provider_kind,
                        provider_account_id, provider_instance_key, selection_mode,
-                       model_profile, reasoning_effort, enabled, sort_order, created_at, updated_at
+                       model_profile, reasoning_effort, fast_mode, enabled, sort_order, created_at,
+                       updated_at
                 FROM task_model_pool_entries
                 WHERE pool_entry_id = ?1
                 LIMIT 1
@@ -47,7 +48,8 @@ impl NoemaStore {
                     r#"
                 SELECT pool_entry_id, complexity, label, provider_kind,
                        provider_account_id, provider_instance_key, selection_mode,
-                       model_profile, reasoning_effort, enabled, sort_order, created_at, updated_at
+                       model_profile, reasoning_effort, fast_mode, enabled, sort_order, created_at,
+                       updated_at
                 FROM task_model_pool_entries
                 WHERE (?1 IS NULL OR complexity = ?1)
                 ORDER BY complexity, sort_order, label, pool_entry_id

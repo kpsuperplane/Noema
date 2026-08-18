@@ -209,6 +209,8 @@ pub struct GraphqlDefaultModelPreference {
     pub model_profile: Option<String>,
     /// Optional provider-specific reasoning effort.
     pub reasoning_effort: Option<String>,
+    /// Whether this preference requests faster service.
+    pub fast_mode: bool,
 }
 
 /// First-run local-model recommendation and current readiness.
@@ -271,6 +273,8 @@ pub struct GraphqlSaveDefaultModelPreferenceInput {
     pub model_profile: Option<String>,
     /// Optional provider-specific reasoning effort.
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
+    /// Whether this preference requests faster service.
+    pub fast_mode: bool,
 }
 
 /// Category for one cursor-bearing local-model event.
@@ -532,6 +536,7 @@ pub(super) async fn save_default_model_preference(
             &input.provider_kind,
             &input.provider_account_id,
             &preference,
+            input.fast_mode,
             &ready_selection,
         )
         .await

@@ -33,6 +33,7 @@ export const TaskModelPoolsDocument = gql`
       modelProfile
       reasoningEffort
       selectionMode
+      fastMode
       enabled
       sortOrder
       createdAt
@@ -52,6 +53,7 @@ export const UpdateTaskModelPoolEntryDocument = gql`
       modelProfile
       reasoningEffort
       selectionMode
+      fastMode
       enabled
       sortOrder
       createdAt

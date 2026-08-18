@@ -56,6 +56,8 @@ slice or a net-negative reduction.
 
 - Hosted providers, local models, MCP, native HTTP adapters, and browser tools
   keep distinct transport and security ownership.
+- Each model preference owns its speed. Codex and OpenAI support Standard and
+  Fast. Durable request snapshots preserve that choice.
 - Adapter manifests use schema version 9. Definitions and OAuth objects have
   filesystem authorities. SQLite adapter projections are disposable.
 - An adapter definition ID identifies the service. A semantic digest identifies

@@ -90,6 +90,7 @@ export const LocalModelsSettingsDocument = gql`
       selectionMode
       modelProfile
       reasoningEffort
+      fastMode
     }
   }
   ${LocalModelCatalogEntryFields}
@@ -146,6 +147,7 @@ export const SaveDefaultModelPreferenceDocument = gql`
       selectionMode
       modelProfile
       reasoningEffort
+      fastMode
     }
   }
 `;

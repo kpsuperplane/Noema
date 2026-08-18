@@ -141,14 +141,14 @@ pub(crate) fn write_preference_tx(
         .as_ref()
         .ok_or(StoreError::ProviderInstanceKeyMissing)?;
     let conflict = if overwrite {
-        "DO UPDATE SET provider_kind = excluded.provider_kind, provider_account_id = excluded.provider_account_id, provider_instance_key = excluded.provider_instance_key, selection_mode = excluded.selection_mode, model_profile = excluded.model_profile, reasoning_effort = excluded.reasoning_effort, updated_at = excluded.updated_at"
+        "DO UPDATE SET provider_kind = excluded.provider_kind, provider_account_id = excluded.provider_account_id, provider_instance_key = excluded.provider_instance_key, selection_mode = excluded.selection_mode, model_profile = excluded.model_profile, reasoning_effort = excluded.reasoning_effort, fast_mode = excluded.fast_mode, updated_at = excluded.updated_at"
     } else {
         "DO NOTHING"
     };
     transaction.execute(
         &format!(
-            "INSERT INTO {table} ({owner_column}, provider_kind, provider_account_id, provider_instance_key, selection_mode, model_profile, reasoning_effort, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) \
+            "INSERT INTO {table} ({owner_column}, provider_kind, provider_account_id, provider_instance_key, selection_mode, model_profile, reasoning_effort, fast_mode, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) \
              ON CONFLICT({owner_column}) {conflict}"
         ),
         params![
@@ -161,6 +161,7 @@ pub(crate) fn write_preference_tx(
             preference
                 .reasoning_effort()
                 .map(noema_providers::ReasoningEffort::as_persistence_str),
+            selection.fast_mode,
         ],
     )?;
     Ok(())
@@ -179,14 +180,14 @@ pub(crate) fn write_task_pool_preference_tx(
         .as_ref()
         .ok_or(StoreError::ProviderInstanceKeyMissing)?;
     let conflict = if overwrite {
-        "DO UPDATE SET provider_kind = excluded.provider_kind, provider_account_id = excluded.provider_account_id, provider_instance_key = excluded.provider_instance_key, selection_mode = excluded.selection_mode, model_profile = excluded.model_profile, reasoning_effort = excluded.reasoning_effort, enabled = 1, sort_order = 0, updated_at = excluded.updated_at"
+        "DO UPDATE SET provider_kind = excluded.provider_kind, provider_account_id = excluded.provider_account_id, provider_instance_key = excluded.provider_instance_key, selection_mode = excluded.selection_mode, model_profile = excluded.model_profile, reasoning_effort = excluded.reasoning_effort, fast_mode = excluded.fast_mode, enabled = 1, sort_order = 0, updated_at = excluded.updated_at"
     } else {
         "DO NOTHING"
     };
     transaction.execute(
         &format!(
-            "INSERT INTO task_model_pool_entries (pool_entry_id, complexity, label, provider_kind, provider_account_id, provider_instance_key, selection_mode, model_profile, reasoning_effort, enabled, sort_order, updated_at) \
-             VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, ?8, 1, 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) \
+            "INSERT INTO task_model_pool_entries (pool_entry_id, complexity, label, provider_kind, provider_account_id, provider_instance_key, selection_mode, model_profile, reasoning_effort, fast_mode, enabled, sort_order, updated_at) \
+             VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) \
              ON CONFLICT(pool_entry_id) {conflict}"
         ),
         params![
@@ -200,6 +201,7 @@ pub(crate) fn write_task_pool_preference_tx(
             preference
                 .reasoning_effort()
                 .map(noema_providers::ReasoningEffort::as_persistence_str),
+            selection.fast_mode,
         ],
     )?;
     Ok(())

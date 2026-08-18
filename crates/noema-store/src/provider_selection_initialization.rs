@@ -574,6 +574,7 @@ mod tests {
                 model_profile: noema_providers::DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
                 reasoning_effort: None,
             },
+            fast_mode: false,
         };
         let model_profile = preference
             .selection

@@ -351,6 +351,7 @@ impl RuntimeActor {
                     prompt_cache_options: prompt_cache_options_for(turn.tool_capabilities),
                     prompt_cache_breakpoints: continuation_prompt_cache_breakpoints,
                     reasoning_effort: turn.reasoning_effort,
+                    fast_mode: turn.fast_mode,
                     previous_response_id: continuation_input.previous_response_id,
                     store_response: response_continuation.store_response(),
                     ..GenerateOptions::default()
@@ -401,6 +402,7 @@ impl RuntimeActor {
                                 ),
                                 prompt_cache_breakpoints: fallback_prompt_cache_breakpoints,
                                 reasoning_effort: turn.reasoning_effort,
+                                fast_mode: turn.fast_mode,
                                 store_response: response_continuation.store_response(),
                                 ..GenerateOptions::default()
                             },
@@ -617,6 +619,7 @@ impl RuntimeActor {
                 provider_kind: turn.provider_kind.clone(),
                 model: turn.model.clone(),
                 reasoning_effort: turn.reasoning_effort,
+                fast_mode: turn.fast_mode,
                 provider_route: Arc::clone(&turn.provider_route),
                 initial_stream_id: continuation_stream_id.clone(),
                 response: GenerateResponse {

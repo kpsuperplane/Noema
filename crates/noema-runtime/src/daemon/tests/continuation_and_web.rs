@@ -343,6 +343,7 @@ async fn assert_one_no_tools_finalization(scenario: FakeCodexScenario) {
                     model_profile: "gpt-5.5".to_string(),
                     reasoning_effort: Some(noema_providers::ReasoningEffort::High),
                 },
+                fast_mode: false,
             },
         )
         .await;
@@ -357,6 +358,7 @@ async fn assert_one_no_tools_finalization(scenario: FakeCodexScenario) {
                     model_profile: "gpt-5.4-mini".to_string(),
                     reasoning_effort: None,
                 },
+                fast_mode: false,
             },
         )
         .await;

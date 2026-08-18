@@ -56,6 +56,7 @@ impl NoemaStore {
                     record.provider_account_id,
                     record.provider_instance_key,
                     record.selection,
+                    record.fast_mode,
                     NoemaModelUseCase::Primary,
                     "default_model_preference".to_string(),
                 )
@@ -70,6 +71,7 @@ impl NoemaStore {
                     record.provider_account_id,
                     record.provider_instance_key,
                     record.selection,
+                    record.fast_mode,
                     agent_use_case(&agent_id)?,
                     format!("agent_runtime_preference:{agent_id}"),
                 )
@@ -84,6 +86,7 @@ impl NoemaStore {
                     record.provider_account_id,
                     record.provider_instance_key,
                     record.selection,
+                    record.fast_mode,
                     auxiliary_use_case(task),
                     format!("auxiliary_model_preference:{task}"),
                 )
@@ -129,6 +132,7 @@ fn exact_selection(
     provider_account_id: String,
     provider_instance_key: noema_providers::ProviderInstanceKey,
     preference: ModelPreferenceSelection,
+    fast_mode: bool,
     use_case: NoemaModelUseCase,
     source: String,
 ) -> Result<ProviderSelectionSnapshot, StoreError> {
@@ -152,6 +156,7 @@ fn exact_selection(
         Some(source),
     );
     selection.provider_instance_key = Some(provider_instance_key);
+    selection.fast_mode = fast_mode;
     selection
         .normalized_for_persistence()
         .map_err(|error| StoreError::InvariantViolation {

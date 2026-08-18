@@ -46,6 +46,7 @@ async fn summarize_single_pass(
     let mut ignored_events = |_| {};
     let mut request = GenerateRequest::text(prompt).with_model(context.summarizer_model.clone());
     request.options.reasoning_effort = context.summarizer_reasoning_effort;
+    request.options.fast_mode = context.summarizer_fast_mode;
     request.options.generation_priority = context.generation_priority;
     let response = context
         .summarizer_route
@@ -196,6 +197,7 @@ mod tests {
             ),
             summarizer_model: "gpt-5.5-mini".to_string(),
             summarizer_reasoning_effort: Some(crate::ReasoningEffort::Low),
+            summarizer_fast_mode: false,
             generation_priority: crate::GenerationPriority::Background,
         };
         let markdown = "Long page text. ".repeat(600);

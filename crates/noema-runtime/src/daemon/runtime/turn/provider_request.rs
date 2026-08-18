@@ -18,6 +18,7 @@ impl RuntimeActor {
         let provider_kind = provider_selection.provider_kind.as_str();
         let model_profile = provider_selection.model_profile.as_deref();
         let reasoning_effort = provider_selection.reasoning_effort;
+        let fast_mode = provider_selection.fast_mode;
         let turn_index = conversation.next_turn_index;
         let turn = if let Some((intervention_id, trigger_item_id)) = user_input.human_intervention() {
             let (turn, inserted) = self
@@ -261,6 +262,7 @@ impl RuntimeActor {
                 provider_kind,
                 model_profile,
                 reasoning_effort,
+                fast_mode,
                 budget: planned_context.budget,
                 mode: super::context_compaction::CompactionMode::Foreground,
             };
@@ -509,6 +511,7 @@ impl RuntimeActor {
                     options: GenerateOptions {
                         max_output_tokens: planned_context.budget.output_reserve_tokens(),
                         reasoning_effort,
+                        fast_mode,
                         hosted_web_search: model_tools.hosted_web_search(),
                         prompt_cache_retention: prompt_cache_retention_for(tool_capabilities),
                         prompt_cache_options: prompt_cache_options_for(tool_capabilities),
@@ -591,6 +594,7 @@ impl RuntimeActor {
                             provider_kind: provider_selection.provider_kind.clone(),
                             model: provider_selection.model_profile.clone(),
                             reasoning_effort,
+                            fast_mode,
                             provider_route: Arc::clone(&provider_route),
                             initial_stream_id: initial_stream_id.clone(),
                             response,
@@ -623,6 +627,7 @@ impl RuntimeActor {
                     provider_kind: provider_selection.provider_kind.clone(),
                     model_profile: provider_selection.model_profile.clone(),
                     reasoning_effort,
+                    fast_mode,
                     provider_route,
                     next_turn_index: turn_index.saturating_add(1),
                 });

@@ -71,6 +71,7 @@ impl RuntimeActor {
                     options: GenerateOptions {
                         generation_priority: priority,
                         reasoning_effort: selection.reasoning_effort,
+                        fast_mode: selection.fast_mode,
                         ..GenerateOptions::default()
                     },
                     tools,

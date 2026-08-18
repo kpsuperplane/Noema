@@ -101,6 +101,7 @@ impl RuntimeActor {
                     options: GenerateOptions {
                         prompt_cache_retention: prompt_cache_retention_for(turn.tool_capabilities),
                         reasoning_effort: turn.reasoning_effort,
+                        fast_mode: turn.fast_mode,
                         previous_response_id: continuation_input.previous_response_id,
                         store_response: response_continuation.store_response(),
                         ..GenerateOptions::default()
@@ -141,6 +142,7 @@ impl RuntimeActor {
                                 turn.tool_capabilities,
                             ),
                             reasoning_effort: turn.reasoning_effort,
+                            fast_mode: turn.fast_mode,
                             store_response: response_continuation.store_response(),
                             ..GenerateOptions::default()
                         },

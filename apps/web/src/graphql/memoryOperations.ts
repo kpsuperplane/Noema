@@ -9,6 +9,7 @@ export const MemorySettingsDocument = gql`
         modelProfile
         reasoningEffort
         selectionMode
+        fastMode
       }
       modelOptions {
         providerKind
@@ -181,6 +182,7 @@ export const SaveMemoryModelPreferenceDocument = gql`
       modelProfile
       reasoningEffort
       selectionMode
+      fastMode
     }
   }
 `;

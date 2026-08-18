@@ -399,6 +399,8 @@ pub struct GenerateOptions {
     pub temperature: Option<f32>,
     /// Optional explicit reasoning effort for reasoning-capable providers/models.
     pub reasoning_effort: Option<ReasoningEffort>,
+    /// Request faster service when the selected provider supports it.
+    pub fast_mode: bool,
     /// Allow the provider to execute its hosted live-web search tool.
     pub hosted_web_search: bool,
     /// Provider prompt-cache retention request when supported.

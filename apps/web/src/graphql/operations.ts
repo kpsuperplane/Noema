@@ -43,15 +43,15 @@ export const OnboardingModelSetupDocument = gql`
       }
       recommendations { useCase modelProfile reasoningEffort disabledReason }
       proposedSelections {
-        noema { selectionMode modelProfile reasoningEffort }
-        simpleTasks { selectionMode modelProfile reasoningEffort }
-        mediumTasks { selectionMode modelProfile reasoningEffort }
-        difficultTasks { selectionMode modelProfile reasoningEffort }
-        taskReviewer { selectionMode modelProfile reasoningEffort }
-        webFetchSummarizer { selectionMode modelProfile reasoningEffort }
-        toolProgressAudit { selectionMode modelProfile reasoningEffort }
-        actionReviewer { selectionMode modelProfile reasoningEffort }
-        memoryConsolidation { selectionMode modelProfile reasoningEffort }
+        noema { selectionMode modelProfile reasoningEffort fastMode }
+        simpleTasks { selectionMode modelProfile reasoningEffort fastMode }
+        mediumTasks { selectionMode modelProfile reasoningEffort fastMode }
+        difficultTasks { selectionMode modelProfile reasoningEffort fastMode }
+        taskReviewer { selectionMode modelProfile reasoningEffort fastMode }
+        webFetchSummarizer { selectionMode modelProfile reasoningEffort fastMode }
+        toolProgressAudit { selectionMode modelProfile reasoningEffort fastMode }
+        actionReviewer { selectionMode modelProfile reasoningEffort fastMode }
+        memoryConsolidation { selectionMode modelProfile reasoningEffort fastMode }
       }
     }
   }
@@ -98,22 +98,12 @@ export const ProviderAccountsDocument = gql`
       lastAuthenticatedAt
       lastErrorCode
       lastErrorMessage
-      fastMode
       capabilities {
         capabilityId
         status
         reliabilityContract
         dataFlowClass
       }
-    }
-  }
-`;
-
-export const SetProviderFastModeDocument = gql`
-  mutation SetProviderFastMode($input: SetProviderFastModeInput!) {
-    setProviderFastMode(input: $input) {
-      providerAccountId
-      fastMode
     }
   }
 `;
@@ -193,6 +183,7 @@ export const AgentsDocument = gql`
         modelProfile
         reasoningEffort
         selectionMode
+        fastMode
       }
       modelOptions {
         providerKind
@@ -279,6 +270,7 @@ export const SaveAgentModelPreferenceDocument = gql`
       modelProfile
       reasoningEffort
       selectionMode
+      fastMode
     }
   }
 `;
@@ -287,12 +279,13 @@ export const WebFetchSettingsDocument = gql`
   query WebFetchSettings {
     webFetchSettings {
       summarizer {
-        modelPreference {
+      modelPreference {
           providerKind
           providerAccountId
           modelProfile
-          reasoningEffort
-          selectionMode
+        reasoningEffort
+        selectionMode
+        fastMode
         }
         modelOptions {
           providerKind
@@ -322,6 +315,7 @@ export const SaveWebFetchSummarizerPreferenceDocument = gql`
       modelProfile
       reasoningEffort
       selectionMode
+      fastMode
     }
   }
 `;
@@ -418,6 +412,7 @@ export const UsageSettingsDocument = gql`
           modelProfile
           reasoningEffort
           selectionMode
+          fastMode
         }
         modelOptions {
           providerKind
@@ -447,6 +442,7 @@ export const SaveToolProgressAuditPreferenceDocument = gql`
       modelProfile
       reasoningEffort
       selectionMode
+      fastMode
     }
   }
 `;
@@ -461,6 +457,7 @@ export const PrivacySettingsDocument = gql`
           modelProfile
           reasoningEffort
           selectionMode
+          fastMode
         }
         modelOptions {
           providerKind
@@ -490,6 +487,7 @@ export const SaveActionReviewerPreferenceDocument = gql`
       modelProfile
       reasoningEffort
       selectionMode
+      fastMode
     }
   }
 `;

@@ -121,6 +121,7 @@ impl RuntimeActor {
                     instructions: Some(instructions),
                     options: GenerateOptions {
                         reasoning_effort: selection.reasoning_effort,
+                        fast_mode: selection.fast_mode,
                         prompt_cache_retention: prompt_cache_retention_for(tool_capabilities),
                         ..GenerateOptions::default()
                     },
