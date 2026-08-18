@@ -36,20 +36,27 @@ export function TaskDetailPanel({
   onOpenDetail: (target: ChatDetailTarget) => void;
 }) {
   const currentDetail = detail?.taskId === taskId ? detail : null;
-  const [latestRunItems, setLatestRunItems] = React.useState<ReadonlyMap<string, TaskRunItem>>(
+  const [latestRunText, setLatestRunText] = React.useState<ReadonlyMap<string, string>>(
     () => new Map()
   );
-  const onLatestRunItemChange = React.useCallback((runId: string, item: TaskRunItem | null) => {
-    setLatestRunItems((previous) => {
-      if (!item) {
+  const onLatestRunItemChange = React.useCallback((
+    runId: string,
+    item: TaskRunItem | null,
+    displayText?: string | null
+  ) => {
+    const text = displayText === undefined
+      ? item ? item.summary?.trim() || item.title : null
+      : displayText?.trim() || null;
+    setLatestRunText((previous) => {
+      if (!text) {
         if (!previous.has(runId)) return previous;
         const next = new Map(previous);
         next.delete(runId);
         return next;
       }
-      if (previous.get(runId) === item) return previous;
+      if (previous.get(runId) === text) return previous;
       const next = new Map(previous);
-      next.set(runId, item);
+      next.set(runId, text);
       return next;
     });
   }, []);
@@ -76,7 +83,7 @@ export function TaskDetailPanel({
       key={`context:${taskId}:${currentDetail.attention ? "attention" : "info"}`}
       detail={currentDetail}
       governedActions={governedActions}
-      latestRunItems={latestRunItems}
+      latestRunText={latestRunText}
       run={run}
       controls={controls}
       showTasksLink={showTasksLink}
@@ -110,7 +117,7 @@ function TaskContextCard({
   detail,
   governedActions,
   controls,
-  latestRunItems,
+  latestRunText,
   run,
   showTasksLink,
   taskId
@@ -119,7 +126,7 @@ function TaskContextCard({
   detail: TaskDetail;
   governedActions?: React.ReactNode;
   controls?: React.ReactNode;
-  latestRunItems: ReadonlyMap<string, TaskRunItem>;
+  latestRunText: ReadonlyMap<string, string>;
   run: TaskRun | null;
   showTasksLink: boolean;
 }) {
@@ -129,7 +136,7 @@ function TaskContextCard({
       <div {...stylex.props(styles.contextCard)}>
         <TaskSummaryHeader
           detail={detail}
-          latestRunItems={latestRunItems}
+          latestRunText={latestRunText}
           run={run}
           controls={controls}
           showTasksLink={showTasksLink}
@@ -145,20 +152,20 @@ function TaskContextCard({
 
 function TaskSummaryHeader({
   detail,
-  latestRunItems,
+  latestRunText,
   run,
   controls,
   showTasksLink,
   taskId
 }: {
   detail: TaskDetail;
-  latestRunItems: ReadonlyMap<string, TaskRunItem>;
+  latestRunText: ReadonlyMap<string, string>;
   run: TaskRun | null;
   controls?: React.ReactNode;
   showTasksLink: boolean;
   taskId: string;
 }) {
-  const latestItem = run ? latestRunItems.get(run.id) ?? null : null;
+  const latestText = run ? latestRunText.get(run.id) ?? null : null;
   return (
     <header {...stylex.props(styles.summaryHeader, !run && styles.summaryHeaderWithoutAvatar)}>
       {run ? (
@@ -172,7 +179,7 @@ function TaskSummaryHeader({
         <strong {...stylex.props(styles.summaryTitle)}>
           {run ? `${run.instanceName} · ${capitalize(run.role)}` : "No agent run yet"}
         </strong>
-        <span {...stylex.props(styles.summaryOutput)}>{latestRunOutput(run, latestItem)}</span>
+        <span {...stylex.props(styles.summaryOutput)}>{latestRunOutput(run, latestText)}</span>
       </span>
       <span {...stylex.props(styles.summaryActions)}>
         {controls ? <span {...stylex.props(styles.summaryControlsHost)}>{controls}</span> : null}
@@ -337,10 +344,8 @@ function latestTaskRun(detail: TaskDetail): TaskRun | null {
   return runs.find((run) => run.status === "running" || run.status === "leased" || run.status === "queued") ?? runs[0] ?? null;
 }
 
-function latestRunOutput(run: TaskRun | null, item: TaskRunItem | null): string {
-  if (item) {
-    return item.summary?.trim() || item.title;
-  }
+function latestRunOutput(run: TaskRun | null, latestText: string | null): string {
+  if (latestText) return latestText;
   if (run?.error) return run.error;
   switch (run?.status) {
     case "running": return "Running";

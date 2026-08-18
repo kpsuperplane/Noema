@@ -7,6 +7,7 @@ import { Transcript } from "@/components/Transcript";
 import type { TranscriptEntry } from "@/shared/types";
 import {
   TaskRunTranscriptSource,
+  type TaskRunLatestItemChange,
   type TaskRunTranscriptSnapshot
 } from "./TaskRunTranscript";
 import {
@@ -42,7 +43,7 @@ export function TaskTranscriptSourceProvider({
 }: {
   children: React.ReactNode;
   liveItems?: readonly TaskRunItem[];
-  onLatestRunItemChange?: (runId: string, item: TaskRunItem | null) => void;
+  onLatestRunItemChange?: TaskRunLatestItemChange;
   run: TaskRun | null;
   taskId: string;
 }) {
@@ -106,7 +107,7 @@ export function TaskTranscript({
   detail: TaskDetail;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   onOpenDetail: (target: ChatDetailTarget) => void;
-  onLatestRunItemChange?: (runId: string, item: TaskRunItem | null) => void;
+  onLatestRunItemChange?: TaskRunLatestItemChange;
 }) {
   const runs = React.useMemo(() => taskRunsInOrder(detail.revisions), [detail.revisions]);
   const sharedSource = React.useContext(TaskTranscriptSourceContext);
