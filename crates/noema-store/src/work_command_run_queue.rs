@@ -184,14 +184,23 @@ fn run_executor_tx(
         })
         .transpose()?
         .flatten();
-    let cwd = task.cwd_override.clone().or_else(|| {
-        project_folder.map(|folder| {
-            std::path::Path::new(&folder)
+    let cwd = task
+        .cwd_override
+        .as_ref()
+        .map(|directory| {
+            std::path::Path::new(directory)
                 .join(&task.task_directory)
                 .to_string_lossy()
                 .into_owned()
         })
-    });
+        .or_else(|| {
+            project_folder.map(|folder| {
+                std::path::Path::new(&folder)
+                    .join(&task.task_directory)
+                    .to_string_lossy()
+                    .into_owned()
+            })
+        });
     Ok((
         TaskExecutorSelection {
             agent_id: task.executor_agent_id.clone(),

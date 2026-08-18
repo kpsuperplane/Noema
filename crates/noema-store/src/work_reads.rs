@@ -309,35 +309,6 @@ impl NoemaStore {
     }
 }
 
-pub(crate) fn validate_evidence_links(
-    task: &noema_tasks::TaskRecord,
-    contract: Option<&noema_tasks::TaskExecutionContract>,
-    submission: Option<&noema_tasks::TaskSubmissionRecord>,
-    review: Option<&noema_tasks::TaskReviewRecord>,
-) -> Result<(), StoreError> {
-    let contract_ok = contract.is_none_or(|contract| {
-        contract.task_id == task.task_id && contract.task_generation == task.generation
-    });
-    let submission_ok = submission.is_none_or(|submission| {
-        submission.task_id == task.task_id
-            && contract.is_some_and(|contract| submission.contract_id == contract.contract_id)
-    });
-    let review_ok = review.is_none_or(|review| {
-        review.task_id == task.task_id
-            && contract.is_some_and(|contract| review.contract_id == contract.contract_id)
-    });
-    if contract_ok && submission_ok && review_ok {
-        Ok(())
-    } else {
-        Err(StoreError::InvariantViolation {
-            message: format!(
-                "task evidence crosses a current task/contract link: {}",
-                task.task_id
-            ),
-        })
-    }
-}
-
 fn project_query_hash(workspace_id: &WorkspaceId, include_archived: bool) -> String {
     let canonical = format!(
         "work-project-query:v1\0{}\0{}",

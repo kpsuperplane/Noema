@@ -4,9 +4,7 @@ use noema_tasks::WorkflowStageBehavior;
 use rusqlite::{Transaction, params};
 
 use super::{
-    list_rows::{
-        TaskPageRow, decode_task_page_row, load_gates, load_projects, load_reviews, load_runs,
-    },
+    list_rows::{TaskPageRow, decode_task_page_row, load_gates, load_projects, load_runs},
     rows::{derive_attention_actions, load_workspace, validate_current_links},
 };
 use crate::{
@@ -247,7 +245,6 @@ pub(crate) fn load_connection(
     let gate_ids = pointer_ids(&page_rows, |row| {
         row.task.active_gate_id.as_ref().map(|id| id.as_str())
     });
-    let review_ids = pointer_ids(&page_rows, |row| row.task.latest_review_id.as_deref());
     let project_ids = pointer_ids(&page_rows, |row| {
         row.task.project_id.as_ref().map(|id| id.as_str())
     });
@@ -257,22 +254,11 @@ pub(crate) fn load_connection(
         .transpose()?;
     let runs = load_runs(transaction, &run_ids)?;
     let gates = load_gates(transaction, &gate_ids)?;
-    let reviews = load_reviews(transaction, &review_ids)?;
     let projects = load_projects(transaction, &project_ids)?;
 
     let edges = page_rows
         .into_iter()
-        .map(|row| {
-            task_edge(
-                row,
-                workspace.as_ref(),
-                &projects,
-                &runs,
-                &gates,
-                &reviews,
-                &query,
-            )
-        })
+        .map(|row| task_edge(row, workspace.as_ref(), &projects, &runs, &gates, &query))
         .collect::<Result<Vec<_>, StoreError>>()?;
     let end_cursor = edges.last().map(|edge| edge.cursor.clone());
     Ok(WorkTaskConnection {
@@ -290,7 +276,6 @@ fn task_edge(
     projects: &std::collections::HashMap<String, noema_workspaces::ProjectRecord>,
     runs: &std::collections::HashMap<String, noema_tasks::AgentRunRecord>,
     gates: &std::collections::HashMap<String, noema_tasks::TaskGateRecord>,
-    reviews: &std::collections::HashMap<String, noema_tasks::TaskReviewRecord>,
     query: &PreparedQuery,
 ) -> Result<WorkTaskEdge, StoreError> {
     let workspace = workspace
@@ -338,23 +323,11 @@ fn task_edge(
                 .ok_or_else(|| missing_pointer("gate", id.as_str()))
         })
         .transpose()?;
-    let latest_review = row
-        .task
-        .latest_review_id
-        .as_ref()
-        .map(|id| {
-            reviews
-                .get(id)
-                .cloned()
-                .ok_or_else(|| missing_pointer("review", id))
-        })
-        .transpose()?;
     validate_summary_links(
         &row.task,
         &row.stage,
         current_run.as_ref(),
         active_gate.as_ref(),
-        latest_review.as_ref(),
     )?;
     let (attention, valid_actions) =
         derive_attention_actions(&row.task, row.stage.system_behavior, active_gate.as_ref());
@@ -388,7 +361,6 @@ fn task_edge(
             stage: row.stage,
             current_run,
             active_gate,
-            latest_review,
             attention,
             valid_actions,
         },
@@ -400,7 +372,6 @@ fn validate_summary_links(
     stage: &noema_tasks::WorkflowStage,
     run: Option<&noema_tasks::AgentRunRecord>,
     gate: Option<&noema_tasks::TaskGateRecord>,
-    review: Option<&noema_tasks::TaskReviewRecord>,
 ) -> Result<(), StoreError> {
     stage
         .belongs_to(&task.workflow_id)
@@ -409,9 +380,6 @@ fn validate_summary_links(
     let contract_id = task.current_contract_id.as_ref();
     if run.is_some_and(|run| run.contract_id.as_ref() != contract_id)
         || gate.is_some_and(|gate| gate.contract_id.as_ref() != contract_id)
-        || review.is_some_and(|review| {
-            review.task_id != task.task_id || Some(&review.contract_id) != contract_id
-        })
     {
         return Err(StoreError::InvariantViolation {
             message: format!("task {} card crosses a current contract link", task.task_id),
@@ -426,9 +394,7 @@ fn validate_lifecycle(
 ) -> Result<(), StoreError> {
     let valid = match behavior {
         WorkflowStageBehavior::TerminalSuccess => {
-            task.completed_at.is_some()
-                && task.cancelled_at.is_none()
-                && task.completed_submission_id.is_some()
+            task.completed_at.is_some() && task.cancelled_at.is_none()
         }
         WorkflowStageBehavior::TerminalCancelled => {
             task.completed_at.is_none() && task.cancelled_at.is_some()

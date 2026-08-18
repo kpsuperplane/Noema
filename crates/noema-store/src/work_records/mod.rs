@@ -167,8 +167,6 @@ pub struct WorkTaskSummary {
     pub current_run: Option<AgentRunRecord>,
     /// Current open gate, if any.
     pub active_gate: Option<TaskGateRecord>,
-    /// Most recent review, if any.
-    pub latest_review: Option<TaskReviewRecord>,
     /// Derived human-attention classification.
     pub attention: Option<WorkTaskAttention>,
     /// Commands allowed by the current durable state.
@@ -193,26 +191,14 @@ pub struct WorkTaskDetail {
     pub review_document: Option<String>,
     /// Current Task working directory resolved from live project state.
     pub working_directory: String,
-    /// Immutable contract for the current generation, if any.
-    pub current_contract: Option<TaskExecutionContract>,
     /// Current runnable or leased run, if any.
     pub current_run: Option<AgentRunRecord>,
     /// Current open gate, if any.
     pub active_gate: Option<TaskGateRecord>,
-    /// Most recent immutable submission, if any.
-    pub latest_submission: Option<TaskSubmissionRecord>,
-    /// Reviewer-approved submission that completed the task.
-    pub completed_submission: Option<TaskSubmissionRecord>,
-    /// Most recent immutable review, if any.
-    pub latest_review: Option<TaskReviewRecord>,
     /// Bounded recent human messages, newest first.
     pub messages: Vec<noema_tasks::TaskMessageRecord>,
     /// Bounded recent runs, newest first.
     pub runs: Vec<AgentRunRecord>,
-    /// Bounded recent submissions, newest first.
-    pub submissions: Vec<TaskSubmissionRecord>,
-    /// Bounded recent reviews, newest first.
-    pub reviews: Vec<TaskReviewRecord>,
     /// Bounded current task artifacts, newest first.
     pub artifacts: Vec<WorkTaskArtifact>,
     /// Derived human-attention classification.

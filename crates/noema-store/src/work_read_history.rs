@@ -1,7 +1,4 @@
-use super::{
-    list_rows::{load_reviews, load_runs},
-    submission_batch::load_submissions,
-};
+use super::list_rows::load_runs;
 use crate::{
     StoreError,
     sqlite::conversion_failure,
@@ -9,7 +6,7 @@ use crate::{
 };
 use noema_tasks::{
     AgentRunRecord, ApprovalDecision, TaskGateId, TaskId, TaskMessageId, TaskMessageKind,
-    TaskMessageRecord, TaskReviewRecord, TaskSubmissionRecord,
+    TaskMessageRecord,
 };
 use rusqlite::{Row, Transaction, params, types::Type};
 use std::{collections::HashMap, str::FromStr};
@@ -19,8 +16,6 @@ const DETAIL_HISTORY_LIMIT: usize = 20;
 pub(crate) struct WorkTaskHistory {
     pub messages: Vec<TaskMessageRecord>,
     pub runs: Vec<AgentRunRecord>,
-    pub submissions: Vec<TaskSubmissionRecord>,
-    pub reviews: Vec<TaskReviewRecord>,
 }
 
 pub(crate) fn load_task_history(
@@ -45,24 +40,6 @@ pub(crate) fn load_task_history(
             "created_at",
             load_runs,
             "run",
-        )?,
-        submissions: load_recent(
-            transaction,
-            task_id,
-            "task_submissions",
-            "submission_id",
-            "created_at",
-            load_submissions,
-            "submission",
-        )?,
-        reviews: load_recent(
-            transaction,
-            task_id,
-            "task_reviews",
-            "review_id",
-            "created_at",
-            load_reviews,
-            "review",
         )?,
     })
 }

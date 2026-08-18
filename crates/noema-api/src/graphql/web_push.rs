@@ -1645,11 +1645,8 @@ impl NotificationCoordinator {
             .flatten()
             .and_then(|agent| agent.display_name)
             .unwrap_or_else(|| "Agent".to_string());
-        let completed_output_count = detail
-            .completed_submission
-            .as_ref()
-            .map(|submission| submission.artifacts.len())
-            .filter(|count| *count > 0);
+        let completed_output_count =
+            (!detail.artifacts.is_empty()).then_some(detail.artifacts.len());
         Some(LiveProjection::terminal(
             task_id.as_str(),
             &detail.task.title,

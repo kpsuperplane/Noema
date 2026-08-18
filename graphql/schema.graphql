@@ -4473,10 +4473,6 @@ type TaskAttention {
 	"""
 	gate: TaskGate
 	"""
-	Complete related review evidence, when any.
-	"""
-	review: TaskReview
-	"""
 	Authoritative task card without recursively embedding attention.
 	"""
 	task: TaskCard!
@@ -4613,10 +4609,6 @@ type TaskCard {
 	"""
 	activeGate: TaskGate
 	"""
-	Latest review projection.
-	"""
-	latestReview: TaskReviewSummary
-	"""
 	Server-authorized actions.
 	"""
 	validActions: [ValidTaskAction!]!
@@ -4670,15 +4662,6 @@ type TaskConnection {
 	Pagination metadata.
 	"""
 	pageInfo: PageInfo!
-}
-
-"""
-Immutable outcome for one contract criterion.
-"""
-enum TaskCriterionOutcome {
-	PASS
-	FAIL
-	UNCERTAIN
 }
 
 """
@@ -4762,10 +4745,6 @@ type TaskDetail {
 	"""
 	source: TaskSource!
 	"""
-	Current immutable contract.
-	"""
-	currentContract: TaskExecutionContract
-	"""
 	Current run projection.
 	"""
 	currentRun: CurrentRunSummary
@@ -4774,18 +4753,6 @@ type TaskDetail {
 	"""
 	activeGate: TaskGate
 	"""
-	Latest immutable submission.
-	"""
-	latestSubmission: TaskSubmission
-	"""
-	Reviewer-approved immutable result that completed the task.
-	"""
-	completedResult: TaskSubmission
-	"""
-	Latest immutable review.
-	"""
-	latestReview: TaskReviewSummary
-	"""
 	Bounded recent human messages.
 	"""
 	messages: [TaskMessage!]!
@@ -4793,14 +4760,6 @@ type TaskDetail {
 	Bounded recent task runs.
 	"""
 	runs: [TaskRun!]!
-	"""
-	Bounded recent submissions.
-	"""
-	submissions: [TaskSubmission!]!
-	"""
-	Bounded recent reviews.
-	"""
-	reviews: [TaskReview!]!
 	"""
 	Bounded current artifacts.
 	"""
@@ -4827,40 +4786,6 @@ type TaskEdge {
 	Connection node.
 	"""
 	node: TaskSummary!
-}
-
-"""
-Immutable task execution contract.
-"""
-type TaskExecutionContract {
-	"""
-	Immutable request Markdown.
-	"""
-	requestMarkdown: String!
-	"""
-	Exact criteria.
-	"""
-	criteria: [TaskValidationCriterion!]!
-	"""
-	Complexity tier.
-	"""
-	complexity: TaskComplexity!
-	"""
-	Execution policy snapshot.
-	"""
-	executionPolicy: TaskExecutionPolicy!
-	"""
-	Assigned executor agent identity.
-	"""
-	executorAgentId: String!
-	"""
-	Executor backend.
-	"""
-	executorBackend: String!
-	"""
-	Frozen effective working directory.
-	"""
-	effectiveCwd: String
 }
 
 """
@@ -5291,117 +5216,6 @@ type TaskReference {
 }
 
 """
-Immutable reviewer decision.
-"""
-type TaskReview {
-	"""
-	Review identity.
-	"""
-	reviewId: String!
-	"""
-	Contract evaluated.
-	"""
-	contractId: String!
-	"""
-	Reviewer run.
-	"""
-	reviewerRunId: String!
-	"""
-	Submission evaluated.
-	"""
-	reviewedSubmissionId: String!
-	"""
-	Review attempt for the submission.
-	"""
-	reviewAttemptIndex: Int!
-	"""
-	Prior needs-human review, when any.
-	"""
-	supersedesReviewId: String
-	"""
-	Approve, request_changes, or needs_human.
-	"""
-	verdict: TaskReviewVerdict!
-	"""
-	Safe reviewer feedback.
-	"""
-	feedback: String!
-	"""
-	Criterion outcomes.
-	"""
-	criteria: [TaskReviewCriterion!]!
-	"""
-	Creation timestamp.
-	"""
-	createdAt: String!
-}
-
-"""
-Immutable reviewer criterion outcome.
-"""
-type TaskReviewCriterion {
-	"""
-	Criterion identity.
-	"""
-	criterionId: String!
-	"""
-	Pass, fail, or uncertain.
-	"""
-	outcome: TaskCriterionOutcome!
-	"""
-	Evidence Markdown.
-	"""
-	evidenceMarkdown: String
-	"""
-	Reviewer feedback.
-	"""
-	feedback: String
-}
-
-"""
-Compact review projection used by task cards.
-"""
-type TaskReviewSummary {
-	"""
-	Review identity.
-	"""
-	reviewId: String!
-	"""
-	Submission evaluated.
-	"""
-	reviewedSubmissionId: String!
-	"""
-	Review attempt.
-	"""
-	reviewAttemptIndex: Int!
-	"""
-	Prior review, when any.
-	"""
-	supersedesReviewId: String
-	"""
-	Verdict.
-	"""
-	verdict: TaskReviewVerdict!
-	"""
-	Safe feedback.
-	"""
-	feedback: String!
-	"""
-	Creation timestamp.
-	"""
-	createdAt: String!
-}
-
-"""
-Immutable reviewer disposition.
-"""
-enum TaskReviewVerdict {
-	APPROVE
-	REQUEST_CHANGES
-	NEEDS_HUMAN
-}
-
-"""
 Safe audit projection of one run.
 """
 type TaskRun {
@@ -5782,126 +5596,6 @@ type TaskStageColumn {
 }
 
 """
-Immutable submission evidence.
-"""
-type TaskSubmission {
-	"""
-	Submission identity.
-	"""
-	submissionId: String!
-	"""
-	Contract evaluated.
-	"""
-	contractId: String!
-	"""
-	Executor run.
-	"""
-	executorRunId: String!
-	"""
-	Review round.
-	"""
-	reviewRound: Int!
-	"""
-	Short summary.
-	"""
-	summary: String!
-	"""
-	Complete result Markdown.
-	"""
-	resultMarkdown: String!
-	"""
-	Verified web sources.
-	"""
-	citations: [TaskSubmissionCitation!]!
-	"""
-	Criterion evidence.
-	"""
-	criteria: [TaskSubmissionCriterion!]!
-	"""
-	Linked immutable artifact versions.
-	"""
-	artifacts: [TaskSubmissionArtifact!]!
-	"""
-	Creation timestamp.
-	"""
-	createdAt: String!
-}
-
-"""
-Immutable artifact link shown with a submission.
-"""
-type TaskSubmissionArtifact {
-	"""
-	Artifact identity.
-	"""
-	artifactId: String!
-	"""
-	Artifact version identity.
-	"""
-	artifactVersionId: String!
-	"""
-	Artifact title.
-	"""
-	title: String!
-	"""
-	Artifact kind.
-	"""
-	artifactKind: String!
-	"""
-	Storage kind.
-	"""
-	storageKind: ArtifactStorageKind!
-	"""
-	Media type, when present.
-	"""
-	mediaType: String
-	"""
-	Local download route, when present.
-	"""
-	downloadUrl: String
-	"""
-	External URL, when present.
-	"""
-	externalUrl: String
-}
-
-"""
-Verified web source attached to a submission.
-"""
-type TaskSubmissionCitation {
-	"""
-	Source title.
-	"""
-	title: String!
-	"""
-	Source URL.
-	"""
-	url: String!
-	"""
-	UTF-16 citation start, when available.
-	"""
-	startIndex: Int
-	"""
-	UTF-16 citation end, when available.
-	"""
-	endIndex: Int
-}
-
-"""
-Submission criterion evidence.
-"""
-type TaskSubmissionCriterion {
-	"""
-	Criterion identity.
-	"""
-	criterionId: String!
-	"""
-	Evidence Markdown.
-	"""
-	evidenceMarkdown: String!
-}
-
-"""
 Board/list task summary.
 """
 type TaskSummary {
@@ -5982,10 +5676,6 @@ type TaskSummary {
 	"""
 	activeGate: TaskGate
 	"""
-	Latest review projection.
-	"""
-	latestReview: TaskReviewSummary
-	"""
 	Server-authorized actions.
 	"""
 	validActions: [ValidTaskAction!]!
@@ -5993,28 +5683,6 @@ type TaskSummary {
 	Derived attention.
 	"""
 	attention: TaskAttention
-}
-
-"""
-One immutable contract criterion.
-"""
-type TaskValidationCriterion {
-	"""
-	Criterion identity.
-	"""
-	criterionId: String!
-	"""
-	One-based order.
-	"""
-	ordinal: Int!
-	"""
-	Criterion description.
-	"""
-	description: String!
-	"""
-	Optional expected evidence.
-	"""
-	expectedEvidence: String
 }
 
 """

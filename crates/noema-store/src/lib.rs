@@ -52,6 +52,7 @@ mod runtime_debug;
 mod schema;
 mod sqlite;
 mod task_execution_policy;
+mod task_file_migration;
 mod task_files;
 mod task_model_pools;
 mod tasks;

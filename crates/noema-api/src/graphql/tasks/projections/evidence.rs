@@ -1,7 +1,5 @@
 use async_graphql::Json;
-use noema_tasks::{
-    AgentRunItemRecord, AgentRunRecord, TaskGateRecord, TaskReviewRecord, TaskSubmissionRecord,
-};
+use noema_tasks::{AgentRunItemRecord, AgentRunRecord, TaskGateRecord};
 
 use super::*;
 
@@ -44,102 +42,6 @@ graphql_object_from! { "Current run projection, intentionally separate from task
     "Start timestamp." => started_at: Option<String> = value.started_at,
     "Last update timestamp." => updated_at: String = value.updated_at,
     "Safe activity label." => activity_label: String = format!("{} {}", value.run_kind.as_str(), value.status.as_str()),
-} }
-
-graphql_object_from! { "Submission criterion evidence." => pub struct GraphqlTaskSubmissionCriterion("TaskSubmissionCriterion")
-    from noema_tasks::SubmissionCriterionEvidence as value {
-    "Criterion identity." => criterion_id: String = value.criterion_id,
-    "Evidence Markdown." => evidence_markdown: String = value.evidence_markdown,
-} }
-
-graphql_object_from! { "Verified web source attached to a submission." => pub struct GraphqlTaskSubmissionCitation("TaskSubmissionCitation")
-    from noema_tasks::TaskSubmissionCitation as value {
-    "Source title." => title: String = value.title,
-    "Source URL." => url: String = value.url,
-    "UTF-16 citation start, when available." => start_index: Option<i64> = value.start_index.map(|index| i64::try_from(index).expect("stored citation index fits SQLite")),
-    "UTF-16 citation end, when available." => end_index: Option<i64> = value.end_index.map(|index| i64::try_from(index).expect("stored citation index fits SQLite")),
-} }
-
-graphql_object! { "Immutable artifact link shown with a submission." => pub struct GraphqlTaskSubmissionArtifact("TaskSubmissionArtifact") {
-    "Artifact identity." => artifact_id: String,
-    "Artifact version identity." => artifact_version_id: String,
-    "Artifact title." => title: String,
-    "Artifact kind." => artifact_kind: String,
-    "Storage kind." => storage_kind: crate::graphql::artifacts::GraphqlArtifactStorageKind,
-    "Media type, when present." => media_type: Option<String>,
-    "Local download route, when present." => download_url: Option<String>,
-    "External URL, when present." => external_url: Option<String>,
-} }
-
-graphql_object_from! { "Immutable submission evidence." => pub struct GraphqlTaskSubmission("TaskSubmission")
-    from TaskSubmissionRecord as value {
-    "Submission identity." => submission_id: String = value.submission_id,
-    "Contract evaluated." => contract_id: String = value.contract_id.into_string(),
-    "Executor run." => executor_run_id: String = value.executor_run_id,
-    "Review round." => review_round: i64 = i64::from(value.review_round),
-    "Short summary." => summary: String = value.summary,
-    "Complete result Markdown." => result_markdown: String = value.result_markdown,
-    "Verified web sources." => citations: Vec<GraphqlTaskSubmissionCitation> = value.citations.into_iter().map(Into::into).collect(),
-    "Criterion evidence." => criteria: Vec<GraphqlTaskSubmissionCriterion> = value.criteria.into_iter().map(Into::into).collect(),
-    "Linked immutable artifact versions." => artifacts: Vec<GraphqlTaskSubmissionArtifact> = value.artifacts.into_iter().map(submission_artifact).collect(),
-    "Creation timestamp." => created_at: String = value.created_at,
-} }
-
-fn submission_artifact(
-    linked: noema_tasks::TaskSubmissionArtifactRecord,
-) -> GraphqlTaskSubmissionArtifact {
-    let (download_url, external_url) = match linked.version.storage {
-        noema_artifacts::ArtifactVersionStorage::LocalFile { .. } => (
-            Some(noema_artifacts::artifact_download_url(
-                &linked.version.artifact_version_id,
-            )),
-            None,
-        ),
-        noema_artifacts::ArtifactVersionStorage::ExternalUrl { url } => (None, Some(url)),
-    };
-    GraphqlTaskSubmissionArtifact {
-        artifact_id: linked.artifact.artifact_id,
-        artifact_version_id: linked.version.artifact_version_id,
-        title: linked.artifact.title,
-        artifact_kind: linked.artifact.artifact_kind,
-        storage_kind: linked.artifact.storage_kind.into(),
-        media_type: linked.version.media_type,
-        download_url,
-        external_url,
-    }
-}
-
-graphql_object_from! { "Immutable reviewer criterion outcome." => pub struct GraphqlTaskReviewCriterion("TaskReviewCriterion")
-    from noema_tasks::TaskReviewCriterion as value {
-    "Criterion identity." => criterion_id: String = value.criterion_id,
-    "Pass, fail, or uncertain." => outcome: GraphqlTaskCriterionOutcome = value.outcome.into(),
-    "Evidence Markdown." => evidence_markdown: Option<String> = value.evidence_markdown,
-    "Reviewer feedback." => feedback: Option<String> = value.feedback,
-} }
-
-graphql_object_from! { "Immutable reviewer decision." => pub struct GraphqlTaskReview("TaskReview")
-    from TaskReviewRecord as value {
-    "Review identity." => review_id: String = value.review_id,
-    "Contract evaluated." => contract_id: String = value.contract_id.into_string(),
-    "Reviewer run." => reviewer_run_id: String = value.reviewer_run_id,
-    "Submission evaluated." => reviewed_submission_id: String = value.reviewed_submission_id,
-    "Review attempt for the submission." => review_attempt_index: i64 = i64::from(value.review_attempt_index),
-    "Prior needs-human review, when any." => supersedes_review_id: Option<String> = value.supersedes_review_id,
-    "Approve, request_changes, or needs_human." => verdict: GraphqlTaskReviewVerdict = value.overall_verdict.into(),
-    "Safe reviewer feedback." => feedback: String = value.overall_feedback,
-    "Criterion outcomes." => criteria: Vec<GraphqlTaskReviewCriterion> = value.criteria.into_iter().map(Into::into).collect(),
-    "Creation timestamp." => created_at: String = value.created_at,
-} }
-
-graphql_object_from! { "Compact review projection used by task cards." => pub struct GraphqlTaskReviewSummary("TaskReviewSummary")
-    from TaskReviewRecord as value {
-    "Review identity." => review_id: String = value.review_id,
-    "Submission evaluated." => reviewed_submission_id: String = value.reviewed_submission_id,
-    "Review attempt." => review_attempt_index: i64 = i64::from(value.review_attempt_index),
-    "Prior review, when any." => supersedes_review_id: Option<String> = value.supersedes_review_id,
-    "Verdict." => verdict: GraphqlTaskReviewVerdict = value.overall_verdict.into(),
-    "Safe feedback." => feedback: String = value.overall_feedback,
-    "Creation timestamp." => created_at: String = value.created_at,
 } }
 
 graphql_object_from! { "Safe audit projection of one run." => pub struct GraphqlTaskRun("TaskRun")

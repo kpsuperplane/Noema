@@ -346,7 +346,7 @@ impl NoemaStore {
             })
             .await?;
         let task_root = cwd_override
-            .map(PathBuf::from)
+            .map(|directory| PathBuf::from(directory).join(&task_directory))
             .or_else(|| {
                 project_folder
                     .as_ref()

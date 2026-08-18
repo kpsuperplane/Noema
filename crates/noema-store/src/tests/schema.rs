@@ -10,6 +10,56 @@ use crate::{
     schema::{LEGACY_V9_SCHEMA_SQL, STORE_SCHEMA_VERSION, store_migrations},
 };
 
+#[test]
+fn v50_task_file_conversion_preserves_existing_task_document_and_retries() {
+    let home = TempDir::new().expect("temp store root");
+    let database = home.path().join("db/noema.sqlite3");
+    fs::create_dir_all(database.parent().expect("database parent")).expect("database directory");
+    let mut connection = Connection::open(&database).expect("open database");
+    store_migrations()
+        .to_version(&mut connection, 49)
+        .expect("migrate to v49");
+    connection
+        .execute(
+            "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, description_markdown, executor_agent_id, task_directory, source_kind, created_by_actor_id) VALUES ('task:file-conversion', 'workspace:personal', 'workflow:personal:default', 'stage:personal:queue', 'Converted Task', 'Original request.', 'agent:system:task-executor', 'converted-task', 'system', 'actor:system')",
+            [],
+        )
+        .expect("insert Task");
+    connection
+        .execute(
+            "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, description_markdown, executor_agent_id, cwd_override, task_directory, source_kind, created_by_actor_id) VALUES ('task:explicit-conversion', 'workspace:personal', 'workflow:personal:default', 'stage:personal:queue', 'Explicit Task', 'Explicit request.', 'agent:system:task-executor', ?1, 'explicit-task', 'system', 'actor:system')",
+            [home.path().to_string_lossy().as_ref()],
+        )
+        .expect("insert explicit Task");
+    let task_root = home.path().join("tasks/converted-task");
+    fs::create_dir_all(&task_root).expect("Task directory");
+    fs::write(task_root.join("TASK.md"), "Current mutable content.\n").expect("current Task file");
+
+    {
+        let transaction = connection.transaction().expect("conversion transaction");
+        crate::task_file_migration::convert_legacy_task_files(&transaction)
+            .expect("first conversion");
+        crate::task_file_migration::convert_legacy_task_files(&transaction)
+            .expect("retry conversion");
+        transaction.commit().expect("commit conversion");
+    }
+    store_migrations()
+        .to_latest(&mut connection)
+        .expect("apply v50");
+
+    assert_eq!(
+        fs::read_to_string(task_root.join("TASK.md")).expect("Task file"),
+        "Current mutable content.\n"
+    );
+    let legacy = fs::read_to_string(task_root.join("legacy-task.md")).expect("legacy Task file");
+    assert!(legacy.contains("# Converted Task"));
+    assert!(legacy.contains("Original request."));
+    let explicit =
+        fs::read_to_string(home.path().join("explicit-task/TASK.md")).expect("explicit Task file");
+    assert!(explicit.contains("# Explicit Task"));
+    assert!(explicit.contains("Explicit request."));
+}
+
 #[tokio::test]
 async fn fresh_migrations_are_exact_idempotent_and_enforce_foreign_keys() {
     let home = TempDir::new().expect("temp store root");

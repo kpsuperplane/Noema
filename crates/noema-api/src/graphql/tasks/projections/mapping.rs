@@ -53,7 +53,6 @@ fn task_card_from_store(value: &WorkTaskSummary) -> async_graphql::Result<Graphq
             .clone()
             .map(TryInto::try_into)
             .transpose()?,
-        latest_review: value.latest_review.clone().map(Into::into),
         valid_actions: value
             .valid_actions
             .iter()
@@ -73,7 +72,6 @@ pub(crate) fn task_card_from_detail(
         stage: value.stage.clone(),
         current_run: value.current_run.clone(),
         active_gate: value.active_gate.clone(),
-        latest_review: value.latest_review.clone(),
         attention: value.attention,
         valid_actions: value.valid_actions.clone(),
     })
@@ -99,20 +97,14 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         "default"
     }
     .to_string();
-    let current_contract = value.current_contract.map(TryInto::try_into).transpose()?;
     let current_gate = value.active_gate.map(TryInto::try_into).transpose()?;
     let current_run = value.current_run.map(Into::into);
-    let latest_submission = value.latest_submission.map(Into::into);
-    let completed_result = value.completed_submission.map(Into::into);
-    let latest_review = value.latest_review.map(Into::into);
     let messages = value.messages.into_iter().map(Into::into).collect();
     let runs = value
         .runs
         .into_iter()
         .map(TryInto::try_into)
         .collect::<async_graphql::Result<_>>()?;
-    let submissions = value.submissions.into_iter().map(Into::into).collect();
-    let reviews = value.reviews.into_iter().map(Into::into).collect();
     let artifacts = value
         .artifacts
         .into_iter()
@@ -144,16 +136,10 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         schedule,
         completed_at: value.task.completed_at,
         source: value.task.provenance.into(),
-        current_contract,
         current_run,
         active_gate: current_gate,
-        latest_submission,
-        completed_result,
-        latest_review,
         messages,
         runs,
-        submissions,
-        reviews,
         artifacts,
         attention,
         valid_actions: value.valid_actions.into_iter().map(Into::into).collect(),
@@ -330,7 +316,6 @@ fn attention_projection(
         title: title.to_string(),
         summary: preview(&summary, 400),
         gate: gate.cloned().map(TryInto::try_into).transpose()?,
-        review: None,
         task,
         valid_actions: actions.iter().copied().map(Into::into).collect(),
     }))

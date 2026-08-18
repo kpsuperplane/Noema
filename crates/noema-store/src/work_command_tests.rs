@@ -330,8 +330,6 @@ async fn task_files_carry_execution_across_continuation_and_review() {
         detail.stage.system_behavior,
         WorkflowStageBehavior::TerminalSuccess
     );
-    assert!(detail.submissions.is_empty());
-    assert!(detail.reviews.is_empty());
 }
 
 const ACTOR: &str = "actor:human:local";
@@ -974,7 +972,6 @@ async fn committed_detail_replay_does_not_reread_later_task_state() {
         .expect("capture committed detail");
     let first_detail = first.task_detail.clone().expect("task detail snapshot");
     assert_eq!(first_detail.stage.stage_id, first_detail.task.stage_id);
-    assert!(first_detail.completed_submission.is_none());
 
     let updated = task!(
         service,
@@ -1171,20 +1168,19 @@ async fn acp_executor_contract_freezes_launch_revision_and_exact_cwd_precedence(
     command.project_id = Some(project.project_id.clone());
     command.executor_agent_id = Some(agent.agent_id.clone());
     let project_task = task!(service, project_command, "delegate project task");
-    let project_contract = store
+    let project_detail = store
         .get_work_task(&project_task.task_id)
         .await
         .unwrap()
-        .unwrap()
-        .current_contract
         .unwrap();
     assert_eq!(
-        project_contract.effective_cwd.as_deref(),
-        Some("/project/worktree")
+        project_detail.working_directory,
+        "/project/worktree/delegated-acp-project-task"
     );
-    assert_eq!(project_contract.executor.agent_id, agent.agent_id);
+    let project_run = project_detail.current_run.expect("project Executor");
+    assert_eq!(project_run.executor.agent_id, agent.agent_id);
     assert_eq!(
-        project_contract
+        project_run
             .executor
             .acp
             .as_ref()
@@ -1201,16 +1197,14 @@ async fn acp_executor_contract_freezes_launch_revision_and_exact_cwd_precedence(
     command.executor_agent_id = Some(agent.agent_id.clone());
     command.cwd_override = Some("/task/override".to_string());
     let override_task = task!(service, override_command, "delegate override task");
-    let override_contract = store
+    let override_detail = store
         .get_work_task(&override_task.task_id)
         .await
         .unwrap()
-        .unwrap()
-        .current_contract
         .unwrap();
     assert_eq!(
-        override_contract.effective_cwd.as_deref(),
-        Some("/task/override")
+        override_detail.working_directory,
+        "/task/override/delegated-acp-override-task"
     );
 
     let mut default_command = direct_delegated("idem:acp:default-task", "acp-default-task");
@@ -1219,17 +1213,15 @@ async fn acp_executor_contract_freezes_launch_revision_and_exact_cwd_precedence(
     };
     command.executor_agent_id = Some(agent.agent_id.clone());
     let default_task = task!(service, default_command, "delegate default task");
-    let expected_default = store.default_task_cwd(default_task.task_id.as_str());
-    let default_contract = store
+    let expected_default = store.default_task_cwd(&default_task.task_directory);
+    let default_detail = store
         .get_work_task(&default_task.task_id)
         .await
         .unwrap()
-        .unwrap()
-        .current_contract
         .unwrap();
     assert_eq!(
-        default_contract.effective_cwd.as_deref(),
-        expected_default.to_str()
+        default_detail.working_directory.as_str(),
+        expected_default.to_str().expect("UTF-8 Task path")
     );
     assert!(expected_default.is_dir());
 
@@ -1238,7 +1230,7 @@ async fn acp_executor_contract_freezes_launch_revision_and_exact_cwd_precedence(
         .await
         .unwrap();
     assert_eq!(updated.connection_revision, 2);
-    assert_eq!(project_contract.executor.acp.unwrap().command, "/bin/false");
+    assert_eq!(project_run.executor.acp.unwrap().command, "/bin/false");
 }
 
 #[tokio::test]

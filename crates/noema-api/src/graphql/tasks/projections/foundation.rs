@@ -1,12 +1,10 @@
 use noema_providers::ProviderSelectionSnapshot;
-use noema_tasks::{
-    TaskExecutionContract, TaskValidationCriterion, WorkflowDefinition, WorkflowStage,
-};
+use noema_tasks::{WorkflowDefinition, WorkflowStage};
 use noema_workspaces::{ProjectRecord, WorkspaceRecord};
 
 use crate::graphql::tasks::GraphqlTaskConnection;
 
-use super::super::{GraphqlTaskComplexity, GraphqlWorkflowStageBehavior};
+use super::super::GraphqlWorkflowStageBehavior;
 use super::{
     exact_u64,
     vocabulary::{GraphqlProviderSelectionMode, GraphqlWorkspaceMembershipRole},
@@ -85,25 +83,6 @@ graphql_object_from! { "Immutable execution policy snapshot." => pub struct Grap
     "Progress-audit interval." => progress_audit_interval: i64 = i64::from(value.progress_audit_interval),
     "Automatic retry bound." => max_automatic_retries: i64 = i64::from(value.max_automatic_retries),
     "Review-round bound." => max_review_rounds: i64 = i64::from(value.max_review_rounds),
-} }
-
-graphql_object_from! { "One immutable contract criterion." => pub struct GraphqlTaskValidationCriterion("TaskValidationCriterion")
-    from TaskValidationCriterion as value {
-    "Criterion identity." => criterion_id: String = value.criterion_id,
-    "One-based order." => ordinal: i64 = i64::from(value.ordinal),
-    "Criterion description." => description: String = value.description,
-    "Optional expected evidence." => expected_evidence: Option<String> = value.expected_evidence,
-} }
-
-graphql_object_from! { "Immutable task execution contract." => pub struct GraphqlTaskExecutionContract("TaskExecutionContract")
-    try_from TaskExecutionContract as value {
-    "Immutable request Markdown." => request_markdown: String = value.request_markdown,
-    "Exact criteria." => criteria: Vec<GraphqlTaskValidationCriterion> = value.criteria.into_iter().map(Into::into).collect(),
-    "Complexity tier." => complexity: GraphqlTaskComplexity = value.complexity.into(),
-    "Execution policy snapshot." => execution_policy: GraphqlTaskExecutionPolicy = value.execution_policy.into(),
-    "Assigned executor agent identity." => executor_agent_id: String = value.executor.agent_id,
-    "Executor backend." => executor_backend: String = value.executor.backend.to_string(),
-    "Frozen effective working directory." => effective_cwd: Option<String> = value.effective_cwd,
 } }
 
 graphql_object! { "One workflow-driven active board column and its authoritative count." => pub struct GraphqlTaskStageColumn("TaskStageColumn") {

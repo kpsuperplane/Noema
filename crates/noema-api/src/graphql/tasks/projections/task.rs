@@ -7,7 +7,6 @@ graphql_object! { "Derived human attention, never persisted as task state." => p
     "Stable UI title." => title: String,
     "Safe summary." => summary: String,
     "Complete related gate evidence, when any." => gate: Option<GraphqlTaskGate>,
-    "Complete related review evidence, when any." => review: Option<GraphqlTaskReview>,
     "Authoritative task card without recursively embedding attention." => task: GraphqlTaskCard,
     "Server-authorized actions." => valid_actions: Vec<GraphqlValidTaskAction>,
 } }
@@ -77,7 +76,6 @@ graphql_object! { "Authoritative task card embedded by a Needs You item. This ex
     "Completion timestamp, when any." => completed_at: Option<String>,
     "Current run projection." => current_run: Option<GraphqlCurrentRunSummary>,
     "Open gate projection." => active_gate: Option<GraphqlTaskGate>,
-    "Latest review projection." => latest_review: Option<GraphqlTaskReviewSummary>,
     "Server-authorized actions." => valid_actions: Vec<GraphqlValidTaskAction>,
 } }
 
@@ -112,16 +110,10 @@ graphql_object! { "Full task detail projection." => pub struct GraphqlTaskDetail
     "Optional future execution and recurrence provenance." => schedule: Option<GraphqlTaskSchedule>,
     "Completion timestamp, when any." => completed_at: Option<String>,
     "Safe provenance." => source: GraphqlTaskSource,
-    "Current immutable contract." => current_contract: Option<GraphqlTaskExecutionContract>,
     "Current run projection." => current_run: Option<GraphqlCurrentRunSummary>,
     "Open gate projection." => active_gate: Option<GraphqlTaskGate>,
-    "Latest immutable submission." => latest_submission: Option<GraphqlTaskSubmission>,
-    "Reviewer-approved immutable result that completed the task." => completed_result: Option<GraphqlTaskSubmission>,
-    "Latest immutable review." => latest_review: Option<GraphqlTaskReviewSummary>,
     "Bounded recent human messages." => messages: Vec<GraphqlTaskMessage>,
     "Bounded recent task runs." => runs: Vec<GraphqlTaskRun>,
-    "Bounded recent submissions." => submissions: Vec<GraphqlTaskSubmission>,
-    "Bounded recent reviews." => reviews: Vec<GraphqlTaskReview>,
     "Bounded current artifacts." => artifacts: Vec<crate::graphql::artifacts::GraphqlArtifact>,
     "Derived attention." => attention: Option<GraphqlTaskAttention>,
     "Server-authorized actions." => valid_actions: Vec<GraphqlValidTaskAction>,
