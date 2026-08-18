@@ -177,18 +177,11 @@ impl RuntimeActor {
         }
         .map_err(|_| RuntimeError::Protocol("web capability schema is unavailable".to_string()))?;
         let (binding, catalog) = if let Some(spec) = native_spec {
-            let binding = if action.capability_name == noema_capabilities::file::FILE_DOWNLOAD_TOOL
-            {
-                super::model_tools::native_file_download_binding().map_err(|_| {
+            let binding = super::model_tools::native_web_binding(&self.store, spec)
+                .await
+                .map_err(|_| {
                     RuntimeError::Protocol("native capability is unavailable".to_string())
-                })?
-            } else {
-                super::model_tools::native_web_binding(&self.store, spec)
-                    .await
-                    .map_err(|_| {
-                        RuntimeError::Protocol("native capability is unavailable".to_string())
-                    })?
-            };
+                })?;
             (binding, None)
         } else {
             let catalog = self

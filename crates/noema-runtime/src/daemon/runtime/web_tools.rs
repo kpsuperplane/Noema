@@ -72,6 +72,7 @@ pub(in crate::daemon) async fn resolve_web_destination(
     let resolved = match tool_name {
         WEB_SEARCH_TOOL => resolve_web_search_provider(store).await?,
         WEB_FETCH_TOOL => resolve_web_fetch_provider(store).await?,
+        noema_capabilities::file::FILE_DOWNLOAD_TOOL => default_provider(WEB_FETCH_TOOL),
         tool_name if tool_name.starts_with("web.browse.") => {
             resolve_web_browse_provider(store).await?
         }

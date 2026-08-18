@@ -189,7 +189,12 @@ pub(super) async fn build_model_tools_for_role(
         } else {
             BindingPersistence::Redacted
         };
-        add_binding(&mut catalog, runtime_binding(tool, class, persistence)?)?;
+        let binding = if tool.name.as_str() == noema_capabilities::file::FILE_DOWNLOAD_TOOL {
+            native_web_binding(store, tool).await?
+        } else {
+            runtime_binding(tool, class, persistence)?
+        };
+        add_binding(&mut catalog, binding)?;
     }
     for tool in declared_web_tools {
         prompt_kinds.insert(tool.name.as_str().to_string(), ModelToolPromptKind::Web);
@@ -809,6 +814,7 @@ pub(super) async fn native_web_binding(
     let persistence = match spec.name.as_str() {
         noema_capabilities::web::fetch::WEB_FETCH_TOOL => BindingPersistence::WebFetch,
         name if name.starts_with("web.browse.") => BindingPersistence::WebBrowse,
+        noema_capabilities::file::FILE_DOWNLOAD_TOOL => BindingPersistence::File,
         _ => BindingPersistence::Redacted,
     };
     let class = web_tool_access_class(spec.name.as_str());
@@ -822,14 +828,6 @@ pub(super) async fn native_web_binding(
                 )
             })?;
     Ok(binding.with_destination(destination))
-}
-
-pub(super) fn native_file_download_binding() -> Result<CapabilityBinding, ToolContractError> {
-    runtime_binding(
-        noema_capabilities::file::download_tool_spec()?,
-        ToolAccessClass::ExternalTool,
-        BindingPersistence::File,
-    )
 }
 
 fn add_binding(

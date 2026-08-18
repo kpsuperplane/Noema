@@ -643,6 +643,14 @@ async fn hosted_web_search_replaces_local_web_tools() {
     assert!(!tools.tool_policy.allows_tool("web.fetch"));
     assert!(tools.tool_policy.allows_tool("file.download"));
     assert!(tools.tool_policy.allows_tool("file.parse"));
+    assert!(
+        tools
+            .bindings
+            .resolve("file.download")
+            .unwrap()
+            .destination()
+            .is_some()
+    );
 }
 
 #[tokio::test]
