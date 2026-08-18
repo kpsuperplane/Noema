@@ -13,7 +13,7 @@ import {
   runDurationLabel,
   useTaskRunClock,
 } from "./TaskRevisionTimeline";
-import type { TaskDetail, TaskRevision, TaskRun } from "./taskTypes";
+import type { TaskDetail, TaskRevision, TaskRun, TaskRunItem } from "./taskTypes";
 
 type TaskRunTimelineEntry = { revision: TaskRevision; run: TaskRun };
 
@@ -21,24 +21,37 @@ type TranscriptEvent =
   | { kind: "message"; id: string; occurredAt: string; entry: TranscriptEntry }
   | { kind: "run"; id: string; occurredAt?: string | null; revision: TaskRevision; run: TaskRun };
 
-export function TaskTranscript({
-  detail,
-  liveRunItems,
-  onOpenDetail,
-  onLatestRunItemChange
+type TaskTranscriptSourceValue = {
+  refreshEvent: { runId: string; sequence: number } | null;
+  runId: string | null;
+  snapshot: TaskRunTranscriptSnapshot | null;
+};
+
+const TaskTranscriptSourceContext = React.createContext<TaskTranscriptSourceValue>({
+  refreshEvent: null,
+  runId: null,
+  snapshot: null
+});
+
+export function TaskTranscriptSourceProvider({
+  children,
+  liveItems,
+  onLatestRunItemChange,
+  run,
+  taskId
 }: {
-  detail: TaskDetail;
-  liveRunItems?: ReadonlyMap<string, readonly import("./taskTypes").TaskRunItem[]>;
-  onOpenDetail: (target: ChatDetailTarget) => void;
-  onLatestRunItemChange?: (runId: string, item: import("./taskTypes").TaskRunItem | null) => void;
+  children: React.ReactNode;
+  liveItems?: readonly TaskRunItem[];
+  onLatestRunItemChange?: (runId: string, item: TaskRunItem | null) => void;
+  run: TaskRun | null;
+  taskId: string;
 }) {
-  const runs = React.useMemo(() => taskRunsInOrder(detail.revisions), [detail.revisions]);
   const [refreshEvent, setRefreshEvent] = React.useState<{
     runId: string;
     sequence: number;
   } | null>(null);
   useSubscription(TasksTaskRuntimeEventsDocument, {
-    variables: { taskId: detail.taskId },
+    variables: { taskId },
     onData: ({ data }) => {
       const runId = data.data?.taskRuntimeEvents.runId;
       if (runId) {
@@ -49,9 +62,63 @@ export function TaskTranscript({
       }
     }
   });
+  const [sourceSnapshot, setSourceSnapshot] = React.useState<{
+    runId: string;
+    snapshot: TaskRunTranscriptSnapshot;
+  } | null>(null);
+  const onSnapshot = React.useCallback((runId: string, snapshot: TaskRunTranscriptSnapshot) => {
+    setSourceSnapshot((previous) => (
+      previous?.runId === runId && previous.snapshot === snapshot
+        ? previous
+        : { runId, snapshot }
+    ));
+  }, []);
+  const runId = run?.id ?? null;
+  const snapshot = sourceSnapshot?.runId === runId ? sourceSnapshot.snapshot : null;
+  const value = React.useMemo(
+    () => ({ refreshEvent, runId, snapshot }),
+    [refreshEvent, runId, snapshot]
+  );
+
+  return (
+    <TaskTranscriptSourceContext.Provider value={value}>
+      {run ? (
+        <TaskRunTranscriptSource
+          key={run.id}
+          liveItems={liveItems}
+          onSnapshot={onSnapshot}
+          onLatestRunItemChange={onLatestRunItemChange}
+          refreshEvent={refreshEvent}
+          run={run}
+        />
+      ) : null}
+      {children}
+    </TaskTranscriptSourceContext.Provider>
+  );
+}
+
+export function TaskTranscript({
+  detail,
+  liveRunItems,
+  onOpenDetail,
+  onLatestRunItemChange
+}: {
+  detail: TaskDetail;
+  liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
+  onOpenDetail: (target: ChatDetailTarget) => void;
+  onLatestRunItemChange?: (runId: string, item: TaskRunItem | null) => void;
+}) {
+  const runs = React.useMemo(() => taskRunsInOrder(detail.revisions), [detail.revisions]);
+  const sharedSource = React.useContext(TaskTranscriptSourceContext);
   const [snapshots, setSnapshots] = React.useState<ReadonlyMap<string, TaskRunTranscriptSnapshot>>(
     () => new Map()
   );
+  const resolvedSnapshots = React.useMemo(() => {
+    if (!sharedSource.runId || !sharedSource.snapshot) return snapshots;
+    const next = new Map(snapshots);
+    next.set(sharedSource.runId, sharedSource.snapshot);
+    return next;
+  }, [sharedSource.runId, sharedSource.snapshot, snapshots]);
   const [expandedActivities, setExpandedActivities] = React.useState<Set<string>>(() => new Set());
   const now = useTaskRunClock(runs.some(({ run }) => run.status === "running"));
   const toggleActivity = React.useCallback((id: string) => {
@@ -124,7 +191,7 @@ export function TaskTranscript({
         next.push(event.entry);
         continue;
       }
-      const snapshot = snapshots.get(event.run.id);
+      const snapshot = resolvedSnapshots.get(event.run.id);
       const boundaries = runBoundaryEntries(event.run, now);
       next.push(...boundaries.slice(0, 1));
       if (snapshot?.error && snapshot.entries.length === 0) {
@@ -135,27 +202,27 @@ export function TaskTranscript({
       next.push(...boundaries.slice(1));
     }
     return next;
-  }, [events, now, snapshots]);
+  }, [events, now, resolvedSnapshots]);
 
-  const hasMoreBefore = runs.some((entry) => snapshots.get(entry.run.id)?.pageInfo?.hasNextPage);
+  const hasMoreBefore = runs.some((entry) => resolvedSnapshots.get(entry.run.id)?.pageInfo?.hasNextPage);
   const loadOlder = React.useCallback(() => {
-    const oldestAvailable = runs.find((entry) => snapshots.get(entry.run.id)?.pageInfo?.hasNextPage);
+    const oldestAvailable = runs.find((entry) => resolvedSnapshots.get(entry.run.id)?.pageInfo?.hasNextPage);
     if (oldestAvailable) {
-      snapshots.get(oldestAvailable.run.id)?.loadOlder();
+      resolvedSnapshots.get(oldestAvailable.run.id)?.loadOlder();
     }
-  }, [runs, snapshots]);
-  const loadingOlder = runs.some((entry) => snapshots.get(entry.run.id)?.loadingOlder);
-  const olderPageError = runs.map((entry) => snapshots.get(entry.run.id)?.olderPageError).find(Boolean) ?? null;
+  }, [resolvedSnapshots, runs]);
+  const loadingOlder = runs.some((entry) => resolvedSnapshots.get(entry.run.id)?.loadingOlder);
+  const olderPageError = runs.map((entry) => resolvedSnapshots.get(entry.run.id)?.olderPageError).find(Boolean) ?? null;
 
   return (
     <div data-slot="task-transcript" {...stylex.props(styles.root)}>
-      {runs.map((run) => (
+      {runs.filter((run) => run.run.id !== sharedSource.runId).map((run) => (
         <TaskRunTranscriptSource
           key={run.run.id}
           liveItems={liveRunItems?.get(run.run.id)}
           onSnapshot={onSnapshot}
           onLatestRunItemChange={onLatestRunItemChange}
-          refreshEvent={refreshEvent}
+          refreshEvent={sharedSource.refreshEvent}
           run={run.run}
         />
       ))}

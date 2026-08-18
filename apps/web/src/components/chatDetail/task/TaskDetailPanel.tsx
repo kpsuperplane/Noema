@@ -11,6 +11,7 @@ import { springs } from "@/motion/springs";
 import type { TaskDetail, TaskRun, TaskRunItem, TaskRunStatus } from "./taskTypes";
 import { TaskBody } from "./TaskBody";
 import { taskStageLabel } from "./TaskOverview";
+import { TaskTranscriptSourceProvider } from "./TaskTranscript";
 import { TaskScheduleSummary } from "@/components/tasks/TaskScheduleSummary";
 
 export function TaskDetailPanel({
@@ -69,12 +70,14 @@ export function TaskDetailPanel({
     return <div {...stylex.props(styles.root)}><TaskUnavailable message="Task details are unavailable." /></div>;
   }
 
+  const run = latestTaskRun(currentDetail);
   const contextCard = (
     <TaskContextCard
       key={`context:${taskId}:${currentDetail.attention ? "attention" : "info"}`}
       detail={currentDetail}
       governedActions={governedActions}
       latestRunItems={latestRunItems}
+      run={run}
       controls={controls}
       showTasksLink={showTasksLink}
       taskId={taskId}
@@ -83,14 +86,21 @@ export function TaskDetailPanel({
   return (
     <div data-slot="task-detail-view-viewport" {...stylex.props(styles.viewport)}>
       <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
-        <TaskBody
-          key={`task:${currentDetail.taskId}`}
-          contextCard={contextCard}
-          detail={currentDetail}
-          liveRunItems={liveRunItems}
-          onOpenDetail={onOpenDetail}
+        <TaskTranscriptSourceProvider
+          liveItems={run ? liveRunItems?.get(run.id) : undefined}
           onLatestRunItemChange={onLatestRunItemChange}
-        />
+          run={run}
+          taskId={taskId}
+        >
+          <TaskBody
+            key={`task:${currentDetail.taskId}`}
+            contextCard={contextCard}
+            detail={currentDetail}
+            liveRunItems={liveRunItems}
+            onOpenDetail={onOpenDetail}
+            onLatestRunItemChange={onLatestRunItemChange}
+          />
+        </TaskTranscriptSourceProvider>
       </div>
     </div>
   );
@@ -101,6 +111,7 @@ function TaskContextCard({
   governedActions,
   controls,
   latestRunItems,
+  run,
   showTasksLink,
   taskId
 }: {
@@ -109,6 +120,7 @@ function TaskContextCard({
   governedActions?: React.ReactNode;
   controls?: React.ReactNode;
   latestRunItems: ReadonlyMap<string, TaskRunItem>;
+  run: TaskRun | null;
   showTasksLink: boolean;
 }) {
   return (
@@ -118,6 +130,7 @@ function TaskContextCard({
         <TaskSummaryHeader
           detail={detail}
           latestRunItems={latestRunItems}
+          run={run}
           controls={controls}
           showTasksLink={showTasksLink}
           taskId={taskId}
@@ -133,17 +146,18 @@ function TaskContextCard({
 function TaskSummaryHeader({
   detail,
   latestRunItems,
+  run,
   controls,
   showTasksLink,
   taskId
 }: {
   detail: TaskDetail;
   latestRunItems: ReadonlyMap<string, TaskRunItem>;
+  run: TaskRun | null;
   controls?: React.ReactNode;
   showTasksLink: boolean;
   taskId: string;
 }) {
-  const run = latestTaskRun(detail);
   const latestItem = run ? latestRunItems.get(run.id) ?? null : null;
   return (
     <header {...stylex.props(styles.summaryHeader, !run && styles.summaryHeaderWithoutAvatar)}>
