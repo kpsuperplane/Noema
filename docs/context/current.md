@@ -47,6 +47,8 @@ slice or a net-negative reduction.
   `REVIEW.md` contains current Reviewer feedback when feedback exists.
 - Planner, Executor, and Reviewer handoffs use current Task files.
   Noema does not store content snapshots for those handoffs.
+- A Task continuation requires `TASK.md` to be the last completed tool action.
+  Progress-audit checkpoints keep file tools available until that write succeeds.
 - An Executor can submit an honest limitation report for an impossible outcome.
   Human-resolvable blocks and per-run ceilings do not qualify as system limitations.
 - Every Task role run receives a fresh current clock.
@@ -94,6 +96,7 @@ slice or a net-negative reduction.
   HTTPS server. Rust owns OAuth, credentials, transport, and local return.
 - Interactive browser sessions belong to one conversation or task generation.
   Each session is process-isolated. Every navigation reruns network and SSRF checks.
+- Browser worker commands have a 30-second deadline. A timed-out worker is discarded.
 - Web Push registrations belong to browser sessions. Browser logout removes
   session-bound registrations. Installed mode can erase its private local data.
 - The iOS client stores normalized reads in one protected per-client cache. It
