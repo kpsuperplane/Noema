@@ -194,6 +194,7 @@ model: yaml-model
 reasoning_effort: medium
 codex:
   base_url: https://yaml.example/codex
+  fast_mode: true
   model: yaml-codex-model
   tool_classification_model: yaml-codex-tool-classifier
   timeout_seconds: 120
@@ -233,6 +234,7 @@ codex:
     );
     assert_eq!(codex.base_url, "https://env.example/codex");
     assert_eq!(codex.timeout_seconds, 123);
+    assert!(codex.fast_mode);
 }
 
 mod validation;

@@ -127,6 +127,8 @@ pub struct OpenAiProviderConfig {
     pub tool_classification_model: Option<String>,
     /// Optional explicit reasoning effort used only with an explicit model.
     pub reasoning_effort: Option<ReasoningEffort>,
+    /// Use OpenAI Priority processing for faster responses.
+    pub fast_mode: bool,
     /// Request timeout in seconds.
     pub timeout_seconds: u64,
     /// Developer diagnostic system error logger.
@@ -144,6 +146,7 @@ impl fmt::Debug for OpenAiProviderConfig {
             .field("default_model", &self.default_model)
             .field("tool_classification_model", &self.tool_classification_model)
             .field("reasoning_effort", &self.reasoning_effort)
+            .field("fast_mode", &self.fast_mode)
             .field("timeout_seconds", &self.timeout_seconds)
             .field("system_errors_configured", &self.system_errors.is_some())
             .finish()
@@ -272,6 +275,8 @@ pub struct CodexProviderConfig {
     pub tool_classification_model: Option<String>,
     /// Optional explicit reasoning effort used only with an explicit model.
     pub reasoning_effort: Option<ReasoningEffort>,
+    /// Use the Codex Fast service tier for supported models.
+    pub fast_mode: bool,
     /// Request timeout in seconds.
     pub timeout_seconds: u64,
     /// Codex client version advertised to the subscription backend.
@@ -289,6 +294,7 @@ impl Default for CodexProviderConfig {
             default_model: Some(DEFAULT_CODEX_MODEL.to_string()),
             tool_classification_model: None,
             reasoning_effort: Some(DEFAULT_HOSTED_REASONING_EFFORT),
+            fast_mode: false,
             timeout_seconds: DEFAULT_CODEX_TIMEOUT_SECONDS,
             client_version: None,
             oauth: CodexOAuthConfig::default(),
@@ -305,6 +311,7 @@ impl fmt::Debug for CodexProviderConfig {
             .field("default_model", &self.default_model)
             .field("tool_classification_model", &self.tool_classification_model)
             .field("reasoning_effort", &self.reasoning_effort)
+            .field("fast_mode", &self.fast_mode)
             .field("timeout_seconds", &self.timeout_seconds)
             .field("client_version", &self.client_version)
             .field("oauth", &self.oauth)
@@ -490,6 +497,7 @@ mod tests {
             default_model: DEFAULT_OPENAI_MODEL.to_string(),
             tool_classification_model: None,
             reasoning_effort: None,
+            fast_mode: false,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
             system_errors: None,
         };

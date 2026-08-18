@@ -70,6 +70,7 @@ Example OpenAI-oriented configuration:
 provider: openai
 openai:
   base_url: https://api.openai.com/v1
+  fast_mode: true
   organization_id: org_...
   project_id: proj_...
   timeout_seconds: 120
@@ -99,8 +100,10 @@ Supported environment variables include:
 - `NOEMA_OPENAI__TIMEOUT_SECONDS`
 - `NOEMA_OPENAI__ORGANIZATION_ID`
 - `NOEMA_OPENAI__PROJECT_ID`
+- `NOEMA_OPENAI__FAST_MODE`
 - `NOEMA_CODEX__MODEL`
 - `NOEMA_CODEX__TIMEOUT_SECONDS`
+- `NOEMA_CODEX__FAST_MODE`
 - `NOEMA_BROWSER__MAX_SESSIONS`
 - `NOEMA_BROWSER__MAX_OLD_SPACE_MB`
 - `NOEMA_WEB__HOST`
@@ -149,12 +152,15 @@ Example Codex-oriented configuration:
 ```yaml
 provider: codex
 codex:
+  fast_mode: true
   timeout_seconds: 300
 ```
 
 Codex authentication is handled as Noema-owned provider account state. The web
 onboarding flow blocks chat until an active provider account is authenticated.
 If you set an explicit OpenAI or Codex model, also set `reasoning_effort`.
+Fast mode is disabled by default. It requests OpenAI's Fast service tier and
+costs more than standard processing.
 
 ## Development
 

@@ -32,6 +32,9 @@ pub struct ResponsesRequest {
     /// Optional explicit reasoning controls.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<ResponsesReasoning>,
+    /// Optional provider processing tier.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<&'static str>,
     /// Native Responses API tool definitions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<ResponsesTool>,
@@ -180,6 +183,7 @@ impl ResponsesRequest {
                     effort,
                     summary: (effort != ReasoningEffort::None).then_some("auto"),
                 }),
+            service_tier: None,
             tools: {
                 let mut tools = tool_names.tools.clone();
                 if request.options.hosted_web_search {
@@ -224,6 +228,11 @@ impl ResponsesRequest {
             stream: profile.stream.then_some(true),
         };
         Ok((body, tool_names, request.tool_transport))
+    }
+
+    /// Map Noema Fast mode to the Responses API Priority processing tier.
+    pub(crate) fn set_fast_mode(&mut self, enabled: bool) {
+        self.service_tier = enabled.then_some("priority");
     }
 }
 

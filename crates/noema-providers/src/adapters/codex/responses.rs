@@ -251,7 +251,7 @@ impl CodexResponsesProvider {
         let default_reasoning_effort = using_config_default_model
             .then_some(self.config.reasoning_effort)
             .flatten();
-        let (body, tool_names, tool_transport) =
+        let (mut body, tool_names, tool_transport) =
             ResponsesRequest::from_generate_with_schema_request_capabilities(
                 &request,
                 model.clone(),
@@ -259,6 +259,7 @@ impl CodexResponsesProvider {
                 self.schema_request_capabilities(Some(&model)),
                 CODEX_RESPONSES_PROFILE,
             )?;
+        body.set_fast_mode(self.config.fast_mode);
         let diagnostics = ResponsesDiagnosticContext::new(
             self.system_errors.clone(),
             "codex",

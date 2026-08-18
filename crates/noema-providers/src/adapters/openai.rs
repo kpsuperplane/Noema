@@ -186,7 +186,7 @@ impl ModelProvider for OpenAiProvider {
         let default_reasoning_effort = using_config_default_model
             .then_some(self.config.reasoning_effort)
             .flatten();
-        let (body, tool_names, tool_transport) =
+        let (mut body, tool_names, tool_transport) =
             ResponsesRequest::from_generate_with_schema_request_capabilities(
                 &request,
                 model.clone(),
@@ -194,6 +194,7 @@ impl ModelProvider for OpenAiProvider {
                 self.schema_request_capabilities(Some(&model)),
                 OPENAI_RESPONSES_PROFILE,
             )?;
+        body.set_fast_mode(self.config.fast_mode);
 
         let diagnostics = ResponsesDiagnosticContext::new(
             self.system_errors.clone(),
@@ -260,6 +261,7 @@ mod tests {
             default_model: "default-model".to_string(),
             tool_classification_model: None,
             reasoning_effort: None,
+            fast_mode: true,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
             system_errors: None,
         })
@@ -270,8 +272,10 @@ mod tests {
         let response = provider.generate(request).await.expect("response");
 
         let captured = request_rx.await.expect("captured request");
+        let body: serde_json::Value = serde_json::from_str(&captured.body).expect("request body");
         assert_eq!(captured.method, "POST");
         assert_eq!(captured.path, "/responses");
+        assert_eq!(body["service_tier"], "priority");
         assert_eq!(
             captured.headers.get("authorization").map(String::as_str),
             Some("Bearer secret")
@@ -411,6 +415,7 @@ mod tests {
             default_model: "default-model".to_string(),
             tool_classification_model: None,
             reasoning_effort: None,
+            fast_mode: false,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
             system_errors: None,
         }

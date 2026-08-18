@@ -57,6 +57,8 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
     assert_eq!(codex["stream"], true);
     assert_eq!(codex["reasoning"]["effort"], "high");
     assert_eq!(codex["reasoning"]["summary"], "auto");
+    assert!(openai.get("service_tier").is_none());
+    assert!(codex.get("service_tier").is_none());
 
     assert!(openai.get("text").is_none());
     assert!(codex.get("text").is_none());

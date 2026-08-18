@@ -115,6 +115,7 @@ impl RawConfig {
                 .or_else(|| non_empty_option(self.openai.tool_classification_model.as_deref()))
                 .map(ToString::to_string),
             reasoning_effort,
+            fast_mode: self.openai.fast_mode,
             timeout_seconds,
             system_errors: None,
         })
@@ -143,6 +144,7 @@ impl RawConfig {
                 .or_else(|| non_empty_option(self.codex.tool_classification_model.as_deref()))
                 .map(ToString::to_string),
             reasoning_effort,
+            fast_mode: self.codex.fast_mode,
             timeout_seconds,
             client_version: None,
             oauth: Default::default(),
@@ -229,6 +231,7 @@ struct RawOpenAiConfig {
     organization_id: Option<String>,
     project_id: Option<String>,
     tool_classification_model: Option<String>,
+    fast_mode: bool,
     timeout_seconds: u64,
 }
 
@@ -258,6 +261,7 @@ impl Default for RawOpenAiConfig {
             organization_id: None,
             project_id: None,
             tool_classification_model: None,
+            fast_mode: false,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
         }
     }
@@ -270,6 +274,7 @@ struct RawCodexConfig {
     model: Option<String>,
     reasoning_effort: Option<ReasoningEffort>,
     tool_classification_model: Option<String>,
+    fast_mode: bool,
     timeout_seconds: u64,
 }
 
@@ -280,6 +285,7 @@ impl Default for RawCodexConfig {
             model: None,
             reasoning_effort: None,
             tool_classification_model: None,
+            fast_mode: false,
             timeout_seconds: DEFAULT_CODEX_TIMEOUT_SECONDS,
         }
     }

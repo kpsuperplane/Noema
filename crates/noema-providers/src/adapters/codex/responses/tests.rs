@@ -97,7 +97,14 @@ async fn sends_codex_input_as_response_message_list() {
              \n",
         )
         .await;
-    let provider = provider_with_token(base_url);
+    let provider = provider_from_config(CodexProviderConfig {
+        base_url,
+        default_model: Some("gpt-test".to_string()),
+        fast_mode: true,
+        client_version: Some("0.144.0".to_string()),
+        ..CodexProviderConfig::default()
+    })
+    .expect("provider");
 
     let mut events = Vec::new();
     let response = provider
@@ -110,6 +117,8 @@ async fn sends_codex_input_as_response_message_list() {
     let captured = request_rx.await.expect("captured request");
     assert_eq!(captured.method, "POST");
     assert_eq!(captured.path, "/responses");
+    let body: Value = serde_json::from_str(&captured.body).expect("request body");
+    assert_eq!(body["service_tier"], "priority");
     assert_eq!(
         captured.headers.get("authorization"),
         Some(&format!("Bearer {}", test_access_token()))
