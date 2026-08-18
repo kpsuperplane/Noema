@@ -318,13 +318,13 @@ mod tests {
             serde_json::to_value(tool_spec().expect("spec")).expect("serialize"),
             json!({
                 "name": "web.fetch",
-                "description": "Fetch and read a public web page using Noema's configured web fetch provider. When following a search result or fetched-page link, pass its exact URL unchanged.",
+                "description": "Fetch and read a public web page or UTF-8 text resource using Noema's configured web fetch provider. When following a search result or fetched-page link, pass its exact URL unchanged.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "url": {
                             "type": "string", "minLength": 1, "maxLength": 2048,
-                            "description": "The public http(s) URL to fetch and read."
+                            "description": "The public http(s) URL of a web page or text resource to fetch and read."
                         },
                         "reason": {
                             "type": "string", "maxLength": 500,

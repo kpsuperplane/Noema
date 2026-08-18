@@ -34,7 +34,7 @@
     {
       "type": "function",
       "name": "fetch",
-      "description": "Fetch and read a public web page using Noema's configured web fetch provider. When following a search result or fetched-page link, pass its exact URL unchanged.",
+      "description": "Fetch and read a public web page or UTF-8 text resource using Noema's configured web fetch provider. When following a search result or fetched-page link, pass its exact URL unchanged.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -42,7 +42,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 2048,
-            "description": "The public http(s) URL to fetch and read."
+            "description": "The public http(s) URL of a web page or text resource to fetch and read."
           },
           "reason": {
             "type": "string",
