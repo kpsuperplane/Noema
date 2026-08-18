@@ -93,6 +93,7 @@ impl RuntimeActor {
         };
         admit_uncompacted_request(provider, &initial_request).await?;
         let mut citation_sources = CitationSourceRegistry::default();
+        let mut checkpoint_current = true;
         let mut next_provider_round = 0;
         let initial_response = self
             .generate_task_provider_round(
@@ -287,7 +288,20 @@ impl RuntimeActor {
                     },
                 )
                 .await;
-                let result = tokio::select! {
+                let result = if is_task_continue_execution_tool(&call.name)
+                    && !checkpoint_current
+                {
+                    LocalToolResult::from_call(
+                        call,
+                        LocalToolKind::Gateway,
+                        false,
+                        serde_json::json!({
+                            "code": "task_checkpoint_required",
+                            "message": "Save completed progress and the exact next action in TASK.md before continuing execution.",
+                        }),
+                        true,
+                    )
+                } else { tokio::select! {
                     _ = request.cancellation.cancelled() => {
                         return Err(RuntimeError::Protocol("task execution cancelled".to_string()));
                     }
@@ -321,7 +335,8 @@ impl RuntimeActor {
                         call,
                         &model_tools.tool_policy,
                     ) => result,
-                };
+                }};
+                checkpoint_current = checkpoint_after_result(checkpoint_current, call, &result);
                 tool_debug_span
                     .finish(
                         if result.success {
@@ -478,7 +493,9 @@ impl RuntimeActor {
                         .await;
                     progress.update_current_goal(audit.next_goal);
                     progress.reset_window();
-                    if audit.decision != ProgressAuditDecision::Continue {
+                    if audit.decision == ProgressAuditDecision::Checkpoint {
+                        context.append_developer_message(build_task_checkpoint_prompt().to_string());
+                    } else if audit.decision != ProgressAuditDecision::Continue {
                         let reason = match audit.decision {
                             ProgressAuditDecision::Finalize => {
                                 "progress audit requested finalization"
@@ -486,9 +503,7 @@ impl RuntimeActor {
                             ProgressAuditDecision::AskHuman => {
                                 "progress audit requires human input"
                             }
-                            ProgressAuditDecision::Checkpoint => {
-                                "progress audit requested a checkpoint"
-                            }
+                            ProgressAuditDecision::Checkpoint => unreachable!(),
                             ProgressAuditDecision::Continue => unreachable!(),
                         };
                         return self

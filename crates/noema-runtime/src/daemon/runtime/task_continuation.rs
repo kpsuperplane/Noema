@@ -135,6 +135,10 @@ pub(super) fn build_task_finalization_prompt(
     )
 }
 
+pub(super) fn build_task_checkpoint_prompt() -> &'static str {
+    "Pause new work at this checkpoint. Save all completed progress and the exact next action in TASK.md. Save required support files first. Then call task.continue_execution. Do not call external tools."
+}
+
 pub(super) fn add_usage(aggregate: &mut Option<TokenUsage>, usage: Option<&TokenUsage>) {
     let Some(usage) = usage else {
         return;

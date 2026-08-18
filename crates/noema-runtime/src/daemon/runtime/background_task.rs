@@ -25,22 +25,24 @@ use super::{
     citation_markers::CitationSourceRegistry,
     context_window::{ContextAdmission, RequestContext, admit_request, hard_overflow_error},
     continuation_context::ContinuationContext,
-    local_tool_results::LocalToolResult,
+    local_tool_results::{LocalToolKind, LocalToolResult},
     model_context::RuntimeEnvironmentContext,
     model_tools::{ModelTools, build_model_tools_for_role},
     progress::{ContinuationProgressTracker, DeterministicProgressStop},
     progress_audit::ProgressAuditDecision,
     runtime_debug::RuntimeDebugSpan,
     task_continuation::{
-        add_usage, background_tool_instructions, build_task_finalization_prompt,
-        is_task_terminal_tool, is_valid_terminal_tool, render_continuation_tool_names,
-        task_terminal_tools, task_tool_result_transcript_payload, terminal_tool_instructions,
+        add_usage, background_tool_instructions, build_task_checkpoint_prompt,
+        build_task_finalization_prompt, is_task_terminal_tool, is_valid_terminal_tool,
+        render_continuation_tool_names, task_terminal_tools, task_tool_result_transcript_payload,
+        terminal_tool_instructions,
     },
     task_transcript::persisted_capability_arguments,
     tool_lifecycle::local_tool_calls,
     turn::{SuccessfulProviderTurn, current_runtime_environment},
 };
 use crate::daemon::prompts::build_role_tool_result_continuation_system_prompt;
+use crate::daemon::task_tool::{TASK_FILE_WRITE_TOOL, is_task_continue_execution_tool};
 use tokio_util::sync::CancellationToken;
 
 /// Provider request for one background Planner, Executor, or Reviewer run.
@@ -118,6 +120,25 @@ include!("background_task/finalize.rs");
 
 fn should_stop_after_tool_results(results: &[LocalToolResult]) -> bool {
     results.iter().any(|result| result.has_uncertain_outcome())
+}
+
+fn checkpoint_after_result(
+    current: bool,
+    call: &super::tool_lifecycle::LocalToolCall,
+    result: &LocalToolResult,
+) -> bool {
+    if call.name == TASK_FILE_WRITE_TOOL && result.success {
+        return result
+            .payload
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            == Some(noema_store::TASK_DOCUMENT);
+    }
+    if is_task_terminal_tool(&call.name) {
+        current
+    } else {
+        false
+    }
 }
 
 fn propagate_compaction_result(result: Result<bool, ProviderError>) -> Result<bool, RuntimeError> {
@@ -375,6 +396,46 @@ mod tests {
         };
 
         assert!(should_stop_after_tool_results(&[result]));
+    }
+
+    #[test]
+    fn continuation_checkpoint_requires_task_document_as_last_tool_action() {
+        let call = |name: &str, path: &str| super::super::tool_lifecycle::LocalToolCall {
+            output_index: 0,
+            call_id: None,
+            provider_call_id: None,
+            provider_name: None,
+            name: name.to_string(),
+            payload: serde_json::json!({"path": path}),
+        };
+        let result = |call: &super::super::tool_lifecycle::LocalToolCall, path: &str| {
+            LocalToolResult::from_call(
+                call,
+                LocalToolKind::Gateway,
+                true,
+                serde_json::json!({"path": path}),
+                true,
+            )
+        };
+
+        let support = call(TASK_FILE_WRITE_TOOL, "outcomes.md");
+        assert!(!checkpoint_after_result(
+            true,
+            &support,
+            &result(&support, "outcomes.md")
+        ));
+        let task = call(TASK_FILE_WRITE_TOOL, noema_store::TASK_DOCUMENT);
+        assert!(checkpoint_after_result(
+            false,
+            &task,
+            &result(&task, noema_store::TASK_DOCUMENT)
+        ));
+        let read = call("task.files.read", "ranking.md");
+        assert!(!checkpoint_after_result(
+            true,
+            &read,
+            &result(&read, "ranking.md")
+        ));
     }
 
     #[test]
