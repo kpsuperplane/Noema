@@ -26,11 +26,12 @@ noema-capabilities = { path = "../noema-capabilities", default-features = false 
 noema-conversations = { path = "../noema-conversations", default-features = false }
 noema-home = { path = "../noema-home", default-features = false }
 noema-memory = { path = "../noema-memory", default-features = false }
-noema-providers = { path = "../noema-providers", default-features = false }
+noema-providers = { path = "../noema-providers", default-features = false, features = ["public-http"] }
 noema-store = { path = "../noema-store", default-features = false }
 noema-tasks = { path = "../noema-tasks", default-features = false }
 noema-workspaces = { path = "../noema-workspaces", default-features = false }
 ring.workspace = true
+reqwest = { workspace = true, features = ["stream"] }
 rmcp = { workspace = true, features = ["server", "transport-io"] }
 serde.workspace = true
 serde_json.workspace = true

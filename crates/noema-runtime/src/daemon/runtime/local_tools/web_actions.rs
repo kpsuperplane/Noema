@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::{
+    file_tools::execute_file_download,
     search::tool::{WebSearchToolResult, execute_web_search},
     web_fetch::tool::{WebFetchToolResult, execute_web_fetch},
 };
@@ -267,7 +268,7 @@ impl RuntimeActor {
             .await;
     }
 
-    pub(in crate::daemon::runtime) async fn execute_approved_web_action(
+    pub(in crate::daemon::runtime) async fn execute_approved_native_action(
         &self,
         action: &noema_store::GovernedActionRecord,
     ) -> Option<CapabilityOutput> {
@@ -286,6 +287,27 @@ impl RuntimeActor {
                 self.execute_web_fetch_action(priority, None, &action.arguments, &action.action_id)
                     .await,
             )
+        } else if action.capability_name == noema_capabilities::file::FILE_DOWNLOAD_TOOL {
+            let cwd = match action.conversation_id.as_deref() {
+                Some(conversation_id) => self
+                    .store
+                    .conversation_working_directory(conversation_id, None)
+                    .await
+                    .ok()
+                    .map(|path| path.to_string_lossy().into_owned()),
+                None => None,
+            };
+            let result = execute_file_download(
+                &self.store,
+                action.task_id.as_deref(),
+                cwd.as_deref(),
+                &action.arguments,
+            )
+            .await;
+            Some(match result {
+                Ok(payload) => CapabilityOutput::success(payload),
+                Err(error) => CapabilityOutput::failed(json!({"error": error})),
+            })
         } else if action.capability_name.starts_with("web.browse.") {
             let Some(owner_key) = super::browse_owner_key_for_action(action) else {
                 return Some(CapabilityOutput::failed(

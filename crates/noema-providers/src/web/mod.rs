@@ -2,6 +2,8 @@
 
 mod browse;
 mod fetch;
+#[cfg(feature = "public-http")]
+pub mod public_url;
 mod search;
 
 use std::{future::Future, pin::Pin};

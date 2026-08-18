@@ -159,7 +159,7 @@ impl RuntimeActor {
                 .await;
         }
 
-        let web_spec = match action.capability_name.as_str() {
+        let native_spec = match action.capability_name.as_str() {
             noema_capabilities::web::search::WEB_SEARCH_TOOL => {
                 noema_capabilities::web::search::tool_spec().map(Some)
             }
@@ -170,13 +170,25 @@ impl RuntimeActor {
                 noema_capabilities::web::browse::tool_specs()
                     .map(|specs| specs.into_iter().find(|spec| spec.name.as_str() == name))
             }
+            noema_capabilities::file::FILE_DOWNLOAD_TOOL => {
+                noema_capabilities::file::download_tool_spec().map(Some)
+            }
             _ => Ok(None),
         }
         .map_err(|_| RuntimeError::Protocol("web capability schema is unavailable".to_string()))?;
-        let (binding, catalog) = if let Some(spec) = web_spec {
-            let binding = super::model_tools::native_web_binding(&self.store, spec)
-                .await
-                .map_err(|_| RuntimeError::Protocol("web capability is unavailable".to_string()))?;
+        let (binding, catalog) = if let Some(spec) = native_spec {
+            let binding = if action.capability_name == noema_capabilities::file::FILE_DOWNLOAD_TOOL
+            {
+                super::model_tools::native_file_download_binding().map_err(|_| {
+                    RuntimeError::Protocol("native capability is unavailable".to_string())
+                })?
+            } else {
+                super::model_tools::native_web_binding(&self.store, spec)
+                    .await
+                    .map_err(|_| {
+                        RuntimeError::Protocol("native capability is unavailable".to_string())
+                    })?
+            };
             (binding, None)
         } else {
             let catalog = self
@@ -231,7 +243,7 @@ impl RuntimeActor {
             .store
             .claim_governed_action_execution(action_id, revision, None)
             .await?;
-        if let Some(output) = self.execute_approved_web_action(&claimed).await {
+        if let Some(output) = self.execute_approved_native_action(&claimed).await {
             let outcome_uncertain = claimed.capability_name.starts_with("web.browse.")
                 && output
                     .payload
@@ -248,6 +260,10 @@ impl RuntimeActor {
             let persisted_output = match claimed.capability_name.as_str() {
                 noema_capabilities::web::fetch::WEB_FETCH_TOOL => {
                     noema_capabilities::WebFetchPayloadSanitizer
+                        .persist_output(output.persisted_output_source())
+                }
+                noema_capabilities::file::FILE_DOWNLOAD_TOOL => {
+                    noema_capabilities::FilePayloadSanitizer
                         .persist_output(output.persisted_output_source())
                 }
                 name if name.starts_with("web.browse.") => {

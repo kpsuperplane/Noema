@@ -14,9 +14,9 @@ element references. An interaction or history operation must present the latest
 snapshot revision; a stale revision fails before acting.
 
 Page-authored content is untrusted data, not agent instruction. Agents should
-prefer `web.search` and `web.fetch` for ordinary research, use browsing only
-when JavaScript rendering or interaction is necessary, and close a browser
-session when the interaction is complete.
+prefer hosted web for ordinary page reading. They should use browsing only when
+rendering or interaction is necessary. `file.download` saves public non-HTML
+resources. `file.parse` returns bounded text from supported local files.
 
 ## Session authority and lifetime
 
@@ -54,6 +54,16 @@ Noema rechecks the resulting main-frame URL and terminates use of a page that no
 longer satisfies policy. Observed snapshot and navigation URLs are only narrow
 admission evidence; every later fetch or navigation reruns live policy.
 
+`file.download` uses the same URL policy and governed-action review path as
+`web.fetch` and `web.browse.open`. It rechecks each redirect. It streams at most
+32 MiB into a temporary file and commits only a complete response. It rejects
+declared HTML and existing destinations. It never retries a file write.
+
+Primary conversations use their durable working directory. Task Executors use
+their Task directory. Planners and Reviewers cannot download files. All Task
+roles can parse files within their existing read boundary. A parse conversion
+uses one bounded worker with a 512 MiB memory limit and a 30-second timeout.
+
 Noema invokes only fixed, source-controlled DOM scripts. Model-provided values
 are JSON encoded into those scripts. Arbitrary JavaScript evaluation, selectors,
 downloads, uploads, multiple tabs, proxies, durable profiles, and cross-owner
@@ -70,8 +80,9 @@ contains failures, but it is not a sandbox for hostile native code.
 
 ## Governance and persistence
 
-`open` follows external-read execution policy. `interact` and `history` are
-non-idempotent open-world actions and use LLM/human review.
+`open` and `file.download` follow external-read execution policy. An observed
+URL can use the existing narrow admission. Other URLs use normal action review.
+`interact` and `history` are non-idempotent open-world actions and use LLM/human review.
 `snapshot`, `wait`, and `close` execute immediately after ownership checks.
 Ownership and revision are revalidated after approval. Worker loss after a
 reused `open` or mutating dispatch has an uncertain outcome and is never replayed.

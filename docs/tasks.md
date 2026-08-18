@@ -84,6 +84,8 @@ The Planner and Reviewer can read files within the project boundary.
 The Reviewer cannot directly change Task or project files.
 `task.finish_review` owns each `REVIEW.md` replacement.
 Governed capability tools own Executor writes outside the Task directory.
+All roles can use `file.parse` within their existing read boundary.
+Only the Executor can use `file.download`, and downloads stay in the Task directory.
 
 Task file tools accept relative paths and UTF-8 text.
 Model-facing reads and writes have a 64 KiB limit.

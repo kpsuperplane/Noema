@@ -28,6 +28,21 @@ pub struct FileParseRequest {
     pub max_chars: usize,
 }
 
+/// Normalized public-file download request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileDownloadRequest {
+    /// Public HTTP or HTTPS source URL.
+    pub url: String,
+    /// Relative destination path.
+    pub path: String,
+    /// Whether to parse the saved file.
+    pub parse: bool,
+    /// Maximum returned parsed characters.
+    pub max_chars: usize,
+    /// Optional action-review explanation.
+    pub reason: Option<String>,
+}
+
 /// Outcome of one supported-file conversion attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -73,6 +88,19 @@ struct ParseArguments {
     max_chars: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DownloadArguments {
+    url: String,
+    path: String,
+    #[serde(default)]
+    parse: bool,
+    #[serde(default)]
+    max_chars: Option<usize>,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
 /// Build the exact `file.parse` specification.
 ///
 /// # Errors
@@ -104,6 +132,29 @@ pub fn parse_tool_spec() -> Result<ToolSpec, ToolContractError> {
     )
 }
 
+/// Build the exact `file.download` specification.
+///
+/// # Errors
+/// Returns [`ToolContractError`] when the static source schema is invalid.
+pub fn download_tool_spec() -> Result<ToolSpec, ToolContractError> {
+    ToolSpec::new(
+        FILE_DOWNLOAD_TOOL,
+        "Download a public non-HTML resource into the current working directory. The destination must not exist.",
+        json!({
+            "type": "object",
+            "properties": {
+                "url": {"type":"string","minLength":1,"maxLength":MAX_URL_CHARS},
+                "path": {"type":"string","minLength":1,"maxLength":MAX_PATH_CHARS},
+                "parse": {"type":"boolean","default":false},
+                "max_chars": {"type":"integer","minimum":1000,"maximum":HARD_MAX_CHARS},
+                "reason": {"type":"string","minLength":1,"maxLength":MAX_REASON_CHARS}
+            },
+            "required": ["url", "path"],
+            "additionalProperties": false
+        }),
+    )
+}
+
 /// Parse and normalize `file.parse` arguments.
 ///
 /// # Errors
@@ -126,6 +177,37 @@ pub fn parse_arguments(payload: &Value) -> Result<FileParseRequest, String> {
             .max_chars
             .unwrap_or(DEFAULT_MAX_CHARS)
             .clamp(1000, HARD_MAX_CHARS),
+    })
+}
+
+/// Parse and normalize `file.download` arguments.
+///
+/// # Errors
+/// Returns a safe message when arguments do not match the contract.
+pub fn parse_download_arguments(payload: &Value) -> Result<FileDownloadRequest, String> {
+    let arguments: DownloadArguments = serde_json::from_value(nested_arguments(payload)?)
+        .map_err(|_| "arguments do not match the file.download schema".to_string())?;
+    let url = arguments.url.trim().to_string();
+    let path = arguments.path.trim().to_string();
+    let reason = arguments.reason.map(|value| value.trim().to_string());
+    if url.is_empty() || url.chars().count() > MAX_URL_CHARS {
+        return Err("url is required and must fit the file.download limit".to_string());
+    }
+    if path.is_empty() || path.chars().count() > MAX_PATH_CHARS {
+        return Err("path is required and must fit the file.download limit".to_string());
+    }
+    if reason
+        .as_ref()
+        .is_some_and(|value| value.is_empty() || value.chars().count() > MAX_REASON_CHARS)
+    {
+        return Err("reason must fit the file.download limit".to_string());
+    }
+    Ok(FileDownloadRequest {
+        url,
+        path,
+        parse: arguments.parse,
+        max_chars: arguments.max_chars.unwrap_or(DEFAULT_MAX_CHARS),
+        reason,
     })
 }
 
@@ -172,6 +254,13 @@ mod tests {
         assert_eq!(request.path, "data.csv");
         assert_eq!(request.max_chars, 1000);
         assert!(parse_arguments(&json!({"path":"data.csv","extra":true})).is_err());
+
+        let download = parse_download_arguments(&json!({
+            "url":"https://example.com/data.csv", "path":"data.csv", "parse":true
+        }))
+        .expect("download arguments");
+        assert!(download.parse);
+        assert_eq!(download.max_chars, DEFAULT_MAX_CHARS);
 
         let persisted = sanitize_payload_for_storage(&json!({
             "path":"data.csv",

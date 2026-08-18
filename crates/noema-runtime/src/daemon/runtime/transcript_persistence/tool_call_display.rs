@@ -46,7 +46,7 @@ fn tool_call_display(name: &str, payload: &Value) -> Value {
             .map(str::trim)
             .filter(|value| !value.is_empty());
         insert_display_value(&mut display, "target", query.map(ToString::to_string));
-    } else if name == "web.fetch" {
+    } else if matches!(name, "web.fetch" | "file.download") {
         insert_display_value(
             &mut display,
             "purpose",

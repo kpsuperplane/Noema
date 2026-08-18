@@ -256,8 +256,22 @@ async fn observed_read_arguments(
     capability_name: &str,
     payload: &serde_json::Value,
 ) -> Result<Option<serde_json::Value>, noema_store::StoreError> {
-    let (url, mut arguments) = if capability_name == noema_capabilities::web::fetch::WEB_FETCH_TOOL
-    {
+    let (url, mut arguments) = if capability_name == noema_capabilities::file::FILE_DOWNLOAD_TOOL {
+        let Ok(request) = noema_capabilities::file::parse_download_arguments(payload) else {
+            return Ok(None);
+        };
+        let url = request.url.clone();
+        let mut arguments = serde_json::json!({
+            "url": request.url,
+            "path": request.path,
+            "parse": request.parse,
+            "max_chars": request.max_chars,
+        });
+        if let Some(reason) = request.reason {
+            arguments["reason"] = serde_json::Value::String(reason);
+        }
+        (url, arguments)
+    } else if capability_name == noema_capabilities::web::fetch::WEB_FETCH_TOOL {
         let Ok(request) = noema_capabilities::web::fetch::parse_arguments(payload) else {
             return Ok(None);
         };
@@ -357,6 +371,9 @@ fn safe_action_summary(
             }
         }
         .to_string();
+    }
+    if capability_name == noema_capabilities::file::FILE_DOWNLOAD_TOOL {
+        return "Download a public file into the working directory".to_string();
     }
     let action = if behavior.read_only {
         "share data with an external tool"
@@ -465,6 +482,32 @@ mod tests {
 
         assert_eq!(arguments["url"], "https://example.com/public?q=one");
         assert_eq!(arguments["reason"], "Read the public source.");
+    }
+
+    #[tokio::test]
+    async fn observed_file_download_uses_the_same_url_admission() {
+        let store = crate::test_support::test_store().await;
+        store
+            .record_observed_urls(
+                ObservedUrlSource::SearchResult,
+                "search:file",
+                &["https://example.com/report.csv".to_string()],
+            )
+            .await
+            .expect("record URL");
+
+        let arguments = observed_read_arguments(
+            &store,
+            noema_capabilities::file::FILE_DOWNLOAD_TOOL,
+            &serde_json::json!({"url":"https://example.com/report.csv","path":"data/report.csv"}),
+        )
+        .await
+        .expect("lookup observed URL")
+        .expect("authorize observed URL");
+
+        assert_eq!(arguments["url"], "https://example.com/report.csv");
+        assert_eq!(arguments["path"], "data/report.csv");
+        assert_eq!(arguments["parse"], false);
     }
 
     #[test]

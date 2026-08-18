@@ -1,11 +1,14 @@
 //! Shared bounded parsing for model-visible file tools.
 
 use cap_std::{ambient_authority, fs::Dir};
+use futures_util::StreamExt;
 use noema_capabilities::file::{
-    FileParseResponse, FileParseStatus, HARD_MAX_CHARS, parse_arguments,
+    FileParseResponse, FileParseStatus, HARD_MAX_CHARS, parse_arguments, parse_download_arguments,
 };
+use noema_providers::{CheckedUrl, validate_public_url, validate_public_url_parsed};
 use noema_store::NoemaStore;
 use noema_tasks::TaskId;
+use reqwest::{Client, StatusCode, header};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -14,7 +17,10 @@ use std::{
     io::{Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
     process::Stdio,
-    sync::OnceLock,
+    sync::{
+        OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 use tokio::{io::AsyncWriteExt, process::Command, sync::Semaphore, time::Duration};
 
@@ -24,8 +30,13 @@ const WORKER_MAX_CHARS_ENV: &str = "NOEMA_FILE_PARSE_MAX_CHARS";
 const MAX_DOCUMENT_BYTES: u64 = 32 * 1024 * 1024;
 const WORKER_MEMORY_BYTES: u64 = 512 * 1024 * 1024;
 const WORKER_TIMEOUT: Duration = Duration::from_secs(30);
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_DOWNLOAD_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_REDIRECTS: usize = 3;
+const DOWNLOAD_USER_AGENT: &str = "NoemaFileDownload/0.1 (+https://github.com/kpsuperplane/Noema)";
 
 static DOCUMENT_PARSE_PERMIT: OnceLock<Semaphore> = OnceLock::new();
+static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Serialize, Deserialize)]
 struct WorkerResponse {
@@ -59,6 +70,254 @@ pub(crate) async fn execute_file_parse(
     };
     let response = parse_open_file(file, &request.path, None, request.max_chars).await;
     serde_json::to_value(response).map_err(|_| "file parse result could not be encoded".to_string())
+}
+
+pub(crate) async fn execute_file_download(
+    store: &NoemaStore,
+    task_id: Option<&str>,
+    cwd: Option<&str>,
+    payload: &Value,
+) -> Result<Value, String> {
+    let request = parse_download_arguments(payload)?;
+    let root_path = match task_id {
+        Some(value) => {
+            let task_id = TaskId::new(value.to_string()).map_err(|error| error.to_string())?;
+            store
+                .task_working_directory(&task_id)
+                .await
+                .map_err(|error| error.to_string())?
+        }
+        None => PathBuf::from(
+            cwd.ok_or_else(|| "conversation working directory is unavailable".to_string())?,
+        ),
+    };
+    let relative = normalized_relative_path(&request.path)?;
+    if task_id.is_some()
+        && relative
+            .parent()
+            .is_none_or(|parent| parent.as_os_str().is_empty())
+        && matches!(
+            relative.to_str(),
+            Some("TASK.md" | "RESULT.md" | "REVIEW.md")
+        )
+    {
+        return Err("destination is a reserved Task file".to_string());
+    }
+    let root = Dir::open_ambient_dir(&root_path, ambient_authority())
+        .map_err(|_| "working directory is unavailable".to_string())?;
+    prepare_download_parent(&root, &relative)?;
+    if root.symlink_metadata(&relative).is_ok() {
+        return Err("destination already exists".to_string());
+    }
+    let temp = temporary_path(&relative);
+    let std_file = root
+        .open_with(
+            &temp,
+            cap_std::fs::OpenOptions::new().write(true).create_new(true),
+        )
+        .map(cap_std::fs::File::into_std)
+        .map_err(|_| "temporary download file could not be created".to_string())?;
+    let downloaded =
+        match tokio::time::timeout(DOWNLOAD_TIMEOUT, download_into(std_file, &request.url)).await {
+            Ok(result) => result,
+            Err(_) => {
+                let _ = root.remove_file(&temp);
+                return Err("download timed out".to_string());
+            }
+        };
+    let (final_url, saved_bytes, media_type) = match downloaded {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = root.remove_file(&temp);
+            return Err(error);
+        }
+    };
+    commit_download(&root, &temp, &relative)?;
+    let parse = if request.parse {
+        let file = root
+            .open(&relative)
+            .map(cap_std::fs::File::into_std)
+            .map_err(|_| "downloaded file could not be opened".to_string())?;
+        Some(
+            parse_open_file(
+                file,
+                &request.path,
+                media_type.as_deref(),
+                request.max_chars,
+            )
+            .await,
+        )
+    } else {
+        None
+    };
+    Ok(serde_json::json!({
+        "url": request.url, "final_url": final_url, "path": request.path,
+        "saved_bytes": saved_bytes, "media_type": media_type, "parse": parse,
+    }))
+}
+
+async fn download_into(
+    file: std::fs::File,
+    raw_url: &str,
+) -> Result<(String, u64, Option<String>), String> {
+    let mut checked = validate_public_url(raw_url)
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut file = tokio::fs::File::from_std(file);
+    for redirect_count in 0..=MAX_REDIRECTS {
+        let client = client_for_checked_url(&checked)?;
+        let response = client
+            .get(checked.url.clone())
+            .header(header::USER_AGENT, DOWNLOAD_USER_AGENT)
+            .timeout(DOWNLOAD_TIMEOUT)
+            .send()
+            .await
+            .map_err(|_| "download request failed".to_string())?;
+        if response.status().is_redirection() {
+            if redirect_count == MAX_REDIRECTS {
+                return Err("download has too many redirects".to_string());
+            }
+            let location = response
+                .headers()
+                .get(header::LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .ok_or_else(|| "download redirect is invalid".to_string())?;
+            let next = checked
+                .url
+                .join(location)
+                .map_err(|_| "download redirect is invalid".to_string())?;
+            checked = validate_public_url_parsed(next)
+                .await
+                .map_err(|error| error.to_string())?;
+            continue;
+        }
+        if !response.status().is_success() {
+            return Err(match response.status() {
+                StatusCode::REQUEST_TIMEOUT | StatusCode::GATEWAY_TIMEOUT => "download timed out",
+                _ => "download request failed",
+            }
+            .to_string());
+        }
+        if response
+            .content_length()
+            .is_some_and(|size| size > MAX_DOWNLOAD_BYTES)
+        {
+            return Err("download exceeds the size limit".to_string());
+        }
+        let media_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(';').next())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_ascii_lowercase);
+        if matches!(
+            media_type.as_deref(),
+            Some("text/html" | "application/xhtml+xml")
+        ) {
+            return Err("HTML responses cannot be downloaded with file.download".to_string());
+        }
+        let mut saved = 0_u64;
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|_| "download request failed".to_string())?;
+            saved = saved.saturating_add(chunk.len() as u64);
+            if saved > MAX_DOWNLOAD_BYTES {
+                return Err("download exceeds the size limit".to_string());
+            }
+            file.write_all(&chunk)
+                .await
+                .map_err(|_| "download write failed".to_string())?;
+        }
+        file.flush()
+            .await
+            .map_err(|_| "download write failed".to_string())?;
+        return Ok((checked.url.to_string(), saved, media_type));
+    }
+    unreachable!("redirect loop returns")
+}
+
+fn client_for_checked_url(checked: &CheckedUrl) -> Result<Client, String> {
+    let mut builder = Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(DOWNLOAD_TIMEOUT);
+    if matches!(checked.url.host(), Some(url::Host::Domain(_))) {
+        let host = checked
+            .url
+            .host_str()
+            .ok_or_else(|| "download URL is invalid".to_string())?;
+        builder = builder.resolve_to_addrs(host, &checked.resolved_addrs);
+    }
+    builder
+        .build()
+        .map_err(|_| "download client is unavailable".to_string())
+}
+
+fn normalized_relative_path(supplied: &str) -> Result<PathBuf, String> {
+    let supplied = Path::new(supplied.trim());
+    if supplied.is_absolute() {
+        return Err("file path is outside the working-directory boundary".to_string());
+    }
+    let mut relative = PathBuf::new();
+    for component in supplied.components() {
+        match component {
+            Component::Normal(value) => relative.push(value),
+            Component::CurDir => {}
+            _ => return Err("file path is outside the working-directory boundary".to_string()),
+        }
+    }
+    if relative.as_os_str().is_empty() {
+        return Err("file path is required".to_string());
+    }
+    Ok(relative)
+}
+
+fn prepare_download_parent(root: &Dir, relative: &Path) -> Result<(), String> {
+    let mut current = PathBuf::new();
+    for component in relative.parent().into_iter().flat_map(Path::components) {
+        let Component::Normal(value) = component else {
+            return Err("file path is outside the working-directory boundary".to_string());
+        };
+        current.push(value);
+        match root.symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err("file path contains a symbolic link".to_string());
+            }
+            Ok(metadata) if !metadata.is_dir() => {
+                return Err("download parent is not a directory".to_string());
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => root
+                .create_dir(&current)
+                .map_err(|_| "download directory could not be created".to_string())?,
+            Err(_) => return Err("download directory is unavailable".to_string()),
+        }
+    }
+    Ok(())
+}
+
+fn temporary_path(relative: &Path) -> PathBuf {
+    let id = NEXT_TEMP_FILE.fetch_add(1, Ordering::Relaxed);
+    let name = relative
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or("download");
+    relative.with_file_name(format!(".{name}.noema-{id}.tmp"))
+}
+
+fn commit_download(root: &Dir, temp: &Path, destination: &Path) -> Result<(), String> {
+    if let Err(error) = root.hard_link(temp, root, destination) {
+        let _ = root.remove_file(temp);
+        return Err(if root.symlink_metadata(destination).is_ok() {
+            "destination already exists".to_string()
+        } else {
+            format!("download could not be committed: {error}")
+        });
+    }
+    root.remove_file(temp)
+        .map_err(|_| "temporary download file could not be removed".to_string())
 }
 
 pub(crate) async fn parse_open_file(
@@ -177,11 +436,14 @@ fn parse_text(
         source_bytes,
         status: FileParseStatus::Converted,
         parser: Some("utf8".to_string()),
-        content_format: Some(if format.as_deref() == Some("csv") {
-            "csv".to_string()
-        } else {
-            "text".to_string()
-        }),
+        content_format: Some(
+            match format.as_deref() {
+                Some("csv") => "csv",
+                Some("md" | "markdown") => "markdown",
+                _ => "text",
+            }
+            .to_string(),
+        ),
         format,
         content: Some(content),
         returned_chars,
@@ -285,10 +547,17 @@ fn format_hint(path: &str, media_type: Option<&str>) -> Option<String> {
 }
 
 fn is_text_format(format: Option<&str>, media_type: Option<&str>) -> bool {
+    if let Some(media_type) = media_type.map(str::trim).filter(|value| !value.is_empty()) {
+        return media_type.starts_with("text/")
+            || matches!(
+                media_type.split(';').next(),
+                Some("application/json" | "application/xml" | "application/markdown")
+            );
+    }
     matches!(
         format,
         Some("csv" | "txt" | "text" | "md" | "markdown" | "json" | "xml")
-    ) || media_type.is_some_and(|value| value.trim().to_ascii_lowercase().starts_with("text/"))
+    )
 }
 
 fn convert_document_bytes(
@@ -426,5 +695,40 @@ mod tests {
         assert_eq!(response.status, FileParseStatus::Unsupported);
         assert_eq!(response.error.as_deref(), Some("unsupported_format"));
         assert!(response.content.is_none());
+
+        let response = convert_document_bytes(b"{\\rtf1\\ansi Parsed text}", Some("rtf"), 1000);
+        assert_eq!(response.status, FileParseStatus::Converted);
+        assert!(
+            response
+                .content
+                .as_deref()
+                .is_some_and(|text| text.contains("Parsed text"))
+        );
+    }
+
+    #[test]
+    fn download_paths_reject_traversal_and_never_replace_a_destination() {
+        assert!(normalized_relative_path("../outside.csv").is_err());
+        assert!(normalized_relative_path("/outside.csv").is_err());
+
+        let directory = tempfile::tempdir().expect("temporary directory");
+        std::fs::write(directory.path().join("target.csv"), "original").expect("target");
+        std::fs::write(directory.path().join("temp.csv"), "replacement").expect("temporary file");
+        let root = Dir::open_ambient_dir(directory.path(), ambient_authority()).expect("root");
+
+        let error = commit_download(&root, Path::new("temp.csv"), Path::new("target.csv"))
+            .expect_err("existing destination rejected");
+        assert_eq!(error, "destination already exists");
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join("target.csv")).unwrap(),
+            "original"
+        );
+        assert!(!directory.path().join("temp.csv").exists());
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(".", directory.path().join("linked")).unwrap();
+            assert!(prepare_download_parent(&root, Path::new("linked/file.csv")).is_err());
+        }
     }
 }

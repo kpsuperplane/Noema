@@ -62,6 +62,10 @@ slice or a net-negative reduction.
 
 - Hosted providers, local models, MCP, native HTTP adapters, and browser tools
   keep distinct transport and security ownership.
+- Hosted web remains the preferred page reader. `file.download` stores public
+  non-HTML resources, and `file.parse` returns bounded local content.
+- File downloads use the same URL policy and action review as fetch and browser
+  open. Primary chats keep a durable working directory.
 - Each model preference owns its speed. Codex and OpenAI support Standard and
   Fast. Durable request snapshots preserve that choice.
 - Adapter manifests use schema version 9. Definitions and OAuth objects have

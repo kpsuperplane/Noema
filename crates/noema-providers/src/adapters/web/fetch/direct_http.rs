@@ -3,8 +3,8 @@
 use super::{
     extraction::extract_readable_content,
     summarize::{SummaryDecision, raw_excerpt, summarize_markdown, summary_strategy_for_chars},
-    url_policy::{CheckedUrl, validate_public_web_fetch_url, validate_public_web_fetch_url_parsed},
 };
+use crate::web::public_url::{CheckedUrl, validate_public_url, validate_public_url_parsed};
 use crate::{
     DIRECT_HTTP_PROVIDER_ID, EXTRACTION_READABILITYRS, WebFetchBackend, WebFetchBackendHandle,
     WebFetchContext, WebFetchError, WebOperationFuture,
@@ -79,7 +79,7 @@ async fn fetch_direct_http(
     request: &FetchRequest,
     context: &WebFetchContext,
 ) -> Result<FetchResponse, WebFetchError> {
-    let checked = validate_public_web_fetch_url(&request.url).await?;
+    let checked = validate_public_url(&request.url).await?;
     fetch_direct_http_checked(client, request, context, checked).await
 }
 
@@ -144,7 +144,7 @@ async fn fetch_direct_http_checked(
                 .url
                 .join(location)
                 .map_err(|_| WebFetchError::MalformedUrl)?;
-            checked = validate_public_web_fetch_url_parsed(next_url)
+            checked = validate_public_url_parsed(next_url)
                 .await
                 .map_err(|error| match error {
                     WebFetchError::BlockedTarget | WebFetchError::UnsupportedScheme => {

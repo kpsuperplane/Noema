@@ -25,7 +25,7 @@ use std::{
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore, oneshot};
 use tokio::time::Instant;
 
-use crate::adapters::web::fetch::url_policy::validate_public_web_fetch_url;
+use crate::web::public_url::validate_public_url as validate_public_url_with_dns;
 
 const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const POST_NAVIGATION_SETTLE_MS: u64 = 250;
@@ -350,7 +350,7 @@ impl WorkerState {
         raw_url: &str,
         wait: BrowseWaitUntil,
     ) -> Result<(), WebBrowseError> {
-        let checked = validate_public_web_fetch_url(raw_url)
+        let checked = validate_public_url_with_dns(raw_url)
             .await
             .map_err(map_url_error)?;
         self.page
@@ -362,7 +362,7 @@ impl WorkerState {
     }
 
     async fn validate_resulting_url(&self) -> Result<(), WebBrowseError> {
-        validate_public_web_fetch_url(&self.page.url_string())
+        validate_public_url_with_dns(&self.page.url_string())
             .await
             .map(|_| ())
             .map_err(map_resulting_url_error)

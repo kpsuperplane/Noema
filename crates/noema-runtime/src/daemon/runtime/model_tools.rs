@@ -180,7 +180,11 @@ pub(super) async fn build_model_tools_for_role(
             BindingPersistence::Memory
         } else if tool.name.as_str() == "artifact.create_local_file" {
             BindingPersistence::Artifact
-        } else if tool.name.as_str() == noema_capabilities::file::FILE_PARSE_TOOL {
+        } else if matches!(
+            tool.name.as_str(),
+            noema_capabilities::file::FILE_PARSE_TOOL
+                | noema_capabilities::file::FILE_DOWNLOAD_TOOL
+        ) {
             BindingPersistence::File
         } else {
             BindingPersistence::Redacted
@@ -291,6 +295,7 @@ fn role_builtin_tool_specs(
                 task_file_read_tool_spec()?,
                 task_file_write_tool_spec()?,
                 task_file_delete_tool_spec()?,
+                noema_capabilities::file::download_tool_spec()?,
             ]
         }
         ExecutionRole::TaskReviewer => vec![
@@ -304,6 +309,7 @@ fn role_builtin_tool_specs(
         tools.extend(builtin_tool_specs(include_agent_name_tool)?);
     }
     if role == ExecutionRole::PrimaryConversation {
+        tools.push(noema_capabilities::file::download_tool_spec()?);
         tools.push(present_multiple_choice_tool_spec()?);
         tools.push(present_a2ui_tool_spec()?);
         tools.extend(primary_task_tool_specs()?);
@@ -476,6 +482,7 @@ fn builtin_tool_access_class(role: ExecutionRole, name: &str) -> ToolAccessClass
         | TASK_FILE_READ_TOOL
         | TASK_READ_ARTIFACT_TOOL => ToolAccessClass::ReadOnly,
         noema_capabilities::file::FILE_PARSE_TOOL => ToolAccessClass::ReadOnly,
+        noema_capabilities::file::FILE_DOWNLOAD_TOOL => ToolAccessClass::ExternalTool,
         TASK_FILE_WRITE_TOOL | TASK_FILE_DELETE_TOOL => ToolAccessClass::TaskOwnedWrite,
         "artifact.create_local_file"
             if matches!(
@@ -761,6 +768,10 @@ fn runtime_binding(
         behavior.read_only = false;
         behavior.idempotent = false;
     }
+    if canonical_name == noema_capabilities::file::FILE_DOWNLOAD_TOOL {
+        behavior.read_only = false;
+        behavior.idempotent = false;
+    }
     let sanitizer: Arc<dyn noema_capabilities::PayloadSanitizer> = match persistence {
         BindingPersistence::Redacted => Arc::new(RedactingPayloadSanitizer),
         BindingPersistence::WebFetch => Arc::new(WebFetchPayloadSanitizer),
@@ -811,6 +822,14 @@ pub(super) async fn native_web_binding(
                 )
             })?;
     Ok(binding.with_destination(destination))
+}
+
+pub(super) fn native_file_download_binding() -> Result<CapabilityBinding, ToolContractError> {
+    runtime_binding(
+        noema_capabilities::file::download_tool_spec()?,
+        ToolAccessClass::ExternalTool,
+        BindingPersistence::File,
+    )
 }
 
 fn add_binding(

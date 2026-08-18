@@ -11,6 +11,7 @@ workspace = true
 
 [features]
 default = []
+public-http = ["dep:tokio", "dep:url"]
 adapters = [
     "dep:async-stream",
     "dep:base64",
@@ -20,9 +21,8 @@ adapters = [
     "dep:readabilityrs",
     "dep:ring",
     "dep:scraper",
-    "dep:tokio",
+    "public-http",
     "dep:tokio-util",
-    "dep:url",
 ]
 local-models = [
     "dep:fs2",

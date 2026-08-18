@@ -5086,6 +5086,7 @@ dependencies = [
  "noema-store",
  "noema-tasks",
  "noema-workspaces",
+ "reqwest 0.13.4",
  "ring",
  "rmcp",
  "rustix 1.1.4",

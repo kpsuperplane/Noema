@@ -2,27 +2,35 @@
 
 use crate::WebFetchError;
 use noema_capabilities::web::url_policy::{
-    PublicUrlError, is_public_ip, validate_parsed_public_url, validate_public_url,
+    PublicUrlError, is_public_ip, validate_parsed_public_url,
 };
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CheckedUrl {
-    pub(crate) url: Url,
-    pub(crate) resolved_addrs: Vec<SocketAddr>,
+/// Public URL with addresses checked against the public-network policy.
+pub struct CheckedUrl {
+    /// Normalized URL.
+    pub url: Url,
+    /// Public addresses resolved for the URL host.
+    pub resolved_addrs: Vec<SocketAddr>,
 }
 
-pub(crate) async fn validate_public_web_fetch_url(
-    raw_url: &str,
-) -> Result<CheckedUrl, WebFetchError> {
-    let url = validate_public_url(raw_url).map_err(map_policy_error)?;
+/// Validate, resolve, and pin one public URL.
+///
+/// # Errors
+/// Returns [`WebFetchError`] when the URL or its resolved addresses are unsafe.
+pub async fn validate_public_url(raw_url: &str) -> Result<CheckedUrl, WebFetchError> {
+    let url = noema_capabilities::web::url_policy::validate_public_url(raw_url)
+        .map_err(map_policy_error)?;
     resolve_public_url(url).await
 }
 
-pub(crate) async fn validate_public_web_fetch_url_parsed(
-    url: Url,
-) -> Result<CheckedUrl, WebFetchError> {
+/// Validate, resolve, and pin one parsed public URL.
+///
+/// # Errors
+/// Returns [`WebFetchError`] when the URL or its resolved addresses are unsafe.
+pub async fn validate_public_url_parsed(url: Url) -> Result<CheckedUrl, WebFetchError> {
     let url = validate_parsed_public_url(url).map_err(map_policy_error)?;
     resolve_public_url(url).await
 }
@@ -74,7 +82,7 @@ mod tests {
 
     #[tokio::test]
     async fn resolves_public_dns_only_after_shared_policy() {
-        let checked = validate_public_web_fetch_url("https://www.rust-lang.org/learn")
+        let checked = validate_public_url("https://www.rust-lang.org/learn")
             .await
             .expect("public URL");
         assert!(!checked.resolved_addrs.is_empty());
@@ -82,7 +90,7 @@ mod tests {
 
     #[tokio::test]
     async fn shared_policy_rejects_private_literal_before_network_work() {
-        let error = validate_public_web_fetch_url("http://127.0.0.1/")
+        let error = validate_public_url("http://127.0.0.1/")
             .await
             .expect_err("private target rejected");
         assert!(matches!(error, WebFetchError::BlockedTarget));

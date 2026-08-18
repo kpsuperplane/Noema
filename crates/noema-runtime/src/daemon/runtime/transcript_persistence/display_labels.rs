@@ -28,6 +28,7 @@ fn readable_tool_name(name: &str) -> String {
         "web.search" => "Web Search".to_string(),
         "web.fetch" => "Fetched Web Page".to_string(),
         "file.parse" => "Parsed File".to_string(),
+        "file.download" => "Downloaded File".to_string(),
         name if name.starts_with("web.browse.") => format!(
             "Browser {}",
             name.rsplit('.').next().unwrap_or("action")
@@ -63,6 +64,7 @@ fn tool_access_label(name: &str) -> &'static str {
         "web.search" => "Searches public web",
         "web.fetch" => "Fetches public web pages",
         "file.parse" => "Reads a working-directory file",
+        "file.download" => "Downloads a public file into the working directory",
         name if name.starts_with("web.browse.") => "Uses execution-scoped browser",
         _ => "Uses a connected tool",
     }

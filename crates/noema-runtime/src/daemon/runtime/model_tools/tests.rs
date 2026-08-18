@@ -482,6 +482,7 @@ async fn complete_catalog_is_stable_for_native_transport() {
                 "file.parse",
                 "update_own_name",
                 "artifact.create_local_file",
+                "file.download",
                 "noema.present_multiple_choice",
                 "noema.present_a2ui",
                 "task.capture",
@@ -640,6 +641,8 @@ async fn hosted_web_search_replaces_local_web_tools() {
     assert!(tools.bindings.resolve("web.fetch").is_none());
     assert!(!tools.tool_policy.allows_tool("web.search"));
     assert!(!tools.tool_policy.allows_tool("web.fetch"));
+    assert!(tools.tool_policy.allows_tool("file.download"));
+    assert!(tools.tool_policy.allows_tool("file.parse"));
 }
 
 #[tokio::test]
@@ -672,6 +675,7 @@ async fn explicit_web_provider_selection_replaces_hosted_web_tools() {
     assert!(tools.bindings.resolve("web.fetch").is_some());
     assert!(tools.tool_policy.allows_tool("web.search"));
     assert!(tools.tool_policy.allows_tool("web.fetch"));
+    assert!(tools.tool_policy.allows_tool("file.download"));
 }
 
 #[tokio::test]
@@ -714,6 +718,7 @@ async fn planner_catalog_contains_task_file_tools() {
     assert!(!tools.tool_policy.allows_tool(TASK_LIST_TOOL));
     assert!(!tools.tool_policy.allows_tool("search_memory"));
     assert!(!tools.tool_policy.allows_tool("web.fetch"));
+    assert!(!tools.tool_policy.allows_tool("file.download"));
     assert!(!tools.tool_policy.allows_tool("mcp.mcp:docs.read"));
     assert!(!tools.tool_policy.allows_tool("artifact.create_local_file"));
     assert!(!tools.hosted_web_search());
@@ -813,6 +818,10 @@ async fn background_roles_expose_read_tools_and_terminals_for_native_tools() {
             }
             assert_eq!(
                 tools.tool_policy.allows_tool("web.fetch"),
+                role == ExecutionRole::TaskExecutor
+            );
+            assert_eq!(
+                tools.tool_policy.allows_tool("file.download"),
                 role == ExecutionRole::TaskExecutor
             );
             assert_eq!(
