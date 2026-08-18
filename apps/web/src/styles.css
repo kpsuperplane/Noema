@@ -152,7 +152,7 @@ a[href][data-slot="shell-sidebar-control"] {
   box-shadow: var(--shadow-composer);
 }
 
-[data-slot="task-final-response"] .astryx-table-scroll-wrapper {
+[data-slot="task-document"] .astryx-table-scroll-wrapper {
   padding-inline: var(--spacing-6);
 }
 

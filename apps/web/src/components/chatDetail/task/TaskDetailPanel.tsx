@@ -9,9 +9,8 @@ import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { IdentityAvatar } from "@/components/IdentityAvatar";
 import { springs } from "@/motion/springs";
 import type { TaskDetail, TaskRun, TaskRunItem, TaskRunStatus } from "./taskTypes";
-import { TaskCompletedBody } from "./TaskCompletedBody";
+import { TaskBody } from "./TaskBody";
 import { taskStageLabel } from "./TaskOverview";
-import { TaskTranscript } from "./TaskTranscript";
 import { TaskScheduleSummary } from "@/components/tasks/TaskScheduleSummary";
 
 export function TaskDetailPanel({
@@ -81,31 +80,17 @@ export function TaskDetailPanel({
       taskId={taskId}
     />
   );
-  const completed = currentDetail.stageBehavior === "TERMINAL_SUCCESS";
-
   return (
     <div data-slot="task-detail-view-viewport" {...stylex.props(styles.viewport)}>
       <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
-        {completed ? (
-          <TaskCompletedBody
-            key={`completed:${currentDetail.taskId}`}
-            contextCard={contextCard}
-            detail={currentDetail}
-            liveRunItems={liveRunItems}
-            onOpenDetail={onOpenDetail}
-            onLatestRunItemChange={onLatestRunItemChange}
-          />
-        ) : (
-          <div {...stylex.props(styles.transcriptRegion)}>
-            <TaskTranscript
-              detail={currentDetail}
-              liveRunItems={liveRunItems}
-              onOpenDetail={onOpenDetail}
-              onLatestRunItemChange={onLatestRunItemChange}
-            />
-          </div>
-        )}
-        {!completed ? contextCard : null}
+        <TaskBody
+          key={`task:${currentDetail.taskId}`}
+          contextCard={contextCard}
+          detail={currentDetail}
+          liveRunItems={liveRunItems}
+          onOpenDetail={onOpenDetail}
+          onLatestRunItemChange={onLatestRunItemChange}
+        />
       </div>
     </div>
   );
@@ -380,17 +365,12 @@ const styles = stylex.create({
   viewport: { minWidth: 0, minHeight: 0, height: "100%", overflow: "hidden" },
   root: {
     display: "grid",
-    gridTemplateRows: "minmax(0, 1fr) auto",
+    gridTemplateRows: "minmax(0, 1fr)",
     position: "relative",
     minWidth: 0,
     minHeight: 0,
     height: "100%",
     backgroundColor: "var(--noema-surface-card)"
-  },
-  transcriptRegion: {
-    minWidth: 0,
-    minHeight: 0,
-    "--task-transcript-bottom-inset": "var(--spacing-3)"
   },
   contextDock: {
     display: "flex",

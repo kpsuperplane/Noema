@@ -253,8 +253,8 @@ They do not mirror stage transitions.
 After reconnect, clients refetch current state and use events for invalidation.
 
 The Task surface remains task-first and dense.
-Active detail uses one chronological stream.
-Completed detail shows current Task content with the transcript nearby.
+Task detail defaults to current `TASK.md` content in every stage.
+The transcript remains available beside it.
 Human decisions remain visible until resolution.
 Internal operational data stays behind progressive disclosure.
 

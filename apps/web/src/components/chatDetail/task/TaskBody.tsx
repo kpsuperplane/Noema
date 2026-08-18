@@ -6,8 +6,8 @@ import { ProviderCitationMarkdown } from "@/components/transcript/ProviderCitati
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskTranscript } from "./TaskTranscript";
 
-type CompletedTaskTab = "final-response" | "transcript";
-export function TaskCompletedBody({
+type TaskTab = "task" | "transcript";
+export function TaskBody({
   detail,
   contextCard,
   liveRunItems,
@@ -20,7 +20,7 @@ export function TaskCompletedBody({
   onOpenDetail: (target: ChatDetailTarget) => void;
   onLatestRunItemChange?: (runId: string, item: TaskRunItem | null) => void;
 }) {
-  const [activeTab, setActiveTab] = React.useState<CompletedTaskTab>("final-response");
+  const [activeTab, setActiveTab] = React.useState<TaskTab>("task");
   const swipeOriginRef = React.useRef<{ x: number; y: number } | null>(null);
 
   function startSwipe(event: React.TouchEvent) {
@@ -41,24 +41,24 @@ export function TaskCompletedBody({
       return;
     }
 
-    if (horizontalDistance < 0 && activeTab === "final-response") {
+    if (horizontalDistance < 0 && activeTab === "task") {
       setActiveTab("transcript");
     } else if (horizontalDistance > 0 && activeTab === "transcript") {
-      setActiveTab("final-response");
+      setActiveTab("task");
     }
   }
 
   return (
-    <section aria-label="Completed task result" {...stylex.props(styles.root)}>
+    <section aria-label="Task detail" {...stylex.props(styles.root)}>
       <div {...stylex.props(styles.tabBar)}>
         <TabList
           aria-label="Task detail view"
           hasDivider
-          onChange={(value) => setActiveTab(value as CompletedTaskTab)}
+          onChange={(value) => setActiveTab(value as TaskTab)}
           size="sm"
           value={activeTab}
         >
-          <Tab label="Result" value="final-response" />
+          <Tab label="Task" value="task" />
           <Tab label="Transcript" value="transcript" />
         </TabList>
       </div>
@@ -68,8 +68,8 @@ export function TaskCompletedBody({
         onTouchEnd={finishSwipe}
         onTouchCancel={() => { swipeOriginRef.current = null; }}
       >
-        {activeTab === "final-response" ? (
-          <FinalResponse detail={detail} />
+        {activeTab === "task" ? (
+          <TaskDocument detail={detail} />
         ) : (
           <div {...stylex.props(styles.transcript)}>
             <TaskTranscript
@@ -86,12 +86,12 @@ export function TaskCompletedBody({
   );
 }
 
-function FinalResponse({ detail }: { detail: TaskDetail }) {
+function TaskDocument({ detail }: { detail: TaskDetail }) {
   const response = detail.taskDocument.trim() || undefined;
 
   return (
-    <div data-slot="task-final-response" {...stylex.props(styles.finalScroller)}>
-      <div {...stylex.props(styles.finalContent)}>
+    <div data-slot="task-document" {...stylex.props(styles.taskScroller)}>
+      <div {...stylex.props(styles.taskContent)}>
         {response ? (
           <ProviderCitationMarkdown
             contentAlign="center"
@@ -103,7 +103,7 @@ function FinalResponse({ detail }: { detail: TaskDetail }) {
             xstyle={styles.markdown}
           />
         ) : (
-          <p {...stylex.props(styles.empty)}>The accepted response has no text content.</p>
+          <p {...stylex.props(styles.empty)}>TASK.md has no text content.</p>
         )}
         {detail.reviewDocument?.trim() ? (
           <section aria-label="Review feedback" {...stylex.props(styles.review)}>
@@ -146,13 +146,13 @@ const styles = stylex.create({
     "--chat-transcript-top-fade": "var(--spacing-4)",
     "--task-transcript-bottom-inset": "var(--spacing-3)"
   },
-  finalScroller: {
+  taskScroller: {
     height: "100%",
     overflowX: "hidden",
     overflowY: "auto",
     paddingBlock: "var(--spacing-4) var(--spacing-6)"
   },
-  finalContent: {
+  taskContent: {
     display: "grid",
     gap: "var(--spacing-4)",
     width: "100%"

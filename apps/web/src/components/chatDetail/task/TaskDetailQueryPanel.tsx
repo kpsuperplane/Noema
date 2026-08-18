@@ -3,6 +3,7 @@ import { useQuery, useSubscription } from "@apollo/client/react";
 import {
   TasksTaskDetailDocument,
   TasksTaskEventsDocument,
+  TasksTaskRuntimeEventsDocument,
   type TasksTaskDetailQuery
 } from "@/generated/graphql";
 import { TaskActions } from "@/components/tasks/TaskActions";
@@ -60,6 +61,10 @@ export function TaskDetailQueryPanel({
       recordCursor(event.cursor);
       void result.refetch();
     }
+  });
+  useSubscription(TasksTaskRuntimeEventsDocument, {
+    variables: { taskId },
+    onData: () => { void result.refetch(); }
   });
 
   const detail = React.useMemo(() => task ? mapTaskDetail(task) : null, [task]);
