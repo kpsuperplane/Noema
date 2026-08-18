@@ -153,7 +153,10 @@ a[href][data-slot="shell-sidebar-control"] {
 }
 
 [data-slot="task-document"] .astryx-table-scroll-wrapper {
-  padding-inline: var(--spacing-6);
+  width: fit-content;
+  min-width: min(760px, calc(100% - var(--spacing-6) - var(--spacing-6)));
+  max-width: calc(100% - var(--spacing-6) - var(--spacing-6));
+  margin-inline: auto;
 }
 
 .astryx-markdown .astryx-table-header-cell {
