@@ -1072,7 +1072,7 @@ const styles = stylex.create({
   motionItem: {
     minWidth: 0,
     overflow: "clip",
-    overflowClipMargin: "var(--spacing-3)"
+    overflowClipMargin: "var(--human-intervention-card-overlap, var(--spacing-3))"
   },
   list: {
     width: "100%",
