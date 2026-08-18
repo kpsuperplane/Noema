@@ -21,11 +21,127 @@ pub(super) fn replay_terminal_tx(
     terminal: &WorkRunTerminal,
 ) -> Result<Option<helpers::CommandWrite>, StoreError> {
     match terminal {
+        WorkRunTerminal::FinishPlanning(command) => replay_file_terminal_tx(
+            transaction,
+            &command.fence,
+            RunKind::Planner,
+            Some(RunKind::Executor),
+            Some(command.complexity.as_str()),
+            None,
+        ),
+        WorkRunTerminal::FinishExecution(command) => replay_file_terminal_tx(
+            transaction,
+            &command.fence,
+            RunKind::Executor,
+            Some(RunKind::Reviewer),
+            None,
+            None,
+        ),
+        WorkRunTerminal::ContinueExecution(command) => replay_file_terminal_tx(
+            transaction,
+            &command.fence,
+            RunKind::Executor,
+            Some(RunKind::Executor),
+            None,
+            None,
+        ),
+        WorkRunTerminal::FinishReview(command) => replay_file_terminal_tx(
+            transaction,
+            &command.fence,
+            RunKind::Reviewer,
+            (command.decision == noema_tasks::TaskReviewVerdict::RequestChanges)
+                .then_some(RunKind::Executor),
+            None,
+            Some(command.decision.as_str()),
+        ),
         WorkRunTerminal::Plan(command) => terminal_plan::replay_tx(transaction, command),
         WorkRunTerminal::TaskResult(command) => replay_result_tx(transaction, command),
         WorkRunTerminal::Review(command) => terminal_review::replay_tx(transaction, command),
         WorkRunTerminal::Blocked(command) => replay_blocked_tx(transaction, command),
     }
+}
+
+fn replay_file_terminal_tx(
+    transaction: &Transaction<'_>,
+    fence: &crate::WorkRunFence,
+    expected_kind: RunKind,
+    expected_child: Option<RunKind>,
+    expected_complexity: Option<&str>,
+    expected_review: Option<&str>,
+) -> Result<Option<helpers::CommandWrite>, StoreError> {
+    let run = load_terminal_run_identity_tx(transaction, fence, Some(expected_kind))?;
+    if matches!(run.status, RunStatus::Leased | RunStatus::Running) {
+        return Ok(None);
+    }
+    let metadata: (Option<String>, Option<String>) = transaction.query_row(
+        "SELECT execution_complexity, current_review_decision FROM tasks WHERE task_id = ?1",
+        [run.task_id.as_str()],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    if expected_complexity.is_some_and(|value| metadata.0.as_deref() != Some(value))
+        || expected_review.is_some_and(|value| metadata.1.as_deref() != Some(value))
+    {
+        return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
+    }
+    let child = child_run_event_tx(transaction, &run.run_id)?;
+    if let Some(expected_child) = expected_child {
+        let Some((child_run_id, event)) = child else {
+            if expected_kind == RunKind::Reviewer {
+                return replay_review_gate_tx(transaction, &run);
+            }
+            return Ok(None);
+        };
+        let child_kind = transaction.query_row(
+            "SELECT run_kind FROM agent_runs WHERE run_id = ?1",
+            [child_run_id.as_str()],
+            |row| row.get::<_, String>(0),
+        )?;
+        if child_kind != expected_child.as_str() {
+            return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
+        }
+        return Ok(Some(
+            helpers::task_write(event, run.task_id)
+                .contract(run.contract_id)
+                .run(Some(child_run_id)),
+        ));
+    }
+    if child.is_some() {
+        return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
+    }
+    if expected_kind == RunKind::Reviewer {
+        if let Some(replay) = replay_review_gate_tx(transaction, &run)? {
+            return Ok(Some(replay));
+        }
+    }
+    let event = latest_run_event_tx(transaction, &run.run_id)?;
+    Ok(Some(
+        helpers::task_write(event, run.task_id)
+            .contract(run.contract_id)
+            .run(Some(run.run_id)),
+    ))
+}
+
+fn replay_review_gate_tx(
+    transaction: &Transaction<'_>,
+    run: &AgentRunRecord,
+) -> Result<Option<helpers::CommandWrite>, StoreError> {
+    let gate_id = transaction
+        .query_row(
+            "SELECT gate_id FROM task_gates WHERE originating_run_id = ?1 ORDER BY opened_at DESC, gate_id DESC LIMIT 1",
+            [run.run_id.as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let Some(gate_id) = gate_id else {
+        return Ok(None);
+    };
+    let event = latest_run_event_tx(transaction, &run.run_id)?;
+    Ok(Some(
+        helpers::task_write(event, run.task_id.clone())
+            .contract(run.contract_id.clone())
+            .gate(Some(TaskGateId::new(gate_id).map_err(StoreError::Work)?))
+            .run(Some(run.run_id.clone())),
+    ))
 }
 
 fn replay_result_tx(
@@ -83,11 +199,11 @@ pub(super) fn replay_blocked_tx(
     transaction: &Transaction<'_>,
     report: &ReportTaskBlocked,
 ) -> Result<Option<helpers::CommandWrite>, StoreError> {
-    let run = load_terminal_run_identity_tx(transaction, &report.fence, Some(RunKind::Executor))?;
+    let run = load_terminal_run_identity_tx(transaction, &report.fence, None)?;
     if matches!(run.status, RunStatus::Leased | RunStatus::Running) {
         return Ok(None);
     }
-    if run.run_kind != RunKind::Executor {
+    if !matches!(run.run_kind, RunKind::Planner | RunKind::Executor) {
         return Err(StoreError::Work(WorkDomainError::InvalidTransition));
     }
     let Some(terminal_event) = run_waiting_event_tx(transaction, &run.run_id)? else {

@@ -10,10 +10,10 @@ mod catalog;
 mod dispatch;
 
 pub(crate) use catalog::{
-    primary_task_tool_specs, task_file_delete_tool_spec, task_file_list_tool_spec,
-    task_file_read_tool_spec, task_file_write_tool_spec, task_list_scoped_tool_spec,
-    task_report_blocked_tool_spec, task_submit_plan_tool_spec, task_submit_result_tool_spec,
-    task_submit_review_tool_spec,
+    primary_task_tool_specs, task_continue_execution_tool_spec, task_file_delete_tool_spec,
+    task_file_list_tool_spec, task_file_read_tool_spec, task_file_write_tool_spec,
+    task_list_scoped_tool_spec, task_report_blocked_tool_spec, task_submit_plan_tool_spec,
+    task_submit_result_tool_spec, task_submit_review_tool_spec,
 };
 pub(crate) use dispatch::{
     execute_primary_task_tool, execute_scoped_task_file_tool, execute_scoped_task_list_tool,
@@ -43,9 +43,10 @@ pub(crate) const PROJECT_LIST_TOOL: &str = "project.list";
 pub(crate) const PROJECT_UPDATE_TOOL: &str = "project.update";
 pub(crate) const PROJECT_ARCHIVE_TOOL: &str = "project.archive";
 pub(crate) const PROJECT_REOPEN_TOOL: &str = "project.reopen";
-pub(crate) const TASK_SUBMIT_PLAN_TOOL: &str = "task.submit_plan";
-pub(crate) const TASK_SUBMIT_RESULT_TOOL: &str = "task.submit_result";
-pub(crate) const TASK_SUBMIT_REVIEW_TOOL: &str = "task.submit_review";
+pub(crate) const TASK_SUBMIT_PLAN_TOOL: &str = "task.finish_planning";
+pub(crate) const TASK_SUBMIT_RESULT_TOOL: &str = "task.finish_execution";
+pub(crate) const TASK_CONTINUE_EXECUTION_TOOL: &str = "task.continue_execution";
+pub(crate) const TASK_SUBMIT_REVIEW_TOOL: &str = "task.finish_review";
 pub(crate) const TASK_REPORT_BLOCKED_TOOL: &str = "task.report_blocked";
 pub(crate) const TASK_FILE_LIST_TOOL: &str = "task.files.list";
 pub(crate) const TASK_FILE_READ_TOOL: &str = "task.files.read";
@@ -117,6 +118,11 @@ pub(crate) fn is_task_submit_plan_tool(name: &str) -> bool {
 #[must_use]
 pub(crate) fn is_task_submit_result_tool(name: &str) -> bool {
     name == TASK_SUBMIT_RESULT_TOOL
+}
+
+#[must_use]
+pub(crate) fn is_task_continue_execution_tool(name: &str) -> bool {
+    name == TASK_CONTINUE_EXECUTION_TOOL
 }
 
 #[must_use]

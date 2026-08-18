@@ -4702,6 +4702,14 @@ type TaskDetail {
 	"""
 	description: String!
 	"""
+	Current mutable TASK.md content.
+	"""
+	taskDocument: String!
+	"""
+	Current mutable REVIEW.md content, when it exists.
+	"""
+	reviewDocument: String
+	"""
 	The only task-level state.
 	"""
 	stage: WorkflowStage!

@@ -14,14 +14,15 @@ use noema_tasks::{
     SubmissionCriterionEvidence, TaskAuthorizationContext, TaskComplexity, TaskContractAmendment,
     TaskGateAnswer, TaskGateId, TaskGateKind, TaskMessageKind, TaskPrecondition, TaskProvenance,
     TaskRecoveryReason, TaskReviewCriterion, TaskReviewVerdict, TaskSourceKind, UnscheduleTask,
-    UpdateInboxTask, UpdateTaskRecurrence, WorkCommand, WorkDomainError,
+    UpdateInboxTask, UpdateTaskRecurrence, WorkCommand, WorkDomainError, WorkflowStageBehavior,
 };
 use noema_workspaces::WorkspaceId;
 
 use crate::{
-    CapabilityAuthenticationRequestState, CompleteWorkNotification, ExecutionReviewRoute,
-    GovernedActionDecision, GovernedActionState, GovernedAssessmentStatus, GovernedAuthorization,
-    GovernedExecutionOutcome, GovernedRisk, NewCapabilityAuthenticationRequest, NewGovernedAction,
+    CapabilityAuthenticationRequestState, CompleteWorkNotification, ContinueExecution,
+    ExecutionReviewRoute, FinishExecution, FinishReview, GovernedActionDecision,
+    GovernedActionState, GovernedAssessmentStatus, GovernedAuthorization, GovernedExecutionOutcome,
+    GovernedRisk, NewCapabilityAuthenticationRequest, NewGovernedAction,
     NewGovernedActionAssessment, NewRuntimeDebugSpan, NoemaStore, ReportRunFailure,
     ReportTaskBlocked, RuntimeDebugMetadata, RuntimeDebugScope, RuntimeDebugSpanCategory,
     RuntimeDebugSpanStatus, StoreError, SubmitTaskResult, SubmitTaskReview,
@@ -172,6 +173,165 @@ async fn final_run_status_finishes_active_items_and_debug_spans() {
         assert_eq!(profile.spans[0].status, span_status);
         assert!(profile.spans[0].ended_at.is_some());
     }
+}
+
+#[tokio::test]
+async fn task_files_carry_execution_across_continuation_and_review() {
+    let (store, service) = fixture().await;
+    let task = service
+        .execute(direct_delegated("idem:file-lifecycle", "file-lifecycle"))
+        .await
+        .expect("delegate direct Task")
+        .task
+        .expect("Task");
+    let first = service
+        .claim_next_work_run("worker:file-lifecycle:one", 60, &[])
+        .await
+        .expect("claim first Executor")
+        .expect("first Executor");
+    let first_fence = WorkRunFence {
+        run_id: first.run.run_id.clone(),
+        lease_token: first.lease_token,
+        task_generation: first.run.task_generation,
+        contract_id: first.run.contract_id,
+    };
+    service
+        .start_work_run(&first_fence, ACTOR, None, "correlation:file-lifecycle:one")
+        .await
+        .expect("start first Executor");
+    let continued = service
+        .record_work_run_terminal(
+            WorkRunTerminal::ContinueExecution(ContinueExecution {
+                fence: first_fence.clone(),
+            }),
+            ACTOR,
+            None,
+            "correlation:file-lifecycle:continue",
+        )
+        .await
+        .expect("continue execution");
+    let continued_replay = service
+        .record_work_run_terminal(
+            WorkRunTerminal::ContinueExecution(ContinueExecution { fence: first_fence }),
+            ACTOR,
+            None,
+            "correlation:file-lifecycle:continue-replay",
+        )
+        .await
+        .expect("replay continuation");
+    assert_eq!(continued_replay.run_id, continued.run_id);
+
+    let second = service
+        .claim_next_work_run("worker:file-lifecycle:two", 60, &[])
+        .await
+        .expect("claim second Executor")
+        .expect("second Executor");
+    let second_fence = WorkRunFence {
+        run_id: second.run.run_id.clone(),
+        lease_token: second.lease_token,
+        task_generation: second.run.task_generation,
+        contract_id: second.run.contract_id,
+    };
+    service
+        .start_work_run(&second_fence, ACTOR, None, "correlation:file-lifecycle:two")
+        .await
+        .expect("start second Executor");
+    store
+        .write_task_file(
+            &task.task_id,
+            crate::TASK_DOCUMENT,
+            "Completed file result.\n",
+        )
+        .await
+        .expect("write Task result");
+    let finished = service
+        .record_work_run_terminal(
+            WorkRunTerminal::FinishExecution(FinishExecution {
+                fence: second_fence.clone(),
+            }),
+            ACTOR,
+            None,
+            "correlation:file-lifecycle:finish",
+        )
+        .await
+        .expect("finish execution");
+    let finished_replay = service
+        .record_work_run_terminal(
+            WorkRunTerminal::FinishExecution(FinishExecution {
+                fence: second_fence,
+            }),
+            ACTOR,
+            None,
+            "correlation:file-lifecycle:finish-replay",
+        )
+        .await
+        .expect("replay execution finish");
+    assert_eq!(finished_replay.run_id, finished.run_id);
+
+    let reviewer = service
+        .claim_next_work_run("worker:file-lifecycle:review", 60, &[])
+        .await
+        .expect("claim Reviewer")
+        .expect("Reviewer");
+    let reviewer_fence = WorkRunFence {
+        run_id: reviewer.run.run_id.clone(),
+        lease_token: reviewer.lease_token,
+        task_generation: reviewer.run.task_generation,
+        contract_id: reviewer.run.contract_id,
+    };
+    service
+        .start_work_run(
+            &reviewer_fence,
+            ACTOR,
+            None,
+            "correlation:file-lifecycle:review",
+        )
+        .await
+        .expect("start Reviewer");
+    let approved = service
+        .record_work_run_terminal(
+            WorkRunTerminal::FinishReview(FinishReview {
+                fence: reviewer_fence.clone(),
+                decision: TaskReviewVerdict::Approve,
+                feedback: "The current Task result is complete.".to_string(),
+            }),
+            ACTOR,
+            None,
+            "correlation:file-lifecycle:approve",
+        )
+        .await
+        .expect("approve Task");
+    let approval_replay = service
+        .record_work_run_terminal(
+            WorkRunTerminal::FinishReview(FinishReview {
+                fence: reviewer_fence,
+                decision: TaskReviewVerdict::Approve,
+                feedback: "The current Task result is complete.".to_string(),
+            }),
+            ACTOR,
+            None,
+            "correlation:file-lifecycle:approve-replay",
+        )
+        .await
+        .expect("replay Task approval");
+    assert_eq!(approval_replay.run_id, approved.run_id);
+
+    let detail = store
+        .get_work_task(&task.task_id)
+        .await
+        .expect("read Task")
+        .expect("Task");
+    assert_eq!(detail.task_document, "Completed file result.\n");
+    assert_eq!(
+        detail.review_document.as_deref(),
+        Some("The current Task result is complete.")
+    );
+    assert_eq!(
+        detail.stage.system_behavior,
+        WorkflowStageBehavior::TerminalSuccess
+    );
+    assert!(detail.submissions.is_empty());
+    assert!(detail.reviews.is_empty());
 }
 
 const ACTOR: &str = "actor:human:local";

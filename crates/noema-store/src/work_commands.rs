@@ -87,9 +87,45 @@ impl WorkCommandService {
         command: WorkCommand,
     ) -> Result<CommittedWorkCommandResult, StoreError> {
         let command = command.normalized().map_err(StoreError::Work)?;
+        let task_document = task_document_seed(&command);
         let write = execute_normalized_command(self, command).await?;
+        if let Some(task_id) = write.task_id.as_ref() {
+            match task_document.as_deref() {
+                Some(content) => self.store.ensure_task_document_from(task_id, content).await,
+                None => self.store.ensure_task_document(task_id).await,
+            }
+            .map_err(|error| StoreError::InvariantViolation {
+                message: error.to_string(),
+            })?;
+        }
         crate::work_command_result::materialize_committed_result(write)
     }
+}
+
+fn task_document_seed(command: &WorkCommand) -> Option<String> {
+    let WorkCommand::DelegateTask(command) = command else {
+        return None;
+    };
+    let intent = command.execution_intent.as_ref()?;
+    let mut content = format!("# {}\n\n{}\n", command.title, intent.request_markdown);
+    if let Some(plan) = intent.execution_plan_markdown.as_deref() {
+        content.push_str("\n## Supplied plan\n\n");
+        content.push_str(plan);
+        content.push('\n');
+    }
+    if !intent.criteria.is_empty() {
+        content.push_str("\n## Supplied success conditions\n");
+        for criterion in &intent.criteria {
+            content.push_str("\n- ");
+            content.push_str(&criterion.description);
+            if let Some(evidence) = criterion.expected_evidence.as_deref() {
+                content.push_str(" Evidence: ");
+                content.push_str(evidence);
+            }
+        }
+        content.push('\n');
+    }
+    Some(content)
 }
 
 /// Return the canonical command fingerprint used by idempotency receipts.

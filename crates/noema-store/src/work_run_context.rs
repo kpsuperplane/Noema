@@ -1,28 +1,21 @@
 //! Read-consistent, bounded execution context for a supervised Work run.
 
-use std::collections::HashSet;
-
 use noema_tasks::{
-    AgentRunItemRecord, AgentRunRecord, ProjectContextSnapshot, RunKind, RunStatus,
-    TaskExecutionContract, TaskGateRecord, TaskMessageKind, TaskMessageRecord, TaskRecord,
-    TaskReviewRecord, TaskReviewVerdict, TaskSubmissionRecord, WorkspaceContextSnapshot,
+    AgentRunItemRecord, AgentRunRecord, ProjectContextSnapshot, RunStatus, TaskGateRecord,
+    TaskMessageKind, TaskMessageRecord, TaskRecord, WorkspaceContextSnapshot,
 };
 use noema_workspaces::{ProjectRecord, WorkspaceRecord};
 use rusqlite::{OptionalExtension, Row, Transaction, params};
 
 use crate::{
     NoemaStore, StoreError,
+    work_reads::history::decode_message,
     work_reads::rows::{
         decode_gate, load_active_gate, load_project, load_stage, load_task, load_workflow,
         load_workspace, validate_current_links,
     },
-    work_reads::{
-        evidence::{load_contract, load_review, load_submission},
-        history::decode_message,
-    },
     work_run_context_records::{
-        WORK_RUN_CONTEXT_MAX_GATES, WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN,
-        WORK_RUN_CONTEXT_MAX_LINEAGE_RUNS, WORK_RUN_CONTEXT_MAX_MESSAGES, WorkRunExecutionContext,
+        WORK_RUN_CONTEXT_MAX_GATES, WORK_RUN_CONTEXT_MAX_MESSAGES, WorkRunExecutionContext,
     },
     work_runs::rows::load_run_tx,
 };
@@ -102,22 +95,8 @@ pub(super) fn load_work_run_execution_context_tx(
         .belongs_to(&workflow.workflow_id)
         .map_err(StoreError::Work)?;
 
-    let contract = run
-        .contract_id
-        .as_ref()
-        .map(|contract_id| load_contract(transaction, contract_id))
-        .transpose()?;
-    if let Some(contract) = contract.as_ref() {
-        ensure_contract_bounds(contract)?;
-    }
-    validate_contract_fence(&run, &task, contract.as_ref())?;
-    let (workspace, project) = context_snapshots(
-        &run,
-        &task,
-        &workspace_row,
-        project_row.as_ref(),
-        contract.as_ref(),
-    )?;
+    let contract = None;
+    let (workspace, project) = live_context(&workspace_row, project_row.as_ref())?;
 
     let active_gate = task
         .active_gate_id
@@ -128,63 +107,9 @@ pub(super) fn load_work_run_execution_context_tx(
     let relevant_gates = load_relevant_gates(transaction, &task, &run, active_gate.as_ref())?;
     let messages = load_relevant_messages(transaction, &task, &run, &relevant_gates)?;
 
-    let review_id = review_id_for_run(&run, &task)?;
-    let latest_review = review_id
-        .map(|id| load_review(transaction, id))
-        .transpose()?;
-    if let Some(review) = latest_review.as_ref() {
-        ensure_review_bounds(review)?;
-    }
-    let submission_id = if run.run_kind == RunKind::Reviewer {
-        Some(run.triggering_submission_id.as_deref().ok_or_else(|| {
-            StoreError::InvariantViolation {
-                message: format!("reviewer run {} has no triggering submission", run.run_id),
-            }
-        })?)
-    } else if run.run_kind == RunKind::Executor && run.review_round > 1 {
-        Some(
-            latest_review
-                .as_ref()
-                .ok_or_else(|| StoreError::InvariantViolation {
-                    message: format!("correction run {} has no review", run.run_id),
-                })?
-                .reviewed_submission_id
-                .as_str(),
-        )
-    } else {
-        run.triggering_submission_id
-            .as_deref()
-            .or(task.latest_submission_id.as_deref())
-    };
-    let latest_submission = submission_id
-        .map(|id| load_submission(transaction, id))
-        .transpose()?;
-    if let Some(submission) = latest_submission.as_ref() {
-        ensure_submission_bounds(submission)?;
-    }
-    validate_submission_link(&run, &task, contract.as_ref(), latest_submission.as_ref())?;
-    validate_review_link(
-        &run,
-        &task,
-        contract.as_ref(),
-        latest_submission.as_ref(),
-        latest_review.as_ref(),
-    )?;
-
-    let lineage = if run.run_kind == RunKind::Reviewer {
-        validate_submitted_run(
-            transaction,
-            &run,
-            latest_submission
-                .as_ref()
-                .ok_or_else(|| StoreError::InvariantViolation {
-                    message: format!("reviewer run {} has no submission", run.run_id),
-                })?,
-        )?;
-        Vec::new()
-    } else {
-        load_lineage_items(transaction, &run)?
-    };
+    let latest_review = None;
+    let latest_submission = None;
+    let lineage = Vec::new();
     Ok(Some(WorkRunExecutionContext {
         run,
         task,
@@ -243,27 +168,6 @@ fn load_source_runtime_environment(
         .transpose()
 }
 
-fn review_id_for_run<'a>(
-    run: &'a AgentRunRecord,
-    task: &'a TaskRecord,
-) -> Result<Option<&'a str>, StoreError> {
-    if run.run_kind != RunKind::Executor {
-        return Ok(run
-            .triggering_review_id
-            .as_deref()
-            .or(task.latest_review_id.as_deref()));
-    }
-    if run.review_round <= 1 {
-        return Ok(None);
-    }
-    run.triggering_review_id
-        .as_deref()
-        .map(Some)
-        .ok_or_else(|| StoreError::InvariantViolation {
-            message: format!("correction run {} has no triggering review", run.run_id),
-        })
-}
-
 fn validate_run_task_fence(run: &AgentRunRecord, task: &TaskRecord) -> Result<(), StoreError> {
     if !matches!(run.status, RunStatus::Leased | RunStatus::Running) {
         return Err(StoreError::InvariantViolation {
@@ -281,66 +185,10 @@ fn validate_run_task_fence(run: &AgentRunRecord, task: &TaskRecord) -> Result<()
     Ok(())
 }
 
-fn validate_contract_fence(
-    run: &AgentRunRecord,
-    task: &TaskRecord,
-    contract: Option<&TaskExecutionContract>,
-) -> Result<(), StoreError> {
-    match (run.run_kind, run.contract_id.as_ref(), contract) {
-        (RunKind::Planner, None, None) => Ok(()),
-        (RunKind::Executor | RunKind::Reviewer, Some(run_contract_id), Some(contract))
-            if run_contract_id == &contract.contract_id
-                && task.current_contract_id.as_ref() == Some(run_contract_id)
-                && contract.matches_fence(&task.task_id, task.generation) =>
-        {
-            Ok(())
-        }
-        _ => Err(StoreError::InvariantViolation {
-            message: format!(
-                "run {} does not match the current contract fence",
-                run.run_id
-            ),
-        }),
-    }
-}
-
-fn context_snapshots(
-    run: &AgentRunRecord,
-    task: &TaskRecord,
+fn live_context(
     workspace: &WorkspaceRecord,
     project: Option<&ProjectRecord>,
-    contract: Option<&TaskExecutionContract>,
 ) -> Result<(WorkspaceContextSnapshot, Option<ProjectContextSnapshot>), StoreError> {
-    if let Some(contract) = contract {
-        if contract.workspace_context.workspace_id != task.workspace_id {
-            return Err(StoreError::InvariantViolation {
-                message: format!("contract {} crosses workspace fence", contract.contract_id),
-            });
-        }
-        let project = match (&task.project_id, &contract.project_context, project) {
-            (None, None, _) => None,
-            (Some(task_project_id), Some(contract_project), Some(live_project))
-                if task_project_id == &contract_project.project_id
-                    && live_project.project_id == contract_project.project_id =>
-            {
-                Some(contract_project.clone())
-            }
-            _ => {
-                return Err(StoreError::InvariantViolation {
-                    message: format!("contract {} crosses project fence", contract.contract_id),
-                });
-            }
-        };
-        return Ok((contract.workspace_context.clone(), project));
-    }
-    if run.run_kind != RunKind::Planner || task.current_contract_id.is_some() {
-        return Err(StoreError::InvariantViolation {
-            message: format!(
-                "Planner context has invalid contract state for {}",
-                run.run_id
-            ),
-        });
-    }
     let workspace_snapshot = WorkspaceContextSnapshot {
         workspace_id: workspace.workspace_id.clone(),
         name: bounded_text(workspace.name.clone(), "workspace.name")?,
@@ -450,145 +298,6 @@ fn load_relevant_messages(
     Ok(messages)
 }
 
-fn validate_submission_link(
-    run: &AgentRunRecord,
-    task: &TaskRecord,
-    contract: Option<&TaskExecutionContract>,
-    submission: Option<&TaskSubmissionRecord>,
-) -> Result<(), StoreError> {
-    let Some(submission) = submission else {
-        return Ok(());
-    };
-    if submission.task_id != task.task_id
-        || run.run_kind == RunKind::Planner
-        || contract.is_none_or(|contract| submission.contract_id != contract.contract_id)
-    {
-        return Err(StoreError::InvariantViolation {
-            message: format!("run {} loaded a foreign submission", run.run_id),
-        });
-    }
-    Ok(())
-}
-
-fn validate_review_link(
-    run: &AgentRunRecord,
-    task: &TaskRecord,
-    contract: Option<&TaskExecutionContract>,
-    submission: Option<&TaskSubmissionRecord>,
-    review: Option<&TaskReviewRecord>,
-) -> Result<(), StoreError> {
-    let Some(review) = review else { return Ok(()) };
-    if review.task_id != task.task_id
-        || run.run_kind == RunKind::Planner
-        || contract.is_none_or(|contract| review.contract_id != contract.contract_id)
-    {
-        return Err(StoreError::InvariantViolation {
-            message: format!("run {} loaded a foreign review", run.run_id),
-        });
-    }
-    if run.run_kind == RunKind::Executor
-        && (run.review_round <= 1
-            || run.triggering_review_id.as_deref() != Some(review.review_id.as_str())
-            || review.overall_verdict != TaskReviewVerdict::RequestChanges
-            || submission
-                .is_none_or(|submission| submission.submission_id != review.reviewed_submission_id))
-    {
-        return Err(StoreError::InvariantViolation {
-            message: format!("correction run {} loaded an unrelated review", run.run_id),
-        });
-    }
-    Ok(())
-}
-
-fn validate_submitted_run(
-    transaction: &Transaction<'_>,
-    reviewer_run: &AgentRunRecord,
-    submission: &TaskSubmissionRecord,
-) -> Result<(), StoreError> {
-    let executor_run = load_run_tx(transaction, &submission.executor_run_id)?.ok_or_else(|| {
-        StoreError::InvariantViolation {
-            message: format!(
-                "submission {} references a missing executor run",
-                submission.submission_id
-            ),
-        }
-    })?;
-    if executor_run.run_kind != RunKind::Executor
-        || executor_run.status != RunStatus::Completed
-        || executor_run.task_id != reviewer_run.task_id
-        || executor_run.task_generation != reviewer_run.task_generation
-        || executor_run.contract_id != reviewer_run.contract_id
-        || executor_run.review_round != submission.review_round
-    {
-        return Err(StoreError::InvariantViolation {
-            message: format!(
-                "submission {} crosses its executor run fence",
-                submission.submission_id
-            ),
-        });
-    }
-    let has_active_items: bool = transaction.query_row(
-        "SELECT EXISTS(SELECT 1 FROM agent_run_items WHERE run_id = ?1 AND kind <> 'context_checkpoint' AND status IN ('pending', 'running'))",
-        [executor_run.run_id.as_str()],
-        |row| row.get(0),
-    )?;
-    if has_active_items {
-        return Err(StoreError::InvariantViolation {
-            message: format!(
-                "executor run {} still has active review evidence",
-                executor_run.run_id
-            ),
-        });
-    }
-    Ok(())
-}
-
-fn load_lineage_items(
-    transaction: &Transaction<'_>,
-    run: &AgentRunRecord,
-) -> Result<Vec<AgentRunItemRecord>, StoreError> {
-    let mut runs = Vec::with_capacity(WORK_RUN_CONTEXT_MAX_LINEAGE_RUNS);
-    let mut seen = HashSet::new();
-    let mut current = Some(run.clone());
-    while let Some(current_run) = current {
-        if !seen.insert(current_run.run_id.clone()) {
-            return Err(StoreError::InvariantViolation {
-                message: format!("run {} has cyclic parent lineage", run.run_id),
-            });
-        }
-        runs.push(current_run.clone());
-        if runs.len() == WORK_RUN_CONTEXT_MAX_LINEAGE_RUNS {
-            break;
-        }
-        current = current_run
-            .parent_run_id
-            .as_deref()
-            .map(|parent_id| load_run_tx(transaction, parent_id))
-            .transpose()?
-            .flatten();
-        if current.is_none() && current_run.parent_run_id.is_some() {
-            return Err(StoreError::InvariantViolation {
-                message: format!("run {} references missing parent run", current_run.run_id),
-            });
-        }
-    }
-    let mut items = Vec::new();
-    for lineage_run in runs.into_iter().rev() {
-        let mut statement = transaction.prepare("SELECT item_id, run_id, sequence_index, round_index, kind, status, correlation_id, parent_item_id, content_text, payload_json, created_at, updated_at FROM agent_run_items WHERE run_id = ?1 AND kind <> 'context_checkpoint' ORDER BY sequence_index DESC, item_id DESC LIMIT ?2")?;
-        let rows = statement.query_map(
-            params![
-                lineage_run.run_id.as_str(),
-                WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN as i64
-            ],
-            decode_run_item,
-        )?;
-        let mut run_items = rows.collect::<Result<Vec<_>, _>>()?;
-        run_items.reverse();
-        items.extend(run_items);
-    }
-    Ok(items)
-}
-
 pub(super) fn decode_run_item(row: &Row<'_>) -> rusqlite::Result<AgentRunItemRecord> {
     crate::work_runs::rows::decode_run_item(row, Some(MAX_CONTEXT_PAYLOAD_BYTES))
 }
@@ -614,56 +323,6 @@ fn validate_message(message: &TaskMessageRecord, task: &TaskRecord) -> Result<()
                 message.message_id
             ),
         });
-    }
-    Ok(())
-}
-
-fn ensure_contract_bounds(contract: &TaskExecutionContract) -> Result<(), StoreError> {
-    ensure_context_text(&contract.request_markdown, "contract.request_markdown")?;
-    if let Some(plan) = contract.execution_plan_markdown.as_deref() {
-        ensure_context_text(plan, "contract.execution_plan_markdown")?;
-    }
-    ensure_context_text(&contract.workspace_context.name, "workspace.name")?;
-    ensure_context_text(
-        &contract.workspace_context.description,
-        "workspace.description",
-    )?;
-    for criterion in &contract.criteria {
-        ensure_context_text(&criterion.criterion_id, "criterion.criterion_id")?;
-        ensure_context_text(&criterion.description, "criterion.description")?;
-        if let Some(expected) = criterion.expected_evidence.as_deref() {
-            ensure_context_text(expected, "criterion.expected_evidence")?;
-        }
-    }
-    if let Some(project) = contract.project_context.as_ref() {
-        ensure_context_text(&project.name, "project.name")?;
-        ensure_context_text(&project.description, "project.description")?;
-    }
-    Ok(())
-}
-
-fn ensure_submission_bounds(
-    submission: &noema_tasks::TaskSubmissionRecord,
-) -> Result<(), StoreError> {
-    ensure_context_text(&submission.summary, "submission.summary")?;
-    ensure_context_text(&submission.result_markdown, "submission.result_markdown")?;
-    for criterion in &submission.criteria {
-        ensure_context_text(&criterion.criterion_id, "submission.criterion_id")?;
-        ensure_context_text(&criterion.evidence_markdown, "submission.evidence")?;
-    }
-    Ok(())
-}
-
-fn ensure_review_bounds(review: &TaskReviewRecord) -> Result<(), StoreError> {
-    ensure_context_text(&review.overall_feedback, "review.overall_feedback")?;
-    for criterion in &review.criteria {
-        ensure_context_text(&criterion.criterion_id, "review.criterion_id")?;
-        if let Some(evidence) = criterion.evidence_markdown.as_deref() {
-            ensure_context_text(evidence, "review.evidence")?;
-        }
-        if let Some(feedback) = criterion.feedback.as_deref() {
-            ensure_context_text(feedback, "review.feedback")?;
-        }
     }
     Ok(())
 }

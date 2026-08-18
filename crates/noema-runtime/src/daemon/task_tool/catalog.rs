@@ -10,13 +10,13 @@ use serde_json::{Value, json};
 
 use super::{
     PROJECT_ARCHIVE_TOOL, PROJECT_CREATE_TOOL, PROJECT_LIST_TOOL, PROJECT_REOPEN_TOOL,
-    PROJECT_UPDATE_TOOL, TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CAPTURE_TOOL, TASK_DELEGATE_TOOL,
-    TASK_LIST_TOOL, TASK_QUEUE_TOOL, TASK_RECURRENCE_END_TOOL, TASK_RECURRENCE_PAUSE_TOOL,
-    TASK_RECURRENCE_RESUME_TOOL, TASK_RECURRENCE_SKIP_NEXT_TOOL, TASK_RECURRENCE_UPDATE_TOOL,
-    TASK_REOPEN_TOOL, TASK_REPORT_BLOCKED_TOOL, TASK_RESCHEDULE_TOOL, TASK_RETRY_TOOL,
-    TASK_RUN_RECURRENCE_NOW_TOOL, TASK_RUN_SCHEDULED_NOW_TOOL, TASK_SCHEDULE_TOOL,
-    TASK_SUBMIT_PLAN_TOOL, TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL, TASK_UNSCHEDULE_TOOL,
-    TASK_UPDATE_TOOL,
+    PROJECT_UPDATE_TOOL, TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CAPTURE_TOOL,
+    TASK_CONTINUE_EXECUTION_TOOL, TASK_DELEGATE_TOOL, TASK_LIST_TOOL, TASK_QUEUE_TOOL,
+    TASK_RECURRENCE_END_TOOL, TASK_RECURRENCE_PAUSE_TOOL, TASK_RECURRENCE_RESUME_TOOL,
+    TASK_RECURRENCE_SKIP_NEXT_TOOL, TASK_RECURRENCE_UPDATE_TOOL, TASK_REOPEN_TOOL,
+    TASK_REPORT_BLOCKED_TOOL, TASK_RESCHEDULE_TOOL, TASK_RETRY_TOOL, TASK_RUN_RECURRENCE_NOW_TOOL,
+    TASK_RUN_SCHEDULED_NOW_TOOL, TASK_SCHEDULE_TOOL, TASK_SUBMIT_PLAN_TOOL,
+    TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL, TASK_UNSCHEDULE_TOOL, TASK_UPDATE_TOOL,
 };
 use noema_tasks::TaskComplexity;
 
@@ -278,8 +278,8 @@ pub(crate) fn task_submit_plan_tool_spec() -> Result<ToolSpec, noema_capabilitie
 {
     ToolSpec::new(
         TASK_SUBMIT_PLAN_TOOL,
-        "Submit one complete immutable execution contract for the task planner.",
-        json!({"type":"object","properties":{"request_markdown":{"type":"string","minLength":1,"maxLength":20000},"complexity":{"type":"string","enum":["simple","medium","difficult"]},"criteria":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{"description":{"type":"string","minLength":1,"maxLength":4000},"expected_evidence":{"type":"string","maxLength":4000}},"required":["description"],"additionalProperties":false}},"execution_plan_markdown":{"type":"string","minLength":1,"maxLength":20000}},"required":["request_markdown","complexity","criteria","execution_plan_markdown"],"additionalProperties":false}),
+        "Finish planning after the current plan is saved in TASK.md.",
+        json!({"type":"object","properties":{"complexity":{"type":"string","enum":["simple","medium","difficult"]}},"required":["complexity"],"additionalProperties":false}),
     )
 }
 
@@ -293,29 +293,32 @@ pub(crate) fn task_report_blocked_tool_spec()
 }
 
 pub(crate) fn task_submit_result_tool_spec(
-    criterion_ids: &[String],
+    _criterion_ids: &[String],
 ) -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    let criterion_count = criterion_ids.len();
     ToolSpec::new(
         TASK_SUBMIT_RESULT_TOOL,
-        "Submit one complete user-facing executor result with separate evidence for every contract criterion.",
-        json!({"type":"object","properties":{"summary":{"type":"string","minLength":1,"maxLength":4000},"result_markdown":{"type":"string","description":"Complete user-facing result for this submission. Match the requested delivery depth, incorporate any revisions into the full work, and avoid duplicating exhaustive criterion evidence.","minLength":1,"maxLength":100000},"criteria":{"type":"array","description":"Structured validation evidence for the reviewer; it identifies evidence but does not replace required user-facing work.","minItems":criterion_count,"maxItems":criterion_count,"items":{"type":"object","properties":{"criterion_id":{"type":"string","enum":criterion_ids},"evidence_markdown":{"type":"string","minLength":1,"maxLength":20000}},"required":["criterion_id","evidence_markdown"],"additionalProperties":false}},"artifact_ids":{"type":"array","description":"Complete artifact manifest for this submission; prior submission artifacts are not inherited implicitly.","maxItems":100,"items":{"type":"string","minLength":1,"maxLength":200}}},"required":["summary","result_markdown","criteria","artifact_ids"],"additionalProperties":false}),
+        "Finish execution after the current result is saved in TASK.md.",
+        json!({"type":"object","properties":{},"additionalProperties":false}),
+    )
+}
+
+pub(crate) fn task_continue_execution_tool_spec()
+-> Result<ToolSpec, noema_capabilities::ToolContractError> {
+    ToolSpec::new(
+        TASK_CONTINUE_EXECUTION_TOOL,
+        "Finish this run and continue execution in a new run from current Task files.",
+        json!({"type":"object","properties":{},"additionalProperties":false}),
     )
 }
 
 pub(crate) fn task_submit_review_tool_spec(
-    criterion_ids: &[String],
+    _criterion_ids: &[String],
 ) -> Result<ToolSpec, noema_capabilities::ToolContractError> {
     ToolSpec::new(
         TASK_SUBMIT_REVIEW_TOOL,
-        "Submit one typed review verdict and one outcome for every criterion.",
-        task_review_schema(criterion_ids),
+        "Finish review and replace REVIEW.md with the current feedback.",
+        json!({"type":"object","properties":{"decision":{"type":"string","enum":["approve","request_changes","needs_human"]},"feedback":{"type":"string","minLength":1,"maxLength":20000}},"required":["decision","feedback"],"additionalProperties":false}),
     )
-}
-
-fn task_review_schema(criterion_ids: &[String]) -> Value {
-    let criterion_count = criterion_ids.len();
-    json!({"type":"object","properties":{"overall_feedback":{"type":"string","minLength":1,"maxLength":20000},"criteria":{"type":"array","minItems":criterion_count,"maxItems":criterion_count,"items":{"type":"object","properties":{"criterion_id":{"type":"string","enum":criterion_ids},"outcome":{"type":"string","enum":["pass","fail","uncertain"]},"evidence_markdown":{"type":"string","maxLength":20000},"feedback":{"type":"string","maxLength":20000}},"required":["criterion_id","outcome"],"additionalProperties":false}},"decision":{"oneOf":[{"type":"object","properties":{"verdict":{"type":"string","enum":["approve"]}},"required":["verdict"],"additionalProperties":false},{"type":"object","properties":{"verdict":{"type":"string","enum":["request_changes"]}},"required":["verdict"],"additionalProperties":false},{"type":"object","properties":{"verdict":{"type":"string","enum":["needs_human"]},"human_gate_kind":{"type":"string","enum":["clarification","approval"]},"human_question":{"type":"string","minLength":1,"maxLength":4000}},"required":["verdict","human_gate_kind","human_question"],"additionalProperties":false}]}},"required":["overall_feedback","criteria","decision"],"additionalProperties":false})
 }
 
 /// Build the background-role task inspection contract. The runtime supplies
@@ -375,64 +378,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn executor_result_schema_requires_artifact_array() {
+    fn executor_finish_schema_contains_no_task_content() {
         let schema = task_submit_result_tool_spec(&[
             "criterion:one".to_string(),
             "criterion:two".to_string(),
         ])
         .expect("executor result tool");
-        let criteria = &schema.input_schema.as_value()["properties"]["criteria"];
-
-        assert_eq!(
-            schema.input_schema.as_value()["required"],
-            json!(["summary", "result_markdown", "criteria", "artifact_ids"])
-        );
-        assert_eq!(criteria["minItems"], 2);
-        assert_eq!(criteria["maxItems"], 2);
-        assert_eq!(
-            criteria["items"]["properties"]["criterion_id"]["enum"],
-            json!(["criterion:one", "criterion:two"])
-        );
-        assert_eq!(
-            schema.input_schema.as_value()["properties"]["artifact_ids"]["type"],
-            "array"
-        );
+        assert_eq!(schema.name.as_str(), "task.finish_execution");
+        assert_eq!(schema.input_schema.as_value()["properties"], json!({}));
+        assert!(schema.input_schema.as_value().get("required").is_none());
     }
 
     #[test]
-    fn reviewer_schema_nests_conditional_decision_under_root_object() {
+    fn reviewer_finish_schema_contains_only_current_decision_and_feedback() {
         let schema = task_submit_review_tool_spec(&[
             "criterion:one".to_string(),
             "criterion:two".to_string(),
         ])
         .expect("review tool");
         let schema = schema.input_schema.as_value();
-        let criteria = &schema["properties"]["criteria"];
-        let decisions = schema["properties"]["decision"]["oneOf"]
-            .as_array()
-            .expect("review decisions");
-
         assert_eq!(schema["type"], "object");
-        assert_eq!(criteria["minItems"], 2);
-        assert_eq!(criteria["maxItems"], 2);
         assert_eq!(
-            criteria["items"]["properties"]["criterion_id"]["enum"],
-            json!(["criterion:one", "criterion:two"])
+            schema["properties"]["decision"]["enum"],
+            json!(["approve", "request_changes", "needs_human"])
         );
-        assert!(schema.get("oneOf").is_none());
+        assert_eq!(schema["required"], json!(["decision", "feedback"]));
         assert_eq!(
-            schema["required"],
-            json!(["overall_feedback", "criteria", "decision"])
-        );
-        assert_eq!(
-            decisions[0]["properties"]["verdict"]["enum"],
-            json!(["approve"])
-        );
-        assert!(decisions[0]["properties"].get("human_gate_kind").is_none());
-        assert!(decisions[1]["properties"].get("human_gate_kind").is_none());
-        assert_eq!(
-            decisions[2]["required"],
-            json!(["verdict", "human_gate_kind", "human_question"])
+            schema["properties"].as_object().map(|value| value.len()),
+            Some(2)
         );
     }
 

@@ -8,15 +8,12 @@ use noema_tasks::{
 };
 use rusqlite::{Transaction, params};
 
-use super::{
-    CommandEventContext, TaskState, load_contract_model_tx, load_policy_tx, nonnegative_u32,
-    positive_u32,
-};
+use super::{CommandEventContext, TaskState, load_policy_tx};
 use crate::{
     StoreError,
     ids::{allocate_id, allocate_instance_name},
     provider_selections::prove_selection_ready,
-    tasks::provider_selection::pool_selection_tx,
+    tasks::provider_selection::{pool_selection_tx, reviewer_preference_tx},
     work_events::append_work_event_tx,
 };
 
@@ -47,44 +44,34 @@ pub(crate) fn queue_run_tx(
     task: &TaskState,
     request: QueueRun<'_>,
 ) -> Result<(String, WorkEventRecord), StoreError> {
-    let model = if request.run_kind == RunKind::Planner {
-        if request.contract_id.is_some() {
-            return Err(StoreError::Work(WorkDomainError::InvalidTransition));
-        }
-        let complexity = request.planner_complexity.unwrap_or(TaskComplexity::Medium);
+    let model = if request.run_kind == RunKind::Reviewer {
+        reviewer_preference_tx(transaction)?
+    } else {
+        let complexity = if request.run_kind == RunKind::Planner {
+            request.planner_complexity.unwrap_or(TaskComplexity::Medium)
+        } else {
+            if request.planner_complexity.is_some() {
+                return Err(StoreError::Work(WorkDomainError::InvalidInput {
+                    field: "run.planner_complexity",
+                    message: "planner complexity applies only to Planner runs".to_string(),
+                }));
+            }
+            task.execution_complexity.unwrap_or(TaskComplexity::Medium)
+        };
         let pool_entry_id: String = transaction.query_row(
             "SELECT pool_entry_id FROM task_model_pool_entries WHERE complexity = ?1 AND enabled = 1 ORDER BY sort_order, label, pool_entry_id LIMIT 1",
             [complexity.as_str()],
             |row| row.get(0),
         )?;
         pool_selection_tx(transaction, complexity, &pool_entry_id)?
-    } else {
-        if request.planner_complexity.is_some() {
-            return Err(StoreError::Work(WorkDomainError::InvalidInput {
-                field: "run.planner_complexity",
-                message: "planner complexity applies only to Planner runs".to_string(),
-            }));
-        }
-        let contract_id = request
-            .contract_id
-            .ok_or(StoreError::Work(WorkDomainError::ContractRequired))?;
-        load_contract_model_tx(
-            transaction,
-            contract_id,
-            request.run_kind == RunKind::Reviewer,
-        )?
     };
     let model = model
         .normalized_for_persistence()
         .map_err(|_| StoreError::Work(WorkDomainError::ConfigurationUnavailable))?;
     let _ready = prove_selection_ready(&model, registry)?;
-    let policy = match request.contract_id {
-        Some(contract_id) => contract_policy_tx(transaction, contract_id)?,
-        None => load_policy_tx(transaction)?,
-    };
+    let policy = load_policy_tx(transaction)?;
     policy.validated().map_err(StoreError::Work)?;
-    let (executor, effective_cwd) =
-        run_executor_tx(transaction, request.run_kind, request.contract_id)?;
+    let (executor, effective_cwd) = run_executor_tx(transaction, task, request.run_kind)?;
     insert_run_snapshot_tx(
         transaction,
         task,
@@ -143,8 +130,8 @@ pub(crate) fn queue_pinned_child_run_tx(
 
 fn run_executor_tx(
     transaction: &Transaction<'_>,
+    task: &TaskState,
     run_kind: RunKind,
-    contract_id: Option<&TaskContractId>,
 ) -> Result<(TaskExecutorSelection, Option<String>), StoreError> {
     if run_kind != RunKind::Executor {
         let agent_id = if run_kind == RunKind::Reviewer {
@@ -161,28 +148,53 @@ fn run_executor_tx(
             None,
         ));
     }
-    let contract_id = contract_id.ok_or(StoreError::Work(WorkDomainError::ContractRequired))?;
-    let (backend, agent_id, revision, launch_json, cwd) = transaction.query_row(
-        "SELECT executor_backend_kind, executor_agent_id, executor_acp_connection_revision, executor_acp_launch_json, effective_cwd FROM task_execution_contracts WHERE contract_id = ?1",
-        [contract_id.as_str()],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<i64>>(2)?, row.get::<_, Option<String>>(3)?, row.get::<_, Option<String>>(4)?)),
-    )?;
-    let backend = backend.parse().map_err(StoreError::Work)?;
-    let acp = launch_json
-        .map(|json| serde_json::from_str::<AcpExecutorSnapshot>(&json))
-        .transpose()?;
-    if acp
+    let (backend, acp) = if task.executor_agent_id == noema_tasks::TASK_EXECUTOR_AGENT_ID {
+        (TaskExecutorBackend::Provider, None)
+    } else {
+        let (command, arguments, revision, enabled) = transaction.query_row(
+            "SELECT command, arguments_json, connection_revision, enabled FROM acp_agents WHERE agent_id = ?1",
+            [task.executor_agent_id.as_str()],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, bool>(3)?)),
+        )?;
+        if !enabled {
+            return Err(StoreError::Work(WorkDomainError::ConfigurationUnavailable));
+        }
+        (
+            TaskExecutorBackend::Acp,
+            Some(AcpExecutorSnapshot {
+                connection_revision: u64::try_from(revision).map_err(|_| {
+                    StoreError::InvariantViolation {
+                        message: "ACP connection revision exceeds supported range".to_string(),
+                    }
+                })?,
+                command,
+                arguments: serde_json::from_str(&arguments)?,
+            }),
+        )
+    };
+    let project_folder = task
+        .project_id
         .as_ref()
-        .and_then(|snapshot| i64::try_from(snapshot.connection_revision).ok())
-        != revision
-    {
-        return Err(StoreError::InvariantViolation {
-            message: "contract ACP revision does not match launch snapshot".to_string(),
-        });
-    }
+        .map(|project_id| {
+            transaction.query_row(
+                "SELECT folder FROM projects WHERE project_id = ?1",
+                [project_id.as_str()],
+                |row| row.get::<_, Option<String>>(0),
+            )
+        })
+        .transpose()?
+        .flatten();
+    let cwd = task.cwd_override.clone().or_else(|| {
+        project_folder.map(|folder| {
+            std::path::Path::new(&folder)
+                .join(&task.task_directory)
+                .to_string_lossy()
+                .into_owned()
+        })
+    });
     Ok((
         TaskExecutorSelection {
-            agent_id,
+            agent_id: task.executor_agent_id.clone(),
             backend,
             acp,
         },
@@ -199,36 +211,6 @@ pub(crate) fn provider_route_unavailable(error: &StoreError) -> bool {
             | StoreError::ConfiguredDefaultUnresolvable { .. }
             | StoreError::Work(WorkDomainError::ConfigurationUnavailable)
     )
-}
-
-fn contract_policy_tx(
-    transaction: &Transaction<'_>,
-    contract_id: &TaskContractId,
-) -> Result<TaskExecutionPolicy, StoreError> {
-    let values = transaction
-        .query_row(
-            "SELECT max_provider_continuations, max_tool_calls, max_active_minutes, progress_audit_interval, max_automatic_retries, max_review_rounds FROM task_execution_contracts WHERE contract_id = ?1",
-            [contract_id.as_str()],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, i64>(5)?,
-                ))
-            },
-        )
-        .map_err(StoreError::Sqlite)?;
-    Ok(TaskExecutionPolicy {
-        max_provider_continuations: positive_u32(values.0, "contract.max_provider_continuations")?,
-        max_tool_calls: positive_u32(values.1, "contract.max_tool_calls")?,
-        max_active_minutes: positive_u32(values.2, "contract.max_active_minutes")?,
-        progress_audit_interval: positive_u32(values.3, "contract.progress_audit_interval")?,
-        max_automatic_retries: nonnegative_u32(values.4, "contract.max_automatic_retries")?,
-        max_review_rounds: positive_u32(values.5, "contract.max_review_rounds")?,
-    })
 }
 
 fn insert_run_snapshot_tx(

@@ -41,8 +41,8 @@ use crate::daemon::{
     task_tool::{
         TASK_LIST_TOOL, TaskDelegateRuntimeContext, execute_primary_task_tool,
         execute_scoped_task_file_tool, execute_scoped_task_list_tool, is_primary_task_tool,
-        is_task_file_tool, is_task_report_blocked_tool, is_task_submit_plan_tool,
-        is_task_submit_result_tool, is_task_submit_review_tool,
+        is_task_continue_execution_tool, is_task_file_tool, is_task_report_blocked_tool,
+        is_task_submit_plan_tool, is_task_submit_result_tool, is_task_submit_review_tool,
     },
 };
 use crate::search::tool::is_web_search_tool;
@@ -231,6 +231,7 @@ impl RuntimeActor {
                 if failure.error == CapabilityError::InvalidArguments
                     && (is_task_submit_plan_tool(&call.name)
                         || is_task_submit_result_tool(&call.name)
+                        || is_task_continue_execution_tool(&call.name)
                         || is_task_submit_review_tool(&call.name)
                         || is_task_report_blocked_tool(&call.name))
                 {
@@ -605,6 +606,7 @@ impl RuntimeActor {
             )
         } else if is_task_submit_plan_tool(&call.name)
             || is_task_submit_result_tool(&call.name)
+            || is_task_continue_execution_tool(&call.name)
             || is_task_submit_review_tool(&call.name)
             || is_task_report_blocked_tool(&call.name)
         {

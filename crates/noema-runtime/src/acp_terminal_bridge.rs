@@ -170,11 +170,11 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(
-            send(&valid.address, &valid.token, "task.submit_result").await["ok"],
+            send(&valid.address, &valid.token, "task.finish_execution").await["ok"],
             true
         );
         let valid_address = valid.address.clone();
-        assert_eq!(valid.receive().await.unwrap().tool, "task.submit_result");
+        assert_eq!(valid.receive().await.unwrap().tool, "task.finish_execution");
         assert!(
             tokio::net::TcpStream::connect(&valid_address)
                 .await
@@ -189,7 +189,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(
-            send(&expired.address, &expired.token, "task.submit_result").await["error"],
+            send(&expired.address, &expired.token, "task.finish_execution").await["error"],
             "invalid_or_expired_token"
         );
         assert!(expired.receive().await.is_err());
@@ -230,7 +230,7 @@ async fn read_request(
     }
     if !matches!(
         request.tool.as_str(),
-        "task.submit_result" | "task.report_blocked"
+        "task.finish_execution" | "task.continue_execution" | "task.report_blocked"
     ) {
         let _ = writer
             .write_all(b"{\"ok\":false,\"error\":\"tool_not_scoped\"}\n")

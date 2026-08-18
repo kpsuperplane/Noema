@@ -184,13 +184,12 @@ fn validate_run_lineage(
         }
         RunKind::Reviewer => {
             if review_round == 0
-                || triggering_submission_id.is_none()
                 || triggering_review_id.is_some()
                 || agent_id != TASK_REVIEWER_AGENT_ID
             {
                 return Err(invalid_input(
                     "run.lineage",
-                    "Reviewer runs require a positive round, a submission trigger, and the reviewer agent",
+                    "Reviewer runs require a positive round and the reviewer agent",
                 ));
             }
         }

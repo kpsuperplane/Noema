@@ -1,14 +1,17 @@
 //! Lease-fenced planner, executor, reviewer, and failure terminal writes.
 
 use noema_tasks::{
-    RunKind, RunStatus, RunTerminalKind, SafeErrorCode, TaskGateKind, TaskStageChangeReason,
-    WorkDomainError, WorkEventKind, WorkEventPayload, WorkReconciliationAction,
-    WorkReconciliationSnapshot, WorkflowStageBehavior, WorkflowStageId, plan_reconciliation_action,
-    reported_failure_facts,
+    RunKind, RunStatus, RunTerminalKind, SafeErrorCode, TaskGateKind, TaskReviewVerdict,
+    TaskStageChangeReason, WorkDomainError, WorkEventKind, WorkEventPayload,
+    WorkReconciliationAction, WorkReconciliationSnapshot, WorkflowStageBehavior, WorkflowStageId,
+    plan_reconciliation_action, reported_failure_facts,
 };
 use rusqlite::{OptionalExtension, Transaction, params};
 
-use super::{ReportRunFailure, ReportTaskBlocked, SubmitTaskResult, WorkRunTerminal};
+use super::{
+    ContinueExecution, FinishExecution, FinishPlanning, FinishReview, ReportRunFailure,
+    ReportTaskBlocked, SubmitPlan, SubmitTaskResult, WorkRunTerminal,
+};
 use crate::{
     StoreError,
     ids::allocate_id,
@@ -54,6 +57,49 @@ impl WorkCommandService {
                 message: "actor and correlation identifiers are required".to_string(),
             }));
         }
+        let review_backup = if let WorkRunTerminal::FinishReview(review) = &terminal {
+            let run = self
+                .store
+                .get_work_run_record(&review.fence.run_id)
+                .await?
+                .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
+            if !matches!(
+                run.status,
+                RunStatus::Running | RunStatus::Completed | RunStatus::WaitingForApproval
+            ) || run.task_generation != review.fence.task_generation
+                || run.contract_id != review.fence.contract_id
+                || (run.status == RunStatus::Running
+                    && run.lease_token.as_deref() != Some(review.fence.lease_token.as_str()))
+            {
+                return Err(StoreError::Work(WorkDomainError::RunFenced));
+            }
+            let prior = match self
+                .store
+                .read_task_file(&run.task_id, crate::TASK_REVIEW)
+                .await
+            {
+                Ok(content) => Some(content),
+                Err(crate::TaskFileError::Io(error))
+                    if error.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    None
+                }
+                Err(error) => {
+                    return Err(StoreError::InvariantViolation {
+                        message: error.to_string(),
+                    });
+                }
+            };
+            self.store
+                .replace_task_review(&run.task_id, review.feedback.trim())
+                .await
+                .map_err(|error| StoreError::InvariantViolation {
+                    message: error.to_string(),
+                })?;
+            Some((run.task_id, prior))
+        } else {
+            None
+        };
         let write = self
             .store
             .with_immediate_transaction_retry(|transaction| {
@@ -63,6 +109,38 @@ impl WorkCommandService {
                     replay
                 } else {
                     match &terminal {
+                        WorkRunTerminal::FinishPlanning(value) => finish_planning_tx(
+                            transaction,
+                            self,
+                            value,
+                            actor_id,
+                            causation_id,
+                            correlation_id,
+                        ),
+                        WorkRunTerminal::FinishExecution(value) => finish_execution_tx(
+                            transaction,
+                            self,
+                            value,
+                            actor_id,
+                            causation_id,
+                            correlation_id,
+                        ),
+                        WorkRunTerminal::ContinueExecution(value) => continue_execution_tx(
+                            transaction,
+                            self,
+                            value,
+                            actor_id,
+                            causation_id,
+                            correlation_id,
+                        ),
+                        WorkRunTerminal::FinishReview(value) => finish_review_tx(
+                            transaction,
+                            self,
+                            value,
+                            actor_id,
+                            causation_id,
+                            correlation_id,
+                        ),
                         WorkRunTerminal::Plan(value) => terminal_plan::submit_plan_tx(
                             transaction,
                             self,
@@ -99,7 +177,30 @@ impl WorkCommandService {
                 helpers::capture_write_snapshot_tx(transaction, &mut write)?;
                 Ok(write)
             })
-            .await?;
+            .await;
+        let write = match write {
+            Ok(write) => write,
+            Err(error) => {
+                if let Some((task_id, prior)) = review_backup {
+                    let rollback = match prior {
+                        Some(content) => self.store.replace_task_review(&task_id, &content).await,
+                        None => {
+                            self.store
+                                .delete_task_file(&task_id, crate::TASK_REVIEW)
+                                .await
+                        }
+                    };
+                    if let Err(rollback) = rollback {
+                        return Err(StoreError::InvariantViolation {
+                            message: format!(
+                                "review transition failed and REVIEW.md could not be restored: {rollback}"
+                            ),
+                        });
+                    }
+                }
+                return Err(error);
+            }
+        };
         helpers::materialize_result(&self.store, write).await
     }
 
@@ -141,6 +242,361 @@ impl WorkCommandService {
             .await?;
         helpers::materialize_result(&self.store, write).await
     }
+}
+
+fn finish_planning_tx(
+    transaction: &Transaction<'_>,
+    service: &WorkCommandService,
+    command: &FinishPlanning,
+    actor_id: &str,
+    causation_id: Option<&str>,
+    correlation_id: &str,
+) -> Result<helpers::CommandWrite, StoreError> {
+    transaction.execute(
+        "UPDATE tasks SET execution_complexity = ?2 WHERE task_id = (SELECT task_id FROM agent_runs WHERE run_id = ?1)",
+        params![command.fence.run_id, command.complexity.as_str()],
+    )?;
+    let synthetic = SubmitPlan {
+        fence: command.fence.clone(),
+        terminal: super::PlanTerminal::Complete(super::CompletePlan {
+            request_markdown: "Read the current TASK.md file.".to_string(),
+            execution_plan_markdown: "Work from the current Task files.".to_string(),
+            criteria: vec![noema_tasks::NewTaskValidationCriterion {
+                criterion_id: None,
+                ordinal: 1,
+                description: "The current TASK.md work is complete.".to_string(),
+                expected_evidence: None,
+            }],
+            complexity: command.complexity,
+        }),
+    };
+    terminal_plan::submit_plan_tx(
+        transaction,
+        service,
+        &synthetic,
+        actor_id,
+        causation_id,
+        correlation_id,
+    )
+}
+
+fn finish_execution_tx(
+    transaction: &Transaction<'_>,
+    service: &WorkCommandService,
+    command: &FinishExecution,
+    actor_id: &str,
+    causation_id: Option<&str>,
+    correlation_id: &str,
+) -> Result<helpers::CommandWrite, StoreError> {
+    let (run, task) = load_running_fence_tx(transaction, &command.fence, RunKind::Executor)?;
+    if task.stage_behavior != WorkflowStageBehavior::Active {
+        return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+    }
+    mark_run_completed_tx(transaction, &run, &command.fence)?;
+    let scope = run_scope(&task, (actor_id, causation_id, correlation_id), &run.run_id);
+    let _completed = append_work_event_tx(
+        transaction,
+        scope,
+        WorkEventPayload::run_completed(
+            run.run_kind,
+            run.task_generation,
+            RunTerminalKind::Submission,
+        )
+        .map_err(StoreError::Work)?,
+    )?;
+    let (reviewer_run_id, event) = helpers::queue_run_tx(
+        transaction,
+        service.provider_registry.as_ref(),
+        &task,
+        helpers::QueueRun {
+            run_kind: RunKind::Reviewer,
+            contract_id: run.contract_id.as_ref(),
+            planner_complexity: None,
+            review_round: run.review_round.max(1),
+            attempt_index: 0,
+            parent_run_id: Some(&run.run_id),
+            triggering_submission_id: None,
+            triggering_review_id: None,
+            event: helpers::CommandEventContext {
+                actor_id,
+                causation_id,
+                correlation_id,
+            },
+        },
+    )?;
+    Ok(helpers::task_write(event, task.task_id)
+        .contract(run.contract_id)
+        .run(Some(reviewer_run_id)))
+}
+
+fn continue_execution_tx(
+    transaction: &Transaction<'_>,
+    service: &WorkCommandService,
+    command: &ContinueExecution,
+    actor_id: &str,
+    causation_id: Option<&str>,
+    correlation_id: &str,
+) -> Result<helpers::CommandWrite, StoreError> {
+    let (run, task) = load_running_fence_tx(transaction, &command.fence, RunKind::Executor)?;
+    mark_run_completed_tx(transaction, &run, &command.fence)?;
+    let event_context = helpers::CommandEventContext {
+        actor_id,
+        causation_id,
+        correlation_id,
+    };
+    let _completed = append_work_event_tx(
+        transaction,
+        run_scope(&task, (actor_id, causation_id, correlation_id), &run.run_id),
+        WorkEventPayload::run_completed(
+            run.run_kind,
+            run.task_generation,
+            RunTerminalKind::Submission,
+        )
+        .map_err(StoreError::Work)?,
+    )?;
+    let (child_run_id, event) = helpers::queue_run_tx(
+        transaction,
+        service.provider_registry.as_ref(),
+        &task,
+        helpers::QueueRun {
+            run_kind: RunKind::Executor,
+            contract_id: run.contract_id.as_ref(),
+            planner_complexity: None,
+            review_round: run.review_round,
+            attempt_index: 0,
+            parent_run_id: Some(&run.run_id),
+            triggering_submission_id: None,
+            triggering_review_id: None,
+            event: event_context,
+        },
+    )?;
+    Ok(helpers::task_write(event, task.task_id)
+        .contract(run.contract_id)
+        .run(Some(child_run_id)))
+}
+
+fn finish_review_tx(
+    transaction: &Transaction<'_>,
+    service: &WorkCommandService,
+    command: &FinishReview,
+    actor_id: &str,
+    causation_id: Option<&str>,
+    correlation_id: &str,
+) -> Result<helpers::CommandWrite, StoreError> {
+    let (run, mut task) = load_running_fence_tx(transaction, &command.fence, RunKind::Reviewer)?;
+    if task.stage_behavior != WorkflowStageBehavior::Active {
+        return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+    }
+    let event_context = helpers::CommandEventContext {
+        actor_id,
+        causation_id,
+        correlation_id,
+    };
+    transaction.execute(
+        "UPDATE tasks SET current_review_decision = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1",
+        params![task.task_id.as_str(), command.decision.as_str()],
+    )?;
+    match command.decision {
+        TaskReviewVerdict::Approve => {
+            mark_run_completed_tx(transaction, &run, &command.fence)?;
+            append_work_event_tx(
+                transaction,
+                event_context.task_scope(&task, Some(&run.run_id)),
+                WorkEventPayload::run_completed(
+                    run.run_kind,
+                    run.task_generation,
+                    RunTerminalKind::Review,
+                )
+                .map_err(StoreError::Work)?,
+            )?;
+            let revision = helpers::increment(task.revision, "task.revision")?;
+            let from_stage = task.stage_id.clone();
+            let changed = transaction.execute(
+                "UPDATE tasks SET stage_id = ?2, completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), queued_at = NULL, revision = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?4 AND generation = ?5",
+                params![task.task_id.as_str(), noema_tasks::PERSONAL_DONE_STAGE_ID, revision, task.revision, task.generation],
+            )?;
+            if changed != 1 {
+                return Err(StoreError::Work(WorkDomainError::StaleRevision));
+            }
+            task.revision = revision;
+            task.stage_id = WorkflowStageId::new(noema_tasks::PERSONAL_DONE_STAGE_ID)
+                .map_err(StoreError::Work)?;
+            let _completed = append_work_event_tx(
+                transaction,
+                event_context.task_scope(&task, Some(&run.run_id)),
+                WorkEventPayload::task_completed(revision, task.generation)
+                    .map_err(StoreError::Work)?,
+            )?;
+            let stage_event = append_work_event_tx(
+                transaction,
+                event_context.task_scope(&task, Some(&run.run_id)),
+                WorkEventPayload::task_stage_changed(
+                    revision,
+                    task.generation,
+                    from_stage,
+                    task.stage_id.clone(),
+                    TaskStageChangeReason::Completed,
+                )
+                .map_err(StoreError::Work)?,
+            )?;
+            let event = enqueue_work_notification_tx(
+                transaction,
+                &stage_event,
+                noema_tasks::NotificationKind::TaskCompleted,
+                &serde_json::json!({"task_id": task.task_id.as_str(), "action_needed": false}),
+            )?
+            .unwrap_or(stage_event);
+            Ok(helpers::task_write(event, task.task_id)
+                .contract(run.contract_id)
+                .run(Some(run.run_id)))
+        }
+        TaskReviewVerdict::RequestChanges => {
+            mark_run_completed_tx(transaction, &run, &command.fence)?;
+            append_work_event_tx(
+                transaction,
+                event_context.task_scope(&task, Some(&run.run_id)),
+                WorkEventPayload::run_completed(
+                    run.run_kind,
+                    run.task_generation,
+                    RunTerminalKind::Review,
+                )
+                .map_err(StoreError::Work)?,
+            )?;
+            if run.review_round >= run.execution_policy.max_review_rounds {
+                return open_review_recovery_tx(
+                    transaction,
+                    &run,
+                    &mut task,
+                    command,
+                    event_context,
+                );
+            }
+            let revision = helpers::increment(task.revision, "task.revision")?;
+            transaction.execute(
+                "UPDATE tasks SET revision = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?3 AND generation = ?4",
+                params![task.task_id.as_str(), revision, task.revision, task.generation],
+            )?;
+            task.revision = revision;
+            let next_round = helpers::increment(run.review_round, "run.review_round")?;
+            let (child_run_id, event) = helpers::queue_run_tx(
+                transaction,
+                service.provider_registry.as_ref(),
+                &task,
+                helpers::QueueRun {
+                    run_kind: RunKind::Executor,
+                    contract_id: run.contract_id.as_ref(),
+                    planner_complexity: None,
+                    review_round: next_round,
+                    attempt_index: 0,
+                    parent_run_id: Some(&run.run_id),
+                    triggering_submission_id: None,
+                    triggering_review_id: None,
+                    event: event_context,
+                },
+            )?;
+            Ok(helpers::task_write(event, task.task_id)
+                .contract(run.contract_id)
+                .run(Some(child_run_id)))
+        }
+        TaskReviewVerdict::NeedsHuman => {
+            let gate_id = insert_gate_tx(
+                transaction,
+                &task,
+                OpenGate {
+                    gate_kind: TaskGateKind::Clarification,
+                    prompt: command.feedback.trim(),
+                    context: "The Reviewer needs human input.",
+                    suggested_answers: &[],
+                    actor_id,
+                    originating_run_id: Some(&run.run_id),
+                    recovery_reason: None,
+                    retry_run_kind: None,
+                },
+            )?;
+            bump_task_to_waiting_tx(transaction, &mut task)?;
+            mark_run_waiting_tx(transaction, &run, &command.fence)?;
+            let _gate_event = append_work_event_tx(
+                transaction,
+                event_context.task_scope(&task, Some(&run.run_id)),
+                WorkEventPayload::gate_opened(
+                    gate_id.clone(),
+                    task.generation,
+                    TaskGateKind::Clarification,
+                    Some(run.run_id.clone()),
+                    None,
+                    None,
+                )
+                .map_err(StoreError::Work)?,
+            )?;
+            let waiting_event = append_work_event_tx(
+                transaction,
+                event_context.task_scope(&task, Some(&run.run_id)),
+                WorkEventPayload::run_waiting_for_approval(
+                    run.run_kind,
+                    run.task_generation,
+                    gate_id.clone(),
+                    TaskGateKind::Clarification,
+                )
+                .map_err(StoreError::Work)?,
+            )?;
+            let event = enqueue_work_notification_tx(
+                transaction,
+                &waiting_event,
+                noema_tasks::NotificationKind::TaskWaiting,
+                &serde_json::json!({
+                    "task_id": task.task_id.as_str(),
+                    "gate_id": gate_id.as_str(),
+                    "action_needed": true,
+                }),
+            )?
+            .unwrap_or(waiting_event);
+            Ok(helpers::task_write(event, task.task_id)
+                .contract(run.contract_id)
+                .gate(Some(gate_id))
+                .run(Some(run.run_id)))
+        }
+    }
+}
+
+fn open_review_recovery_tx(
+    transaction: &Transaction<'_>,
+    run: &noema_tasks::AgentRunRecord,
+    task: &mut helpers::TaskState,
+    command: &FinishReview,
+    event_context: helpers::CommandEventContext<'_>,
+) -> Result<helpers::CommandWrite, StoreError> {
+    let gate_id = insert_gate_tx(
+        transaction,
+        task,
+        OpenGate {
+            gate_kind: TaskGateKind::Recovery,
+            prompt: command.feedback.trim(),
+            context: "Review rounds are exhausted.",
+            suggested_answers: &[],
+            actor_id: event_context.actor_id,
+            originating_run_id: Some(&run.run_id),
+            recovery_reason: Some(noema_tasks::TaskRecoveryReason::ReviewRoundsExhausted),
+            retry_run_kind: Some(RunKind::Executor),
+        },
+    )?;
+    bump_task_to_waiting_tx(transaction, task)?;
+    let event = append_work_event_tx(
+        transaction,
+        event_context.task_scope(task, Some(&run.run_id)),
+        WorkEventPayload::gate_opened(
+            gate_id.clone(),
+            task.generation,
+            TaskGateKind::Recovery,
+            Some(run.run_id.clone()),
+            Some(noema_tasks::TaskRecoveryReason::ReviewRoundsExhausted),
+            Some(RunKind::Executor),
+        )
+        .map_err(StoreError::Work)?,
+    )?;
+    Ok(helpers::task_write(event, task.task_id.clone())
+        .contract(run.contract_id.clone())
+        .gate(Some(gate_id))
+        .run(Some(run.run_id.clone())))
 }
 
 fn submit_result_tx(
@@ -375,7 +831,12 @@ fn report_blocked_tx(
     causation_id: Option<&str>,
     correlation_id: &str,
 ) -> Result<helpers::CommandWrite, StoreError> {
-    let (run, mut task) = load_running_fence_tx(transaction, &command.fence, RunKind::Executor)?;
+    let (run, mut task) = load_fenced_run_tx(transaction, &command.fence, None, false)?;
+    if run.status != RunStatus::Running
+        || !matches!(run.run_kind, RunKind::Planner | RunKind::Executor)
+    {
+        return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+    }
     if task.stage_behavior != WorkflowStageBehavior::Active {
         return Err(StoreError::Work(WorkDomainError::InvalidTransition));
     }

@@ -151,6 +151,19 @@ impl NoemaStore {
                     .map_err(StoreError::from)
             })
             .await?;
+        let content = if description.trim().is_empty() {
+            format!("# {title}\n")
+        } else {
+            format!("# {title}\n\n{}\n", description.trim())
+        };
+        self.ensure_task_document_from(task_id, &content).await
+    }
+
+    pub(crate) async fn ensure_task_document_from(
+        &self,
+        task_id: &TaskId,
+        content: &str,
+    ) -> Result<(), TaskFileError> {
         let access = self.task_file_access(task_id).await?;
         let relative = access.task_relative.join(TASK_DOCUMENT);
         match access.boundary.symlink_metadata(&relative) {
@@ -162,11 +175,6 @@ impl NoemaStore {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
-        let content = if description.trim().is_empty() {
-            format!("# {title}\n")
-        } else {
-            format!("# {title}\n\n{}\n", description.trim())
-        };
         if content.len() > TASK_FILE_TEXT_LIMIT {
             return Err(TaskFileError::TooLarge);
         }
@@ -318,9 +326,21 @@ impl NoemaStore {
             .with_connection(|connection| {
                 connection
                     .query_row(
-                        "SELECT t.cwd_override, t.task_directory, p.folder FROM tasks t LEFT JOIN projects p ON p.project_id = t.project_id WHERE t.task_id = ?1",
+                        "SELECT t.cwd_override, t.task_directory, p.folder, t.task_id FROM tasks t LEFT JOIN projects p ON p.project_id = t.project_id WHERE t.task_id = ?1",
                         [task_id.as_str()],
-                        |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?)),
+                        |row| {
+                            let directory = row.get::<_, Option<String>>(1)?.unwrap_or_else(|| {
+                                row.get::<_, String>(3)
+                                    .unwrap_or_else(|_| "task:task".to_string())
+                                    .trim_start_matches("task:")
+                                    .replace(':', "-")
+                            });
+                            Ok((
+                                row.get::<_, Option<String>>(0)?,
+                                directory,
+                                row.get::<_, Option<String>>(2)?,
+                            ))
+                        },
                     )
                     .map_err(StoreError::from)
             })

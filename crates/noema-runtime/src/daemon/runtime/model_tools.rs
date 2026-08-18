@@ -15,12 +15,13 @@ use crate::{
             TASK_READ_SUBMISSION_EVIDENCE_TOOL, task_read_submission_evidence_tool_spec,
         },
         task_tool::{
-            TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_FILE_DELETE_TOOL, TASK_FILE_LIST_TOOL,
-            TASK_FILE_READ_TOOL, TASK_FILE_WRITE_TOOL, TASK_LIST_TOOL, TASK_REPORT_BLOCKED_TOOL,
-            TASK_SUBMIT_PLAN_TOOL, TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL,
-            primary_task_tool_specs, task_file_delete_tool_spec, task_file_list_tool_spec,
-            task_file_read_tool_spec, task_file_write_tool_spec, task_list_scoped_tool_spec,
-            task_report_blocked_tool_spec, task_submit_plan_tool_spec,
+            TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CONTINUE_EXECUTION_TOOL,
+            TASK_FILE_DELETE_TOOL, TASK_FILE_LIST_TOOL, TASK_FILE_READ_TOOL, TASK_FILE_WRITE_TOOL,
+            TASK_LIST_TOOL, TASK_REPORT_BLOCKED_TOOL, TASK_SUBMIT_PLAN_TOOL,
+            TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL, primary_task_tool_specs,
+            task_continue_execution_tool_spec, task_file_delete_tool_spec,
+            task_file_list_tool_spec, task_file_read_tool_spec, task_file_write_tool_spec,
+            task_list_scoped_tool_spec, task_report_blocked_tool_spec, task_submit_plan_tool_spec,
             task_submit_result_tool_spec, task_submit_review_tool_spec,
         },
     },
@@ -289,6 +290,7 @@ fn role_builtin_tool_specs(
         ExecutionRole::TaskExecutor => {
             vec![
                 task_submit_result_tool_spec(criterion_ids)?,
+                task_continue_execution_tool_spec()?,
                 task_report_blocked_tool_spec()?,
                 task_list_scoped_tool_spec()?,
                 task_file_list_tool_spec()?,
@@ -508,7 +510,7 @@ fn builtin_tool_access_class(role: ExecutionRole, name: &str) -> ToolAccessClass
         // Renaming the primary identity is a foreground-only control action.
         "update_own_name" | TASK_ANSWER_TOOL | TASK_CANCEL_TOOL => ToolAccessClass::Internal,
         TASK_SUBMIT_PLAN_TOOL | TASK_REPORT_BLOCKED_TOOL => ToolAccessClass::ExecutorTerminal,
-        TASK_SUBMIT_RESULT_TOOL => ToolAccessClass::ExecutorTerminal,
+        TASK_SUBMIT_RESULT_TOOL | TASK_CONTINUE_EXECUTION_TOOL => ToolAccessClass::ExecutorTerminal,
         TASK_SUBMIT_REVIEW_TOOL => ToolAccessClass::ReviewerTerminal,
         _ => ToolAccessClass::Internal,
     }

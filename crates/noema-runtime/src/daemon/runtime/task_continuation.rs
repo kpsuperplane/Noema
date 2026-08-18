@@ -4,7 +4,8 @@ use crate::{
     agent_execution::ExecutionRole,
     daemon::prompts::WEB_FETCH_PROVENANCE_INSTRUCTIONS,
     daemon::task_tool::{
-        is_task_report_blocked_tool, is_task_submit_result_tool, is_task_submit_review_tool,
+        is_task_continue_execution_tool, is_task_report_blocked_tool, is_task_submit_result_tool,
+        is_task_submit_review_tool,
     },
 };
 use noema_providers::{ProviderToolTransport, TokenUsage};
@@ -17,7 +18,9 @@ pub(super) fn is_valid_terminal_tool(role: ExecutionRole, name: &str) -> bool {
             is_task_submit_plan_tool(name) || is_task_report_blocked_tool(name)
         }
         ExecutionRole::TaskExecutor => {
-            is_task_submit_result_tool(name) || is_task_report_blocked_tool(name)
+            is_task_submit_result_tool(name)
+                || is_task_continue_execution_tool(name)
+                || is_task_report_blocked_tool(name)
         }
         ExecutionRole::TaskReviewer => is_task_submit_review_tool(name),
         ExecutionRole::PrimaryConversation => false,
@@ -103,6 +106,7 @@ pub(super) fn task_tool_result_transcript_payload(result: &LocalToolResult) -> s
 pub(super) fn is_task_terminal_tool(name: &str) -> bool {
     is_task_submit_plan_tool(name)
         || is_task_submit_result_tool(name)
+        || is_task_continue_execution_tool(name)
         || is_task_submit_review_tool(name)
         || is_task_report_blocked_tool(name)
 }
@@ -118,17 +122,17 @@ pub(super) fn build_task_finalization_prompt(
 ) -> String {
     let terminal_instruction = match role {
         ExecutionRole::TaskPlanner => {
-            "Call task.submit_plan exactly once with a complete immutable execution contract, or task.report_blocked exactly once with a focused human gate."
+            "Save the current plan in TASK.md. Then call task.finish_planning or task.report_blocked exactly once."
         }
         ExecutionRole::TaskExecutor => {
             if reason.contains("human input") {
                 "Call task.report_blocked exactly once with the blocking question and the work completed so far."
             } else {
-                "Call task.submit_result exactly once with the best complete or explicitly partial result supported by the gathered evidence."
+                "Save the best current result in TASK.md. Then call task.finish_execution exactly once."
             }
         }
         ExecutionRole::TaskReviewer => {
-            "Call task.submit_review exactly once with the most defensible verdict supported by the submission and gathered evidence."
+            "Call task.finish_review exactly once with the most defensible decision and concise feedback."
         }
         ExecutionRole::PrimaryConversation => "Return the best final response now.",
     };

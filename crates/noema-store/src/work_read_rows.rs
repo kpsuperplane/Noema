@@ -97,7 +97,12 @@ pub(crate) fn decode_task_record(row: &Row<'_>) -> rusqlite::Result<noema_tasks:
         updated_at: row.get(32)?,
         completed_at: row.get(33)?,
         cancelled_at: row.get(34)?,
-        task_directory: row.get(35)?,
+        task_directory: row.get::<_, Option<String>>(35)?.unwrap_or_else(|| {
+            row.get::<_, String>(0)
+                .unwrap_or_else(|_| "task:task".to_string())
+                .trim_start_matches("task:")
+                .replace(':', "-")
+        }),
         execution_complexity: row
             .get::<_, Option<String>>(36)?
             .map(|value| value.parse())

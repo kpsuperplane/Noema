@@ -18,19 +18,7 @@ struct TaskTools;
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-struct SubmitResult {
-    summary: String,
-    result_markdown: String,
-    criteria: Vec<CriterionEvidence>,
-    artifact_ids: Vec<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct CriterionEvidence {
-    criterion_id: String,
-    evidence_markdown: String,
-}
+struct FinishExecution {}
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -53,15 +41,30 @@ struct ReportBlocked {
 #[tool_router]
 impl TaskTools {
     #[tool(
-        name = "task.submit_result",
-        description = "Submit the complete result and criterion evidence for this Work task."
+        name = "task.finish_execution",
+        description = "Finish after the current result is saved in TASK.md."
     )]
-    async fn submit_result(
+    async fn finish_execution(
         &self,
-        Parameters(input): Parameters<SubmitResult>,
+        Parameters(input): Parameters<FinishExecution>,
     ) -> Result<CallToolResult, McpError> {
         forward(
-            "task.submit_result",
+            "task.finish_execution",
+            serde_json::to_value(input).map_err(internal)?,
+        )
+        .await
+    }
+
+    #[tool(
+        name = "task.continue_execution",
+        description = "Continue execution in another run from current Task files."
+    )]
+    async fn continue_execution(
+        &self,
+        Parameters(input): Parameters<FinishExecution>,
+    ) -> Result<CallToolResult, McpError> {
+        forward(
+            "task.continue_execution",
             serde_json::to_value(input).map_err(internal)?,
         )
         .await

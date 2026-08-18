@@ -28,7 +28,6 @@ fn task_card_from_store(value: &WorkTaskSummary) -> async_graphql::Result<Graphq
             .project
             .as_ref()
             .and_then(|project| project.folder.as_deref()),
-        None,
     );
     Ok(GraphqlTaskCard {
         task_id: value.task.task_id.to_string(),
@@ -91,18 +90,15 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         value.active_gate.as_ref(),
         &value.valid_actions,
     )?;
-    let frozen_cwd = value
-        .current_contract
-        .as_ref()
-        .and_then(|contract| contract.effective_cwd.as_deref());
-    let (effective_cwd, effective_cwd_source) = task_cwd(
-        value.task.cwd_override.as_deref(),
-        value
-            .project
-            .as_ref()
-            .and_then(|project| project.folder.as_deref()),
-        frozen_cwd,
-    );
+    let effective_cwd = Some(value.working_directory.clone());
+    let effective_cwd_source = if value.task.cwd_override.is_some() {
+        "task"
+    } else if value.project.is_some() {
+        "project"
+    } else {
+        "default"
+    }
+    .to_string();
     let current_contract = value.current_contract.map(TryInto::try_into).transpose()?;
     let current_gate = value.active_gate.map(TryInto::try_into).transpose()?;
     let current_run = value.current_run.map(Into::into);
@@ -133,6 +129,8 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         project: value.project.map(TryInto::try_into).transpose()?,
         title: value.task.title,
         description: value.task.description_markdown,
+        task_document: value.task_document,
+        review_document: value.review_document,
         stage: value.stage.into(),
         revision: exact_u64(value.task.revision)?,
         generation: exact_u64(value.task.generation)?,
@@ -170,17 +168,13 @@ fn task_executor_backend(agent_id: &str) -> String {
     }
 }
 
-fn task_cwd(
-    task_override: Option<&str>,
-    project_folder: Option<&str>,
-    frozen: Option<&str>,
-) -> (Option<String>, String) {
+fn task_cwd(task_override: Option<&str>, project_folder: Option<&str>) -> (Option<String>, String) {
     if let Some(value) = task_override {
         (Some(value.to_string()), "task".to_string())
     } else if let Some(value) = project_folder {
         (Some(value.to_string()), "project".to_string())
     } else {
-        (frozen.map(str::to_string), "default".to_string())
+        (None, "default".to_string())
     }
 }
 

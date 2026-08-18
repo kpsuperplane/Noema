@@ -152,6 +152,7 @@ pub use work_run_context_records::{
     WorkRunExecutionContext,
 };
 pub use work_runs::{
-    ClaimedWorkRun, CompletePlan, PlanTerminal, ReportRunFailure, ReportTaskBlocked, SubmitPlan,
-    SubmitTaskResult, SubmitTaskReview, WorkRunFence, WorkRunProgress, WorkRunTerminal,
+    ClaimedWorkRun, CompletePlan, ContinueExecution, FinishExecution, FinishPlanning, FinishReview,
+    PlanTerminal, ReportRunFailure, ReportTaskBlocked, SubmitPlan, SubmitTaskResult,
+    SubmitTaskReview, WorkRunFence, WorkRunProgress, WorkRunTerminal,
 };

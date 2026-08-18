@@ -525,7 +525,7 @@ async fn handle_permission_request(
 
 fn render_prompt(prompt: TaskRolePrompt) -> String {
     format!(
-        "{}\n\nYou are the selected ACP Work executor for this run. Perform the contract directly with your own tools; do not look for or delegate to another executor.\n\n{}\n\nUse the provided task.submit_result or task.report_blocked MCP tool exactly once to finish. Ordinary assistant text is not a terminal result.",
+        "{}\n\nYou are the selected ACP Task Executor for this run. Work from current files in the Task directory.\n\n{}\n\nUse task.finish_execution, task.continue_execution, or task.report_blocked exactly once. Ordinary assistant text is not a terminal result.",
         prompt.instructions, prompt.input
     )
 }

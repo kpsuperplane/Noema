@@ -613,7 +613,24 @@ impl RuntimeActor {
                     &request.input,
                 ) => result,
             };
-            propagate_compaction_result(compaction_result)?;
+            if propagate_compaction_result(compaction_result)? {
+                append_task_document_after_compaction(&self.store, &request, &mut context).await?;
+                let readmission = context
+                    .compact_to_fit(
+                        provider,
+                        provider_selection.model_profile.as_deref(),
+                        capabilities.native_tool_results,
+                        &instructions,
+                        &continuation_tools,
+                        !terminal_repair && model_tools.hosted_web_search(),
+                        Some(8_000),
+                        provider_selection.reasoning_effort,
+                        noema_providers::GenerationPriority::Background,
+                        &request.input,
+                    )
+                    .await;
+                propagate_compaction_result(readmission)?;
+            }
             let continuation_input = context
                 .next_provider_input(capabilities.native_tool_results, response_continuation);
             let continuation_request = GenerateRequest {

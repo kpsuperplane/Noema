@@ -347,6 +347,75 @@ pub struct SubmitTaskReview {
     pub review: NewTaskReview,
 }
 
+/// Planner completion marker. The plan itself remains in mutable Task files.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinishPlanning {
+    /// Run lease and generation fence.
+    pub fence: WorkRunFence,
+    /// Complexity selected for later execution runs.
+    pub complexity: TaskComplexity,
+}
+
+impl FinishPlanning {
+    /// Validate the run fence.
+    pub fn validate(&self) -> Result<(), WorkDomainError> {
+        self.fence.validate()
+    }
+}
+
+/// Executor completion marker. The result remains in mutable Task files.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinishExecution {
+    /// Run lease and generation fence.
+    pub fence: WorkRunFence,
+}
+
+impl FinishExecution {
+    /// Validate the run fence.
+    pub fn validate(&self) -> Result<(), WorkDomainError> {
+        self.fence.validate()
+    }
+}
+
+/// Executor continuation marker. The next run resumes from current Task files.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContinueExecution {
+    /// Run lease and generation fence.
+    pub fence: WorkRunFence,
+}
+
+impl ContinueExecution {
+    /// Validate the run fence.
+    pub fn validate(&self) -> Result<(), WorkDomainError> {
+        self.fence.validate()
+    }
+}
+
+/// Reviewer completion marker with current feedback.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinishReview {
+    /// Run lease and generation fence.
+    pub fence: WorkRunFence,
+    /// Current workflow decision.
+    pub decision: noema_tasks::TaskReviewVerdict,
+    /// Concise feedback written to `REVIEW.md`.
+    pub feedback: String,
+}
+
+impl FinishReview {
+    /// Validate the fence and feedback.
+    pub fn validate(&self) -> Result<(), WorkDomainError> {
+        self.fence.validate()?;
+        if self.feedback.trim().is_empty() || self.feedback.len() > 20_000 {
+            return Err(WorkDomainError::InvalidInput {
+                field: "review.feedback",
+                message: "review feedback must contain at most 20,000 bytes".to_string(),
+            });
+        }
+        Ok(())
+    }
+}
+
 impl SubmitTaskReview {
     /// Validate shape-only fields; exact criterion/verdict checks happen against
     /// the current contract's criterion IDs in the transaction.
@@ -394,9 +463,6 @@ impl ReportTaskBlocked {
     /// context is malformed.
     pub fn validate(&self) -> Result<(), WorkDomainError> {
         self.fence.validate()?;
-        if self.fence.contract_id.is_none() {
-            return Err(WorkDomainError::ContractRequired);
-        }
         if self.prompt_markdown.trim().is_empty()
             || !matches!(
                 self.gate_kind,
@@ -487,6 +553,14 @@ pub struct ClaimedWorkRun {
 /// One runtime terminal submission accepted by the service.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WorkRunTerminal {
+    /// Planner finished writing the current Task plan.
+    FinishPlanning(FinishPlanning),
+    /// Executor finished the current Task work.
+    FinishExecution(FinishExecution),
+    /// Executor requests another run without human action.
+    ContinueExecution(ContinueExecution),
+    /// Reviewer recorded the current decision and feedback.
+    FinishReview(FinishReview),
     /// Planner complete/blocking result.
     Plan(SubmitPlan),
     /// Executor submission result.
@@ -505,6 +579,10 @@ impl WorkRunTerminal {
     /// Returns the role-specific terminal validation error for malformed input.
     pub fn validate(&self) -> Result<(), WorkDomainError> {
         match self {
+            Self::FinishPlanning(value) => value.validate(),
+            Self::FinishExecution(value) => value.validate(),
+            Self::ContinueExecution(value) => value.validate(),
+            Self::FinishReview(value) => value.validate(),
             Self::Plan(value) => value.validate(),
             Self::TaskResult(value) => value.validate(),
             Self::Review(value) => value.validate(),
@@ -516,6 +594,9 @@ impl WorkRunTerminal {
     #[must_use]
     pub const fn run_kind(&self) -> RunKind {
         match self {
+            Self::FinishPlanning(_) => RunKind::Planner,
+            Self::FinishExecution(_) | Self::ContinueExecution(_) => RunKind::Executor,
+            Self::FinishReview(_) => RunKind::Reviewer,
             Self::Plan(_) => RunKind::Planner,
             Self::TaskResult(_) | Self::Blocked(_) => RunKind::Executor,
             Self::Review(_) => RunKind::Reviewer,

@@ -18,6 +18,7 @@ use super::{
 };
 
 const DEFAULT_SUMMARY_TARGET_TOKENS: u32 = 1_200;
+const MODEL_TOOL_RESULT_LIMIT: usize = 64 * 1024;
 
 /// Minimal provider request state for the next continuation round.
 pub(super) struct ProviderContinuationInput {
@@ -39,6 +40,7 @@ pub(crate) struct ContinuationContext {
 }
 
 impl ContinuationContext {
+    #[cfg(test)]
     pub(super) fn new(original_input: &str) -> Self {
         Self::from_provider_input(GenerateInput::Text(original_input.to_string()))
     }
@@ -143,7 +145,7 @@ impl ContinuationContext {
                     provider_name: result.provider_name.clone(),
                     arguments: result.arguments.clone(),
                     success: result.success,
-                    payload: result.payload.clone(),
+                    payload: bounded_tool_result(&result.payload),
                 }));
         }
     }
@@ -454,6 +456,23 @@ impl ContinuationContext {
     }
 }
 
+fn bounded_tool_result(payload: &serde_json::Value) -> serde_json::Value {
+    let encoded = payload.to_string();
+    if encoded.len() <= MODEL_TOOL_RESULT_LIMIT {
+        return payload.clone();
+    }
+    let preview_limit = MODEL_TOOL_RESULT_LIMIT.saturating_sub(256);
+    let mut end = preview_limit.min(encoded.len());
+    while !encoded.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    serde_json::json!({
+        "truncated": true,
+        "message": "Tool result exceeded the model-facing limit.",
+        "preview": &encoded[..end],
+    })
+}
+
 fn response_message(response: &GenerateResponseItem) -> Option<GenerateInputItem> {
     let content = match response {
         GenerateResponseItem::Text { text, .. } => text.clone(),
@@ -629,6 +648,25 @@ mod tests {
         let rendered = GenerateInput::Items(items).render_for_token_count();
         assert!(rendered.contains("450,000 black bears"));
         assert!(rendered.contains("https://example.test/official"));
+    }
+
+    #[test]
+    fn model_facing_tool_results_are_bounded_before_admission() {
+        let mut context = ContinuationContext::new("Inspect a large result");
+        context.append_results(&[gateway_result(
+            "call_large",
+            "https://example.test/large",
+            &"x".repeat(MODEL_TOOL_RESULT_LIMIT + 1_000),
+        )]);
+
+        let GenerateInput::Items(items) = context.provider_input(true) else {
+            panic!("expected structured continuation input");
+        };
+        let GenerateInputItem::ToolResult(result) = items.last().expect("tool result") else {
+            panic!("expected tool result");
+        };
+        assert_eq!(result.payload["truncated"], true);
+        assert!(result.payload.to_string().len() <= MODEL_TOOL_RESULT_LIMIT);
     }
 
     #[test]

@@ -252,17 +252,60 @@ impl NoemaStore {
         task_id: &TaskId,
     ) -> Result<Option<WorkTaskDetail>, StoreError> {
         let task_id = task_id.clone();
-        self.with_connection(move |conn| {
-            let transaction = conn.transaction()?;
-            let Some(facts) = load_task_facts(&transaction, &task_id)? else {
-                return Ok(None);
-            };
-            let history = crate::work_reads::history::load_task_history(&transaction, &task_id)?;
-            let artifacts =
-                crate::work_reads::artifacts::load_recent_task_artifacts(&transaction, &task_id)?;
-            Ok(Some(facts.into_detail(history, artifacts)))
-        })
-        .await
+        let detail = self
+            .with_connection({
+                let task_id = task_id.clone();
+                move |conn| {
+                    let transaction = conn.transaction()?;
+                    let Some(facts) = load_task_facts(&transaction, &task_id)? else {
+                        return Ok(None);
+                    };
+                    let history =
+                        crate::work_reads::history::load_task_history(&transaction, &task_id)?;
+                    let artifacts = crate::work_reads::artifacts::load_recent_task_artifacts(
+                        &transaction,
+                        &task_id,
+                    )?;
+                    Ok(Some(facts.into_detail(history, artifacts)))
+                }
+            })
+            .await?;
+        let Some(mut detail) = detail else {
+            return Ok(None);
+        };
+        self.ensure_task_document(&task_id).await.map_err(|error| {
+            StoreError::InvariantViolation {
+                message: error.to_string(),
+            }
+        })?;
+        detail.task_document = self
+            .read_task_file(&task_id, crate::TASK_DOCUMENT)
+            .await
+            .map_err(|error| StoreError::InvariantViolation {
+                message: error.to_string(),
+            })?;
+        detail.review_document = match self.read_task_file(&task_id, crate::TASK_REVIEW).await {
+            Ok(content) => Some(content),
+            Err(crate::TaskFileError::Io(error))
+                if error.kind() == std::io::ErrorKind::NotFound =>
+            {
+                None
+            }
+            Err(error) => {
+                return Err(StoreError::InvariantViolation {
+                    message: error.to_string(),
+                });
+            }
+        };
+        detail.working_directory = self
+            .task_working_directory(&task_id)
+            .await
+            .map_err(|error| StoreError::InvariantViolation {
+                message: error.to_string(),
+            })?
+            .to_string_lossy()
+            .into_owned();
+        Ok(Some(detail))
     }
 }
 

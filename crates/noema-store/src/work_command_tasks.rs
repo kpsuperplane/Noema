@@ -867,6 +867,12 @@ async fn delegate(
                 command.provenance.created_by_actor_id,
             ],
         )?;
+        if let Some(intent) = &command.execution_intent {
+            transaction.execute(
+                "UPDATE tasks SET execution_complexity = ?2 WHERE task_id = ?1",
+                params![task_id.as_str(), intent.complexity.as_str()],
+            )?;
+        }
         let task = helpers::load_task_state_tx(transaction, &task_id)?;
         let captured = WorkEventPayload::task_captured(
             1,

@@ -397,8 +397,11 @@ pub(super) fn action_store_failure_result(call: &LocalToolCall) -> LocalToolResu
         call,
         LocalToolKind::Gateway,
         false,
-        serde_json::json!({"error": "governed action could not be persisted"}),
-        false,
+        serde_json::json!({
+            "code": "action_storage_unavailable",
+            "message": "The governed action could not be stored. Continue without assuming it ran."
+        }),
+        true,
     )
 }
 
@@ -421,6 +424,23 @@ mod tests {
     use noema_tasks::{TaskId, TaskMessageId, TaskMessageKind, TaskMessageRecord};
 
     use super::*;
+
+    #[test]
+    fn action_storage_failure_returns_to_the_provider() {
+        let call = LocalToolCall {
+            output_index: 0,
+            call_id: Some("call:store-failure".to_string()),
+            provider_call_id: Some("provider:store-failure".to_string()),
+            provider_name: None,
+            name: "capability.test".to_string(),
+            payload: serde_json::json!({}),
+        };
+
+        let result = action_store_failure_result(&call);
+
+        assert!(result.requires_provider_continuation);
+        assert_eq!(result.payload["code"], "action_storage_unavailable");
+    }
 
     #[tokio::test]
     async fn observed_browser_open_is_authorized_without_review() {

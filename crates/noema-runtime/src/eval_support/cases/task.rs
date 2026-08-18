@@ -369,6 +369,9 @@ fn fixture_work_context(
         description_markdown: request_markdown.to_string(),
         executor_agent_id: TASK_EXECUTOR_AGENT_ID.to_string(),
         cwd_override: None,
+        task_directory: "evaluation-task".to_string(),
+        execution_complexity: Some(complexity),
+        current_review_decision: None,
         authorization_context: TaskAuthorizationContext::ConversationExcerpt {
             messages: vec![TaskAuthorizationMessage {
                 item_id: "item:evaluation:source".to_string(),
