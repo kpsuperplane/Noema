@@ -356,7 +356,7 @@ impl WorkerState {
         self.page
             .navigate_with_wait(checked.url.as_str(), map_wait(wait))
             .await
-            .map_err(|_| WebBrowseError::Unavailable)?;
+            .map_err(|_| WebBrowseError::NavigationFailed)?;
         self.page.settle(POST_NAVIGATION_SETTLE_MS).await;
         self.validate_resulting_url().await
     }

@@ -58,6 +58,9 @@ pub enum WebFetchError {
     /// The response content type is unsupported.
     #[error("unsupported content type")]
     UnsupportedContentType,
+    /// A declared textual response was not valid UTF-8.
+    #[error("text response is not valid UTF-8")]
+    InvalidTextEncoding,
     /// The response exceeded its byte or character limit.
     #[error("response too large")]
     ResponseTooLarge,

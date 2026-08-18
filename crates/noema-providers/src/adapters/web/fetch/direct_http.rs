@@ -1,7 +1,7 @@
 //! Direct Rust HTTP implementation for `web.fetch`.
 
 use super::{
-    extraction::{extract_readable_content, normalize_plain_text},
+    extraction::extract_readable_content,
     summarize::{SummaryDecision, raw_excerpt, summarize_markdown, summary_strategy_for_chars},
     url_policy::{CheckedUrl, validate_public_web_fetch_url, validate_public_web_fetch_url_parsed},
 };
@@ -123,7 +123,7 @@ async fn fetch_direct_http_checked(
             .header(header::USER_AGENT, USER_AGENT)
             .header(
                 header::ACCEPT,
-                "text/html,text/plain,text/markdown;q=0.9,*/*;q=0.1",
+                "text/html,text/*;q=0.9,application/json;q=0.8,application/xml;q=0.8,*/*;q=0.1",
             )
             .header(header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
             .timeout(client.request_timeout)
@@ -168,23 +168,38 @@ async fn fetch_direct_http_checked(
             .and_then(|value| value.to_str().ok())
             .unwrap_or("")
             .to_ascii_lowercase();
-        let is_html = content_type.contains("text/html") || content_type.is_empty();
-        let is_text = content_type.contains("text/plain")
-            || content_type.contains("text/markdown")
-            || content_type.contains("text/x-markdown")
-            || content_type.contains("application/markdown");
+        let media_type = content_type.split(';').next().unwrap_or_default().trim();
+        let is_html = matches!(media_type, "" | "text/html" | "application/xhtml+xml");
+        let is_text = !is_html && is_supported_text_media_type(media_type);
         if !is_html && !is_text {
             return Err(WebFetchError::UnsupportedContentType);
         }
 
         let final_url = checked.url.to_string();
+        if is_text {
+            let (content, raw_chars, truncated) =
+                read_text_prefix(response, request.max_chars).await?;
+            return Ok(FetchResponse {
+                provider: DIRECT_HTTP_PROVIDER_ID.to_string(),
+                url: original_url,
+                final_url,
+                title: None,
+                links: Vec::new(),
+                format: media_type.to_string(),
+                extraction: "none".to_string(),
+                content_kind: FetchContentKind::RawText,
+                returned_chars: content.chars().count(),
+                content,
+                raw_excerpt: None,
+                raw_chars,
+                summary_model: None,
+                summary_strategy: FetchSummaryStrategy::NotSummarized,
+                truncated,
+            });
+        }
         let body = read_limited_body(response).await?;
         let body_text = String::from_utf8_lossy(&body).to_string();
-        let extracted = if is_html {
-            extract_readable_content(&body_text, &final_url)?
-        } else {
-            normalize_plain_text(&body_text)
-        };
+        let extracted = extract_readable_content(&body_text, &final_url)?;
         let raw_chars = extracted.markdown.chars().count();
         let decision = summary_strategy_for_chars(raw_chars);
         let (content_kind, content, raw_excerpt_value, summary_strategy, summary_model, truncated) =
@@ -243,6 +258,59 @@ async fn fetch_direct_http_checked(
     }
 
     Err(WebFetchError::TooManyRedirects)
+}
+
+fn is_supported_text_media_type(media_type: &str) -> bool {
+    media_type.starts_with("text/")
+        || matches!(
+            media_type,
+            "application/markdown" | "application/json" | "application/xml"
+        )
+        || media_type.ends_with("+json")
+        || media_type.ends_with("+xml")
+}
+
+async fn read_text_prefix(
+    response: reqwest::Response,
+    max_chars: usize,
+) -> Result<(String, usize, bool), WebFetchError> {
+    let byte_limit = max_chars
+        .saturating_add(1)
+        .saturating_mul(4)
+        .saturating_add(3);
+    let mut stream = response.bytes_stream();
+    let mut body = Vec::with_capacity(byte_limit.min(64 * 1024));
+    let mut source_has_more_bytes = false;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(map_reqwest_error)?;
+        let remaining = byte_limit.saturating_sub(body.len());
+        if chunk.len() > remaining {
+            body.extend_from_slice(&chunk[..remaining]);
+            source_has_more_bytes = true;
+            break;
+        }
+        body.extend_from_slice(&chunk);
+        if std::str::from_utf8(&body).is_ok_and(|text| text.chars().count() > max_chars) {
+            break;
+        }
+    }
+
+    let text = match std::str::from_utf8(&body) {
+        Ok(text) => text,
+        Err(error) if error.error_len().is_none() && source_has_more_bytes => {
+            std::str::from_utf8(&body[..error.valid_up_to()])
+                .map_err(|_| WebFetchError::InvalidTextEncoding)?
+        }
+        Err(_) => return Err(WebFetchError::InvalidTextEncoding),
+    };
+    let raw_chars = text.chars().count();
+    let content = text.chars().take(max_chars).collect();
+    Ok((
+        content,
+        raw_chars,
+        source_has_more_bytes || raw_chars > max_chars,
+    ))
 }
 
 async fn read_limited_body(response: reqwest::Response) -> Result<Vec<u8>, WebFetchError> {
@@ -405,10 +473,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_response_body_over_byte_cap() {
+    async fn rejects_html_response_body_over_byte_cap() {
         let body = "x".repeat(MAX_RESPONSE_BYTES + 1);
         let url = serve_once(&format!(
-            "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\n\r\n{}",
             body.len(),
             body
         ))
@@ -427,10 +495,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn summarizes_large_plain_text() {
-        let body = "large page sentence.\n".repeat(450);
+    async fn summarizes_large_html() {
+        let body = format!(
+            "<html><head><title>Large article</title></head><body><article><h1>Large article</h1><p>{}</p></article></body></html>",
+            "large page sentence with useful source detail. ".repeat(450)
+        );
         let url = serve_once(&format!(
-            "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\n\r\n{}",
             body.len(),
             body
         ))
@@ -454,10 +525,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn marks_raw_markdown_truncated_when_limited_by_max_chars() {
-        let body = "plain text content that is long enough to truncate";
+    async fn returns_bounded_csv_without_reading_the_complete_resource() {
+        let body = "1,example.com\n2,example.org\n".repeat(10_000);
         let url = serve_once(&format!(
-            "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\ncontent-type: text/csv\r\ncontent-length: {}\r\n\r\n{}",
             body.len(),
             body
         ))
@@ -465,15 +536,39 @@ mod tests {
         let request = FetchRequest {
             url,
             reason: None,
-            max_chars: 10,
+            max_chars: 2_000,
         };
         let response =
             fetch_direct_http_unchecked_initial_url(&test_client(), &request, &test_context())
                 .await
                 .expect("fetch");
 
-        assert_eq!(response.content, "plain text");
+        assert_eq!(response.content_kind, FetchContentKind::RawText);
+        assert_eq!(response.format, "text/csv");
+        assert_eq!(response.extraction, "none");
+        assert_eq!(response.returned_chars, 2_000);
         assert!(response.truncated);
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_utf8_text() {
+        let mut response =
+            b"HTTP/1.1 200 OK\r\ncontent-type: text/csv\r\ncontent-length: 2\r\n\r\n".to_vec();
+        response.extend_from_slice(&[0xff, 0xfe]);
+        let url = serve_once_bytes(response).await;
+        let error = fetch_direct_http_unchecked_initial_url(
+            &test_client(),
+            &FetchRequest {
+                url,
+                reason: None,
+                max_chars: 2_000,
+            },
+            &test_context(),
+        )
+        .await
+        .expect_err("invalid UTF-8");
+
+        assert_eq!(error, WebFetchError::InvalidTextEncoding);
     }
 
     #[tokio::test]
@@ -497,6 +592,18 @@ mod tests {
 
     async fn serve_once(response: &str) -> String {
         let addr = serve_once_addr(response).await;
+        format!("http://{addr}/")
+    }
+
+    async fn serve_once_bytes(response: Vec<u8>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut buffer = [0_u8; 2048];
+            let _ = stream.read(&mut buffer).await;
+            stream.write_all(&response).await.expect("write");
+        });
         format!("http://{addr}/")
     }
 

@@ -343,6 +343,7 @@ fn encode_error(error: WebBrowseError) -> &'static str {
         WebBrowseError::ElementNotFound => "element_not_found",
         WebBrowseError::Timeout => "timeout",
         WebBrowseError::HistoryUnavailable => "history_unavailable",
+        WebBrowseError::NavigationFailed => "navigation_failed",
         WebBrowseError::Unavailable => "unavailable",
         WebBrowseError::OutcomeUncertain => "outcome_uncertain",
     }
@@ -358,6 +359,7 @@ fn decode_error(value: &str) -> Result<WebBrowseError, WebBrowseError> {
         "element_not_found" => Ok(WebBrowseError::ElementNotFound),
         "timeout" => Ok(WebBrowseError::Timeout),
         "history_unavailable" => Ok(WebBrowseError::HistoryUnavailable),
+        "navigation_failed" => Ok(WebBrowseError::NavigationFailed),
         "unavailable" => Ok(WebBrowseError::Unavailable),
         "outcome_uncertain" => Ok(WebBrowseError::OutcomeUncertain),
         _ => Err(WebBrowseError::Unavailable),
@@ -467,5 +469,9 @@ mod tests {
             error: Some("unavailable".to_string()),
         };
         assert_eq!(ambiguous.into_result(), Err(WebBrowseError::Unavailable));
+        assert_eq!(
+            decode_error(encode_error(WebBrowseError::NavigationFailed)),
+            Ok(WebBrowseError::NavigationFailed)
+        );
     }
 }

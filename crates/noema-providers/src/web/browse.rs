@@ -53,6 +53,9 @@ pub enum WebBrowseError {
     /// The requested history entry does not exist.
     #[error("browser history entry is unavailable")]
     HistoryUnavailable,
+    /// The worker remained available but could not navigate to the resource.
+    #[error("browser navigation failed; use web.fetch for documents or downloads")]
+    NavigationFailed,
     /// The browser worker failed before dispatch.
     #[error("browser worker unavailable")]
     Unavailable,

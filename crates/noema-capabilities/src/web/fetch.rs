@@ -44,6 +44,8 @@ pub struct FetchRequest {
 pub enum FetchContentKind {
     /// Extracted Markdown without model summarization.
     RawMarkdown,
+    /// Bounded UTF-8 text returned without extraction or summarization.
+    RawText,
     /// Model-produced summary.
     Summary,
 }
@@ -137,7 +139,7 @@ pub struct FetchResponse {
     pub content: String,
     /// Bounded raw excerpt accompanying a summary.
     pub raw_excerpt: Option<String>,
-    /// Raw extracted character count.
+    /// Raw characters observed before the response was bounded.
     pub raw_chars: usize,
     /// Returned character count.
     pub returned_chars: usize,
@@ -184,7 +186,7 @@ impl FetchArgumentError {
 pub fn tool_spec() -> Result<ToolSpec, ToolContractError> {
     ToolSpec::new(
         WEB_FETCH_TOOL,
-        "Fetch and read a public web page using Noema's configured web fetch provider. When following a search result or fetched-page link, pass its exact URL unchanged.",
+        "Fetch and read a public web page or UTF-8 text resource using Noema's configured web fetch provider. When following a search result or fetched-page link, pass its exact URL unchanged.",
         json!({
             "type": "object",
             "properties": {
@@ -192,7 +194,7 @@ pub fn tool_spec() -> Result<ToolSpec, ToolContractError> {
                     "type": "string",
                     "minLength": 1,
                     "maxLength": MAX_URL_CHARS,
-                    "description": "The public http(s) URL to fetch and read."
+                    "description": "The public http(s) URL of a web page or text resource to fetch and read."
                 },
                 "reason": {
                     "type": "string",

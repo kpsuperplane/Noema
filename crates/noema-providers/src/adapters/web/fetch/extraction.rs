@@ -48,15 +48,6 @@ pub(super) fn extract_readable_content(
     })
 }
 
-#[must_use]
-pub(super) fn normalize_plain_text(text: &str) -> ExtractedContent {
-    ExtractedContent {
-        title: None,
-        markdown: normalize_newlines(text),
-        links: Vec::new(),
-    }
-}
-
 fn extract_public_links(html: &str, final_url: &str) -> Vec<String> {
     let Ok(base) = url::Url::parse(final_url) else {
         return Vec::new();

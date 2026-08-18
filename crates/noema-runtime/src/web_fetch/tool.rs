@@ -100,6 +100,7 @@ pub fn safe_error_message(error: &FetchExecutionError) -> String {
         WebFetchError::Http => "web fetch request failed",
         WebFetchError::AuthFailed => "provider account unauthenticated",
         WebFetchError::UnsupportedContentType => "content type is not supported",
+        WebFetchError::InvalidTextEncoding => "text response is not valid UTF-8",
         WebFetchError::ResponseTooLarge => "response exceeded the web fetch size limit",
         WebFetchError::Extraction => "readable page content could not be extracted",
         WebFetchError::Summarization => "page summarization failed",
