@@ -331,10 +331,7 @@ private struct TasksDetailContent: View {
 
   private var secondarySurfaceTransition: AnyTransition {
     guard !reduceMotion else { return .identity }
-    return .asymmetric(
-      insertion: .move(edge: .bottom).combined(with: .opacity),
-      removal: .move(edge: .top).combined(with: .opacity)
-    )
+    return .move(edge: .bottom).combined(with: .opacity)
   }
 }
 
