@@ -7,6 +7,10 @@ import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { IdentityAvatar } from "@/components/IdentityAvatar";
+import { ActivityRow } from "@/components/transcript/ActivityRow";
+import { Message } from "@/components/transcript/Message";
+import type { RenderTranscriptEntry } from "@/components/transcript/renderModel";
+import { ToolMarker } from "@/components/transcript/ToolMarker";
 import { springs } from "@/motion/springs";
 import type { TaskDetail, TaskRun, TaskRunItem, TaskRunStatus } from "./taskTypes";
 import { TaskBody } from "./TaskBody";
@@ -36,27 +40,25 @@ export function TaskDetailPanel({
   onOpenDetail: (target: ChatDetailTarget) => void;
 }) {
   const currentDetail = detail?.taskId === taskId ? detail : null;
-  const [latestRunText, setLatestRunText] = React.useState<ReadonlyMap<string, string>>(
+  const [latestRunEntries, setLatestRunEntries] = React.useState<
+    ReadonlyMap<string, RenderTranscriptEntry>
+  >(
     () => new Map()
   );
-  const onLatestRunItemChange = React.useCallback((
+  const onLatestRunEntryChange = React.useCallback((
     runId: string,
-    item: TaskRunItem | null,
-    displayText?: string | null
+    entry: RenderTranscriptEntry | null
   ) => {
-    const text = displayText === undefined
-      ? item ? item.summary?.trim() || item.title : null
-      : displayText?.trim() || null;
-    setLatestRunText((previous) => {
-      if (!text) {
+    setLatestRunEntries((previous) => {
+      if (!entry) {
         if (!previous.has(runId)) return previous;
         const next = new Map(previous);
         next.delete(runId);
         return next;
       }
-      if (previous.get(runId) === text) return previous;
+      if (previous.get(runId) === entry) return previous;
       const next = new Map(previous);
-      next.set(runId, text);
+      next.set(runId, entry);
       return next;
     });
   }, []);
@@ -83,7 +85,7 @@ export function TaskDetailPanel({
       key={`context:${taskId}:${currentDetail.attention ? "attention" : "info"}`}
       detail={currentDetail}
       governedActions={governedActions}
-      latestRunText={latestRunText}
+      latestRunEntries={latestRunEntries}
       run={run}
       controls={controls}
       showTasksLink={showTasksLink}
@@ -95,7 +97,7 @@ export function TaskDetailPanel({
       <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
         <TaskTranscriptSourceProvider
           liveItems={run ? liveRunItems?.get(run.id) : undefined}
-          onLatestRunItemChange={onLatestRunItemChange}
+          onLatestRunEntryChange={onLatestRunEntryChange}
           run={run}
           taskId={taskId}
         >
@@ -105,7 +107,7 @@ export function TaskDetailPanel({
             detail={currentDetail}
             liveRunItems={liveRunItems}
             onOpenDetail={onOpenDetail}
-            onLatestRunItemChange={onLatestRunItemChange}
+            onLatestRunEntryChange={onLatestRunEntryChange}
           />
         </TaskTranscriptSourceProvider>
       </div>
@@ -117,7 +119,7 @@ function TaskContextCard({
   detail,
   governedActions,
   controls,
-  latestRunText,
+  latestRunEntries,
   run,
   showTasksLink,
   taskId
@@ -126,7 +128,7 @@ function TaskContextCard({
   detail: TaskDetail;
   governedActions?: React.ReactNode;
   controls?: React.ReactNode;
-  latestRunText: ReadonlyMap<string, string>;
+  latestRunEntries: ReadonlyMap<string, RenderTranscriptEntry>;
   run: TaskRun | null;
   showTasksLink: boolean;
 }) {
@@ -136,7 +138,7 @@ function TaskContextCard({
       <div {...stylex.props(styles.contextCard)}>
         <TaskSummaryHeader
           detail={detail}
-          latestRunText={latestRunText}
+          latestRunEntries={latestRunEntries}
           run={run}
           controls={controls}
           showTasksLink={showTasksLink}
@@ -152,20 +154,20 @@ function TaskContextCard({
 
 function TaskSummaryHeader({
   detail,
-  latestRunText,
+  latestRunEntries,
   run,
   controls,
   showTasksLink,
   taskId
 }: {
   detail: TaskDetail;
-  latestRunText: ReadonlyMap<string, string>;
+  latestRunEntries: ReadonlyMap<string, RenderTranscriptEntry>;
   run: TaskRun | null;
   controls?: React.ReactNode;
   showTasksLink: boolean;
   taskId: string;
 }) {
-  const latestText = run ? latestRunText.get(run.id) ?? null : null;
+  const latestEntry = run ? latestRunEntries.get(run.id) ?? null : null;
   return (
     <header {...stylex.props(styles.summaryHeader, !run && styles.summaryHeaderWithoutAvatar)}>
       {run ? (
@@ -175,12 +177,12 @@ function TaskSummaryHeader({
           </AnimatePresence>
         </span>
       ) : null}
-      <span {...stylex.props(styles.summaryCopy)}>
+      <div {...stylex.props(styles.summaryCopy)}>
         <strong {...stylex.props(styles.summaryTitle)}>
           {run ? `${run.instanceName} · ${capitalize(run.role)}` : "No agent run yet"}
         </strong>
-        <span {...stylex.props(styles.summaryOutput)}>{latestRunOutput(run, latestText)}</span>
-      </span>
+        <TaskSummaryEntry entry={latestEntry} run={run} />
+      </div>
       <span {...stylex.props(styles.summaryActions)}>
         {controls ? <span {...stylex.props(styles.summaryControlsHost)}>{controls}</span> : null}
         {showTasksLink ? (
@@ -344,8 +346,53 @@ function latestTaskRun(detail: TaskDetail): TaskRun | null {
   return runs.find((run) => run.status === "running" || run.status === "leased" || run.status === "queued") ?? runs[0] ?? null;
 }
 
-function latestRunOutput(run: TaskRun | null, latestText: string | null): string {
-  if (latestText) return latestText;
+function TaskSummaryEntry({
+  entry,
+  run
+}: {
+  entry: RenderTranscriptEntry | null;
+  run: TaskRun | null;
+}) {
+  if (entry?.kind === "tool_marker" || entry?.kind === "tool_marker_group") {
+    return (
+      <div {...stylex.props(styles.summaryEntry)}>
+        <ToolMarker
+          data={entry.kind === "tool_marker"
+            ? { kind: "tool", marker: entry.marker }
+            : { kind: "tool_group", markers: entry.markers }}
+          interactive={false}
+          onToggle={() => {}}
+          open={false}
+          renderDetail={false}
+        />
+      </div>
+    );
+  }
+  if (entry?.kind === "entry" && entry.entry.type === "assistant") {
+    return (
+      <div {...stylex.props(styles.summaryEntry)}>
+        <Message
+          animate={false}
+          reserveAvatarSpace={false}
+          role="assistant"
+          showAvatar={false}
+          singleLine
+          text={entry.entry.text}
+        />
+      </div>
+    );
+  }
+  if (entry?.kind === "entry" && entry.entry.type === "activity") {
+    return (
+      <div {...stylex.props(styles.summaryEntry)}>
+        <ActivityRow item={entry.entry.item} onToggle={() => {}} open={false} singleLine />
+      </div>
+    );
+  }
+  return <span {...stylex.props(styles.summaryOutput)}>{latestRunOutput(run)}</span>;
+}
+
+function latestRunOutput(run: TaskRun | null): string {
   if (run?.error) return run.error;
   switch (run?.status) {
     case "running": return "Running";
@@ -429,6 +476,7 @@ const styles = stylex.create({
   summaryCopy: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
   summaryTitle: { minWidth: 0, color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, lineHeight: 1.35, overflow: "hidden", overflowWrap: "anywhere", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   summaryOutput: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  summaryEntry: { display: "block", minWidth: 0, overflow: "hidden" },
   summaryActions: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)" },
   summaryControlsHost: { display: "inline-flex", alignItems: "center" },
   summaryAction: { width: 28, height: 28 },

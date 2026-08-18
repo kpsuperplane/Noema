@@ -69,6 +69,13 @@ const styles = stylex.create({
     display: "grid",
     minWidth: 0
   },
+  singleLine: {
+    maxHeight: "1.7em",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap"
+  },
   attachment: {
     display: "flex",
     alignItems: "flex-start",
@@ -92,6 +99,7 @@ export function Message({
   text,
   showAvatar,
   reserveAvatarSpace = true,
+  singleLine = false,
   variant = "message",
   debugUsage = null,
   onDebug,
@@ -106,6 +114,7 @@ export function Message({
   text: string;
   showAvatar: boolean;
   reserveAvatarSpace?: boolean;
+  singleLine?: boolean;
   variant?: "message" | "typing";
   debugUsage?: ProviderUsageDebug | null;
   onDebug?: () => void;
@@ -129,11 +138,17 @@ export function Message({
         <TypingMessageContent />
       ) : (
         <div {...stylex.props(styles.content)}>
-          <ExpandableTextBubbleContent onExpandedChange={setExpanded} onOverflowChange={setOverflowing}>
-            <VStack gap={1}>
+          {singleLine ? (
+            <div {...stylex.props(styles.singleLine)}>
               <MessageMarkdown animate={animate} role={role} citations={citations} text={text} />
-            </VStack>
-          </ExpandableTextBubbleContent>
+            </div>
+          ) : (
+            <ExpandableTextBubbleContent onExpandedChange={setExpanded} onOverflowChange={setOverflowing}>
+              <VStack gap={1}>
+                <MessageMarkdown animate={animate} role={role} citations={citations} text={text} />
+              </VStack>
+            </ExpandableTextBubbleContent>
+          )}
           {attachment ? <div {...stylex.props(styles.attachment)}>{attachment}</div> : null}
         </div>
       )}

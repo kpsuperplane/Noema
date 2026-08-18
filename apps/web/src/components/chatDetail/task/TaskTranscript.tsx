@@ -7,7 +7,7 @@ import { Transcript } from "@/components/Transcript";
 import type { TranscriptEntry } from "@/shared/types";
 import {
   TaskRunTranscriptSource,
-  type TaskRunLatestItemChange,
+  type TaskRunLatestEntryChange,
   type TaskRunTranscriptSnapshot
 } from "./TaskRunTranscript";
 import {
@@ -37,13 +37,13 @@ const TaskTranscriptSourceContext = React.createContext<TaskTranscriptSourceValu
 export function TaskTranscriptSourceProvider({
   children,
   liveItems,
-  onLatestRunItemChange,
+  onLatestRunEntryChange,
   run,
   taskId
 }: {
   children: React.ReactNode;
   liveItems?: readonly TaskRunItem[];
-  onLatestRunItemChange?: TaskRunLatestItemChange;
+  onLatestRunEntryChange?: TaskRunLatestEntryChange;
   run: TaskRun | null;
   taskId: string;
 }) {
@@ -88,7 +88,7 @@ export function TaskTranscriptSourceProvider({
           key={run.id}
           liveItems={liveItems}
           onSnapshot={onSnapshot}
-          onLatestRunItemChange={onLatestRunItemChange}
+          onLatestRunEntryChange={onLatestRunEntryChange}
           refreshEvent={refreshEvent}
           run={run}
         />
@@ -102,12 +102,12 @@ export function TaskTranscript({
   detail,
   liveRunItems,
   onOpenDetail,
-  onLatestRunItemChange
+  onLatestRunEntryChange
 }: {
   detail: TaskDetail;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   onOpenDetail: (target: ChatDetailTarget) => void;
-  onLatestRunItemChange?: TaskRunLatestItemChange;
+  onLatestRunEntryChange?: TaskRunLatestEntryChange;
 }) {
   const runs = React.useMemo(() => taskRunsInOrder(detail.revisions), [detail.revisions]);
   const sharedSource = React.useContext(TaskTranscriptSourceContext);
@@ -222,7 +222,7 @@ export function TaskTranscript({
           key={run.run.id}
           liveItems={liveRunItems?.get(run.run.id)}
           onSnapshot={onSnapshot}
-          onLatestRunItemChange={onLatestRunItemChange}
+          onLatestRunEntryChange={onLatestRunEntryChange}
           refreshEvent={sharedSource.refreshEvent}
           run={run.run}
         />

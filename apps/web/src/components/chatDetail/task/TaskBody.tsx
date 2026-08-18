@@ -4,6 +4,7 @@ import * as stylex from "@stylexjs/stylex";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { ProviderCitationMarkdown } from "@/components/transcript/ProviderCitationSources";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
+import type { TaskRunLatestEntryChange } from "./TaskRunTranscript";
 import { TaskTranscript } from "./TaskTranscript";
 
 type TaskTab = "result" | "task" | "transcript";
@@ -12,13 +13,13 @@ export function TaskBody({
   contextCard,
   liveRunItems,
   onOpenDetail,
-  onLatestRunItemChange
+  onLatestRunEntryChange
 }: {
   detail: TaskDetail;
   contextCard: React.ReactNode;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   onOpenDetail: (target: ChatDetailTarget) => void;
-  onLatestRunItemChange?: (runId: string, item: TaskRunItem | null) => void;
+  onLatestRunEntryChange?: TaskRunLatestEntryChange;
 }) {
   const hasResult = Boolean(detail.resultDocument?.trim());
   const tabs = React.useMemo<readonly TaskTab[]>(
@@ -101,7 +102,7 @@ export function TaskBody({
               detail={detail}
               liveRunItems={liveRunItems}
               onOpenDetail={onOpenDetail}
-              onLatestRunItemChange={onLatestRunItemChange}
+              onLatestRunEntryChange={onLatestRunEntryChange}
             />
           </div>
         )}

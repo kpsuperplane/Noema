@@ -199,6 +199,7 @@ export function ToolMarker({
   onToggle,
   detail,
   renderDetail = true,
+  interactive = true,
   presentation = "activity",
   expandedMarkers,
   onToggleMarker
@@ -208,6 +209,7 @@ export function ToolMarker({
   onToggle: () => void;
   detail?: ReactNode;
   renderDetail?: boolean;
+  interactive?: boolean;
   presentation?: ToolMarkerPresentation;
   expandedMarkers?: ReadonlySet<string>;
   onToggleMarker?: (id: string) => void;
@@ -230,7 +232,7 @@ export function ToolMarker({
 
   if (data.kind === "tool_group") {
     const singleCall = calls.length === 1;
-    const expandable = !singleCall || collapsedCall.expandable;
+    const expandable = interactive && (!singleCall || collapsedCall.expandable);
     const groupContentId = `${data.markers[0]?.id ?? "tool-group"}-calls`;
     const rowContent = (
       <>
@@ -296,9 +298,11 @@ export function ToolMarker({
   }
 
   const defaultCall = calls[0];
-  const call = detail === undefined
-    ? defaultCall
-    : { ...defaultCall, expandable: true, resultDetail: detail };
+  const call = !interactive
+    ? { ...defaultCall, expandable: false }
+    : detail === undefined
+      ? defaultCall
+      : { ...defaultCall, expandable: true, resultDetail: detail };
 
   return (
     <div {...stylex.props(styles.root)}>

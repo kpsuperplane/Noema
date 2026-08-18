@@ -56,11 +56,13 @@ export function activityRendersAsSystemNotice(
 export function ActivityRow({
   item,
   open,
-  onToggle
+  onToggle,
+  singleLine = false
 }: {
   item: Extract<TurnTranscriptItem, { kind: "activity" }>;
   open: boolean;
   onToggle: () => void;
+  singleLine?: boolean;
 }) {
   const status = statusLabel(item.status);
   const neutral = activityPresentationTone(item) === "neutral";
@@ -78,7 +80,7 @@ export function ActivityRow({
 
   if (item.activity_kind === "task_run_start" || item.activity_kind === "task_run_end") {
     return (
-      <TranscriptSystemNotice avatar={avatar} role={item.status === "FAILED" ? "alert" : "status"} tone={noticeTone}>
+      <TranscriptSystemNotice avatar={avatar} role={item.status === "FAILED" ? "alert" : "status"} singleLine={singleLine} tone={noticeTone}>
         {item.title}
       </TranscriptSystemNotice>
     );
@@ -86,7 +88,7 @@ export function ActivityRow({
 
   if (item.activity_kind === "authentication_request") {
     return (
-      <TranscriptSystemNotice role="status" tone="default">
+      <TranscriptSystemNotice role="status" singleLine={singleLine} tone="default">
         {item.title}
       </TranscriptSystemNotice>
     );
@@ -125,7 +127,7 @@ export function ActivityRow({
   }
 
   return (
-    <TranscriptSystemNotice role={item.status === "FAILED" ? "alert" : "status"} tone={noticeTone}>
+    <TranscriptSystemNotice role={item.status === "FAILED" ? "alert" : "status"} singleLine={singleLine} tone={noticeTone}>
       {item.summary || item.title}
     </TranscriptSystemNotice>
   );

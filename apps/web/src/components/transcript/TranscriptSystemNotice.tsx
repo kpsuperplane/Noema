@@ -56,6 +56,16 @@ const styles = stylex.create({
     whiteSpace: "normal",
     wordBreak: "break-word"
   },
+  singleLineContent: {
+    flexWrap: "nowrap"
+  },
+  singleLineMessage: {
+    overflow: "hidden",
+    overflowWrap: "normal",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    wordBreak: "normal"
+  },
   defaultTone: {
     color: "var(--noema-text-secondary)"
   },
@@ -74,11 +84,13 @@ export function TranscriptSystemNotice({
   avatar,
   children,
   role,
+  singleLine = false,
   tone = "default"
 }: {
   avatar?: ReactNode;
   children: ReactNode;
   role?: AriaRole;
+  singleLine?: boolean;
   tone?: TranscriptSystemNoticeTone;
 }) {
   const leading = avatar ?? <Activity aria-hidden="true" size={14} strokeWidth={2} />;
@@ -94,9 +106,9 @@ export function TranscriptSystemNotice({
       role={role ?? "status"}
     >
       <span {...stylex.props(styles.rule)} aria-hidden="true" />
-      <span {...stylex.props(styles.content)}>
+      <span {...stylex.props(styles.content, singleLine && styles.singleLineContent)}>
         <span {...stylex.props(styles.avatar)} aria-hidden="true">{leading}</span>
-        <span {...stylex.props(styles.message)}>{children}</span>
+        <span {...stylex.props(styles.message, singleLine && styles.singleLineMessage)}>{children}</span>
       </span>
       <span {...stylex.props(styles.rule)} aria-hidden="true" />
     </div>
