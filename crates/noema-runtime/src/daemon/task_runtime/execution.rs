@@ -275,6 +275,22 @@ async fn append_current_task_files(
         )
         .await?;
     }
+    let support_files = services
+        .store
+        .list_task_files(&run.task_id, ".")
+        .await
+        .map_err(|error| RuntimeError::Protocol(error.to_string()))?
+        .into_iter()
+        .filter(|entry| !matches!(entry.path.as_str(), "TASK.md" | "RESULT.md" | "REVIEW.md"))
+        .map(|entry| format!("- {}", entry.path))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !support_files.is_empty() {
+        prompt.input.push_str(
+            "\n\nCurrent support-file manifest. Read relevant files before repeating work.\n",
+        );
+        prompt.input.push_str(&support_files);
+    }
     Ok(())
 }
 

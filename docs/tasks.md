@@ -166,6 +166,7 @@ The Planner reads current `TASK.md`.
 The Executor reads current `TASK.md`, optional `RESULT.md`, and optional `REVIEW.md`.
 The Reviewer reads current `TASK.md`, required `RESULT.md`, and optional `REVIEW.md`.
 Role prompts must not prescribe batches, checklists, or document sections.
+Before a continuation, the Executor records completed progress, the exact next action, and needed support-file references in `TASK.md`.
 
 Each role receives a fresh current run clock as system context.
 Scheduled Tasks use their schedule timezone.

@@ -372,9 +372,6 @@ fn safe_action_summary(
         }
         .to_string();
     }
-    if capability_name == noema_capabilities::file::FILE_DOWNLOAD_TOOL {
-        return "Download a public file into the working directory".to_string();
-    }
     let action = if behavior.read_only {
         "share data with an external tool"
     } else if behavior.destructive {
