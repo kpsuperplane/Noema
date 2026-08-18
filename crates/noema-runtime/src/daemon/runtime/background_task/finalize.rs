@@ -236,7 +236,8 @@ impl RuntimeActor {
             &run_fence,
         )
         .await;
-        Ok(BackgroundTaskGenerateResult { response })
+        let citation_sources = std::mem::take(citation_sources);
+        Ok(BackgroundTaskGenerateResult { response, citation_sources })
     }
 
     async fn persist_progress_notice(

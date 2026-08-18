@@ -8,7 +8,9 @@ use noema_tasks::{RunKind, TaskExecutorBackend};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    daemon::runtime::{BackgroundTaskGenerateRequest, BackgroundTaskGenerateResult},
+    daemon::runtime::{
+        BackgroundTaskGenerateRequest, BackgroundTaskGenerateResult, CitationSourceRegistry,
+    },
     daemon::task_run_context::{
         ExecutorBlockedResponse, ExecutorFinishResponse, PlannerBlockedResponse,
         PlannerPlanResponse, ReviewerResponse, TaskRolePrompt, build_task_role_prompt,
@@ -62,6 +64,7 @@ pub(super) async fn execute_run(
         .await?
         {
             crate::acp::AcpRunOutcome::Terminal(terminal) => {
+                normalize_task_result(services, run, &CitationSourceRegistry::default()).await?;
                 command_service
                     .record_work_run_terminal(
                         *terminal,
@@ -96,6 +99,7 @@ pub(super) async fn execute_run(
         fence.clone(),
     )
     .map_err(RuntimeError::Protocol)?;
+    normalize_task_result(services, run, &generated.citation_sources).await?;
     command_service
         .record_work_run_terminal(
             terminal,
@@ -105,6 +109,51 @@ pub(super) async fn execute_run(
         )
         .await?;
     publish_committed(&services.subscriptions, &context);
+    Ok(())
+}
+
+async fn normalize_task_result(
+    services: &TaskRuntimeServices,
+    run: &noema_tasks::AgentRunRecord,
+    citation_sources: &CitationSourceRegistry,
+) -> Result<(), RuntimeError> {
+    if run.run_kind != RunKind::Executor {
+        return Ok(());
+    }
+    let current = match services
+        .store
+        .read_task_file(&run.task_id, noema_store::TASK_RESULT)
+        .await
+    {
+        Ok(current) => current,
+        Err(noema_store::TaskFileError::Io(error))
+            if error.kind() == std::io::ErrorKind::NotFound =>
+        {
+            return Ok(());
+        }
+        Err(error) => return Err(RuntimeError::Protocol(error.to_string())),
+    };
+    let normalized = citation_sources.normalize_task_result(&current);
+    if !normalized.unresolved_references.is_empty() {
+        services.system_errors.try_append(
+            noema_home::SystemErrorEvent::new(
+                "provider_citation_unresolved",
+                "Provider citation references could not be resolved",
+            )
+            .with_context(serde_json::json!({
+                "scope_kind": "task_run",
+                "scope_id": run.run_id,
+                "reference_count": normalized.unresolved_references.len(),
+            })),
+        );
+    }
+    if normalized.text != current {
+        services
+            .store
+            .write_task_file(&run.task_id, noema_store::TASK_RESULT, &normalized.text)
+            .await
+            .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
+    }
     Ok(())
 }
 
@@ -345,6 +394,8 @@ fn parse_payload<T: serde::de::DeserializeOwned>(
 
 #[cfg(test)]
 mod tests {
+    use noema_providers::{GenerateHostedWebSearch, GenerateWebSource};
+
     use super::*;
 
     #[test]
@@ -363,5 +414,84 @@ mod tests {
             task_time_zone(Some("Europe/Paris"), Some(&request)),
             Some("Europe/Paris")
         );
+    }
+
+    #[tokio::test]
+    async fn task_result_normalization_removes_unresolved_markers_and_rejects_growth() {
+        let store = crate::test_support::test_store().await;
+        let (task, run) = crate::test_support::seed_task(&store, "Task citations").await;
+        let errors = tempfile::TempDir::new().unwrap();
+        let error_path = errors.path().join("errors.log");
+        let runtime = crate::daemon::RuntimeHandle::spawn_with_provider(
+            crate::contract_test_support::fixed_response_provider("unused"),
+            store.clone(),
+        )
+        .await
+        .unwrap();
+        let services = TaskRuntimeServices {
+            store: store.clone(),
+            runtime: runtime.clone(),
+            provider_registry: crate::test_support::ready_test_provider_registry(),
+            system_errors: noema_home::SystemErrorLogger::new(&error_path),
+            subscriptions: RuntimeEventRegistry::default(),
+        };
+        store
+            .write_task_file(
+                &task.task_id,
+                noema_store::TASK_RESULT,
+                "Claim\u{e200}cite\u{e202}turn1view0\u{e201}\n[^noema-source-x]: bad\nTail\u{e200}cite\u{e202}broken end\nOther[^noema-source-3 remainder",
+            )
+            .await
+            .unwrap();
+        normalize_task_result(&services, &run, &CitationSourceRegistry::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .read_task_file(&task.task_id, noema_store::TASK_RESULT)
+                .await
+                .unwrap(),
+            "Claim\nTail end\nOther remainder"
+        );
+        let error_log = std::fs::read_to_string(&error_path).unwrap();
+        assert!(error_log.contains("provider_citation_unresolved"));
+        let mut registry = CitationSourceRegistry::default();
+        registry.observe(
+            0,
+            &[GenerateHostedWebSearch {
+                output_index: 0,
+                id: None,
+                tool_name: "web.search".to_string(),
+                arguments: serde_json::json!({}),
+                result: serde_json::json!({}),
+                status: "completed".to_string(),
+                sources: vec![GenerateWebSource {
+                    title: Some("Source".to_string()),
+                    url: "https://example.com/source".to_string(),
+                }],
+            }],
+        );
+        let marker = "\u{e200}cite\u{e202}turn0search0\u{e201}";
+        let current = format!(
+            "{}{marker}",
+            "a".repeat(noema_store::TASK_FILE_TEXT_LIMIT - marker.len())
+        );
+        store
+            .write_task_file(&task.task_id, noema_store::TASK_RESULT, &current)
+            .await
+            .unwrap();
+        assert!(
+            normalize_task_result(&services, &run, &registry)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            store
+                .read_task_file(&task.task_id, noema_store::TASK_RESULT)
+                .await
+                .unwrap(),
+            current
+        );
+        runtime.shutdown().await;
     }
 }

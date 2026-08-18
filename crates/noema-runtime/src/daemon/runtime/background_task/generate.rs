@@ -416,7 +416,7 @@ impl RuntimeActor {
                 .any(|result| result.requires_provider_continuation)
             {
                 response.usage = aggregate_usage;
-                return Ok(BackgroundTaskGenerateResult { response });
+                return Ok(BackgroundTaskGenerateResult { response, citation_sources });
             }
             let continuation_step = continuation_index + 1;
             progress.mark_continuation_step(continuation_step);

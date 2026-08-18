@@ -79,6 +79,7 @@ pub(crate) struct BackgroundTaskGenerateRequest {
 #[derive(Debug)]
 pub(crate) struct BackgroundTaskGenerateResult {
     pub(crate) response: GenerateResponse,
+    pub(crate) citation_sources: CitationSourceRegistry,
 }
 
 impl BackgroundTaskGenerateRequest {

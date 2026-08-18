@@ -212,9 +212,12 @@ struct TasksDocumentView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
       if let response = document.nilIfBlank {
+        let content: (text: String, citations: [ProviderCitation]) = fileName == "RESULT.md"
+          ? ProviderCitation.from(taskResult: response)
+          : (response, [])
         ProviderCitationMarkdown(
-          text: response,
-          citations: [],
+          text: content.text,
+          citations: content.citations,
           role: .assistantMessage
         )
           .textSelection(.enabled)

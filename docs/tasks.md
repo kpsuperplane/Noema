@@ -58,6 +58,20 @@ A title change does not move the directory.
 `REVIEW.md` contains the current Reviewer feedback when feedback exists.
 Agents can create other support files when useful.
 
+`RESULT.md` stores web sources as `[^noema-source-N]` markers and matching
+Markdown footnote definitions. The Runtime resolves provider-private markers
+before an Executor terminal commits. This format keeps citations with the
+mutable result during continuation, review, correction, and reopening.
+
+```markdown
+Supported claim.[^noema-source-1]
+
+[^noema-source-1]: [Source title](<https://example.com/source>)
+```
+
+Titles must contain text. Source URLs must use HTTP or HTTPS. The Runtime
+numbers unique URLs by first use and writes definitions after one blank line.
+
 Project Tasks can read shared files within the project boundary.
 Relative parent paths can reach those files.
 Paths cannot escape the project boundary.

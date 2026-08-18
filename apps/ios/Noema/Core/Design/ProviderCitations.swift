@@ -40,6 +40,61 @@ struct ProviderCitation: Identifiable, Hashable, Sendable {
     }
   }
 
+  static func from(taskResult: String) -> (text: String, citations: [ProviderCitation]) {
+    var definitions: [String: ProviderCitation] = [:]
+    let body = taskResult.components(separatedBy: "\n").filter { line in
+      guard let definition = taskSourceDefinition(line) else { return true }
+      definitions[definition.0] = definition.1
+      return false
+    }.joined(separator: "\n")
+    let prefix = "[^noema-source-"
+    var remaining = body[...]
+    var text = ""
+    var citations: [ProviderCitation] = []
+    while let start = remaining.range(of: prefix),
+          let end = remaining[start.upperBound...].firstIndex(of: "]") {
+      text += remaining[..<start.lowerBound]
+      let key = String(remaining[start.upperBound..<end])
+      let after = remaining.index(after: end)
+      if let source = definitions[key],
+         let citation = ProviderCitation(
+           title: source.title,
+           url: source.destination.absoluteString,
+           startIndex: nil,
+           endIndex: text.utf16.count
+         ) {
+        citations.append(citation)
+      } else {
+        text += remaining[start.lowerBound..<after]
+      }
+      remaining = remaining[after...]
+    }
+    text += remaining
+    return (text, citations)
+  }
+
+  private static func taskSourceDefinition(_ line: String) -> (String, ProviderCitation)? {
+    let prefix = "[^noema-source-"
+    guard line.hasPrefix(prefix), line.hasSuffix(">)"),
+          let labelEnd = line.range(of: "]: ["),
+          let link = line.range(of: "](<", options: .backwards),
+          labelEnd.upperBound <= link.lowerBound else { return nil }
+    let key = String(line[line.index(line.startIndex, offsetBy: prefix.count)..<labelEnd.lowerBound])
+    guard !key.isEmpty, key.allSatisfy(\.isNumber), Int(key) != nil else { return nil }
+    let title = line[labelEnd.upperBound..<link.lowerBound]
+      .replacingOccurrences(of: "\\]", with: "]")
+      .replacingOccurrences(of: "\\[", with: "[")
+      .replacingOccurrences(of: "\\\\", with: "\\")
+    let urlEnd = line.index(line.endIndex, offsetBy: -2)
+    let url = String(line[link.upperBound..<urlEnd])
+    return ProviderCitation(
+      title: title,
+      url: url,
+      startIndex: nil,
+      endIndex: nil
+    ).map { (key, $0) }
+  }
+
   private static func nonNegativeInteger(_ value: Any?) -> Int? {
     guard let value = value as? Int, value >= 0 else { return nil }
     return value

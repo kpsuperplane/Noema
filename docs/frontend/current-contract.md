@@ -160,6 +160,13 @@ without a valid offset follows the complete message. Every marker opens one
 message-owned Sources view. Each source shows its title and host and opens the
 exact URL. The message does not show a separate Sources footer.
 
+Completed Task results decode the reserved source footnotes stored in
+`RESULT.md`. Chat continues to read structured provider citation metadata.
+Both paths use the same marker and Sources presentation.
+
+Clients decode only `[^noema-source-N]` markers with matching canonical
+definitions. They keep other Markdown footnotes and links as ordinary content.
+
 ## Validation
 
 For frontend changes, run `bun run lint` and `bun run build` from `apps/web`.

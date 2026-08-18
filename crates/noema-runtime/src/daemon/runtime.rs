@@ -44,6 +44,7 @@ mod work_notification;
 #[cfg(feature = "eval-support")]
 pub(crate) use action_reviewer::{action_reviewer_prompt, build_action_reviewer_input};
 pub(crate) use background_task::{BackgroundTaskGenerateRequest, BackgroundTaskGenerateResult};
+pub(crate) use citation_markers::CitationSourceRegistry;
 pub use handle::RuntimeHandle;
 pub use primary_notification::{CapabilityIntegrationKind, CapabilitySetupCompletion};
 

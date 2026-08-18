@@ -136,6 +136,43 @@ export function providerCitationsFromMetadata(metadata: unknown): ProviderCitati
   });
 }
 
+export function taskResultCitationContent(text: string): ProviderCitationContent {
+  const definitions = new Map<string, { title: string; url: string }>();
+  const definition = /^\[\^noema-source-(\d+)\]: \[((?:\\.|[^\\]])+)\]\(<(https?:\/\/[^>]+)>\)$/;
+  const body = text.split("\n").filter((line) => {
+    const match = definition.exec(line);
+    if (!match) return true;
+    try {
+      const url = new URL(match[3]);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return true;
+      definitions.set(match[1], {
+        title: match[2].replace(/\\([\\[\]])/g, "$1"),
+        url: url.toString()
+      });
+      return false;
+    } catch {
+      return true;
+    }
+  }).join("\n");
+  const citations: ProviderCitation[] = [];
+  const marker = /\[\^noema-source-(\d+)\]/g;
+  let clean = "";
+  let prior = 0;
+  for (const match of body.matchAll(marker)) {
+    const source = definitions.get(match[1]);
+    const index = match.index ?? 0;
+    clean += body.slice(prior, index);
+    if (source) {
+      citations.push({ ...source, startIndex: null, endIndex: clean.length });
+    } else {
+      clean += match[0];
+    }
+    prior = index + match[0].length;
+  }
+  clean += body.slice(prior);
+  return { text: clean, sources: {}, citations };
+}
+
 export function providerCitationContent(
   text: string,
   citations: readonly ProviderCitation[]

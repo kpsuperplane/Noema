@@ -2,7 +2,7 @@ import * as React from "react";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import * as stylex from "@stylexjs/stylex";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
-import { ProviderCitationMarkdown } from "@/components/transcript/ProviderCitationSources";
+import { ProviderCitationMarkdown, taskResultCitationContent } from "@/components/transcript/ProviderCitationSources";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import type { TaskRunLatestEntryChange } from "./TaskRunTranscript";
 import { TaskTranscript } from "./TaskTranscript";
@@ -114,6 +114,9 @@ export function TaskBody({
 
 function TaskDocument({ fileName, text }: { fileName: string; text: string }) {
   const response = text.trim() || undefined;
+  const content = response && fileName === "RESULT.md"
+    ? taskResultCitationContent(response)
+    : { text: response ?? "", citations: [] };
 
   return (
     <div data-slot="task-document" {...stylex.props(styles.taskScroller)}>
@@ -124,8 +127,8 @@ function TaskDocument({ fileName, text }: { fileName: string; text: string }) {
             contentWidth="min(760px, calc(100% - var(--spacing-6) - var(--spacing-6)))"
             density="default"
             headingLevelStart={1}
-            citations={[]}
-            text={response}
+            citations={content.citations}
+            text={content.text}
             xstyle={styles.markdown}
           />
         ) : (

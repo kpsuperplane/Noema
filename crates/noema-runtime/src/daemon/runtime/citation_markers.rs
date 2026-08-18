@@ -1,6 +1,6 @@
 //! Normalization for provider-owned web citation markers.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use noema_home::SystemErrorEvent;
 use noema_providers::{GenerateCitation, GenerateHostedWebSearch};
@@ -12,6 +12,7 @@ use super::actor::RuntimeActor;
 const MARKER_START: &str = "\u{e200}cite\u{e202}";
 const MARKER_SEPARATOR: char = '\u{e202}';
 const MARKER_END: char = '\u{e201}';
+const TASK_SOURCE_PREFIX: &str = "[^noema-source-";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CitationSource {
@@ -91,9 +92,16 @@ impl CitationSourceRegistry {
             raw_utf16 += prefix.encode_utf16().count();
             let marker_body = &remaining[start + MARKER_START.len()..];
             let Some(end) = marker_body.find(MARKER_END) else {
-                normalized.push_str(&remaining[start..]);
-                remaining = "";
-                break;
+                let end = marker_body
+                    .find(char::is_whitespace)
+                    .unwrap_or(marker_body.len());
+                let length =
+                    MARKER_START.encode_utf16().count() + marker_body[..end].encode_utf16().count();
+                unresolved.push(marker_body[..end].to_string());
+                removals.push((raw_utf16, raw_utf16 + length));
+                raw_utf16 += length;
+                remaining = &marker_body[end..];
+                continue;
             };
             let marker =
                 &remaining[start..start + MARKER_START.len() + end + MARKER_END.len_utf8()];
@@ -134,6 +142,164 @@ impl CitationSourceRegistry {
             unresolved_references: unresolved,
         }
     }
+
+    pub(crate) fn normalize_task_result(&self, text: &str) -> NormalizedCitationText {
+        let decoded = decode_task_sources(text);
+        let mut normalized = self.normalize(&decoded.text, &decoded.citations);
+        normalized
+            .unresolved_references
+            .extend(decoded.unresolved_references);
+        normalized.text = encode_task_sources(&normalized.text, &normalized.citations);
+        normalized
+    }
+}
+
+fn decode_task_sources(text: &str) -> NormalizedCitationText {
+    let mut body = String::with_capacity(text.len());
+    let mut sources = HashMap::new();
+    let mut unresolved = Vec::new();
+    for line in text.split_inclusive('\n') {
+        let value = line.trim_end_matches(['\r', '\n']);
+        if value.starts_with(TASK_SOURCE_PREFIX) && value.contains("]:") {
+            match parse_task_source_definition(value) {
+                Some((number, source)) => {
+                    sources.entry(number).or_insert(source);
+                }
+                None => unresolved.push(value.to_string()),
+            }
+        } else {
+            body.push_str(line);
+        }
+    }
+
+    let mut clean = String::with_capacity(body.len());
+    let mut citations = Vec::new();
+    let mut remaining = body.as_str();
+    while let Some(start) = remaining.find(TASK_SOURCE_PREFIX) {
+        clean.push_str(&remaining[..start]);
+        let marker = &remaining[start..];
+        let Some(close) = marker.find(']') else {
+            let end = marker.find(char::is_whitespace).unwrap_or(marker.len());
+            unresolved.push(marker[..end].to_string());
+            remaining = &remaining[start + end..];
+            continue;
+        };
+        let marker = &marker[..=close];
+        let number = marker
+            .strip_prefix(TASK_SOURCE_PREFIX)
+            .and_then(|value| value.strip_suffix(']'))
+            .and_then(|value| value.parse::<usize>().ok());
+        if let Some(source) = number.and_then(|number| sources.get(&number)) {
+            citations.push(GenerateCitation {
+                title: source.title.clone(),
+                url: source.url.clone(),
+                start_index: None,
+                end_index: Some(clean.encode_utf16().count()),
+            });
+        } else {
+            unresolved.push(marker.to_string());
+        }
+        remaining = &remaining[start + marker.len()..];
+    }
+    clean.push_str(remaining);
+    NormalizedCitationText {
+        text: clean,
+        citations,
+        unresolved_references: unresolved,
+    }
+}
+
+fn parse_task_source_definition(value: &str) -> Option<(usize, CitationSource)> {
+    let (marker, definition) = value.split_once(": [")?;
+    let number = marker
+        .strip_prefix(TASK_SOURCE_PREFIX)?
+        .strip_suffix(']')?
+        .parse::<usize>()
+        .ok()?;
+    let (title, url) = definition.rsplit_once("](<")?;
+    let url = Url::parse(url.strip_suffix(">)")?).ok()?;
+    let title = title
+        .replace("\\]", "]")
+        .replace("\\[", "[")
+        .replace("\\\\", "\\");
+    (!title.trim().is_empty() && matches!(url.scheme(), "http" | "https")).then(|| {
+        (
+            number,
+            CitationSource {
+                title,
+                url: url.to_string(),
+            },
+        )
+    })
+}
+
+fn encode_task_sources(text: &str, citations: &[GenerateCitation]) -> String {
+    let total = text.encode_utf16().count();
+    let mut ordered = citations.iter().collect::<Vec<_>>();
+    ordered.sort_by_key(|citation| citation.end_index.unwrap_or(total));
+    let mut number_by_url = HashMap::new();
+    let mut sources = Vec::new();
+    let mut markers = BTreeMap::<usize, Vec<usize>>::new();
+    for citation in ordered {
+        let Ok(url) = Url::parse(&citation.url) else {
+            continue;
+        };
+        let end = citation.end_index.unwrap_or(total);
+        if citation.title.trim().is_empty()
+            || !matches!(url.scheme(), "http" | "https")
+            || citation.start_index.is_some_and(|start| start >= end)
+            || utf16_slice(text, 0, end).is_none()
+        {
+            continue;
+        }
+        let number = *number_by_url.entry(url.to_string()).or_insert_with(|| {
+            sources.push(CitationSource {
+                title: citation.title.trim().to_string(),
+                url: url.to_string(),
+            });
+            sources.len()
+        });
+        if !markers.entry(end).or_default().contains(&number) {
+            markers.entry(end).or_default().push(number);
+        }
+    }
+    if sources.is_empty() {
+        return text.to_string();
+    }
+
+    let mut output = String::with_capacity(text.len() + sources.len() * 64);
+    let mut prior = 0;
+    for (end, numbers) in markers {
+        output.push_str(utf16_slice(text, prior, end).expect("validated citation offset"));
+        for number in numbers {
+            output.push_str(&format!("[^noema-source-{number}]"));
+        }
+        prior = end;
+    }
+    output.push_str(utf16_slice(text, prior, total).expect("validated citation tail"));
+    if !output.ends_with("\n\n") {
+        if !output.ends_with('\n') {
+            output.push('\n');
+        }
+        output.push('\n');
+    }
+    for (index, source) in sources.into_iter().enumerate() {
+        let title = escape_task_source_title(&source.title);
+        output.push_str(&format!(
+            "[^noema-source-{}]: [{title}](<{}>)\n",
+            index + 1,
+            source.url
+        ));
+    }
+    output
+}
+
+fn escape_task_source_title(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('[', "\\[")
+        .replace(']', "\\]")
+        .replace(['\r', '\n'], " ")
 }
 
 fn strip_links(text: &str, citations: &[GenerateCitation]) -> (String, Vec<GenerateCitation>) {
@@ -418,5 +584,43 @@ mod tests {
             &[citation(requested_start, requested.len() - 1)],
         );
         assert_eq!(preserved.text, requested);
+    }
+    #[test]
+    fn task_result_merges_durable_and_provider_sources() {
+        let mut registry = CitationSourceRegistry::default();
+        registry.observe(
+            0,
+            &[GenerateHostedWebSearch {
+                output_index: 0,
+                id: None,
+                tool_name: "web.search".to_string(),
+                arguments: serde_json::json!({}),
+                result: serde_json::json!({}),
+                status: "completed".to_string(),
+                sources: vec![
+                    GenerateWebSource {
+                        title: Some("Duplicate".to_string()),
+                        url: "https://old.example/a".to_string(),
+                    },
+                    GenerateWebSource {
+                        title: Some("New".to_string()),
+                        url: "https://new.example/b".to_string(),
+                    },
+                ],
+            }],
+        );
+        let marker = "\u{e200}cite\u{e202}turn0search0\u{e202}turn0search1\u{e201}";
+        let input = format!(
+            "Old[^noema-source-1]. New{marker}\n\n[^note]: keep\n[^noema-source-1]: [Old](<https://old.example/a>)\n"
+        );
+        let result = registry.normalize_task_result(&input);
+        assert_eq!(
+            result.text,
+            "Old[^noema-source-1]. New[^noema-source-1][^noema-source-2]\n\n[^note]: keep\n\n[^noema-source-1]: [Old](<https://old.example/a>)\n[^noema-source-2]: [New](<https://new.example/b>)\n"
+        );
+        assert_eq!(
+            registry.normalize_task_result(&result.text).text,
+            result.text
+        );
     }
 }
