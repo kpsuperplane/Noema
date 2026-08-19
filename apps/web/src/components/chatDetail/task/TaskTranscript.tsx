@@ -272,6 +272,9 @@ function runBoundaryEntries(run: TaskRun, now: number): TranscriptEntry[] {
   if (!isTerminalRun(run)) {
     return [start];
   }
+  if (run.status === "completed") {
+    return [start];
+  }
 
   const outcome = runStatusLabel(run);
   const duration = runDurationLabel(run, now);
@@ -284,15 +287,13 @@ function runBoundaryEntries(run: TaskRun, now: number): TranscriptEntry[] {
       "task_run_end",
       run,
       `${role} · ${outcome}${durationSuffix}`,
-      { presentation: { tone: run.status === "completed" ? "neutral" : "error" }, instance_name: run.instanceName }
+      { presentation: { tone: "error" }, instance_name: run.instanceName }
     )
   ];
 }
 
 function runStatusLabel(run: TaskRun): string {
   switch (run.status) {
-    case "completed":
-      return "Completed";
     case "failed":
       return "Failed";
     case "cancelled":

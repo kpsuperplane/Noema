@@ -84,7 +84,7 @@ export function ActivityRow({
 
   if (item.activity_kind === "task_run_start" || item.activity_kind === "task_run_end") {
     return (
-      <TranscriptSystemNotice avatar={avatar} role={item.status === "FAILED" ? "alert" : "status"} singleLine={singleLine} tone={noticeTone}>
+      <TranscriptSystemNotice avatar={avatar} role={item.status === "FAILED" ? "alert" : "status"} singleLine tone={noticeTone}>
         {renderText(item.title)}
       </TranscriptSystemNotice>
     );
