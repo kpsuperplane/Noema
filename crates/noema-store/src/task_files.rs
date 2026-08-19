@@ -8,7 +8,7 @@ use std::{
 };
 
 use cap_std::{ambient_authority, fs::Dir};
-use noema_tasks::TaskId;
+use noema_tasks::{TaskId, TaskRecurrenceId};
 use noema_workspaces::{ProjectId, WorkspaceId};
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
@@ -24,6 +24,15 @@ pub const TASK_RESULT: &str = "RESULT.md";
 pub const TASK_REVIEW: &str = "REVIEW.md";
 /// Maximum UTF-8 text accepted by one model-facing file operation.
 pub const TASK_FILE_TEXT_LIMIT: usize = 64 * 1024;
+
+/// One exact document and its transient optimistic-write digest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskDocumentRead {
+    /// Exact UTF-8 Markdown.
+    pub content: String,
+    /// Lower-case SHA-256 of `content` bytes.
+    pub digest: String,
+}
 
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -136,31 +145,6 @@ struct TaskFileAccess {
 }
 
 impl NoemaStore {
-    /// Create `TASK.md` from the current authenticated Task body when absent.
-    ///
-    /// # Errors
-    /// Returns [`TaskFileError`] when the Task or its working directory is unsafe.
-    pub async fn ensure_task_document(&self, task_id: &TaskId) -> Result<(), TaskFileError> {
-        let task_id_for_read = task_id.clone();
-        let (title, description) = self
-            .with_connection(|connection| {
-                connection
-                    .query_row(
-                        "SELECT title, description_markdown FROM tasks WHERE task_id = ?1",
-                        [task_id_for_read.as_str()],
-                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-                    )
-                    .map_err(StoreError::from)
-            })
-            .await?;
-        let content = if description.trim().is_empty() {
-            format!("# {title}\n")
-        } else {
-            format!("# {title}\n\n{}\n", description.trim())
-        };
-        self.ensure_task_document_from(task_id, &content).await
-    }
-
     pub(crate) async fn ensure_task_document_from(
         &self,
         task_id: &TaskId,
@@ -181,6 +165,119 @@ impl NoemaStore {
             return Err(TaskFileError::TooLarge);
         }
         atomic_write(&access.boundary, &relative, content.as_bytes())
+    }
+
+    /// Read the exact current Task document and compute its transient digest.
+    ///
+    /// # Errors
+    /// Returns [`TaskFileError`] when `TASK.md` is missing or unsafe.
+    pub async fn read_task_document(
+        &self,
+        task_id: &TaskId,
+    ) -> Result<TaskDocumentRead, TaskFileError> {
+        let content = self.read_task_file(task_id, TASK_DOCUMENT).await?;
+        Ok(document_read(content))
+    }
+
+    /// Read one recurrence template and compute its transient digest.
+    ///
+    /// # Errors
+    /// Returns [`TaskFileError`] when the template is missing or unsafe.
+    pub async fn read_recurrence_document(
+        &self,
+        recurrence_id: &TaskRecurrenceId,
+    ) -> Result<TaskDocumentRead, TaskFileError> {
+        let (root, relative) = self.recurrence_file_access(recurrence_id)?;
+        let content = read_bounded_file(&root, &relative)?;
+        Ok(document_read(content))
+    }
+
+    /// Atomically create or replace one recurrence template.
+    ///
+    /// # Errors
+    /// Returns [`TaskFileError`] when the path or content is unsafe.
+    pub async fn write_recurrence_document(
+        &self,
+        recurrence_id: &TaskRecurrenceId,
+        content: &str,
+    ) -> Result<(), TaskFileError> {
+        if content.len() > TASK_FILE_TEXT_LIMIT {
+            return Err(TaskFileError::TooLarge);
+        }
+        let (root, relative) = self.recurrence_file_access(recurrence_id)?;
+        let parent = relative.parent().ok_or(TaskFileError::UnsafePath)?;
+        ensure_directories(&root, parent)?;
+        verify_replace_target(&root, &relative)?;
+        atomic_write(&root, &relative, content.as_bytes())
+    }
+
+    pub(crate) async fn ensure_recurrence_document_from(
+        &self,
+        recurrence_id: &TaskRecurrenceId,
+        content: &str,
+    ) -> Result<(), TaskFileError> {
+        let (root, relative) = self.recurrence_file_access(recurrence_id)?;
+        match root.symlink_metadata(&relative) {
+            Ok(metadata) if metadata.file_type().is_symlink() => Err(TaskFileError::SymbolicLink),
+            Ok(metadata) if metadata.is_file() => Ok(()),
+            Ok(_) => Err(TaskFileError::InvalidFile),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if content.len() > TASK_FILE_TEXT_LIMIT {
+                    return Err(TaskFileError::TooLarge);
+                }
+                let parent = relative.parent().ok_or(TaskFileError::UnsafePath)?;
+                ensure_directories(&root, parent)?;
+                atomic_write(&root, &relative, content.as_bytes())
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Copy the current recurrence template to a new occurrence.
+    ///
+    /// # Errors
+    /// Returns [`TaskFileError`] when either document path is unsafe.
+    pub async fn copy_recurrence_document_to_task(
+        &self,
+        recurrence_id: &TaskRecurrenceId,
+        task_id: &TaskId,
+    ) -> Result<(), TaskFileError> {
+        let template = self.read_recurrence_document(recurrence_id).await?;
+        self.ensure_task_document_from(task_id, &template.content)
+            .await
+    }
+
+    /// Delete an obsolete recurrence template directory.
+    ///
+    /// # Errors
+    /// Returns [`TaskFileError`] when the directory is unsafe.
+    pub async fn delete_recurrence_document(
+        &self,
+        recurrence_id: &TaskRecurrenceId,
+    ) -> Result<(), TaskFileError> {
+        let (root, relative) = self.recurrence_file_access(recurrence_id)?;
+        let directory = relative.parent().ok_or(TaskFileError::UnsafePath)?;
+        verify_components(&root, directory, false)?;
+        root.remove_dir_all(directory)?;
+        Ok(())
+    }
+
+    fn recurrence_file_access(
+        &self,
+        recurrence_id: &TaskRecurrenceId,
+    ) -> Result<(Dir, PathBuf), TaskFileError> {
+        let recurrence_root = self.home_root.join("recurrences");
+        std::fs::create_dir_all(&recurrence_root)?;
+        reject_ambient_symlink_components(&recurrence_root)?;
+        let root = Dir::open_ambient_dir(&recurrence_root, ambient_authority())?;
+        let suffix = recurrence_id.as_str().trim_start_matches("recurrence:");
+        let directory = Path::new(suffix);
+        if directory.components().count() != 1
+            || !matches!(directory.components().next(), Some(Component::Normal(_)))
+        {
+            return Err(TaskFileError::UnsafePath);
+        }
+        Ok((root, directory.join(TASK_DOCUMENT)))
     }
 
     /// Resolve the current Task working directory from live Task and project rows.
@@ -555,6 +652,43 @@ fn atomic_write(root: &Dir, path: &Path, content: &[u8]) -> Result<(), TaskFileE
     result.map_err(TaskFileError::from)
 }
 
+fn document_read(content: String) -> TaskDocumentRead {
+    let digest = crate::work_row::sha256_hex(content.as_bytes());
+    TaskDocumentRead { content, digest }
+}
+
+fn read_bounded_file(root: &Dir, path: &Path) -> Result<String, TaskFileError> {
+    verify_components(root, path, false)?;
+    let metadata = root.symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() {
+        return Err(TaskFileError::SymbolicLink);
+    }
+    if !metadata.is_file() {
+        return Err(TaskFileError::InvalidFile);
+    }
+    if metadata.len() > TASK_FILE_TEXT_LIMIT as u64 {
+        return Err(TaskFileError::TooLarge);
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    root.open(path)?
+        .take((TASK_FILE_TEXT_LIMIT + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > TASK_FILE_TEXT_LIMIT {
+        return Err(TaskFileError::TooLarge);
+    }
+    String::from_utf8(bytes).map_err(|_| TaskFileError::InvalidFile)
+}
+
+fn verify_replace_target(root: &Dir, path: &Path) -> Result<(), TaskFileError> {
+    match root.symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(TaskFileError::SymbolicLink),
+        Ok(metadata) if !metadata.is_file() => Err(TaskFileError::InvalidFile),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -594,6 +728,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn recurrence_documents_reject_unsafe_oversized_and_symbolic_targets() {
+        let home = tempfile::tempdir().expect("home");
+        let store = NoemaStore::open(&StoreConfig::new(home.path().join("db/noema.sqlite3")))
+            .await
+            .expect("store");
+        let unsafe_id = TaskRecurrenceId::new("recurrence:../outside").expect("opaque id");
+        assert!(matches!(
+            store.write_recurrence_document(&unsafe_id, "unsafe").await,
+            Err(TaskFileError::UnsafePath)
+        ));
+
+        let recurrence_id = TaskRecurrenceId::new("recurrence:file-safety").expect("recurrence id");
+        assert!(matches!(
+            store
+                .write_recurrence_document(&recurrence_id, &"x".repeat(TASK_FILE_TEXT_LIMIT + 1),)
+                .await,
+            Err(TaskFileError::TooLarge)
+        ));
+        store
+            .write_recurrence_document(&recurrence_id, "safe")
+            .await
+            .expect("write template");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let template = home.path().join("recurrences/file-safety/TASK.md");
+            std::fs::remove_file(&template).expect("remove template");
+            let outside = home.path().join("outside.md");
+            std::fs::write(&outside, "outside").expect("outside file");
+            symlink(&outside, &template).expect("symbolic template");
+            assert!(matches!(
+                store.read_recurrence_document(&recurrence_id).await,
+                Err(TaskFileError::SymbolicLink)
+            ));
+            assert!(matches!(
+                store
+                    .write_recurrence_document(&recurrence_id, "replacement")
+                    .await,
+                Err(TaskFileError::SymbolicLink)
+            ));
+        }
+    }
+
+    #[tokio::test]
     async fn task_files_use_the_task_directory_and_project_boundary() {
         let home = tempfile::tempdir().expect("home");
         let project = home.path().join("project");
@@ -610,7 +789,7 @@ mod tests {
                     [&project_text],
                 )?;
                 connection.execute(
-                    "INSERT INTO tasks (task_id, workspace_id, project_id, workflow_id, stage_id, title, description_markdown, executor_agent_id, task_directory, source_kind, created_by_actor_id) VALUES ('task:files', 'workspace:personal', 'project:files', 'workflow:personal:default', 'stage:personal:queue', 'Long Task', 'Keep durable notes.', 'agent:system:task-executor', 'long-task', 'system', 'actor:system')",
+                    "INSERT INTO tasks (task_id, workspace_id, project_id, workflow_id, stage_id, title, executor_agent_id, task_directory, source_kind, created_by_actor_id) VALUES ('task:files', 'workspace:personal', 'project:files', 'workflow:personal:default', 'stage:personal:queue', 'Long Task', 'agent:system:task-executor', 'long-task', 'system', 'actor:system')",
                     [],
                 )?;
                 Ok(())
@@ -636,7 +815,7 @@ mod tests {
         assert_eq!(collision, "long-task-2");
 
         store
-            .ensure_task_document(&task_id)
+            .ensure_task_document_from(&task_id, "# Long Task\n\nKeep durable notes.\n")
             .await
             .expect("Task document");
         assert_eq!(
@@ -713,7 +892,7 @@ mod tests {
         store
             .with_connection(|connection| {
                 connection.execute(
-                    "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, description_markdown, executor_agent_id, task_directory, source_kind, created_by_actor_id) VALUES ('task:standalone-files', 'workspace:personal', 'workflow:personal:default', 'stage:personal:queue', 'Standalone', '', 'agent:system:task-executor', 'standalone', 'system', 'actor:system')",
+                    "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, executor_agent_id, task_directory, source_kind, created_by_actor_id) VALUES ('task:standalone-files', 'workspace:personal', 'workflow:personal:default', 'stage:personal:queue', 'Standalone', 'agent:system:task-executor', 'standalone', 'system', 'actor:system')",
                     [],
                 )?;
                 Ok(())
@@ -721,7 +900,10 @@ mod tests {
             .await
             .expect("Task");
         let task_id = TaskId::new("task:standalone-files").expect("Task id");
-        store.ensure_task_document(&task_id).await.expect("TASK.md");
+        store
+            .ensure_task_document_from(&task_id, "")
+            .await
+            .expect("TASK.md");
 
         let entries = store.list_task_files(&task_id, ".").await.expect("list");
 

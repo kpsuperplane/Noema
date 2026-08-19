@@ -64,7 +64,7 @@ impl NoemaStore {
         let recurrence_id = recurrence_id.clone();
         self.with_connection(move |connection| {
             connection.query_row(
-                "SELECT recurrence_id, workspace_id, project_id, title, description_markdown, authorization_context_json, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, revision, next_run_at, pending_coalesced_at, created_at, updated_at FROM task_recurrences WHERE recurrence_id = ?1",
+                "SELECT recurrence_id, workspace_id, project_id, title, authorization_context_json, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, revision, next_run_at, pending_coalesced_at, created_at, updated_at FROM task_recurrences WHERE recurrence_id = ?1",
                 [recurrence_id.as_str()],
                 decode_task_recurrence,
             ).optional().map_err(StoreError::Sqlite)
@@ -79,30 +79,25 @@ impl NoemaStore {
         &self,
         workspace_id: &WorkspaceId,
         project_id: Option<&ProjectId>,
-        text: Option<&str>,
         first: WorkPageSize,
     ) -> Result<Vec<noema_tasks::TaskRecurrenceRecord>, StoreError> {
         let workspace_id = workspace_id.as_str().to_owned();
         let project_id = project_id.map(|value| value.as_str().to_owned());
-        let text = text
-            .map(|value| value.trim().to_lowercase())
-            .filter(|value| !value.is_empty());
         let first = i64::try_from(first.get()).map_err(|error| StoreError::InvariantViolation {
             message: format!("recurrence page size could not be represented in SQLite: {error}"),
         })?;
         self.with_connection(move |connection| {
             let mut statement = connection.prepare(
-                "SELECT recurrence_id, workspace_id, project_id, title, description_markdown, authorization_context_json, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, revision, next_run_at, pending_coalesced_at, created_at, updated_at
+                "SELECT recurrence_id, workspace_id, project_id, title, authorization_context_json, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, revision, next_run_at, pending_coalesced_at, created_at, updated_at
                  FROM task_recurrences
                  WHERE workspace_id = ?1
                    AND lifecycle != 'ended'
                    AND (?2 IS NULL OR project_id = ?2)
-                   AND (?3 IS NULL OR instr(lower(title), ?3) > 0 OR instr(lower(description_markdown), ?3) > 0)
                  ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, next_run_at, recurrence_id
-                 LIMIT ?4",
+                 LIMIT ?3",
             )?;
             statement
-                .query_map(params![workspace_id, project_id, text, first], decode_task_recurrence)?
+                .query_map(params![workspace_id, project_id, first], decode_task_recurrence)?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(StoreError::Sqlite)
         })
@@ -155,23 +150,22 @@ fn decode_task_recurrence(
             .transpose()
             .map_err(sql_conversion)?,
         title: row.get(3)?,
-        description_markdown: row.get(4)?,
-        authorization_context: serde_json::from_str(&row.get::<_, String>(5)?)
+        authorization_context: serde_json::from_str(&row.get::<_, String>(4)?)
             .map_err(sql_conversion)?,
-        starts_at: row.get(6)?,
-        cron_expression: row.get(7)?,
-        time_zone: row.get(8)?,
-        missed_run_policy: MissedRunPolicy::from_str(&row.get::<_, String>(9)?)
+        starts_at: row.get(5)?,
+        cron_expression: row.get(6)?,
+        time_zone: row.get(7)?,
+        missed_run_policy: MissedRunPolicy::from_str(&row.get::<_, String>(8)?)
             .map_err(sql_conversion)?,
-        overlap_policy: OverlapPolicy::from_str(&row.get::<_, String>(10)?)
+        overlap_policy: OverlapPolicy::from_str(&row.get::<_, String>(9)?)
             .map_err(sql_conversion)?,
-        lifecycle: noema_tasks::RecurrenceLifecycle::from_str(&row.get::<_, String>(11)?)
+        lifecycle: noema_tasks::RecurrenceLifecycle::from_str(&row.get::<_, String>(10)?)
             .map_err(sql_conversion)?,
-        revision: u64::try_from(row.get::<_, i64>(12)?).map_err(sql_conversion)?,
-        next_run_at: row.get(13)?,
-        pending_coalesced_at: row.get(14)?,
-        created_at: row.get(15)?,
-        updated_at: row.get(16)?,
+        revision: u64::try_from(row.get::<_, i64>(11)?).map_err(sql_conversion)?,
+        next_run_at: row.get(12)?,
+        pending_coalesced_at: row.get(13)?,
+        created_at: row.get(14)?,
+        updated_at: row.get(15)?,
     })
 }
 
@@ -186,7 +180,8 @@ impl WorkCommandService {
         now: i64,
         recovering: bool,
     ) -> Result<Vec<TaskId>, StoreError> {
-        self.store
+        let changed = self
+            .store
             .with_immediate_transaction_retry(|transaction| {
                 let mut changed = Vec::new();
                 loop {
@@ -211,7 +206,41 @@ impl WorkCommandService {
                 }
                 Ok(changed)
             })
+            .await?;
+        for task_id in &changed {
+            self.copy_occurrence_document(task_id).await?;
+        }
+        Ok(changed)
+    }
+
+    pub(crate) async fn copy_occurrence_document(
+        &self,
+        task_id: &TaskId,
+    ) -> Result<(), StoreError> {
+        let task_id_for_read = task_id.clone();
+        let recurrence = self
+            .store
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT recurrence_id FROM tasks WHERE task_id = ?1",
+                        [task_id_for_read.as_str()],
+                        |row| row.get::<_, Option<String>>(0),
+                    )
+                    .map_err(StoreError::Sqlite)
+            })
+            .await?;
+        let Some(recurrence) = recurrence else {
+            return Ok(());
+        };
+        let recurrence =
+            noema_tasks::TaskRecurrenceId::new(recurrence).map_err(StoreError::Work)?;
+        self.store
+            .copy_recurrence_document_to_task(&recurrence, task_id)
             .await
+            .map_err(|error| StoreError::InvariantViolation {
+                message: error.to_string(),
+            })
     }
 }
 
@@ -304,7 +333,6 @@ struct DueRecurrence {
     workspace_id: String,
     project_id: Option<String>,
     title: String,
-    description: String,
     authorization: String,
     executor_agent_id: String,
     cwd_override: Option<String>,
@@ -345,28 +373,27 @@ fn load_due_recurrence_tx(
     recurrence_id: &str,
 ) -> Result<DueRecurrence, StoreError> {
     let row = transaction.query_row(
-        "SELECT workspace_id, project_id, title, description_markdown, authorization_context_json, executor_agent_id, cwd_override, cron_expression, time_zone, missed_run_policy, overlap_policy, revision, next_run_at, pending_coalesced_at FROM task_recurrences WHERE recurrence_id = ?1",
+        "SELECT workspace_id, project_id, title, authorization_context_json, executor_agent_id, cwd_override, cron_expression, time_zone, missed_run_policy, overlap_policy, revision, next_run_at, pending_coalesced_at FROM task_recurrences WHERE recurrence_id = ?1",
         [recurrence_id],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?, row.get::<_, String>(9)?, row.get::<_, String>(10)?, row.get::<_, i64>(11)?, row.get::<_, i64>(12)?, row.get::<_, Option<i64>>(13)?)),
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, Option<String>>(5)?, row.get::<_, String>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?, row.get::<_, String>(9)?, row.get::<_, i64>(10)?, row.get::<_, i64>(11)?, row.get::<_, Option<i64>>(12)?)),
     )?;
     Ok(DueRecurrence {
         recurrence_id: recurrence_id.to_string(),
         workspace_id: row.0,
         project_id: row.1,
         title: row.2,
-        description: row.3,
-        authorization: row.4,
-        executor_agent_id: row.5,
-        cwd_override: row.6,
-        cron: row.7,
-        time_zone: row.8,
-        missed: row.9.parse().map_err(StoreError::Work)?,
-        overlap: row.10.parse().map_err(StoreError::Work)?,
-        revision: u64::try_from(row.11).map_err(|_| StoreError::InvariantViolation {
+        authorization: row.3,
+        executor_agent_id: row.4,
+        cwd_override: row.5,
+        cron: row.6,
+        time_zone: row.7,
+        missed: row.8.parse().map_err(StoreError::Work)?,
+        overlap: row.9.parse().map_err(StoreError::Work)?,
+        revision: u64::try_from(row.10).map_err(|_| StoreError::InvariantViolation {
             message: "recurrence revision overflow".to_string(),
         })?,
-        next_run_at: row.12,
-        pending: row.13,
+        next_run_at: row.11,
+        pending: row.12,
     })
 }
 
@@ -535,10 +562,10 @@ fn materialize_occurrence_tx(
         &recurrence.title,
     )?;
     transaction.execute(
-        "INSERT INTO tasks (task_id, workspace_id, project_id, workflow_id, stage_id, title, description_markdown, executor_agent_id, cwd_override, task_directory, authorization_context_json, source_kind, created_by_actor_id, scheduled_for, schedule_time_zone, missed_run_policy, recurrence_id, recurrence_revision, recurrence_scheduled_for) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+        "INSERT INTO tasks (task_id, workspace_id, project_id, workflow_id, stage_id, title, executor_agent_id, cwd_override, task_directory, authorization_context_json, source_kind, created_by_actor_id, scheduled_for, schedule_time_zone, missed_run_policy, recurrence_id, recurrence_revision, recurrence_scheduled_for) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![task_id.as_str(), recurrence.workspace_id, recurrence.project_id,
             noema_tasks::PERSONAL_WORKFLOW_ID, PERSONAL_INBOX_STAGE_ID, recurrence.title,
-            recurrence.description, recurrence.executor_agent_id, recurrence.cwd_override,
+            recurrence.executor_agent_id, recurrence.cwd_override,
             task_directory, recurrence.authorization, TaskSourceKind::System.as_str(), meta.actor_id,
             scheduled_for, recurrence.time_zone, recurrence.missed.as_str(), recurrence_id,
             recurrence.revision, scheduled_for],

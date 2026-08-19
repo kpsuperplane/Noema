@@ -61,14 +61,13 @@ pub(crate) fn format_planner_prompt(context: &WorkRunExecutionContext) -> String
         &context.task.authorization_context,
         context.task.provenance.item_id.as_deref(),
     )
-    .unwrap_or_else(|| "Unavailable; use the captured task description.".to_string());
+    .unwrap_or_else(|| "Unavailable; use the current Task document.".to_string());
     format!(
-        "You are Noema's Task Planner. Read the current TASK.md and shared project files. Preserve the requested outcome and scope. Update TASK.md with the useful plan, success conditions, and durable notes. Create support files when useful. Decide the work structure. Do not perform the planned work. Call task.finish_planning once with execution complexity. Use task.report_blocked only when a specific human decision or approval prevents planning. Ordinary assistant text is not a terminal result.\n\n<TASK_DATA>\nTask ID: {}\nTitle: {}\nAuthenticated source request:\n{}\n\nSource request environment:\n{}\n\nCaptured Task description:\n{}\n\nRuntime handling:\n{}\n\nWorkspace: {}\n{}</TASK_DATA>\n\n{PLANNER_RESEARCH_POLICY}\n\n{}",
+        "You are Noema's Task Planner. Read the current TASK.md and shared project files. Preserve the requested outcome and scope. Update TASK.md with the useful plan, success conditions, and durable notes. Create support files when useful. Decide the work structure. Do not perform the planned work. Call task.finish_planning once with execution complexity. Use task.report_blocked only when a specific human decision or approval prevents planning. Ordinary assistant text is not a terminal result.\n\n<TASK_DATA>\nTask ID: {}\nTitle: {}\nAuthenticated source request:\n{}\n\nSource request environment:\n{}\n\nRuntime handling:\n{}\n\nWorkspace: {}\n{}</TASK_DATA>\n\n{PLANNER_RESEARCH_POLICY}\n\n{}",
         context.task.task_id,
         bounded(&context.task.title),
         source_request,
         format_request_environment(context),
-        bounded(&context.task.description_markdown),
         format_runtime_handling(
             context.task.scheduled_for,
             context.task.schedule_time_zone.as_deref(),
@@ -139,11 +138,11 @@ fn format_authenticated_source_request(
         }
         TaskAuthorizationContext::ManualTaskBody {
             title,
-            description_markdown,
-        } => Some(if description_markdown.trim().is_empty() {
+            task_document_markdown,
+        } => Some(if task_document_markdown.trim().is_empty() {
             bounded(title)
         } else {
-            format!("{}\n\n{}", bounded(title), bounded(description_markdown))
+            format!("{}\n\n{}", bounded(title), bounded(task_document_markdown))
         }),
         TaskAuthorizationContext::None => None,
     }

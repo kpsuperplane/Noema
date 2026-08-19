@@ -183,7 +183,7 @@ fn build_notification_prompt(kind: NotificationKind, task: &noema_store::WorkTas
         kind.as_str(),
         task.task.task_id,
         task.task.title,
-        task.task.description_markdown,
+        task.task_document,
         task.stage.display_name,
     );
     let instruction = match kind {

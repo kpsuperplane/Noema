@@ -113,7 +113,7 @@ async fn capture(
             transaction,
             &command.provenance,
             &command.title,
-            &command.description_markdown,
+            &command.task_document_markdown,
         )?;
         let task_directory = allocate_task_directory_tx(
             transaction,
@@ -124,13 +124,13 @@ async fn capture(
         transaction.execute(
             r#"INSERT INTO tasks (
                      task_id, workspace_id, project_id, workflow_id, stage_id,
-                     title, description_markdown, executor_agent_id, cwd_override, task_directory,
+                     title, executor_agent_id, cwd_override, task_directory,
                      authorization_context_json, source_kind,
                      source_conversation_id, source_turn_id, source_item_id,
                      source_tool_call_id, created_by_actor_id, scheduled_for, schedule_time_zone,
                      missed_run_policy
-                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-                             ?16, ?17, ?18, ?19, ?20)"#,
+                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+                             ?15, ?16, ?17, ?18, ?19)"#,
             params![
                 task_id.as_str(),
                 workspace_id.as_str(),
@@ -138,7 +138,6 @@ async fn capture(
                 noema_tasks::PERSONAL_WORKFLOW_ID,
                 PERSONAL_INBOX_STAGE_ID,
                 command.title,
-                command.description_markdown,
                 executor_agent_id,
                 command.cwd_override,
                 task_directory,
@@ -220,28 +219,26 @@ async fn update_inbox(
                 Some(cwd) => cwd.as_deref(),
             };
             let title = command.title.as_deref().unwrap_or(&task.title);
-            let description = command
-                .description_markdown
-                .as_deref()
-                .unwrap_or(&task.description_markdown);
             let authorization_context = (command.meta.actor_id.starts_with("actor:human:")
-                && (command.title.is_some() || command.description_markdown.is_some()))
+                && (command.title.is_some() || command.task_document_markdown.is_some()))
             .then(|| {
                 bounded_authorization_context_json(
                     &noema_tasks::TaskAuthorizationContext::ManualTaskBody {
                         title: title.to_string(),
-                        description_markdown: description.to_string(),
+                        task_document_markdown: command
+                            .task_document_markdown
+                            .clone()
+                            .unwrap_or_default(),
                     },
                 )
             })
             .transpose()?;
             let revision = helpers::increment(task.revision, "task.revision")?;
             transaction.execute(
-                "UPDATE tasks SET title = ?2, description_markdown = ?3, project_id = ?4, authorization_context_json = COALESCE(?5, authorization_context_json), executor_agent_id = ?6, cwd_override = ?7, revision = ?8, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?9 AND generation = ?10",
+                "UPDATE tasks SET title = ?2, project_id = ?3, authorization_context_json = COALESCE(?4, authorization_context_json), executor_agent_id = ?5, cwd_override = ?6, revision = ?7, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?8 AND generation = ?9",
                 params![
                     task_id.as_str(),
                     title,
-                    description,
                     project_id.map(ProjectId::as_str),
                     authorization_context,
                     executor_agent_id,
@@ -255,8 +252,8 @@ async fn update_inbox(
             if command.title.is_some() {
                 changed.push(noema_tasks::TaskChangedField::Title);
             }
-            if command.description_markdown.is_some() {
-                changed.push(noema_tasks::TaskChangedField::Description);
+            if command.task_document_markdown.is_some() {
+                changed.push(noema_tasks::TaskChangedField::Document);
             }
             if command.project_id.is_some() {
                 changed.push(noema_tasks::TaskChangedField::Project);
@@ -344,9 +341,9 @@ fn create_task_recurrence_tx(
     )
     .map_err(StoreError::Work)?;
     transaction.execute(
-        "INSERT INTO task_recurrences (recurrence_id, workspace_id, project_id, title, description_markdown, authorization_context_json, executor_agent_id, cwd_override, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, next_run_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'active', ?14)",
+        "INSERT INTO task_recurrences (recurrence_id, workspace_id, project_id, title, authorization_context_json, executor_agent_id, cwd_override, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, next_run_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'active', ?13)",
         params![recurrence_id.as_str(), task.workspace_id.as_str(), task.project_id.as_ref().map(ProjectId::as_str),
-            task.title, task.description_markdown, authorization, task.executor_agent_id, task.cwd_override,
+            task.title, authorization, task.executor_agent_id, task.cwd_override,
             recurrence.starts_at, recurrence.cron_expression, schedule.time_zone,
             schedule.missed_run_policy.as_str(), recurrence.overlap_policy.as_str(), next],
     )?;
@@ -430,7 +427,6 @@ struct RecurrenceState {
     workspace_id: WorkspaceId,
     project_id: Option<ProjectId>,
     title: String,
-    description: String,
     authorization_context: String,
     starts_at: i64,
     cron: String,
@@ -447,17 +443,16 @@ fn load_recurrence_tx(
     precondition: &noema_tasks::RecurrencePrecondition,
 ) -> Result<RecurrenceState, StoreError> {
     let row = transaction.query_row(
-        "SELECT workspace_id, project_id, title, description_markdown, authorization_context_json, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, revision, next_run_at FROM task_recurrences WHERE recurrence_id = ?1",
+        "SELECT workspace_id, project_id, title, authorization_context_json, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, revision, next_run_at FROM task_recurrences WHERE recurrence_id = ?1",
         [precondition.recurrence_id.as_str()],
         |row| Ok((
             row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, i64>(5)?,
+            row.get::<_, String>(3)?, row.get::<_, i64>(4)?, row.get::<_, String>(5)?,
             row.get::<_, String>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?,
-            row.get::<_, String>(9)?, row.get::<_, String>(10)?, row.get::<_, i64>(11)?,
-            row.get::<_, Option<i64>>(12)?,
+            row.get::<_, String>(9)?, row.get::<_, i64>(10)?, row.get::<_, Option<i64>>(11)?,
         )),
     ).optional()?.ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
-    let revision = u64::try_from(row.11).map_err(|_| StoreError::InvariantViolation {
+    let revision = u64::try_from(row.10).map_err(|_| StoreError::InvariantViolation {
         message: "recurrence revision overflow".to_string(),
     })?;
     if revision != precondition.expected_revision {
@@ -471,16 +466,15 @@ fn load_recurrence_tx(
             .transpose()
             .map_err(StoreError::Workspace)?,
         title: row.2,
-        description: row.3,
-        authorization_context: row.4,
-        starts_at: row.5,
-        cron: row.6,
-        time_zone: row.7,
-        missed: row.8.parse().map_err(StoreError::Work)?,
-        overlap: row.9.parse().map_err(StoreError::Work)?,
-        lifecycle: row.10.parse().map_err(StoreError::Work)?,
+        authorization_context: row.3,
+        starts_at: row.4,
+        cron: row.5,
+        time_zone: row.6,
+        missed: row.7.parse().map_err(StoreError::Work)?,
+        overlap: row.8.parse().map_err(StoreError::Work)?,
+        lifecycle: row.9.parse().map_err(StoreError::Work)?,
         revision,
-        next_run_at: row.12,
+        next_run_at: row.11,
     })
 }
 
@@ -501,7 +495,6 @@ async fn update_recurrence(
         };
         validate_project_target(transaction, &state.workspace_id, project_id)?;
         let title = command.title.as_deref().unwrap_or(&state.title);
-        let description = command.description_markdown.as_deref().unwrap_or(&state.description);
         let starts_at = command.starts_at.unwrap_or(state.starts_at);
         let cron = command.cron_expression.as_deref().unwrap_or(&state.cron);
         let time_zone = command.time_zone.as_deref().unwrap_or(&state.time_zone);
@@ -513,17 +506,18 @@ async fn update_recurrence(
                 .map_err(StoreError::Work)?)
         } else { state.next_run_at };
         let authorization_context = if command.meta.actor_id.starts_with("actor:human:")
-            && (command.title.is_some() || command.description_markdown.is_some())
+            && (command.title.is_some() || command.task_document_markdown.is_some())
         {
             bounded_authorization_context_json(&noema_tasks::TaskAuthorizationContext::ManualTaskBody {
-                title: title.to_string(), description_markdown: description.to_string(),
+                title: title.to_string(),
+                task_document_markdown: command.task_document_markdown.clone().unwrap_or_default(),
             })?
         } else { state.authorization_context };
         let revision = helpers::increment(state.revision, "recurrence.revision")?;
         transaction.execute(
-            "UPDATE task_recurrences SET project_id = ?2, title = ?3, description_markdown = ?4, authorization_context_json = ?5, starts_at = ?6, cron_expression = ?7, time_zone = ?8, missed_run_policy = ?9, overlap_policy = ?10, next_run_at = ?11, revision = ?12, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE recurrence_id = ?1 AND revision = ?13",
+            "UPDATE task_recurrences SET project_id = ?2, title = ?3, authorization_context_json = ?4, starts_at = ?5, cron_expression = ?6, time_zone = ?7, missed_run_policy = ?8, overlap_policy = ?9, next_run_at = ?10, revision = ?11, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE recurrence_id = ?1 AND revision = ?12",
             params![command.precondition.recurrence_id.as_str(), project_id.map(ProjectId::as_str), title,
-                description, authorization_context, starts_at, cron, time_zone, missed.as_str(),
+                authorization_context, starts_at, cron, time_zone, missed.as_str(),
                 overlap.as_str(), next_run_at, revision, state.revision],
         )?;
         recurrence_command_write(transaction, &command.meta, &command.precondition.recurrence_id, &state.workspace_id, project_id, revision, "updated")
@@ -823,7 +817,7 @@ async fn delegate(
             transaction,
             &command.provenance,
             &command.title,
-            &command.description_markdown,
+            &command.task_document_markdown,
         )?;
         let task_directory = allocate_task_directory_tx(
             transaction,
@@ -834,11 +828,11 @@ async fn delegate(
         transaction.execute(
             r#"INSERT INTO tasks (
                      task_id, workspace_id, project_id, workflow_id, stage_id,
-                     title, description_markdown, executor_agent_id, cwd_override, task_directory,
+                     title, executor_agent_id, cwd_override, task_directory,
                      authorization_context_json, source_kind,
                      source_conversation_id, source_turn_id, source_item_id,
                      source_tool_call_id, created_by_actor_id, queued_at
-                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
                              strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"#,
             params![
                 task_id.as_str(),
@@ -847,7 +841,6 @@ async fn delegate(
                 noema_tasks::PERSONAL_WORKFLOW_ID,
                 PERSONAL_QUEUE_STAGE_ID,
                 command.title,
-                command.description_markdown,
                 executor_agent_id,
                 command.cwd_override,
                 task_directory,
@@ -896,8 +889,8 @@ async fn delegate(
         } else {
             noema_tasks::RunKind::Planner
         };
-        let queued = WorkEventPayload::task_queued(1, 1, None, next_kind)
-            .map_err(StoreError::Work)?;
+        let queued =
+            WorkEventPayload::task_queued(1, 1, None, next_kind).map_err(StoreError::Work)?;
         let _queued_event = append_work_event_tx(
             transaction,
             helpers::event_context(&command.meta).task_scope(&task, None),
@@ -916,7 +909,9 @@ async fn delegate(
                 event: helpers::event_context(&command.meta),
             },
         )?;
-        Ok(helpers::task_write(run_event, task_id.clone()).run(Some(run_id)).into())
+        Ok(helpers::task_write(run_event, task_id.clone())
+            .run(Some(run_id))
+            .into())
     })
     .await
 }
@@ -925,7 +920,7 @@ fn task_authorization_context(
     transaction: &Transaction<'_>,
     provenance: &noema_tasks::TaskProvenance,
     title: &str,
-    description_markdown: &str,
+    task_document_markdown: &str,
 ) -> Result<String, StoreError> {
     let context = match provenance.source_kind {
         TaskSourceKind::ChatCapture | TaskSourceKind::ChatDelegate => {
@@ -942,7 +937,7 @@ fn task_authorization_context(
         }
         TaskSourceKind::WorkUi => noema_tasks::TaskAuthorizationContext::ManualTaskBody {
             title: title.to_string(),
-            description_markdown: description_markdown.to_string(),
+            task_document_markdown: task_document_markdown.to_string(),
         },
         TaskSourceKind::System => noema_tasks::TaskAuthorizationContext::None,
     };

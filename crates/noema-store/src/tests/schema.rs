@@ -91,7 +91,7 @@ fn v56_result_migration_copies_only_submitted_tasks_and_preserves_results() {
     .expect("existing result");
 
     store_migrations()
-        .to_latest(&mut connection)
+        .to_version(&mut connection, 56)
         .expect("migrate to v56");
 
     assert_eq!(
@@ -109,6 +109,94 @@ fn v56_result_migration_copies_only_submitted_tasks_and_preserves_results() {
             .query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))
             .expect("schema version"),
         56
+    );
+}
+
+#[tokio::test]
+async fn v57_moves_recurrence_prose_preserves_documents_on_retry_and_converges() {
+    let upgrade_home = TempDir::new().expect("upgrade root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database directory");
+    let mut connection = Connection::open(&upgrade_config.path).expect("open database");
+    store_migrations()
+        .to_version(&mut connection, 56)
+        .expect("migrate to v56");
+    let authorization = serde_json::json!({
+        "kind": "manual_task_body",
+        "title": "Recurring title",
+        "description_markdown": "Stored authorization"
+    })
+    .to_string();
+    connection
+        .execute(
+            "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, description_markdown, authorization_context_json, executor_agent_id, task_directory, source_kind, created_by_actor_id) VALUES ('task:v57', 'workspace:personal', 'workflow:personal:default', 'stage:personal:inbox', 'Existing Task', 'Stale database prose', ?1, 'agent:system:task-executor', 'v57-task', 'work_ui', 'actor:human:local')",
+            [&authorization],
+        )
+        .expect("insert Task");
+    connection
+        .execute(
+            "INSERT INTO task_recurrences (recurrence_id, workspace_id, title, description_markdown, authorization_context_json, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, next_run_at) VALUES ('recurrence:v57', 'workspace:personal', 'Recurring title', 'Stored template', ?1, 1, '0 8 * * *', 'UTC', 'run_once', 'skip', 'active', 1)",
+            [&authorization],
+        )
+        .expect("insert recurrence");
+    let task_path = upgrade_home.path().join("tasks/v57-task/TASK.md");
+    fs::create_dir_all(task_path.parent().expect("Task directory")).expect("Task directory");
+    fs::write(&task_path, "Exact existing Task\n").expect("Task document");
+
+    let transaction = connection.transaction().expect("migration transaction");
+    crate::task_file_migration::move_task_prose_to_files(&transaction)
+        .expect("interrupted migration");
+    transaction.rollback().expect("interrupt migration");
+    let recurrence_path = upgrade_home.path().join("recurrences/v57/TASK.md");
+    fs::write(&recurrence_path, "Interrupted template edit\n").expect("template edit");
+    drop(connection);
+
+    drop(
+        NoemaStore::open(&upgrade_config)
+            .await
+            .expect("retry migration"),
+    );
+    assert_eq!(
+        fs::read_to_string(task_path).expect("Task document"),
+        "Exact existing Task\n"
+    );
+    assert_eq!(
+        fs::read_to_string(recurrence_path).expect("recurrence document"),
+        "Interrupted template edit\n"
+    );
+    let connection = Connection::open(&upgrade_config.path).expect("upgraded database");
+    for table in ["tasks", "task_recurrences"] {
+        assert_eq!(
+            connection
+                .query_row(
+                    &format!(
+                        "SELECT count(*) FROM pragma_table_info('{table}') WHERE name = 'description_markdown'"
+                    ),
+                    [],
+                    |row| row.get::<_, usize>(0),
+                )
+                .expect("description column count"),
+            0
+        );
+    }
+    let renamed: String = connection
+        .query_row(
+            "SELECT authorization_context_json FROM task_recurrences WHERE recurrence_id = 'recurrence:v57'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("authorization context");
+    assert!(renamed.contains("task_document_markdown"));
+    assert!(!renamed.contains("description_markdown"));
+    drop(connection);
+
+    let fresh_home = TempDir::new().expect("fresh root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(NoemaStore::open(&fresh_config).await.expect("fresh schema"));
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
     );
 }
 

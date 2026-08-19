@@ -229,7 +229,7 @@ pub async fn capture_work_task(store: &NoemaStore, title: &str) -> Result<TaskRe
             },
             workspace_id: WorkspaceId::new(PERSONAL_WORKSPACE_ID).map_err(invariant)?,
             title: title.to_string(),
-            description_markdown: String::new(),
+            task_document_markdown: String::new(),
             project_id: None,
             provenance: TaskProvenance {
                 source_kind: TaskSourceKind::WorkUi,

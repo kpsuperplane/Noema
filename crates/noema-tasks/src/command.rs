@@ -146,13 +146,14 @@ work_commands! {
     /// Capture a task into Inbox without authorizing execution.
     CaptureTask => "task.capture", "Capture Inbox task." {
         meta: CommandMeta, workspace_id: WorkspaceId, title: String,
-        description_markdown: String, project_id: Option<ProjectId>, provenance: TaskProvenance,
+        task_document_markdown: String, project_id: Option<ProjectId>, provenance: TaskProvenance,
         schedule: Option<NewTaskSchedule>, executor_agent_id: Option<String>, cwd_override: Option<String>
     }
     /// Update capture fields while a task remains in Inbox.
     UpdateInboxTask => "task.update_inbox", "Edit Inbox capture fields." {
         meta: CommandMeta, precondition: TaskPrecondition, title: Option<String>,
-        description_markdown: Option<String>, project_id: Option<Option<ProjectId>>,
+        task_document_markdown: Option<String>, expected_task_document_digest: Option<String>,
+        project_id: Option<Option<ProjectId>>,
         executor_agent_id: Option<String>, cwd_override: Option<Option<String>>
     }
     /// Explicitly authorize an Inbox task for planning/execution.
@@ -169,7 +170,8 @@ work_commands! {
     /// Change timing or content authority for future recurrence slots.
     UpdateTaskRecurrence => "task.recurrence.update", "Update recurring task." {
         meta: CommandMeta, precondition: RecurrencePrecondition, title: Option<String>,
-        description_markdown: Option<String>, project_id: Option<Option<ProjectId>>,
+        task_document_markdown: Option<String>, expected_task_document_digest: Option<String>,
+        project_id: Option<Option<ProjectId>>,
         starts_at: Option<i64>, cron_expression: Option<String>, time_zone: Option<String>,
         missed_run_policy: Option<crate::MissedRunPolicy>, overlap_policy: Option<crate::OverlapPolicy>
     }
@@ -198,7 +200,7 @@ work_commands! {
     /// Atomically capture and authorize a task from the primary agent.
     DelegateTask => "task.delegate", "Primary-agent-only capture plus queue composition." {
         meta: CommandMeta, workspace_id: WorkspaceId, title: String,
-        description_markdown: String, project_id: Option<ProjectId>, provenance: TaskProvenance,
+        task_document_markdown: String, project_id: Option<ProjectId>, provenance: TaskProvenance,
         complexity_hint: Option<TaskComplexity>, execution_intent: Option<DelegateExecutionIntent>,
         executor_agent_id: Option<String>, cwd_override: Option<String>
     }
@@ -217,7 +219,10 @@ impl WorkCommand {
         match self {
             Self::CaptureTask(mut command) => {
                 command.title = required(&command.title, "task.title")?;
-                command.description_markdown = command.description_markdown.trim().to_string();
+                validate_document(
+                    &command.task_document_markdown,
+                    "task.task_document_markdown",
+                )?;
                 command.provenance = command.provenance.normalized()?;
                 command.schedule = command
                     .schedule
@@ -231,7 +236,7 @@ impl WorkCommand {
             Self::UpdateInboxTask(mut command) => {
                 command.precondition.validate()?;
                 if command.title.is_none()
-                    && command.description_markdown.is_none()
+                    && command.task_document_markdown.is_none()
                     && command.project_id.is_none()
                     && command.executor_agent_id.is_none()
                     && command.cwd_override.is_none()
@@ -245,9 +250,10 @@ impl WorkCommand {
                     .title
                     .map(|value| required(&value, "task.title"))
                     .transpose()?;
-                command.description_markdown = command
-                    .description_markdown
-                    .map(|value| value.trim().to_string());
+                validate_document_update(
+                    command.task_document_markdown.as_deref(),
+                    command.expected_task_document_digest.as_deref(),
+                )?;
                 command.executor_agent_id = normalize_executor_agent(command.executor_agent_id)?;
                 command.cwd_override = command
                     .cwd_override
@@ -275,7 +281,7 @@ impl WorkCommand {
             Self::UpdateTaskRecurrence(mut command) => {
                 command.precondition.validate()?;
                 if command.title.is_none()
-                    && command.description_markdown.is_none()
+                    && command.task_document_markdown.is_none()
                     && command.project_id.is_none()
                     && command.starts_at.is_none()
                     && command.cron_expression.is_none()
@@ -292,9 +298,10 @@ impl WorkCommand {
                     .title
                     .map(|value| required(&value, "task.title"))
                     .transpose()?;
-                command.description_markdown = command
-                    .description_markdown
-                    .map(|value| value.trim().to_string());
+                validate_document_update(
+                    command.task_document_markdown.as_deref(),
+                    command.expected_task_document_digest.as_deref(),
+                )?;
                 Ok(Self::UpdateTaskRecurrence(command))
             }
             Self::ChangeTaskRecurrence(command) => {
@@ -366,7 +373,10 @@ impl WorkCommand {
             }
             Self::DelegateTask(mut command) => {
                 command.title = required(&command.title, "task.title")?;
-                command.description_markdown = command.description_markdown.trim().to_string();
+                validate_document(
+                    &command.task_document_markdown,
+                    "task.task_document_markdown",
+                )?;
                 command.provenance = command.provenance.normalized()?;
                 if command.complexity_hint.is_some() && command.execution_intent.is_some() {
                     return Err(invalid_input(
@@ -385,6 +395,41 @@ impl WorkCommand {
             }
         }
     }
+}
+
+fn validate_document(value: &str, field: &'static str) -> Result<(), WorkDomainError> {
+    if value.len() > 64 * 1024 {
+        return Err(invalid_input(field, "Task document exceeds 64 KiB"));
+    }
+    Ok(())
+}
+
+fn validate_document_update(
+    document: Option<&str>,
+    digest: Option<&str>,
+) -> Result<(), WorkDomainError> {
+    if document.is_some() != digest.is_some() {
+        return Err(invalid_input(
+            "task.expected_task_document_digest",
+            "document and expected digest must be present together",
+        ));
+    }
+    if let Some(document) = document {
+        validate_document(document, "task.task_document_markdown")?;
+    }
+    if digest.is_some_and(|value| {
+        value.len() != 64
+            || value != value.to_ascii_lowercase()
+            || value
+                .chars()
+                .any(|character| !character.is_ascii_hexdigit())
+    }) {
+        return Err(invalid_input(
+            "task.expected_task_document_digest",
+            "digest must be lower-case SHA-256",
+        ));
+    }
+    Ok(())
 }
 
 fn normalize_executor_agent(value: Option<String>) -> Result<Option<String>, WorkDomainError> {

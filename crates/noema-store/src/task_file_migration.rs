@@ -11,6 +11,167 @@ use rusqlite_migration::{HookError, HookResult};
 
 use crate::TASK_FILE_TEXT_LIMIT;
 
+pub(crate) fn move_task_prose_to_files(transaction: &Transaction<'_>) -> HookResult {
+    let database_path: String = transaction.query_row(
+        "SELECT file FROM pragma_database_list WHERE name = 'main'",
+        [],
+        |row| row.get(0),
+    )?;
+    let home_root = infer_home_root(Path::new(&database_path));
+    validate_current_task_documents(transaction, &home_root)
+        .map_err(|error| HookError::Hook(error.to_string()))?;
+    create_recurrence_templates(transaction, &home_root)
+        .map_err(|error| HookError::Hook(error.to_string()))?;
+    rename_manual_task_body_field(transaction)?;
+    transaction.execute_batch(
+        "ALTER TABLE tasks DROP COLUMN description_markdown;
+         ALTER TABLE task_recurrences DROP COLUMN description_markdown;",
+    )?;
+    Ok(())
+}
+
+fn validate_current_task_documents(
+    transaction: &Transaction<'_>,
+    home_root: &Path,
+) -> std::io::Result<()> {
+    let mut statement = transaction
+        .prepare(
+            "SELECT t.task_id, t.cwd_override, t.task_directory, p.folder
+             FROM tasks t LEFT JOIN projects p ON p.project_id = t.project_id
+             ORDER BY t.task_id",
+        )
+        .map_err(sql_io)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        })
+        .map_err(sql_io)?;
+    for row in rows {
+        let (task_id, cwd, directory, project) = row.map_err(sql_io)?;
+        let root = cwd
+            .map(|root| PathBuf::from(root).join(&directory))
+            .or_else(|| project.map(|root| PathBuf::from(root).join(&directory)))
+            .unwrap_or_else(|| home_root.join("tasks").join(&directory));
+        validate_document(&root.join(crate::TASK_DOCUMENT), &task_id)?;
+    }
+    Ok(())
+}
+
+fn create_recurrence_templates(
+    transaction: &Transaction<'_>,
+    home_root: &Path,
+) -> std::io::Result<()> {
+    let recurrence_root = home_root.join("recurrences");
+    fs::create_dir_all(&recurrence_root)?;
+    reject_symlink_components(&recurrence_root)?;
+    let mut statement = transaction
+        .prepare(
+            "SELECT recurrence_id, description_markdown
+             FROM task_recurrences ORDER BY recurrence_id",
+        )
+        .map_err(sql_io)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(sql_io)?;
+    for row in rows {
+        let (recurrence_id, content) = row.map_err(sql_io)?;
+        if content.len() > TASK_FILE_TEXT_LIMIT {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("recurrence template exceeds 64 KiB for {recurrence_id}"),
+            ));
+        }
+        let suffix = recurrence_id.trim_start_matches("recurrence:");
+        let directory = Path::new(suffix);
+        if directory.components().count() != 1 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("recurrence template path is unsafe for {recurrence_id}"),
+            ));
+        }
+        let root = recurrence_root.join(directory);
+        fs::create_dir_all(&root)?;
+        reject_symlink_components(&root)?;
+        let path = root.join(crate::TASK_DOCUMENT);
+        if entry_exists(&path)? {
+            validate_document(&path, &recurrence_id)?;
+        } else {
+            atomic_write(&path, content.as_bytes())?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_document(path: &Path, owner: &str) -> std::io::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("required TASK.md is unsafe for {owner}"),
+        ));
+    }
+    if metadata.len() > TASK_FILE_TEXT_LIMIT as u64 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("required TASK.md exceeds 64 KiB for {owner}"),
+        ));
+    }
+    let bytes = fs::read(path)?;
+    std::str::from_utf8(&bytes).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("required TASK.md is not UTF-8 for {owner}"),
+        )
+    })?;
+    Ok(())
+}
+
+fn rename_manual_task_body_field(transaction: &Transaction<'_>) -> HookResult {
+    for table in ["tasks", "task_recurrences"] {
+        let sql = format!("SELECT rowid, authorization_context_json FROM {table}");
+        let mut statement = transaction.prepare(&sql)?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut updates = Vec::new();
+        for row in rows {
+            let (rowid, json) = row?;
+            let mut value: serde_json::Value =
+                serde_json::from_str(&json).map_err(|error| HookError::Hook(error.to_string()))?;
+            let Some(object) = value.as_object_mut() else {
+                continue;
+            };
+            if object.get("kind").and_then(serde_json::Value::as_str) == Some("manual_task_body") {
+                if let Some(document) = object.remove("description_markdown") {
+                    object.insert("task_document_markdown".to_string(), document);
+                    updates.push((
+                        rowid,
+                        serde_json::to_string(&value)
+                            .map_err(|error| HookError::Hook(error.to_string()))?,
+                    ));
+                }
+            }
+        }
+        drop(statement);
+        let update = format!("UPDATE {table} SET authorization_context_json = ?2 WHERE rowid = ?1");
+        for (rowid, json) in updates {
+            transaction.execute(&update, rusqlite::params![rowid, json])?;
+        }
+    }
+    Ok(())
+}
+
+fn sql_io(error: rusqlite::Error) -> std::io::Error {
+    std::io::Error::other(error)
+}
+
 pub(crate) fn convert_legacy_task_files(transaction: &Transaction<'_>) -> HookResult {
     let database_path: String = transaction.query_row(
         "SELECT file FROM pragma_database_list WHERE name = 'main'",

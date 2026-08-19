@@ -276,7 +276,6 @@ fn fixture_work_context(
         workflow_id: workflow_id.clone(),
         stage_id: stage_id.clone(),
         title: title.to_string(),
-        description_markdown: request_markdown.to_string(),
         executor_agent_id: TASK_EXECUTOR_AGENT_ID.to_string(),
         cwd_override: None,
         task_directory: "evaluation-task".to_string(),

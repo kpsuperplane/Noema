@@ -38,8 +38,8 @@ string_enum! {
     pub enum TaskChangedField, "event.task.changed_field" {
         /// Task title.
         Title => "title",
-        /// Task description.
-        Description => "description",
+        /// Task document.
+        Document => "document",
         /// Project assignment.
         Project => "project",
         /// Future execution or recurrence configuration.

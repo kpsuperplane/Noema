@@ -345,7 +345,7 @@ mod tests {
         assert!(
             bounded_authorization_context_json(&TaskAuthorizationContext::ManualTaskBody {
                 title: "x".repeat(MAX_AUTHORIZATION_CONTEXT_BYTES),
-                description_markdown: String::new(),
+                task_document_markdown: String::new(),
             })
             .is_err()
         );

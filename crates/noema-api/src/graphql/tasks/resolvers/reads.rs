@@ -68,10 +68,16 @@ pub(in crate::graphql) async fn task_recurrence(
             })
         })
         .collect::<Result<Vec<_>>>()?;
+    let document = state
+        .store()?
+        .read_recurrence_document(&recurrence_id)
+        .await
+        .map_err(|_| unavailable())?;
     Ok(GraphqlTaskRecurrence {
         recurrence_id: recurrence.recurrence_id.to_string(),
         title: recurrence.title,
-        description: recurrence.description_markdown,
+        task_document: document.content,
+        task_document_digest: document.digest,
         starts_at: instant(recurrence.starts_at)?,
         cron_expression: recurrence.cron_expression,
         time_zone: recurrence.time_zone,
@@ -91,7 +97,6 @@ pub(in crate::graphql) async fn task_recurrences(
     principal_subject: &str,
     workspace_id: String,
     project_id: Option<String>,
-    text: Option<String>,
     first: Option<i32>,
 ) -> Result<Vec<GraphqlTaskRecurrenceSummary>> {
     require_owner(principal_subject)?;
@@ -103,12 +108,7 @@ pub(in crate::graphql) async fn task_recurrences(
     }
     state
         .store()?
-        .list_task_recurrences(
-            &workspace_id,
-            project_id.as_ref(),
-            text.as_deref(),
-            page_size(first)?,
-        )
+        .list_task_recurrences(&workspace_id, project_id.as_ref(), page_size(first)?)
         .await
         .map_err(task_error)?
         .into_iter()
@@ -269,7 +269,6 @@ pub(in crate::graphql) async fn task_list(
             project_id,
             stage_ids,
             stage_behaviors,
-            text: input.text,
             attention_only: input.attention_only,
             scope: input.scope.into(),
             first: page_size(first)?,
@@ -295,7 +294,6 @@ pub(in crate::graphql) async fn needs_you(
         project_id,
         stage_ids: None,
         stage_behaviors: None,
-        text: None,
         attention_only: true,
         scope: GraphqlTaskScope::Active,
     };
@@ -377,7 +375,6 @@ pub(in crate::graphql) async fn task_history(
     workspace_id: String,
     project_id: Option<String>,
     kind: GraphqlTerminalTaskKind,
-    text: Option<String>,
     first: Option<i32>,
     after: Option<String>,
 ) -> Result<GraphqlTaskConnection> {
@@ -399,7 +396,6 @@ pub(in crate::graphql) async fn task_history(
             project_id,
             stage_ids: None,
             stage_behaviors: Some(stage_behaviors.into_iter().map(Into::into).collect()),
-            text,
             attention_only: false,
             scope: GraphqlTaskScope::Terminal,
         },

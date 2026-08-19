@@ -1737,7 +1737,6 @@ async fn live_projection(
                     WorkflowStageBehavior::Active,
                     WorkflowStageBehavior::HumanGate,
                 ],
-                text: None,
                 attention_only: false,
                 scope: WorkTaskScope::Active,
                 first: WorkPageSize::new(100).map_err(|_| {

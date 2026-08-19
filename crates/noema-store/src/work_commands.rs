@@ -84,19 +84,52 @@ impl WorkCommandService {
     /// conditions as [`Self::execute`].
     pub async fn execute_committed(
         &self,
-        command: WorkCommand,
+        mut command: WorkCommand,
     ) -> Result<CommittedWorkCommandResult, StoreError> {
+        self.attach_current_document(&mut command).await?;
         let command = command.normalized().map_err(StoreError::Work)?;
         let task_document = task_document_seed(&command);
-        let write = execute_normalized_command(self, command).await?;
-        if let Some(task_id) = write.task_id.as_ref() {
-            match task_document.as_deref() {
-                Some(content) => self.store.ensure_task_document_from(task_id, content).await,
-                None => self.store.ensure_task_document(task_id).await,
+        let obsolete_recurrence = self.obsolete_recurrence(&command).await?;
+        let rollback = self.replace_document_before_command(&command).await?;
+        let write = match execute_normalized_command(self, command.clone()).await {
+            Ok(write) => write,
+            Err(error) => {
+                self.restore_document(rollback).await?;
+                return Err(error);
             }
-            .map_err(|error| StoreError::InvariantViolation {
-                message: error.to_string(),
-            })?;
+        };
+        if let Some(task_id) = write.task_id.as_ref() {
+            if let Some(content) = task_document.as_deref() {
+                self.store
+                    .ensure_task_document_from(task_id, content)
+                    .await
+                    .map_err(file_invariant)?;
+            }
+            if matches!(command, WorkCommand::RunTaskRecurrenceNow(_)) {
+                self.copy_occurrence_document(task_id).await?;
+            }
+            if matches!(
+                command,
+                WorkCommand::CaptureTask(_) | WorkCommand::ScheduleTask(_)
+            ) {
+                if let Some(recurrence_id) = self.task_recurrence_id(task_id).await? {
+                    let document = self
+                        .store
+                        .read_task_document(task_id)
+                        .await
+                        .map_err(file_invariant)?;
+                    self.store
+                        .ensure_recurrence_document_from(&recurrence_id, &document.content)
+                        .await
+                        .map_err(file_invariant)?;
+                }
+            }
+        }
+        if let Some(recurrence_id) = obsolete_recurrence {
+            self.store
+                .delete_recurrence_document(&recurrence_id)
+                .await
+                .map_err(file_invariant)?;
         }
         let mut committed = crate::work_command_result::materialize_committed_result(write)?;
         if let Some(detail) = committed.task_detail.as_mut() {
@@ -104,17 +137,172 @@ impl WorkCommandService {
         }
         Ok(committed)
     }
+
+    async fn attach_current_document(&self, command: &mut WorkCommand) -> Result<(), StoreError> {
+        match command {
+            WorkCommand::UpdateInboxTask(value)
+                if value.meta.actor_id.starts_with("actor:human:")
+                    && value.title.is_some()
+                    && value.task_document_markdown.is_none() =>
+            {
+                let current = self
+                    .store
+                    .read_task_document(&value.precondition.task_id)
+                    .await
+                    .map_err(file_invariant)?;
+                value.task_document_markdown = Some(current.content);
+                value.expected_task_document_digest = Some(current.digest);
+            }
+            WorkCommand::UpdateTaskRecurrence(value)
+                if value.meta.actor_id.starts_with("actor:human:")
+                    && value.title.is_some()
+                    && value.task_document_markdown.is_none() =>
+            {
+                let current = self
+                    .store
+                    .read_recurrence_document(&value.precondition.recurrence_id)
+                    .await
+                    .map_err(file_invariant)?;
+                value.task_document_markdown = Some(current.content);
+                value.expected_task_document_digest = Some(current.digest);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn replace_document_before_command(
+        &self,
+        command: &WorkCommand,
+    ) -> Result<Option<DocumentRollback>, StoreError> {
+        match command {
+            WorkCommand::UpdateInboxTask(value) => {
+                let (Some(content), Some(expected)) = (
+                    value.task_document_markdown.as_deref(),
+                    value.expected_task_document_digest.as_deref(),
+                ) else {
+                    return Ok(None);
+                };
+                let current = self
+                    .store
+                    .read_task_document(&value.precondition.task_id)
+                    .await
+                    .map_err(file_invariant)?;
+                require_document_digest(&current.digest, expected)?;
+                self.store
+                    .write_task_file(&value.precondition.task_id, crate::TASK_DOCUMENT, content)
+                    .await
+                    .map_err(file_invariant)?;
+                Ok(Some(DocumentRollback::Task(
+                    value.precondition.task_id.clone(),
+                    current.content,
+                )))
+            }
+            WorkCommand::UpdateTaskRecurrence(value) => {
+                let (Some(content), Some(expected)) = (
+                    value.task_document_markdown.as_deref(),
+                    value.expected_task_document_digest.as_deref(),
+                ) else {
+                    return Ok(None);
+                };
+                let current = self
+                    .store
+                    .read_recurrence_document(&value.precondition.recurrence_id)
+                    .await
+                    .map_err(file_invariant)?;
+                require_document_digest(&current.digest, expected)?;
+                self.store
+                    .write_recurrence_document(&value.precondition.recurrence_id, content)
+                    .await
+                    .map_err(file_invariant)?;
+                Ok(Some(DocumentRollback::Recurrence(
+                    value.precondition.recurrence_id.clone(),
+                    current.content,
+                )))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    async fn restore_document(&self, rollback: Option<DocumentRollback>) -> Result<(), StoreError> {
+        match rollback {
+            Some(DocumentRollback::Task(task_id, content)) => self
+                .store
+                .write_task_file(&task_id, crate::TASK_DOCUMENT, &content)
+                .await
+                .map_err(file_invariant),
+            Some(DocumentRollback::Recurrence(recurrence_id, content)) => self
+                .store
+                .write_recurrence_document(&recurrence_id, &content)
+                .await
+                .map_err(file_invariant),
+            None => Ok(()),
+        }
+    }
+
+    async fn task_recurrence_id(
+        &self,
+        task_id: &noema_tasks::TaskId,
+    ) -> Result<Option<noema_tasks::TaskRecurrenceId>, StoreError> {
+        let task_id = task_id.clone();
+        self.store
+            .with_connection(|connection| {
+                let value = connection.query_row(
+                    "SELECT recurrence_id FROM tasks WHERE task_id = ?1",
+                    [task_id.as_str()],
+                    |row| row.get::<_, Option<String>>(0),
+                )?;
+                value
+                    .map(noema_tasks::TaskRecurrenceId::new)
+                    .transpose()
+                    .map_err(StoreError::Work)
+            })
+            .await
+    }
+
+    async fn obsolete_recurrence(
+        &self,
+        command: &WorkCommand,
+    ) -> Result<Option<noema_tasks::TaskRecurrenceId>, StoreError> {
+        let task_id = match command {
+            WorkCommand::ScheduleTask(value) => Some(&value.precondition.task_id),
+            WorkCommand::UnscheduleTask(value) => Some(&value.precondition.task_id),
+            _ => None,
+        };
+        match task_id {
+            Some(task_id) => self.task_recurrence_id(task_id).await,
+            None => Ok(None),
+        }
+    }
+}
+
+enum DocumentRollback {
+    Task(noema_tasks::TaskId, String),
+    Recurrence(noema_tasks::TaskRecurrenceId, String),
+}
+
+fn require_document_digest(actual: &str, expected: &str) -> Result<(), StoreError> {
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(StoreError::Work(
+            noema_tasks::WorkDomainError::StaleDocument,
+        ))
+    }
+}
+
+fn file_invariant(error: crate::TaskFileError) -> StoreError {
+    StoreError::InvariantViolation {
+        message: error.to_string(),
+    }
 }
 
 fn task_document_seed(command: &WorkCommand) -> Option<String> {
-    let WorkCommand::DelegateTask(command) = command else {
-        return None;
-    };
-    let intent = command.execution_intent.as_ref()?;
-    Some(format!(
-        "# {}\n\n{}\n",
-        command.title, intent.request_markdown
-    ))
+    match command {
+        WorkCommand::CaptureTask(command) => Some(command.task_document_markdown.clone()),
+        WorkCommand::DelegateTask(command) => Some(command.task_document_markdown.clone()),
+        _ => None,
+    }
 }
 
 /// Return the canonical command fingerprint used by idempotency receipts.
@@ -232,7 +420,7 @@ mod tests {
             },
             workspace_id: WorkspaceId::new("workspace:personal").unwrap(),
             title: " capture ".to_string(),
-            description_markdown: String::new(),
+            task_document_markdown: String::new(),
             project_id: None,
             provenance: TaskProvenance {
                 source_kind: TaskSourceKind::ChatCapture,

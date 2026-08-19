@@ -22,7 +22,7 @@ pub(crate) fn load_task(
     transaction
         .query_row(
             "SELECT task_id, workspace_id, project_id, workflow_id, stage_id, title,
-                    description_markdown, executor_agent_id, cwd_override,
+                    executor_agent_id, cwd_override,
                     authorization_context_json, source_kind,
                     source_conversation_id, source_turn_id, source_item_id, source_tool_call_id,
                     created_by_actor_id, generation, revision,
@@ -55,59 +55,58 @@ pub(crate) fn decode_task_record(row: &Row<'_>) -> rusqlite::Result<noema_tasks:
         stage_id: WorkflowStageId::new(row.get::<_, String>(4)?)
             .map_err(|e| conversion_failure(4, Type::Text, e))?,
         title: row.get(5)?,
-        description_markdown: row.get(6)?,
-        executor_agent_id: row.get(7)?,
-        cwd_override: row.get(8)?,
-        authorization_context: serde_json::from_str(&row.get::<_, String>(9)?)
-            .map_err(|e| conversion_failure(9, Type::Text, e))?,
+        executor_agent_id: row.get(6)?,
+        cwd_override: row.get(7)?,
+        authorization_context: serde_json::from_str(&row.get::<_, String>(8)?)
+            .map_err(|e| conversion_failure(8, Type::Text, e))?,
         provenance: TaskProvenance {
-            source_kind: TaskSourceKind::from_str(&row.get::<_, String>(10)?)
-                .map_err(|e| conversion_failure(10, Type::Text, e))?,
-            conversation_id: row.get(11)?,
-            turn_id: row.get(12)?,
-            item_id: row.get(13)?,
-            source_tool_call_id: row.get(14)?,
-            created_by_actor_id: row.get(15)?,
+            source_kind: TaskSourceKind::from_str(&row.get::<_, String>(9)?)
+                .map_err(|e| conversion_failure(9, Type::Text, e))?,
+            conversation_id: row.get(10)?,
+            turn_id: row.get(11)?,
+            item_id: row.get(12)?,
+            source_tool_call_id: row.get(13)?,
+            created_by_actor_id: row.get(14)?,
         },
-        generation: positive_u64(row, 16)?,
-        revision: positive_u64(row, 17)?,
-        active_gate_id: optional_id(row, 18, TaskGateId::new)?,
-        latest_run_id: row.get(19)?,
-        scheduled_for: row.get(20)?,
-        schedule_time_zone: row.get(21)?,
+        generation: positive_u64(row, 15)?,
+        revision: positive_u64(row, 16)?,
+        active_gate_id: optional_id(row, 17, TaskGateId::new)?,
+        latest_run_id: row.get(18)?,
+        scheduled_for: row.get(19)?,
+        schedule_time_zone: row.get(20)?,
         missed_run_policy: row
-            .get::<_, Option<String>>(22)?
+            .get::<_, Option<String>>(21)?
             .map(|value| value.parse())
             .transpose()
-            .map_err(|e| conversion_failure(22, Type::Text, e))?,
-        recurrence_id: optional_id(row, 23, noema_tasks::TaskRecurrenceId::new)?,
+            .map_err(|e| conversion_failure(21, Type::Text, e))?,
+        recurrence_id: optional_id(row, 22, noema_tasks::TaskRecurrenceId::new)?,
         recurrence_revision: row
-            .get::<_, Option<i64>>(24)?
+            .get::<_, Option<i64>>(23)?
             .map(u64::try_from)
             .transpose()
-            .map_err(|e| conversion_failure(24, Type::Integer, e))?,
-        recurrence_scheduled_for: row.get(25)?,
-        queued_at: row.get(26)?,
-        created_at: row.get(27)?,
-        updated_at: row.get(28)?,
-        completed_at: row.get(29)?,
-        cancelled_at: row.get(30)?,
-        task_directory: row.get::<_, Option<String>>(31)?.unwrap_or_else(|| {
+            .map_err(|e| conversion_failure(23, Type::Integer, e))?,
+        recurrence_scheduled_for: row.get(24)?,
+        queued_at: row.get(25)?,
+        created_at: row.get(26)?,
+        updated_at: row.get(27)?,
+        completed_at: row.get(28)?,
+        cancelled_at: row.get(29)?,
+        task_directory: row.get::<_, Option<String>>(30)?.unwrap_or_else(|| {
             row.get::<_, String>(0)
                 .unwrap_or_else(|_| "task:task".to_string())
                 .trim_start_matches("task:")
                 .replace(':', "-")
         }),
         execution_complexity: row
+            .get::<_, Option<String>>(31)?
+            .map(|value| value.parse())
+            .transpose()
+            .map_err(|error| conversion_failure(31, Type::Text, error))?,
+        current_review_decision: row
             .get::<_, Option<String>>(32)?
             .map(|value| value.parse())
             .transpose()
             .map_err(|error| conversion_failure(32, Type::Text, error))?,
-        current_review_decision: row
-            .get::<_, Option<String>>(33)?
-            .map(|value| value.parse())
-            .transpose()
-            .map_err(|error| conversion_failure(33, Type::Text, error))?,
     };
     let normalized = task
         .normalized()

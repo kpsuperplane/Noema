@@ -145,8 +145,9 @@ fn tasks_schema_exposes_exact_detail_attention_and_closed_vocabularies() {
         );
     }
     for field in [
-        "descriptionPreview: String!",
+        "taskDocumentPreview: String!",
         "taskDocument: String!",
+        "taskDocumentDigest: String!",
         "resultDocument: String",
         "reviewDocument: String",
         "messages: [TaskMessage!]!",
@@ -166,6 +167,7 @@ fn tasks_schema_exposes_exact_detail_attention_and_closed_vocabularies() {
         "contractId:",
         "triggeringSubmissionId:",
         "triggeringReviewId:",
+        "descriptionPreview:",
     ] {
         assert!(!sdl.contains(removed), "obsolete schema content {removed}");
     }

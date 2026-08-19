@@ -35,7 +35,7 @@ fn task_card_from_store(value: &WorkTaskSummary) -> async_graphql::Result<Graphq
         workspace: value.workspace.clone().into(),
         project: value.project.clone().map(TryInto::try_into).transpose()?,
         title: value.task.title.clone(),
-        description_preview: preview(&value.task.description_markdown, 280),
+        task_document_preview: value.task_document_preview.clone(),
         stage: value.stage.clone().into(),
         revision: exact_u64(value.task.revision)?,
         generation: exact_u64(value.task.generation)?,
@@ -68,6 +68,7 @@ pub(crate) fn task_card_from_detail(
 ) -> async_graphql::Result<GraphqlTaskCard> {
     task_card_from_store(&WorkTaskSummary {
         task: value.task.clone(),
+        task_document_preview: preview(&value.task_document, 280),
         workspace: value.workspace.clone(),
         project: value.project.clone(),
         stage: value.stage.clone(),
@@ -121,8 +122,8 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         task_id,
         project: value.project.map(TryInto::try_into).transpose()?,
         title: value.task.title,
-        description: value.task.description_markdown,
         task_document: value.task_document,
+        task_document_digest: value.task_document_digest,
         result_document: value.result_document,
         review_document: value.review_document,
         stage: value.stage.into(),

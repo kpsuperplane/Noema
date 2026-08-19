@@ -9,6 +9,9 @@ pub enum WorkDomainError {
     /// An optimistic row revision no longer matches.
     #[error("work revision is stale")]
     StaleRevision,
+    /// A mutable Task document changed after the human loaded it.
+    #[error("task document is stale")]
+    StaleDocument,
     /// A task execution generation no longer matches.
     #[error("work generation is stale")]
     StaleGeneration,
@@ -65,6 +68,7 @@ impl WorkDomainError {
         match self {
             Self::WorkUnavailable => "work_unavailable",
             Self::StaleRevision => "stale_revision",
+            Self::StaleDocument => "stale_document",
             Self::StaleGeneration => "stale_generation",
             Self::InvalidTransition => "invalid_transition",
             Self::WorkflowMismatch => "workflow_mismatch",

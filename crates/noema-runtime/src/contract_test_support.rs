@@ -194,7 +194,7 @@ pub async fn seed_task_with_executor(
             },
             workspace_id: WorkspaceId::new("workspace:personal").expect("personal workspace"),
             title: title.to_string(),
-            description_markdown: format!("Seeded runtime task: {title}"),
+            task_document_markdown: format!("Seeded runtime task: {title}"),
             project_id: None,
             executor_agent_id,
             cwd_override,

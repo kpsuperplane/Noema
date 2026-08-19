@@ -559,7 +559,6 @@ async fn reconcile_all(services: &TaskRuntimeServices, service: &WorkCommandServ
             project_id: None,
             stage_ids: Vec::new(),
             stage_behaviors: Vec::new(),
-            text: None,
             attention_only: false,
             scope: noema_store::WorkTaskScope::Active,
             first: noema_store::WorkPageSize::new(100).expect("bounded page size"),
