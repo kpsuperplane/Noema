@@ -27,7 +27,10 @@ impl ProviderAccountService {
         provider_account_id: &str,
     ) -> Result<ProviderAccountRecord, ProviderAccountOperationError> {
         let account = self.require_active_account(provider_account_id).await?;
-        if !matches!(account.provider_kind.as_str(), "exa" | "openrouter") {
+        if !matches!(
+            account.provider_kind.as_str(),
+            "exa" | "kernel" | "openrouter"
+        ) {
             return Err(ProviderAccountOperationError::UnsupportedProvider);
         }
         if account.auth_method != ProviderAuthMethod::SecretInput

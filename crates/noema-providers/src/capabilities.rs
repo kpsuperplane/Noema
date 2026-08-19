@@ -126,6 +126,14 @@ pub fn capabilities_for_provider_account(
             ReliabilityContract::FirstParty,
             false,
         )],
+        "kernel" => vec![web_capability(
+            provider_kind,
+            account_key,
+            CapabilityId::WebBrowse,
+            status,
+            ReliabilityContract::HostedProvider,
+            false,
+        )],
         "exa" => vec![
             web_capability(
                 provider_kind,
@@ -291,5 +299,32 @@ mod tests {
     #[test]
     fn hosted_and_local_accounts_expose_distinct_reliability_contracts() {
         assert_model_capability_policy();
+    }
+
+    #[test]
+    fn kernel_browser_capability_tracks_account_readiness_as_hosted() {
+        let available = capabilities_for_provider_account(
+            "kernel",
+            "account",
+            ProviderAccountStatus::Authenticated,
+        );
+        assert_eq!(available.len(), 1);
+        assert_eq!(available[0].capability_id, CapabilityId::WebBrowse);
+        assert_eq!(
+            available[0].reliability_contract,
+            ReliabilityContract::HostedProvider
+        );
+        assert_eq!(
+            available[0].data_flow_class,
+            DataFlowClass::ExternalWebBrowse
+        );
+        assert_eq!(available[0].status, ProviderCapabilityStatus::Available);
+
+        let unavailable = capabilities_for_provider_account(
+            "kernel",
+            "account",
+            ProviderAccountStatus::Unauthenticated,
+        );
+        assert_eq!(unavailable[0].status, ProviderCapabilityStatus::Unavailable);
     }
 }
