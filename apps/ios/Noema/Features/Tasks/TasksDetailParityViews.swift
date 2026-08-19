@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-enum TaskDetailTab: String, Identifiable {
+enum TaskDetailTab: String, Hashable, Identifiable {
   case result
   case task
   case transcript

@@ -88,23 +88,14 @@ private struct TasksDetailContent: View {
   }
 
   var body: some View {
-    VStack(spacing: 0) {
-      if detail.schedule != nil {
-        TasksRecurrenceSummaryView(model: model, task: detail, onOpenRecurrence: onOpenRecurrence)
-      }
-      TasksDetailTabBar(selection: $selectedTab, tabs: availableTabs)
-      TasksDetailPager(selection: $selectedTab, tabs: availableTabs) {
-        ScrollView {
-          TasksDocumentView(document: detail.resultDocument ?? "", fileName: "RESULT.md")
-        }
-        .scrollDismissesKeyboard(.interactively)
-      } task: {
-        ScrollView {
-          TasksDocumentView(document: detail.taskDocument, fileName: "TASK.md")
-        }
-        .scrollDismissesKeyboard(.interactively)
-      } transcript: {
-        transcriptScroller
+    Group {
+      if compactPresentation {
+        detailBody
+      } else {
+        detailBody
+          .safeAreaInset(edge: .bottom, spacing: 0) {
+            taskContextAccessory
+          }
       }
     }
     .navigationTitle(detail.title)
@@ -134,27 +125,6 @@ private struct TasksDetailContent: View {
     .noemaSheet(isPresented: $taskInfoPresented) {
       TasksTaskInfoSheet(detail: detail)
     }
-    .safeAreaInset(edge: .bottom, spacing: 0) {
-      VStack(spacing: 0) {
-        if hasSecondarySurface {
-          secondarySurface
-            .id(secondarySurfaceKey)
-            .transition(secondarySurfaceTransition)
-            .zIndex(1)
-        }
-        TasksTaskContextDock(
-          run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
-          canCancel: hasAction("CANCEL") && model.isConnected,
-          cancel: { cancelPresented = true },
-          showInfo: { taskInfoPresented = true }
-        )
-        .offset(y: hasSecondarySurface ? -NoemaSpacing.xxl : 0)
-        .padding(.bottom, hasSecondarySurface ? -NoemaSpacing.xxl : 0)
-        .zIndex(2)
-      }
-      .padding(.horizontal, NoemaSpacing.lg)
-      .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: secondarySurfaceKey)
-    }
     .onChange(of: detail.activeGate?.id) { _, _ in
       gateResponse = ""
     }
@@ -167,6 +137,88 @@ private struct TasksDetailContent: View {
         selectedTab = .task
       }
     }
+  }
+
+  private var detailBody: some View {
+    VStack(spacing: 0) {
+      if detail.schedule != nil {
+        TasksRecurrenceSummaryView(model: model, task: detail, onOpenRecurrence: onOpenRecurrence)
+      }
+      if compactPresentation {
+        compactTabView
+      } else {
+        wideTabView
+      }
+    }
+  }
+
+  private var wideTabView: some View {
+    VStack(spacing: 0) {
+      TasksDetailTabBar(selection: $selectedTab, tabs: availableTabs)
+      TasksDetailPager(selection: $selectedTab, tabs: availableTabs) {
+        resultView
+      } task: {
+        taskView
+      } transcript: {
+        transcriptScroller
+      }
+    }
+  }
+
+  private var compactTabView: some View {
+    TabView(selection: $selectedTab) {
+      if availableTabs.contains(.result) {
+        Tab("Result", systemImage: "doc.text", value: TaskDetailTab.result) {
+          resultView
+        }
+      }
+      Tab("Task", systemImage: "checklist", value: TaskDetailTab.task) {
+        taskView
+      }
+      Tab("Transcript", systemImage: "text.bubble", value: TaskDetailTab.transcript) {
+        transcriptScroller
+      }
+    }
+    .tabBarMinimizeBehavior(.never)
+    .tabViewBottomAccessory {
+      taskContextAccessory
+    }
+  }
+
+  private var resultView: some View {
+    ScrollView {
+      TasksDocumentView(document: detail.resultDocument ?? "", fileName: "RESULT.md")
+    }
+    .scrollDismissesKeyboard(.interactively)
+  }
+
+  private var taskView: some View {
+    ScrollView {
+      TasksDocumentView(document: detail.taskDocument, fileName: "TASK.md")
+    }
+    .scrollDismissesKeyboard(.interactively)
+  }
+
+  private var taskContextAccessory: some View {
+    VStack(spacing: 0) {
+      if hasSecondarySurface {
+        secondarySurface
+          .id(secondarySurfaceKey)
+          .transition(secondarySurfaceTransition)
+          .zIndex(1)
+      }
+      TasksTaskContextDock(
+        run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
+        canCancel: hasAction("CANCEL") && model.isConnected,
+        cancel: { cancelPresented = true },
+        showInfo: { taskInfoPresented = true }
+      )
+      .offset(y: hasSecondarySurface ? -NoemaSpacing.xxl : 0)
+      .padding(.bottom, hasSecondarySurface ? -NoemaSpacing.xxl : 0)
+      .zIndex(2)
+    }
+    .padding(.horizontal, NoemaSpacing.lg)
+    .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: secondarySurfaceKey)
   }
 
   private var availableTabs: [TaskDetailTab] {
