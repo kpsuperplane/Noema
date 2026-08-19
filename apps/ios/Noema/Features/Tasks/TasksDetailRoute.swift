@@ -296,7 +296,7 @@ private struct TasksDetailContent: View {
 
   private var occurrenceSubtitle: String? {
     guard let schedule = detail.schedule, schedule.recurrenceId != nil else { return nil }
-    return "This occurrence · \(TasksScheduleFormatting.timestampLabel(schedule.scheduledFor, timeZone: schedule.timeZone))"
+    return "Scheduled for \(TasksScheduleFormatting.timestampLabel(schedule.scheduledFor, timeZone: schedule.timeZone))"
   }
 
   private func hasAction(_ action: String) -> Bool {
