@@ -74,6 +74,7 @@ struct TasksTaskStatusSurface: View {
   let run: TasksRunSnapshot?
   let activity: String?
   let embeddedInGlassAccessory: Bool
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   private var statusText: String {
     activity?.taskDockText ?? run?.activity.taskDockText ?? fallbackStatus
@@ -82,16 +83,22 @@ struct TasksTaskStatusSurface: View {
   var body: some View {
     HStack(spacing: NoemaSpacing.compact) {
       statusIcon
-      Text(statusText)
         .font(NoemaFont.monoCompact)
-        .foregroundStyle(NoemaColor.contentSecondary)
-        .lineLimit(1)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(width: NoemaSpacing.md, height: NoemaSpacing.md)
+      ZStack(alignment: .leading) {
+        Text(statusText)
+          .id(statusText)
+          .transition(statusTransition)
+      }
+      .font(NoemaFont.monoCompact)
+      .foregroundStyle(NoemaColor.contentSecondary)
+      .lineLimit(1)
+      .clipped()
     }
     .padding(.horizontal, NoemaSpacing.md)
-    .padding(.top, embeddedInGlassAccessory ? NoemaSpacing.md : NoemaSpacing.xs)
-    .padding(.bottom, embeddedInGlassAccessory ? NoemaSpacing.md : NoemaSpacing.xxl + NoemaSpacing.xxs)
-    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.top, embeddedInGlassAccessory ? NoemaSpacing.sm : NoemaSpacing.xs)
+    .padding(.bottom, embeddedInGlassAccessory ? NoemaSpacing.sm : NoemaSpacing.xxl + NoemaSpacing.xxs)
+    .frame(maxWidth: embeddedInGlassAccessory ? nil : .infinity, alignment: .leading)
     .background {
       if !embeddedInGlassAccessory {
         attachedShape.fill(NoemaColor.surface)
@@ -107,6 +114,7 @@ struct TasksTaskStatusSurface: View {
       radius: NoemaSpacing.sm,
       y: NoemaSpacing.xs
     )
+    .animation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion), value: statusText)
     .accessibilityElement(children: .combine)
     .accessibilityLabel("Task status: \(statusText)")
   }
@@ -115,25 +123,21 @@ struct TasksTaskStatusSurface: View {
   private var statusIcon: some View {
     switch (run?.status ?? "").uppercased() {
     case "QUEUED", "LEASED", "STARTED", "RUNNING":
-      Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90")
-        .foregroundStyle(NoemaColor.success)
-        .frame(width: 16)
+      ProgressView()
+        .controlSize(.mini)
+        .tint(NoemaColor.success)
     case "FAILED", "INTERRUPTED":
       Image(systemName: "exclamationmark")
         .foregroundStyle(NoemaColor.warning)
-        .frame(width: 16)
     case "CANCELLED":
       Image(systemName: "xmark")
         .foregroundStyle(NoemaColor.contentTertiary)
-        .frame(width: 16)
     case "COMPLETED":
       Image(systemName: "checkmark")
         .foregroundStyle(NoemaColor.success)
-        .frame(width: 16)
     default:
       Image(systemName: "ellipsis")
         .foregroundStyle(NoemaColor.contentTertiary)
-        .frame(width: 16)
     }
   }
 
@@ -149,6 +153,14 @@ struct TasksTaskStatusSurface: View {
     case "WAITING_FOR_APPROVAL": "Waiting for approval"
     default: "No output yet"
     }
+  }
+
+  private var statusTransition: AnyTransition {
+    guard !reduceMotion else { return .identity }
+    return .asymmetric(
+      insertion: .move(edge: .bottom).combined(with: .opacity),
+      removal: .move(edge: .top).combined(with: .opacity)
+    )
   }
 
   private var attachedShape: NoemaSuperellipse {
