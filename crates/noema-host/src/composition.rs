@@ -38,7 +38,10 @@ use noema_providers::{
     default_web_browse_backend, default_web_fetch_backend, default_web_search_backend,
     hosted_provider_from_config, provider_account_instance_key, provider_bootstrap_from_config,
 };
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 pub(crate) async fn start_from_process_env_with_local_model_runtime_root(
     local_model_runtime_root: Option<std::path::PathBuf>,
@@ -267,6 +270,8 @@ async fn assemble_services(
         default_search: default_web_search_backend(),
         default_fetch: default_web_fetch_backend(),
         default_browse: default_web_browse_backend(browser.max_sessions, browser.max_old_space_mb),
+        kernel_browse_cache: Arc::new(Mutex::new(HashMap::new())),
+        browser_max_sessions: browser.max_sessions,
     });
     let mcp_repository: McpRepositoryHandle = Arc::new(store.clone());
     let mcp_secrets = Arc::new(FilesystemMcpSecretStore::new(paths.clone()));
@@ -456,6 +461,8 @@ struct HostWebBackendResolver {
     default_search: WebSearchBackendHandle,
     default_fetch: WebFetchBackendHandle,
     default_browse: WebBrowseBackendHandle,
+    kernel_browse_cache: Arc<Mutex<HashMap<(String, u64), WebBrowseBackendHandle>>>,
+    browser_max_sessions: usize,
 }
 
 impl std::fmt::Debug for HostWebBackendResolver {
@@ -522,9 +529,35 @@ impl WebBackendResolver for HostWebBackendResolver {
         request: WebBackendRequest,
     ) -> WebBackendFuture<'_, WebBrowseBackendHandle> {
         let default_browse = self.default_browse.clone();
+        let credentials = self.credentials.clone();
+        let kernel_browse_cache = self.kernel_browse_cache.clone();
+        let browser_max_sessions = self.browser_max_sessions;
         Box::pin(async move {
             match request.provider_kind.as_str() {
                 noema_providers::OBSCURA_BROWSER_PROVIDER_ID => Ok(default_browse),
+                noema_providers::KERNEL_BROWSER_PROVIDER_ID => {
+                    let api_key = credentials
+                        .api_key("kernel", &request.provider_account_id)
+                        .await
+                        .map(ProviderCredential::into_secret)
+                        .map_err(|_| WebBackendResolverError::Unauthenticated)?;
+                    let cache_key = (
+                        request.provider_account_id.clone(),
+                        request.credential_revision,
+                    );
+                    let mut cache = kernel_browse_cache
+                        .lock()
+                        .expect("kernel browser backend cache lock");
+                    if let Some(provider) = cache.get(&cache_key) {
+                        return Ok(provider.clone());
+                    }
+                    cache.retain(|(account_id, revision), _| {
+                        account_id != &cache_key.0 || *revision == cache_key.1
+                    });
+                    let provider = WebBrowseBackendHandle::kernel(api_key, browser_max_sessions);
+                    cache.insert(cache_key, provider.clone());
+                    Ok(provider)
+                }
                 _ => Err(WebBackendResolverError::Unavailable),
             }
         })

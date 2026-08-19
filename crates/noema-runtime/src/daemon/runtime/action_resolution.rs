@@ -448,7 +448,8 @@ impl RuntimeActor {
             }
             availability.insert(
                 action_id,
-                browser_session_available(backend.as_ref(), &action).await,
+                browser_session_available(backend.as_ref().map(|(backend, _)| backend), &action)
+                    .await,
             );
         }
         Ok(availability)
