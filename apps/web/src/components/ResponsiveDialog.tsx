@@ -12,7 +12,7 @@ const mobileViewport = "(max-width: 760px)";
 
 export function Dialog(props: DialogProps) {
   const isMobile = useMediaQuery(mobileViewport);
-  const renderAsMobile = useLatchedDrawerPresentation(props.isOpen, isMobile);
+  const renderAsMobile = useLatchedDrawerPresentation(props.isOpen, isMobile) && props.variant !== "fullscreen";
 
   if (!renderAsMobile) {
     return <AstryxDialog {...props} />;

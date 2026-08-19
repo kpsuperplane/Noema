@@ -130,7 +130,7 @@ function mapTaskDetail(task: TasksDetail): TaskDetail {
     schedule: task.schedule,
     status: taskStatusFromProjection(task),
     stageBehavior: task.stage.behavior,
-    capturedRequest: task.description.trim() || task.title,
+    capturedRequest: task.title,
     taskDocument: task.taskDocument,
     resultDocument: task.resultDocument,
     reviewDocument: task.reviewDocument,

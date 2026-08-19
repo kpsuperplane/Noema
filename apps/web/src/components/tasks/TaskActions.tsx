@@ -130,7 +130,7 @@ export function TaskActions({
       await commands.run(action).catch(() => undefined);
       return;
     }
-    if (action !== "EDIT" || task.description !== undefined) {
+    if (action !== "EDIT" || task.taskDocument !== undefined) {
       setActiveCommand({ action, subject: snapshotTaskSubject(task) });
       return;
     }

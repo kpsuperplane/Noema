@@ -4,18 +4,19 @@ import { Button } from "@astryxdesign/core/Button";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { HStack } from "@astryxdesign/core/HStack";
-import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
+import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import type { TasksProject } from "./tasksTypes";
 import type { TaskCommandDraft, TaskCommandSubject } from "./useTaskCommands";
 import { taskActionLabel } from "./taskActionModel";
 import { AcpAgentsDocument } from "@/generated/graphql";
+import { TaskMarkdownEditor } from "./TaskMarkdownEditor";
 
 export function TaskActionDialog({ action, task, projects, busy, acknowledging, requiresAcknowledgement, actionUnavailable, error, onAcknowledge, onClose, onSubmit }: { action: string | null; task: TaskCommandSubject; projects: readonly TasksProject[]; busy: boolean; acknowledging: boolean; requiresAcknowledgement: boolean; actionUnavailable: boolean; error: string | null; onAcknowledge: () => void; onClose: () => void; onSubmit: (draft: TaskCommandDraft) => Promise<void> }) {
   const [message, setMessage] = React.useState("");
   const [title, setTitle] = React.useState(task.title);
-  const [description, setDescription] = React.useState(task.description ?? "");
+  const [taskDocument, setTaskDocument] = React.useState(task.taskDocument ?? "");
   const [projectId, setProjectId] = React.useState(task.project?.projectId ?? "");
   const [executorAgentId, setExecutorAgentId] = React.useState(task.executorAgentId ?? "agent:task-executor");
   const [cwdOverride, setCwdOverride] = React.useState(task.cwdOverride ?? "");
@@ -29,33 +30,34 @@ export function TaskActionDialog({ action, task, projects, busy, acknowledging, 
     if (busy || requiresAcknowledgement || actionUnavailable) return;
     setPendingApprovalDecision(approvalDecision);
     try {
-      await onSubmit({ message, title, description, projectId: projectId || null, executorAgentId, cwdOverride: cwdOverride.trim() || null, approvalDecision });
+      await onSubmit({ message, title, taskDocument, projectId: projectId || null, executorAgentId, cwdOverride: cwdOverride.trim() || null, approvalDecision });
     } finally {
       setPendingApprovalDecision(null);
     }
   };
   return (
-    <Dialog isOpen onOpenChange={(open) => !open && onClose()} purpose="form" width={width} aria-label={actionTitle(action, approval)}>
+    <Dialog isOpen onOpenChange={(open) => !open && onClose()} purpose="form" width={width} variant={action === "EDIT" ? "fullscreen" : "standard"} aria-label={actionTitle(action, approval)}>
       <Layout
-        height="auto"
+        height={action === "EDIT" ? "fill" : "auto"}
         header={<DialogHeader title={actionTitle(action, approval)} subtitle={actionDescription(action, approval)} onOpenChange={(open) => !open && onClose()} />}
         content={
           <LayoutContent>
             <VStack
+              id="task-action-form"
               as="form"
               gap={3}
               onSubmit={(event) => {
                 event.preventDefault();
                 if (approval) return;
-                void onSubmit({ message, title, description, projectId: projectId || null, executorAgentId, cwdOverride: cwdOverride.trim() || null }).catch(() => undefined);
+                void onSubmit({ message, title, taskDocument, projectId: projectId || null, executorAgentId, cwdOverride: cwdOverride.trim() || null }).catch(() => undefined);
               }}
             >
               {requiresAcknowledgement ? <VStack as="div" role="alert" gap={2} align="start" className={stylex.props(styles.stale).className}><span>This task changed while the dialog was open. Review the latest command target before submitting your saved draft.</span><Button type="button" size="sm" variant="secondary" label="Review latest task" isLoading={acknowledging} isDisabled={busy || acknowledging} onClick={onAcknowledge} /></VStack> : null}
               {actionUnavailable ? <p role="alert" {...stylex.props(styles.error)}>This action is no longer available for the latest task version. Your draft remains available until you close the dialog.</p> : null}
-              {action === "EDIT" ? <><VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Title</span><input data-autofocus value={title} required {...stylex.props(styles.input)} onChange={(event) => setTitle(event.currentTarget.value)} /></VStack><VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Description (optional)</span><textarea value={description} rows={3} {...stylex.props(styles.input, styles.textarea)} onChange={(event) => setDescription(event.currentTarget.value)} /></VStack><VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Project (optional)</span><select value={projectId} {...stylex.props(styles.input)} onChange={(event) => setProjectId(event.currentTarget.value)}><option value="">No project</option>{task.project && !projects.some((project) => project.projectId === task.project?.projectId) ? <option value={task.project.projectId}>{task.project.name ?? "Current project"}</option> : null}{projects.filter((project) => !project.archivedAt || project.projectId === task.project?.projectId).map((project) => <option key={project.projectId} value={project.projectId}>{project.name}</option>)}</select></VStack><Collapsible trigger="Advanced" defaultIsOpen={Boolean(task.cwdOverride || task.executorAgentId && task.executorAgentId !== "agent:task-executor")}><VStack gap={2} className={stylex.props(styles.advanced).className}><VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Executor</span><select value={executorAgentId} {...stylex.props(styles.input)} onChange={(event) => setExecutorAgentId(event.currentTarget.value)}><option value="agent:task-executor">Built-in executor</option>{(acpAgents.data?.acpAgents ?? []).filter((agent) => agent.enabled || agent.agentId === executorAgentId).map((agent) => <option key={agent.agentId} value={agent.agentId}>{agent.displayName} (ACP)</option>)}</select></VStack><VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Task directory base (optional)</span><input value={cwdOverride} placeholder="/absolute/path" {...stylex.props(styles.input)} onChange={(event) => setCwdOverride(event.currentTarget.value)} /><span {...stylex.props(styles.hint)}>{taskCwdSummary(cwdOverride, projects.find((project) => project.projectId === projectId)?.folder, task.effectiveCwd)}</span></VStack></VStack></Collapsible></> : null}
+              {action === "EDIT" ? <><VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Title</span><input data-autofocus value={title} required {...stylex.props(styles.input)} onChange={(event) => setTitle(event.currentTarget.value)} /></VStack><VStack gap={1.5} className={stylex.props(styles.field).className}><span>Task document</span><TaskMarkdownEditor value={taskDocument} onChange={setTaskDocument} /></VStack><VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Project (optional)</span><select value={projectId} {...stylex.props(styles.input)} onChange={(event) => setProjectId(event.currentTarget.value)}><option value="">No project</option>{task.project && !projects.some((project) => project.projectId === task.project?.projectId) ? <option value={task.project.projectId}>{task.project.name ?? "Current project"}</option> : null}{projects.filter((project) => !project.archivedAt || project.projectId === task.project?.projectId).map((project) => <option key={project.projectId} value={project.projectId}>{project.name}</option>)}</select></VStack><Collapsible trigger="Advanced" defaultIsOpen={Boolean(task.cwdOverride || task.executorAgentId && task.executorAgentId !== "agent:task-executor")}><VStack gap={2} className={stylex.props(styles.advanced).className}><VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Executor</span><select value={executorAgentId} {...stylex.props(styles.input)} onChange={(event) => setExecutorAgentId(event.currentTarget.value)}><option value="agent:task-executor">Built-in executor</option>{(acpAgents.data?.acpAgents ?? []).filter((agent) => agent.enabled || agent.agentId === executorAgentId).map((agent) => <option key={agent.agentId} value={agent.agentId}>{agent.displayName} (ACP)</option>)}</select></VStack><VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Task directory base (optional)</span><input value={cwdOverride} placeholder="/absolute/path" {...stylex.props(styles.input)} onChange={(event) => setCwdOverride(event.currentTarget.value)} /><span {...stylex.props(styles.hint)}>{taskCwdSummary(cwdOverride, projects.find((project) => project.projectId === projectId)?.folder, task.effectiveCwd)}</span></VStack></VStack></Collapsible></> : null}
               {action === "ANSWER" || action === "RETRY" || action === "REOPEN" || action === "CANCEL" ? <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>{approval ? "Optional note" : messageLabel(action)}</span><textarea data-autofocus value={message} required={requiresMessage} rows={3} {...stylex.props(styles.input, styles.textarea)} onChange={(event) => setMessage(event.currentTarget.value)} /></VStack> : null}
               {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
-              <HStack gap={2} justify="end" className={stylex.props(styles.actions).className}>
+              {action !== "EDIT" ? <HStack gap={2} justify="end" className={stylex.props(styles.actions).className}>
                 <Button type="button" size="sm" variant="ghost" label="Cancel" isDisabled={busy} onClick={onClose} />
                 {approval ? (
                   <>
@@ -65,10 +67,11 @@ export function TaskActionDialog({ action, task, projects, busy, acknowledging, 
                 ) : (
                   <Button type="submit" size="sm" variant={action === "CANCEL" ? "destructive" : "primary"} label={taskActionLabel(action, false)} isLoading={busy} isDisabled={busy || requiresAcknowledgement || actionUnavailable || (requiresMessage && !message.trim()) || (action === "EDIT" && !title.trim())} />
                 )}
-              </HStack>
+              </HStack> : null}
             </VStack>
           </LayoutContent>
         }
+        footer={action === "EDIT" ? <LayoutFooter><HStack gap={2} justify="end"><Button type="button" size="sm" variant="ghost" label="Cancel" isDisabled={busy} onClick={onClose} /><Button form="task-action-form" type="submit" size="sm" variant="primary" label="Save task" isLoading={busy} isDisabled={busy || requiresAcknowledgement || actionUnavailable || !title.trim()} /></HStack></LayoutFooter> : undefined}
       />
     </Dialog>
   );

@@ -4,7 +4,7 @@ import { isTauriRuntime } from "@/graphql/transportMode";
 const DATABASE_NAME = "noema-pwa";
 const DATABASE_VERSION = 1;
 const STORE_NAME = "records";
-const CACHE_SCHEMA_VERSION = 1;
+const CACHE_SCHEMA_VERSION = 2;
 
 type StoredRecord<T> = { key: string; value: T };
 
@@ -24,7 +24,7 @@ export type DurableSnapshot = {
 
 export type TaskCaptureDraft = {
   title: string;
-  description: string;
+  taskDocument: string;
   projectId: string;
 };
 
@@ -69,7 +69,18 @@ export async function writeChatDraft(conversationId: string, value: string) {
 }
 
 export async function readTaskCaptureDraft() {
-  return (await readRecord<TaskCaptureDraft>("task-capture")) ?? null;
+  const draft = await readRecord<TaskCaptureDraft | { title: string; description: string; projectId: string }>("task-capture");
+  if (!draft) return null;
+  if ("description" in draft) {
+    const converted = {
+      title: draft.title,
+      taskDocument: draft.description,
+      projectId: draft.projectId
+    };
+    await writeTaskCaptureDraft(converted);
+    return converted;
+  }
+  return draft;
 }
 
 export async function writeTaskCaptureDraft(value: TaskCaptureDraft) {

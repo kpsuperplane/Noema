@@ -12,18 +12,16 @@ export type TasksTaskDetail = NonNullable<TasksTaskDetailQuery["task"]>;
 
 export type TasksSearch = {
   project?: string;
-  q?: string;
   terminal?: "all" | "completed" | "cancelled";
 };
 
 export function normalizeTasksSearch(search: Record<string, unknown>): TasksSearch {
   const project = normalizedText(search.project);
-  const q = normalizedText(search.q);
   const terminal =
     search.terminal === "completed" || search.terminal === "cancelled"
       ? search.terminal
       : "all";
-  return { project, q, terminal };
+  return { project, terminal };
 }
 
 function normalizedText(value: unknown): string | undefined {

@@ -28,18 +28,16 @@ import { normalizeTasksSearch, PERSONAL_WORKSPACE_ID, type TasksTask } from "./t
 
 export function TasksList({
   projectId,
-  query,
   selectedTaskId,
   terminal
 }: {
   projectId?: string;
-  query?: string;
   selectedTaskId?: string;
   terminal: "all" | "completed" | "cancelled";
 }) {
   const taskResult = useQuery(TasksListDocument, {
     variables: {
-      input: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, text: query, scope: "ACTIVE" },
+      input: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, scope: "ACTIVE" },
       first: 100
     },
     fetchPolicy: "cache-and-network"
@@ -48,7 +46,6 @@ export function TasksList({
     variables: {
       workspaceId: PERSONAL_WORKSPACE_ID,
       projectId,
-      text: query,
       first: 100
     },
     fetchPolicy: "cache-and-network"
@@ -118,7 +115,6 @@ export function TasksList({
             />
             <TasksHistory
               projectId={projectId}
-              query={query}
               terminal={terminal}
             />
           </>
@@ -261,7 +257,7 @@ function TaskGroup({ title, tasks }: { title: string; tasks: readonly TasksTask[
       <SectionHeader id={id} title={title} count={tasks.length} />
       <VStack as="ul" gap={1.5} className={stylex.props(styles.cards).className}>
         {tasks.map((task) => (
-          <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status={taskStatusFromProjection(task)} statusLabel={taskRunLabel(task) ?? task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />
+          <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.taskDocumentPreview} project={task.project?.name} status={taskStatusFromProjection(task)} statusLabel={taskRunLabel(task) ?? task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />
         ))}
       </VStack>
     </VStack>
@@ -276,7 +272,7 @@ function ScheduledGroup({ oneTimeTasks, recurrences }: { oneTimeTasks: readonly 
       <SectionHeader id="tasks-group-scheduled" title="Scheduled" count={oneTimeTasks.length + recurrences.length} />
       <VStack as="ul" gap={1.5} className={stylex.props(styles.cards).className}>
         {oneTimeTasks.map((task) => (
-          <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status="queued" statusLabel="Scheduled" timestamp={task.schedule!.scheduledFor} />
+          <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.taskDocumentPreview} project={task.project?.name} status="queued" statusLabel="Scheduled" timestamp={task.schedule!.scheduledFor} />
         ))}
         {recurrences.map((recurrence) => <RecurrenceTaskCard key={recurrence.recurrenceId} recurrence={recurrence} />)}
       </VStack>
@@ -348,10 +344,10 @@ function TaskCard({ taskId = "", recurrenceId, title, note, project, status, sta
   return listItem ? <li {...stylex.props(styles.cardListItem)}>{link}</li> : link;
 }
 
-function TasksHistory({ projectId, query, terminal }: { projectId?: string; query?: string; terminal: "all" | "completed" | "cancelled" }) {
+function TasksHistory({ projectId, terminal }: { projectId?: string; terminal: "all" | "completed" | "cancelled" }) {
   const kind = terminal === "completed" ? "COMPLETED" : terminal === "cancelled" ? "CANCELLED" : "ALL";
   const result = useQuery(TasksHistoryDocument, {
-    variables: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, text: query, kind, first: 10 },
+    variables: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, kind, first: 10 },
     fetchPolicy: "cache-and-network"
   });
   const connection = result.data?.taskHistory;
@@ -362,7 +358,7 @@ function TasksHistory({ projectId, query, terminal }: { projectId?: string; quer
       {!connection ? <ListMessage loading={result.loading} error={Boolean(result.error)} retry={() => result.refetch()} label="history" /> : null}
       {connection && !tasks.length ? <ListEmpty title="No matching history" detail="Done and cancelled tasks remain available here." /> : null}
       <VStack as="ul" gap={1.5} className={stylex.props(styles.cards).className}>
-        {tasks.map((task) => <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status={taskStatusFromProjection(task)} statusLabel={task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />)}
+        {tasks.map((task) => <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.taskDocumentPreview} project={task.project?.name} status={taskStatusFromProjection(task)} statusLabel={task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />)}
       </VStack>
       <ListLoadMore visible={Boolean(connection?.pageInfo.hasNextPage)} loading={result.loading} onLoad={() => result.fetchMore({ variables: { after: connection?.pageInfo.endCursor }, updateQuery: (previous, { fetchMoreResult }) => ({ ...fetchMoreResult, taskHistory: { ...fetchMoreResult.taskHistory, edges: [...previous.taskHistory.edges, ...fetchMoreResult.taskHistory.edges] } }) })} />
     </VStack>

@@ -5,7 +5,7 @@ import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { HStack } from "@astryxdesign/core/HStack";
-import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
+import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { AcpAgentsDocument, TasksCaptureTaskDocument } from "@/generated/graphql";
@@ -14,10 +14,11 @@ import type { TasksProject } from "./tasksTypes";
 import { pwaRuntime } from "@/pwa/runtime";
 import { readTaskCaptureDraft, writeTaskCaptureDraft } from "@/pwa/storage";
 import { initialScheduleDraft, scheduleInput, ScheduleFields } from "./ScheduleFields";
+import { TaskMarkdownEditor } from "./TaskMarkdownEditor";
 
 export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChange, onCreated }: { open: boolean; projects: readonly TasksProject[]; initialProjectId?: string; onOpenChange: (open: boolean) => void; onCreated: () => void | Promise<void> }) {
   const [title, setTitle] = React.useState("");
-  const [description, setDescription] = React.useState("");
+  const [taskDocument, setTaskDocument] = React.useState("");
   const [projectId, setProjectId] = React.useState(initialProjectId ?? "");
   const [scheduling, setScheduling] = React.useState(false);
   const [executorAgentId, setExecutorAgentId] = React.useState("agent:task-executor");
@@ -39,7 +40,7 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
       if (!active) return;
       if (draft) {
         setTitle(draft.title);
-        setDescription(draft.description);
+        setTaskDocument(draft.taskDocument);
         setProjectId(draft.projectId);
       }
       restoredRef.current = true;
@@ -52,23 +53,23 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
   React.useEffect(() => {
     if (!pwa.installed || !restoredRef.current) return;
     const timeout = window.setTimeout(
-      () => void writeTaskCaptureDraft({ title, description, projectId }),
+      () => void writeTaskCaptureDraft({ title, taskDocument, projectId }),
       250
     );
     return () => window.clearTimeout(timeout);
-  }, [description, projectId, pwa.installed, title]);
+  }, [projectId, pwa.installed, taskDocument, title]);
 
   React.useEffect(() => {
     if (!pwa.installed) return;
     return pwaRuntime.registerFlusher(() =>
-      writeTaskCaptureDraft({ title, description, projectId })
+      writeTaskCaptureDraft({ title, taskDocument, projectId })
     );
-  }, [description, projectId, pwa.installed, title]);
+  }, [projectId, pwa.installed, taskDocument, title]);
 
   return (
-    <Dialog isOpen={open} onOpenChange={onOpenChange} purpose="form" width={480} aria-label="New task">
+    <Dialog isOpen={open} onOpenChange={onOpenChange} purpose="form" variant="fullscreen" aria-label="New task">
       <Layout
-        height="auto"
+        height="fill"
         header={
           <DialogHeader
             title="New task"
@@ -79,6 +80,7 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
         content={
           <LayoutContent>
             <VStack
+              id="capture-task-form"
               as="form"
               gap={3}
               onSubmit={(event) => {
@@ -89,7 +91,7 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                       workspaceId: "workspace:personal",
                       projectId: projectId || null,
                       title: title.trim(),
-                      description: description.trim(),
+                      taskDocument,
                       schedule: scheduling ? scheduleInput(schedule) : null,
                       executorAgentId,
                       cwdOverride: cwdOverride.trim() || null,
@@ -99,13 +101,13 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                 })
                   .then(async () => {
                     setTitle("");
-                    setDescription("");
+                    setTaskDocument("");
                     setProjectId("");
                     setScheduling(false);
                     setExecutorAgentId("agent:task-executor");
                     setCwdOverride("");
                     setSchedule(initialScheduleDraft());
-                    await writeTaskCaptureDraft({ title: "", description: "", projectId: "" });
+                    await writeTaskCaptureDraft({ title: "", taskDocument: "", projectId: "" });
                     await onCreated();
                     onOpenChange(false);
                   })
@@ -122,14 +124,9 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                   onChange={(event) => setTitle(event.currentTarget.value)}
                 />
               </VStack>
-              <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}>
-                <span>Description (optional)</span>
-                <textarea
-                  rows={3}
-                  value={description}
-                  {...stylex.props(styles.input, styles.textarea)}
-                  onChange={(event) => setDescription(event.currentTarget.value)}
-                />
+              <VStack gap={1.5} className={stylex.props(styles.field).className}>
+                <span>Task document</span>
+                <TaskMarkdownEditor value={taskDocument} onChange={setTaskDocument} />
               </VStack>
               <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}>
                 <span>Project (optional)</span>
@@ -167,13 +164,10 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                 </VStack>
               </Collapsible>
               {state.error ? <p role="alert" {...stylex.props(styles.error)}>{state.error.message}</p> : null}
-              <HStack gap={2} justify="end" className={stylex.props(styles.actions).className}>
-                <Button type="button" size="sm" variant="ghost" label="Cancel" onClick={() => onOpenChange(false)} />
-                <Button type="submit" size="sm" variant="primary" label={scheduling ? "Schedule task" : "Add to Inbox"} isLoading={state.loading} isDisabled={state.loading || !pwa.canMutate || !title.trim() || (scheduling && !scheduleInput(schedule))} />
-              </HStack>
             </VStack>
           </LayoutContent>
         }
+        footer={<LayoutFooter><HStack gap={2} justify="end"><Button type="button" size="sm" variant="ghost" label="Cancel" onClick={() => onOpenChange(false)} /><Button form="capture-task-form" type="submit" size="sm" variant="primary" label={scheduling ? "Schedule task" : "Add to Inbox"} isLoading={state.loading} isDisabled={state.loading || !pwa.canMutate || !title.trim() || (scheduling && !scheduleInput(schedule))} /></HStack></LayoutFooter>}
       />
     </Dialog>
   );
@@ -182,9 +176,7 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
 const styles = stylex.create({
   field: { fontSize: 13, fontWeight: 600 },
   input: { width: "100%", minHeight: 38, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: 8, backgroundColor: "var(--background)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-2)", color: "var(--foreground)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: 2 } },
-  textarea: { resize: "vertical", lineHeight: 1.5 },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 },
-  actions: { paddingTop: "var(--spacing-1)" },
   advanced: { paddingTop: "var(--spacing-2)" },
   hint: { color: "var(--muted-foreground)", fontSize: 12, fontWeight: 400 }
 });
