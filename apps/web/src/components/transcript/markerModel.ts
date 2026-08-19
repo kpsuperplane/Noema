@@ -1,22 +1,49 @@
 import type { ToolMarkerGroup } from "./renderModel";
+import {
+  builtInToolMarkerPresentation,
+  isBuiltInToolName,
+  type ToolMarkerCallStatus
+} from "./builtInToolMarker";
 export type ToolDetailRowData = { label: string; value: string };
 export type ToolScreenshotData = { src: string; width: number; height: number };
 export type ToolMarkerKind = "web.search" | "web.fetch";
+export type { ToolMarkerCallStatus } from "./builtInToolMarker";
 
 const MAX_SCREENSHOT_DATA_CHARS = 1_200_000;
 
 export function toolMarkerPending(marker: ToolMarkerGroup): boolean {
-  return marker.result?.item.status === "STARTED" ||
-    (marker.call?.item.status === "STARTED" && !marker.result);
+  const status = toolMarkerStatus(marker);
+  return status === "pending" || status === "running";
+}
+
+export function toolMarkerStatus(marker: ToolMarkerGroup): ToolMarkerCallStatus {
+  if (marker.result) {
+    return activityMarkerStatus(marker.result.item.status, marker.result.item.metadata, true);
+  }
+  if (marker.call) {
+    return activityMarkerStatus(marker.call.item.status, marker.call.item.metadata, false);
+  }
+  return "pending";
 }
 
 export function toolMarkerLabel(marker: ToolMarkerGroup): string {
   const toolName = toolMarkerIdentity(marker);
   if (toolName) {
-    if (toolMarkerPending(marker)) {
-      return `Using ${toolName}`;
+    switch (toolMarkerStatus(marker)) {
+      case "pending":
+      case "running":
+        return `Using ${toolName}`;
+      case "error":
+        return `${toolName} failed`;
+      case "cancelled":
+        return `${toolName} cancelled`;
+      case "interrupted":
+        return `${toolName} interrupted`;
+      case "skipped":
+        return `${toolName} skipped`;
+      case "complete":
+        return `Used ${toolName}`;
     }
-    return `Used ${toolName}`;
   }
   return marker.call?.item.title ?? marker.result?.item.title ?? "Tool activity";
 }
@@ -26,7 +53,19 @@ export function toolMarkerName(marker: ToolMarkerGroup): string {
   if (description) {
     return description;
   }
-  return toolMarkerSubject(marker) ?? toolMarkerIdentity(marker) ?? "Tool activity";
+  return (
+    toolMarkerSubject(marker) ??
+    firstPartyToolMarkerName(marker) ??
+    toolNameFromMetadata(marker.call?.item.metadata) ??
+    toolNameFromMetadata(marker.result?.item.metadata) ??
+    marker.call?.item.title ??
+    marker.result?.item.title ??
+    "Tool activity"
+  );
+}
+
+export function toolMarkerSummary(marker: ToolMarkerGroup): string {
+  return builtInMarkerPresentation(marker)?.name ?? toolMarkerName(marker);
 }
 
 export function toolMarkerKind(marker: ToolMarkerGroup): ToolMarkerKind | undefined {
@@ -36,6 +75,7 @@ export function toolMarkerKind(marker: ToolMarkerGroup): ToolMarkerKind | undefi
 
 function toolMarkerIdentity(marker: ToolMarkerGroup): string | null {
   return (
+    builtInMarkerPresentation(marker)?.identity ??
     firstPartyToolMarkerName(marker) ??
     toolNameFromMetadata(marker.call?.item.metadata) ??
     toolNameFromMetadata(marker.result?.item.metadata) ??
@@ -43,6 +83,24 @@ function toolMarkerIdentity(marker: ToolMarkerGroup): string | null {
     marker.result?.item.title ??
     null
   );
+}
+
+export function toolMarkerIsBuiltIn(marker: ToolMarkerGroup): boolean {
+  const toolName = actionToolNameFromMetadata(marker.result?.item.metadata) ??
+    actionToolNameFromMetadata(marker.call?.item.metadata);
+  return toolName ? isBuiltInToolName(toolName) : false;
+}
+
+function builtInMarkerPresentation(marker: ToolMarkerGroup) {
+  const toolName = actionToolNameFromMetadata(marker.result?.item.metadata) ??
+    actionToolNameFromMetadata(marker.call?.item.metadata);
+  if (!toolName) return undefined;
+  return builtInToolMarkerPresentation({
+    toolName,
+    status: toolMarkerStatus(marker),
+    argumentsPayload: toolActionPayload(marker.call?.item.metadata),
+    resultPayload: toolActionPayload(marker.result?.item.metadata)
+  });
 }
 
 function toolMarkerSubject(marker: ToolMarkerGroup): string | undefined {
@@ -152,6 +210,9 @@ function completeToolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] | 
   }
 
   const success = resultAction?.success;
+  if (typeof success === "boolean") {
+    rows.push({ label: "Success", value: String(success) });
+  }
   if (resultAction && "payload" in resultAction && resultAction.payload !== undefined && !isOmittedPayload(resultAction.payload)) {
     rows.push({ label: success === false ? "Error" : "Output", value: completeToolValue(resultAction.payload) });
   }
@@ -167,10 +228,23 @@ function completeToolValue(value: unknown): string {
     return value;
   }
   try {
-    return JSON.stringify(value, null, 2) ?? String(value);
+    return JSON.stringify(withoutRenderedScreenshotData(value), null, 2) ?? String(value);
   } catch {
     return String(value);
   }
+}
+
+function withoutRenderedScreenshotData(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.screenshot) || typeof value.screenshot.data !== "string") {
+    return value;
+  }
+  return {
+    ...value,
+    screenshot: {
+      ...value.screenshot,
+      data: "[rendered above]"
+    }
+  };
 }
 
 export function toolMarkerExpandable(marker: ToolMarkerGroup): boolean {
@@ -627,4 +701,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function activityMarkerStatus(
+  activityStatus: string,
+  metadata: unknown,
+  isResult: boolean
+): ToolMarkerCallStatus {
+  const status = (toolDisplayString(metadata, "status") ?? activityStatus).toLowerCase();
+  switch (status) {
+    case "pending":
+    case "queued":
+      return "pending";
+    case "started":
+    case "running":
+      return "running";
+    case "failed":
+      return "error";
+    case "cancelled":
+      return "cancelled";
+    case "interrupted":
+      return "interrupted";
+    case "skipped":
+      return "skipped";
+    case "completed":
+      return isResult ? "complete" : "pending";
+    default:
+      return isResult ? "complete" : "pending";
+  }
 }

@@ -63,7 +63,24 @@ fn turn_transcript_item_from_record(
         | ConversationItemKind::ToolResult
         | ConversationItemKind::ApprovalRequest
         | ConversationItemKind::ApprovalResult => {
-            let payload: ReplayActivityPayload = replay_payload(record)?;
+            let mut payload: ReplayActivityPayload = replay_payload(record)?;
+            if matches!(payload.activity_kind.as_str(), "tool_call" | "tool_result") {
+                let display = payload
+                    .metadata
+                    .as_object_mut()
+                    .map(|metadata| {
+                        metadata
+                            .entry("display")
+                            .or_insert_with(|| serde_json::json!({}))
+                    })
+                    .and_then(Value::as_object_mut);
+                if let Some(display) = display {
+                    display.insert(
+                        "status".to_string(),
+                        Value::String(record.status.as_str().to_string()),
+                    );
+                }
+            }
             Ok(Some(TurnTranscriptItem::Activity {
                 id: payload.id,
                 activity_kind: payload.activity_kind,

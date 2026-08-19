@@ -59,7 +59,7 @@ fn conversation_replay_projects_representative_transcript_items() {
             if options.len() == 1 && options[0].id == "ship"
     ));
 
-    let action = web_conversation_item_from_record(replay_record(
+    let mut action_record = replay_record(
         ConversationItemKind::ToolCall,
         Some("Tool call: search_memory"),
         json!({
@@ -70,16 +70,19 @@ fn conversation_replay_projects_representative_transcript_items() {
             "summary": "provider id call_1",
             "metadata": {"action": {"name": "search_memory"}},
         }),
-    ))
-    .expect("convert action")
-    .expect("visible action");
+    );
+    action_record.status = ConversationItemStatus::Cancelled;
+    let action = web_conversation_item_from_record(action_record)
+        .expect("convert action")
+        .expect("visible action");
     assert!(matches!(
         action.item,
         TurnTranscriptItem::Activity {
             ref activity_kind,
-            status: TurnActivityStatus::Completed,
+            status: TurnActivityStatus::Failed,
+            ref metadata,
             ..
-        } if activity_kind == "tool_call"
+        } if activity_kind == "tool_call" && metadata["display"]["status"] == "cancelled"
     ));
 
     let artifact = web_conversation_item_from_record(replay_record(

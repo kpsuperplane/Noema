@@ -1,7 +1,8 @@
 import * as stylex from "@stylexjs/stylex";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { VStack } from "@astryxdesign/core/VStack";
 import { WrenchIcon } from "lucide-react";
-import { toolDetailRows, toolMarkerLabel, toolMarkerScreenshot } from "./markerModel";
+import { toolDetailRows, toolMarkerIsBuiltIn, toolMarkerLabel, toolMarkerScreenshot } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { TranscriptAttachmentCard } from "./TranscriptAttachmentCard";
 import { ToolDetailRow } from "./ToolDetailRow";
@@ -34,6 +35,13 @@ export function ToolDetailAttachment({ id, marker }: { id: string; marker: ToolM
     return null;
   }
   const failed = marker.result?.item.status === "FAILED";
+  const details = (
+    <VStack as="dl" gap={1} className={stylex.props(styles.details).className}>
+      {rows.map((row, index) => (
+        <ToolDetailRow key={`${row.label}:${index}`} label={row.label} value={row.value} />
+      ))}
+    </VStack>
+  );
 
   return (
     <TranscriptAttachmentCard
@@ -53,11 +61,11 @@ export function ToolDetailAttachment({ id, marker }: { id: string; marker: ToolM
           />
         ) : null}
         {rows.length > 0 ? (
-          <VStack as="dl" gap={1} className={stylex.props(styles.details).className}>
-            {rows.map((row, index) => (
-              <ToolDetailRow key={`${row.label}:${index}`} label={row.label} value={row.value} />
-            ))}
-          </VStack>
+          toolMarkerIsBuiltIn(marker) ? (
+            <Collapsible trigger="Technical details" defaultIsOpen={false}>
+              {details}
+            </Collapsible>
+          ) : details
         ) : null}
       </VStack>
     </TranscriptAttachmentCard>

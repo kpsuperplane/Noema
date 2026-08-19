@@ -1,15 +1,15 @@
 import * as stylex from "@stylexjs/stylex";
-import { CheckIcon, ChevronDownIcon, ClockIcon, Globe2Icon, Loader2Icon, SearchIcon, WrenchIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, CircleSlash2Icon, ClockIcon, Globe2Icon, Loader2Icon, SearchIcon, WrenchIcon, XIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { RollingText } from "@/components/RollingText";
 import { SpringDisclosure } from "@/motion/SpringDisclosure";
 import {
   toolMarkerExpandable,
   toolMarkerKind,
-  toolMarkerName,
-  toolMarkerPending
+  toolMarkerSummary,
+  toolMarkerStatus
 } from "./markerModel";
-import type { ToolMarkerKind } from "./markerModel";
+import type { ToolMarkerCallStatus, ToolMarkerKind } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { ToolDetailAttachment } from "./ToolDetailAttachment";
 
@@ -23,7 +23,6 @@ type ToolMarkerData =
       markers: ToolMarkerGroup[];
     };
 
-type ToolMarkerCallStatus = "pending" | "running" | "complete" | "error";
 type ToolMarkerPresentation = "activity" | "content";
 
 type ToolMarkerCall = {
@@ -178,6 +177,10 @@ const styles = stylex.create({
     fontFamily: "var(--noema-font-body)",
     fontWeight: 500
   },
+  groupSummary: {
+    flexShrink: 0,
+    color: "var(--noema-text-muted)"
+  },
   groupList: {
     display: "grid",
     minWidth: 0,
@@ -235,6 +238,9 @@ export function ToolMarker({
   if (data.kind === "tool_group") {
     const singleCall = calls.length === 1;
     const expandable = interactive && (!singleCall || collapsedCall.expandable);
+    const collapsedGroupCall = singleCall
+      ? collapsedCall
+      : { ...collapsedCall, status: aggregateToolMarkerStatus(calls) };
     const groupContentId = `${data.markers[0]?.id ?? "tool-group"}-calls`;
     const rowContent = (
       <>
@@ -248,10 +254,11 @@ export function ToolMarker({
         ) : (
           <ToolMarkerRowContent
             animateText
-            call={collapsedCall}
+            call={collapsedGroupCall}
             open={singleCall && open}
             presentation={presentation}
             showChevron={false}
+            summary={singleCall ? undefined : collapsedGroupSummary(calls, collapsedCall)}
           />
         )}
         {expandable ? (
@@ -338,13 +345,15 @@ function ToolMarkerRowContent({
   animateText = false,
   open,
   presentation,
-  showChevron = true
+  showChevron = true,
+  summary
 }: {
   call: ToolMarkerCall;
   animateText?: boolean;
   open: boolean;
   presentation: ToolMarkerPresentation;
   showChevron?: boolean;
+  summary?: string;
 }) {
   return (
     <>
@@ -360,6 +369,7 @@ function ToolMarkerRowContent({
           {call.name}
         </span>
       )}
+      {summary ? <span {...stylex.props(styles.groupSummary)}>{summary}</span> : null}
       {call.expandable && showChevron ? (
         <span {...stylex.props(styles.chevron, open && styles.chevronOpen)} aria-hidden="true">
           <ChevronDownIcon size={14} strokeWidth={2} />
@@ -383,29 +393,37 @@ function ToolTypeIcon({ kind }: { kind?: ToolMarkerKind }) {
 }
 
 function ToolStatusIcon({ status }: { status: ToolMarkerCallStatus }) {
+  const label = toolStatusLabel(status);
   if (status === "running") {
     return (
-      <span {...stylex.props(styles.statusIcon, styles.running, styles.runningSpinner)}>
+      <span {...stylex.props(styles.statusIcon, styles.running, styles.runningSpinner)} role="img" aria-label={label}>
         <Loader2Icon aria-hidden="true" size={14} strokeWidth={2} />
       </span>
     );
   }
   if (status === "pending") {
     return (
-      <span {...stylex.props(styles.statusIcon, styles.pending)}>
+      <span {...stylex.props(styles.statusIcon, styles.pending)} role="img" aria-label={label}>
         <ClockIcon aria-hidden="true" size={14} strokeWidth={2} />
       </span>
     );
   }
   if (status === "error") {
     return (
-      <span {...stylex.props(styles.statusIcon, styles.error)}>
+      <span {...stylex.props(styles.statusIcon, styles.error)} role="img" aria-label={label}>
         <XIcon aria-hidden="true" size={14} strokeWidth={2} />
       </span>
     );
   }
+  if (status === "cancelled" || status === "interrupted" || status === "skipped") {
+    return (
+      <span {...stylex.props(styles.statusIcon, styles.pending)} role="img" aria-label={label}>
+        <CircleSlash2Icon aria-hidden="true" size={14} strokeWidth={2} />
+      </span>
+    );
+  }
   return (
-    <span {...stylex.props(styles.statusIcon, styles.complete)}>
+    <span {...stylex.props(styles.statusIcon, styles.complete)} role="img" aria-label={label}>
       <CheckIcon aria-hidden="true" size={14} strokeWidth={2} />
     </span>
   );
@@ -433,7 +451,7 @@ function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {
     marker.result?.item.status === "FAILED" ? marker.result.item.summary ?? marker.result.item.title : undefined;
   const call: ToolMarkerCall = {
     key: marker.id,
-    name: toolMarkerName(marker),
+    name: toolMarkerSummary(marker),
     toolKind: toolMarkerKind(marker),
     status: toolMarkerStatus(marker),
     expandable
@@ -450,15 +468,38 @@ function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {
   return call;
 }
 
-function toolMarkerStatus(marker: ToolMarkerGroup): ToolMarkerCallStatus {
-  if (marker.result?.item.status === "FAILED") {
-    return "error";
+function aggregateToolMarkerStatus(calls: readonly ToolMarkerCall[]): ToolMarkerCallStatus {
+  const priority: Readonly<Record<ToolMarkerCallStatus, number>> = {
+    complete: 0,
+    skipped: 1,
+    pending: 2,
+    running: 3,
+    cancelled: 4,
+    interrupted: 5,
+    error: 6
+  };
+  return calls.reduce<ToolMarkerCallStatus>(
+    (status, call) => (priority[call.status] > priority[status] ? call.status : status),
+    "complete"
+  );
+}
+
+function collapsedGroupSummary(calls: readonly ToolMarkerCall[], collapsed: ToolMarkerCall): string {
+  const status = aggregateToolMarkerStatus(calls);
+  if (status === "error" && collapsed.status !== "error") {
+    return `${calls.length} calls · includes failure`;
   }
-  if (marker.result) {
-    return "complete";
+  return `${calls.length} calls`;
+}
+
+function toolStatusLabel(status: ToolMarkerCallStatus): string {
+  switch (status) {
+    case "pending": return "Pending";
+    case "running": return "Running";
+    case "complete": return "Completed";
+    case "error": return "Failed";
+    case "cancelled": return "Cancelled";
+    case "interrupted": return "Interrupted";
+    case "skipped": return "Skipped";
   }
-  if (toolMarkerPending(marker)) {
-    return "running";
-  }
-  return "pending";
 }

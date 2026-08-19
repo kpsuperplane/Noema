@@ -1,4 +1,5 @@
 import type { TaskRunItem, TaskRunRole } from "./taskTypes";
+import { isFoldedTaskToolName } from "@/components/transcript/builtInToolMarker";
 import type { TurnActivityStatus } from "@/generated/graphql";
 import type { TranscriptEntry } from "@/shared/types";
 
@@ -144,6 +145,9 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem, animateArrival: boolean
       persistedCorrelationId(persisted) ??
       item.id;
     const toolName = taskToolName(item);
+    if (isFoldedTaskToolName(toolName)) {
+      return null;
+    }
     const argumentsPayload = persisted?.arguments;
     const resultPayload = isCall ? undefined : persistedResultPayload(persisted);
     const success = persisted?.success;
@@ -156,7 +160,7 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem, animateArrival: boolean
       payload: isCall ? argumentsPayload : resultPayload,
       ...(isCall
         ? {}
-        : { success: typeof success === "boolean" ? success : item.status !== "failed" })
+        : { success: typeof success === "boolean" ? success : item.status === "completed" })
     };
     return {
       ...base,
@@ -171,7 +175,8 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem, animateArrival: boolean
         metadata: {
           action,
           display: {
-            name: toolName
+            name: toolName,
+            status: item.status
           }
         }
       }

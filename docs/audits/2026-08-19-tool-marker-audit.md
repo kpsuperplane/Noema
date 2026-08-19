@@ -1,8 +1,8 @@
 # Tool marker audit
 
 - **Date:** 2026-08-19
-- **Status:** Saved-state and code verification complete
-- **Code revision inspected:** `6ea0a1f7`
+- **Status:** Built-in marker changes implemented; connected-tool work deferred
+- **Audit baseline:** `6ea0a1f7`
 - **Visual verification:** Not performed
 
 This audit reviews saved tool calls and the shared Chat and Task marker.
@@ -25,9 +25,10 @@ Most other Task markers show raw exact tool names.
 Browser actions share the text `Browser interaction`.
 This text hides whether the agent opened, clicked, waited, or captured a page.
 
-Task status conversion remains the largest correctness problem.
-Four cancelled results show a green completion check.
-Fifty-four calls without results show a pending clock.
+Task status conversion was the largest correctness problem.
+Four cancelled Chat results showed a red failure icon because GraphQL compressed their state.
+Nine skipped Task results showed a green completion check.
+Fifty-four calls without results showed a pending clock.
 
 Closed groups hide their call count and earlier failures.
 Expanded Task details put correlation and complete JSON before the human outcome.
@@ -45,6 +46,27 @@ It adds `web.browse.snapshot` and `web.browse.wait` to the recent catalog.
 
 The complete catalog adds every older stored tool type.
 It includes browser navigation, downloads, connectors, memory, artifacts, and Task lifecycle tools.
+
+## Implemented built-in scope
+
+Built-in markers now use structured action, target, outcome, and exact status data.
+This applies to web, browser, Task, project, file, artifact, adapter, memory, naming, and service connection tools.
+
+Web search keeps its magnifying glass and exact query.
+Web fetch keeps its globe and page title or host.
+
+Cancelled, interrupted, skipped, failed, pending, running, and completed states now remain distinct.
+Each status icon now has an accessible label.
+
+Closed groups now show their call count and aggregate severity.
+Built-in payloads and correlation data now appear under `Technical details`.
+Rendered screenshots no longer repeat encoded image data in the JSON preview.
+
+Task lifecycle-only calls now fold into existing Task run boundaries.
+The exact records remain in saved Task run history.
+
+Connected tools, such as Gmail and Notion, keep their existing generalized display path.
+Dedicated `noema.*` presentation and terminal tools keep their existing non-marker surfaces.
 
 ## Scope and method
 
@@ -109,7 +131,7 @@ Every Task call expands because the detail always includes correlation.
 Chat and Task use the same marker after their different adapters run.
 This shared endpoint can hide important producer differences.
 
-## Current shared behavior
+## Baseline shared behavior
 
 ### Primary line
 
@@ -132,13 +154,14 @@ The remaining 285 use a saved display name or fallback name.
 
 | Saved outcome | Calls | Current marker |
 | --- | ---: | --- |
-| Completed result | 3,496 | Green check |
+| Completed result | 3,487 | Green check |
 | Failed result | 379 | Red X |
-| Cancelled result | 4 | Green check |
+| Cancelled Chat result | 4 | Red X |
+| Skipped Task result | 9 | Green check |
 | No result | 54 | Pending clock |
 
 The 54 resultless calls include five cancelled calls and 49 failed Task calls.
-The marker does not show these saved states correctly.
+The baseline marker does not show these saved states correctly.
 
 Running calls show a spinner.
 No status icon supplies an accessible status label.
@@ -489,7 +512,7 @@ It includes connection identifiers because those values are stored tool names.
 Seven additional Task calls have no saved tool name.
 They render as `Tool activity` with a pending clock and correlation detail.
 
-## Ranked changes
+## Ranked baseline changes
 
 ### P1 — Correct status truth
 
@@ -546,7 +569,7 @@ Never show internal server identifiers as default context.
 Use existing Task run boundaries for planning, continuation, execution, and review transitions.
 Keep exact calls available in technical history.
 
-## Acceptance scenarios for a future change
+## Acceptance scenarios for the built-in change
 
 1. A web search keeps its magnifying glass and exact query.
 2. A running web search reports `Running` to assistive technology.
@@ -569,10 +592,19 @@ The static trace covered replay, Task mapping, pairing, grouping, status, names,
 The check applied current marker functions to every saved call and result pair.
 It found 298 valid rendered screenshots.
 
-The marker-model test passed all 15 cases.
-It includes query, title, host, fallback, failure, and detail behavior.
+All 25 focused marker, pairing, and Task mapper tests passed.
+All 13 focused Rust replay and transcript persistence tests passed.
 
-The focused Task mapper test still disagrees with the marker model.
+Generated-file checks, TypeScript, ESLint, and both web builds passed.
+Workspace Rust checking and formatting passed.
+
+The full web suite passed 67 tests.
+Two unrelated shell-navigation tests failed on existing Notifications and Clients entries.
+
+Workspace lint found unrelated documentation warnings in live-activity and notification store code.
+The full Rust test gate stopped when the API test compiler received signal 9.
+
+No browser inspection was authorized, so the new layout was not visually verified.
 The [test expects a Success row](../../apps/web/src/components/chatDetail/task/taskRunItemMapper.test.ts#L69).
 
 The [complete detail builder omits that row](../../apps/web/src/components/transcript/markerModel.ts#L154).

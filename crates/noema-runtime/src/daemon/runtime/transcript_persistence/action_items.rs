@@ -263,10 +263,15 @@ impl RuntimeActor {
     async fn persist_provider_action_output_inner(
         &mut self,
         turn: &ProviderActionTurn,
-        action: ProviderActionOutput,
+        mut action: ProviderActionOutput,
         call_item_id: Option<&str>,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<ConversationItemRecord, RuntimeError> {
+        insert_display_value(
+            &mut action.display,
+            "status",
+            Some(action.status.as_str().to_string()),
+        );
         let action_request = if action.kind == ConversationItemKind::ApprovalRequest {
             let action_id = action
                 .payload
