@@ -241,6 +241,8 @@ private struct TasksDetailContent: View {
   private var taskContextDock: some View {
     TasksTaskContextDock(
       run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
+      completed: detail.stage.behavior == .terminalSuccess,
+      contributorInstanceNames: detail.contributorInstanceNames,
       embeddedInSystemAccessory: compactPresentation,
       canCancel: hasAction("CANCEL") && model.isConnected,
       cancel: { cancelPresented = true }

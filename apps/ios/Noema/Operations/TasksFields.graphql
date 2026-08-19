@@ -190,6 +190,7 @@ fragment TasksDetailCoreFields on TaskDetail {
 
 fragment TasksDetailActivityFields on TaskDetail {
   taskId
+  contributorInstanceNames
   messages {
     messageId
     bodyMarkdown

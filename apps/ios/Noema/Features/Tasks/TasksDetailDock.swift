@@ -2,6 +2,8 @@ import SwiftUI
 
 struct TasksTaskContextDock: View {
   let run: TasksRunSnapshot?
+  let completed: Bool
+  let contributorInstanceNames: [String]
   let embeddedInSystemAccessory: Bool
   let canCancel: Bool
   let cancel: () -> Void
@@ -9,19 +11,13 @@ struct TasksTaskContextDock: View {
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: NoemaSpacing.sm) {
-        let avatarMotion = noemaTaskRunAvatarMotion(status: run?.status ?? "")
-        NoemaIdentityAvatar(
-          actorID: "subagent:\(run?.instanceName ?? "Task")",
-          actorType: .agent,
-          activity: avatarMotion.activity,
-          animated: avatarMotion.animated
-        )
-          .frame(width: 30, height: 30)
-          .accessibilityLabel("\(run?.instanceName ?? "Task") run")
+        leadingAvatar
         VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-          Text(run?.instanceName ?? "No agent run yet")
+          Text(completed ? "Task Completed" : run?.instanceName ?? "No agent run yet")
             .font(NoemaFont.compactEmphasized)
-          if let run {
+          if completed, !contributorInstanceNames.isEmpty {
+            contributorAvatars
+          } else if let run {
             Text(run.kind.capitalized)
               .font(NoemaFont.monoCompact)
               .foregroundStyle(NoemaColor.contentSecondary)
@@ -59,6 +55,47 @@ struct TasksTaskContextDock: View {
       radius: 14,
       y: 5
     )
+  }
+
+  @ViewBuilder
+  private var leadingAvatar: some View {
+    if completed {
+      ZStack {
+        Circle().fill(NoemaColor.success)
+        Image(systemName: "checkmark")
+          .font(.system(size: 15, weight: .bold))
+          .foregroundStyle(NoemaColor.white)
+      }
+      .frame(width: 30, height: 30)
+      .accessibilityHidden(true)
+    } else {
+      let avatarMotion = noemaTaskRunAvatarMotion(status: run?.status ?? "")
+      NoemaIdentityAvatar(
+        actorID: "subagent:\(run?.instanceName ?? "Task")",
+        actorType: .agent,
+        activity: avatarMotion.activity,
+        animated: avatarMotion.animated
+      )
+        .frame(width: 30, height: 30)
+        .accessibilityLabel("\(run?.instanceName ?? "Task") run")
+    }
+  }
+
+  private var contributorAvatars: some View {
+    HStack(spacing: -NoemaSpacing.xs) {
+      ForEach(contributorInstanceNames, id: \.self) { instanceName in
+        NoemaIdentityAvatar(actorID: "subagent:\(instanceName)", actorType: .agent)
+          .frame(width: 18, height: 18)
+          .overlay {
+            Circle().stroke(NoemaColor.surface, lineWidth: NoemaSpacing.xxs)
+          }
+          .accessibilityHidden(true)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .clipped()
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Contributors: \(contributorInstanceNames.joined(separator: ", "))")
   }
 }
 

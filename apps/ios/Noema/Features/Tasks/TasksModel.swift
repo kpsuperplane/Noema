@@ -1246,6 +1246,7 @@ final class TasksModel {
       TasksMessageSnapshot(id: $0.messageId, body: $0.bodyMarkdown, author: $0.author, createdAt: $0.createdAt)
     }
     next.runs = source.runs.map { mapRun($0.fragments.tasksRunFields) }
+    next.contributorInstanceNames = source.contributorInstanceNames
     return next
   }
 
@@ -1280,12 +1281,13 @@ final class TasksModel {
       activeGate: nil,
       messages: [],
       runs: [],
+      contributorInstanceNames: [],
       validActions: []
     )
   }
 
   private func mergeCommand(_ source: TasksCommandTaskFields, into previous: TasksDetailSnapshot?) -> TasksDetailSnapshot {
-    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, description: source.description, project: nil, executor: TasksExecutorSnapshot.default, schedule: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, createdAt: "", sourceLabel: nil, taskDocument: "", resultDocument: nil, reviewDocument: nil, currentRun: nil, activeGate: nil, messages: [], runs: [], validActions: [])
+    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, description: source.description, project: nil, executor: TasksExecutorSnapshot.default, schedule: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, createdAt: "", sourceLabel: nil, taskDocument: "", resultDocument: nil, reviewDocument: nil, currentRun: nil, activeGate: nil, messages: [], runs: [], contributorInstanceNames: [], validActions: [])
     next.title = source.title
     next.description = source.description
     next.executor = mapExecutor(agentId: source.executorAgentId, backend: source.executorBackend, cwdOverride: source.cwdOverride, effectiveCwd: source.effectiveCwd, effectiveCwdSource: source.effectiveCwdSource)

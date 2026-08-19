@@ -54,6 +54,8 @@ nonisolated public struct TasksDetailActivityQuery: GraphQLQuery {
 
       /// Task identity.
       public var taskId: String { __data["taskId"] }
+      /// Every distinct agent instance that contributed to this task.
+      public var contributorInstanceNames: [String] { __data["contributorInstanceNames"] }
       /// Bounded recent human messages.
       public var messages: [Message] { __data["messages"] }
       /// Bounded recent task runs.

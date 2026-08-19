@@ -219,6 +219,7 @@ struct TasksDetailSnapshot: Identifiable, Hashable, Sendable {
   var activeGate: TasksGateSnapshot?
   var messages: [TasksMessageSnapshot]
   var runs: [TasksRunSnapshot]
+  var contributorInstanceNames: [String]
   var validActions: Set<String>
 }
 
@@ -243,6 +244,7 @@ extension TasksTaskRow {
       activeGate: gate,
       messages: [],
       runs: [],
+      contributorInstanceNames: [],
       validActions: validActions
     )
   }

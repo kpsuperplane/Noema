@@ -6,7 +6,7 @@
 
 nonisolated public struct TasksDetailActivityFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksDetailActivityFields on TaskDetail { __typename taskId messages { __typename messageId bodyMarkdown author createdAt } runs { __typename ...TasksRunFields } }"#
+    #"fragment TasksDetailActivityFields on TaskDetail { __typename taskId contributorInstanceNames messages { __typename messageId bodyMarkdown author createdAt } runs { __typename ...TasksRunFields } }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -16,6 +16,7 @@ nonisolated public struct TasksDetailActivityFields: NoemaAPI.SelectionSet, Frag
   @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
     .field("__typename", String.self),
     .field("taskId", String.self),
+    .field("contributorInstanceNames", [String].self),
     .field("messages", [Message].self),
     .field("runs", [Run].self),
   ] }
@@ -25,6 +26,8 @@ nonisolated public struct TasksDetailActivityFields: NoemaAPI.SelectionSet, Frag
 
   /// Task identity.
   public var taskId: String { __data["taskId"] }
+  /// Every distinct agent instance that contributed to this task.
+  public var contributorInstanceNames: [String] { __data["contributorInstanceNames"] }
   /// Bounded recent human messages.
   public var messages: [Message] { __data["messages"] }
   /// Bounded recent task runs.
