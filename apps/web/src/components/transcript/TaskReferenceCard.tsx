@@ -46,6 +46,7 @@ export function TaskReferenceCard({
   const chipProgressLine = taskChipProgress(task);
   const open = opensDetail && taskTarget ? () => onOpenDetail?.(taskTarget) : undefined;
   const status = taskChipStatus(task);
+  const iconStatus = status === "reviewing" ? "executing" : status;
   const statusStyle = status === "done" ? styles.successIcon
     : status === "executing" || status === "reviewing" ? styles.activeIcon
     : status === "revision_requested" || status === "waiting_for_human" ? styles.attentionIcon
@@ -66,7 +67,7 @@ export function TaskReferenceCard({
       <span {...stylex.props(styles.chipContent)}>
         <ListTodo aria-hidden="true" size={13} strokeWidth={2} {...stylex.props(styles.taskIcon)} />
         <span {...stylex.props(styles.statusIcon, statusStyle)}>
-          <TaskStatusIcon status={status ?? "failed"} size={14} />
+          <TaskStatusIcon status={iconStatus ?? "failed"} size={14} />
         </span>
         <span {...stylex.props(styles.chipTitle)}>{title}</span>
       </span>
