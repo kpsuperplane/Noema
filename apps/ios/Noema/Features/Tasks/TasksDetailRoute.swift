@@ -195,7 +195,10 @@ private struct TasksDetailContent: View {
     }
     .tabBarMinimizeBehavior(.never)
     .tabViewBottomAccessory {
-      taskContextAccessory
+      taskContextDock
+    }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      compactSecondaryAccessory
     }
   }
 
@@ -221,18 +224,39 @@ private struct TasksDetailContent: View {
           .transition(secondarySurfaceTransition)
           .zIndex(1)
       }
-      TasksTaskContextDock(
-        run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
-        embeddedInSystemAccessory: compactPresentation,
-        canCancel: hasAction("CANCEL") && model.isConnected,
-        cancel: { cancelPresented = true },
-        showInfo: { taskInfoPresented = true }
-      )
+      taskContextDock
       .offset(y: hasSecondarySurface ? -NoemaSpacing.xxl : 0)
       .padding(.bottom, hasSecondarySurface ? -NoemaSpacing.xxl : 0)
       .zIndex(2)
     }
     .padding(.horizontal, compactPresentation ? 0 : NoemaSpacing.lg)
+    .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: secondarySurfaceKey)
+  }
+
+  private var taskContextDock: some View {
+    TasksTaskContextDock(
+      run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
+      embeddedInSystemAccessory: compactPresentation,
+      canCancel: hasAction("CANCEL") && model.isConnected,
+      cancel: { cancelPresented = true },
+      showInfo: { taskInfoPresented = true }
+    )
+  }
+
+  private var compactSecondaryAccessory: some View {
+    Group {
+      if hasSecondarySurface {
+        secondarySurface
+          .id(secondarySurfaceKey)
+          .transition(secondarySurfaceTransition)
+          .glassEffect(
+            .regular,
+            in: NoemaSuperellipse(cornerRadius: NoemaSpacing.xxl, treatment: .container)
+          )
+          .padding(.horizontal, NoemaSpacing.lg)
+          .padding(.bottom, NoemaSpacing.sm)
+      }
+    }
     .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: secondarySurfaceKey)
   }
 
@@ -383,7 +407,9 @@ private struct TasksDetailContent: View {
         TasksHumanInterventionsView(
           model: model,
           interventions: taskInterventions,
-          attachedToDock: detail.activeGate == nil
+          surfaceStyle: compactPresentation
+            ? .glassAccessory
+            : detail.activeGate == nil ? .attachedToDock : .cards
         )
       }
       if let gate = detail.activeGate {
@@ -395,6 +421,7 @@ private struct TasksDetailContent: View {
           errorMessage: model.commandError(taskID: detail.id),
           canAnswer: hasAction("ANSWER"),
           canRetry: hasAction("RETRY"),
+          embeddedInGlassAccessory: compactPresentation,
           answer: { answer, approval in
             await model.answer(task: detail, answer: answer, approval: approval)
           },
@@ -405,7 +432,8 @@ private struct TasksDetailContent: View {
       } else if taskInterventions.isEmpty && shouldShowStatus {
         TasksTaskStatusSurface(
           run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
-          activity: latestRunActivity
+          activity: latestRunActivity,
+          embeddedInGlassAccessory: compactPresentation
         )
       }
     }
@@ -425,6 +453,7 @@ private struct TasksGatePanel: View {
   let errorMessage: String?
   let canAnswer: Bool
   let canRetry: Bool
+  let embeddedInGlassAccessory: Bool
   let answer: (String, ApprovalDecision?) async -> Bool
   let retry: (String?) async -> Bool
 
@@ -549,31 +578,35 @@ private struct TasksGatePanel: View {
       }
       .padding(.horizontal, NoemaSpacing.md)
       .padding(.top, NoemaSpacing.md)
-      .padding(.bottom, 36)
+      .padding(.bottom, embeddedInGlassAccessory ? NoemaSpacing.md : 36)
     }
     .frame(maxHeight: 236)
-    .background(
-      NoemaColor.surface,
-      in: NoemaSuperellipse(
-        topLeftRadius: NoemaSpacing.xxl,
-        topRightRadius: NoemaSpacing.xxl,
-        bottomRightRadius: 0,
-        bottomLeftRadius: 0,
-        treatment: .page
-      )
-    )
-    .overlay {
-      NoemaSuperellipse(
-        topLeftRadius: NoemaSpacing.xxl,
-        topRightRadius: NoemaSpacing.xxl,
-        bottomRightRadius: 0,
-        bottomLeftRadius: 0,
-        treatment: .page
-      )
-      .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+    .background {
+      if !embeddedInGlassAccessory {
+        attachedShape.fill(NoemaColor.surface)
+      }
     }
-    .shadow(color: NoemaColor.ink900.opacity(0.13), radius: 14, y: -NoemaSpacing.xs)
+    .overlay {
+      if !embeddedInGlassAccessory {
+        attachedShape.stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+      }
+    }
+    .shadow(
+      color: embeddedInGlassAccessory ? .clear : NoemaColor.ink900.opacity(0.13),
+      radius: 14,
+      y: -NoemaSpacing.xs
+    )
     .accessibilityElement(children: .contain)
+  }
+
+  private var attachedShape: NoemaSuperellipse {
+    NoemaSuperellipse(
+      topLeftRadius: NoemaSpacing.xxl,
+      topRightRadius: NoemaSpacing.xxl,
+      bottomRightRadius: 0,
+      bottomLeftRadius: 0,
+      treatment: .page
+    )
   }
 
   private var recoveryPlaceholder: String {

@@ -73,6 +73,7 @@ struct TasksTaskContextDock: View {
 struct TasksTaskStatusSurface: View {
   let run: TasksRunSnapshot?
   let activity: String?
+  let embeddedInGlassAccessory: Bool
 
   private var statusText: String {
     activity?.taskDockText ?? run?.activity.taskDockText ?? fallbackStatus
@@ -88,12 +89,24 @@ struct TasksTaskStatusSurface: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
     .padding(.horizontal, NoemaSpacing.md)
-    .padding(.top, NoemaSpacing.xs)
-    .padding(.bottom, NoemaSpacing.xxl + NoemaSpacing.xxs)
+    .padding(.top, embeddedInGlassAccessory ? NoemaSpacing.md : NoemaSpacing.xs)
+    .padding(.bottom, embeddedInGlassAccessory ? NoemaSpacing.md : NoemaSpacing.xxl + NoemaSpacing.xxs)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(attachedShape.fill(NoemaColor.surface))
-    .overlay { attachedShape.stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
-    .shadow(color: NoemaColor.ink900.opacity(0.07), radius: NoemaSpacing.sm, y: NoemaSpacing.xs)
+    .background {
+      if !embeddedInGlassAccessory {
+        attachedShape.fill(NoemaColor.surface)
+      }
+    }
+    .overlay {
+      if !embeddedInGlassAccessory {
+        attachedShape.stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+      }
+    }
+    .shadow(
+      color: embeddedInGlassAccessory ? .clear : NoemaColor.ink900.opacity(0.07),
+      radius: NoemaSpacing.sm,
+      y: NoemaSpacing.xs
+    )
     .accessibilityElement(children: .combine)
     .accessibilityLabel("Task status: \(statusText)")
   }
