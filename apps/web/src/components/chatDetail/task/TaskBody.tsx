@@ -4,6 +4,7 @@ import * as stylex from "@stylexjs/stylex";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { ProviderCitationMarkdown, taskResultCitationContent } from "@/components/transcript/ProviderCitationSources";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
+import { taskStageLabel } from "./TaskOverview";
 import type { TaskRunLatestEntryChange } from "./TaskRunTranscript";
 import { TaskTranscript } from "./TaskTranscript";
 
@@ -95,7 +96,7 @@ export function TaskBody({
         {activeTab === "result" ? (
           <TaskDocument fileName="RESULT.md" text={detail.resultDocument ?? ""} />
         ) : activeTab === "task" ? (
-          <TaskDocument fileName="TASK.md" text={detail.taskDocument} />
+          <TaskDocument detail={detail} fileName="TASK.md" text={detail.taskDocument} />
         ) : (
           <div {...stylex.props(styles.transcript)}>
             <TaskTranscript
@@ -112,7 +113,7 @@ export function TaskBody({
   );
 }
 
-function TaskDocument({ fileName, text }: { fileName: string; text: string }) {
+function TaskDocument({ detail, fileName, text }: { detail?: TaskDetail; fileName: string; text: string }) {
   const response = text.trim() || undefined;
   const content = response && fileName === "RESULT.md"
     ? taskResultCitationContent(response)
@@ -134,9 +135,38 @@ function TaskDocument({ fileName, text }: { fileName: string; text: string }) {
         ) : (
           <p {...stylex.props(styles.empty)}>{fileName} has no text content.</p>
         )}
+        {detail ? <TaskMetadata detail={detail} /> : null}
       </div>
     </div>
   );
+}
+
+function TaskMetadata({ detail }: { detail: TaskDetail }) {
+  const revision = detail.currentRevision ?? latestRevision(detail);
+  const provenance = [detail.createdBy, detail.sourceLabel].filter(Boolean).join(" · ");
+  return (
+    <dl {...stylex.props(styles.metadata)}>
+      <MetadataRow label="Stage" value={taskStageLabel(detail)} />
+      {revision > 0 ? <MetadataRow label="Revision" value={`${revision}`} /> : null}
+      {detail.createdAt ? <MetadataRow label="Created" value={formatDate(detail.createdAt)} /> : null}
+      {provenance ? <MetadataRow label="From" value={provenance} /> : null}
+    </dl>
+  );
+}
+
+function MetadataRow({ label, value }: { label: string; value: string }) {
+  return <div {...stylex.props(styles.metadataRow)}><dt {...stylex.props(styles.metadataKey)}>{label}</dt><dd {...stylex.props(styles.metadataValue)}>{value}</dd></div>;
+}
+
+function latestRevision(detail: TaskDetail): number {
+  return detail.revisions.reduce((latest, revision) => Math.max(latest, revision.revision), 0);
+}
+
+function formatDate(value: string): string {
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp)
+    ? value
+    : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
 }
 
 const styles = stylex.create({
@@ -173,6 +203,21 @@ const styles = stylex.create({
     gap: "var(--spacing-4)",
     width: "100%"
   },
+  metadata: {
+    display: "grid",
+    gap: "var(--spacing-1-5)",
+    width: "calc(100% - var(--spacing-6) - var(--spacing-6))",
+    maxWidth: 760,
+    marginInline: "auto",
+    marginBlock: "var(--spacing-0)",
+    paddingBlockStart: "var(--spacing-3)",
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: "var(--noema-border-subtle)"
+  },
+  metadataRow: { display: "grid", gridTemplateColumns: "minmax(88px, 0.42fr) minmax(0, 1fr)", gap: "var(--spacing-3)", alignItems: "baseline" },
+  metadataKey: { color: "var(--noema-text-muted)", fontSize: 12 },
+  metadataValue: { minWidth: 0, margin: "var(--spacing-0)", color: "var(--noema-text-secondary)", fontSize: 12, overflowWrap: "anywhere" },
   markdown: {
     color: "var(--noema-text-primary)",
     fontSize: 14,

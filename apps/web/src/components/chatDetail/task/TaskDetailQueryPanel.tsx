@@ -31,12 +31,12 @@ export function TaskDetailQueryPanel({
   taskId,
   showTasksLink = true,
   onOpenDetail,
-  onTaskTitleChange
+  onTaskHeaderChange
 }: {
   taskId: string;
   showTasksLink?: boolean;
   onOpenDetail: (target: ChatDetailTarget) => void;
-  onTaskTitleChange?: (title: string) => void;
+  onTaskHeaderChange?: (detail: Pick<TaskDetail, "title" | "schedule">) => void;
 }) {
   const result = useQuery(TasksTaskDetailDocument, {
     variables: { taskId },
@@ -48,10 +48,6 @@ export function TaskDetailQueryPanel({
   const queriedTask = result.data?.task ?? null;
   const task = queriedTask?.taskId === taskId ? queriedTask : null;
   const [cursor, recordCursor] = useTaskEventCursor(taskId);
-  React.useEffect(() => {
-    if (task?.title) onTaskTitleChange?.(task.title);
-  }, [onTaskTitleChange, task?.title]);
-
   useSubscription(TasksTaskEventsDocument, {
     variables: { taskId, after: cursor },
     skip: task ? terminalBehavior(task.stage.behavior) : false,
@@ -68,6 +64,9 @@ export function TaskDetailQueryPanel({
   });
 
   const detail = React.useMemo(() => task ? mapTaskDetail(task) : null, [task]);
+  React.useEffect(() => {
+    if (detail) onTaskHeaderChange?.({ title: detail.title, schedule: detail.schedule });
+  }, [detail, onTaskHeaderChange]);
   const interventionFresh = pendingHumanInterventionsAreFresh(interventionResult);
   const taskControls = result.error
     ? []

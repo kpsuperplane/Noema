@@ -1,6 +1,7 @@
 import React from "react";
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
+import { Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import {
   AnimatePresence,
@@ -18,7 +19,10 @@ import {
 } from "./ArtifactDetailPanel";
 import type { ChatDetailTarget } from "./chatDetailTypes";
 import { TaskDetailQueryPanel } from "./task/TaskDetailQueryPanel";
+import type { TaskDetail } from "./task/taskTypes";
 import { TaskRecurrenceDetailPanel } from "../tasks/TaskRecurrenceDetailPanel";
+import { taskScheduleTimestampLabel } from "../tasks/tasksModel";
+import { normalizeTasksSearch } from "../tasks/tasksTypes";
 import { ChatDetailCloseButton } from "./ChatDetailCloseButton";
 
 export function ChatDetailRail({
@@ -69,7 +73,11 @@ function RoutedChatDetailRail({
   const primaryTarget = initialTarget.type === "artifact" ? null : initialTarget;
   const taskTargetId = primaryTarget?.type === "task" ? primaryTarget.taskId : null;
   const recurrenceTargetId = primaryTarget?.type === "recurrence" ? primaryTarget.recurrenceId : null;
-  const [taskTitleState, setTaskTitleState] = React.useState<{ taskId: string; title: string } | null>(null);
+  const [taskHeaderState, setTaskHeaderState] = React.useState<{
+    taskId: string;
+    title: string;
+    schedule?: TaskDetail["schedule"];
+  } | null>(null);
   const [recurrenceTitle, setRecurrenceTitle] = React.useState("Recurring task");
   const [artifactDetailState, setArtifactDetailState] = React.useState<{
     version: string;
@@ -84,11 +92,17 @@ function RoutedChatDetailRail({
   const title = artifactDetail?.title ??
     latestArtifactDetail?.title ??
     (target.type === "artifact" ? "Artifact" : "Task details");
-  const primaryTitle = recurrenceTargetId ? recurrenceTitle : taskTargetId && taskTitleState?.taskId === taskTargetId
-    ? taskTitleState.title
+  const currentTaskHeader = taskTargetId && taskHeaderState?.taskId === taskTargetId
+    ? taskHeaderState
+    : null;
+  const recurringOccurrence = currentTaskHeader?.schedule?.recurrenceId
+    ? currentTaskHeader.schedule
+    : null;
+  const primaryTitle = recurrenceTargetId ? recurrenceTitle : currentTaskHeader
+    ? currentTaskHeader.title
     : "Task details";
-  const handleTaskTitleChange = React.useCallback((nextTitle: string) => {
-    if (taskTargetId) setTaskTitleState({ taskId: taskTargetId, title: nextTitle });
+  const handleTaskHeaderChange = React.useCallback((detail: Pick<TaskDetail, "title" | "schedule">) => {
+    if (taskTargetId) setTaskHeaderState({ taskId: taskTargetId, ...detail });
   }, [taskTargetId]);
   React.useEffect(() => {
     if (isContained) {
@@ -215,7 +229,23 @@ function RoutedChatDetailRail({
           >
             <header {...stylex.props(styles.header, styles.taskHeader)}>
               <div {...stylex.props(styles.taskTitleBar)}>
-                <h2 {...stylex.props(styles.title)}>{primaryTitle}</h2>
+                <div {...stylex.props(styles.taskIdentity)}>
+                  <h2 {...stylex.props(styles.title)}>{primaryTitle}</h2>
+                  {recurringOccurrence?.recurrenceId ? (
+                    <div {...stylex.props(styles.taskSubtitle)}>
+                      <span>Scheduled for {taskScheduleTimestampLabel(recurringOccurrence.scheduledFor, recurringOccurrence.timeZone)}</span>
+                      <span aria-hidden="true"> · </span>
+                      <Link
+                        to="/tasks/recurrences/$recurrenceId"
+                        params={{ recurrenceId: recurringOccurrence.recurrenceId }}
+                        search={(current) => normalizeTasksSearch(current)}
+                        {...stylex.props(styles.taskRelationLink)}
+                      >
+                        View recurring task
+                      </Link>
+                    </div>
+                  ) : null}
+                </div>
                 <div {...stylex.props(styles.taskHeaderActions)}>
                   <ChatDetailCloseButton
                     closeButtonRef={taskCloseButtonRef}
@@ -227,7 +257,7 @@ function RoutedChatDetailRail({
             <div {...stylex.props(styles.body, styles.taskBody)}>
               {taskTargetId ? <TaskDetailQueryPanel
                 onOpenDetail={openDetail}
-                onTaskTitleChange={handleTaskTitleChange}
+                onTaskHeaderChange={handleTaskHeaderChange}
                 showTasksLink={showTasksLink}
                 taskId={taskTargetId}
               /> : recurrenceTargetId ? <TaskRecurrenceDetailPanel recurrenceId={recurrenceTargetId} onTitleChange={setRecurrenceTitle} /> : null}
@@ -448,6 +478,9 @@ const styles = stylex.create({
     pointerEvents: "auto"
   },
   taskTitleBar: { display: "grid", minWidth: 0, gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: "var(--spacing-3)" },
+  taskIdentity: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
+  taskSubtitle: { minWidth: 0, color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.35, overflowWrap: "anywhere" },
+  taskRelationLink: { color: "var(--noema-pine-700)", fontWeight: 650, textDecoration: "none", cursor: "pointer", ":hover": { textDecoration: "underline" } },
   taskHeaderActions: { display: "inline-flex", alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
   actionRow: {
     minWidth: 0,

@@ -1,9 +1,8 @@
 import * as React from "react";
 import { AvatarGroup } from "@astryxdesign/core/AvatarGroup";
 import { IconButton } from "@astryxdesign/core/IconButton";
-import { Popover } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
-import { Check, ExternalLink, Info } from "lucide-react";
+import { Check, ExternalLink } from "lucide-react";
 import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
@@ -17,7 +16,6 @@ import { TranscriptSystemNotice } from "@/components/transcript/TranscriptSystem
 import { springs } from "@/motion/springs";
 import type { TaskDetail, TaskRun, TaskRunItem, TaskRunStatus } from "./taskTypes";
 import { TaskBody } from "./TaskBody";
-import { taskStageLabel } from "./TaskOverview";
 import { TaskTranscriptSourceProvider } from "./TaskTranscript";
 import { TaskScheduleSummary } from "@/components/tasks/TaskScheduleSummary";
 
@@ -161,9 +159,11 @@ function TaskContextCard({
           showTasksLink={showTasksLink}
           taskId={taskId}
         />
-        <div {...stylex.props(styles.contextBody)}>
-          {detail.schedule ? <TaskScheduleSummary schedule={detail.schedule} /> : null}
-        </div>
+        {detail.schedule && !detail.schedule.recurrenceId ? (
+          <div {...stylex.props(styles.contextBody)}>
+            <TaskScheduleSummary schedule={detail.schedule} />
+          </div>
+        ) : null}
       </div>
     </aside>
   );
@@ -235,7 +235,6 @@ function TaskSummaryHeader({
             xstyle={styles.summaryAction}
           />
         ) : null}
-        <TaskInfoTrigger detail={detail} />
       </span>
     </header>
   );
@@ -276,102 +275,6 @@ function TaskSummaryAvatar({
       ) : null}
     </m.span>
   );
-}
-
-function TaskInfoTrigger({ detail }: { detail: TaskDetail }) {
-  const [open, setOpen] = React.useState(false);
-  const pinnedRef = React.useRef(false);
-  const hoveringRef = React.useRef(false);
-  const closeTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearCloseTimeout = React.useCallback(() => {
-    if (closeTimeoutRef.current) {
-      clearTimeout(closeTimeoutRef.current);
-      closeTimeoutRef.current = null;
-    }
-  }, []);
-  const scheduleClose = React.useCallback(() => {
-    clearCloseTimeout();
-    if (pinnedRef.current || hoveringRef.current) return;
-    closeTimeoutRef.current = setTimeout(() => {
-      closeTimeoutRef.current = null;
-      setOpen(false);
-    }, 180);
-  }, [clearCloseTimeout]);
-  React.useEffect(() => () => clearCloseTimeout(), [clearCloseTimeout]);
-
-  return (
-    <Popover
-      alignment="end"
-      content={(
-        <div onMouseEnter={() => { hoveringRef.current = true; clearCloseTimeout(); }} onMouseLeave={() => { hoveringRef.current = false; scheduleClose(); }}>
-          <TaskInfoPopoverContent detail={detail} />
-        </div>
-      )}
-      hasAutoFocus={false}
-      isOpen={open}
-      label="Task information"
-      onOpenChange={(next) => {
-        if (!next) {
-          pinnedRef.current = false;
-          setOpen(false);
-        }
-      }}
-      placement="above"
-      width="min(320px, calc(100vw - var(--spacing-6)))"
-      xstyle={styles.infoPopover}
-    >
-      {(trigger) => (
-        <button
-          ref={(element) => trigger.ref(element)}
-          type="button"
-          aria-controls={trigger["aria-controls"]}
-          aria-expanded={trigger["aria-expanded"]}
-          aria-haspopup={trigger["aria-haspopup"]}
-          aria-label="Show task information"
-          onClick={() => {
-            clearCloseTimeout();
-            pinnedRef.current = !pinnedRef.current;
-            setOpen(pinnedRef.current);
-          }}
-          onFocus={() => { clearCloseTimeout(); setOpen(true); }}
-          onMouseEnter={() => { hoveringRef.current = true; clearCloseTimeout(); setOpen(true); }}
-          onMouseLeave={() => { hoveringRef.current = false; scheduleClose(); }}
-          {...stylex.props(styles.infoButton)}
-        >
-          <Info aria-hidden="true" size={15} strokeWidth={2} />
-        </button>
-      )}
-    </Popover>
-  );
-}
-
-function TaskInfoPopoverContent({ detail }: { detail: TaskDetail }) {
-  return (
-    <div {...stylex.props(styles.infoContent)}>
-      <TaskInfoMetadata detail={detail} />
-    </div>
-  );
-}
-
-function TaskInfoMetadata({ detail }: { detail: TaskDetail }) {
-  const revision = detail.currentRevision ?? latestRevision(detail);
-  const provenance = [detail.createdBy, detail.sourceLabel].filter(Boolean).join(" · ");
-  return (
-    <dl {...stylex.props(styles.metadataSection, styles.metadata)}>
-      <MetadataRow label="Stage" value={taskStageLabel(detail)} />
-      {revision > 0 ? <MetadataRow label="Revision" value={`${revision}`} /> : null}
-      {detail.createdAt ? <MetadataRow label="Created" value={formatDate(detail.createdAt)} /> : null}
-      {provenance ? <MetadataRow label="From" value={provenance} /> : null}
-    </dl>
-  );
-}
-
-function MetadataRow({ label, value }: { label: string; value: string }) {
-  return <div {...stylex.props(styles.metadataRow)}><dt {...stylex.props(styles.metadataKey)}>{label}</dt><dd {...stylex.props(styles.metadataValue)}>{value}</dd></div>;
-}
-
-function latestRevision(detail: TaskDetail): number {
-  return detail.revisions.reduce((latest, revision) => Math.max(latest, revision.revision), 0);
 }
 
 function taskRunAvatarMotion(status: TaskRunStatus) {
@@ -495,13 +398,6 @@ function parseTimestamp(value?: string | null): number {
   return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
-function formatDate(value: string): string {
-  const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp)
-    ? value
-    : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
-}
-
 function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
@@ -569,14 +465,6 @@ const styles = stylex.create({
   summaryActions: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)" },
   summaryControlsHost: { display: "inline-flex", alignItems: "center" },
   summaryAction: { width: 28, height: 28 },
-  infoButton: { display: "inline-flex", width: 28, height: 28, alignItems: "center", justifyContent: "center", borderWidth: 0, borderRadius: 999, cornerShape: "var(--corner-shape-full)", backgroundColor: "transparent", color: "var(--noema-text-muted)", cursor: "pointer", ":hover": { backgroundColor: "var(--noema-surface-hover)", color: "var(--noema-text-primary)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
-  infoPopover: { maxHeight: "min(70vh, 520px)", overflowX: "hidden", overflowY: "auto", padding: "var(--spacing-0)", borderRadius: "var(--radius-container)" },
-  infoContent: { display: "grid", minWidth: 0, overflow: "hidden", borderRadius: "inherit", backgroundColor: "var(--noema-surface-card)" },
-  metadataSection: { paddingBlock: "var(--spacing-3)", paddingInline: "var(--spacing-3)" },
-  metadata: { display: "grid", gap: "var(--spacing-1-5)", margin: "var(--spacing-0)" },
-  metadataRow: { display: "grid", gridTemplateColumns: "minmax(88px, 0.42fr) minmax(0, 1fr)", gap: "var(--spacing-3)", alignItems: "baseline" },
-  metadataKey: { color: "var(--noema-text-muted)", fontSize: 12 },
-  metadataValue: { minWidth: 0, margin: "var(--spacing-0)", color: "var(--noema-text-secondary)", fontSize: 12, overflowWrap: "anywhere" },
   status: { padding: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 13 },
   unavailable: { padding: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.45 },
 });
