@@ -109,7 +109,14 @@ fn send_tool_call_started_transient(
     name: &str,
     correlation_id: Option<&str>,
 ) {
-    let display = tool_call_display(name, &json!({}));
+    let mut display = tool_call_display(name, &json!({}));
+    if let Some(marker) = crate::tool_marker_for_action(
+        "tool_call",
+        "running",
+        &json!({"name": name, "payload": {}}),
+    ) {
+        display["marker"] = marker;
+    }
     let activity_id = format!(
         "tool_call:{}:{}:{}",
         context.conversation_id, context.turn_index, output_index

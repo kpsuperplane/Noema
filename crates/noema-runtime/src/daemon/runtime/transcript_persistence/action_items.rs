@@ -263,14 +263,14 @@ impl RuntimeActor {
     async fn persist_provider_action_output_inner(
         &mut self,
         turn: &ProviderActionTurn,
-        mut action: ProviderActionOutput,
+        action: ProviderActionOutput,
         call_item_id: Option<&str>,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<ConversationItemRecord, RuntimeError> {
-        insert_display_value(
-            &mut action.display,
-            "status",
-            Some(action.status.as_str().to_string()),
+        let marker = crate::tool_marker_for_action(
+            action.action_kind,
+            action.status.as_str(),
+            &action.payload,
         );
         let action_request = if action.kind == ConversationItemKind::ApprovalRequest {
             let action_id = action
@@ -357,13 +357,17 @@ impl RuntimeActor {
                 .await?;
         }
 
+        let mut transcript_metadata = payload_json["metadata"].clone();
+        if let Some(marker) = marker {
+            transcript_metadata["display"]["marker"] = marker;
+        }
         let transcript_item = TurnTranscriptItem::Activity {
             id: activity_id,
             activity_kind: action.action_kind.to_string(),
             status: activity_status,
             title,
             summary,
-            metadata: payload_json["metadata"].clone(),
+            metadata: transcript_metadata,
         };
         if inserted {
             send_conversation_item(item_tx, record.clone(), metadata, transcript_item);

@@ -14,6 +14,7 @@ mod file_tools;
 mod search;
 #[cfg(test)]
 mod test_support;
+mod tool_marker;
 mod web_backend;
 mod web_fetch;
 
@@ -24,6 +25,7 @@ pub use daemon::{
     TurnTranscriptItem, WorkRuntimeEvent, mark_turn_timing_event,
 };
 pub use file_tools::run_file_parse_worker_if_requested;
+pub use tool_marker::tool_marker_for_action;
 pub use web_backend::{
     WebBackendFuture, WebBackendRequest, WebBackendResolver, WebBackendResolverError,
     WebBackendResolverHandle,

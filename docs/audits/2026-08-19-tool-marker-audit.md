@@ -52,6 +52,10 @@ It includes browser navigation, downloads, connectors, memory, artifacts, and Ta
 Built-in markers now use structured action, target, outcome, and exact status data.
 This applies to web, browser, Task, project, file, artifact, adapter, memory, naming, and service connection tools.
 
+The backend formats this marker data during reads and live delivery.
+Saved conversation and Task run records do not contain the formatted text.
+Web, iOS, and Live Activities consume the same backend result.
+
 Web search keeps its magnifying glass and exact query.
 Web fetch keeps its globe and page title or host.
 

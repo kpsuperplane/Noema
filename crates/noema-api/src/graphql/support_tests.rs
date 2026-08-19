@@ -82,7 +82,7 @@ fn conversation_replay_projects_representative_transcript_items() {
             status: TurnActivityStatus::Failed,
             ref metadata,
             ..
-        } if activity_kind == "tool_call" && metadata["display"]["status"] == "cancelled"
+        } if activity_kind == "tool_call" && metadata["display"]["marker"]["status"] == "cancelled"
     ));
 
     let artifact = web_conversation_item_from_record(replay_record(

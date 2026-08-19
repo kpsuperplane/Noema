@@ -397,6 +397,7 @@ struct ToolMarkerView: View {
       }
       .buttonStyle(.plain)
       .disabled(!expandable)
+      .accessibilityLabel("\(toolMarkerStatusLabel(markerStatus)), \(toolMarkerName(in: collapsedMessages))")
       .accessibilityValue(expandable ? (expanded ? "Expanded" : "Collapsed") : "")
 
       if expanded {
@@ -486,6 +487,7 @@ private struct ToolMarkerCallView: View {
       }
       .buttonStyle(.plain)
       .disabled(rows.isEmpty)
+      .accessibilityLabel("\(toolMarkerStatusLabel(toolMarkerStatus(in: messages))), \(toolMarkerName(in: messages))")
       .accessibilityValue(rows.isEmpty ? "" : (expanded ? "Expanded" : "Collapsed"))
       if expanded {
         ToolMarkerAttachmentView(
@@ -505,6 +507,9 @@ enum ToolMarkerStatus: Equatable {
   case running
   case complete
   case error
+  case cancelled
+  case interrupted
+  case skipped
 }
 
 struct ToolStatusIcon: View {
@@ -530,6 +535,7 @@ struct ToolStatusIcon: View {
     case .running: "arrow.triangle.2.circlepath"
     case .complete: "checkmark"
     case .error: "xmark"
+    case .cancelled, .interrupted, .skipped: "slash.circle"
     }
   }
 
@@ -539,6 +545,7 @@ struct ToolStatusIcon: View {
     case .running: NoemaColor.success
     case .complete: NoemaColor.success
     case .error: NoemaColor.danger
+    case .cancelled, .interrupted, .skipped: NoemaColor.contentTertiary
     }
   }
 }
@@ -563,14 +570,30 @@ struct ToolTypeIcon: View {
 
 private func toolMarkerStatus(in messages: [ChatMessage]) -> ToolMarkerStatus {
   guard let latest = messages.last, let values = activityValues(latest) else { return .pending }
-  let status = values.status.uppercased()
+  let status = (toolMarkerField("status", in: messages) ?? values.status).uppercased()
   if status == "FAILED" { return .error }
+  if status == "CANCELLED" { return .cancelled }
+  if status == "INTERRUPTED" { return .interrupted }
+  if status == "SKIPPED" { return .skipped }
   if ["STARTED", "RUNNING", "QUEUED", "ACTIVE"].contains(status) { return .running }
-  if values.activityKind.normalizedActivityKind == "TOOL_RESULT" { return .complete }
+  if ["COMPLETED", "COMPLETE"].contains(status), values.activityKind.normalizedActivityKind == "TOOL_RESULT" { return .complete }
   return .pending
 }
 
+private func toolMarkerStatusLabel(_ status: ToolMarkerStatus) -> String {
+  switch status {
+  case .pending: "Pending"
+  case .running: "Running"
+  case .complete: "Completed"
+  case .error: "Failed"
+  case .cancelled: "Cancelled"
+  case .interrupted: "Interrupted"
+  case .skipped: "Skipped"
+  }
+}
+
 private func toolMarkerKind(in messages: [ChatMessage]) -> String? {
+  if let kind = toolMarkerField("kind", in: messages) { return kind }
   for message in messages.reversed() {
     let metadata = metadataObject(for: message)
     let name = nestedString(metadata, path: ["action", "name"])
@@ -582,18 +605,10 @@ private func toolMarkerKind(in messages: [ChatMessage]) -> String? {
 }
 
 private func toolMarkerName(in messages: [ChatMessage]) -> String {
+  if let summary = toolMarkerField("summary", in: messages) { return summary }
   for message in messages.reversed() {
     let metadata = metadataObject(for: message)
     if let description = nestedString(metadata, path: ["display", "description"]) { return description }
-  }
-  let kind = toolMarkerKind(in: messages)
-  if kind == "web.search", let query = toolPayloadValue("query", in: messages) { return query }
-  if kind == "web.fetch" {
-    if toolMarkerStatus(in: messages) == .complete, let title = toolPayloadValue("title", in: messages) { return title }
-    if let target = toolPayloadValue("url", in: messages) ?? toolPayloadValue("final_url", in: messages) {
-      if let host = URL(string: target)?.host { return host.replacingOccurrences(of: "www.", with: "") }
-      return target
-    }
   }
   for message in messages.reversed() {
     let metadata = metadataObject(for: message)
@@ -601,11 +616,6 @@ private func toolMarkerName(in messages: [ChatMessage]) -> String {
       ?? nestedString(metadata, path: ["action", "name"])
       ?? stringValue(metadata["name"])
       ?? stringValue(metadata["tool_name"]) {
-      if raw == "update_own_name" {
-        return toolMarkerStatus(in: messages) == .complete ? "Saved name" : "Save name"
-      }
-      if raw == "web.search" { return "Web Search" }
-      if raw == "web.fetch" { return "Fetched Web Page" }
       return humanizeToolName(raw)
     }
   }
@@ -613,6 +623,7 @@ private func toolMarkerName(in messages: [ChatMessage]) -> String {
 }
 
 private func toolMarkerDetailTitle(in messages: [ChatMessage]) -> String {
+  if let title = toolMarkerField("detailTitle", in: messages) { return title }
   let prefix = toolMarkerStatus(in: messages) == .running ? "Using" : "Used"
   for message in messages.reversed() {
     let metadata = metadataObject(for: message)
@@ -620,25 +631,17 @@ private func toolMarkerDetailTitle(in messages: [ChatMessage]) -> String {
       ?? nestedString(metadata, path: ["action", "name"])
       ?? stringValue(metadata["name"])
       ?? stringValue(metadata["tool_name"]) {
-      let name = switch raw {
-      case "update_own_name": toolMarkerStatus(in: messages) == .complete ? "Saved name" : "Save name"
-      case "web.search": "Web Search"
-      case "web.fetch": "Fetched Web Page"
-      default: humanizeToolName(raw)
-      }
+      let name = humanizeToolName(raw)
       return "\(prefix) \(name)"
     }
   }
   return "\(prefix) \(toolMarkerName(in: messages))"
 }
 
-private func toolPayloadValue(_ key: String, in messages: [ChatMessage]) -> String? {
+private func toolMarkerField(_ key: String, in messages: [ChatMessage]) -> String? {
   for message in messages.reversed() {
-    let metadata = metadataObject(for: message)
-    if let value = nestedString(metadata, path: ["action", "arguments", key])
-      ?? nestedString(metadata, path: ["action", "payload", key])
-      ?? stringValue(metadata[key]) {
-      return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let value = nestedString(metadataObject(for: message), path: ["display", "marker", key]) {
+      return value
     }
   }
   return nil

@@ -1,13 +1,15 @@
 import type { ToolMarkerGroup } from "./renderModel";
-import {
-  builtInToolMarkerPresentation,
-  isBuiltInToolName,
-  type ToolMarkerCallStatus
-} from "./builtInToolMarker";
 export type ToolDetailRowData = { label: string; value: string };
 export type ToolScreenshotData = { src: string; width: number; height: number };
 export type ToolMarkerKind = "web.search" | "web.fetch";
-export type { ToolMarkerCallStatus } from "./builtInToolMarker";
+export type ToolMarkerCallStatus =
+  | "pending"
+  | "running"
+  | "complete"
+  | "error"
+  | "cancelled"
+  | "interrupted"
+  | "skipped";
 
 const MAX_SCREENSHOT_DATA_CHARS = 1_200_000;
 
@@ -27,6 +29,10 @@ export function toolMarkerStatus(marker: ToolMarkerGroup): ToolMarkerCallStatus 
 }
 
 export function toolMarkerLabel(marker: ToolMarkerGroup): string {
+  const displayTitle = markerDisplayString(marker, "detailTitle");
+  if (displayTitle) {
+    return displayTitle;
+  }
   const toolName = toolMarkerIdentity(marker);
   if (toolName) {
     switch (toolMarkerStatus(marker)) {
@@ -49,13 +55,15 @@ export function toolMarkerLabel(marker: ToolMarkerGroup): string {
 }
 
 export function toolMarkerName(marker: ToolMarkerGroup): string {
+  const markerSummary = markerDisplayString(marker, "summary");
+  if (markerSummary) {
+    return markerSummary;
+  }
   const description = toolDisplayString(marker.call?.item.metadata, "description");
   if (description) {
     return description;
   }
   return (
-    toolMarkerSubject(marker) ??
-    firstPartyToolMarkerName(marker) ??
     toolNameFromMetadata(marker.call?.item.metadata) ??
     toolNameFromMetadata(marker.result?.item.metadata) ??
     marker.call?.item.title ??
@@ -65,18 +73,21 @@ export function toolMarkerName(marker: ToolMarkerGroup): string {
 }
 
 export function toolMarkerSummary(marker: ToolMarkerGroup): string {
-  return builtInMarkerPresentation(marker)?.name ?? toolMarkerName(marker);
+  return toolMarkerName(marker);
 }
 
 export function toolMarkerKind(marker: ToolMarkerGroup): ToolMarkerKind | undefined {
+  const displayKind = markerDisplayString(marker, "kind");
+  if (displayKind === "web.search" || displayKind === "web.fetch") {
+    return displayKind;
+  }
   const toolName = actionToolNameFromMetadata(marker.result?.item.metadata) ?? actionToolNameFromMetadata(marker.call?.item.metadata);
   return toolName === "web.search" || toolName === "web.fetch" ? toolName : undefined;
 }
 
 function toolMarkerIdentity(marker: ToolMarkerGroup): string | null {
   return (
-    builtInMarkerPresentation(marker)?.identity ??
-    firstPartyToolMarkerName(marker) ??
+    markerDisplayString(marker, "identity") ??
     toolNameFromMetadata(marker.call?.item.metadata) ??
     toolNameFromMetadata(marker.result?.item.metadata) ??
     marker.call?.item.title ??
@@ -86,68 +97,7 @@ function toolMarkerIdentity(marker: ToolMarkerGroup): string | null {
 }
 
 export function toolMarkerIsBuiltIn(marker: ToolMarkerGroup): boolean {
-  const toolName = actionToolNameFromMetadata(marker.result?.item.metadata) ??
-    actionToolNameFromMetadata(marker.call?.item.metadata);
-  return toolName ? isBuiltInToolName(toolName) : false;
-}
-
-function builtInMarkerPresentation(marker: ToolMarkerGroup) {
-  const toolName = actionToolNameFromMetadata(marker.result?.item.metadata) ??
-    actionToolNameFromMetadata(marker.call?.item.metadata);
-  if (!toolName) return undefined;
-  return builtInToolMarkerPresentation({
-    toolName,
-    status: toolMarkerStatus(marker),
-    argumentsPayload: toolActionPayload(marker.call?.item.metadata),
-    resultPayload: toolActionPayload(marker.result?.item.metadata)
-  });
-}
-
-function toolMarkerSubject(marker: ToolMarkerGroup): string | undefined {
-  const kind = toolMarkerKind(marker);
-  if (kind === "web.search") {
-    return (
-      toolPayloadString(marker.call?.item.metadata, "query")?.trim() ??
-      toolPayloadString(marker.result?.item.metadata, "query")?.trim() ??
-      toolDisplayValue(marker.call?.item.metadata, "target", "Web search")?.trim() ??
-      toolDisplayValue(marker.result?.item.metadata, "target", "Web search")?.trim()
-    );
-  }
-  if (kind !== "web.fetch") {
-    return undefined;
-  }
-
-  if (marker.result?.item.status !== "FAILED") {
-    const title =
-      toolPayloadString(marker.result?.item.metadata, "title")?.trim() ??
-      toolPayloadString(marker.call?.item.metadata, "title")?.trim();
-    if (title) {
-      return title;
-    }
-  }
-
-  const target =
-    toolPayloadString(marker.call?.item.metadata, "url")?.trim() ??
-    toolPayloadString(marker.result?.item.metadata, "url")?.trim() ??
-    toolPayloadString(marker.result?.item.metadata, "final_url")?.trim() ??
-    toolDisplayValue(marker.call?.item.metadata, "target", "Fetched web page")?.trim() ??
-    toolDisplayValue(marker.result?.item.metadata, "target", "Fetched web page")?.trim();
-  return webFetchSubject(target);
-}
-
-function webFetchSubject(target: string | undefined): string | undefined {
-  if (!target) {
-    return undefined;
-  }
-  try {
-    const url = new URL(target);
-    if (url.protocol === "http:" || url.protocol === "https:") {
-      return url.hostname.replace(/^www\./u, "") || undefined;
-    }
-  } catch {
-    // Keep non-URL targets readable when a provider supplies one.
-  }
-  return target;
+  return markerDisplay(marker) !== null;
 }
 
 export function formatToolDetail(fallback: string, metadata: unknown): string {
@@ -378,17 +328,6 @@ export function toolMarkerTarget(marker: ToolMarkerGroup): string | undefined {
   );
 }
 
-function firstPartyToolMarkerName(marker: ToolMarkerGroup): string | undefined {
-  const toolName = actionToolNameFromMetadata(marker.result?.item.metadata) ?? actionToolNameFromMetadata(marker.call?.item.metadata);
-  if (!toolName) {
-    return undefined;
-  }
-  if (toolName === "update_own_name" && marker.result?.item.status === "COMPLETED") {
-    return "Saved name";
-  }
-  return firstPartyReadableToolName(toolName) ?? undefined;
-}
-
 function firstPartyToolMarkerTarget(marker: ToolMarkerGroup): string | undefined {
   const toolName = actionToolNameFromMetadata(marker.result?.item.metadata) ?? actionToolNameFromMetadata(marker.call?.item.metadata);
   if (toolName === "web.search") {
@@ -416,23 +355,6 @@ function firstPartyToolMarkerTarget(marker: ToolMarkerGroup): string | undefined
     );
   }
   return undefined;
-}
-
-function firstPartyReadableToolName(name: string): string | null {
-  const trimmed = name.trim();
-  if (trimmed === "web.search") {
-    return "Web Search";
-  }
-  if (trimmed === "web.fetch") {
-    return "Fetched Web Page";
-  }
-  if (trimmed.startsWith("web.browse.")) {
-    return "Browser interaction";
-  }
-  if (trimmed === "update_own_name") {
-    return "Save name";
-  }
-  return null;
 }
 
 function actionToolNameFromMetadata(metadata: unknown): string | null {
@@ -677,10 +599,6 @@ function toolPayloadString(metadata: unknown, key: string): string | undefined {
 
 function readableToolName(name: string): string {
   const trimmed = name.trim();
-  const firstPartyName = firstPartyReadableToolName(trimmed);
-  if (firstPartyName) {
-    return firstPartyName;
-  }
   if (trimmed === "search_memory") {
     return "Search memory";
   }
@@ -708,7 +626,7 @@ function activityMarkerStatus(
   metadata: unknown,
   isResult: boolean
 ): ToolMarkerCallStatus {
-  const status = (toolDisplayString(metadata, "status") ?? activityStatus).toLowerCase();
+  const status = (markerString(metadata, "status") ?? activityStatus).toLowerCase();
   switch (status) {
     case "pending":
     case "queued":
@@ -729,4 +647,23 @@ function activityMarkerStatus(
     default:
       return isResult ? "complete" : "pending";
   }
+}
+
+function markerDisplay(marker: ToolMarkerGroup): Record<string, unknown> | null {
+  return markerFromMetadata(marker.result?.item.metadata) ?? markerFromMetadata(marker.call?.item.metadata);
+}
+
+function markerDisplayString(marker: ToolMarkerGroup, key: string): string | undefined {
+  return stringValue(markerDisplay(marker)?.[key]) ?? undefined;
+}
+
+function markerFromMetadata(metadata: unknown): Record<string, unknown> | null {
+  if (!isRecord(metadata) || !isRecord(metadata.display) || !isRecord(metadata.display.marker)) {
+    return null;
+  }
+  return metadata.display.marker;
+}
+
+function markerString(metadata: unknown, key: string): string | undefined {
+  return stringValue(markerFromMetadata(metadata)?.[key]) ?? undefined;
 }

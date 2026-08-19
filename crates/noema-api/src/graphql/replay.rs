@@ -65,20 +65,21 @@ fn turn_transcript_item_from_record(
         | ConversationItemKind::ApprovalResult => {
             let mut payload: ReplayActivityPayload = replay_payload(record)?;
             if matches!(payload.activity_kind.as_str(), "tool_call" | "tool_result") {
-                let display = payload
-                    .metadata
-                    .as_object_mut()
-                    .map(|metadata| {
-                        metadata
-                            .entry("display")
-                            .or_insert_with(|| serde_json::json!({}))
-                    })
-                    .and_then(Value::as_object_mut);
-                if let Some(display) = display {
-                    display.insert(
-                        "status".to_string(),
-                        Value::String(record.status.as_str().to_string()),
-                    );
+                let marker = payload.metadata.get("action").and_then(|action| {
+                    noema_runtime::tool_marker_for_action(
+                        &payload.activity_kind,
+                        record.status.as_str(),
+                        action,
+                    )
+                });
+                if let Some(marker) = marker
+                    && let Some(metadata) = payload.metadata.as_object_mut()
+                    && let Some(display) = metadata
+                        .entry("display")
+                        .or_insert_with(|| serde_json::json!({}))
+                        .as_object_mut()
+                {
+                    display.insert("marker".to_string(), marker);
                 }
             }
             Ok(Some(TurnTranscriptItem::Activity {

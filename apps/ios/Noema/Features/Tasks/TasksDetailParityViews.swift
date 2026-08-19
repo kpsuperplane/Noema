@@ -482,9 +482,13 @@ struct TasksTranscriptSection: View {
       }
       action["arguments"] = payload["arguments"] ?? payload
     }
+    var display: [String: Any] = ["name": name]
+    if let serverDisplay = payload["display"] as? [String: Any] {
+      display.merge(serverDisplay) { _, server in server }
+    }
     let metadata: [String: Any] = [
       "action": action,
-      "display": ["name": name]
+      "display": display
     ]
     return ChatMessage(
       id: item.id,

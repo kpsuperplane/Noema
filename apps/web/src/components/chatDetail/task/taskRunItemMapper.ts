@@ -1,5 +1,4 @@
 import type { TaskRunItem, TaskRunRole } from "./taskTypes";
-import { isFoldedTaskToolName } from "@/components/transcript/builtInToolMarker";
 import type { TurnActivityStatus } from "@/generated/graphql";
 import type { TranscriptEntry } from "@/shared/types";
 
@@ -145,7 +144,9 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem, animateArrival: boolean
       persistedCorrelationId(persisted) ??
       item.id;
     const toolName = taskToolName(item);
-    if (isFoldedTaskToolName(toolName)) {
+    const display = recordValue(persisted?.display);
+    const marker = recordValue(display?.marker);
+    if (marker?.visibility === "fold") {
       return null;
     }
     const argumentsPayload = persisted?.arguments;
@@ -176,7 +177,8 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem, animateArrival: boolean
           action,
           display: {
             name: toolName,
-            status: item.status
+            status: item.status,
+            ...(display ?? {})
           }
         }
       }

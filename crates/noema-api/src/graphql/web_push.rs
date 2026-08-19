@@ -43,6 +43,7 @@ use noema_workspaces::WorkspaceId;
 use pulldown_cmark::{Event, Options, Parser, TagEnd};
 use reqwest::{Client, redirect::Policy};
 use ring::digest;
+use serde_json::Value;
 use tokio::sync::Notify;
 use url::{Host, Url};
 use web_push_native::{
@@ -1974,18 +1975,19 @@ fn run_item_epoch(item: &AgentRunItemRecord) -> Option<f64> {
 }
 
 fn live_tool_line(items: &[AgentRunItemRecord], tool: &AgentRunItemRecord) -> Option<String> {
-    items
-        .iter()
-        .rev()
-        .find(|item| {
-            item.kind == AgentRunItemKind::AssistantOutput
-                && item.status == AgentRunItemStatus::Completed
-                && item.round_index == tool.round_index
-                && item.sequence_index < tool.sequence_index
-        })
-        .and_then(|item| item.content_text.as_deref())
-        .and_then(live_activity_text)
-        .or_else(|| live_tool_update_label(tool))
+    live_tool_update_label(tool).or_else(|| {
+        items
+            .iter()
+            .rev()
+            .find(|item| {
+                item.kind == AgentRunItemKind::AssistantOutput
+                    && item.status == AgentRunItemStatus::Completed
+                    && item.round_index == tool.round_index
+                    && item.sequence_index < tool.sequence_index
+            })
+            .and_then(|item| item.content_text.as_deref())
+            .and_then(live_activity_text)
+    })
 }
 
 fn live_tool_update_label(item: &AgentRunItemRecord) -> Option<String> {
@@ -1993,24 +1995,16 @@ fn live_tool_update_label(item: &AgentRunItemRecord) -> Option<String> {
     if name.is_empty() {
         return None;
     }
-    let arguments = item.payload.get("arguments").unwrap_or(&item.payload);
-    let label = match name {
-        "web.search" => arguments
-            .get("query")
-            .and_then(serde_json::Value::as_str)
-            .map(|query| format!("Searching for “{}”", query.trim())),
-        "search_memory" => arguments
-            .get("query")
-            .and_then(serde_json::Value::as_str)
-            .map(|query| format!("Searching memory for “{}”", query.trim())),
-        "web.fetch" => arguments
-            .get("url")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| Url::parse(value).ok())
-            .and_then(|url| url.host_str().map(|host| format!("Reading {host}"))),
-        _ => None,
-    }
-    .unwrap_or_else(|| format!("Using {name}"));
+    let mut action = item.payload.clone();
+    action["name"] = Value::String(name.to_string());
+    let label = noema_runtime::tool_marker_for_action("tool_call", item.status.as_str(), &action)
+        .and_then(|marker| {
+            marker
+                .get("summary")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| format!("Using {name}"));
     live_activity_text(&label)
 }
 
@@ -2888,7 +2882,7 @@ mod tests {
         assert!(!activity.suppressed);
     }
     #[test]
-    fn live_activity_uses_task_commentary_for_the_active_tool() {
+    fn live_activity_uses_shared_text_for_the_active_tool() {
         let items = vec![
             run_item(
                 1,
@@ -2910,7 +2904,7 @@ mod tests {
 
         assert_eq!(
             live_label(&items).as_deref(),
-            Some("Searching Apple documentation for ActivityKit updates.")
+            Some("Searching the web for “ActivityKit updates”")
         );
     }
     #[test]
@@ -2926,7 +2920,7 @@ mod tests {
 
         assert_eq!(
             live_label(&items).as_deref(),
-            Some("Searching for “ActivityKit updates”")
+            Some("Searching the web for “ActivityKit updates”")
         );
     }
     #[test]
@@ -2975,7 +2969,7 @@ mod tests {
 
         let update = live_transcript_update(&[first, second]).expect("active tool");
 
-        assert_eq!(update.label, "Searching for “current work”");
+        assert_eq!(update.label, "Searching the web for “current work”");
         assert_eq!(update.updated_at, parse_epoch("2026-08-15T12:00:01Z"));
     }
     #[test]

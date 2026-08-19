@@ -104,8 +104,9 @@ slice or a net-negative reduction.
 - Frontend route and interaction truth is in
   [the current frontend contract](../frontend/current-contract.md). UI changes
   follow [product design guidance](../frontend/product-design.md).
-- Chat and Tasks share one built-in tool marker model.
-  Markers show structured actions, targets, outcomes, and exact statuses.
+- The backend formats built-in tool markers from saved tool facts during reads
+  and live delivery. It does not store marker text.
+- Web, iOS, and Live Activities consume the same action, outcome, and status data.
   Raw built-in payloads remain under technical disclosure.
   Connected tools keep the generalized marker path.
 - Optimize total system simplicity. Follow

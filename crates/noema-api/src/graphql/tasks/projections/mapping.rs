@@ -275,13 +275,47 @@ pub(crate) fn run_item_connection(value: WorkRunItemConnection) -> GraphqlTaskRu
         edges: value
             .edges
             .into_iter()
-            .map(|edge| {
+            .map(|mut edge| {
+                add_tool_marker(&mut edge.node);
                 let cursor = edge.cursor;
                 let node = (cursor.clone(), edge.node).into();
                 GraphqlTaskRunItemEdge { cursor, node }
             })
             .collect(),
         page_info: value.page_info.into(),
+    }
+}
+
+fn add_tool_marker(item: &mut noema_tasks::AgentRunItemRecord) {
+    let action_kind = match item.kind {
+        noema_tasks::AgentRunItemKind::ToolCall => "tool_call",
+        noema_tasks::AgentRunItemKind::ToolResult => "tool_result",
+        _ => return,
+    };
+    let mut action = item.payload.clone();
+    let Some(action_object) = action.as_object_mut() else {
+        return;
+    };
+    if !action_object.contains_key("name")
+        && let Some(name) = item.content_text.as_deref()
+    {
+        action_object.insert(
+            "name".to_string(),
+            serde_json::Value::String(name.to_string()),
+        );
+    }
+    let Some(marker) =
+        noema_runtime::tool_marker_for_action(action_kind, item.status.as_str(), &action)
+    else {
+        return;
+    };
+    if let Some(payload) = item.payload.as_object_mut()
+        && let Some(display) = payload
+            .entry("display")
+            .or_insert_with(|| serde_json::json!({}))
+            .as_object_mut()
+    {
+        display.insert("marker".to_string(), marker);
     }
 }
 

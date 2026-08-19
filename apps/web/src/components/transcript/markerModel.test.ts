@@ -93,7 +93,7 @@ describe("toolMarkerName", () => {
     assert.equal(toolMarkerName(marker), "Search memory");
   });
 
-  test("labels raw web search tool names for users", () => {
+  test("uses the backend web search marker", () => {
     const marker: ToolMarkerGroup = {
       id: "tool_call:web",
       call: {
@@ -107,7 +107,8 @@ describe("toolMarkerName", () => {
           title: "Tool call: web.search",
           summary: "Web search: rust language",
           metadata: {
-            action: { name: "web.search" }
+            action: { name: "web.search" },
+            display: { marker: backendMarker("Web Search", "Web Search", "Using Web Search", "web.search") }
           }
         }
       }
@@ -116,7 +117,7 @@ describe("toolMarkerName", () => {
     assert.equal(toolMarkerName(marker), "Web Search");
   });
 
-  test("labels raw first-party web tool names for users", () => {
+  test("uses backend web and browser markers", () => {
     const marker: ToolMarkerGroup = {
       id: "tool_call:web-fetch",
       call: {
@@ -130,14 +131,18 @@ describe("toolMarkerName", () => {
           title: "Tool call: web.fetch",
           summary: "Fetched web page: https://example.com/page",
           metadata: {
-            action: { name: "web.fetch" }
+            action: { name: "web.fetch" },
+            display: { marker: backendMarker("Fetched Web Page", "Fetched Web Page", "Using Fetched Web Page", "web.fetch") }
           }
         }
       }
     };
 
     assert.equal(toolMarkerName(marker), "Fetched Web Page");
-    marker.call!.item.metadata = { action: { name: "web.browse.interact" } };
+    marker.call!.item.metadata = {
+      action: { name: "web.browse.interact" },
+      display: { marker: backendMarker("Browser interaction", "Browser interaction", "Using Browser interaction") }
+    };
     assert.equal(toolMarkerName(marker), "Browser interaction");
   });
 });
@@ -186,7 +191,8 @@ describe("toolMarkerLabel", () => {
             },
             display: {
               name: "Update agent name",
-              result: "Saved name: Momo"
+              result: "Saved name: Momo",
+              marker: backendMarker("Saved name", "Save name", "Used Save name")
             }
           }
         }
@@ -212,7 +218,13 @@ describe("toolMarkerLabel", () => {
             },
             display: {
               name: "Search web",
-              target: "Web search: T:0 AI Finance Team startup location t0.ai"
+              target: "Web search: T:0 AI Finance Team startup location t0.ai",
+              marker: backendMarker(
+                "T:0 AI Finance Team startup location t0.ai",
+                "Web Search",
+                "Using Web Search",
+                "web.search"
+              )
             }
           }
         }
@@ -238,7 +250,8 @@ describe("toolMarkerLabel", () => {
             },
             display: {
               name: "Fetch web",
-              target: "Fetched web page: https://www.ycombinator.com/companies/clueso"
+              target: "Fetched web page: https://www.ycombinator.com/companies/clueso",
+              marker: backendMarker("ycombinator.com", "Fetched Web Page", "Using Fetched Web Page", "web.fetch")
             }
           }
         }
@@ -304,7 +317,8 @@ describe("toolMarkerLabel", () => {
               name: "Search web",
               result: "Found 1 web result",
               provider: "DuckDuckGo public search",
-              reliability: "Best effort"
+              reliability: "Best effort",
+              marker: backendMarker("rust language", "Web Search", "Used Web Search", "web.search")
             }
           }
         }
@@ -451,7 +465,8 @@ describe("toolMarkerLabel", () => {
             },
             display: {
               name: "Fetch web",
-              result: "Fetched 12,840 chars"
+              result: "Fetched 12,840 chars",
+              marker: backendMarker("Example", "Fetched Web Page", "Used Fetched Web Page", "web.fetch")
             }
           }
         }
@@ -465,6 +480,16 @@ describe("toolMarkerLabel", () => {
     assert.deepEqual(toolDetailRows(marker), []);
   });
 });
+
+function backendMarker(summary: string, identity: string, detailTitle: string, kind?: "web.search" | "web.fetch") {
+  return {
+    summary,
+    identity,
+    detailTitle,
+    status: detailTitle.startsWith("Used ") ? "completed" : "pending",
+    ...(kind ? { kind } : {})
+  };
+}
 
 describe("toolDetailRows", () => {
   test("keeps failed web search markers expandable with error detail", () => {
