@@ -31,8 +31,8 @@ Git history preserves the completed plan.
   recheck at source revision `be388c1e`.
 - [Web UX audit](2026-08-10-web-ux-audit.md) — closed static review and
   implementation record.
-- [Recent tool marker audit](2026-08-19-tool-marker-audit.md) — saved-call
-  evidence, current marker behavior, and user-focused display recommendations.
+- [Tool marker audit](2026-08-19-tool-marker-audit.md) — complete saved-call
+  inventory, current marker behavior, and user-focused display recommendations.
 
 The Web audit did not include browser, device, or assistive-technology checks.
 Run a fresh review before treating an old finding as present behavior.
