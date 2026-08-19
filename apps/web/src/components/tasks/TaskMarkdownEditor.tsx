@@ -5,6 +5,8 @@ export type TaskMarkdownEditorProps = {
   onChange: (value: string) => void;
   label?: string;
   density?: "default" | "inline";
+  sourceMode?: boolean;
+  onSourceModeChange?: (sourceMode: boolean) => void;
 };
 
 const TaskMarkdownEditorImpl = React.lazy(() => import("./TaskMarkdownEditorImpl"));

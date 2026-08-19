@@ -5,10 +5,11 @@ import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, Check, CircleStop, MoreHorizontal, Pause, Pencil, Play, RefreshCcw, SkipForward, X } from "lucide-react";
+import { AlertTriangle, Check, CircleStop, Code2, MoreHorizontal, Pause, Pencil, Play, RefreshCcw, SkipForward, X } from "lucide-react";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import {
@@ -131,7 +132,7 @@ function LoadedRecurrenceDetail({ recurrence, onReload, onTitleChange }: { recur
     canEdit: recurrence.lifecycle !== "ENDED",
     canStart: recurrence.lifecycle !== "ENDED" && !commandBusy && !activeEdit && !editingSchedule && !confirmingEnd,
     busy,
-    error: updateState.error ? stale ? "This recurring task changed elsewhere. Your draft is still here." : updateState.error.message : null,
+    error: updateState.error ? stale ? "Changed elsewhere. Reload the latest version. Your draft is safe." : updateState.error.message : null,
     requiresAcknowledgement,
     actionUnavailable,
     start: startEdit,
@@ -151,14 +152,22 @@ function LoadedRecurrenceDetail({ recurrence, onReload, onTitleChange }: { recur
   };
   const active = recurrence.lifecycle === "ACTIVE";
   const ended = recurrence.lifecycle === "ENDED";
+  const lifecycleLabel = ended ? "Ended" : active ? "Active" : "Paused";
+  const occurrenceGroups = groupOccurrences(recurrence.occurrences, recurrence.timeZone);
   return (
     <VStack className={stylex.props(styles.scroller).className}>
       <VStack gap={4} className={stylex.props(styles.root).className}>
         <VStack as="section" aria-label="Recurring task schedule" gap={2} className={stylex.props(styles.section).className}>
           <HStack justify="between" align="start" gap={3}>
             <VStack gap={1}>
-              <span {...stylex.props(styles.eyebrow)}>{ended ? "Ended" : active ? "Active" : "Paused"}</span>
-              <strong {...stylex.props(styles.cadence)}>{recurrenceSummary(recurrence.cronExpression)}</strong>
+              <HStack align="center" gap={1}>
+                <StatusDot variant={ended ? "neutral" : active ? "success" : "warning"} label={`${lifecycleLabel} recurring task`} />
+                <span {...stylex.props(styles.eyebrow)}>{lifecycleLabel}</span>
+              </HStack>
+              <HStack align="center" gap={1}>
+                <strong {...stylex.props(styles.cadence)}>{recurrenceSummary(recurrence.cronExpression)}</strong>
+                {!ended ? <IconButton type="button" size="sm" variant="ghost" label="Edit schedule" tooltip="Edit schedule" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={busy || Boolean(activeEdit)} onClick={() => setEditingSchedule(true)} /> : null}
+              </HStack>
               {active && recurrence.nextRunAt ? <span {...stylex.props(styles.meta)}>Next run · {dateLabel(recurrence.nextRunAt, recurrence.timeZone)}</span> : null}
               <span {...stylex.props(styles.meta)}>{recurrence.timeZone}</span>
             </VStack>
@@ -168,7 +177,6 @@ function LoadedRecurrenceDetail({ recurrence, onReload, onTitleChange }: { recur
               placement="below"
               menuWidth={210}
               items={[
-                { label: "Edit schedule", icon: <Pencil aria-hidden="true" size={14} />, onClick: () => setEditingSchedule(true), isDisabled: busy || Boolean(activeEdit) },
                 { label: "Skip next run", icon: <SkipForward aria-hidden="true" size={14} />, onClick: () => void change("skip").catch(() => undefined), isDisabled: busy || !recurrence.nextRunAt },
                 { type: "divider" },
                 { label: "End recurring task", icon: <CircleStop aria-hidden="true" size={14} />, onClick: () => setConfirmingEnd(true), isDisabled: busy }
@@ -207,24 +215,29 @@ function LoadedRecurrenceDetail({ recurrence, onReload, onTitleChange }: { recur
             <h3 id="recurrence-history-title" {...stylex.props(styles.sectionTitle)}>Occurrences</h3>
             <span aria-label={`${recurrence.occurrences.length} occurrences`} {...stylex.props(styles.count)}>{recurrence.occurrences.length}</span>
           </HStack>
-          {recurrence.occurrences.length ? <VStack as="ul" gap={0} className={stylex.props(styles.history).className}>
-            {recurrence.occurrences.map((occurrence) => (
-              <li key={`${occurrence.localSlot}:${occurrence.recurrenceRevision}`} {...stylex.props(styles.rowItem)}>
-                {occurrence.taskId ? <Link to="/tasks/$taskId" params={{ taskId: occurrence.taskId }} search={(current) => normalizeTasksSearch(current)} {...stylex.props(styles.row, styles.rowLink)}>
-                  <VStack gap={0.5} className={stylex.props(styles.rowIdentity).className}>
-                    <time dateTime={occurrence.scheduledFor} {...stylex.props(styles.rowDate)}>{dateLabel(occurrence.scheduledFor, recurrence.timeZone)}</time>
-                    <span {...stylex.props(styles.rowMeta)}>{occurrenceTriggerLabel(occurrence.trigger)}</span>
-                  </VStack>
-                  <span {...stylex.props(styles.rowState)}>Open task</span>
-                </Link> : <HStack justify="between" align="start" className={stylex.props(styles.row).className}>
-                  <VStack gap={0.5} className={stylex.props(styles.rowIdentity).className}>
-                    <time dateTime={occurrence.scheduledFor} {...stylex.props(styles.rowDate)}>{dateLabel(occurrence.scheduledFor, recurrence.timeZone)}</time>
-                    <span {...stylex.props(styles.rowMeta)}>{occurrenceTriggerLabel(occurrence.trigger)}</span>
-                  </VStack>
-                  <span {...stylex.props(styles.rowState)}>{occurrenceLabel(occurrence.resolution)}</span>
-                </HStack>}
-              </li>
-            ))}
+          {occurrenceGroups.length ? <VStack gap={3}>
+            {occurrenceGroups.map((group) => <VStack as="section" gap={1} key={group.label} aria-label={group.label}>
+              <h4 {...stylex.props(styles.occurrenceDay)}>{group.label}</h4>
+              <VStack as="ul" gap={0} className={stylex.props(styles.history).className}>
+                {group.occurrences.map((occurrence) => (
+                  <li key={`${occurrence.localSlot}:${occurrence.recurrenceRevision}`} {...stylex.props(styles.rowItem)}>
+                    {occurrence.taskId ? <Link to="/tasks/$taskId" params={{ taskId: occurrence.taskId }} search={(current) => normalizeTasksSearch(current)} {...stylex.props(styles.row, styles.rowLink)}>
+                      <VStack gap={0.5} className={stylex.props(styles.rowIdentity).className}>
+                        <time dateTime={occurrence.scheduledFor} {...stylex.props(styles.rowDate)}>{timeLabel(occurrence.scheduledFor, recurrence.timeZone)}</time>
+                        <span {...stylex.props(styles.rowMeta)}>{occurrenceTriggerLabel(occurrence.trigger)}</span>
+                      </VStack>
+                      <span {...stylex.props(styles.rowState)}>Open task</span>
+                    </Link> : <HStack justify="between" align="start" className={stylex.props(styles.row).className}>
+                      <VStack gap={0.5} className={stylex.props(styles.rowIdentity).className}>
+                        <time dateTime={occurrence.scheduledFor} {...stylex.props(styles.rowDate)}>{timeLabel(occurrence.scheduledFor, recurrence.timeZone)}</time>
+                        <span {...stylex.props(styles.rowMeta)}>{occurrenceTriggerLabel(occurrence.trigger)}</span>
+                      </VStack>
+                      <span {...stylex.props(styles.rowState)}>{occurrenceLabel(occurrence.resolution)}</span>
+                    </HStack>}
+                  </li>
+                ))}
+              </VStack>
+            </VStack>)}
           </VStack> : <p {...stylex.props(styles.empty)}>No occurrences yet.</p>}
         </VStack>
         {editingSchedule ? <RecurrenceScheduleDialog recurrence={recurrence} onClose={() => setEditingSchedule(false)} onUpdated={onReload} /> : null}
@@ -235,32 +248,57 @@ function LoadedRecurrenceDetail({ recurrence, onReload, onTitleChange }: { recur
 }
 
 function RecurrenceDescription({ recurrence, edit }: { recurrence: Recurrence; edit: RecurrenceInlineEditController }) {
+  const [saved, setSaved] = React.useState(false);
+  React.useEffect(() => {
+    if (!saved) return;
+    const timeout = window.setTimeout(() => setSaved(false), 1600);
+    return () => window.clearTimeout(timeout);
+  }, [saved]);
+  const saveDocument = async (taskDocument: string) => {
+    await edit.saveDocument(taskDocument);
+    setSaved(true);
+  };
   const editing = edit.field === "DOCUMENT";
-  if (editing) return <RecurrenceDescriptionEditor key={`${recurrence.recurrenceId}:description`} edit={edit} />;
+  if (editing) return <RecurrenceDescriptionEditor key={`${recurrence.recurrenceId}:description`} edit={edit} onSave={saveDocument} />;
   return (
     <VStack as="section" aria-labelledby="recurrence-description-title" gap={2}>
-      <RecurrenceDescriptionBar edit={edit} />
+      <RecurrenceDescriptionBar edit={edit} saved={saved} />
       {recurrence.taskDocument.trim() ? <MarkdownContent density="compact" className={stylex.props(styles.description).className}>{recurrence.taskDocument}</MarkdownContent> : <p {...stylex.props(styles.empty, styles.description)}>The template is empty.</p>}
     </VStack>
   );
 }
 
-function RecurrenceDescriptionEditor({ edit }: { edit: RecurrenceInlineEditController }) {
+function RecurrenceDescriptionEditor({ edit, onSave }: { edit: RecurrenceInlineEditController; onSave: (taskDocument: string) => Promise<void> }) {
   const [draft, setDraft] = React.useState(edit.recurrence.taskDocument);
+  const [sourceMode, setSourceMode] = React.useState(false);
   return (
     <VStack as="section" aria-labelledby="recurrence-description-title" gap={2}>
-      <RecurrenceDescriptionBar edit={edit} onSave={() => edit.saveDocument(draft)} />
+      <RecurrenceDescriptionBar edit={edit} sourceMode={sourceMode} onChangeSourceMode={setSourceMode} onSave={() => onSave(draft)} />
       <VStack className={stylex.props(styles.editor, Boolean(edit.error || edit.actionUnavailable) && styles.editorError).className}>
-        <TaskMarkdownEditor key={edit.recurrence.taskDocumentDigest} value={draft} onChange={setDraft} label="Recurring task description" density="inline" />
+        <TaskMarkdownEditor key={edit.recurrence.taskDocumentDigest} value={draft} onChange={setDraft} label="Recurring task description" density="inline" sourceMode={sourceMode} onSourceModeChange={setSourceMode} />
       </VStack>
-      {edit.error ? <span role="alert" {...stylex.props(styles.srOnly)}>{edit.error}</span> : null}
+      {edit.error ? <span role="alert" {...stylex.props(styles.editStatus)}>{edit.error}</span> : null}
     </VStack>
   );
 }
 
-function RecurrenceDescriptionBar({ edit, onSave }: { edit: RecurrenceInlineEditController; onSave?: () => Promise<void> }) {
+function RecurrenceDescriptionBar({ edit, saved = false, sourceMode, onChangeSourceMode, onSave }: { edit: RecurrenceInlineEditController; saved?: boolean; sourceMode?: boolean; onChangeSourceMode?: (sourceMode: boolean) => void; onSave?: () => Promise<void> }) {
   const editing = edit.field === "DOCUMENT";
-  return <HStack justify="between" align="center" className={stylex.props(styles.descriptionBar).className}><strong id="recurrence-description-title" {...stylex.props(styles.descriptionLabel)}>Description</strong><span {...stylex.props(styles.editControls)}>{!edit.canEdit ? null : editing ? <>{edit.requiresAcknowledgement ? <IconButton type="button" size="sm" variant="ghost" label="Use latest recurring task" tooltip="Use latest recurring task" icon={<RefreshCcw aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => void edit.acknowledge().catch(() => undefined)} /> : <IconButton type="button" size="sm" variant="ghost" label="Save description for future occurrences" tooltip="Save for future occurrences" icon={<Check aria-hidden="true" size={14} />} isDisabled={edit.busy || edit.actionUnavailable} onClick={() => void onSave?.().catch(() => undefined)} />}<IconButton type="button" size="sm" variant="ghost" label="Cancel description edit" tooltip="Cancel" icon={<X aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={edit.cancel} /></> : <IconButton type="button" size="sm" variant="ghost" label="Edit description" tooltip="Edit description" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("DOCUMENT")} />}</span></HStack>;
+  const label = <HStack align="center" gap={1}>
+    <strong id="recurrence-description-title" {...stylex.props(styles.descriptionLabel)}>Description</strong>
+    {!editing && edit.canEdit ? <IconButton type="button" size="sm" variant="ghost" label="Edit description" tooltip="Edit description" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("DOCUMENT")} /> : null}
+    <span {...stylex.props(styles.descriptionScope)}>Future runs only</span>
+    {edit.canEdit ? <span role="status" aria-live="polite" {...stylex.props(styles.savedStatus)}>{saved ? "Saved" : null}</span> : null}
+  </HStack>;
+  if (!editing) return <HStack align="center" className={stylex.props(styles.descriptionBar).className}>{label}</HStack>;
+  return <HStack justify="between" align="center" gap={2} className={stylex.props(styles.descriptionBar).className}>
+    {label}
+    <span {...stylex.props(styles.editControls)}>
+      <IconButton type="button" size="sm" variant="ghost" label={sourceMode ? "Use rich editor" : "Edit source"} tooltip={sourceMode ? "Use rich editor" : "Edit source"} icon={<Code2 aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => onChangeSourceMode?.(!sourceMode)} />
+      {edit.requiresAcknowledgement ? <IconButton type="button" size="sm" variant="ghost" label="Reload latest" tooltip="Reload latest" icon={<RefreshCcw aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => void edit.acknowledge().catch(() => undefined)} /> : <IconButton type="button" size="sm" variant="ghost" label="Save description for future occurrences" tooltip="Save for future occurrences" icon={<Check aria-hidden="true" size={14} />} isLoading={edit.busy} isDisabled={edit.actionUnavailable} onClick={() => void onSave?.().catch(() => undefined)} />}
+      <IconButton type="button" size="sm" variant="ghost" label="Cancel description edit" tooltip="Cancel" icon={<X aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={edit.cancel} />
+    </span>
+  </HStack>;
 }
 
 function EndRecurrenceDialog({ submitting, error, onClose, onConfirm }: { submitting: boolean; error: string | null; onClose: () => void; onConfirm: () => void }) {
@@ -276,6 +314,18 @@ function RecurrenceScheduleDialog({ recurrence, onClose, onUpdated }: { recurren
 }
 
 function dateLabel(value: string, timeZone: string) { return new Intl.DateTimeFormat(undefined, { timeZone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(value)); }
+function timeLabel(value: string, timeZone: string) { return new Intl.DateTimeFormat(undefined, { timeZone, hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(value)); }
+function groupOccurrences(occurrences: Recurrence["occurrences"], timeZone: string) {
+  const formatter = new Intl.DateTimeFormat(undefined, { timeZone, weekday: "long", month: "short", day: "numeric", year: "numeric" });
+  const groups = new Map<string, Array<Recurrence["occurrences"][number]>>();
+  for (const occurrence of occurrences) {
+    const label = formatter.format(new Date(occurrence.scheduledFor));
+    const group = groups.get(label) ?? [];
+    group.push(occurrence);
+    groups.set(label, group);
+  }
+  return Array.from(groups, ([label, groupedOccurrences]) => ({ label, occurrences: groupedOccurrences }));
+}
 function occurrenceLabel(resolution: Recurrence["occurrences"][number]["resolution"]) { return resolution === "SKIPPED" ? "Skipped" : resolution === "COALESCED" ? "Combined" : "Created"; }
 function occurrenceTriggerLabel(trigger: Recurrence["occurrences"][number]["trigger"]) { return trigger === "MANUAL" ? "Manual run" : "Scheduled run"; }
 
@@ -289,11 +339,15 @@ const styles = stylex.create({
   description: { paddingInline: "var(--spacing-2)" },
   descriptionBar: { minHeight: 36 },
   descriptionLabel: { color: "var(--noema-text-muted)", fontSize: 12, fontWeight: 650 },
-  editControls: { display: "inline-flex", width: 64, minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
+  descriptionScope: { color: "var(--noema-text-muted)", fontSize: 11 },
+  savedStatus: { minWidth: "4ch", color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },
+  editControls: { display: "inline-flex", width: 96, minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
   editor: { display: "grid", gap: "var(--spacing-2)", borderRadius: "var(--radius-element)" },
   editorError: { outlineWidth: 1, outlineStyle: "solid", outlineColor: "var(--destructive)" },
+  editStatus: { color: "var(--destructive)", fontSize: 12, lineHeight: 1.4 },
   sectionTitle: { margin: 0, color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 650 },
   count: { color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 12 },
+  occurrenceDay: { margin: 0, color: "var(--noema-text-muted)", fontSize: 12, fontWeight: 650 },
   history: { margin: 0, padding: 0, listStyle: "none", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)" },
   rowItem: { minWidth: 0, listStyle: "none", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)" },
   row: { display: "flex", minWidth: 0, alignItems: "flex-start", justifyContent: "space-between", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 12, fontVariantNumeric: "tabular-nums", textDecoration: "none" },
@@ -305,6 +359,5 @@ const styles = stylex.create({
   empty: { margin: 0, color: "var(--noema-text-muted)", fontSize: 12 },
   state: { minHeight: "100%", padding: "var(--spacing-4)", color: "var(--noema-text-muted)", fontSize: 13 },
   warning: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.45 },
-  error: { color: "var(--destructive)", fontSize: 12 },
-  srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }
+  error: { color: "var(--destructive)", fontSize: 12 }
 });

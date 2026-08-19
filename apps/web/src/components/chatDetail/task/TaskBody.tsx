@@ -2,7 +2,7 @@ import * as React from "react";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import * as stylex from "@stylexjs/stylex";
-import { Check, Pencil, RefreshCcw, X } from "lucide-react";
+import { Check, Code2, Pencil, RefreshCcw, X } from "lucide-react";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { ProviderCitationMarkdown, taskResultCitationContent } from "@/components/transcript/ProviderCitationSources";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
@@ -154,11 +154,12 @@ function TaskDocument({ detail, edit, fileName, text }: { detail?: TaskDetail; e
 
 function TaskDocumentEditor({ detail, edit }: { detail: TaskDetail; edit: TaskInlineEditController }) {
   const [draft, setDraft] = React.useState(detail.taskDocument);
+  const [sourceMode, setSourceMode] = React.useState(false);
   return (
     <div data-slot="task-document" {...stylex.props(styles.taskScroller)}>
-      <TaskDocumentBar edit={edit} onSave={() => edit.saveDocument(draft)} />
+      <TaskDocumentBar edit={edit} sourceMode={sourceMode} onChangeSourceMode={setSourceMode} onSave={() => edit.saveDocument(draft)} />
       <div {...stylex.props(styles.editorContent, Boolean(edit.error || edit.actionUnavailable) && styles.editorError)}>
-        <TaskMarkdownEditor key={edit.task.taskDocumentDigest} value={draft} onChange={setDraft} label="Task description" density="inline" />
+        <TaskMarkdownEditor key={edit.task.taskDocumentDigest} value={draft} onChange={setDraft} label="Task description" density="inline" sourceMode={sourceMode} onSourceModeChange={setSourceMode} />
         {edit.error ? <span role="alert" {...stylex.props(styles.srOnly)}>{edit.error}</span> : null}
       </div>
       <TaskMetadata detail={detail} />
@@ -166,15 +167,16 @@ function TaskDocumentEditor({ detail, edit }: { detail: TaskDetail; edit: TaskIn
   );
 }
 
-function TaskDocumentBar({ edit, onSave }: { edit?: TaskInlineEditController; onSave?: () => Promise<void> }) {
+function TaskDocumentBar({ edit, sourceMode, onChangeSourceMode, onSave }: { edit?: TaskInlineEditController; sourceMode?: boolean; onChangeSourceMode?: (sourceMode: boolean) => void; onSave?: () => Promise<void> }) {
   const editing = edit?.field === "DOCUMENT";
   return (
-    <div {...stylex.props(styles.documentBar)}>
+    <div {...stylex.props(styles.documentBar, editing && styles.editingDocumentBar)}>
       <strong {...stylex.props(styles.documentLabel)}>Description</strong>
       <span {...stylex.props(styles.editControls)}>
         {!edit?.canEdit ? null : editing ? (
           <>
-            {edit.requiresAcknowledgement ? <IconButton type="button" size="sm" variant="ghost" label="Use latest task" tooltip="Use latest task" icon={<RefreshCcw aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => void edit.acknowledge().catch(() => undefined)} /> : <IconButton type="button" size="sm" variant="ghost" label="Save description" tooltip="Save description" icon={<Check aria-hidden="true" size={14} />} isDisabled={edit.busy || edit.actionUnavailable} onClick={() => void onSave?.().catch(() => undefined)} />}
+            <IconButton type="button" size="sm" variant="ghost" label={sourceMode ? "Use rich editor" : "Edit source"} tooltip={sourceMode ? "Use rich editor" : "Edit source"} icon={<Code2 aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => onChangeSourceMode?.(!sourceMode)} />
+            {edit.requiresAcknowledgement ? <IconButton type="button" size="sm" variant="ghost" label="Use latest task" tooltip="Use latest task" icon={<RefreshCcw aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => void edit.acknowledge().catch(() => undefined)} /> : <IconButton type="button" size="sm" variant="ghost" label="Save description" tooltip="Save description" icon={<Check aria-hidden="true" size={14} />} isLoading={edit.busy} isDisabled={edit.actionUnavailable} onClick={() => void onSave?.().catch(() => undefined)} />}
             <IconButton type="button" size="sm" variant="ghost" label="Cancel description edit" tooltip="Cancel" icon={<X aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={edit.cancel} />
           </>
         ) : (
@@ -244,8 +246,9 @@ const styles = stylex.create({
   },
   resultScroller: { paddingBlockStart: "var(--spacing-4)" },
   documentBar: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 64px", alignItems: "center", width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, minHeight: 36, marginInline: "auto", marginBlockEnd: "var(--spacing-2)" },
+  editingDocumentBar: { gridTemplateColumns: "minmax(0, 1fr) 96px" },
   documentLabel: { color: "var(--noema-text-muted)", fontSize: 12, fontWeight: 650 },
-  editControls: { display: "inline-flex", width: 64, minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
+  editControls: { display: "inline-flex", width: "100%", minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
   editorContent: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", borderRadius: "var(--radius-element)" },
   editorError: { outlineWidth: 1, outlineStyle: "solid", outlineColor: "var(--destructive)" },
   taskContent: {

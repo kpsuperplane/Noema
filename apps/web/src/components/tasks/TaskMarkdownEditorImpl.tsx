@@ -6,14 +6,15 @@ import { Crepe } from "@milkdown/crepe";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
 import * as stylex from "@stylexjs/stylex";
-import { Code2 } from "lucide-react";
 import type { TaskMarkdownEditorProps } from "./TaskMarkdownEditor";
 
-export default function TaskMarkdownEditorImpl({ value, onChange, label = "Task document", density = "default" }: TaskMarkdownEditorProps) {
-  const [sourceMode, setSourceMode] = React.useState(false);
+export default function TaskMarkdownEditorImpl({ value, onChange, label = "Task document", density = "default", sourceMode: controlledSourceMode, onSourceModeChange }: TaskMarkdownEditorProps) {
+  const [internalSourceMode, setInternalSourceMode] = React.useState(false);
   const [richFailed, setRichFailed] = React.useState(false);
+  const sourceMode = controlledSourceMode ?? internalSourceMode;
+  const setSourceMode = (next: boolean) => onSourceModeChange ? onSourceModeChange(next) : setInternalSourceMode(next);
   const modeLabel = sourceMode ? "Use rich editor" : "Edit source";
-  const modeButton = <Button type="button" size="sm" variant="ghost" label={modeLabel} tooltip={density === "inline" ? modeLabel : undefined} icon={density === "inline" ? <Code2 aria-hidden="true" size={14} /> : undefined} isIconOnly={density === "inline"} isDisabled={richFailed && sourceMode} onClick={() => setSourceMode((current) => !current)} />;
+  const modeButton = <Button type="button" size="sm" variant="ghost" label={modeLabel} isDisabled={richFailed && sourceMode} onClick={() => setSourceMode(!sourceMode)} />;
   return (
     <section data-slot="task-markdown-editor" data-density={density} aria-label={label} {...stylex.props(styles.root, density === "inline" && styles.inlineRoot)}>
       {density === "default" ? <HStack justify="between" align="center" gap={2} className={stylex.props(styles.modeBar).className}>
@@ -41,7 +42,6 @@ export default function TaskMarkdownEditorImpl({ value, onChange, label = "Task 
           }}
         />
       )}
-      {density === "inline" ? <HStack align="center" className={stylex.props(styles.inlineModeBar).className}>{modeButton}</HStack> : null}
       {richFailed ? <p role="status" {...stylex.props(styles.notice)}>Rich editing is unavailable for this Markdown. Source mode keeps the original text.</p> : null}
     </section>
   );
@@ -85,7 +85,6 @@ const styles = stylex.create({
   root: { position: "relative", minWidth: 0, minHeight: 320, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: "var(--radius-element)", overflow: "hidden", backgroundColor: "var(--background)" },
   inlineRoot: { minHeight: 0, overflow: "visible", borderWidth: 0, outlineWidth: 1, outlineStyle: "solid", outlineColor: "var(--border)", outlineOffset: -1 },
   modeBar: { minHeight: 38, borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border)", paddingInline: "var(--spacing-2)" },
-  inlineModeBar: { position: "absolute", top: "calc(-1 * (36px + var(--spacing-2)))", right: "calc(64px + var(--spacing-1))", zIndex: 1, minHeight: 36 },
   modeLabel: { color: "var(--muted-foreground)", fontSize: 12, fontWeight: 600 },
   editor: { minHeight: 280, color: "var(--foreground)", fontFamily: "var(--font-family-body)" },
   inlineEditor: { minHeight: 0 },
