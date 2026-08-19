@@ -250,10 +250,10 @@ impl KernelBrowseBackend {
                         WebBrowseError::Unavailable,
                     )
                     .await?;
-                self.command_snapshot(&session, value, max_chars).await
+                self.command_snapshot(session, value, max_chars).await
             }
             BrowseCommand::Interact(request) => {
-                self.require_revision(&session, request.snapshot_revision)?;
+                Self::require_revision(session, request.snapshot_revision)?;
                 let value = self
                     .execute_playwright(
                         &session.remote_id,
@@ -270,7 +270,7 @@ impl KernelBrowseBackend {
                     };
                 }
                 let snapshot = result.snapshot.ok_or(WebBrowseError::OutcomeUncertain)?;
-                self.finish_snapshot(&session, snapshot, MAX_DEFAULT_SNAPSHOT_CHARS)
+                self.finish_snapshot(session, snapshot, MAX_DEFAULT_SNAPSHOT_CHARS)
                     .await
             }
             BrowseCommand::Wait(request) => {
@@ -287,11 +287,11 @@ impl KernelBrowseBackend {
                     .await?;
                 let result = parse_command_result(value, WebBrowseError::Timeout)?;
                 let snapshot = result.snapshot.ok_or(WebBrowseError::Timeout)?;
-                self.finish_snapshot(&session, snapshot, MAX_DEFAULT_SNAPSHOT_CHARS)
+                self.finish_snapshot(session, snapshot, MAX_DEFAULT_SNAPSHOT_CHARS)
                     .await
             }
             BrowseCommand::History(request) => {
-                self.require_revision(&session, request.snapshot_revision)?;
+                Self::require_revision(session, request.snapshot_revision)?;
                 let value = self
                     .execute_playwright(
                         &session.remote_id,
@@ -308,7 +308,7 @@ impl KernelBrowseBackend {
                     };
                 }
                 let snapshot = result.snapshot.ok_or(WebBrowseError::OutcomeUncertain)?;
-                self.finish_snapshot(&session, snapshot, MAX_DEFAULT_SNAPSHOT_CHARS)
+                self.finish_snapshot(session, snapshot, MAX_DEFAULT_SNAPSHOT_CHARS)
                     .await
             }
             BrowseCommand::Open(_) | BrowseCommand::Close => {
@@ -474,7 +474,7 @@ impl KernelBrowseBackend {
             .ok_or(WebBrowseError::SessionNotFound)
     }
 
-    fn require_revision(&self, session: &Session, revision: u64) -> Result<(), WebBrowseError> {
+    fn require_revision(session: &Session, revision: u64) -> Result<(), WebBrowseError> {
         if session.revision.load(Ordering::Acquire) == revision {
             Ok(())
         } else {
