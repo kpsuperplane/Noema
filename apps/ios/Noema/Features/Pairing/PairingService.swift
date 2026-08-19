@@ -112,10 +112,15 @@ final class ConnectionService: NSObject, ASWebAuthenticationPresentationContextP
   }
 
   func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-    UIApplication.shared.connectedScenes
+    let windowScenes = UIApplication.shared.connectedScenes
       .compactMap { $0 as? UIWindowScene }
-      .flatMap(\.windows)
-      .first(where: \.isKeyWindow) ?? ASPresentationAnchor()
+    if let keyWindow = windowScenes.flatMap(\.windows).first(where: \.isKeyWindow) {
+      return keyWindow
+    }
+    guard let windowScene = windowScenes.first else {
+      preconditionFailure("No window scene is available for authorization.")
+    }
+    return ASPresentationAnchor(windowScene: windowScene)
   }
 
   private func browserCallback(for url: URL) async throws -> URL {

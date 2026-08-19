@@ -60,14 +60,28 @@ final class NoemaAppModel {
     do {
       if let stored = try await profileStore.read() {
         hasStoredProfile = true
-        let restored = try await connectionService.refresh(stored)
-        NoemaDiagnosticTrace.shared.record(category: "app", event: "profile_restored")
-        NoemaGraphQLClient.discardStaleCaches(keeping: restored)
-        profile = restored
-        graphQL = makeGraphQLClient(profile: restored)
+        let activeProfile: NoemaProfile
+        do {
+          activeProfile = try await connectionService.refresh(stored)
+          NoemaDiagnosticTrace.shared.record(category: "app", event: "profile_restored")
+        } catch ConnectionServiceError.authorizationExpired {
+          throw ConnectionServiceError.authorizationExpired
+        } catch let error where error is URLError || error is ConnectionServiceError {
+          NoemaDiagnosticTrace.shared.record(category: "app", event: "profile_refresh_deferred", error: error)
+          activeProfile = NoemaProfile(
+            origin: stored.origin,
+            clientId: stored.clientId,
+            refreshToken: stored.refreshToken,
+            accessToken: "",
+            accessExpiresAt: .distantPast
+          )
+        }
+        NoemaGraphQLClient.discardStaleCaches(keeping: activeProfile)
+        profile = activeProfile
+        graphQL = makeGraphQLClient(profile: activeProfile)
         state = .paired
-        await notifications.configure(profile: restored, client: graphQL?.client)
-        await liveActivities.configure(profile: restored, client: graphQL?.client)
+        await notifications.configure(profile: activeProfile, client: graphQL?.client)
+        await liveActivities.configure(profile: activeProfile, client: graphQL?.client)
         notifications.markModelReady()
         applySubscriptionLifecycle()
         scheduleTokenRefresh()
