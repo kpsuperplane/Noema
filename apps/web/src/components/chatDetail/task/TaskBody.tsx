@@ -1,24 +1,28 @@
 import * as React from "react";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import * as stylex from "@stylexjs/stylex";
+import { Check, Pencil, RefreshCcw, X } from "lucide-react";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { ProviderCitationMarkdown, taskResultCitationContent } from "@/components/transcript/ProviderCitationSources";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { taskStageLabel } from "./TaskOverview";
 import type { TaskRunLatestEntryChange } from "./TaskRunTranscript";
 import { TaskTranscript } from "./TaskTranscript";
+import { TaskMarkdownEditor } from "@/components/tasks/TaskMarkdownEditor";
+import type { TaskInlineEditController } from "@/components/tasks/TaskActions";
 
 type TaskTab = "result" | "task" | "transcript";
 export function TaskBody({
   detail,
-  editSurface,
+  edit,
   liveRunItems,
   onOpenDetail,
   onLatestRunEntryChange,
   renderContextCard
 }: {
   detail: TaskDetail;
-  editSurface?: React.ReactNode;
+  edit?: TaskInlineEditController;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   onOpenDetail: (target: ChatDetailTarget) => void;
   onLatestRunEntryChange?: TaskRunLatestEntryChange;
@@ -43,7 +47,7 @@ export function TaskBody({
       : activeTab === "result" && !hasResult ? "task" : activeTab;
     setTabState({ taskId: detail.taskId, hasResult, activeTab });
   }
-  if (editSurface) activeTab = "task";
+  if (edit?.field === "DOCUMENT") activeTab = "task";
 
   function selectTab(tab: TaskTab) {
     setTabState((current) => ({ ...current, activeTab: tab }));
@@ -99,7 +103,7 @@ export function TaskBody({
         {activeTab === "result" ? (
           <TaskDocument fileName="RESULT.md" text={detail.resultDocument ?? ""} />
         ) : activeTab === "task" ? (
-          editSurface ?? <TaskDocument detail={detail} fileName="TASK.md" text={detail.taskDocument} />
+          <TaskDocument detail={detail} edit={edit} fileName="TASK.md" text={detail.taskDocument} />
         ) : (
           <div {...stylex.props(styles.transcript)}>
             <TaskTranscript
@@ -116,14 +120,18 @@ export function TaskBody({
   );
 }
 
-function TaskDocument({ detail, fileName, text }: { detail?: TaskDetail; fileName: string; text: string }) {
+function TaskDocument({ detail, edit, fileName, text }: { detail?: TaskDetail; edit?: TaskInlineEditController; fileName: string; text: string }) {
+  if (detail && edit?.field === "DOCUMENT") {
+    return <TaskDocumentEditor key={`${detail.taskId}:document`} detail={detail} edit={edit} />;
+  }
   const response = text.trim() || undefined;
   const content = response && fileName === "RESULT.md"
     ? taskResultCitationContent(response)
     : { text: response ?? "", citations: [] };
 
   return (
-    <div data-slot="task-document" {...stylex.props(styles.taskScroller)}>
+    <div data-slot="task-document" {...stylex.props(styles.taskScroller, !detail && styles.resultScroller)}>
+      {detail ? <TaskDocumentBar edit={edit} /> : null}
       <div {...stylex.props(styles.taskContent)}>
         {response ? (
           <ProviderCitationMarkdown
@@ -140,6 +148,39 @@ function TaskDocument({ detail, fileName, text }: { detail?: TaskDetail; fileNam
         )}
         {detail ? <TaskMetadata detail={detail} /> : null}
       </div>
+    </div>
+  );
+}
+
+function TaskDocumentEditor({ detail, edit }: { detail: TaskDetail; edit: TaskInlineEditController }) {
+  const [draft, setDraft] = React.useState(detail.taskDocument);
+  return (
+    <div data-slot="task-document" {...stylex.props(styles.taskScroller)}>
+      <TaskDocumentBar edit={edit} onSave={() => edit.saveDocument(draft)} />
+      <div {...stylex.props(styles.editorContent, Boolean(edit.error || edit.actionUnavailable) && styles.editorError)}>
+        <TaskMarkdownEditor key={edit.task.taskDocumentDigest} value={draft} onChange={setDraft} label="Task description" />
+        {edit.error ? <span role="alert" {...stylex.props(styles.srOnly)}>{edit.error}</span> : null}
+      </div>
+      <TaskMetadata detail={detail} />
+    </div>
+  );
+}
+
+function TaskDocumentBar({ edit, onSave }: { edit?: TaskInlineEditController; onSave?: () => Promise<void> }) {
+  const editing = edit?.field === "DOCUMENT";
+  return (
+    <div {...stylex.props(styles.documentBar)}>
+      <strong {...stylex.props(styles.documentLabel)}>Description</strong>
+      <span {...stylex.props(styles.editControls)}>
+        {!edit?.canEdit ? null : editing ? (
+          <>
+            {edit.requiresAcknowledgement ? <IconButton type="button" size="sm" variant="ghost" label="Use latest task" tooltip="Use latest task" icon={<RefreshCcw aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => void edit.acknowledge().catch(() => undefined)} /> : <IconButton type="button" size="sm" variant="ghost" label="Save description" tooltip="Save description" icon={<Check aria-hidden="true" size={14} />} isDisabled={edit.busy || edit.actionUnavailable} onClick={() => void onSave?.().catch(() => undefined)} />}
+            <IconButton type="button" size="sm" variant="ghost" label="Cancel description edit" tooltip="Cancel" icon={<X aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={edit.cancel} />
+          </>
+        ) : (
+          <IconButton type="button" size="sm" variant="ghost" label="Edit description" tooltip="Edit description" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("DOCUMENT")} />
+        )}
+      </span>
     </div>
   );
 }
@@ -199,8 +240,14 @@ const styles = stylex.create({
     height: "100%",
     overflowX: "hidden",
     overflowY: "auto",
-    paddingBlock: "var(--spacing-4) var(--spacing-6)"
+    paddingBlockEnd: "var(--spacing-6)"
   },
+  resultScroller: { paddingBlockStart: "var(--spacing-4)" },
+  documentBar: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 64px", alignItems: "center", width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, minHeight: 36, marginInline: "auto", marginBlockEnd: "var(--spacing-2)" },
+  documentLabel: { color: "var(--noema-text-muted)", fontSize: 12, fontWeight: 650 },
+  editControls: { display: "inline-flex", width: 64, minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
+  editorContent: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", borderRadius: "var(--radius-element)" },
+  editorError: { outlineWidth: 1, outlineStyle: "solid", outlineColor: "var(--destructive)" },
   taskContent: {
     display: "grid",
     gap: "var(--spacing-4)",
@@ -221,6 +268,7 @@ const styles = stylex.create({
   metadataRow: { display: "grid", gridTemplateColumns: "minmax(88px, 0.42fr) minmax(0, 1fr)", gap: "var(--spacing-3)", alignItems: "baseline" },
   metadataKey: { color: "var(--noema-text-muted)", fontSize: 12 },
   metadataValue: { minWidth: 0, margin: "var(--spacing-0)", color: "var(--noema-text-secondary)", fontSize: 12, overflowWrap: "anywhere" },
+  srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" },
   markdown: {
     color: "var(--noema-text-primary)",
     fontSize: 14,

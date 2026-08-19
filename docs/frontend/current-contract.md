@@ -150,7 +150,8 @@ It shows `Result`, `Task`, and `Transcript` in that order when a result exists.
 It omits blank results and never appends `REVIEW.md` to either document view.
 
 Web Task creation and Inbox editing use one shared Milkdown Crepe editor.
-Inbox editing stays in the Task tab and uses explicit Cancel and Save actions.
+Inbox titles and descriptions expose adjacent pencil controls and edit in place without changing the surrounding layout.
+Project and Executor editing remains in a focused settings dialog.
 The editor includes source mode and falls back to source when rich parsing fails.
 iPhone and iPad use full-screen Markdown source editors for the same Task fields.
 Both clients send the transient document digest with human updates.

@@ -164,16 +164,17 @@ export function useTaskCommands({
     setRequiresAcknowledgement(false);
     setError(null);
   }, []);
+  const clearError = React.useCallback(() => setError(null), []);
 
-  return {
+  return React.useMemo(() => ({
     run,
     busy,
     error,
     notice,
     requiresAcknowledgement,
     acknowledge,
-    clearError: () => setError(null)
-  };
+    clearError
+  }), [acknowledge, busy, clearError, error, notice, requiresAcknowledgement, run]);
 }
 
 function requiredGate(task: TaskCommandSubject): string {

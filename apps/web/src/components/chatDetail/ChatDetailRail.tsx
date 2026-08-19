@@ -1,8 +1,9 @@
 import React from "react";
 import { Button } from "@astryxdesign/core/Button";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Check, Pencil, RefreshCcw, X } from "lucide-react";
 import {
   AnimatePresence,
   useIsPresent,
@@ -24,6 +25,7 @@ import { TaskRecurrenceDetailPanel } from "../tasks/TaskRecurrenceDetailPanel";
 import { taskScheduleTimestampLabel } from "../tasks/tasksModel";
 import { normalizeTasksSearch } from "../tasks/tasksTypes";
 import { ChatDetailCloseButton } from "./ChatDetailCloseButton";
+import type { TaskInlineEditController } from "@/components/tasks/TaskActions";
 
 export function ChatDetailRail({
   target,
@@ -77,6 +79,7 @@ function RoutedChatDetailRail({
     taskId: string;
     title: string;
     schedule?: TaskDetail["schedule"];
+    edit: TaskInlineEditController;
   } | null>(null);
   const [recurrenceTitle, setRecurrenceTitle] = React.useState("Recurring task");
   const [artifactDetailState, setArtifactDetailState] = React.useState<{
@@ -101,8 +104,8 @@ function RoutedChatDetailRail({
   const primaryTitle = recurrenceTargetId ? recurrenceTitle : currentTaskHeader
     ? currentTaskHeader.title
     : "Task details";
-  const handleTaskHeaderChange = React.useCallback((detail: Pick<TaskDetail, "title" | "schedule">) => {
-    if (taskTargetId) setTaskHeaderState({ taskId: taskTargetId, ...detail });
+  const handleTaskHeaderChange = React.useCallback((detail: Pick<TaskDetail, "title" | "schedule">, edit: TaskInlineEditController) => {
+    if (taskTargetId) setTaskHeaderState({ taskId: taskTargetId, ...detail, edit });
   }, [taskTargetId]);
   React.useEffect(() => {
     if (isContained) {
@@ -230,7 +233,7 @@ function RoutedChatDetailRail({
             <header {...stylex.props(styles.header, styles.taskHeader)}>
               <div {...stylex.props(styles.taskTitleBar)}>
                 <div {...stylex.props(styles.taskIdentity)}>
-                  <h2 {...stylex.props(styles.title)}>{primaryTitle}</h2>
+                  <EditableTaskTitle title={primaryTitle} edit={currentTaskHeader?.edit} />
                   {recurringOccurrence?.recurrenceId ? (
                     <div {...stylex.props(styles.taskSubtitle)}>
                       <span>Scheduled for {taskScheduleTimestampLabel(recurringOccurrence.scheduledFor, recurringOccurrence.timeZone)}</span>
@@ -283,6 +286,33 @@ function RoutedChatDetailRail({
         </AnimatePresence>
       </div>
     </m.aside>
+  );
+}
+
+function EditableTaskTitle({ title, edit }: { title: string; edit?: TaskInlineEditController }) {
+  if (!edit) return <h2 {...stylex.props(styles.title)}>{title}</h2>;
+  if (edit?.field === "TITLE") return <TaskTitleEditor key="editing" title={title} edit={edit} />;
+  return (
+    <div {...stylex.props(styles.editableTitle)}>
+      <h2 {...stylex.props(styles.title)}>{title}</h2>
+      <span {...stylex.props(styles.titleEditControls)}>
+        {edit?.canEdit ? <IconButton type="button" size="sm" variant="ghost" label="Edit task title" tooltip="Edit title" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("TITLE")} /> : null}
+      </span>
+    </div>
+  );
+}
+
+function TaskTitleEditor({ title, edit }: { title: string; edit: TaskInlineEditController }) {
+  const [draft, setDraft] = React.useState(title);
+  return (
+    <form {...stylex.props(styles.editableTitle)} onSubmit={(event) => { event.preventDefault(); if (draft.trim()) void edit.saveTitle(draft.trim()).catch(() => undefined); }}>
+      <input autoFocus aria-label="Task title" aria-invalid={Boolean(edit.error || edit.actionUnavailable)} value={draft} {...stylex.props(styles.titleInput)} onChange={(event) => setDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Escape") edit.cancel(); }} />
+      <span {...stylex.props(styles.titleEditControls)}>
+        {edit.requiresAcknowledgement ? <IconButton type="button" size="sm" variant="ghost" label="Use latest task" tooltip="Use latest task" icon={<RefreshCcw aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => void edit.acknowledge().catch(() => undefined)} /> : <IconButton type="submit" size="sm" variant="ghost" label="Save task title" tooltip="Save title" icon={<Check aria-hidden="true" size={14} />} isDisabled={edit.busy || edit.actionUnavailable || !draft.trim()} />}
+        <IconButton type="button" size="sm" variant="ghost" label="Cancel title edit" tooltip="Cancel" icon={<X aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={edit.cancel} />
+      </span>
+      {edit.error ? <span role="alert" {...stylex.props(styles.srOnly)}>{edit.error}</span> : null}
+    </form>
   );
 }
 
@@ -479,6 +509,9 @@ const styles = stylex.create({
   },
   taskTitleBar: { display: "grid", minWidth: 0, gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: "var(--spacing-3)" },
   taskIdentity: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
+  editableTitle: { display: "grid", minWidth: 0, gridTemplateColumns: "minmax(0, 1fr) 64px", alignItems: "center", gap: "var(--spacing-1)" },
+  titleEditControls: { display: "inline-flex", width: 64, minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
+  titleInput: { minWidth: 0, width: "100%", height: 28, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: "var(--radius-element)", backgroundColor: "var(--background)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", font: "inherit", fontSize: 15, fontWeight: 650, lineHeight: 1.25, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: 1 } },
   taskSubtitle: { minWidth: 0, color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.35, overflowWrap: "anywhere" },
   taskRelationLink: { color: "var(--noema-pine-700)", fontWeight: 650, textDecoration: "none", cursor: "pointer", ":hover": { textDecoration: "underline" } },
   taskHeaderActions: { display: "inline-flex", alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
@@ -514,6 +547,7 @@ const styles = stylex.create({
     textOverflow: "ellipsis",
     whiteSpace: "nowrap"
   },
+  srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" },
   body: {
     minHeight: 0,
     overflow: "auto",

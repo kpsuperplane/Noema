@@ -18,6 +18,7 @@ import type { TaskDetail, TaskRun, TaskRunItem, TaskRunStatus } from "./taskType
 import { TaskBody } from "./TaskBody";
 import { TaskTranscriptSourceProvider } from "./TaskTranscript";
 import { TaskScheduleSummary } from "@/components/tasks/TaskScheduleSummary";
+import type { TaskInlineEditController } from "@/components/tasks/TaskActions";
 
 export function TaskDetailPanel({
   taskId,
@@ -26,7 +27,7 @@ export function TaskDetailPanel({
   error = null,
   liveRunItems,
   controls,
-  editSurface,
+  edit,
   renderSecondarySurface,
   onOpenDetail,
   showTasksLink = false
@@ -37,7 +38,7 @@ export function TaskDetailPanel({
   error?: string | null;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   controls?: React.ReactNode;
-  editSurface?: React.ReactNode;
+  edit?: TaskInlineEditController;
   showTasksLink?: boolean;
   renderSecondarySurface?: (status: React.ReactNode | null) => React.ReactNode;
   onOpenDetail: (target: ChatDetailTarget) => void;
@@ -108,7 +109,7 @@ export function TaskDetailPanel({
           <TaskBody
             key={`task:${currentDetail.taskId}`}
             detail={currentDetail}
-            editSurface={editSurface}
+            edit={edit}
             liveRunItems={liveRunItems}
             onOpenDetail={onOpenDetail}
             onLatestRunEntryChange={onLatestRunEntryChange}
