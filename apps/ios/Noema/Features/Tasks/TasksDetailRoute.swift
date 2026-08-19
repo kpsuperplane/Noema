@@ -194,11 +194,11 @@ private struct TasksDetailContent: View {
       }
     }
     .tabBarMinimizeBehavior(.never)
-    .tabViewBottomAccessory {
-      taskContextDock
-    }
     .safeAreaInset(edge: .bottom, spacing: 0) {
       compactSecondaryAccessory
+    }
+    .tabViewBottomAccessory {
+      taskContextDock
     }
   }
 
@@ -251,7 +251,7 @@ private struct TasksDetailContent: View {
           .transition(secondarySurfaceTransition)
           .glassEffect(
             .regular,
-            in: NoemaSuperellipse(cornerRadius: NoemaSpacing.xxl, treatment: .container)
+            in: NoemaSuperellipse(cornerRadius: NoemaRadius.page, treatment: .container)
           )
           .padding(.horizontal, NoemaSpacing.lg)
           .padding(.bottom, NoemaSpacing.sm)
