@@ -253,7 +253,6 @@ function RecurrenceDescriptionEditor({ edit }: { edit: RecurrenceInlineEditContr
       <VStack className={stylex.props(styles.editor, Boolean(edit.error || edit.actionUnavailable) && styles.editorError).className}>
         <TaskMarkdownEditor key={edit.recurrence.taskDocumentDigest} value={draft} onChange={setDraft} label="Recurring task description" density="inline" />
       </VStack>
-      <span {...stylex.props(styles.templateNote)}>Changes apply only to future occurrences.</span>
       {edit.error ? <span role="alert" {...stylex.props(styles.srOnly)}>{edit.error}</span> : null}
     </VStack>
   );
@@ -261,7 +260,7 @@ function RecurrenceDescriptionEditor({ edit }: { edit: RecurrenceInlineEditContr
 
 function RecurrenceDescriptionBar({ edit, onSave }: { edit: RecurrenceInlineEditController; onSave?: () => Promise<void> }) {
   const editing = edit.field === "DOCUMENT";
-  return <HStack justify="between" align="center" className={stylex.props(styles.descriptionBar).className}><strong id="recurrence-description-title" {...stylex.props(styles.descriptionLabel)}>Description</strong><span {...stylex.props(styles.editControls)}>{!edit.canEdit ? null : editing ? <>{edit.requiresAcknowledgement ? <IconButton type="button" size="sm" variant="ghost" label="Use latest recurring task" tooltip="Use latest recurring task" icon={<RefreshCcw aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => void edit.acknowledge().catch(() => undefined)} /> : <IconButton type="button" size="sm" variant="ghost" label="Save description" tooltip="Save description" icon={<Check aria-hidden="true" size={14} />} isDisabled={edit.busy || edit.actionUnavailable} onClick={() => void onSave?.().catch(() => undefined)} />}<IconButton type="button" size="sm" variant="ghost" label="Cancel description edit" tooltip="Cancel" icon={<X aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={edit.cancel} /></> : <IconButton type="button" size="sm" variant="ghost" label="Edit description" tooltip="Edit description" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("DOCUMENT")} />}</span></HStack>;
+  return <HStack justify="between" align="center" className={stylex.props(styles.descriptionBar).className}><strong id="recurrence-description-title" {...stylex.props(styles.descriptionLabel)}>Description</strong><span {...stylex.props(styles.editControls)}>{!edit.canEdit ? null : editing ? <>{edit.requiresAcknowledgement ? <IconButton type="button" size="sm" variant="ghost" label="Use latest recurring task" tooltip="Use latest recurring task" icon={<RefreshCcw aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => void edit.acknowledge().catch(() => undefined)} /> : <IconButton type="button" size="sm" variant="ghost" label="Save description for future occurrences" tooltip="Save for future occurrences" icon={<Check aria-hidden="true" size={14} />} isDisabled={edit.busy || edit.actionUnavailable} onClick={() => void onSave?.().catch(() => undefined)} />}<IconButton type="button" size="sm" variant="ghost" label="Cancel description edit" tooltip="Cancel" icon={<X aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={edit.cancel} /></> : <IconButton type="button" size="sm" variant="ghost" label="Edit description" tooltip="Edit description" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("DOCUMENT")} />}</span></HStack>;
 }
 
 function EndRecurrenceDialog({ submitting, error, onClose, onConfirm }: { submitting: boolean; error: string | null; onClose: () => void; onConfirm: () => void }) {
@@ -307,6 +306,5 @@ const styles = stylex.create({
   state: { minHeight: "100%", padding: "var(--spacing-4)", color: "var(--noema-text-muted)", fontSize: 13 },
   warning: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.45 },
   error: { color: "var(--destructive)", fontSize: 12 },
-  templateNote: { color: "var(--noema-text-muted)", fontSize: 12 },
   srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }
 });

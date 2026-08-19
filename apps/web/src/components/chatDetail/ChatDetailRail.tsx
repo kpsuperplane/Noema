@@ -304,7 +304,7 @@ function EditableTaskTitle({ title, edit }: { title: string; edit?: InlineTitleE
   return (
     <div {...stylex.props(styles.editableTitle)}>
       <h2 {...stylex.props(styles.title)}>{title}</h2>
-      <span {...stylex.props(styles.titleEditControls)}>
+      <span {...stylex.props(styles.titleReadControls)}>
         {edit.canEdit ? <IconButton type="button" size="sm" variant="ghost" label={`Edit ${subject} title`} tooltip="Edit title" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("TITLE")} /> : null}
       </span>
     </div>
@@ -520,6 +520,7 @@ const styles = stylex.create({
   taskIdentity: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
   editableTitle: { display: "inline-flex", width: "fit-content", maxWidth: "100%", minWidth: 0, alignItems: "center", gap: "var(--spacing-1)" },
   titleEditor: { display: "grid", width: "100%", minWidth: 0, gridTemplateColumns: "minmax(0, 1fr) 64px", alignItems: "center", gap: "var(--spacing-1)" },
+  titleReadControls: { display: "inline-flex", width: 28, minHeight: 28, flexShrink: 0, alignItems: "center" },
   titleEditControls: { display: "inline-flex", width: 64, minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
   titleInput: { minWidth: 0, width: "100%", height: 28, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: "var(--radius-element)", backgroundColor: "var(--background)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", font: "inherit", fontSize: 15, fontWeight: 650, lineHeight: 1.25, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: 1 } },
   taskSubtitle: { minWidth: 0, color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.35, overflowWrap: "anywhere" },

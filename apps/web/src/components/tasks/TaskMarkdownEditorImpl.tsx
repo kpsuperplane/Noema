@@ -6,29 +6,25 @@ import { Crepe } from "@milkdown/crepe";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
 import * as stylex from "@stylexjs/stylex";
+import { Code2 } from "lucide-react";
 import type { TaskMarkdownEditorProps } from "./TaskMarkdownEditor";
 
 export default function TaskMarkdownEditorImpl({ value, onChange, label = "Task document", density = "default" }: TaskMarkdownEditorProps) {
   const [sourceMode, setSourceMode] = React.useState(false);
   const [richFailed, setRichFailed] = React.useState(false);
+  const modeLabel = sourceMode ? "Use rich editor" : "Edit source";
+  const modeButton = <Button type="button" size="sm" variant="ghost" label={modeLabel} tooltip={density === "inline" ? modeLabel : undefined} icon={density === "inline" ? <Code2 aria-hidden="true" size={14} /> : undefined} isIconOnly={density === "inline"} isDisabled={richFailed && sourceMode} onClick={() => setSourceMode((current) => !current)} />;
   return (
     <section data-slot="task-markdown-editor" data-density={density} aria-label={label} {...stylex.props(styles.root, density === "inline" && styles.inlineRoot)}>
-      <HStack justify="between" align="center" gap={2} className={stylex.props(styles.modeBar, density === "inline" && styles.inlineModeBar).className}>
+      {density === "default" ? <HStack justify="between" align="center" gap={2} className={stylex.props(styles.modeBar).className}>
         <span {...stylex.props(styles.modeLabel)}>{sourceMode ? "Markdown source" : "Rich text"}</span>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          label={sourceMode ? "Use rich editor" : "Edit source"}
-          isDisabled={richFailed && sourceMode}
-          onClick={() => setSourceMode((current) => !current)}
-        />
-      </HStack>
+        {modeButton}
+      </HStack> : null}
       {sourceMode ? (
         <TextArea
           isLabelHidden
           label={`${label} Markdown source`}
-          rows={14}
+          rows={density === "inline" ? 6 : 14}
           value={value}
           width="100%"
           className={stylex.props(styles.source, density === "inline" && styles.inlineSource).className}
@@ -45,6 +41,7 @@ export default function TaskMarkdownEditorImpl({ value, onChange, label = "Task 
           }}
         />
       )}
+      {density === "inline" ? <HStack align="center" className={stylex.props(styles.inlineModeBar).className}>{modeButton}</HStack> : null}
       {richFailed ? <p role="status" {...stylex.props(styles.notice)}>Rich editing is unavailable for this Markdown. Source mode keeps the original text.</p> : null}
     </section>
   );
@@ -66,7 +63,7 @@ function MilkdownCrepe({ initialValue, inline, onChange, onFailure }: { initialV
         [Crepe.Feature.AI]: false,
         [Crepe.Feature.ImageBlock]: false,
         [Crepe.Feature.Latex]: false,
-        [Crepe.Feature.TopBar]: true
+        [Crepe.Feature.TopBar]: !inline
       }
     });
     crepe.on((listener) => {
@@ -80,18 +77,18 @@ function MilkdownCrepe({ initialValue, inline, onChange, onFailure }: { initialV
       active = false;
       void crepe.destroy().catch(() => undefined);
     };
-  }, []);
+  }, [inline]);
   return <div ref={root} {...stylex.props(styles.editor, inline && styles.inlineEditor)} />;
 }
 
 const styles = stylex.create({
-  root: { minWidth: 0, minHeight: 320, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: "var(--radius-element)", overflow: "hidden", backgroundColor: "var(--background)" },
-  inlineRoot: { minHeight: 0 },
+  root: { position: "relative", minWidth: 0, minHeight: 320, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: "var(--radius-element)", overflow: "hidden", backgroundColor: "var(--background)" },
+  inlineRoot: { minHeight: 0, overflow: "visible", borderWidth: 0, outlineWidth: 1, outlineStyle: "solid", outlineColor: "var(--border)", outlineOffset: -1 },
   modeBar: { minHeight: 38, borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border)", paddingInline: "var(--spacing-2)" },
-  inlineModeBar: { minHeight: 32 },
+  inlineModeBar: { position: "absolute", top: "calc(-1 * (36px + var(--spacing-2)))", right: "calc(64px + var(--spacing-1))", zIndex: 1, minHeight: 36 },
   modeLabel: { color: "var(--muted-foreground)", fontSize: 12, fontWeight: 600 },
-  editor: { minHeight: 280, color: "var(--foreground)", fontFamily: "var(--font-family-body)", "--crepe-base-font-size": "var(--text-body-size)", "--crepe-font-default": "var(--font-family-body)", "--crepe-font-title": "var(--font-family-heading)", "--crepe-font-code": "var(--font-family-code)", "--crepe-color-background": "var(--background)", "--crepe-color-on-background": "var(--foreground)", "--crepe-color-surface": "var(--card)", "--crepe-color-on-surface": "var(--card-foreground)", "--crepe-color-outline": "var(--border)", "--crepe-color-primary": "var(--primary)", "--crepe-color-on-primary": "var(--primary-foreground)" },
-  inlineEditor: { minHeight: 96 },
+  editor: { minHeight: 280, color: "var(--foreground)", fontFamily: "var(--font-family-body)" },
+  inlineEditor: { minHeight: 0 },
   source: { minHeight: 280, borderWidth: 0, borderRadius: 0, fontFamily: "var(--noema-font-mono)", fontSize: 13, lineHeight: 1.55, resize: "vertical" },
   inlineSource: { minHeight: 96 },
   notice: { margin: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--border)", padding: "var(--spacing-2)", color: "var(--muted-foreground)", fontSize: 12 }
