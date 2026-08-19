@@ -176,7 +176,31 @@ impl NoemaStore {
         &self,
         item: NewConversationItem,
     ) -> Result<ConversationItemRecord, StoreError> {
-        self.append_conversation_item_with_id(allocate_id("item"), item)
+        self.append_conversation_item_with_provider_text(allocate_id("item"), item, None)
+            .await
+    }
+
+    /// Append one provider-generated assistant item with its provider text.
+    ///
+    /// The provider text is saved only when it differs from readable text.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the item is not readable assistant text, or
+    /// when its ownership references or embedded store write are invalid.
+    pub async fn append_provider_conversation_item(
+        &self,
+        item: NewConversationItem,
+        provider_text: String,
+    ) -> Result<ConversationItemRecord, StoreError> {
+        if item.kind != ConversationItemKind::AssistantText || item.content_text.is_none() {
+            return Err(invariant(
+                "provider conversation item must contain assistant text",
+            ));
+        }
+        let provider_text =
+            (item.content_text.as_deref() != Some(provider_text.as_str())).then_some(provider_text);
+        self.append_conversation_item_with_provider_text(allocate_id("item"), item, provider_text)
             .await
     }
 
@@ -206,6 +230,31 @@ impl NoemaStore {
         &self,
         item_id: String,
         item: NewConversationItem,
+    ) -> Result<(ConversationItemRecord, bool), StoreError> {
+        self.append_conversation_item_with_id_and_provider_text_if_absent(item_id, item, None)
+            .await
+    }
+
+    async fn append_conversation_item_with_provider_text(
+        &self,
+        item_id: String,
+        item: NewConversationItem,
+        provider_content_text: Option<String>,
+    ) -> Result<ConversationItemRecord, StoreError> {
+        self.append_conversation_item_with_id_and_provider_text_if_absent(
+            item_id,
+            item,
+            provider_content_text,
+        )
+        .await
+        .map(|(record, _)| record)
+    }
+
+    async fn append_conversation_item_with_id_and_provider_text_if_absent(
+        &self,
+        item_id: String,
+        item: NewConversationItem,
+        provider_content_text: Option<String>,
     ) -> Result<(ConversationItemRecord, bool), StoreError> {
         if item_id.trim().is_empty() {
             return Err(StoreError::InvariantViolation {
@@ -253,8 +302,8 @@ impl NoemaStore {
                     r#"
                     INSERT INTO conversation_items
                       (item_id, conversation_id, turn_id, parent_item_id, sequence_index, kind, status,
-                       author_actor_id, content_text, payload_json, metadata_json)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                       author_actor_id, content_text, provider_content_text, payload_json, metadata_json)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                     "#,
                     params![
                         item_id,
@@ -266,6 +315,7 @@ impl NoemaStore {
                         item.status.as_str(),
                         item.author.actor_id.to_string(),
                         item.content_text,
+                        provider_content_text,
                         serialize_json(&item.payload_json)?,
                         serialize_json(&item.metadata)?,
                     ],
@@ -291,6 +341,23 @@ impl NoemaStore {
             .await?;
         debug_assert_eq!(record.sequence_index, sequence_index);
         Ok((record, inserted))
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn stored_provider_content_text(
+        &self,
+        item_id: &str,
+    ) -> Result<Option<String>, StoreError> {
+        self.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT provider_content_text FROM conversation_items WHERE item_id = ?1",
+                    [item_id],
+                    |row| row.get(0),
+                )
+                .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
     /// List conversation items in replay order.

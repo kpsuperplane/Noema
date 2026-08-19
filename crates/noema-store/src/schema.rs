@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 58;
+pub const STORE_SCHEMA_VERSION: usize = 59;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1205,8 +1205,20 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up_with_hook("", crate::task_file_migration::create_result_documents),
         M::up_with_hook("", crate::task_file_migration::move_task_prose_to_files),
         M::up(KERNEL_PROVIDER_ACCOUNT_SQL),
+        M::up(PROVIDER_CONVERSATION_ITEM_TEXT_SQL),
     ])
 }
+
+/// Keep provider and presentation text in one durable assistant item.
+const PROVIDER_CONVERSATION_ITEM_TEXT_SQL: &str = r#"
+ALTER TABLE conversation_items ADD COLUMN provider_content_text TEXT CHECK (
+  provider_content_text IS NULL OR (
+    kind = 'assistant_text'
+    AND content_text IS NOT NULL
+    AND provider_content_text <> content_text
+  )
+);
+"#;
 
 /// Repair foreign-key SQL rewritten by SQLite during the agent-runs rebuild.
 ///

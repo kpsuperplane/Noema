@@ -111,6 +111,70 @@ where
     Arc::new(ErasedModelProvider(provider))
 }
 
+const PROVIDER_CITATION_MARKER_START: &str = "\u{e200}cite\u{e202}";
+const PROVIDER_CITATION_MARKER_END: char = '\u{e201}';
+
+#[derive(Default)]
+struct ProviderTextDeltaFilter {
+    pending: String,
+    inside_marker: bool,
+}
+
+impl ProviderTextDeltaFilter {
+    fn push(&mut self, delta: &str) -> String {
+        self.pending.push_str(delta);
+        let mut visible = String::new();
+        loop {
+            if self.inside_marker {
+                let boundary = self.pending.char_indices().find(|(_, character)| {
+                    *character == PROVIDER_CITATION_MARKER_END || character.is_whitespace()
+                });
+                let Some((index, character)) = boundary else {
+                    self.pending.clear();
+                    break;
+                };
+                if character == PROVIDER_CITATION_MARKER_END {
+                    self.pending
+                        .drain(..index + PROVIDER_CITATION_MARKER_END.len_utf8());
+                } else {
+                    self.pending.drain(..index);
+                }
+                self.inside_marker = false;
+                continue;
+            }
+
+            if let Some(index) = self.pending.find(PROVIDER_CITATION_MARKER_START) {
+                visible.push_str(&self.pending[..index]);
+                self.pending
+                    .drain(..index + PROVIDER_CITATION_MARKER_START.len());
+                self.inside_marker = true;
+                continue;
+            }
+
+            let keep_from = self
+                .pending
+                .char_indices()
+                .map(|(index, _)| index)
+                .chain(std::iter::once(self.pending.len()))
+                .find(|index| PROVIDER_CITATION_MARKER_START.starts_with(&self.pending[*index..]))
+                .unwrap_or(self.pending.len());
+            visible.push_str(&self.pending[..keep_from]);
+            self.pending.drain(..keep_from);
+            break;
+        }
+        visible
+    }
+
+    fn finish(&mut self) -> String {
+        if self.inside_marker {
+            self.pending.clear();
+            String::new()
+        } else {
+            std::mem::take(&mut self.pending)
+        }
+    }
+}
+
 struct ErasedModelProvider<T>(T);
 
 impl<T> Debug for ErasedModelProvider<T> {
@@ -179,6 +243,7 @@ where
         on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> ProviderOperationFuture<'a, GenerateResponse> {
         Box::pin(async move {
+            let mut text_filters = BTreeMap::<usize, ProviderTextDeltaFilter>::new();
             let mut splitters = BTreeMap::<usize, MarkdownMessageDeltaSplitter>::new();
             let mut response_indices = BTreeMap::<(usize, usize), usize>::new();
             let mut next_response_index = 0usize;
@@ -188,6 +253,7 @@ where
                         response_index,
                         delta,
                     } => {
+                        let delta = text_filters.entry(response_index).or_default().push(&delta);
                         let splitter = splitters.entry(response_index).or_default();
                         for (segment, delta) in splitter.push(&delta) {
                             let output_index = *response_indices
@@ -207,6 +273,25 @@ where
                 };
                 ModelProvider::generate_streaming(&self.0, request, &mut forward).await
             };
+            for (source_index, filter) in &mut text_filters {
+                let delta = filter.finish();
+                if !delta.is_empty() {
+                    let splitter = splitters.entry(*source_index).or_default();
+                    for (segment, delta) in splitter.push(&delta) {
+                        let output_index = *response_indices
+                            .entry((*source_index, segment))
+                            .or_insert_with(|| {
+                                let index = next_response_index;
+                                next_response_index = next_response_index.saturating_add(1);
+                                index
+                            });
+                        on_event(GenerateStreamEvent::AssistantTextDelta {
+                            response_index: output_index,
+                            delta,
+                        });
+                    }
+                }
+            }
             for (source_index, splitter) in &mut splitters {
                 for (segment, delta) in splitter.finish() {
                     let output_index = *response_indices
@@ -257,6 +342,37 @@ mod tests {
 
     #[derive(Debug)]
     struct InterleavedMessagesProvider;
+
+    #[derive(Debug)]
+    struct CitationMarkerProvider;
+
+    impl ModelProvider for CitationMarkerProvider {
+        async fn generate(
+            &self,
+            _request: GenerateRequest,
+        ) -> Result<GenerateResponse, ProviderError> {
+            unreachable!("the test exercises streaming")
+        }
+
+        async fn generate_streaming<'a>(
+            &'a self,
+            _request: GenerateRequest,
+            on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+        ) -> Result<GenerateResponse, ProviderError> {
+            let raw = "Claim \u{e200}cite\u{e202}https://example.com/news\u{e201} done";
+            for delta in [
+                "Claim \u{e200}ci",
+                "te\u{e202}https://example.com",
+                "/news\u{e201} done",
+            ] {
+                on_event(GenerateStreamEvent::AssistantTextDelta {
+                    response_index: 0,
+                    delta: delta.to_string(),
+                });
+            }
+            Ok(GenerateResponse::final_text(raw, "citation", "model"))
+        }
+    }
 
     impl ModelProvider for InterleavedMessagesProvider {
         async fn generate(
@@ -566,6 +682,64 @@ mod tests {
                 })
                 .collect::<Vec<_>>(),
             vec!["first", "second", "third"]
+        );
+    }
+
+    #[tokio::test]
+    async fn citation_markers_are_hidden_from_streams_without_changing_provider_text() {
+        let provider = erase_model_provider(CitationMarkerProvider);
+        let mut visible = String::new();
+        let response = provider
+            .generate_streaming(GenerateRequest::text("ignored"), &mut |event| {
+                if let GenerateStreamEvent::AssistantTextDelta { delta, .. } = event {
+                    visible.push_str(&delta);
+                }
+            })
+            .await
+            .expect("citation generation");
+
+        assert_eq!(visible, "Claim  done");
+        assert_eq!(
+            response.assistant_text(),
+            "Claim \u{e200}cite\u{e202}https://example.com/news\u{e201} done"
+        );
+    }
+
+    #[test]
+    fn citation_filter_handles_every_delta_boundary_and_stream_termination() {
+        let raw = "before \u{e200}cite\u{e202}turn0search0\u{e201} after";
+        for split in raw
+            .char_indices()
+            .map(|(index, _)| index)
+            .chain(std::iter::once(raw.len()))
+        {
+            let mut filter = ProviderTextDeltaFilter::default();
+            let visible = format!(
+                "{}{}{}",
+                filter.push(&raw[..split]),
+                filter.push(&raw[split..]),
+                filter.finish()
+            );
+            assert_eq!(visible, "before  after", "split at byte {split}");
+        }
+
+        let mut incomplete = ProviderTextDeltaFilter::default();
+        assert_eq!(
+            format!(
+                "{}{}",
+                incomplete.push("before \u{e200}cite\u{e202}turn0search0"),
+                incomplete.finish()
+            ),
+            "before "
+        );
+        let mut ordinary_prefix = ProviderTextDeltaFilter::default();
+        assert_eq!(
+            format!(
+                "{}{}",
+                ordinary_prefix.push("literal \u{e200}cit"),
+                ordinary_prefix.finish()
+            ),
+            "literal \u{e200}cit"
         );
     }
 }

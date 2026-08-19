@@ -10,6 +10,53 @@ use crate::{
     schema::{LEGACY_V9_SCHEMA_SQL, STORE_SCHEMA_VERSION, store_migrations},
 };
 
+#[tokio::test]
+async fn v58_upgrade_adds_optional_provider_conversation_text() {
+    let home = TempDir::new().expect("store root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    let mut connection = Connection::open(&config.path).expect("v58 database");
+    store_migrations()
+        .to_version(&mut connection, 58)
+        .expect("construct v58 schema");
+    connection
+        .execute_batch(
+            r#"
+            INSERT INTO conversations (
+              conversation_id, owner_object_type, owner_object_id, provider
+            ) VALUES ('conversation:provider-text', 'human', 'human:local', 'codex');
+            INSERT INTO conversation_items (
+              item_id, conversation_id, sequence_index, kind, status,
+              author_actor_id, content_text
+            ) VALUES (
+              'item:existing-text', 'conversation:provider-text', 1,
+              'assistant_text', 'completed', 'agent:primary', 'Existing text'
+            );
+            "#,
+        )
+        .expect("v58 data");
+    drop(connection);
+
+    drop(NoemaStore::open(&config).await.expect("upgrade store"));
+    let connection = Connection::open(&config.path).expect("upgraded database");
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT provider_content_text FROM conversation_items WHERE item_id = 'item:existing-text'",
+                [],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .expect("provider text"),
+        None
+    );
+    assert_eq!(
+        connection
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))
+            .expect("schema version"),
+        STORE_SCHEMA_VERSION
+    );
+}
+
 #[test]
 fn v50_task_file_conversion_preserves_existing_task_document_and_retries() {
     let home = TempDir::new().expect("temp store root");

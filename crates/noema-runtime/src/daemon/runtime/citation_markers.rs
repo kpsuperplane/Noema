@@ -108,11 +108,11 @@ impl CitationSourceRegistry {
             let marker_end = raw_utf16 + marker.encode_utf16().count();
             let citation_end = normalized.encode_utf16().count();
             for reference in marker_body[..end].split(MARKER_SEPARATOR) {
-                if let Some(source) = self.sources.get(reference) {
+                if let Some(source) = self.source(reference) {
                     if seen.insert((source.url.clone(), citation_end)) {
                         citations.push(GenerateCitation {
-                            title: source.title.clone(),
-                            url: source.url.clone(),
+                            title: source.title,
+                            url: source.url,
                             start_index: None,
                             end_index: Some(citation_end),
                         });
@@ -141,6 +141,20 @@ impl CitationSourceRegistry {
             citations,
             unresolved_references: unresolved,
         }
+    }
+
+    fn source(&self, reference: &str) -> Option<CitationSource> {
+        self.sources.get(reference).cloned().or_else(|| {
+            let url = Url::parse(reference).ok()?;
+            matches!(url.scheme(), "http" | "https").then(|| CitationSource {
+                title: url
+                    .host_str()
+                    .filter(|host| !host.is_empty())
+                    .unwrap_or(reference)
+                    .to_string(),
+                url: url.to_string(),
+            })
+        })
     }
 
     pub(crate) fn normalize_task_result(&self, text: &str) -> NormalizedCitationText {
@@ -504,6 +518,21 @@ mod tests {
         assert_eq!(result.text, "claim  end");
         assert!(result.citations.is_empty());
         assert_eq!(result.unresolved_references, ["turn1view1"]);
+    }
+
+    #[test]
+    fn resolves_direct_https_markers_without_fetching() {
+        let result = CitationSourceRegistry::default().normalize(
+            "claim \u{e200}cite\u{e202}https://example.com/news?id=1\u{e201}",
+            &[],
+        );
+
+        assert_eq!(result.text, "claim ");
+        assert_eq!(result.citations.len(), 1);
+        assert_eq!(result.citations[0].title, "example.com");
+        assert_eq!(result.citations[0].url, "https://example.com/news?id=1");
+        assert_eq!(result.citations[0].end_index, Some(6));
+        assert!(result.unresolved_references.is_empty());
     }
 
     #[test]

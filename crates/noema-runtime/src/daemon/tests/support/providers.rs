@@ -81,6 +81,7 @@ struct BlockingBackgroundGenerationProvider {
 #[derive(Debug, Clone, Copy)]
 enum FakeCodexScenario {
     Simple,
+    CitationMarker,
     MultipleChoice,
     A2UIActionContinuation,
     A2UIActionResumeFailure,
@@ -130,6 +131,9 @@ impl FakeCodexProvider {
             latest_model_context_section(&request.input, "agent.identity").unwrap_or_default();
         let output = match self.scenario {
             FakeCodexScenario::Simple => assistant_with_no_memories("fake answer"),
+            FakeCodexScenario::CitationMarker => assistant_with_no_memories(
+                "Connected \u{e200}cite\u{e202}https://example.com/source\u{e201}",
+            ),
             FakeCodexScenario::MultipleChoice => {
                 if has_current_tool_results(&request.input) {
                     assistant_with_no_memories("multiple choice call recorded")

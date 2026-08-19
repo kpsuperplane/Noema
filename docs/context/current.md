@@ -26,6 +26,8 @@ slice or a net-negative reduction.
   rebuildable. Version-two pages contain claim-level evidence groups.
 - Durable chat comes from conversation items. Live subscriptions and daemon
   state coordinate work but do not replace stored state.
+- Provider assistant text uses one conversation item. Readable text is primary.
+  The same row stores provider text only when projection changes it.
 - Current task state is transactional. Task events support audit and
   invalidation. They do not provide a second replay authority.
 - A successful command commits its state, audit event, notification, and

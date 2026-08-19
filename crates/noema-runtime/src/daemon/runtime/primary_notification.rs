@@ -10,6 +10,7 @@ use serde_json::{Map, Value, json};
 
 use super::{
     actor::RuntimeActor,
+    citation_markers::CitationSourceRegistry,
     prompt_context::{PromptPlanRequest, plan_prompt_context_with_input_role},
 };
 use crate::daemon::{ConversationRuntimeEvent, RuntimeError, TurnStreamEvent, TurnTranscriptItem};
@@ -216,11 +217,11 @@ impl RuntimeActor {
         .await?;
 
         let mut text_count = 0;
+        let citation_sources = CitationSourceRegistry::default();
         for (response_index, output) in response.responses.iter().enumerate() {
-            let GenerateResponseItem::Text { text, .. } = output;
-            if text.trim().is_empty() {
-                continue;
-            }
+            let GenerateResponseItem::Text {
+                text, citations, ..
+            } = output;
             let effective_phase = AssistantTextPhase::effective_for_response_item(output, false);
             let mut metadata = notification.metadata.clone();
             metadata.extend(Map::from_iter([
@@ -232,21 +233,32 @@ impl RuntimeActor {
                 ("provider".to_string(), json!(response.provider)),
                 ("model".to_string(), json!(response.model)),
             ]));
-            let record = self
-                .store
-                .append_conversation_item(NewConversationItem {
-                    conversation_id: conversation_id.to_string(),
-                    turn_id: Some(turn.turn_id.clone()),
-                    parent_item_id: None,
-                    kind: ConversationItemKind::AssistantText,
-                    status: ConversationItemStatus::Completed,
-                    author: ActorRef::new("agent:primary")
-                        .expect("static primary agent id must be valid"),
-                    content_text: Some(text.clone()),
-                    payload_json: json!({}),
-                    metadata: Value::Object(metadata.clone()),
-                })
-                .await?;
+            let Some(record) = self
+                .persist_provider_assistant_text(
+                    &citation_sources,
+                    text.clone(),
+                    citations,
+                    notification.source,
+                    &turn.turn_id,
+                    NewConversationItem {
+                        conversation_id: conversation_id.to_string(),
+                        turn_id: Some(turn.turn_id.clone()),
+                        parent_item_id: None,
+                        kind: ConversationItemKind::AssistantText,
+                        status: ConversationItemStatus::Completed,
+                        author: ActorRef::new("agent:primary")
+                            .expect("static primary agent id must be valid"),
+                        content_text: None,
+                        payload_json: json!({}),
+                        metadata: Value::Object(metadata.clone()),
+                    },
+                )
+                .await?
+            else {
+                continue;
+            };
+            let text = record.content_text.clone().unwrap_or_default();
+            let metadata = record.metadata.clone();
             self.runtime_events
                 .publish_conversation(ConversationRuntimeEvent::Turn {
                     client_message_id: None,
@@ -255,8 +267,8 @@ impl RuntimeActor {
                         item_id: record.item_id,
                         cursor: Some(record.cursor),
                         turn_id: record.turn_id,
-                        metadata: Value::Object(metadata),
-                        item: Box::new(TurnTranscriptItem::AssistantText { text: text.clone() }),
+                        metadata,
+                        item: Box::new(TurnTranscriptItem::AssistantText { text }),
                     }),
                 });
             text_count += 1;

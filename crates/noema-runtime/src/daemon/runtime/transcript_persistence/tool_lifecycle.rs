@@ -108,16 +108,27 @@ impl RuntimeActor {
         response: GenerateResponse,
     ) -> Result<usize, RuntimeError> {
         let mut persisted_count = 0usize;
+        let citation_sources = CitationSourceRegistry::default();
         for (index, output) in response.responses.into_iter().enumerate() {
-            let GenerateResponseItem::Text { text, .. } = output;
+            let GenerateResponseItem::Text {
+                text,
+                citations,
+                ..
+            } = output;
             let metadata = json!({
                 "turn_index": turn_index,
                 "response_index": index,
                 "provider": response.provider.clone(),
                 "source": "agent_onboarding",
             });
-            self.store
-                .append_conversation_item(NewConversationItem {
+            if self
+                .persist_provider_assistant_text(
+                    &citation_sources,
+                    text,
+                    &citations,
+                    "agent_onboarding",
+                    turn_id,
+                    NewConversationItem {
                     conversation_id: conversation_id.to_string(),
                     turn_id: Some(turn_id.to_string()),
                     parent_item_id: None,
@@ -125,12 +136,16 @@ impl RuntimeActor {
                     status: ConversationItemStatus::Completed,
                     author: ActorRef::new("agent:primary")
                         .expect("static primary agent id must be valid"),
-                    content_text: Some(text),
+                    content_text: None,
                     payload_json: json!({}),
                     metadata,
-                })
-                .await?;
-            persisted_count += 1;
+                    },
+                )
+                .await?
+                .is_some()
+            {
+                persisted_count += 1;
+            }
         }
         Ok(persisted_count)
     }

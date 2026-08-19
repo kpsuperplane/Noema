@@ -555,26 +555,6 @@ impl RuntimeActor {
                 for (offset, response_item) in
                     continuation_response.responses.iter().cloned().enumerate()
                 {
-                    let response_item = match response_item {
-                        noema_providers::GenerateResponseItem::Text {
-                            phase,
-                            text,
-                            citations,
-                        } => {
-                            let normalized = self.normalize_provider_citation_text(
-                                &citation_sources,
-                                &text,
-                                &citations,
-                                "conversation_turn",
-                                &turn.turn_id,
-                            );
-                            noema_providers::GenerateResponseItem::Text {
-                                phase,
-                                text: normalized.text,
-                                citations: normalized.citations,
-                            }
-                        }
-                    };
                     self.persist_provider_response_item(
                         &continuation_action_turn,
                         ProviderResponsePosition {
@@ -582,6 +562,7 @@ impl RuntimeActor {
                             output_index: Some(continuation_output_base + offset),
                         },
                         response_item,
+                        &citation_sources,
                         continuation_phase_has_tools,
                         &mut continuation_assistant_response,
                         item_tx,
