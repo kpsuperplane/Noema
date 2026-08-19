@@ -184,19 +184,25 @@ private struct TasksDetailContent: View {
       if availableTabs.contains(.result) {
         Tab("Result", systemImage: "doc.text", value: TaskDetailTab.result) {
           resultView
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+              compactSecondaryAccessory
+            }
         }
       }
       Tab("Task", systemImage: "checklist", value: TaskDetailTab.task) {
         taskView
+          .safeAreaInset(edge: .bottom, spacing: 0) {
+            compactSecondaryAccessory
+          }
       }
       Tab("Transcript", systemImage: "text.bubble", value: TaskDetailTab.transcript) {
         transcriptScroller
+          .safeAreaInset(edge: .bottom, spacing: 0) {
+            compactSecondaryAccessory
+          }
       }
     }
     .tabBarMinimizeBehavior(.never)
-    .safeAreaInset(edge: .bottom, spacing: 0) {
-      compactSecondaryAccessory
-    }
     .tabViewBottomAccessory {
       taskContextDock
     }
@@ -251,9 +257,9 @@ private struct TasksDetailContent: View {
           .transition(secondarySurfaceTransition)
           .glassEffect(
             .regular,
-            in: NoemaSuperellipse(cornerRadius: NoemaRadius.page, treatment: .container)
+            in: Capsule()
           )
-          .padding(.horizontal, NoemaSpacing.lg)
+          .padding(.horizontal, NoemaSpacing.xl)
           .padding(.bottom, NoemaSpacing.sm)
       }
     }
