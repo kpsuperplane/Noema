@@ -8,19 +8,20 @@ use url::Url;
 pub fn tool_marker_for_action(action_kind: &str, status: &str, action: &Value) -> Option<Value> {
     let name = action.get("name")?.as_str()?.trim();
     let is_result = action_kind.eq_ignore_ascii_case("tool_result");
-    let data = action
-        .get(if is_result { "payload" } else { "arguments" })
-        .or_else(|| action.get("payload"));
-    let data = match data.and_then(Value::as_object) {
-        Some(object) if object.len() == 1 => object.get("arguments").or(data),
-        _ => data,
+    let payload = action.get("payload");
+    let arguments = action
+        .get("arguments")
+        .or_else(|| (!is_result).then_some(payload).flatten());
+    let arguments = match arguments.and_then(Value::as_object) {
+        Some(object) if object.len() == 1 => object.get("arguments").or(arguments),
+        _ => arguments,
     };
     tool_marker(
         name,
         status,
         is_result,
-        (!is_result).then_some(data).flatten(),
-        is_result.then_some(data).flatten(),
+        arguments,
+        is_result.then_some(payload).flatten(),
     )
 }
 
@@ -36,6 +37,13 @@ fn tool_marker(
         return None;
     }
     let status = MarkerStatus::new(status, is_result);
+    if name == "web.browse.open"
+        && is_result
+        && matches!(status, MarkerStatus::Failed)
+        && browser_page(arguments, result).is_none()
+    {
+        return None;
+    }
     let error = text(result, &[&["error"], &["message"], &["details", "message"]]);
     let (identity, summary) = marker_text(name, status, arguments, result, error.as_deref());
     let mut marker = json!({
@@ -205,16 +213,21 @@ fn special_marker(
         }
         "task.files.list" => {
             let path = text(arguments, &[&["path"]]).unwrap_or_else(|| ".".into());
+            let scope = if path == "." {
+                String::new()
+            } else {
+                format!(" in {path}")
+            };
             named(
                 "List Task files",
                 status,
                 Copy::new(
-                    format!("Listing files in {path}"),
+                    format!("Listing Task files{scope}"),
                     outcome(
-                        format!("Listed files in {path}"),
+                        format!("Listed Task files{scope}"),
                         count(result, &["entries"], "item"),
                     ),
-                    format!("Could not list files in {path}"),
+                    format!("Could not list Task files{scope}"),
                 ),
                 error,
             )
@@ -389,11 +402,7 @@ fn browser_marker(
     result: Option<&Value>,
     error: Option<&str>,
 ) -> (String, String) {
-    let page = text(result, &[&["title"]]).or_else(|| {
-        text(result, &[&["url"]])
-            .or_else(|| text(arguments, &[&["url"]]))
-            .and_then(|value| web_host(&value))
-    });
+    let page = browser_page(arguments, result);
     let copy = match name {
         "web.browse.open" => {
             Copy::new("Opening", "Opened", "Could not open").target(page.as_deref())
@@ -454,6 +463,14 @@ fn browser_marker(
         copy,
         error,
     )
+}
+
+fn browser_page(arguments: Option<&Value>, result: Option<&Value>) -> Option<String> {
+    text(result, &[&["title"]]).or_else(|| {
+        text(result, &[&["url"]])
+            .or_else(|| text(arguments, &[&["url"]]))
+            .and_then(|value| web_host(&value))
+    })
 }
 
 struct Copy {
@@ -669,6 +686,16 @@ mod tests {
 
     #[test]
     fn marker_names_task_outcomes_and_folds_lifecycle_noise() {
+        let list = tool_marker(
+            "task.files.list",
+            "running",
+            false,
+            Some(&json!({"path": "."})),
+            None,
+        )
+        .expect("file list marker");
+        assert_eq!(list["summary"], "Listing Task files");
+
         let file = tool_marker(
             "task.files.write",
             "completed",
@@ -705,5 +732,25 @@ mod tests {
         .expect("browser marker");
         assert_eq!(marker["summary"], "Filled page field");
         assert!(!marker.to_string().contains("private text"));
+
+        let open = tool_marker(
+            "web.browse.open",
+            "failed",
+            false,
+            Some(&json!({"url": "https://www.example.com/docs"})),
+            None,
+        )
+        .expect("browser-open call marker");
+        assert_eq!(open["summary"], "Could not open example.com");
+        assert!(
+            tool_marker(
+                "web.browse.open",
+                "failed",
+                true,
+                None,
+                Some(&json!({"error": "connection failed"})),
+            )
+            .is_none()
+        );
     }
 }

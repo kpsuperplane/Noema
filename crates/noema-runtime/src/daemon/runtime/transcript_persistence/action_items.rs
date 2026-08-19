@@ -267,11 +267,25 @@ impl RuntimeActor {
         call_item_id: Option<&str>,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<ConversationItemRecord, RuntimeError> {
-        let marker = crate::tool_marker_for_action(
+        let mut marker = crate::tool_marker_for_action(
             action.action_kind,
             action.status.as_str(),
             &action.payload,
         );
+        if marker.is_none()
+            && action.action_kind == "tool_result"
+            && action.payload.get("name").and_then(serde_json::Value::as_str)
+                == Some("web.browse.open")
+            && let Some(call_item_id) = call_item_id
+            && let Ok(Some(call)) = self.store.get_visible_conversation_item(call_item_id).await
+            && let Some(call_action) = call.payload_json.pointer("/metadata/action")
+        {
+            marker = crate::tool_marker_for_action(
+                "tool_call",
+                action.status.as_str(),
+                call_action,
+            );
+        }
         let action_request = if action.kind == ConversationItemKind::ApprovalRequest {
             let action_id = action
                 .payload
