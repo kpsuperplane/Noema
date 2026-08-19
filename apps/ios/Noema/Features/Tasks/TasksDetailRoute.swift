@@ -101,6 +101,20 @@ private struct TasksDetailContent: View {
     .navigationTitle(detail.title)
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
+      if let occurrenceSubtitle {
+        ToolbarItem(placement: .principal) {
+          VStack(spacing: 0) {
+            Text(detail.title)
+              .font(.headline)
+              .lineLimit(1)
+            Text(occurrenceSubtitle)
+              .font(.caption2)
+              .foregroundStyle(NoemaColor.contentSecondary)
+              .lineLimit(1)
+          }
+          .accessibilityElement(children: .combine)
+        }
+      }
       if !compactPresentation || hasTaskActions {
         ToolbarItem(placement: .topBarTrailing) {
           taskActionsMenu
@@ -141,8 +155,8 @@ private struct TasksDetailContent: View {
 
   private var detailBody: some View {
     VStack(spacing: 0) {
-      if detail.schedule != nil {
-        TasksRecurrenceSummaryView(model: model, task: detail, onOpenRecurrence: onOpenRecurrence)
+      if detail.schedule?.isRecurring == false {
+        TasksRecurrenceSummaryView(model: model, task: detail)
       }
       if compactPresentation {
         compactTabView
@@ -230,6 +244,11 @@ private struct TasksDetailContent: View {
 
   private var taskActionsMenu: some View {
     Menu {
+      if let recurringTaskID {
+        Button("Show recurring task", systemImage: "repeat") {
+          onOpenRecurrence?(recurringTaskID)
+        }
+      }
       if hasAction("EDIT") {
         Button("Edit Inbox", systemImage: "pencil") { editPresented = true }
       }
@@ -256,7 +275,7 @@ private struct TasksDetailContent: View {
       if hasAction("REOPEN") {
         Button("Reopen", systemImage: "arrow.uturn.backward") { reopenPresented = true }
       }
-      if !hasAction("EDIT") && !hasAction("QUEUE") && !hasAction("SCHEDULE") && !hasAction("RESCHEDULE") && !hasAction("UNSCHEDULE") && !hasAction("RUN_NOW") && !hasAction("CANCEL") && !hasAction("REOPEN") {
+      if recurringTaskID == nil && !hasAction("EDIT") && !hasAction("QUEUE") && !hasAction("SCHEDULE") && !hasAction("RESCHEDULE") && !hasAction("UNSCHEDULE") && !hasAction("RUN_NOW") && !hasAction("CANCEL") && !hasAction("REOPEN") {
         Text("No actions available")
       }
     } label: {
@@ -267,7 +286,17 @@ private struct TasksDetailContent: View {
   }
 
   private var hasTaskActions: Bool {
-    hasAction("EDIT") || hasAction("QUEUE") || hasAction("SCHEDULE") || hasAction("RESCHEDULE") || hasAction("UNSCHEDULE") || hasAction("RUN_NOW") || hasAction("CANCEL") || hasAction("REOPEN")
+    recurringTaskID != nil || hasAction("EDIT") || hasAction("QUEUE") || hasAction("SCHEDULE") || hasAction("RESCHEDULE") || hasAction("UNSCHEDULE") || hasAction("RUN_NOW") || hasAction("CANCEL") || hasAction("REOPEN")
+  }
+
+  private var recurringTaskID: String? {
+    guard onOpenRecurrence != nil else { return nil }
+    return detail.schedule?.recurrenceId
+  }
+
+  private var occurrenceSubtitle: String? {
+    guard let schedule = detail.schedule, schedule.recurrenceId != nil else { return nil }
+    return "This occurrence · \(TasksScheduleFormatting.timestampLabel(schedule.scheduledFor, timeZone: schedule.timeZone))"
   }
 
   private func hasAction(_ action: String) -> Bool {
