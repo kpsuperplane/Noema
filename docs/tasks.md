@@ -122,6 +122,8 @@ The normal path is:
 
 The Executor can call `task.continue_execution` when more execution is useful.
 That call queues another Executor without human action.
+The next Executor starts immediately.
+The Executor does not use continuation only to wait for time or external state to change.
 The Executor calls `task.report_blocked` when a specific human response can enable progress.
 The Executor can submit a limitation report when the requested outcome is impossible for Noema.
 Physical actions that require embodiment are obvious limitations.
@@ -169,7 +171,7 @@ Role prompts must not prescribe batches, checklists, or document sections.
 For research, the Executor identifies the required evidence and likely source types before it searches.
 Queries use concrete entities and constraints. Search results supply leads, not final evidence.
 The Executor opens sources and verifies claims from their content.
-When freshness, completeness, or a collection matters, the Executor starts with source-owned listings.
+When freshness, completeness, or a collection matters, the Executor opens and inspects the best available source-owned listing before broad search.
 Hosted search locates source pages. The interactive browser does not open search-engine result pages.
 The Executor inspects current results before it issues speculative query variants.
 After two low-yield searches, it changes the retrieval route, source type, domain, or query structure.
@@ -183,6 +185,9 @@ Repeated arguments or failures also request a checkpoint before terminal-only fi
 
 Each role receives a fresh current run clock as system context.
 Scheduled Tasks use their schedule timezone.
+Each scheduled occurrence also receives its exact occurrence execution time.
+That time is the cutoff when the request refers to the current execution.
+Future recurrence slots do not change the current occurrence cutoff.
 Other Tasks use the source request timezone when one was captured.
 The captured request date and time remain Task data for interpreting relative terms in the original request.
 They never replace the current run clock.

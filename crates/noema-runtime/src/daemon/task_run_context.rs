@@ -15,9 +15,9 @@ use crate::daemon::prompts::CITATION_OUTPUT_INSTRUCTIONS;
 const CONTEXT_TEXT_LIMIT: usize = 64 * 1024;
 const EXECUTOR_BACKGROUND_POLICY: &str = "This is autonomous background execution. Continue while a safe, authorized, in-scope action can materially improve the required output. Do not conserve tool calls while useful work remains.";
 const EXECUTOR_DELIVERY_POLICY: &str = "Noema uses the current RESULT.md as the submitted Task result. Add another delivery destination only when the Task request requires it. If TASK.md lacks enough progress state, list Task files and read relevant support files before repeating work. Never guess values that TASK.md omits. Read the referenced support file before acting on those values. Before task.continue_execution, save completed progress and the exact next action in TASK.md. A new run automatically receives TASK.md, not support-file contents. Reference every needed support file and its next unread item in TASK.md.";
-const EXECUTOR_RESEARCH_POLICY: &str = "When the Task requires research, first identify the evidence needed and the source types likely to contain it. Build queries from concrete entities, terms, dates, locations, and constraints. Do not rely on abstract quality words such as best, positive, important, or recent to enforce factual constraints. Treat search results as leads. Open sources and verify claims from source content. When freshness, completeness, or a collection matters, begin with source-owned indexes, category pages, catalogs, repositories, sitemaps, feeds, or similar listings. Use hosted search to locate source pages. Do not open search-engine result pages in the interactive browser; reserve the browser for source pages that require rendering or interaction. Inspect the current results before issuing speculative query variants. Refine the next action with terms learned from useful results. After two low-yield searches, change the retrieval route, source type, domain, or query structure. Do not repeat near-synonym queries. For multi-source research, keep a concise candidate and evidence ledger in TASK.md or a support file so later runs continue from verified facts and rejected leads.";
+const EXECUTOR_RESEARCH_POLICY: &str = "When the Task requires research, first identify the evidence needed and the source types likely to contain it. Build queries from concrete entities, terms, dates, locations, and constraints. Do not rely on abstract quality words such as best, positive, important, or recent to enforce factual constraints. Treat search results as leads. Open sources and verify claims from source content. When freshness, completeness, or a collection matters, open and inspect the best available source-owned index, category page, catalog, repository, sitemap, feed, or similar listing before broad search. Use hosted search to locate source pages. Do not open search-engine result pages in the interactive browser; reserve the browser for source pages that require rendering or interaction. Inspect the current results before issuing speculative query variants. Refine the next action with terms learned from useful results. After two low-yield searches, change the retrieval route, source type, domain, or query structure. Do not repeat near-synonym queries. For multi-source research, keep a concise candidate and evidence ledger in TASK.md or a support file so later runs continue from verified facts and rejected leads.";
 const PLANNER_DELIVERY_POLICY: &str = "Noema uses the current TASK.md throughout execution. Add another delivery destination only when the authenticated source request requires it.";
-const TASK_PERSISTENCE_POLICY: &str = "Continue while a safe, authorized, in-scope action can materially improve the required output. Use task.continue_execution when another run can make progress. Open a human gate when a specific answer, approval, credential, source, or scope choice can enable progress. Finish with a limitation report when the requested outcome is impossible for Noema and no human response, retry, continuation, or authorized alternate can produce it. Physical actions that require embodiment are obvious limitations and need no attempted tool call. One failed tool call, transient failure, or per-run ceiling is not a system limitation.";
+const TASK_PERSISTENCE_POLICY: &str = "Continue while a safe, authorized, in-scope action can materially improve the required output. task.continue_execution starts another Executor run immediately. Use it only when that run can make material progress now, not to wait for time or external state to change. Open a human gate when a specific answer, approval, credential, source, or scope choice can enable progress. Finish with a limitation report when the requested outcome is impossible for Noema and no human response, retry, continuation, or authorized alternate can produce it. Physical actions that require embodiment are obvious limitations and need no attempted tool call. One failed tool call, transient failure, or per-run ceiling is not a system limitation.";
 
 /// Exact role prompt and fixed instruction envelope used by production task runs.
 pub(crate) struct TaskRolePrompt {
@@ -102,15 +102,22 @@ fn format_runtime_handling(
     schedule_time_zone: Option<&str>,
     recurring: bool,
 ) -> String {
+    let occurrence = scheduled_for.map_or_else(
+        || "unknown".to_string(),
+        |value| {
+            jiff::Timestamp::from_second(value)
+                .map_or_else(|_| value.to_string(), |timestamp| timestamp.to_string())
+        },
+    );
     if recurring {
         return format!(
-            "Noema started this recurring task occurrence. The series schedule is already configured in {}. Do not configure or verify another schedule.",
+            "Noema started this recurring task occurrence for {occurrence}. This is the occurrence execution time. Use it as the cutoff when the request refers to this execution. The series schedule is already configured in {}. Do not use a future series slot for this occurrence. Do not configure or verify another schedule.",
             schedule_time_zone.unwrap_or("the task timezone")
         );
     }
     if scheduled_for.is_some() {
         return format!(
-            "Noema started this scheduled task. Its schedule is already configured in {}. Do not configure or verify another schedule.",
+            "Noema started this scheduled task for {occurrence}. This is the occurrence execution time. Its schedule is already configured in {}. Do not configure or verify another schedule.",
             schedule_time_zone.unwrap_or("the task timezone")
         );
     }
@@ -362,6 +369,9 @@ mod tests {
             format_runtime_handling(Some(1_786_370_400), Some("America/Los_Angeles"), true);
 
         assert!(handling.contains("recurring task occurrence"));
+        assert!(handling.contains("2026-08-10T14:00:00Z"));
+        assert!(handling.contains("occurrence execution time"));
+        assert!(handling.contains("Do not use a future series slot"));
         assert!(handling.contains("schedule is already configured in America/Los_Angeles"));
         assert!(EXECUTOR_DELIVERY_POLICY.contains("current RESULT.md"));
         assert!(EXECUTOR_DELIVERY_POLICY.contains("Task request requires"));
@@ -377,6 +387,8 @@ mod tests {
         assert!(EXECUTOR_BACKGROUND_POLICY.contains("Do not conserve tool calls"));
         assert!(TASK_PERSISTENCE_POLICY.contains("safe, authorized, in-scope action"));
         assert!(TASK_PERSISTENCE_POLICY.contains("task.continue_execution"));
+        assert!(TASK_PERSISTENCE_POLICY.contains("starts another Executor run immediately"));
+        assert!(TASK_PERSISTENCE_POLICY.contains("not to wait"));
         assert!(TASK_PERSISTENCE_POLICY.contains("Physical actions"));
         assert!(TASK_PERSISTENCE_POLICY.contains("not a system limitation"));
     }
@@ -384,7 +396,7 @@ mod tests {
     #[test]
     fn executor_research_policy_changes_low_yield_retrieval_strategy() {
         assert!(EXECUTOR_RESEARCH_POLICY.contains("source types likely to contain it"));
-        assert!(EXECUTOR_RESEARCH_POLICY.contains("source-owned indexes"));
+        assert!(EXECUTOR_RESEARCH_POLICY.contains("before broad search"));
         assert!(EXECUTOR_RESEARCH_POLICY.contains("Do not open search-engine result pages"));
         assert!(EXECUTOR_RESEARCH_POLICY.contains("After two low-yield searches"));
         assert!(EXECUTOR_RESEARCH_POLICY.contains("Do not repeat near-synonym queries"));
