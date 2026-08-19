@@ -673,6 +673,7 @@ final class NoemaLiveActivityService {
     case .active: "active"
     case .dismissed: "dismissed"
     case .ended: "ended"
+    case .pending: "pending"
     case .stale: "stale"
     @unknown default: "unknown"
     }

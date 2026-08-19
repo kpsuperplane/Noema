@@ -17,19 +17,19 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		B20000000000000000000003 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = E10000000000000000000002 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = E10000000000000000000001;
-			remoteInfo = Noema;
-		};
 		A20000000000000000000003 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = E10000000000000000000002 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = A20000000000000000000010;
 			remoteInfo = NoemaLiveActivity;
+		};
+		B20000000000000000000003 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E10000000000000000000002 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E10000000000000000000001;
+			remoteInfo = Noema;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -86,6 +86,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B20000000000000000000008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C10000000000000000000001 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -96,13 +103,6 @@
 				50B1DE12301DAC5000F6B337 /* ApolloWebSocket in Frameworks */,
 				50B1DE11301DAC5000F6B337 /* ApolloAPI in Frameworks */,
 				50B1DE10301DAC5000F6B337 /* Apollo in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		B20000000000000000000008 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -133,29 +133,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		B20000000000000000000010 /* NoemaTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = B20000000000000000000014 /* Build configuration list for PBXNativeTarget "NoemaTests" */;
-			buildPhases = (
-				B20000000000000000000011 /* Sources */,
-				B20000000000000000000008 /* Frameworks */,
-				B20000000000000000000012 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				B20000000000000000000009 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				B20000000000000000000006 /* NoemaTests */,
-			);
-			name = NoemaTests;
-			packageProductDependencies = (
-			);
-			productName = NoemaTests;
-			productReference = B20000000000000000000002 /* NoemaTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
 		A20000000000000000000010 /* NoemaLiveActivity */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A20000000000000000000014 /* Build configuration list for PBXNativeTarget "NoemaLiveActivity" */;
@@ -178,6 +155,29 @@
 			productName = NoemaLiveActivity;
 			productReference = A20000000000000000000002 /* NoemaLiveActivity.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		B20000000000000000000010 /* NoemaTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B20000000000000000000014 /* Build configuration list for PBXNativeTarget "NoemaTests" */;
+			buildPhases = (
+				B20000000000000000000011 /* Sources */,
+				B20000000000000000000008 /* Frameworks */,
+				B20000000000000000000012 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B20000000000000000000009 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B20000000000000000000006 /* NoemaTests */,
+			);
+			name = NoemaTests;
+			packageProductDependencies = (
+			);
+			productName = NoemaTests;
+			productReference = B20000000000000000000002 /* NoemaTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		E10000000000000000000001 /* Noema */ = {
 			isa = PBXNativeTarget;
@@ -223,6 +223,9 @@
 					A20000000000000000000010 = {
 						CreatedOnToolsVersion = 27.0;
 					};
+					B20000000000000000000010 = {
+						CreatedOnToolsVersion = 27.0;
+					};
 					E10000000000000000000001 = {
 						CreatedOnToolsVersion = 27.0;
 						SystemCapabilities = {
@@ -230,9 +233,6 @@
 								enabled = 1;
 							};
 						};
-					};
-					B20000000000000000000010 = {
-						CreatedOnToolsVersion = 27.0;
 					};
 				};
 			};
@@ -262,14 +262,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		B20000000000000000000012 /* Resources */ = {
+		A20000000000000000000012 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A20000000000000000000012 /* Resources */ = {
+		B20000000000000000000012 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -286,14 +286,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		B20000000000000000000011 /* Sources */ = {
+		A20000000000000000000011 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A20000000000000000000011 /* Sources */ = {
+		B20000000000000000000011 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -310,51 +310,19 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		B20000000000000000000009 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = E10000000000000000000001 /* Noema */;
-			targetProxy = B20000000000000000000003 /* PBXContainerItemProxy */;
-		};
 		A20000000000000000000009 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = A20000000000000000000010 /* NoemaLiveActivity */;
 			targetProxy = A20000000000000000000003 /* PBXContainerItemProxy */;
 		};
+		B20000000000000000000009 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E10000000000000000000001 /* Noema */;
+			targetProxy = B20000000000000000000003 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		B20000000000000000000015 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.noema.app.ios.tests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Noema.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Noema";
-			};
-			name = Debug;
-		};
-		B20000000000000000000016 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.noema.app.ios.tests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Noema.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Noema";
-			};
-			name = Release;
-		};
 		A20000000000000000000015 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -409,6 +377,38 @@
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		B20000000000000000000015 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.noema.app.ios.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Noema.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Noema";
+			};
+			name = Debug;
+		};
+		B20000000000000000000016 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.noema.app.ios.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Noema.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Noema";
 			};
 			name = Release;
 		};
@@ -505,20 +505,20 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		B20000000000000000000014 /* Build configuration list for PBXNativeTarget "NoemaTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				B20000000000000000000015 /* Debug */,
-				B20000000000000000000016 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		A20000000000000000000014 /* Build configuration list for PBXNativeTarget "NoemaLiveActivity" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A20000000000000000000015 /* Debug */,
 				A20000000000000000000016 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B20000000000000000000014 /* Build configuration list for PBXNativeTarget "NoemaTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B20000000000000000000015 /* Debug */,
+				B20000000000000000000016 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

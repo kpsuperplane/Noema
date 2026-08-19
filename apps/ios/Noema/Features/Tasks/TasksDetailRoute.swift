@@ -66,7 +66,6 @@ private struct TasksDetailContent: View {
   @State private var queuePresented = false
   @State private var scheduleAction: TasksScheduleAction?
   @State private var cancelPresented = false
-  @State private var taskInfoPresented = false
   @State private var gateResponse = ""
   @State private var selectedTab: TaskDetailTab
   @State private var followsTranscriptBottom = true
@@ -88,28 +87,33 @@ private struct TasksDetailContent: View {
   }
 
   var body: some View {
-    VStack(spacing: 0) {
-      if detail.schedule != nil {
-        TasksRecurrenceSummaryView(model: model, task: detail, onOpenRecurrence: onOpenRecurrence)
-      }
-      TasksDetailTabBar(selection: $selectedTab, tabs: availableTabs)
-      TasksDetailPager(selection: $selectedTab, tabs: availableTabs) {
-        ScrollView {
-          TasksDocumentView(document: detail.resultDocument ?? "", fileName: "RESULT.md")
-        }
-        .scrollDismissesKeyboard(.interactively)
-      } task: {
-        ScrollView {
-          TasksDocumentView(document: detail.taskDocument, fileName: "TASK.md")
-        }
-        .scrollDismissesKeyboard(.interactively)
-      } transcript: {
-        transcriptScroller
+    Group {
+      if compactPresentation {
+        detailBody
+      } else {
+        detailBody
+          .safeAreaInset(edge: .bottom, spacing: 0) {
+            taskContextAccessory
+          }
       }
     }
     .navigationTitle(detail.title)
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
+      if let occurrenceSubtitle {
+        ToolbarItem(placement: .principal) {
+          VStack(spacing: 0) {
+            Text(detail.title)
+              .font(.headline)
+              .lineLimit(1)
+            Text(occurrenceSubtitle)
+              .font(.caption2)
+              .foregroundStyle(NoemaColor.contentSecondary)
+              .lineLimit(1)
+          }
+          .accessibilityElement(children: .combine)
+        }
+      }
       if !compactPresentation || hasTaskActions {
         ToolbarItem(placement: .topBarTrailing) {
           taskActionsMenu
@@ -131,30 +135,6 @@ private struct TasksDetailContent: View {
     .noemaSheet(isPresented: $cancelPresented) {
       TasksCancelSheet(model: model, task: detail)
     }
-    .noemaSheet(isPresented: $taskInfoPresented) {
-      TasksTaskInfoSheet(detail: detail)
-    }
-    .safeAreaInset(edge: .bottom, spacing: 0) {
-      VStack(spacing: 0) {
-        if hasSecondarySurface {
-          secondarySurface
-            .id(secondarySurfaceKey)
-            .transition(secondarySurfaceTransition)
-            .zIndex(1)
-        }
-        TasksTaskContextDock(
-          run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
-          canCancel: hasAction("CANCEL") && model.isConnected,
-          cancel: { cancelPresented = true },
-          showInfo: { taskInfoPresented = true }
-        )
-        .offset(y: hasSecondarySurface ? -NoemaSpacing.xxl : 0)
-        .padding(.bottom, hasSecondarySurface ? -NoemaSpacing.xxl : 0)
-        .zIndex(2)
-      }
-      .padding(.horizontal, NoemaSpacing.lg)
-      .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: secondarySurfaceKey)
-    }
     .onChange(of: detail.activeGate?.id) { _, _ in
       gateResponse = ""
     }
@@ -169,6 +149,130 @@ private struct TasksDetailContent: View {
     }
   }
 
+  private var detailBody: some View {
+    VStack(spacing: 0) {
+      if detail.schedule?.isRecurring == false {
+        TasksRecurrenceSummaryView(model: model, task: detail)
+      }
+      if compactPresentation {
+        compactTabView
+      } else {
+        wideTabView
+      }
+    }
+  }
+
+  private var wideTabView: some View {
+    VStack(spacing: 0) {
+      TasksDetailTabBar(selection: $selectedTab, tabs: availableTabs)
+      TasksDetailPager(selection: $selectedTab, tabs: availableTabs) {
+        resultView
+      } task: {
+        taskView
+      } transcript: {
+        transcriptScroller
+      }
+    }
+  }
+
+  private var compactTabView: some View {
+    TabView(selection: $selectedTab) {
+      if availableTabs.contains(.result) {
+        Tab("Result", systemImage: "doc.text", value: TaskDetailTab.result) {
+          resultView
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+              compactSecondaryAccessory
+            }
+        }
+      }
+      Tab("Task", systemImage: "checklist", value: TaskDetailTab.task) {
+        taskView
+          .safeAreaInset(edge: .bottom, spacing: 0) {
+            compactSecondaryAccessory
+          }
+      }
+      Tab("Transcript", systemImage: "text.bubble", value: TaskDetailTab.transcript) {
+        transcriptScroller
+          .safeAreaInset(edge: .bottom, spacing: 0) {
+            compactSecondaryAccessory
+          }
+      }
+    }
+    .tabBarMinimizeBehavior(.never)
+    .tabViewBottomAccessory {
+      taskContextDock
+    }
+  }
+
+  private var resultView: some View {
+    ScrollView {
+      TasksDocumentView(document: detail.resultDocument ?? "", fileName: "RESULT.md")
+    }
+    .scrollDismissesKeyboard(.interactively)
+  }
+
+  private var taskView: some View {
+    ScrollView {
+      VStack(spacing: 0) {
+        TasksDocumentView(document: detail.taskDocument, fileName: "TASK.md")
+        TasksTaskMetadataView(detail: detail)
+      }
+    }
+    .scrollDismissesKeyboard(.interactively)
+  }
+
+  private var taskContextAccessory: some View {
+    VStack(spacing: 0) {
+      if hasSecondarySurface {
+        secondarySurface
+          .id(secondarySurfaceKey)
+          .transition(secondarySurfaceTransition)
+          .zIndex(1)
+      }
+      taskContextDock
+      .offset(y: hasSecondarySurface ? -NoemaSpacing.xxl : 0)
+      .padding(.bottom, hasSecondarySurface ? -NoemaSpacing.xxl : 0)
+      .zIndex(2)
+    }
+    .padding(.horizontal, compactPresentation ? 0 : NoemaSpacing.lg)
+    .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: secondarySurfaceKey)
+  }
+
+  private var taskContextDock: some View {
+    TasksTaskContextDock(
+      run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
+      embeddedInSystemAccessory: compactPresentation,
+      canCancel: hasAction("CANCEL") && model.isConnected,
+      cancel: { cancelPresented = true }
+    )
+  }
+
+  private var compactSecondaryAccessory: some View {
+    Group {
+      if hasSecondarySurface {
+        secondarySurface
+          .id(secondarySurfaceKey)
+          .transition(secondarySurfaceTransition)
+          .clipShape(compactSecondaryAccessoryShape)
+          .glassEffect(
+            .regular,
+            in: compactSecondaryAccessoryShape
+          )
+          .padding(.horizontal, NoemaSpacing.xl)
+          .padding(.bottom, NoemaSpacing.sm)
+      }
+    }
+    .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: secondarySurfaceKey)
+  }
+
+  private var compactSecondaryAccessoryShape: AnyShape {
+    if taskInterventions.isEmpty, detail.activeGate == nil, shouldShowStatus {
+      AnyShape(Capsule())
+    } else {
+      AnyShape(RoundedRectangle(cornerRadius: NoemaRadius.page, style: .continuous))
+    }
+  }
+
   private var availableTabs: [TaskDetailTab] {
     detail.resultDocument?.nilIfBlank == nil
       ? [.task, .transcript]
@@ -177,6 +281,11 @@ private struct TasksDetailContent: View {
 
   private var taskActionsMenu: some View {
     Menu {
+      if let recurringTaskID {
+        Button("Show recurring task", systemImage: "repeat") {
+          onOpenRecurrence?(recurringTaskID)
+        }
+      }
       if hasAction("EDIT") {
         Button("Edit Inbox", systemImage: "pencil") { editPresented = true }
       }
@@ -203,7 +312,7 @@ private struct TasksDetailContent: View {
       if hasAction("REOPEN") {
         Button("Reopen", systemImage: "arrow.uturn.backward") { reopenPresented = true }
       }
-      if !hasAction("EDIT") && !hasAction("QUEUE") && !hasAction("SCHEDULE") && !hasAction("RESCHEDULE") && !hasAction("UNSCHEDULE") && !hasAction("RUN_NOW") && !hasAction("CANCEL") && !hasAction("REOPEN") {
+      if recurringTaskID == nil && !hasAction("EDIT") && !hasAction("QUEUE") && !hasAction("SCHEDULE") && !hasAction("RESCHEDULE") && !hasAction("UNSCHEDULE") && !hasAction("RUN_NOW") && !hasAction("CANCEL") && !hasAction("REOPEN") {
         Text("No actions available")
       }
     } label: {
@@ -214,7 +323,17 @@ private struct TasksDetailContent: View {
   }
 
   private var hasTaskActions: Bool {
-    hasAction("EDIT") || hasAction("QUEUE") || hasAction("SCHEDULE") || hasAction("RESCHEDULE") || hasAction("UNSCHEDULE") || hasAction("RUN_NOW") || hasAction("CANCEL") || hasAction("REOPEN")
+    recurringTaskID != nil || hasAction("EDIT") || hasAction("QUEUE") || hasAction("SCHEDULE") || hasAction("RESCHEDULE") || hasAction("UNSCHEDULE") || hasAction("RUN_NOW") || hasAction("CANCEL") || hasAction("REOPEN")
+  }
+
+  private var recurringTaskID: String? {
+    guard onOpenRecurrence != nil else { return nil }
+    return detail.schedule?.recurrenceId
+  }
+
+  private var occurrenceSubtitle: String? {
+    guard let schedule = detail.schedule, schedule.recurrenceId != nil else { return nil }
+    return "Scheduled for \(TasksScheduleFormatting.timestampLabel(schedule.scheduledFor, timeZone: schedule.timeZone))"
   }
 
   private func hasAction(_ action: String) -> Bool {
@@ -301,7 +420,9 @@ private struct TasksDetailContent: View {
         TasksHumanInterventionsView(
           model: model,
           interventions: taskInterventions,
-          attachedToDock: detail.activeGate == nil
+          surfaceStyle: compactPresentation
+            ? .glassAccessory
+            : detail.activeGate == nil ? .attachedToDock : .cards
         )
       }
       if let gate = detail.activeGate {
@@ -313,6 +434,7 @@ private struct TasksDetailContent: View {
           errorMessage: model.commandError(taskID: detail.id),
           canAnswer: hasAction("ANSWER"),
           canRetry: hasAction("RETRY"),
+          embeddedInGlassAccessory: compactPresentation,
           answer: { answer, approval in
             await model.answer(task: detail, answer: answer, approval: approval)
           },
@@ -323,7 +445,8 @@ private struct TasksDetailContent: View {
       } else if taskInterventions.isEmpty && shouldShowStatus {
         TasksTaskStatusSurface(
           run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
-          activity: latestRunActivity
+          activity: latestRunActivity,
+          embeddedInGlassAccessory: compactPresentation
         )
       }
     }
@@ -331,10 +454,7 @@ private struct TasksDetailContent: View {
 
   private var secondarySurfaceTransition: AnyTransition {
     guard !reduceMotion else { return .identity }
-    return .asymmetric(
-      insertion: .move(edge: .bottom).combined(with: .opacity),
-      removal: .move(edge: .top).combined(with: .opacity)
-    )
+    return .move(edge: .bottom).combined(with: .opacity)
   }
 }
 
@@ -346,6 +466,7 @@ private struct TasksGatePanel: View {
   let errorMessage: String?
   let canAnswer: Bool
   let canRetry: Bool
+  let embeddedInGlassAccessory: Bool
   let answer: (String, ApprovalDecision?) async -> Bool
   let retry: (String?) async -> Bool
 
@@ -470,31 +591,35 @@ private struct TasksGatePanel: View {
       }
       .padding(.horizontal, NoemaSpacing.md)
       .padding(.top, NoemaSpacing.md)
-      .padding(.bottom, 36)
+      .padding(.bottom, embeddedInGlassAccessory ? NoemaSpacing.md : 36)
     }
-    .frame(maxHeight: 236)
-    .background(
-      NoemaColor.surface,
-      in: NoemaSuperellipse(
-        topLeftRadius: NoemaSpacing.xxl,
-        topRightRadius: NoemaSpacing.xxl,
-        bottomRightRadius: 0,
-        bottomLeftRadius: 0,
-        treatment: .page
-      )
-    )
+    .frame(maxHeight: embeddedInGlassAccessory ? 360 : 236)
+    .background {
+      if !embeddedInGlassAccessory {
+        attachedShape.fill(NoemaColor.surface)
+      }
+    }
     .overlay {
-      NoemaSuperellipse(
-        topLeftRadius: NoemaSpacing.xxl,
-        topRightRadius: NoemaSpacing.xxl,
-        bottomRightRadius: 0,
-        bottomLeftRadius: 0,
-        treatment: .page
-      )
-      .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+      if !embeddedInGlassAccessory {
+        attachedShape.stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+      }
     }
-    .shadow(color: NoemaColor.ink900.opacity(0.13), radius: 14, y: -NoemaSpacing.xs)
+    .shadow(
+      color: embeddedInGlassAccessory ? .clear : NoemaColor.ink900.opacity(0.13),
+      radius: 14,
+      y: -NoemaSpacing.xs
+    )
     .accessibilityElement(children: .contain)
+  }
+
+  private var attachedShape: NoemaSuperellipse {
+    NoemaSuperellipse(
+      topLeftRadius: NoemaSpacing.xxl,
+      topRightRadius: NoemaSpacing.xxl,
+      bottomRightRadius: 0,
+      bottomLeftRadius: 0,
+      treatment: .page
+    )
   }
 
   private var recoveryPlaceholder: String {

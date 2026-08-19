@@ -180,6 +180,15 @@ enum TasksScheduleFormatting {
     return date.formatted(date: .abbreviated, time: .shortened)
   }
 
+  static func timestampLabel(_ raw: String, timeZone: String) -> String {
+    guard let date = TasksISO8601.date(from: raw) else { return raw }
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.timeZone = TimeZone(identifier: timeZone) ?? .current
+    formatter.dateFormat = "EEE, MMM d, h:mm a z"
+    return formatter.string(from: date)
+  }
+
   static func recurrenceSummary(_ cron: String) -> String {
     let fields = cron.split(whereSeparator: \.isWhitespace).map(String.init)
     guard fields.count == 5,
@@ -491,32 +500,14 @@ struct TasksScheduleSheet: View {
 struct TasksRecurrenceSummaryView: View {
   @Bindable var model: TasksModel
   let task: TasksDetailSnapshot
-  let onOpenRecurrence: ((String) -> Void)?
   @State private var scheduleAction: TasksScheduleAction?
   @State private var isSubmitting = false
   @State private var errorMessage: String?
 
   var body: some View {
     Group {
-      if let schedule = task.schedule {
-        if let recurrenceID = schedule.recurrenceId {
-          HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.xs) {
-            Button("View recurring task") { onOpenRecurrence?(recurrenceID) }
-              .buttonStyle(.plain)
-              .font(NoemaFont.captionEmphasized)
-              .foregroundStyle(NoemaColor.accent)
-              .disabled(onOpenRecurrence == nil)
-            Text("· This occurrence · \(label(schedule.scheduledFor, timeZone: schedule.timeZone))")
-              .font(NoemaFont.caption)
-              .foregroundStyle(NoemaColor.contentSecondary)
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal, NoemaSpacing.md)
-          .padding(.vertical, NoemaSpacing.sm)
-          .overlay(alignment: .top) { Rectangle().fill(NoemaColor.separatorSubtle).frame(height: 1) }
-        } else {
-          oneTimeBody(schedule: schedule)
-        }
+      if let schedule = task.schedule, schedule.recurrenceId == nil {
+        oneTimeBody(schedule: schedule)
       }
     }
     .noemaSheet(item: $scheduleAction) { action in
@@ -529,7 +520,7 @@ struct TasksRecurrenceSummaryView: View {
       VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
         Text("Scheduled")
           .font(NoemaFont.captionEmphasized)
-        Text(label(schedule.scheduledFor, timeZone: schedule.timeZone))
+        Text(TasksScheduleFormatting.timestampLabel(schedule.scheduledFor, timeZone: schedule.timeZone))
           .font(NoemaFont.metadata)
           .foregroundStyle(NoemaColor.contentSecondary)
         Text(schedule.timeZone)
@@ -564,14 +555,6 @@ struct TasksRecurrenceSummaryView: View {
     }
   }
 
-  private func label(_ raw: String, timeZone: String) -> String {
-    guard let date = TasksISO8601.date(from: raw) else { return raw }
-    let formatter = DateFormatter()
-    formatter.locale = .current
-    formatter.timeZone = TimeZone(identifier: timeZone) ?? .current
-    formatter.dateFormat = "EEE, MMM d, h:mm a z"
-    return formatter.string(from: date)
-  }
 }
 
 struct TasksRecurrenceDetailRoute: View {
@@ -649,7 +632,7 @@ struct TasksRecurrenceDetailRoute: View {
           Text(TasksScheduleFormatting.recurrenceSummary(recurrence.cronExpression))
             .font(NoemaFont.bodyEmphasized)
           if recurrence.lifecycle == "ACTIVE", let next = recurrence.nextRunAt {
-            Text("Next run · \(label(next, timeZone: recurrence.timeZone))")
+            Text("Next run · \(TasksScheduleFormatting.timestampLabel(next, timeZone: recurrence.timeZone))")
               .font(NoemaFont.metadata)
               .foregroundStyle(NoemaColor.contentSecondary)
           }
@@ -726,7 +709,7 @@ struct TasksRecurrenceDetailRoute: View {
 
   private func occurrenceRow(_ occurrence: TasksRecurrenceOccurrenceSnapshot, recurrence: TasksRecurrenceSnapshot) -> some View {
     HStack(spacing: NoemaSpacing.sm) {
-      Text(label(occurrence.scheduledFor, timeZone: recurrence.timeZone)).font(NoemaFont.metadata)
+      Text(TasksScheduleFormatting.timestampLabel(occurrence.scheduledFor, timeZone: recurrence.timeZone)).font(NoemaFont.metadata)
       Spacer(minLength: NoemaSpacing.sm)
       Text(occurrenceLabel(occurrence))
         .font(NoemaFont.metadata)
@@ -743,15 +726,6 @@ struct TasksRecurrenceDetailRoute: View {
     case "COALESCED": "Combined"
     default: occurrence.taskId == nil ? "Pending" : "Open task"
     }
-  }
-
-  private func label(_ raw: String, timeZone: String) -> String {
-    guard let date = TasksISO8601.date(from: raw) else { return raw }
-    let formatter = DateFormatter()
-    formatter.locale = .current
-    formatter.timeZone = TimeZone(identifier: timeZone) ?? .current
-    formatter.dateFormat = "EEE, MMM d, h:mm a z"
-    return formatter.string(from: date)
   }
 
   private func load() async {

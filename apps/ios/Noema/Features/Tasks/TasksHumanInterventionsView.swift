@@ -3,14 +3,20 @@ import SwiftUI
 /// Non-task interventions use the same compact decision order as Chat.
 /// TaskAttention remains attached to its existing task card in the list.
 struct TasksHumanInterventionsView: View {
+  enum SurfaceStyle: Equatable {
+    case cards
+    case attachedToDock
+    case glassAccessory
+  }
+
   @Bindable var model: TasksModel
   let interventions: [HumanIntervention]
-  var attachedToDock = false
+  var surfaceStyle = SurfaceStyle.cards
   @State private var browserURL: URL?
 
   var body: some View {
     Group {
-      if attachedToDock {
+      if surfaceStyle != .cards {
         VStack(alignment: .leading, spacing: NoemaSpacing.md) {
           ForEach(interventions) { intervention in
             content(for: intervention)
@@ -21,10 +27,22 @@ struct TasksHumanInterventionsView: View {
         }
         .padding(.horizontal, NoemaSpacing.md)
         .padding(.top, NoemaSpacing.md)
-        .padding(.bottom, NoemaSpacing.xxl + NoemaSpacing.md)
-        .background(attachedShape.fill(NoemaColor.surface))
-        .overlay { attachedShape.stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
-        .shadow(color: NoemaColor.ink900.opacity(0.13), radius: 14, y: -NoemaSpacing.xs)
+        .padding(.bottom, surfaceStyle == .glassAccessory ? NoemaSpacing.md : NoemaSpacing.xxl + NoemaSpacing.md)
+        .background {
+          if surfaceStyle == .attachedToDock {
+            attachedShape.fill(NoemaColor.surface)
+          }
+        }
+        .overlay {
+          if surfaceStyle == .attachedToDock {
+            attachedShape.stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+          }
+        }
+        .shadow(
+          color: surfaceStyle == .attachedToDock ? NoemaColor.ink900.opacity(0.13) : .clear,
+          radius: 14,
+          y: -NoemaSpacing.xs
+        )
       } else {
         VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
           ForEach(interventions) { intervention in

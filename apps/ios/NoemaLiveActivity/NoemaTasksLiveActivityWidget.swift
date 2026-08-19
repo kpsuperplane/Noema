@@ -64,6 +64,7 @@ struct NoemaTasksLiveActivityWidget: Widget {
       .contentMargins(.trailing, 2, for: .compactTrailing)
       .widgetURL(taskURL(for: context.state))
     }
+    .supplementalActivityFamilies([.small])
   }
 
   private func taskURL(for state: NoemaTasksActivityAttributes.ContentState) -> URL? {
@@ -76,6 +77,8 @@ struct NoemaTasksLiveActivityWidget: Widget {
 }
 
 private struct NoemaTasksLockScreenView: View {
+  @Environment(\.activityFamily) private var activityFamily
+
   private static let logger = Logger(
     subsystem: "dev.noema.app.ios.liveactivity",
     category: "LiveActivity"
@@ -89,6 +92,14 @@ private struct NoemaTasksLockScreenView: View {
   }
 
   var body: some View {
+    if activityFamily == .small {
+      NoemaTasksSmallActivityView(state: state)
+    } else {
+      lockScreenContent
+    }
+  }
+
+  private var lockScreenContent: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .firstTextBaseline, spacing: 12) {
         ActivityIdentity(state: state, appearance: .lockScreen)
@@ -102,6 +113,126 @@ private struct NoemaTasksLockScreenView: View {
     .padding(.leading, 16)
     .padding(.trailing, 16)
     .padding(.vertical, 14)
+  }
+}
+
+private struct NoemaTasksSmallActivityView: View {
+  @Environment(\.colorScheme) private var colorScheme
+
+  let state: NoemaTasksActivityAttributes.ContentState
+
+  private var agentName: String {
+    state.agentName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "Agent"
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 6) {
+        NoemaAgentMark(size: 20)
+          .accessibilityHidden(true)
+        Text(agentName)
+          .font(.caption2.weight(.semibold))
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+        Spacer(minLength: 8)
+        SmallActivityStatus(state: state)
+      }
+
+      Text(state.focusTitle)
+        .font(.system(size: 14, weight: .semibold))
+        .foregroundStyle(.primary)
+        .lineLimit(2)
+        .minimumScaleFactor(0.82)
+        .allowsTightening(true)
+        .accessibilityLabel("Task: \(state.focusTitle)")
+
+      HStack(spacing: 6) {
+        Circle()
+          .fill(PhaseStyle(state: state).color(for: .lockScreen, colorScheme: colorScheme))
+          .frame(width: 5, height: 5)
+          .accessibilityHidden(true)
+        Text(detailLabel)
+          .font(.caption2.weight(.medium))
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+          .minimumScaleFactor(0.8)
+        Spacer(minLength: 6)
+        trailingDetail
+      }
+    }
+    .padding(12)
+    .accessibilityElement(children: .combine)
+  }
+
+  private var detailLabel: String {
+    if state.requiresAttention == true {
+      return "Waiting for your decision"
+    }
+    if state.activeTaskCount > 1 {
+      return state.activeTaskCount == 2 ? "2 active tasks" : "\(state.activeTaskCount) active tasks"
+    }
+    if state.phase == .completed, let count = state.completedOutputCount, count > 0 {
+      return count == 1 ? "1 output" : "\(count) outputs"
+    }
+    if state.phase == .completed { return "Task complete" }
+    if state.phase == .cancelled { return "Task ended" }
+    return state.updateLabel?.nilIfEmpty ?? state.statusLabel
+  }
+
+  @ViewBuilder
+  private var trailingDetail: some View {
+    if state.requiresAttention == true {
+      Text("Open ›")
+        .foregroundStyle(NoemaActivityPalette.lockClay(for: colorScheme))
+    } else if state.phase == .completed {
+      Text(Date(timeIntervalSince1970: state.updatedAtEpoch), style: .time)
+        .foregroundStyle(.secondary)
+    } else if let startedAtEpoch = state.startedAtEpoch, state.phase != .cancelled {
+      Text(Date(timeIntervalSince1970: startedAtEpoch), style: .timer)
+        .foregroundStyle(.primary)
+    }
+  }
+}
+
+private struct SmallActivityStatus: View {
+  @Environment(\.colorScheme) private var colorScheme
+
+  let state: NoemaTasksActivityAttributes.ContentState
+
+  var body: some View {
+    HStack(spacing: 4) {
+      statusIcon
+      Text(statusLabel)
+        .lineLimit(1)
+    }
+    .font(.caption2.monospacedDigit().weight(.bold))
+    .foregroundStyle(statusColor)
+    .accessibilityElement(children: .combine)
+  }
+
+  @ViewBuilder
+  private var statusIcon: some View {
+    if state.requiresAttention == true {
+      Image(systemName: "exclamationmark.circle.fill")
+    } else if state.phase == .completed {
+      Image(systemName: "checkmark.circle.fill")
+    } else if state.phase == .cancelled {
+      Image(systemName: "xmark.circle.fill")
+    }
+  }
+
+  private var statusLabel: String {
+    if state.requiresAttention == true { return "Needs You" }
+    if state.phase == .completed { return "Done" }
+    if state.phase == .cancelled { return "Ended" }
+    return state.statusLabel
+  }
+
+  private var statusColor: Color {
+    if state.phase == .completed {
+      return NoemaActivityPalette.doneText(for: .lockScreen)
+    }
+    return PhaseStyle(state: state).color(for: .lockScreen, colorScheme: colorScheme)
   }
 }
 
