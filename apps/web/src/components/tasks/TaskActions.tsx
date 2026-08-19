@@ -14,6 +14,7 @@ import { TasksTaskEditFieldsDocument } from "@/generated/graphql";
 import { composerDraftInlineSize, measureComposerDraftInlineSize } from "@/components/Composer";
 import { snapshotTaskSubject, taskSubjectChanged } from "./semanticCommand";
 import { TaskScheduleDialog } from "./TaskScheduleDialog";
+import { TaskInlineEditForm } from "./TaskInlineEditForm";
 
 type ActiveCommand = {
   action: string;
@@ -27,7 +28,7 @@ type TaskActionsProps = {
   inlineResponse?: boolean;
   answerChoices?: readonly string[];
   onUpdated?: () => void | Promise<void>;
-  children?: (actions: React.ReactNode, controls: React.ReactNode) => React.ReactNode;
+  children?: (actions: React.ReactNode, controls: React.ReactNode, editSurface: React.ReactNode) => React.ReactNode;
 };
 
 export function TaskActions({
@@ -282,18 +283,35 @@ export function TaskActions({
       {editLoadError ? <span role="alert" {...stylex.props(styles.loadError)}>{editLoadError}</span> : null}
     </div>
   ) : null;
+  const editSurface = activeAction === "EDIT" ? (
+    <TaskInlineEditForm
+      task={commandTask}
+      projects={projects}
+      busy={commands.busy !== null}
+      acknowledging={editLoad.loading}
+      requiresAcknowledgement={requiresAcknowledgement}
+      actionUnavailable={actionUnavailable}
+      error={editLoadError ?? commands.error}
+      onAcknowledge={() => acknowledgeLatest().catch(() => setEditLoadError("The latest task details could not be loaded."))}
+      onCancel={() => setActiveCommand(null)}
+      onSubmit={async (draft) => {
+        if (requiresAcknowledgement || actionUnavailable) return;
+        await commands.run("EDIT", draft);
+        setActiveCommand(null);
+      }}
+    />
+  ) : null;
 
   return (
     <>
-      {children ? children(actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null, controls) : (
+      {children ? children(actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null, controls, editSurface) : (
         <>{controls}{actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null}</>
       )}
       <span aria-live="polite" {...stylex.props(styles.srOnly)}>{commands.notice}</span>
       <TaskActionDialog
         key={activeAction ?? "closed"}
-        action={activeAction}
+        action={activeAction === "EDIT" ? null : activeAction}
         task={commandTask}
-        projects={projects}
         busy={commands.busy !== null}
         acknowledging={editLoad.loading}
         requiresAcknowledgement={requiresAcknowledgement}

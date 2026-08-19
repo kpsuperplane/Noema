@@ -73,7 +73,7 @@ export function TaskDetailQueryPanel({
     : task?.validActions.filter((action) => (
         !interventionFresh || (action !== "ANSWER" && action !== "RETRY")
       )) ?? [];
-  const renderPanel = (_actions?: React.ReactNode, controls?: React.ReactNode) => (
+  const renderPanel = (_actions?: React.ReactNode, controls?: React.ReactNode, editSurface?: React.ReactNode) => (
     <>
       <TaskDetailPanel
         detail={detail}
@@ -88,6 +88,7 @@ export function TaskDetailQueryPanel({
           />
         )}
         controls={controls}
+        editSurface={editSurface}
         showTasksLink={showTasksLink}
         taskId={taskId}
       />

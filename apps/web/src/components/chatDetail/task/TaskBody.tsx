@@ -11,12 +11,14 @@ import { TaskTranscript } from "./TaskTranscript";
 type TaskTab = "result" | "task" | "transcript";
 export function TaskBody({
   detail,
+  editSurface,
   liveRunItems,
   onOpenDetail,
   onLatestRunEntryChange,
   renderContextCard
 }: {
   detail: TaskDetail;
+  editSurface?: React.ReactNode;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   onOpenDetail: (target: ChatDetailTarget) => void;
   onLatestRunEntryChange?: TaskRunLatestEntryChange;
@@ -41,6 +43,7 @@ export function TaskBody({
       : activeTab === "result" && !hasResult ? "task" : activeTab;
     setTabState({ taskId: detail.taskId, hasResult, activeTab });
   }
+  if (editSurface) activeTab = "task";
 
   function selectTab(tab: TaskTab) {
     setTabState((current) => ({ ...current, activeTab: tab }));
@@ -96,7 +99,7 @@ export function TaskBody({
         {activeTab === "result" ? (
           <TaskDocument fileName="RESULT.md" text={detail.resultDocument ?? ""} />
         ) : activeTab === "task" ? (
-          <TaskDocument detail={detail} fileName="TASK.md" text={detail.taskDocument} />
+          editSurface ?? <TaskDocument detail={detail} fileName="TASK.md" text={detail.taskDocument} />
         ) : (
           <div {...stylex.props(styles.transcript)}>
             <TaskTranscript

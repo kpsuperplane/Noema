@@ -149,13 +149,14 @@ Task detail reads `Result` from `RESULT.md` and `Task` from `TASK.md`.
 It shows `Result`, `Task`, and `Transcript` in that order when a result exists.
 It omits blank results and never appends `REVIEW.md` to either document view.
 
-Web Task creation and Inbox editing use one shared Markdown-only rich editor.
+Web Task creation and Inbox editing use one shared Milkdown Crepe editor.
+Inbox editing stays in the Task tab and uses explicit Cancel and Save actions.
 The editor includes source mode and falls back to source when rich parsing fails.
 iPhone and iPad use full-screen Markdown source editors for the same Task fields.
 Both clients send the transient document digest with human updates.
 
 Recurrence detail reads its separate template `TASK.md`.
-Template editing is separate from schedule editing and affects only future occurrences.
+Template editing stays inline, remains separate from schedule editing, and affects only future occurrences.
 Task routes have no dormant text-search parameter or description-search behavior.
 
 The Tasks list reads recurring authorities directly. A recurrence remains in

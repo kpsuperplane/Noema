@@ -1,65 +1,93 @@
 import * as React from "react";
-import {
-  BlockTypeSelect,
-  BoldItalicUnderlineToggles,
-  CreateLink,
-  DiffSourceToggleWrapper,
-  InsertCodeBlock,
-  InsertTable,
-  InsertThematicBreak,
-  ListsToggle,
-  MDXEditor,
-  type MDXEditorMethods,
-  codeBlockPlugin,
-  codeMirrorPlugin,
-  diffSourcePlugin,
-  headingsPlugin,
-  linkDialogPlugin,
-  linkPlugin,
-  listsPlugin,
-  quotePlugin,
-  tablePlugin,
-  thematicBreakPlugin,
-  toolbarPlugin
-} from "@mdxeditor/editor";
-import "@mdxeditor/editor/style.css";
+import { Button } from "@astryxdesign/core/Button";
+import { HStack } from "@astryxdesign/core/HStack";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { Crepe } from "@milkdown/crepe";
+import "@milkdown/crepe/theme/common/style.css";
+import "@milkdown/crepe/theme/frame.css";
 import * as stylex from "@stylexjs/stylex";
 import type { TaskMarkdownEditorProps } from "./TaskMarkdownEditor";
 
 export default function TaskMarkdownEditorImpl({ value, onChange, label = "Task document" }: TaskMarkdownEditorProps) {
-  const editor = React.useRef<MDXEditorMethods>(null);
-  const [sourceOnly, setSourceOnly] = React.useState(false);
-  React.useEffect(() => {
-    if (editor.current?.getMarkdown() !== value) editor.current?.setMarkdown(value);
-  }, [value]);
-  const plugins = React.useMemo(() => [
-    headingsPlugin(), listsPlugin(), quotePlugin(), thematicBreakPlugin(), linkPlugin(), linkDialogPlugin(),
-    tablePlugin(), codeBlockPlugin({ defaultCodeBlockLanguage: "" }),
-    codeMirrorPlugin({ codeBlockLanguages: { "": "Plain text", bash: "Bash", json: "JSON", markdown: "Markdown", rust: "Rust", typescript: "TypeScript" } }),
-    diffSourcePlugin({ viewMode: sourceOnly ? "source" : "rich-text" }),
-    toolbarPlugin({ toolbarContents: () => (
-      <DiffSourceToggleWrapper options={["rich-text", "source"]}>
-        <BlockTypeSelect />
-        <BoldItalicUnderlineToggles options={["Bold", "Italic"]} />
-        <ListsToggle />
-        <CreateLink />
-        <InsertCodeBlock />
-        <InsertTable />
-        <InsertThematicBreak />
-      </DiffSourceToggleWrapper>
-    ) })
-  ], [sourceOnly]);
+  const [sourceMode, setSourceMode] = React.useState(false);
+  const [richFailed, setRichFailed] = React.useState(false);
   return (
     <section aria-label={label} {...stylex.props(styles.root)}>
-      <MDXEditor key={sourceOnly ? "source" : "rich"} ref={editor} markdown={value} plugins={plugins} className={stylex.props(styles.editor).className} contentEditableClassName={stylex.props(styles.content).className} onChange={(markdown, initialNormalize) => { if (!initialNormalize) onChange(markdown); }} onError={({ source }) => { onChange(source); setSourceOnly(true); }} />
-      {sourceOnly ? <p role="status" {...stylex.props(styles.notice)}>Rich editing is unavailable for this Markdown. Source mode keeps the original text.</p> : null}
+      <HStack justify="between" align="center" gap={2} className={stylex.props(styles.modeBar).className}>
+        <span {...stylex.props(styles.modeLabel)}>{sourceMode ? "Markdown source" : "Rich text"}</span>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          label={sourceMode ? "Use rich editor" : "Edit source"}
+          isDisabled={richFailed && sourceMode}
+          onClick={() => setSourceMode((current) => !current)}
+        />
+      </HStack>
+      {sourceMode ? (
+        <TextArea
+          isLabelHidden
+          label={`${label} Markdown source`}
+          rows={14}
+          value={value}
+          width="100%"
+          className={stylex.props(styles.source).className}
+          onChange={onChange}
+        />
+      ) : (
+        <MilkdownCrepe
+          initialValue={value}
+          onChange={onChange}
+          onFailure={() => {
+            setRichFailed(true);
+            setSourceMode(true);
+          }}
+        />
+      )}
+      {richFailed ? <p role="status" {...stylex.props(styles.notice)}>Rich editing is unavailable for this Markdown. Source mode keeps the original text.</p> : null}
     </section>
   );
 }
 
+function MilkdownCrepe({ initialValue, onChange, onFailure }: { initialValue: string; onChange: (value: string) => void; onFailure: () => void }) {
+  const root = React.useRef<HTMLDivElement>(null);
+  const initialValueRef = React.useRef(initialValue);
+  const onChangeRef = React.useRef(onChange);
+  const onFailureRef = React.useRef(onFailure);
+  React.useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  React.useEffect(() => { onFailureRef.current = onFailure; }, [onFailure]);
+  React.useEffect(() => {
+    if (!root.current) return;
+    const crepe = new Crepe({
+      root: root.current,
+      defaultValue: initialValueRef.current,
+      features: {
+        [Crepe.Feature.AI]: false,
+        [Crepe.Feature.ImageBlock]: false,
+        [Crepe.Feature.Latex]: false,
+        [Crepe.Feature.TopBar]: true
+      }
+    });
+    crepe.on((listener) => {
+      listener.markdownUpdated((_context, markdown, previousMarkdown) => {
+        if (markdown !== previousMarkdown) onChangeRef.current(markdown);
+      });
+    });
+    let active = true;
+    void crepe.create().catch(() => { if (active) onFailureRef.current(); });
+    return () => {
+      active = false;
+      void crepe.destroy().catch(() => undefined);
+    };
+  }, []);
+  return <div ref={root} {...stylex.props(styles.editor)} />;
+}
+
 const styles = stylex.create({
   root: { minWidth: 0, minHeight: 320, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: "var(--radius-element)", overflow: "hidden", backgroundColor: "var(--background)" },
-  editor: { minHeight: 320 },
-  content: { minHeight: 260, maxWidth: 880, marginInline: "auto", padding: "var(--spacing-4)", color: "var(--foreground)", fontFamily: "var(--font-family-sans)", fontSize: 15, lineHeight: 1.6 },
+  modeBar: { minHeight: 38, borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border)", paddingInline: "var(--spacing-2)" },
+  modeLabel: { color: "var(--muted-foreground)", fontSize: 12, fontWeight: 600 },
+  editor: { minHeight: 280, color: "var(--foreground)", fontFamily: "var(--font-family-sans)", "--crepe-color-background": "var(--background)", "--crepe-color-on-background": "var(--foreground)", "--crepe-color-surface": "var(--card)", "--crepe-color-on-surface": "var(--card-foreground)", "--crepe-color-outline": "var(--border)", "--crepe-color-primary": "var(--primary)", "--crepe-color-on-primary": "var(--primary-foreground)" },
+  source: { minHeight: 280, borderWidth: 0, borderRadius: 0, fontFamily: "var(--noema-font-mono)", fontSize: 13, lineHeight: 1.55, resize: "vertical" },
   notice: { margin: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--border)", padding: "var(--spacing-2)", color: "var(--muted-foreground)", fontSize: 12 }
 });

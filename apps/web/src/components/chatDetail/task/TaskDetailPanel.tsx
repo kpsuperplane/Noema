@@ -26,6 +26,7 @@ export function TaskDetailPanel({
   error = null,
   liveRunItems,
   controls,
+  editSurface,
   renderSecondarySurface,
   onOpenDetail,
   showTasksLink = false
@@ -36,6 +37,7 @@ export function TaskDetailPanel({
   error?: string | null;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   controls?: React.ReactNode;
+  editSurface?: React.ReactNode;
   showTasksLink?: boolean;
   renderSecondarySurface?: (status: React.ReactNode | null) => React.ReactNode;
   onOpenDetail: (target: ChatDetailTarget) => void;
@@ -106,6 +108,7 @@ export function TaskDetailPanel({
           <TaskBody
             key={`task:${currentDetail.taskId}`}
             detail={currentDetail}
+            editSurface={editSurface}
             liveRunItems={liveRunItems}
             onOpenDetail={onOpenDetail}
             onLatestRunEntryChange={onLatestRunEntryChange}
