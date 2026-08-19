@@ -166,6 +166,15 @@ The Planner reads current `TASK.md`.
 The Executor reads current `TASK.md`, optional `RESULT.md`, and optional `REVIEW.md`.
 The Reviewer reads current `TASK.md`, required `RESULT.md`, and optional `REVIEW.md`.
 Role prompts must not prescribe batches, checklists, or document sections.
+For research, the Executor identifies the required evidence and likely source types before it searches.
+Queries use concrete entities and constraints. Search results supply leads, not final evidence.
+The Executor opens sources and verifies claims from their content.
+When freshness, completeness, or a collection matters, the Executor starts with source-owned listings.
+Hosted search locates source pages. The interactive browser does not open search-engine result pages.
+The Executor inspects current results before it issues speculative query variants.
+After two low-yield searches, it changes the retrieval route, source type, domain, or query structure.
+It does not spend further calls on near-synonym queries.
+Multi-source research keeps concise candidate evidence and rejected leads in Task files.
 Before a continuation, the Executor records completed progress, the exact next action, and needed support-file references in `TASK.md`.
 If `TASK.md` omits a needed value, the Executor reads its referenced support file and does not guess the value.
 The runtime rejects continuation when another tool action occurs after the latest successful `TASK.md` write.
