@@ -230,6 +230,65 @@ a[href][data-slot="shell-sidebar-control"] {
   transform: translateY(1px);
 }
 
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror {
+  min-height: 96px;
+  padding: var(--spacing-2);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror > :first-child {
+  margin-block-start: 0;
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h1 {
+  margin-block: var(--spacing-4) var(--spacing-2);
+  font-size: var(--text-heading-1-size);
+  font-weight: var(--text-heading-1-weight);
+  line-height: var(--text-heading-1-leading);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h2 {
+  margin-block: var(--spacing-4) var(--spacing-2);
+  font-size: var(--text-heading-2-size);
+  font-weight: var(--text-heading-2-weight);
+  line-height: var(--text-heading-2-leading);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h3,
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h4,
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h5,
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h6 {
+  margin-block: var(--spacing-3) var(--spacing-1);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h3 {
+  font-size: var(--text-heading-3-size);
+  font-weight: var(--text-heading-3-weight);
+  line-height: var(--text-heading-3-leading);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h4 {
+  font-size: var(--text-heading-4-size);
+  font-weight: var(--text-heading-4-weight);
+  line-height: var(--text-heading-4-leading);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h5 {
+  font-size: var(--text-heading-5-size);
+  font-weight: var(--text-heading-5-weight);
+  line-height: var(--text-heading-5-leading);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h6 {
+  font-size: var(--text-heading-6-size);
+  font-weight: var(--text-heading-6-weight);
+  line-height: var(--text-heading-6-leading);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .milkdown-top-bar {
+  min-height: 36px;
+  padding-inline: var(--spacing-2);
+}
+
 .noema-markdown
   .astryx-list[data-list-style="decimal"]
   > .astryx-list-item

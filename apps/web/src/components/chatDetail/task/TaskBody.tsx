@@ -158,7 +158,7 @@ function TaskDocumentEditor({ detail, edit }: { detail: TaskDetail; edit: TaskIn
     <div data-slot="task-document" {...stylex.props(styles.taskScroller)}>
       <TaskDocumentBar edit={edit} onSave={() => edit.saveDocument(draft)} />
       <div {...stylex.props(styles.editorContent, Boolean(edit.error || edit.actionUnavailable) && styles.editorError)}>
-        <TaskMarkdownEditor key={edit.task.taskDocumentDigest} value={draft} onChange={setDraft} label="Task description" />
+        <TaskMarkdownEditor key={edit.task.taskDocumentDigest} value={draft} onChange={setDraft} label="Task description" density="inline" />
         {edit.error ? <span role="alert" {...stylex.props(styles.srOnly)}>{edit.error}</span> : null}
       </div>
       <TaskMetadata detail={detail} />

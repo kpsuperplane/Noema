@@ -314,7 +314,7 @@ function EditableTaskTitle({ title, edit }: { title: string; edit?: InlineTitleE
 function TaskTitleEditor({ title, edit, subject }: { title: string; edit: InlineTitleEditController; subject: string }) {
   const [draft, setDraft] = React.useState(title);
   return (
-    <form {...stylex.props(styles.editableTitle)} onSubmit={(event) => { event.preventDefault(); if (draft.trim()) void edit.saveTitle(draft.trim()).catch(() => undefined); }}>
+    <form {...stylex.props(styles.titleEditor)} onSubmit={(event) => { event.preventDefault(); if (draft.trim()) void edit.saveTitle(draft.trim()).catch(() => undefined); }}>
       <input autoFocus aria-label={`${subject} title`} aria-invalid={Boolean(edit.error || edit.actionUnavailable)} value={draft} {...stylex.props(styles.titleInput)} onChange={(event) => setDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Escape") edit.cancel(); }} />
       <span {...stylex.props(styles.titleEditControls)}>
         {edit.requiresAcknowledgement ? <IconButton type="button" size="sm" variant="ghost" label={`Use latest ${subject}`} tooltip={`Use latest ${subject}`} icon={<RefreshCcw aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => void edit.acknowledge().catch(() => undefined)} /> : <IconButton type="submit" size="sm" variant="ghost" label={`Save ${subject} title`} tooltip="Save title" icon={<Check aria-hidden="true" size={14} />} isDisabled={edit.busy || edit.actionUnavailable || !draft.trim()} />}
@@ -518,7 +518,8 @@ const styles = stylex.create({
   },
   taskTitleBar: { display: "grid", minWidth: 0, gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: "var(--spacing-3)" },
   taskIdentity: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
-  editableTitle: { display: "grid", minWidth: 0, gridTemplateColumns: "minmax(0, 1fr) 64px", alignItems: "center", gap: "var(--spacing-1)" },
+  editableTitle: { display: "inline-flex", width: "fit-content", maxWidth: "100%", minWidth: 0, alignItems: "center", gap: "var(--spacing-1)" },
+  titleEditor: { display: "grid", width: "100%", minWidth: 0, gridTemplateColumns: "minmax(0, 1fr) 64px", alignItems: "center", gap: "var(--spacing-1)" },
   titleEditControls: { display: "inline-flex", width: 64, minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
   titleInput: { minWidth: 0, width: "100%", height: 28, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: "var(--radius-element)", backgroundColor: "var(--background)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", font: "inherit", fontSize: 15, fontWeight: 650, lineHeight: 1.25, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: 1 } },
   taskSubtitle: { minWidth: 0, color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.35, overflowWrap: "anywhere" },

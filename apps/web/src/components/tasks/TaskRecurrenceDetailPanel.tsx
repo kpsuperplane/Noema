@@ -236,20 +236,11 @@ function LoadedRecurrenceDetail({ recurrence, onReload, onTitleChange }: { recur
 
 function RecurrenceDescription({ recurrence, edit }: { recurrence: Recurrence; edit: RecurrenceInlineEditController }) {
   const editing = edit.field === "DOCUMENT";
+  if (editing) return <RecurrenceDescriptionEditor key={`${recurrence.recurrenceId}:description`} edit={edit} />;
   return (
     <VStack as="section" aria-labelledby="recurrence-description-title" gap={2}>
-      <HStack justify="between" align="center" className={stylex.props(styles.descriptionBar).className}>
-        <strong id="recurrence-description-title" {...stylex.props(styles.descriptionLabel)}>Description</strong>
-        <span {...stylex.props(styles.editControls)}>
-          {!edit.canEdit ? null : editing ? (
-            <>
-              {edit.requiresAcknowledgement ? <IconButton type="button" size="sm" variant="ghost" label="Use latest recurring task" tooltip="Use latest recurring task" icon={<RefreshCcw aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => void edit.acknowledge().catch(() => undefined)} /> : <IconButton type="submit" size="sm" variant="ghost" label="Save description" tooltip="Save description" icon={<Check aria-hidden="true" size={14} />} isDisabled={edit.busy || edit.actionUnavailable} form="recurrence-description-form" />}
-              <IconButton type="button" size="sm" variant="ghost" label="Cancel description edit" tooltip="Cancel" icon={<X aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={edit.cancel} />
-            </>
-          ) : <IconButton type="button" size="sm" variant="ghost" label="Edit description" tooltip="Edit description" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("DOCUMENT")} />}
-        </span>
-      </HStack>
-      {editing ? <RecurrenceDescriptionEditor key={`${recurrence.recurrenceId}:description`} edit={edit} /> : recurrence.taskDocument.trim() ? <MarkdownContent className={stylex.props(styles.description).className}>{recurrence.taskDocument}</MarkdownContent> : <p {...stylex.props(styles.empty)}>The template is empty.</p>}
+      <RecurrenceDescriptionBar edit={edit} />
+      {recurrence.taskDocument.trim() ? <MarkdownContent density="compact" className={stylex.props(styles.description).className}>{recurrence.taskDocument}</MarkdownContent> : <p {...stylex.props(styles.empty, styles.description)}>The template is empty.</p>}
     </VStack>
   );
 }
@@ -257,12 +248,20 @@ function RecurrenceDescription({ recurrence, edit }: { recurrence: Recurrence; e
 function RecurrenceDescriptionEditor({ edit }: { edit: RecurrenceInlineEditController }) {
   const [draft, setDraft] = React.useState(edit.recurrence.taskDocument);
   return (
-    <form id="recurrence-description-form" {...stylex.props(styles.editor, Boolean(edit.error || edit.actionUnavailable) && styles.editorError)} onSubmit={(event) => { event.preventDefault(); void edit.saveDocument(draft).catch(() => undefined); }}>
-      <TaskMarkdownEditor key={edit.recurrence.taskDocumentDigest} value={draft} onChange={setDraft} label="Recurring task description" />
+    <VStack as="section" aria-labelledby="recurrence-description-title" gap={2}>
+      <RecurrenceDescriptionBar edit={edit} onSave={() => edit.saveDocument(draft)} />
+      <VStack className={stylex.props(styles.editor, Boolean(edit.error || edit.actionUnavailable) && styles.editorError).className}>
+        <TaskMarkdownEditor key={edit.recurrence.taskDocumentDigest} value={draft} onChange={setDraft} label="Recurring task description" density="inline" />
+      </VStack>
       <span {...stylex.props(styles.templateNote)}>Changes apply only to future occurrences.</span>
       {edit.error ? <span role="alert" {...stylex.props(styles.srOnly)}>{edit.error}</span> : null}
-    </form>
+    </VStack>
   );
+}
+
+function RecurrenceDescriptionBar({ edit, onSave }: { edit: RecurrenceInlineEditController; onSave?: () => Promise<void> }) {
+  const editing = edit.field === "DOCUMENT";
+  return <HStack justify="between" align="center" className={stylex.props(styles.descriptionBar).className}><strong id="recurrence-description-title" {...stylex.props(styles.descriptionLabel)}>Description</strong><span {...stylex.props(styles.editControls)}>{!edit.canEdit ? null : editing ? <>{edit.requiresAcknowledgement ? <IconButton type="button" size="sm" variant="ghost" label="Use latest recurring task" tooltip="Use latest recurring task" icon={<RefreshCcw aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => void edit.acknowledge().catch(() => undefined)} /> : <IconButton type="button" size="sm" variant="ghost" label="Save description" tooltip="Save description" icon={<Check aria-hidden="true" size={14} />} isDisabled={edit.busy || edit.actionUnavailable} onClick={() => void onSave?.().catch(() => undefined)} />}<IconButton type="button" size="sm" variant="ghost" label="Cancel description edit" tooltip="Cancel" icon={<X aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={edit.cancel} /></> : <IconButton type="button" size="sm" variant="ghost" label="Edit description" tooltip="Edit description" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("DOCUMENT")} />}</span></HStack>;
 }
 
 function EndRecurrenceDialog({ submitting, error, onClose, onConfirm }: { submitting: boolean; error: string | null; onClose: () => void; onConfirm: () => void }) {
@@ -288,7 +287,7 @@ const styles = stylex.create({
   eyebrow: { color: "var(--noema-text-muted)", fontSize: 12, fontWeight: 650, textTransform: "uppercase", letterSpacing: "0.04em" },
   cadence: { color: "var(--noema-text-primary)", fontSize: 15, lineHeight: 1.35 },
   meta: { color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.4, fontVariantNumeric: "tabular-nums" },
-  description: { color: "var(--noema-text-secondary)", fontSize: 13 },
+  description: { paddingInline: "var(--spacing-2)" },
   descriptionBar: { minHeight: 36 },
   descriptionLabel: { color: "var(--noema-text-muted)", fontSize: 12, fontWeight: 650 },
   editControls: { display: "inline-flex", width: 64, minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
