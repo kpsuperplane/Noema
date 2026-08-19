@@ -823,7 +823,10 @@ mod tests {
 
         let payload = recurrence_authority_payload(&recurrence, "Use the previous 24 hours.");
         assert_eq!(payload["recurrence_id"], "recurrence:current");
-        assert_eq!(payload["description"], "Use the previous 24 hours.");
+        assert_eq!(
+            payload["task_document_preview"],
+            "Use the previous 24 hours."
+        );
         assert_eq!(payload["revision"], 3);
         assert_eq!(payload["cron_expression"], "0 7 * * *");
         assert_eq!(payload["time_zone"], "America/Los_Angeles");

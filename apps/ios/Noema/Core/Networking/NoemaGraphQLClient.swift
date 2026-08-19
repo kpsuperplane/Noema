@@ -7,6 +7,7 @@ import Foundation
 import NoemaAPI
 
 final class NoemaGraphQLClient: @unchecked Sendable {
+  private static let normalizedCacheVersion = 2
   let client: ApolloClient
   @MainActor let connectionStatus: NoemaConnectionStatus
   private let webSocketTransport: WebSocketTransport
@@ -180,7 +181,7 @@ final class NoemaGraphQLClient: @unchecked Sendable {
   }
 
   private static func cacheBaseName(for profile: NoemaProfile) -> String {
-    let identity = "\(profile.origin.absoluteString)\u{0}\(profile.clientId)"
+    let identity = "v\(normalizedCacheVersion)\u{0}\(profile.origin.absoluteString)\u{0}\(profile.clientId)"
     return SHA256.hash(data: Data(identity.utf8))
       .map { String(format: "%02x", $0) }
       .joined()

@@ -103,7 +103,7 @@ async fn recurrence_list_does_not_depend_on_an_active_task_instance() {
                   tasks(input: { workspaceId: "workspace:personal", scope: ACTIVE }) {
                     edges { node { taskId } }
                   }
-                  taskRecurrences(workspaceId: "workspace:personal", text: "positive") {
+                  taskRecurrences(workspaceId: "workspace:personal") {
                     recurrenceId title lifecycle nextRunAt
                   }
                 }"#,
@@ -381,7 +381,7 @@ async fn capture_task_returns_authoritative_task_projection() {
               captureTask(input: {
                 workspaceId: "workspace:personal"
                 title: "Capture through Tasks"
-                description: "A durable capture"
+                taskDocument: "Exact request\n\nA durable capture.\n"
                 schedule: {
                   scheduledFor: "2030-01-01T08:00:00Z"
                   timeZone: "UTC"
@@ -392,7 +392,6 @@ async fn capture_task_returns_authoritative_task_projection() {
                 task {
                   taskId
                   title
-                  description
                   stage { key behavior }
                   revision
                   generation
@@ -414,7 +413,6 @@ async fn capture_task_returns_authoritative_task_projection() {
         &[
             ("/captureTask/clientMutationId", json!("capture-work-graphql-test")),
             ("/captureTask/task/stage/key", json!("inbox")),
-            ("/captureTask/task/description", json!("A durable capture")),
             ("/captureTask/task/revision", json!(1)),
             ("/captureTask/task/generation", json!(1)),
             ("/captureTask/task/schedule/scheduledFor", json!("2030-01-01T08:00:00Z")),
@@ -422,7 +420,7 @@ async fn capture_task_returns_authoritative_task_projection() {
             ("/captureTask/task/schedule/recurrenceRevision", json!(1)),
             (
                 "/captureTask/task/taskDocument",
-                json!("# Capture through Tasks\n\nA durable capture\n"),
+                json!("Exact request\n\nA durable capture.\n"),
             ),
             ("/captureTask/task/resultDocument", serde_json::Value::Null),
             ("/captureTask/task/reviewDocument", serde_json::Value::Null),
@@ -606,10 +604,10 @@ async fn task_mutation_replay_returns_the_original_committed_detail() {
       captureTask(input: {
         workspaceId: "workspace:personal"
         title: "Receipt-stable title"
-        description: "Receipt-stable description"
+        taskDocument: "Receipt-stable document"
         clientMutationId: "capture-receipt-stability"
       }) {
-        task { taskId title description revision generation updatedAt }
+        task { taskId title taskDocument revision generation updatedAt }
         eventCursor
         clientMutationId
       }
@@ -647,7 +645,7 @@ async fn task_mutation_replay_returns_the_original_committed_detail() {
               captureTask(input: {
                 workspaceId: "workspace:personal"
                 title: "Divergent title"
-                description: "Receipt-stable description"
+                taskDocument: "Receipt-stable document"
                 clientMutationId: "capture-receipt-stability"
               }) { eventCursor }
             }"#,

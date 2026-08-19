@@ -90,7 +90,12 @@ fn create_recurrence_templates(
         }
         let suffix = recurrence_id.trim_start_matches("recurrence:");
         let directory = Path::new(suffix);
-        if directory.components().count() != 1 {
+        if directory.components().count() != 1
+            || !matches!(
+                directory.components().next(),
+                Some(std::path::Component::Normal(_))
+            )
+        {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("recurrence template path is unsafe for {recurrence_id}"),
@@ -148,15 +153,15 @@ fn rename_manual_task_body_field(transaction: &Transaction<'_>) -> HookResult {
             let Some(object) = value.as_object_mut() else {
                 continue;
             };
-            if object.get("kind").and_then(serde_json::Value::as_str) == Some("manual_task_body") {
-                if let Some(document) = object.remove("description_markdown") {
-                    object.insert("task_document_markdown".to_string(), document);
-                    updates.push((
-                        rowid,
-                        serde_json::to_string(&value)
-                            .map_err(|error| HookError::Hook(error.to_string()))?,
-                    ));
-                }
+            if object.get("kind").and_then(serde_json::Value::as_str) == Some("manual_task_body")
+                && let Some(document) = object.remove("description_markdown")
+            {
+                object.insert("task_document_markdown".to_string(), document);
+                updates.push((
+                    rowid,
+                    serde_json::to_string(&value)
+                        .map_err(|error| HookError::Hook(error.to_string()))?,
+                ));
             }
         }
         drop(statement);

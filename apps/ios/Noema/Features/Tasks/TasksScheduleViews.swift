@@ -566,6 +566,7 @@ struct TasksRecurrenceDetailRoute: View {
   @State private var recurrence: TasksRecurrenceSnapshot?
   @State private var loadFailed = false
   @State private var editing = false
+  @State private var editingTemplate = false
   @State private var confirmingEnd = false
   @State private var isSubmitting = false
   @State private var errorMessage: String?
@@ -583,6 +584,9 @@ struct TasksRecurrenceDetailRoute: View {
     .task(id: recurrenceId) { await load() }
     .noemaSheet(isPresented: $editing) {
       if let recurrence { TasksRecurrenceEditSheet(model: model, recurrence: recurrence) { refresh() } }
+    }
+    .fullScreenCover(isPresented: $editingTemplate) {
+      if let recurrence { TasksRecurrenceTemplateEditView(model: model, recurrence: recurrence) { refresh() } }
     }
     .confirmationDialog("End recurring task?", isPresented: $confirmingEnd, titleVisibility: .visible) {
       Button("End recurring task", role: .destructive) { run(.end) }
@@ -644,6 +648,7 @@ struct TasksRecurrenceDetailRoute: View {
         if recurrence.lifecycle != "ENDED" {
           Menu {
             Button("Run now", systemImage: "play") { run(.runNow) }
+            Button("Edit template", systemImage: "doc.text") { editingTemplate = true }
             Button("Edit schedule", systemImage: "pencil") { editing = true }
             Button(
               recurrence.lifecycle == "ACTIVE" ? "Pause future runs" : "Resume future runs",
@@ -660,8 +665,8 @@ struct TasksRecurrenceDetailRoute: View {
           .accessibilityLabel("Recurring task actions")
         }
       }
-      if !recurrence.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        Text(recurrence.description)
+      if !recurrence.taskDocument.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        Text(recurrence.taskDocument)
           .font(NoemaFont.body)
           .foregroundStyle(NoemaColor.contentSecondary)
       }
@@ -750,6 +755,86 @@ struct TasksRecurrenceDetailRoute: View {
         errorMessage = model.lastError ?? "Noema could not update this recurring task."
       }
       isSubmitting = false
+    }
+  }
+}
+
+struct TasksRecurrenceTemplateEditView: View {
+  @Environment(\.dismiss) private var dismiss
+  @Bindable var model: TasksModel
+  let onUpdated: () -> Void
+  @State private var current: TasksRecurrenceSnapshot
+  @State private var title: String
+  @State private var taskDocument: String
+  @State private var isSaving = false
+  @State private var errorMessage: String?
+
+  init(model: TasksModel, recurrence: TasksRecurrenceSnapshot, onUpdated: @escaping () -> Void) {
+    self.model = model
+    self.onUpdated = onUpdated
+    _current = State(initialValue: recurrence)
+    _title = State(initialValue: recurrence.title)
+    _taskDocument = State(initialValue: recurrence.taskDocument)
+  }
+
+  var body: some View {
+    NoemaNativeSheet(title: "Edit template", dismissDisabled: isSaving, onDismiss: { dismiss() }) {
+      VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+        Text("Changes apply only to future occurrences.")
+          .font(NoemaFont.body)
+          .foregroundStyle(NoemaColor.contentSecondary)
+        TasksSheetField("Title") {
+          TextField("", text: $title)
+            .textInputAutocapitalization(.sentences)
+            .noemaTaskSheetField(focused: false, height: 46)
+        }
+        TasksSheetField("Template document") {
+          TasksMarkdownSourceEditor(text: $taskDocument)
+        }
+        if let errorMessage {
+          NoemaInlineState(message: errorMessage, symbol: "exclamationmark.triangle", tone: .warning)
+          Button("Reload latest template") {
+            Task {
+              if let latest = await model.refreshRecurrence(current) {
+                current = latest
+                title = latest.title
+                taskDocument = latest.taskDocument
+                self.errorMessage = nil
+              }
+            }
+          }
+          .disabled(!model.isConnected)
+        }
+        HStack(spacing: NoemaSpacing.sm) {
+          Spacer(minLength: 0)
+          Button("Cancel") { dismiss() }.disabled(isSaving)
+          Button("Save template") { save() }
+            .font(NoemaFont.bodyEmphasized)
+            .foregroundStyle(NoemaColor.white)
+            .padding(.horizontal, NoemaSpacing.md)
+            .frame(minHeight: 32)
+            .background(NoemaColor.pine500, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
+            .opacity(canSave ? 1 : 0.42)
+            .disabled(!canSave)
+        }
+      }
+      .padding(NoemaSpacing.lg)
+      .background(NoemaColor.surface)
+    }
+    .interactiveDismissDisabled(isSaving)
+  }
+
+  private var canSave: Bool {
+    !isSaving && model.isConnected && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  private func save() {
+    Task {
+      isSaving = true
+      errorMessage = nil
+      let succeeded = await model.updateRecurrenceTemplate(current, title: title.trimmingCharacters(in: .whitespacesAndNewlines), taskDocument: taskDocument)
+      isSaving = false
+      if succeeded { onUpdated(); dismiss() } else { errorMessage = model.lastError ?? "Noema could not save this template." }
     }
   }
 }

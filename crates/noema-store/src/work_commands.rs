@@ -111,18 +111,17 @@ impl WorkCommandService {
             if matches!(
                 command,
                 WorkCommand::CaptureTask(_) | WorkCommand::ScheduleTask(_)
-            ) {
-                if let Some(recurrence_id) = self.task_recurrence_id(task_id).await? {
-                    let document = self
-                        .store
-                        .read_task_document(task_id)
-                        .await
-                        .map_err(file_invariant)?;
-                    self.store
-                        .ensure_recurrence_document_from(&recurrence_id, &document.content)
-                        .await
-                        .map_err(file_invariant)?;
-                }
+            ) && let Some(recurrence_id) = self.task_recurrence_id(task_id).await?
+            {
+                let document = self
+                    .store
+                    .read_task_document(task_id)
+                    .await
+                    .map_err(file_invariant)?;
+                self.store
+                    .ensure_recurrence_document_from(&recurrence_id, &document.content)
+                    .await
+                    .map_err(file_invariant)?;
             }
         }
         if let Some(recurrence_id) = obsolete_recurrence {

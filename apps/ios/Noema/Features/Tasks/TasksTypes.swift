@@ -70,7 +70,8 @@ struct TasksRecurrenceOccurrenceSnapshot: Identifiable, Hashable, Sendable {
 struct TasksRecurrenceSnapshot: Identifiable, Hashable, Sendable {
   let id: String
   var title: String
-  var description: String
+  var taskDocument: String
+  var taskDocumentDigest: String
   var startsAt: String
   var cronExpression: String
   var timeZone: String
@@ -201,7 +202,6 @@ struct TasksMessageSnapshot: Identifiable, Hashable, Sendable {
 struct TasksDetailSnapshot: Identifiable, Hashable, Sendable {
   let id: String
   var title: String
-  var description: String
   var project: TasksProjectSnapshot?
   var executor: TasksExecutorSnapshot = .default
   var schedule: TasksScheduleSnapshot? = nil
@@ -213,6 +213,7 @@ struct TasksDetailSnapshot: Identifiable, Hashable, Sendable {
   var createdAt: String
   var sourceLabel: String?
   var taskDocument: String
+  var taskDocumentDigest: String
   var resultDocument: String?
   var reviewDocument: String?
   var currentRun: TasksRunSnapshot?
@@ -227,7 +228,6 @@ extension TasksTaskRow {
     TasksDetailSnapshot(
       id: id,
       title: title,
-      description: summary,
       project: nil,
       stage: stage,
       revision: revision,
@@ -236,7 +236,8 @@ extension TasksTaskRow {
       completedAt: completedAt,
       createdAt: "",
       sourceLabel: projectName,
-      taskDocument: "",
+      taskDocument: summary,
+      taskDocumentDigest: "",
       resultDocument: nil,
       reviewDocument: nil,
       currentRun: currentRun,

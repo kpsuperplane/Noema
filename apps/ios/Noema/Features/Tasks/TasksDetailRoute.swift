@@ -120,7 +120,7 @@ private struct TasksDetailContent: View {
         }
       }
     }
-    .noemaSheet(isPresented: $editPresented) {
+    .fullScreenCover(isPresented: $editPresented) {
       TasksInboxEditSheet(model: model, task: detail)
     }
     .noemaSheet(isPresented: $reopenPresented) {
@@ -288,6 +288,7 @@ private struct TasksDetailContent: View {
       }
       if hasAction("EDIT") {
         Button("Edit Inbox", systemImage: "pencil") { editPresented = true }
+          .disabled(detail.taskDocumentDigest.isEmpty)
       }
       if hasAction("QUEUE") {
         Button("Queue", systemImage: "arrow.right.circle") { queuePresented = true }
@@ -353,7 +354,7 @@ private struct TasksDetailContent: View {
           runItems: model.runItems,
           hasMore: model.hasMoreRunItems,
           isLoadingMore: model.isLoadingOlderRunItems,
-          request: detail.description.nilIfBlank ?? detail.title,
+          request: detail.title,
           bottomSpacing: compactPresentation ? 27 : 1,
           loadMore: { Task { await model.loadOlderRunItems() } }
         )
@@ -646,7 +647,7 @@ private struct TasksInboxEditSheet: View {
   @Bindable var model: TasksModel
   let task: TasksDetailSnapshot
   @State private var title: String
-  @State private var description: String
+  @State private var taskDocument: String
   @State private var projectId: String?
   @State private var executorAgentId: String
   @State private var cwdOverride: String
@@ -657,14 +658,14 @@ private struct TasksInboxEditSheet: View {
 
   private enum Field: Hashable {
     case title
-    case description
+    case taskDocument
   }
 
   init(model: TasksModel, task: TasksDetailSnapshot) {
     self.model = model
     self.task = task
     _title = State(initialValue: task.title)
-    _description = State(initialValue: task.description)
+    _taskDocument = State(initialValue: task.taskDocument)
     _projectId = State(initialValue: task.project?.id)
     _executorAgentId = State(initialValue: task.executor.agentId)
     _cwdOverride = State(initialValue: task.executor.cwdOverride ?? "")
@@ -693,11 +694,9 @@ private struct TasksInboxEditSheet: View {
                 .focused($focusedField, equals: .title)
                 .noemaTaskSheetField(focused: focusedField == .title, height: 42)
             }
-            TasksSheetField("Description (optional)") {
-              TextField("", text: $description, axis: .vertical)
-                .lineLimit(3...6)
-                .focused($focusedField, equals: .description)
-                .noemaTaskSheetField(focused: focusedField == .description, height: 76)
+            TasksSheetField("Task document") {
+              TasksMarkdownSourceEditor(text: $taskDocument)
+                .focused($focusedField, equals: .taskDocument)
             }
             TasksSheetField("Project (optional)") {
               Picker(selection: $projectId) {
@@ -756,7 +755,7 @@ private struct TasksInboxEditSheet: View {
               let succeeded = await model.updateInbox(
                 task: task,
                 title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                description: description,
+                taskDocument: taskDocument,
                 projectId: projectId,
                 executorAgentId: executorAgentId,
                 cwdOverride: trimmedCwd.isEmpty ? nil : trimmedCwd,
@@ -790,7 +789,6 @@ private struct TasksInboxEditSheet: View {
       }
       .background(NoemaColor.surface)
     }
-    .noemaTaskSheetPresentation([.medium, .large], regularHeight: 640)
     .interactiveDismissDisabled(isDirty || isSaving)
     .noemaSheet(isPresented: $discardPresented) {
       TasksDiscardSheet(title: "Discard changes?", message: "Your task edits will be lost.") {
@@ -803,7 +801,7 @@ private struct TasksInboxEditSheet: View {
   }
 
   private var isDirty: Bool {
-    title != task.title || description != task.description || projectId != task.project?.id || executorAgentId != task.executor.agentId || cwdOverride != (task.executor.cwdOverride ?? "")
+    title != task.title || taskDocument != task.taskDocument || projectId != task.project?.id || executorAgentId != task.executor.agentId || cwdOverride != (task.executor.cwdOverride ?? "")
   }
 
   private var canSave: Bool {

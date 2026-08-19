@@ -90,7 +90,10 @@ Only the Executor can use `file.download`, and downloads stay in the Task direct
 Task file tools accept relative paths and UTF-8 text.
 Model-facing reads and writes have a 64 KiB limit.
 Writes replace files atomically.
-Task files have no database record, content hash, revision, or snapshot.
+Task files have no database record, persisted content hash, revision, or snapshot.
+Human saves use a transient SHA-256 digest from the latest read.
+Task document saves are available only while a Task is in Inbox.
+The save replaces the complete document and rejects a stale digest without changing other Task data.
 
 ## Workflow
 
@@ -212,9 +215,14 @@ Unschedule returns it to ordinary Inbox.
 Reschedule replaces only future timing.
 
 Repeat owns continuing authority after one occurrence starts.
-The recurrence stores its current template, schedule, policies, lifecycle, revision, and next due time.
+Each recurrence stores its template at `${NOEMA_HOME}/recurrences/<recurrence-id-suffix>/TASK.md`.
+SQLite stores its title, schedule, policies, lifecycle, revision, and next due time.
 Each occurrence remains an ordinary Task with its own files, runs, gates, and transcript.
 Template edits do not rewrite existing occurrences.
+Active and paused recurrences allow template edits.
+Ended recurrences keep a readable, immutable template.
+Each manual or scheduled occurrence copies the latest exact template before it enters Queue.
+Unschedule and recurrence replacement remove obsolete template directories.
 
 Clients open a recurrence as its own schedule and occurrence-history view.
 Clients open each occurrence as an ordinary Task and provide a link to its recurrence.
@@ -240,6 +248,7 @@ Public mutations use semantic Task commands.
 The API does not expose a generic `set_stage` operation.
 
 Task commands carry the expected revision and generation.
+Human document saves also carry the transient digest returned by the document read.
 Project commands carry the expected project revision.
 Command metadata carries identity, correlation, causation, and idempotency data.
 

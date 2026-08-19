@@ -67,7 +67,7 @@ fragment TasksTaskCardFields on TaskCard {
   workspace { ...TasksWorkspaceFields }
   project { ...TasksProjectFields }
   title
-  descriptionPreview
+  taskDocumentPreview
   executorAgentId
   executorBackend
   cwdOverride
@@ -90,7 +90,7 @@ fragment TasksTaskSummaryFields on TaskSummary {
   workspace { ...TasksWorkspaceFields }
   project { ...TasksProjectFields }
   title
-  descriptionPreview
+  taskDocumentPreview
   executorAgentId
   executorBackend
   cwdOverride
@@ -164,7 +164,8 @@ fragment TasksRunFields on TaskRun {
 fragment TasksCommandTaskFields on TaskDetail {
   taskId
   title
-  description
+  taskDocument
+  taskDocumentDigest
   executorAgentId
   executorBackend
   cwdOverride
@@ -202,6 +203,7 @@ fragment TasksDetailActivityFields on TaskDetail {
 fragment TasksDetailOutcomeFields on TaskDetail {
   taskId
   taskDocument
+  taskDocumentDigest
   resultDocument
   reviewDocument
 }

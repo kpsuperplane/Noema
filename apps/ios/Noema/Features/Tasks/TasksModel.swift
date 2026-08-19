@@ -318,7 +318,7 @@ final class TasksModel {
 
   func loadHistory() async {
     do {
-      let query = TasksHistoryQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId), kind: .none, text: .none, first: .some(50), after: .none)
+      let query = TasksHistoryQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId), kind: .none, first: .some(50), after: .none)
       if let result = try await fetch(query).data {
         applyHistory(result)
       }
@@ -349,7 +349,7 @@ final class TasksModel {
     isLoadingMoreHistory = true
     defer { isLoadingMoreHistory = false }
     do {
-      let query = TasksHistoryQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId), kind: .none, text: .none, first: .some(50), after: .some(cursor))
+      let query = TasksHistoryQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId), kind: .none, first: .some(50), after: .some(cursor))
       guard let result = try await fetch(query).data else { return }
       appendUnique(result.taskHistory.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }, to: &history)
       historyEndCursor = result.taskHistory.pageInfo.endCursor
@@ -369,7 +369,7 @@ final class TasksModel {
 
   func capture(
     title: String,
-    description: String,
+    taskDocument: String,
     projectId: String?,
     schedule: NewTaskScheduleInput? = nil,
     executorAgentId: String = "agent:task-executor",
@@ -380,7 +380,7 @@ final class TasksModel {
       workspaceId: workspaceId,
       projectId: optional(projectId),
       title: title,
-      description: description,
+      taskDocument: taskDocument,
       schedule: schedule.map(GraphQLNullable.some) ?? .none,
       executorAgentId: optional(executorAgentId),
       cwdOverride: optional(cwdOverride),
@@ -400,28 +400,15 @@ final class TasksModel {
 
   @discardableResult
   func updateInbox(
-    task: TasksTaskRow,
-    title: String,
-    description: String,
-    projectId: String?,
-    executorAgentId: String? = nil,
-    cwdOverride: String? = nil,
-    clearCwdOverride: Bool = false
-  ) async -> Bool {
-    await updateInbox(taskId: task.id, revision: task.revision, generation: task.generation, title: title, description: description, projectId: projectId, executorAgentId: executorAgentId, cwdOverride: cwdOverride, clearCwdOverride: clearCwdOverride)
-  }
-
-  @discardableResult
-  func updateInbox(
     task: TasksDetailSnapshot,
     title: String,
-    description: String,
+    taskDocument: String,
     projectId: String?,
     executorAgentId: String? = nil,
     cwdOverride: String? = nil,
     clearCwdOverride: Bool = false
   ) async -> Bool {
-    await updateInbox(taskId: task.id, revision: task.revision, generation: task.generation, title: title, description: description, projectId: projectId, executorAgentId: executorAgentId, cwdOverride: cwdOverride, clearCwdOverride: clearCwdOverride)
+    await updateInbox(taskId: task.id, revision: task.revision, generation: task.generation, title: title, taskDocument: taskDocument, taskDocumentDigest: task.taskDocumentDigest, projectId: projectId, executorAgentId: executorAgentId, cwdOverride: cwdOverride, clearCwdOverride: clearCwdOverride)
   }
 
   private func updateInbox(
@@ -429,7 +416,8 @@ final class TasksModel {
     revision: Int,
     generation: Int,
     title: String,
-    description: String,
+    taskDocument: String,
+    taskDocumentDigest: String,
     projectId: String?,
     executorAgentId: String?,
     cwdOverride: String?,
@@ -442,7 +430,8 @@ final class TasksModel {
       expectedRevision: Int32(revision),
       expectedGeneration: Int32(generation),
       title: .some(title),
-      description: .some(description),
+      taskDocument: .some(taskDocument),
+      expectedTaskDocumentDigest: .some(taskDocumentDigest),
       projectId: optional(projectId),
       clearProject: projectId == nil ? .some(true) : .none,
       executorAgentId: executorAgentId.map(GraphQLNullable.some) ?? .none,
@@ -583,7 +572,8 @@ final class TasksModel {
       recurrenceId: recurrence.id,
       expectedRevision: Int32(recurrence.revision),
       title: .none,
-      description: .none,
+      taskDocument: .none,
+      expectedTaskDocumentDigest: .none,
       projectId: .none,
       clearProject: .none,
       startsAt: .some(startsAt),
@@ -597,6 +587,36 @@ final class TasksModel {
       let result = try await perform(TasksUpdateTaskRecurrenceMutation(input: input))
       eventCursor = result.updateTaskRecurrence.eventCursor
       detail = mergeCommand(result.updateTaskRecurrence.task.fragments.tasksCommandTaskFields, into: detail)
+      recurrenceCache.removeValue(forKey: recurrence.id)
+      await refresh()
+      return true
+    } catch {
+      record(error)
+      return false
+    }
+  }
+
+  @discardableResult
+  func updateRecurrenceTemplate(_ recurrence: TasksRecurrenceSnapshot, title: String, taskDocument: String) async -> Bool {
+    guard isConnected else { return false }
+    let input = UpdateTaskRecurrenceInput(
+      recurrenceId: recurrence.id,
+      expectedRevision: Int32(recurrence.revision),
+      title: .some(title),
+      taskDocument: .some(taskDocument),
+      expectedTaskDocumentDigest: .some(recurrence.taskDocumentDigest),
+      projectId: .none,
+      clearProject: .none,
+      startsAt: .none,
+      cronExpression: .none,
+      timeZone: .none,
+      missedRunPolicy: .none,
+      overlapPolicy: .none,
+      clientMutationId: UUID().uuidString
+    )
+    do {
+      let result = try await perform(TasksUpdateTaskRecurrenceMutation(input: input))
+      eventCursor = result.updateTaskRecurrence.eventCursor
       recurrenceCache.removeValue(forKey: recurrence.id)
       await refresh()
       return true
@@ -1163,7 +1183,7 @@ final class TasksModel {
       projectId: source.project?.projectId,
       projectName: source.project?.name,
       title: source.title,
-      summary: source.descriptionPreview,
+      summary: source.taskDocumentPreview,
       executor: mapExecutor(agentId: source.executorAgentId, backend: source.executorBackend, cwdOverride: source.cwdOverride, effectiveCwd: source.effectiveCwd, effectiveCwdSource: source.effectiveCwdSource),
       schedule: source.schedule.map { mapSchedule(scheduledFor: $0.scheduledFor, timeZone: $0.timeZone, missedRunPolicy: $0.missedRunPolicy.rawValue, recurrenceId: $0.recurrenceId, recurrenceRevision: $0.recurrenceRevision, recurrenceScheduledFor: $0.recurrenceScheduledFor) },
       stage: mapStage(source.stage.fragments.tasksStageFields),
@@ -1184,7 +1204,7 @@ final class TasksModel {
       projectId: source.project?.projectId,
       projectName: source.project?.name,
       title: source.title,
-      summary: source.descriptionPreview,
+      summary: source.taskDocumentPreview,
       executor: mapExecutor(agentId: source.executorAgentId, backend: source.executorBackend, cwdOverride: source.cwdOverride, effectiveCwd: source.effectiveCwd, effectiveCwdSource: source.effectiveCwdSource),
       schedule: source.schedule.map { mapSchedule(scheduledFor: $0.scheduledFor, timeZone: $0.timeZone, missedRunPolicy: $0.missedRunPolicy.rawValue, recurrenceId: $0.recurrenceId, recurrenceRevision: $0.recurrenceRevision, recurrenceScheduledFor: $0.recurrenceScheduledFor) },
       stage: mapStage(source.stage.fragments.tasksStageFields),
@@ -1255,6 +1275,7 @@ final class TasksModel {
   ) -> TasksDetailSnapshot {
     var next = previous ?? emptyDetail(taskId: source.taskId)
     next.taskDocument = source.taskDocument
+    next.taskDocumentDigest = source.taskDocumentDigest
     next.resultDocument = source.resultDocument
     next.reviewDocument = source.reviewDocument
     return next
@@ -1264,7 +1285,6 @@ final class TasksModel {
     TasksDetailSnapshot(
       id: taskId,
       title: "Task",
-      description: "",
       project: nil,
       stage: TasksStageSnapshot(id: "", name: "Task", behavior: .unknown),
       revision: 0,
@@ -1274,6 +1294,7 @@ final class TasksModel {
       createdAt: "",
       sourceLabel: nil,
       taskDocument: "",
+      taskDocumentDigest: "",
       resultDocument: nil,
       reviewDocument: nil,
       currentRun: nil,
@@ -1285,9 +1306,10 @@ final class TasksModel {
   }
 
   private func mergeCommand(_ source: TasksCommandTaskFields, into previous: TasksDetailSnapshot?) -> TasksDetailSnapshot {
-    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, description: source.description, project: nil, executor: TasksExecutorSnapshot.default, schedule: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, createdAt: "", sourceLabel: nil, taskDocument: "", resultDocument: nil, reviewDocument: nil, currentRun: nil, activeGate: nil, messages: [], runs: [], validActions: [])
+    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, project: nil, executor: TasksExecutorSnapshot.default, schedule: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, createdAt: "", sourceLabel: nil, taskDocument: source.taskDocument, taskDocumentDigest: source.taskDocumentDigest, resultDocument: nil, reviewDocument: nil, currentRun: nil, activeGate: nil, messages: [], runs: [], validActions: [])
     next.title = source.title
-    next.description = source.description
+    next.taskDocument = source.taskDocument
+    next.taskDocumentDigest = source.taskDocumentDigest
     next.executor = mapExecutor(agentId: source.executorAgentId, backend: source.executorBackend, cwdOverride: source.cwdOverride, effectiveCwd: source.effectiveCwd, effectiveCwdSource: source.effectiveCwdSource)
     next.schedule = source.schedule.map { mapSchedule(scheduledFor: $0.scheduledFor, timeZone: $0.timeZone, missedRunPolicy: $0.missedRunPolicy.rawValue, recurrenceId: $0.recurrenceId, recurrenceRevision: $0.recurrenceRevision, recurrenceScheduledFor: $0.recurrenceScheduledFor) }
     next.stage = mapStage(source.stage.fragments.tasksStageFields)
@@ -1305,7 +1327,8 @@ final class TasksModel {
     TasksRecurrenceSnapshot(
       id: source.recurrenceId,
       title: source.title,
-      description: source.description,
+      taskDocument: source.taskDocument,
+      taskDocumentDigest: source.taskDocumentDigest,
       startsAt: source.startsAt,
       cronExpression: source.cronExpression,
       timeZone: source.timeZone,
@@ -1353,7 +1376,6 @@ final class TasksModel {
       workspaceId: workspaceId,
       projectId: project,
       kind: .none,
-      text: .none,
       first: .some(50),
       after: .none
     )

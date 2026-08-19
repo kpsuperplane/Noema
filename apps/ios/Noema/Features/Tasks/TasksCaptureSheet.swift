@@ -4,7 +4,7 @@ struct TasksCaptureSheet: View {
   @Environment(\.dismiss) private var dismiss
   @Bindable var model: TasksModel
   @State private var title = ""
-  @State private var description = ""
+  @State private var taskDocument = ""
   @State private var projectId: String?
   @State private var scheduling = false
   @State private var scheduleDraft = TasksScheduleDraft.initial()
@@ -17,7 +17,7 @@ struct TasksCaptureSheet: View {
 
   private enum Field: Hashable {
     case title
-    case description
+    case taskDocument
   }
 
   init(model: TasksModel) {
@@ -48,12 +48,9 @@ struct TasksCaptureSheet: View {
                 .focused($focusedField, equals: .title)
                 .noemaTaskSheetField(focused: focusedField == .title, height: 46)
             }
-            TasksSheetField("Description (optional)") {
-              TextField("", text: $description, axis: .vertical)
-                .lineLimit(3...3)
-                .focused($focusedField, equals: .description)
-                .noemaTaskSheetField(focused: focusedField == .description, height: 76)
-                .padding(.top, NoemaSpacing.xxs)
+            TasksSheetField("Task document") {
+              TasksMarkdownSourceEditor(text: $taskDocument)
+                .focused($focusedField, equals: .taskDocument)
             }
             TasksSheetField("Project (optional)") {
               Picker(selection: $projectId) {
@@ -104,7 +101,7 @@ struct TasksCaptureSheet: View {
                 errorMessage = nil
                 let succeeded = await model.capture(
                   title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                  description: description,
+                  taskDocument: taskDocument,
                   projectId: projectId,
                   schedule: scheduling ? scheduleDraft.input() : nil,
                   executorAgentId: executorAgentId,
@@ -141,7 +138,6 @@ struct TasksCaptureSheet: View {
       .frame(maxHeight: .infinity, alignment: .top)
       .background(NoemaColor.surface)
     }
-    .noemaTaskSheetPresentation([.medium, .large], regularHeight: 680)
     .interactiveDismissDisabled(isDirty || isSaving)
     .noemaSheet(isPresented: $discardPresented) {
       TasksDiscardSheet(
@@ -167,8 +163,24 @@ struct TasksCaptureSheet: View {
 
   private var isDirty: Bool {
       !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-      !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+      !taskDocument.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
       projectId != nil || scheduling || !cwdOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || executorAgentId != "agent:task-executor"
+  }
+}
+
+struct TasksMarkdownSourceEditor: View {
+  @Binding var text: String
+
+  var body: some View {
+    TextEditor(text: $text)
+      .font(.system(.body, design: .monospaced))
+      .foregroundStyle(NoemaColor.content)
+      .scrollContentBackground(.hidden)
+      .padding(NoemaSpacing.sm)
+      .frame(minHeight: 280, alignment: .topLeading)
+      .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
+      .overlay { NoemaSuperellipse(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
+      .accessibilityLabel("Markdown source")
   }
 }
 
