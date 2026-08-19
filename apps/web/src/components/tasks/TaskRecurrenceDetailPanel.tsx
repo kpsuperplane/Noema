@@ -9,7 +9,7 @@ import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, Check, CircleStop, Code2, MoreHorizontal, Pause, Pencil, Play, RefreshCcw, SkipForward, X } from "lucide-react";
+import { AlertTriangle, CircleStop, MoreHorizontal, Pause, Pencil, Play, SkipForward } from "lucide-react";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import {
@@ -26,7 +26,7 @@ import { createClientId } from "@/shared/clientId";
 import { initialScheduleDraft, scheduleInput, ScheduleFields, type ScheduleDraft } from "./ScheduleFields";
 import { recurrenceSummary } from "./tasksModel";
 import { normalizeTasksSearch } from "./tasksTypes";
-import { TaskMarkdownEditor } from "./TaskMarkdownEditor";
+import { TaskDocumentInlineEditor } from "./TaskMarkdownEditor";
 import { isStaleCommandError } from "./semanticCommand";
 
 type Recurrence = NonNullable<TasksTaskRecurrenceQuery["taskRecurrence"]>;
@@ -254,12 +254,8 @@ function RecurrenceDescription({ recurrence, edit }: { recurrence: Recurrence; e
     const timeout = window.setTimeout(() => setSaved(false), 1600);
     return () => window.clearTimeout(timeout);
   }, [saved]);
-  const saveDocument = async (taskDocument: string) => {
-    await edit.saveDocument(taskDocument);
-    setSaved(true);
-  };
-  const editing = edit.field === "DOCUMENT";
-  if (editing) return <RecurrenceDescriptionEditor key={`${recurrence.recurrenceId}:description`} edit={edit} onSave={saveDocument} />;
+  const saveDocument = async (taskDocument: string) => { await edit.saveDocument(taskDocument); setSaved(true); };
+  if (edit.field === "DOCUMENT") return <TaskDocumentInlineEditor key={`${recurrence.recurrenceId}:description`} document={edit.recurrence.taskDocument} digest={edit.recurrence.taskDocumentDigest} edit={edit} label="Recurring task description" scope="Future runs only" onSave={saveDocument} />;
   return (
     <VStack as="section" aria-labelledby="recurrence-description-title" gap={2}>
       <RecurrenceDescriptionBar edit={edit} saved={saved} />
@@ -268,37 +264,14 @@ function RecurrenceDescription({ recurrence, edit }: { recurrence: Recurrence; e
   );
 }
 
-function RecurrenceDescriptionEditor({ edit, onSave }: { edit: RecurrenceInlineEditController; onSave: (taskDocument: string) => Promise<void> }) {
-  const [draft, setDraft] = React.useState(edit.recurrence.taskDocument);
-  const [sourceMode, setSourceMode] = React.useState(false);
-  return (
-    <VStack as="section" aria-labelledby="recurrence-description-title" gap={2}>
-      <RecurrenceDescriptionBar edit={edit} sourceMode={sourceMode} onChangeSourceMode={setSourceMode} onSave={() => onSave(draft)} />
-      <VStack className={stylex.props(styles.editor, Boolean(edit.error || edit.actionUnavailable) && styles.editorError).className}>
-        <TaskMarkdownEditor key={edit.recurrence.taskDocumentDigest} value={draft} onChange={setDraft} label="Recurring task description" density="inline" sourceMode={sourceMode} onSourceModeChange={setSourceMode} />
-      </VStack>
-      {edit.error ? <span role="alert" {...stylex.props(styles.editStatus)}>{edit.error}</span> : null}
-    </VStack>
-  );
-}
-
-function RecurrenceDescriptionBar({ edit, saved = false, sourceMode, onChangeSourceMode, onSave }: { edit: RecurrenceInlineEditController; saved?: boolean; sourceMode?: boolean; onChangeSourceMode?: (sourceMode: boolean) => void; onSave?: () => Promise<void> }) {
-  const editing = edit.field === "DOCUMENT";
+function RecurrenceDescriptionBar({ edit, saved = false }: { edit: RecurrenceInlineEditController; saved?: boolean }) {
   const label = <HStack align="center" gap={1}>
     <strong id="recurrence-description-title" {...stylex.props(styles.descriptionLabel)}>Description</strong>
-    {!editing && edit.canEdit ? <IconButton type="button" size="sm" variant="ghost" label="Edit description" tooltip="Edit description" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("DOCUMENT")} /> : null}
+    {edit.canEdit ? <IconButton type="button" size="sm" variant="ghost" label="Edit description" tooltip="Edit description" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("DOCUMENT")} /> : null}
     <span {...stylex.props(styles.descriptionScope)}>Future runs only</span>
     {edit.canEdit ? <span role="status" aria-live="polite" {...stylex.props(styles.savedStatus)}>{saved ? "Saved" : null}</span> : null}
   </HStack>;
-  if (!editing) return <HStack align="center" className={stylex.props(styles.descriptionBar).className}>{label}</HStack>;
-  return <HStack justify="between" align="center" gap={2} className={stylex.props(styles.descriptionBar).className}>
-    {label}
-    <span {...stylex.props(styles.editControls)}>
-      <IconButton type="button" size="sm" variant="ghost" label={sourceMode ? "Use rich editor" : "Edit source"} tooltip={sourceMode ? "Use rich editor" : "Edit source"} icon={<Code2 aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => onChangeSourceMode?.(!sourceMode)} />
-      {edit.requiresAcknowledgement ? <IconButton type="button" size="sm" variant="ghost" label="Reload latest" tooltip="Reload latest" icon={<RefreshCcw aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => void edit.acknowledge().catch(() => undefined)} /> : <IconButton type="button" size="sm" variant="ghost" label="Save description for future occurrences" tooltip="Save for future occurrences" icon={<Check aria-hidden="true" size={14} />} isLoading={edit.busy} isDisabled={edit.actionUnavailable} onClick={() => void onSave?.().catch(() => undefined)} />}
-      <IconButton type="button" size="sm" variant="ghost" label="Cancel description edit" tooltip="Cancel" icon={<X aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={edit.cancel} />
-    </span>
-  </HStack>;
+  return <HStack align="center" className={stylex.props(styles.descriptionBar).className}>{label}</HStack>;
 }
 
 function EndRecurrenceDialog({ submitting, error, onClose, onConfirm }: { submitting: boolean; error: string | null; onClose: () => void; onConfirm: () => void }) {
@@ -341,10 +314,6 @@ const styles = stylex.create({
   descriptionLabel: { color: "var(--noema-text-muted)", fontSize: 12, fontWeight: 650 },
   descriptionScope: { color: "var(--noema-text-muted)", fontSize: 11 },
   savedStatus: { minWidth: "4ch", color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },
-  editControls: { display: "inline-flex", width: 96, minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
-  editor: { display: "grid", gap: "var(--spacing-2)", borderRadius: "var(--radius-element)" },
-  editorError: { outlineWidth: 1, outlineStyle: "solid", outlineColor: "var(--destructive)" },
-  editStatus: { color: "var(--destructive)", fontSize: 12, lineHeight: 1.4 },
   sectionTitle: { margin: 0, color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 650 },
   count: { color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 12 },
   occurrenceDay: { margin: 0, color: "var(--noema-text-muted)", fontSize: 12, fontWeight: 650 },
