@@ -50,7 +50,6 @@ final class TasksModel {
   private var detailRequestID = UUID()
   private var detailTaskID: String?
   private var hydratedRunIDs = Set<String>()
-  private var latestRunItemByRunID: [String: TasksRunItemSnapshot] = [:]
   private var runItemEndCursor: [String: String] = [:]
   private var runItemHasNextPage: [String: Bool] = [:]
   private var tasksEndCursor: String?
@@ -229,7 +228,6 @@ final class TasksModel {
       isLoadingDetail = detail == nil
       runItems = []
       hydratedRunIDs = []
-      latestRunItemByRunID = [:]
     }
     let coreWatcher = await client.watch(
       query: TasksDetailCoreQuery(taskId: taskId),
@@ -301,10 +299,6 @@ final class TasksModel {
 
   var hasMoreRunItems: Bool {
     detail?.runs.contains { runItemHasNextPage[$0.id] == true } ?? false
-  }
-
-  func latestRunActivity(runId: String) -> String? {
-    latestRunItemByRunID[runId]?.content
   }
 
   func loadOlderRunItems() async {
@@ -1045,9 +1039,6 @@ final class TasksModel {
       let insertion = runItems.firstIndex { $0.runId > runId } ?? runItems.endIndex
       runItems.insert(contentsOf: merged, at: insertion)
     }
-    if latestRunItemByRunID[runId] != merged.last {
-      latestRunItemByRunID[runId] = merged.last
-    }
     if let cursor = page.pageInfo.endCursor { runItemEndCursor[runId] = cursor }
     runItemHasNextPage[runId] = page.pageInfo.hasNextPage
   }
@@ -1103,7 +1094,6 @@ final class TasksModel {
       }
       let runIDs = Set(source.runs.map(\.runId))
       runItems.removeAll { !runIDs.contains($0.runId) }
-      latestRunItemByRunID = latestRunItemByRunID.filter { runIDs.contains($0.key) }
       hydratedRunIDs.formIntersection(runIDs)
       let missingRunIDs = runIDs.subtracting(hydratedRunIDs)
       hydratedRunIDs.formUnion(missingRunIDs)

@@ -394,7 +394,7 @@ private struct TasksDetailContent: View {
 
   private var latestRunActivity: String? {
     guard let runID = (detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }))?.id else { return nil }
-    return model.latestRunActivity(runId: runID)
+    return taskRunItemActivityText(in: model.runItems, runId: runID)
   }
 
   private var taskInterventions: [HumanIntervention] {

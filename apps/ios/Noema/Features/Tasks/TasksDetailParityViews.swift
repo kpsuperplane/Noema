@@ -400,7 +400,7 @@ struct TasksTranscriptSection: View {
   }
 
   private func toolActivityRow(_ item: TasksRunItemSnapshot, result: TasksRunItemSnapshot?) -> some View {
-    ToolMarkerView(client: nil, messages: toolMessages(item, result: result))
+    ToolMarkerView(client: nil, messages: taskToolMessages(item, result: result))
   }
 
   @ViewBuilder
@@ -454,68 +454,6 @@ struct TasksTranscriptSection: View {
     }
     if run.isTerminal { rows.append(.runBoundary(run, ending: true)) }
     return rows
-  }
-
-  private func toolMessages(_ item: TasksRunItemSnapshot, result: TasksRunItemSnapshot?) -> [ChatMessage] {
-    var messages = [toolMessage(item)]
-    if let result { messages.append(toolMessage(result)) }
-    return messages
-  }
-
-  private func toolMessage(_ item: TasksRunItemSnapshot) -> ChatMessage {
-    let isResult = item.kind.uppercased() == "TOOL_RESULT"
-    let payload = taskToolPayload(item.payloadText)
-    let name = item.content?.nilIfBlank ?? "Tool activity"
-    var action: [String: Any] = ["name": name]
-    if let correlationID = item.correlationId?.nilIfBlank {
-      action["correlation_id"] = correlationID
-    }
-    if isResult {
-      if let correlationID = item.correlationId?.nilIfBlank {
-        action["call_id"] = correlationID
-      }
-      action["payload"] = payload["payload"] ?? payload
-      action["success"] = item.status.uppercased() != "FAILED"
-    } else {
-      if let correlationID = item.correlationId?.nilIfBlank {
-        action["id"] = correlationID
-      }
-      action["arguments"] = payload["arguments"] ?? payload
-    }
-    var display: [String: Any] = ["name": name]
-    if let serverDisplay = payload["display"] as? [String: Any] {
-      display.merge(serverDisplay) { _, server in server }
-    }
-    let metadata: [String: Any] = [
-      "action": action,
-      "display": display
-    ]
-    return ChatMessage(
-      id: item.id,
-      kind: .activity(
-        title: name,
-        summary: name,
-        status: taskToolStatus(item.status),
-        metadata: prettyJSON(metadata) ?? "{}",
-        activityKind: isResult ? "TOOL_RESULT" : "TOOL_CALL"
-      )
-    )
-  }
-
-  private func taskToolPayload(_ text: String) -> [String: Any] {
-    guard text != "null",
-          let data = text.data(using: .utf8),
-          let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    else { return [:] }
-    return payload
-  }
-
-  private func taskToolStatus(_ status: String) -> String {
-    switch status.uppercased() {
-    case "FAILED": "FAILED"
-    case "STARTED", "RUNNING", "QUEUED", "ACTIVE": "STARTED"
-    default: "COMPLETED"
-    }
   }
 
   private func runItemTitle(_ kind: String) -> String {
@@ -641,6 +579,84 @@ struct TasksTranscriptSection: View {
     let fractional = ISO8601DateFormatter()
     fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+  }
+}
+
+func taskRunItemActivityText(in items: [TasksRunItemSnapshot], runId: String) -> String? {
+  let runItems = items.filter { $0.runId == runId }
+  guard let latest = runItems.max(by: { $0.sequence < $1.sequence }) else { return nil }
+  switch latest.kind.uppercased() {
+  case "TOOL_CALL":
+    return toolMarkerName(in: taskToolMessages(latest, result: nil))
+  case "TOOL_RESULT":
+    let call = latest.correlationId.flatMap { correlationID in
+      runItems.last { $0.kind.uppercased() == "TOOL_CALL" && $0.correlationId == correlationID }
+    }
+    return toolMarkerName(in: call.map { taskToolMessages($0, result: latest) } ?? [taskToolMessage(latest)])
+  default:
+    return latest.content
+  }
+}
+
+private func taskToolMessages(_ item: TasksRunItemSnapshot, result: TasksRunItemSnapshot?) -> [ChatMessage] {
+  var messages = [taskToolMessage(item)]
+  if let result { messages.append(taskToolMessage(result)) }
+  return messages
+}
+
+private func taskToolMessage(_ item: TasksRunItemSnapshot) -> ChatMessage {
+  let isResult = item.kind.uppercased() == "TOOL_RESULT"
+  let payload = taskToolPayload(item.payloadText)
+  let name = item.content?.nilIfBlank ?? "Tool activity"
+  var action: [String: Any] = ["name": name]
+  if let correlationID = item.correlationId?.nilIfBlank {
+    action["correlation_id"] = correlationID
+  }
+  if isResult {
+    if let correlationID = item.correlationId?.nilIfBlank {
+      action["call_id"] = correlationID
+    }
+    action["payload"] = payload["payload"] ?? payload
+    action["success"] = item.status.uppercased() != "FAILED"
+  } else {
+    if let correlationID = item.correlationId?.nilIfBlank {
+      action["id"] = correlationID
+    }
+    action["arguments"] = payload["arguments"] ?? payload
+  }
+  var display: [String: Any] = ["name": name]
+  if let serverDisplay = payload["display"] as? [String: Any] {
+    display.merge(serverDisplay) { _, server in server }
+  }
+  let metadata: [String: Any] = [
+    "action": action,
+    "display": display
+  ]
+  return ChatMessage(
+    id: item.id,
+    kind: .activity(
+      title: name,
+      summary: name,
+      status: taskToolStatus(item.status),
+      metadata: prettyJSON(metadata) ?? "{}",
+      activityKind: isResult ? "TOOL_RESULT" : "TOOL_CALL"
+    )
+  )
+}
+
+private func taskToolPayload(_ text: String) -> [String: Any] {
+  guard text != "null",
+        let data = text.data(using: .utf8),
+        let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+  else { return [:] }
+  return payload
+}
+
+private func taskToolStatus(_ status: String) -> String {
+  switch status.uppercased() {
+  case "FAILED": "FAILED"
+  case "STARTED", "RUNNING", "QUEUED", "ACTIVE": "STARTED"
+  default: "COMPLETED"
   }
 }
 

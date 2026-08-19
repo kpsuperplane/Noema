@@ -604,7 +604,7 @@ private func toolMarkerKind(in messages: [ChatMessage]) -> String? {
   return nil
 }
 
-private func toolMarkerName(in messages: [ChatMessage]) -> String {
+func toolMarkerName(in messages: [ChatMessage]) -> String {
   if let summary = toolMarkerField("summary", in: messages) { return summary }
   for message in messages.reversed() {
     let metadata = metadataObject(for: message)
