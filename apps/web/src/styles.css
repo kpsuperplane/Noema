@@ -280,9 +280,10 @@ a[href][data-slot="shell-sidebar-control"] {
   flex-direction: column;
   gap: var(--spacing-0-5);
   margin-block: var(--spacing-1);
-  margin-inline: calc(-1 * var(--spacing-2));
+  margin-inline: 0;
   padding: 0;
   list-style: none;
+  line-height: var(--text-body-leading);
 }
 
 [data-slot="task-markdown-editor"][data-density="inline"]
@@ -292,7 +293,7 @@ a[href][data-slot="shell-sidebar-control"] {
   align-items: center;
   margin-inline-start: calc(-1 * var(--spacing-2));
   padding-block: var(--spacing-1);
-  padding-inline: var(--spacing-1);
+  padding-inline: var(--spacing-2);
 }
 
 [data-slot="task-markdown-editor"][data-density="inline"]
@@ -343,6 +344,7 @@ a[href][data-slot="shell-sidebar-control"] {
   .milkdown-list-item-block
   > .list-item
   > .children
+  > .content-dom
   > p {
   margin: 0;
   padding: 0;
@@ -353,6 +355,8 @@ a[href][data-slot="shell-sidebar-control"] {
   border-inline-start: var(--spacing-0-5) solid var(--color-border-emphasized);
   padding: 0 0 0 var(--spacing-4);
   color: var(--color-text-secondary);
+  line-height: var(--text-body-leading);
+  box-sizing: border-box;
 }
 
 [data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror blockquote::before {
@@ -361,6 +365,24 @@ a[href][data-slot="shell-sidebar-control"] {
 
 [data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror pre {
   margin-block: var(--spacing-2);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror :not(pre) > code {
+  display: inline;
+  padding: 0 var(--spacing-1);
+  border-radius: var(--radius-inner);
+  background: var(--color-background-muted);
+  color: var(--color-text-primary);
+  font-size: inherit;
+  line-height: inherit;
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror a {
+  color: var(--color-text-accent);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror strong {
+  font-weight: var(--font-weight-semibold);
 }
 
 [data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror hr {
@@ -374,6 +396,7 @@ a[href][data-slot="shell-sidebar-control"] {
 
 [data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h1 {
   margin-block: var(--spacing-4) var(--spacing-2);
+  padding: 0;
   font-size: var(--text-heading-1-size);
   font-weight: var(--text-heading-1-weight);
   line-height: var(--text-heading-1-leading);
@@ -381,6 +404,7 @@ a[href][data-slot="shell-sidebar-control"] {
 
 [data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h2 {
   margin-block: var(--spacing-4) var(--spacing-2);
+  padding: 0;
   font-size: var(--text-heading-2-size);
   font-weight: var(--text-heading-2-weight);
   line-height: var(--text-heading-2-leading);
@@ -391,6 +415,7 @@ a[href][data-slot="shell-sidebar-control"] {
 [data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h5,
 [data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h6 {
   margin-block: var(--spacing-3) var(--spacing-1);
+  padding: 0;
 }
 
 [data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h3 {
