@@ -394,6 +394,62 @@ async fn v32_upgrade_persists_system_provider_accounts_and_matches_fresh_schema(
 }
 
 #[tokio::test]
+async fn v58_upgrade_adds_kernel_provider_and_matches_fresh_schema() {
+    let upgrade_home = TempDir::new().expect("v57 root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    let mut connection = Connection::open(&upgrade_config.path).expect("v57 database");
+    store_migrations()
+        .to_version(&mut connection, 57)
+        .expect("construct v57 schema");
+    connection
+        .execute(
+            "INSERT INTO provider_accounts (provider_account_id, provider_kind, account_key, display_name, auth_method, is_active, is_default, status) VALUES ('provider_account:exa:existing', 'exa', 'existing', 'Existing Exa', 'secret_input', 1, 0, 'authenticated')",
+            [],
+        )
+        .expect("existing account");
+    drop(connection);
+
+    drop(
+        NoemaStore::open(&upgrade_config)
+            .await
+            .expect("upgrade v57"),
+    );
+    let connection = Connection::open(&upgrade_config.path).expect("upgraded database");
+    connection
+        .execute(
+            "INSERT INTO provider_accounts (provider_account_id, provider_kind, account_key, display_name, auth_method, is_active, is_default, status) VALUES ('provider_account:kernel:existing', 'kernel', 'existing', 'Existing Kernel', 'secret_input', 1, 0, 'authenticated')",
+            [],
+        )
+        .expect("Kernel account");
+    assert_eq!(
+        count_where(
+            &connection,
+            "provider_accounts",
+            "provider_account_id IN ('provider_account:exa:existing', 'provider_account:kernel:existing')"
+        )
+        .expect("preserved accounts"),
+        2
+    );
+    assert_eq!(
+        connection
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))
+            .expect("schema version"),
+        STORE_SCHEMA_VERSION
+    );
+    drop(connection);
+
+    let fresh_home = TempDir::new().expect("fresh root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(NoemaStore::open(&fresh_config).await.expect("fresh schema"));
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
+    );
+}
+
+#[tokio::test]
 async fn v34_upgrade_links_saved_action_request_items_and_matches_fresh_schema() {
     let upgrade_home = TempDir::new().expect("v34 root");
     let upgrade_config = store_config(upgrade_home.path());
