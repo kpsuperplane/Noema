@@ -5,7 +5,6 @@ struct TasksTaskContextDock: View {
   let embeddedInSystemAccessory: Bool
   let canCancel: Bool
   let cancel: () -> Void
-  let showInfo: () -> Void
 
   var body: some View {
     VStack(spacing: 0) {
@@ -39,13 +38,6 @@ struct TasksTaskContextDock: View {
           .buttonStyle(.plain)
           .accessibilityLabel("Cancel task")
         }
-        Button(action: showInfo) {
-          Image(systemName: "info.circle")
-            .foregroundStyle(NoemaColor.contentSecondary)
-            .frame(width: 28, height: 28)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Show task information")
       }
       .padding(.horizontal, NoemaSpacing.md)
       .frame(height: 45)
@@ -188,22 +180,24 @@ struct TasksTaskStatusSurface: View {
   }
 }
 
-struct TasksTaskInfoSheet: View {
-  @Environment(\.dismiss) private var dismiss
+struct TasksTaskMetadataView: View {
   let detail: TasksDetailSnapshot
 
   var body: some View {
-    NoemaNativeSheet(title: "Task information", onDismiss: { dismiss() }) {
-      VStack(spacing: NoemaSpacing.compact) {
-        metadataRow("Stage", detail.stage.name)
-        metadataRow("Revision", String(detail.revision))
-        if !detail.createdAt.isEmpty { metadataRow("Created", formattedDate(detail.createdAt)) }
-        if let sourceLabel = detail.sourceLabel { metadataRow("From", sourceLabel) }
-      }
-      .padding(.horizontal, NoemaSpacing.md)
-      .padding(.bottom, NoemaSpacing.lg)
+    VStack(alignment: .leading, spacing: NoemaSpacing.compact) {
+      metadataRow("Stage", detail.stage.name)
+      metadataRow("Revision", String(detail.revision))
+      if !detail.createdAt.isEmpty { metadataRow("Created", formattedDate(detail.createdAt)) }
+      if let sourceLabel = detail.sourceLabel { metadataRow("From", sourceLabel) }
     }
-    .noemaTaskSheetPresentation([.height(270)], regularHeight: 380, compactDragIndicator: .visible)
+    .padding(.top, NoemaSpacing.md)
+    .overlay(alignment: .top) {
+      Rectangle().fill(NoemaColor.separatorSubtle).frame(height: 1)
+    }
+    .frame(maxWidth: 760, alignment: .leading)
+    .padding(.horizontal, NoemaSpacing.xxl)
+    .padding(.bottom, NoemaSpacing.xxl)
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private func metadataRow(_ label: String, _ value: String) -> some View {

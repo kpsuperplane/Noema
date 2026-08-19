@@ -66,7 +66,6 @@ private struct TasksDetailContent: View {
   @State private var queuePresented = false
   @State private var scheduleAction: TasksScheduleAction?
   @State private var cancelPresented = false
-  @State private var taskInfoPresented = false
   @State private var gateResponse = ""
   @State private var selectedTab: TaskDetailTab
   @State private var followsTranscriptBottom = true
@@ -135,9 +134,6 @@ private struct TasksDetailContent: View {
     }
     .noemaSheet(isPresented: $cancelPresented) {
       TasksCancelSheet(model: model, task: detail)
-    }
-    .noemaSheet(isPresented: $taskInfoPresented) {
-      TasksTaskInfoSheet(detail: detail)
     }
     .onChange(of: detail.activeGate?.id) { _, _ in
       gateResponse = ""
@@ -217,7 +213,10 @@ private struct TasksDetailContent: View {
 
   private var taskView: some View {
     ScrollView {
-      TasksDocumentView(document: detail.taskDocument, fileName: "TASK.md")
+      VStack(spacing: 0) {
+        TasksDocumentView(document: detail.taskDocument, fileName: "TASK.md")
+        TasksTaskMetadataView(detail: detail)
+      }
     }
     .scrollDismissesKeyboard(.interactively)
   }
@@ -244,8 +243,7 @@ private struct TasksDetailContent: View {
       run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
       embeddedInSystemAccessory: compactPresentation,
       canCancel: hasAction("CANCEL") && model.isConnected,
-      cancel: { cancelPresented = true },
-      showInfo: { taskInfoPresented = true }
+      cancel: { cancelPresented = true }
     )
   }
 
