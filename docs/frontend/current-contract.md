@@ -157,7 +157,8 @@ iPhone and iPad use full-screen Markdown source editors for the same Task fields
 Both clients send the transient document digest with human updates.
 
 Recurrence detail reads its separate template `TASK.md`.
-Template editing stays inline, remains separate from schedule editing, and affects only future occurrences.
+Recurring titles and template descriptions use the same field-adjacent pencil controls.
+Template saves affect only future occurrences and remain separate from schedule editing.
 Task routes have no dormant text-search parameter or description-search behavior.
 
 The Tasks list reads recurring authorities directly. A recurrence remains in

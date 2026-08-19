@@ -3,11 +3,12 @@ import { useMutation, useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { HStack } from "@astryxdesign/core/HStack";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, CircleStop, MoreHorizontal, Pause, Pencil, Play, SkipForward } from "lucide-react";
+import { AlertTriangle, Check, CircleStop, MoreHorizontal, Pause, Pencil, Play, RefreshCcw, SkipForward, X } from "lucide-react";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import {
@@ -29,21 +30,33 @@ import { isStaleCommandError } from "./semanticCommand";
 
 type Recurrence = NonNullable<TasksTaskRecurrenceQuery["taskRecurrence"]>;
 
-export function TaskRecurrenceDetailPanel({ recurrenceId, onTitleChange }: { recurrenceId: string; onTitleChange: (title: string) => void }) {
+type RecurrenceEditField = "TITLE" | "DOCUMENT";
+
+export type RecurrenceInlineEditController = {
+  field: RecurrenceEditField | null;
+  recurrence: Recurrence;
+  canEdit: boolean;
+  canStart: boolean;
+  busy: boolean;
+  error: string | null;
+  requiresAcknowledgement: boolean;
+  actionUnavailable: boolean;
+  start: (field: RecurrenceEditField) => Promise<void>;
+  cancel: () => void;
+  saveTitle: (title: string) => Promise<void>;
+  saveDocument: (taskDocument: string) => Promise<void>;
+  acknowledge: () => Promise<void>;
+};
+
+export function TaskRecurrenceDetailPanel({ recurrenceId, onTitleChange }: { recurrenceId: string; onTitleChange: (title: string, edit: RecurrenceInlineEditController) => void }) {
   const result = useQuery(TasksTaskRecurrenceDocument, { variables: { recurrenceId } });
-  const [pause, pauseState] = useMutation(TasksPauseTaskRecurrenceDocument);
-  const [resume, resumeState] = useMutation(TasksResumeTaskRecurrenceDocument);
-  const [runNow, runNowState] = useMutation(TasksRunTaskRecurrenceNowDocument);
-  const [skip, skipState] = useMutation(TasksSkipTaskRecurrenceNextDocument);
-  const [end, endState] = useMutation(TasksEndTaskRecurrenceDocument);
-  const [editingSchedule, setEditingSchedule] = React.useState(false);
-  const [editingTemplate, setEditingTemplate] = React.useState(false);
-  const [confirmingEnd, setConfirmingEnd] = React.useState(false);
-  const recurrence = result.data?.taskRecurrence;
-  React.useEffect(() => {
-    if (recurrence?.title) onTitleChange(recurrence.title);
-  }, [onTitleChange, recurrence?.title]);
-  if (!recurrence) {
+  const refetch = result.refetch;
+  const reload = React.useCallback(async () => {
+    const recurrence = (await refetch()).data?.taskRecurrence;
+    if (!recurrence) throw new Error("Recurring task unavailable");
+    return recurrence;
+  }, [refetch]);
+  if (!result.data?.taskRecurrence) {
     return (
       <VStack
         role={result.error ? "alert" : "status"}
@@ -53,18 +66,88 @@ export function TaskRecurrenceDetailPanel({ recurrenceId, onTitleChange }: { rec
         className={stylex.props(styles.state).className}
       >
         <span>{result.error ? "Recurring task details could not be loaded." : "Loading recurring task…"}</span>
-        {result.error ? <Button type="button" size="sm" variant="secondary" label="Retry" onClick={() => void result.refetch().catch(() => undefined)} /> : null}
+        {result.error ? <Button type="button" size="sm" variant="secondary" label="Retry" onClick={() => void refetch().catch(() => undefined)} /> : null}
       </VStack>
     );
   }
-  const busy = pauseState.loading || resumeState.loading || runNowState.loading || skipState.loading || endState.loading;
+  return <LoadedRecurrenceDetail recurrence={result.data.taskRecurrence} onReload={reload} onTitleChange={onTitleChange} />;
+}
+
+function LoadedRecurrenceDetail({ recurrence, onReload, onTitleChange }: { recurrence: Recurrence; onReload: () => Promise<Recurrence>; onTitleChange: (title: string, edit: RecurrenceInlineEditController) => void }) {
+  const [pause, pauseState] = useMutation(TasksPauseTaskRecurrenceDocument);
+  const [resume, resumeState] = useMutation(TasksResumeTaskRecurrenceDocument);
+  const [runNow, runNowState] = useMutation(TasksRunTaskRecurrenceNowDocument);
+  const [skip, skipState] = useMutation(TasksSkipTaskRecurrenceNextDocument);
+  const [end, endState] = useMutation(TasksEndTaskRecurrenceDocument);
+  const [update, updateState] = useMutation(TasksUpdateTaskRecurrenceDocument);
+  const [editingSchedule, setEditingSchedule] = React.useState(false);
+  const [confirmingEnd, setConfirmingEnd] = React.useState(false);
+  const [activeEdit, setActiveEdit] = React.useState<{ field: RecurrenceEditField; subject: Recurrence } | null>(null);
+  const commandBusy = pauseState.loading || resumeState.loading || runNowState.loading || skipState.loading || endState.loading;
+  const busy = commandBusy || updateState.loading;
   const error = pauseState.error ?? resumeState.error ?? runNowState.error ?? skipState.error ?? endState.error;
-  const commandInput = { recurrenceId, expectedRevision: recurrence.revision, clientMutationId: createClientId() };
+  const editSubject = activeEdit?.subject ?? recurrence;
+  const stale = updateState.error ? isStaleCommandError(updateState.error) : false;
+  const liveEditChanged = Boolean(activeEdit && (
+    recurrence.revision !== activeEdit.subject.revision ||
+    recurrence.taskDocumentDigest !== activeEdit.subject.taskDocumentDigest
+  ));
+  const requiresAcknowledgement = liveEditChanged || stale;
+  const actionUnavailable = Boolean(activeEdit && recurrence.lifecycle === "ENDED");
+  const commandInput = { recurrenceId: recurrence.recurrenceId, expectedRevision: recurrence.revision, clientMutationId: createClientId() };
+  const startEdit = React.useCallback(async (field: RecurrenceEditField) => {
+    if (recurrence.lifecycle === "ENDED" || commandBusy || activeEdit || editingSchedule || confirmingEnd) return;
+    updateState.reset();
+    setActiveEdit({ field, subject: recurrence });
+  }, [activeEdit, commandBusy, confirmingEnd, editingSchedule, recurrence, updateState]);
+  const cancelEdit = React.useCallback(() => {
+    updateState.reset();
+    setActiveEdit(null);
+  }, [updateState]);
+  const saveEdit = React.useCallback(async (draft: { title?: string; taskDocument?: string }) => {
+    if (!activeEdit || requiresAcknowledgement || actionUnavailable) return;
+    const subject = activeEdit.subject;
+    await update({ variables: { input: {
+      recurrenceId: subject.recurrenceId,
+      expectedRevision: subject.revision,
+      title: draft.title ?? subject.title,
+      taskDocument: draft.taskDocument ?? subject.taskDocument,
+      expectedTaskDocumentDigest: subject.taskDocumentDigest,
+      clientMutationId: createClientId()
+    } } });
+    await onReload();
+    updateState.reset();
+    setActiveEdit(null);
+  }, [actionUnavailable, activeEdit, onReload, requiresAcknowledgement, update, updateState]);
+  const acknowledge = React.useCallback(async () => {
+    if (!activeEdit) return;
+    const latest = await onReload();
+    setActiveEdit({ field: activeEdit.field, subject: latest });
+    updateState.reset();
+  }, [activeEdit, onReload, updateState]);
+  const edit = React.useMemo<RecurrenceInlineEditController>(() => ({
+    field: activeEdit?.field ?? null,
+    recurrence: editSubject,
+    canEdit: recurrence.lifecycle !== "ENDED",
+    canStart: recurrence.lifecycle !== "ENDED" && !commandBusy && !activeEdit && !editingSchedule && !confirmingEnd,
+    busy,
+    error: updateState.error ? stale ? "This recurring task changed elsewhere. Your draft is still here." : updateState.error.message : null,
+    requiresAcknowledgement,
+    actionUnavailable,
+    start: startEdit,
+    cancel: cancelEdit,
+    saveTitle: async (title) => saveEdit({ title }),
+    saveDocument: async (taskDocument) => saveEdit({ taskDocument }),
+    acknowledge
+  }), [acknowledge, actionUnavailable, activeEdit, busy, cancelEdit, commandBusy, confirmingEnd, editSubject, editingSchedule, recurrence.lifecycle, requiresAcknowledgement, saveEdit, stale, startEdit, updateState.error]);
+  React.useEffect(() => {
+    onTitleChange(recurrence.title, edit);
+  }, [edit, onTitleChange, recurrence.title]);
   const change = async (kind: "pause" | "resume" | "skip") => {
     if (kind === "pause") await pause({ variables: { input: commandInput } });
     if (kind === "resume") await resume({ variables: { input: commandInput } });
     if (kind === "skip") await skip({ variables: { input: commandInput } });
-    await result.refetch();
+    await onReload();
   };
   const active = recurrence.lifecycle === "ACTIVE";
   const ended = recurrence.lifecycle === "ENDED";
@@ -80,13 +163,12 @@ export function TaskRecurrenceDetailPanel({ recurrenceId, onTitleChange }: { rec
               <span {...stylex.props(styles.meta)}>{recurrence.timeZone}</span>
             </VStack>
             {!ended ? <DropdownMenu
-              button={{ label: "Recurring task actions", icon: <MoreHorizontal aria-hidden="true" size={16} />, isIconOnly: true, size: "sm", variant: "ghost", isDisabled: busy }}
+              button={{ label: "Recurring task actions", icon: <MoreHorizontal aria-hidden="true" size={16} />, isIconOnly: true, size: "sm", variant: "ghost", isDisabled: busy || Boolean(activeEdit) }}
               hasChevron={false}
               placement="below"
               menuWidth={210}
               items={[
-                { label: "Edit template", icon: <Pencil aria-hidden="true" size={14} />, onClick: () => setEditingTemplate(true), isDisabled: busy },
-                { label: "Edit schedule", icon: <Pencil aria-hidden="true" size={14} />, onClick: () => setEditingSchedule(true), isDisabled: busy },
+                { label: "Edit schedule", icon: <Pencil aria-hidden="true" size={14} />, onClick: () => setEditingSchedule(true), isDisabled: busy || Boolean(activeEdit) },
                 { label: "Skip next run", icon: <SkipForward aria-hidden="true" size={14} />, onClick: () => void change("skip").catch(() => undefined), isDisabled: busy || !recurrence.nextRunAt },
                 { type: "divider" },
                 { label: "End recurring task", icon: <CircleStop aria-hidden="true" size={14} />, onClick: () => setConfirmingEnd(true), isDisabled: busy }
@@ -102,8 +184,8 @@ export function TaskRecurrenceDetailPanel({ recurrenceId, onTitleChange }: { rec
                 label="Run now"
                 icon={<Play aria-hidden="true" size={14} />}
                 isLoading={runNowState.loading}
-                isDisabled={busy}
-                onClick={() => void runNow({ variables: { input: commandInput } }).then(() => result.refetch()).catch(() => undefined)}
+                isDisabled={busy || Boolean(activeEdit)}
+                onClick={() => void runNow({ variables: { input: commandInput } }).then(onReload).catch(() => undefined)}
               />
               <Button
                 type="button"
@@ -112,14 +194,12 @@ export function TaskRecurrenceDetailPanel({ recurrenceId, onTitleChange }: { rec
                 label={active ? "Pause schedule" : "Resume schedule"}
                 icon={active ? <Pause aria-hidden="true" size={14} /> : <Play aria-hidden="true" size={14} />}
                 isLoading={active ? pauseState.loading : resumeState.loading}
-                isDisabled={busy}
+                isDisabled={busy || Boolean(activeEdit)}
                 onClick={() => void change(active ? "pause" : "resume").catch(() => undefined)}
               />
             </HStack>
           ) : null}
-          {editingTemplate ? (
-            <RecurrenceTemplateForm recurrence={recurrence} onClose={() => setEditingTemplate(false)} onUpdated={() => result.refetch()} onReload={async () => { const latest = (await result.refetch()).data?.taskRecurrence; if (!latest) throw new Error("Recurring task unavailable"); return latest; }} />
-          ) : recurrence.taskDocument.trim() ? <MarkdownContent className={stylex.props(styles.description).className}>{recurrence.taskDocument}</MarkdownContent> : <p {...stylex.props(styles.empty)}>The template is empty.</p>}
+          <RecurrenceDescription recurrence={recurrence} edit={edit} />
           {error ? <span role="alert" {...stylex.props(styles.error)}>{error.message}</span> : null}
         </VStack>
         <VStack as="section" aria-labelledby="recurrence-history-title" gap={2} className={stylex.props(styles.section).className}>
@@ -147,10 +227,41 @@ export function TaskRecurrenceDetailPanel({ recurrenceId, onTitleChange }: { rec
             ))}
           </VStack> : <p {...stylex.props(styles.empty)}>No occurrences yet.</p>}
         </VStack>
-        {editingSchedule ? <RecurrenceScheduleDialog recurrence={recurrence} onClose={() => setEditingSchedule(false)} onUpdated={() => result.refetch()} /> : null}
-        {confirmingEnd ? <EndRecurrenceDialog submitting={endState.loading} error={endState.error?.message ?? null} onClose={() => setConfirmingEnd(false)} onConfirm={() => void end({ variables: { input: commandInput } }).then(async () => { await result.refetch(); setConfirmingEnd(false); }).catch(() => undefined)} /> : null}
+        {editingSchedule ? <RecurrenceScheduleDialog recurrence={recurrence} onClose={() => setEditingSchedule(false)} onUpdated={onReload} /> : null}
+        {confirmingEnd ? <EndRecurrenceDialog submitting={endState.loading} error={endState.error?.message ?? null} onClose={() => setConfirmingEnd(false)} onConfirm={() => void end({ variables: { input: commandInput } }).then(async () => { await onReload(); setConfirmingEnd(false); }).catch(() => undefined)} /> : null}
       </VStack>
     </VStack>
+  );
+}
+
+function RecurrenceDescription({ recurrence, edit }: { recurrence: Recurrence; edit: RecurrenceInlineEditController }) {
+  const editing = edit.field === "DOCUMENT";
+  return (
+    <VStack as="section" aria-labelledby="recurrence-description-title" gap={2}>
+      <HStack justify="between" align="center" className={stylex.props(styles.descriptionBar).className}>
+        <strong id="recurrence-description-title" {...stylex.props(styles.descriptionLabel)}>Description</strong>
+        <span {...stylex.props(styles.editControls)}>
+          {!edit.canEdit ? null : editing ? (
+            <>
+              {edit.requiresAcknowledgement ? <IconButton type="button" size="sm" variant="ghost" label="Use latest recurring task" tooltip="Use latest recurring task" icon={<RefreshCcw aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => void edit.acknowledge().catch(() => undefined)} /> : <IconButton type="submit" size="sm" variant="ghost" label="Save description" tooltip="Save description" icon={<Check aria-hidden="true" size={14} />} isDisabled={edit.busy || edit.actionUnavailable} form="recurrence-description-form" />}
+              <IconButton type="button" size="sm" variant="ghost" label="Cancel description edit" tooltip="Cancel" icon={<X aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={edit.cancel} />
+            </>
+          ) : <IconButton type="button" size="sm" variant="ghost" label="Edit description" tooltip="Edit description" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("DOCUMENT")} />}
+        </span>
+      </HStack>
+      {editing ? <RecurrenceDescriptionEditor key={`${recurrence.recurrenceId}:description`} edit={edit} /> : recurrence.taskDocument.trim() ? <MarkdownContent className={stylex.props(styles.description).className}>{recurrence.taskDocument}</MarkdownContent> : <p {...stylex.props(styles.empty)}>The template is empty.</p>}
+    </VStack>
+  );
+}
+
+function RecurrenceDescriptionEditor({ edit }: { edit: RecurrenceInlineEditController }) {
+  const [draft, setDraft] = React.useState(edit.recurrence.taskDocument);
+  return (
+    <form id="recurrence-description-form" {...stylex.props(styles.editor, Boolean(edit.error || edit.actionUnavailable) && styles.editorError)} onSubmit={(event) => { event.preventDefault(); void edit.saveDocument(draft).catch(() => undefined); }}>
+      <TaskMarkdownEditor key={edit.recurrence.taskDocumentDigest} value={draft} onChange={setDraft} label="Recurring task description" />
+      <span {...stylex.props(styles.templateNote)}>Changes apply only to future occurrences.</span>
+      {edit.error ? <span role="alert" {...stylex.props(styles.srOnly)}>{edit.error}</span> : null}
+    </form>
   );
 }
 
@@ -166,15 +277,6 @@ function RecurrenceScheduleDialog({ recurrence, onClose, onUpdated }: { recurren
   return <Dialog isOpen onOpenChange={(next) => { if (!next) onClose(); }} purpose="form" width={500} aria-label="Edit recurring task"><Layout height="auto" header={<DialogHeader title="Edit recurring task" subtitle="Changes apply to future occurrences." onOpenChange={(next) => { if (!next) onClose(); }} />} content={<LayoutContent><VStack as="form" gap={3} onSubmit={(event) => { event.preventDefault(); const next = scheduleInput(draft)?.recurrence; if (!next) return; void update({ variables: { input: { recurrenceId: recurrence.recurrenceId, expectedRevision: recurrence.revision, startsAt: next.startsAt, cronExpression: next.cronExpression, timeZone: draft.timeZone, missedRunPolicy: draft.missedRunPolicy, overlapPolicy: draft.overlapPolicy, clientMutationId: createClientId() } } }).then(async () => { await onUpdated(); onClose(); }).catch(() => undefined); }}><ScheduleFields value={draft} onChange={setDraft} recurringOnly />{state.error ? <span role="alert" {...stylex.props(styles.error)}>{state.error.message}</span> : null}<HStack justify="end" gap={2}><Button type="button" size="sm" variant="ghost" label="Cancel" onClick={onClose} /><Button type="submit" size="sm" variant="primary" label="Save" isLoading={state.loading} isDisabled={state.loading || !scheduleInput(draft)?.recurrence} /></HStack></VStack></LayoutContent>} /></Dialog>;
 }
 
-function RecurrenceTemplateForm({ recurrence, onClose, onUpdated, onReload }: { recurrence: Recurrence; onClose: () => void; onUpdated: () => Promise<unknown>; onReload: () => Promise<Recurrence> }) {
-  const [current, setCurrent] = React.useState(recurrence);
-  const [title, setTitle] = React.useState(recurrence.title);
-  const [taskDocument, setTaskDocument] = React.useState(recurrence.taskDocument);
-  const [update, state] = useMutation(TasksUpdateTaskRecurrenceDocument);
-  const stale = state.error ? isStaleCommandError(state.error) : false;
-  return <VStack as="form" gap={3} className={stylex.props(styles.templateForm).className} onSubmit={(event) => { event.preventDefault(); void update({ variables: { input: { recurrenceId: current.recurrenceId, expectedRevision: current.revision, title: title.trim(), taskDocument, expectedTaskDocumentDigest: current.taskDocumentDigest, clientMutationId: createClientId() } } }).then(async () => { await onUpdated(); onClose(); }).catch(() => undefined); }}><span {...stylex.props(styles.templateNote)}>Changes apply only to future occurrences.</span><VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Title</span><input data-autofocus required value={title} {...stylex.props(styles.input)} onChange={(event) => setTitle(event.currentTarget.value)} /></VStack><VStack gap={1.5} className={stylex.props(styles.field).className}><span>Template document</span><TaskMarkdownEditor key={current.taskDocumentDigest} value={taskDocument} onChange={setTaskDocument} label="Recurring task template" /></VStack>{state.error ? <VStack as="div" role="alert" gap={2} align="start" className={stylex.props(styles.error).className}><span>{stale ? "This template changed elsewhere. Your draft is still here." : state.error.message}</span>{stale ? <Button type="button" size="sm" variant="secondary" label="Reload latest template" onClick={() => void onReload().then((latest) => { setCurrent(latest); setTitle(latest.title); setTaskDocument(latest.taskDocument); state.reset(); }).catch(() => undefined)} /> : null}</VStack> : null}<HStack justify="end" gap={2} className={stylex.props(styles.templateActions).className}><Button type="button" size="sm" variant="ghost" label="Cancel" isDisabled={state.loading} onClick={onClose} /><Button type="submit" size="sm" variant="primary" label="Save template" isLoading={state.loading} isDisabled={state.loading || !title.trim()} /></HStack></VStack>;
-}
-
 function dateLabel(value: string, timeZone: string) { return new Intl.DateTimeFormat(undefined, { timeZone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(value)); }
 function occurrenceLabel(resolution: Recurrence["occurrences"][number]["resolution"]) { return resolution === "SKIPPED" ? "Skipped" : resolution === "COALESCED" ? "Combined" : "Created"; }
 function occurrenceTriggerLabel(trigger: Recurrence["occurrences"][number]["trigger"]) { return trigger === "MANUAL" ? "Manual run" : "Scheduled run"; }
@@ -186,7 +288,12 @@ const styles = stylex.create({
   eyebrow: { color: "var(--noema-text-muted)", fontSize: 12, fontWeight: 650, textTransform: "uppercase", letterSpacing: "0.04em" },
   cadence: { color: "var(--noema-text-primary)", fontSize: 15, lineHeight: 1.35 },
   meta: { color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.4, fontVariantNumeric: "tabular-nums" },
-  description: { marginBlockStart: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 13 },
+  description: { color: "var(--noema-text-secondary)", fontSize: 13 },
+  descriptionBar: { minHeight: 36 },
+  descriptionLabel: { color: "var(--noema-text-muted)", fontSize: 12, fontWeight: 650 },
+  editControls: { display: "inline-flex", width: 64, minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
+  editor: { display: "grid", gap: "var(--spacing-2)", borderRadius: "var(--radius-element)" },
+  editorError: { outlineWidth: 1, outlineStyle: "solid", outlineColor: "var(--destructive)" },
   sectionTitle: { margin: 0, color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 650 },
   count: { color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 12 },
   history: { margin: 0, padding: 0, listStyle: "none", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)" },
@@ -201,9 +308,6 @@ const styles = stylex.create({
   state: { minHeight: "100%", padding: "var(--spacing-4)", color: "var(--noema-text-muted)", fontSize: 13 },
   warning: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.45 },
   error: { color: "var(--destructive)", fontSize: 12 },
-  field: { color: "var(--foreground)", fontSize: 13, fontWeight: 600 },
-  input: { width: "100%", minHeight: 38, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: "var(--radius-element)", backgroundColor: "var(--background)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-2)", color: "var(--foreground)", font: "inherit" },
-  templateForm: { borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlockStart: "var(--spacing-3)" },
   templateNote: { color: "var(--noema-text-muted)", fontSize: 12 },
-  templateActions: { borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlockStart: "var(--spacing-2)" }
+  srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }
 });

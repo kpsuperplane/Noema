@@ -21,7 +21,7 @@ import {
 import type { ChatDetailTarget } from "./chatDetailTypes";
 import { TaskDetailQueryPanel } from "./task/TaskDetailQueryPanel";
 import type { TaskDetail } from "./task/taskTypes";
-import { TaskRecurrenceDetailPanel } from "../tasks/TaskRecurrenceDetailPanel";
+import { TaskRecurrenceDetailPanel, type RecurrenceInlineEditController } from "../tasks/TaskRecurrenceDetailPanel";
 import { taskScheduleTimestampLabel } from "../tasks/tasksModel";
 import { normalizeTasksSearch } from "../tasks/tasksTypes";
 import { ChatDetailCloseButton } from "./ChatDetailCloseButton";
@@ -81,7 +81,10 @@ function RoutedChatDetailRail({
     schedule?: TaskDetail["schedule"];
     edit: TaskInlineEditController;
   } | null>(null);
-  const [recurrenceTitle, setRecurrenceTitle] = React.useState("Recurring task");
+  const [recurrenceHeader, setRecurrenceHeader] = React.useState<{
+    title: string;
+    edit: RecurrenceInlineEditController;
+  } | null>(null);
   const [artifactDetailState, setArtifactDetailState] = React.useState<{
     version: string;
     detail: ArtifactDetail | null;
@@ -101,12 +104,15 @@ function RoutedChatDetailRail({
   const recurringOccurrence = currentTaskHeader?.schedule?.recurrenceId
     ? currentTaskHeader.schedule
     : null;
-  const primaryTitle = recurrenceTargetId ? recurrenceTitle : currentTaskHeader
+  const primaryTitle = recurrenceTargetId ? recurrenceHeader?.title ?? "Recurring task" : currentTaskHeader
     ? currentTaskHeader.title
     : "Task details";
   const handleTaskHeaderChange = React.useCallback((detail: Pick<TaskDetail, "title" | "schedule">, edit: TaskInlineEditController) => {
     if (taskTargetId) setTaskHeaderState({ taskId: taskTargetId, ...detail, edit });
   }, [taskTargetId]);
+  const handleRecurrenceHeaderChange = React.useCallback((title: string, edit: RecurrenceInlineEditController) => {
+    setRecurrenceHeader({ title, edit });
+  }, []);
   React.useEffect(() => {
     if (isContained) {
       returnFocusRef.current = null;
@@ -233,7 +239,7 @@ function RoutedChatDetailRail({
             <header {...stylex.props(styles.header, styles.taskHeader)}>
               <div {...stylex.props(styles.taskTitleBar)}>
                 <div {...stylex.props(styles.taskIdentity)}>
-                  <EditableTaskTitle title={primaryTitle} edit={currentTaskHeader?.edit} />
+                  <EditableTaskTitle title={primaryTitle} edit={recurrenceTargetId ? recurrenceHeader?.edit : currentTaskHeader?.edit} />
                   {recurringOccurrence?.recurrenceId ? (
                     <div {...stylex.props(styles.taskSubtitle)}>
                       <span>Scheduled for {taskScheduleTimestampLabel(recurringOccurrence.scheduledFor, recurringOccurrence.timeZone)}</span>
@@ -263,7 +269,7 @@ function RoutedChatDetailRail({
                 onTaskHeaderChange={handleTaskHeaderChange}
                 showTasksLink={showTasksLink}
                 taskId={taskTargetId}
-              /> : recurrenceTargetId ? <TaskRecurrenceDetailPanel recurrenceId={recurrenceTargetId} onTitleChange={setRecurrenceTitle} /> : null}
+              /> : recurrenceTargetId ? <TaskRecurrenceDetailPanel recurrenceId={recurrenceTargetId} onTitleChange={handleRecurrenceHeaderChange} /> : null}
             </div>
           </m.div>
         ) : null}
@@ -289,26 +295,29 @@ function RoutedChatDetailRail({
   );
 }
 
-function EditableTaskTitle({ title, edit }: { title: string; edit?: TaskInlineEditController }) {
+type InlineTitleEditController = TaskInlineEditController | RecurrenceInlineEditController;
+
+function EditableTaskTitle({ title, edit }: { title: string; edit?: InlineTitleEditController }) {
+  const subject = edit && "recurrence" in edit ? "recurring task" : "task";
   if (!edit) return <h2 {...stylex.props(styles.title)}>{title}</h2>;
-  if (edit?.field === "TITLE") return <TaskTitleEditor key="editing" title={title} edit={edit} />;
+  if (edit.field === "TITLE") return <TaskTitleEditor key="editing" title={title} edit={edit} subject={subject} />;
   return (
     <div {...stylex.props(styles.editableTitle)}>
       <h2 {...stylex.props(styles.title)}>{title}</h2>
       <span {...stylex.props(styles.titleEditControls)}>
-        {edit?.canEdit ? <IconButton type="button" size="sm" variant="ghost" label="Edit task title" tooltip="Edit title" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("TITLE")} /> : null}
+        {edit.canEdit ? <IconButton type="button" size="sm" variant="ghost" label={`Edit ${subject} title`} tooltip="Edit title" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("TITLE")} /> : null}
       </span>
     </div>
   );
 }
 
-function TaskTitleEditor({ title, edit }: { title: string; edit: TaskInlineEditController }) {
+function TaskTitleEditor({ title, edit, subject }: { title: string; edit: InlineTitleEditController; subject: string }) {
   const [draft, setDraft] = React.useState(title);
   return (
     <form {...stylex.props(styles.editableTitle)} onSubmit={(event) => { event.preventDefault(); if (draft.trim()) void edit.saveTitle(draft.trim()).catch(() => undefined); }}>
-      <input autoFocus aria-label="Task title" aria-invalid={Boolean(edit.error || edit.actionUnavailable)} value={draft} {...stylex.props(styles.titleInput)} onChange={(event) => setDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Escape") edit.cancel(); }} />
+      <input autoFocus aria-label={`${subject} title`} aria-invalid={Boolean(edit.error || edit.actionUnavailable)} value={draft} {...stylex.props(styles.titleInput)} onChange={(event) => setDraft(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Escape") edit.cancel(); }} />
       <span {...stylex.props(styles.titleEditControls)}>
-        {edit.requiresAcknowledgement ? <IconButton type="button" size="sm" variant="ghost" label="Use latest task" tooltip="Use latest task" icon={<RefreshCcw aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => void edit.acknowledge().catch(() => undefined)} /> : <IconButton type="submit" size="sm" variant="ghost" label="Save task title" tooltip="Save title" icon={<Check aria-hidden="true" size={14} />} isDisabled={edit.busy || edit.actionUnavailable || !draft.trim()} />}
+        {edit.requiresAcknowledgement ? <IconButton type="button" size="sm" variant="ghost" label={`Use latest ${subject}`} tooltip={`Use latest ${subject}`} icon={<RefreshCcw aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={() => void edit.acknowledge().catch(() => undefined)} /> : <IconButton type="submit" size="sm" variant="ghost" label={`Save ${subject} title`} tooltip="Save title" icon={<Check aria-hidden="true" size={14} />} isDisabled={edit.busy || edit.actionUnavailable || !draft.trim()} />}
         <IconButton type="button" size="sm" variant="ghost" label="Cancel title edit" tooltip="Cancel" icon={<X aria-hidden="true" size={14} />} isDisabled={edit.busy} onClick={edit.cancel} />
       </span>
       {edit.error ? <span role="alert" {...stylex.props(styles.srOnly)}>{edit.error}</span> : null}
