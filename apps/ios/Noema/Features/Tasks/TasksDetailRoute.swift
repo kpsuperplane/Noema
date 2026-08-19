@@ -257,13 +257,21 @@ private struct TasksDetailContent: View {
           .transition(secondarySurfaceTransition)
           .glassEffect(
             .regular,
-            in: Capsule()
+            in: compactSecondaryAccessoryShape
           )
           .padding(.horizontal, NoemaSpacing.xl)
           .padding(.bottom, NoemaSpacing.sm)
       }
     }
     .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: secondarySurfaceKey)
+  }
+
+  private var compactSecondaryAccessoryShape: AnyShape {
+    if taskInterventions.isEmpty, detail.activeGate == nil, shouldShowStatus {
+      AnyShape(Capsule())
+    } else {
+      AnyShape(RoundedRectangle(cornerRadius: NoemaRadius.page, style: .continuous))
+    }
   }
 
   private var availableTabs: [TaskDetailTab] {
