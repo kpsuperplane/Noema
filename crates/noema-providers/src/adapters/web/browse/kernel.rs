@@ -845,12 +845,42 @@ await context.route('**/*', async route => {
     const parsed = new URL(raw);
     if (['data:', 'blob:', 'about:', 'chrome-extension:'].includes(parsed.protocol)) allowed = true;
     if (['http:', 'https:', 'ws:', 'wss:'].includes(parsed.protocol)) {
-      const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+      const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
       const parts = host.split('.').map(Number);
       const ipv4 = parts.length === 4 && parts.every(Number.isInteger) && parts.every(part => part >= 0 && part <= 255);
-      const privateIpv4 = ipv4 && (parts[0] === 0 || parts[0] === 10 || parts[0] === 127 || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) || (parts[0] === 192 && parts[1] === 168) || parts[0] >= 224);
+      const privateIpv4 = ipv4 && (
+        parts[0] === 0 ||
+        parts[0] === 10 ||
+        (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) ||
+        parts[0] === 127 ||
+        (parts[0] === 169 && parts[1] === 254) ||
+        (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+        (parts[0] === 192 && parts[1] === 0) ||
+        (parts[0] === 192 && parts[1] === 168) ||
+        (parts[0] === 198 && parts[1] >= 18 && parts[1] <= 19) ||
+        parts[0] >= 224
+      );
+      const privateIpv6 =
+        host === '::' ||
+        host === '::1' ||
+        host.startsWith('::ffff:') ||
+        host.startsWith('100:') ||
+        host.startsWith('2001:db8:') ||
+        host.startsWith('2002:') ||
+        host.startsWith('64:ff9b:') ||
+        host.startsWith('fc') ||
+        host.startsWith('fd') ||
+        host.startsWith('fe8') ||
+        host.startsWith('fe9') ||
+        host.startsWith('fea') ||
+        host.startsWith('feb') ||
+        host.startsWith('fec') ||
+        host.startsWith('fed') ||
+        host.startsWith('fee') ||
+        host.startsWith('fef') ||
+        host.startsWith('ff');
       const blockedName = host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.test') || host.endsWith('.invalid') || host.endsWith('.example');
-      allowed = !blockedName && !privateIpv4 && host !== '::1';
+      allowed = !blockedName && !privateIpv4 && !(host.includes(':') && privateIpv6);
     }
   } catch (_) {}
   if (allowed) await route.continue(); else await route.abort();
@@ -901,6 +931,7 @@ mod tests {
     #[test]
     fn request_guard_blocks_private_literal_targets() {
         assert!(REQUEST_GUARD.contains("privateIpv4"));
+        assert!(REQUEST_GUARD.contains("privateIpv6"));
         assert!(REQUEST_GUARD.contains("blockedName"));
         assert!(REQUEST_GUARD.contains("route.abort"));
     }
