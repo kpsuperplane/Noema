@@ -11,7 +11,7 @@ use noema_workspaces::{ProjectId, WorkspaceId};
 use rusqlite::{OptionalExtension, Transaction, params};
 
 use crate::{
-    NoemaStore, StoreError, ids::allocate_id, task_files::allocate_task_directory_tx,
+    NoemaStore, StoreError, WorkPageSize, ids::allocate_id, task_files::allocate_task_directory_tx,
     work_events::append_work_event_tx,
 };
 
@@ -66,22 +66,47 @@ impl NoemaStore {
             connection.query_row(
                 "SELECT recurrence_id, workspace_id, project_id, title, description_markdown, authorization_context_json, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, revision, next_run_at, pending_coalesced_at, created_at, updated_at FROM task_recurrences WHERE recurrence_id = ?1",
                 [recurrence_id.as_str()],
-                |row| Ok(noema_tasks::TaskRecurrenceRecord {
-                    recurrence_id: noema_tasks::TaskRecurrenceId::new(row.get::<_, String>(0)?).map_err(sql_conversion)?,
-                    workspace_id: noema_workspaces::WorkspaceId::new(row.get::<_, String>(1)?).map_err(sql_conversion)?,
-                    project_id: row.get::<_, Option<String>>(2)?.map(noema_workspaces::ProjectId::new).transpose().map_err(sql_conversion)?,
-                    title: row.get(3)?, description_markdown: row.get(4)?,
-                    authorization_context: serde_json::from_str(&row.get::<_, String>(5)?).map_err(sql_conversion)?,
-                    starts_at: row.get(6)?, cron_expression: row.get(7)?, time_zone: row.get(8)?,
-                    missed_run_policy: noema_tasks::MissedRunPolicy::from_str(&row.get::<_, String>(9)?).map_err(sql_conversion)?,
-                    overlap_policy: noema_tasks::OverlapPolicy::from_str(&row.get::<_, String>(10)?).map_err(sql_conversion)?,
-                    lifecycle: noema_tasks::RecurrenceLifecycle::from_str(&row.get::<_, String>(11)?).map_err(sql_conversion)?,
-                    revision: u64::try_from(row.get::<_, i64>(12)?).map_err(sql_conversion)?,
-                    next_run_at: row.get(13)?, pending_coalesced_at: row.get(14)?,
-                    created_at: row.get(15)?, updated_at: row.get(16)?,
-                }),
+                decode_task_recurrence,
             ).optional().map_err(StoreError::Sqlite)
         }).await
+    }
+
+    /// List current recurring authorities within one workspace and optional project.
+    ///
+    /// # Errors
+    /// Returns a store error when a recurrence cannot be decoded or read.
+    pub async fn list_task_recurrences(
+        &self,
+        workspace_id: &WorkspaceId,
+        project_id: Option<&ProjectId>,
+        text: Option<&str>,
+        first: WorkPageSize,
+    ) -> Result<Vec<noema_tasks::TaskRecurrenceRecord>, StoreError> {
+        let workspace_id = workspace_id.as_str().to_owned();
+        let project_id = project_id.map(|value| value.as_str().to_owned());
+        let text = text
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty());
+        let first = i64::try_from(first.get()).map_err(|error| StoreError::InvariantViolation {
+            message: format!("recurrence page size could not be represented in SQLite: {error}"),
+        })?;
+        self.with_connection(move |connection| {
+            let mut statement = connection.prepare(
+                "SELECT recurrence_id, workspace_id, project_id, title, description_markdown, authorization_context_json, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, revision, next_run_at, pending_coalesced_at, created_at, updated_at
+                 FROM task_recurrences
+                 WHERE workspace_id = ?1
+                   AND lifecycle != 'ended'
+                   AND (?2 IS NULL OR project_id = ?2)
+                   AND (?3 IS NULL OR instr(lower(title), ?3) > 0 OR instr(lower(description_markdown), ?3) > 0)
+                 ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, next_run_at, recurrence_id
+                 LIMIT ?4",
+            )?;
+            statement
+                .query_map(params![workspace_id, project_id, text, first], decode_task_recurrence)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
     /// List newest recurrence slot records with a bounded caller limit.
@@ -115,6 +140,39 @@ impl NoemaStore {
 
 fn sql_conversion(error: impl std::error::Error + Send + Sync + 'static) -> rusqlite::Error {
     rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error))
+}
+
+fn decode_task_recurrence(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<noema_tasks::TaskRecurrenceRecord> {
+    Ok(noema_tasks::TaskRecurrenceRecord {
+        recurrence_id: noema_tasks::TaskRecurrenceId::new(row.get::<_, String>(0)?)
+            .map_err(sql_conversion)?,
+        workspace_id: WorkspaceId::new(row.get::<_, String>(1)?).map_err(sql_conversion)?,
+        project_id: row
+            .get::<_, Option<String>>(2)?
+            .map(ProjectId::new)
+            .transpose()
+            .map_err(sql_conversion)?,
+        title: row.get(3)?,
+        description_markdown: row.get(4)?,
+        authorization_context: serde_json::from_str(&row.get::<_, String>(5)?)
+            .map_err(sql_conversion)?,
+        starts_at: row.get(6)?,
+        cron_expression: row.get(7)?,
+        time_zone: row.get(8)?,
+        missed_run_policy: MissedRunPolicy::from_str(&row.get::<_, String>(9)?)
+            .map_err(sql_conversion)?,
+        overlap_policy: OverlapPolicy::from_str(&row.get::<_, String>(10)?)
+            .map_err(sql_conversion)?,
+        lifecycle: noema_tasks::RecurrenceLifecycle::from_str(&row.get::<_, String>(11)?)
+            .map_err(sql_conversion)?,
+        revision: u64::try_from(row.get::<_, i64>(12)?).map_err(sql_conversion)?,
+        next_run_at: row.get(13)?,
+        pending_coalesced_at: row.get(14)?,
+        created_at: row.get(15)?,
+        updated_at: row.get(16)?,
+    })
 }
 
 impl WorkCommandService {

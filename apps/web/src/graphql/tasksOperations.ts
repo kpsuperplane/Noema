@@ -46,6 +46,19 @@ export const TasksListDocument = gql`
   ${TasksPageInfoFields}
 `;
 
+export const TasksRecurrencesDocument = gql`
+  query TasksRecurrences($workspaceId: String!, $projectId: String, $text: String, $first: Int = 100) {
+    taskRecurrences(workspaceId: $workspaceId, projectId: $projectId, text: $text, first: $first) {
+      recurrenceId
+      title
+      cronExpression
+      lifecycle
+      nextRunAt
+      updatedAt
+    }
+  }
+`;
+
 export const TasksNeedsYouDocument = gql`
   query TasksNeedsYou($workspaceId: String!, $projectId: String, $first: Int = 50, $after: String) {
     needsYou(workspaceId: $workspaceId, projectId: $projectId, first: $first, after: $after) {

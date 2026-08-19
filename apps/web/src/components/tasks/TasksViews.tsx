@@ -18,8 +18,9 @@ import {
 import type { TaskStatus } from "@/components/chatDetail/task/taskTypes";
 import {
   TasksHistoryDocument,
-  TasksTaskRecurrenceDocument,
   TasksListDocument,
+  TasksRecurrencesDocument,
+  type TasksRecurrencesQuery,
   type PendingHumanInterventionsQuery
 } from "@/generated/graphql";
 import { recurrenceSummary, relativeTime, taskRunLabel, timestampLabel } from "./tasksModel";
@@ -43,9 +44,19 @@ export function TasksList({
     },
     fetchPolicy: "cache-and-network"
   });
+  const recurrenceResult = useQuery(TasksRecurrencesDocument, {
+    variables: {
+      workspaceId: PERSONAL_WORKSPACE_ID,
+      projectId,
+      text: query,
+      first: 100
+    },
+    fetchPolicy: "cache-and-network"
+  });
   const actionResult = usePendingHumanInterventions({ projectId });
   const taskConnection = taskResult.data?.tasks;
   const tasks = taskConnection?.edges.map((edge) => edge.node) ?? [];
+  const recurrences = recurrenceResult.data?.taskRecurrences ?? [];
   const interventions = actionResult.data?.pendingHumanInterventions ?? [];
   const visibleInterventions = selectedTaskId
     ? interventions.filter((intervention) => (
@@ -57,11 +68,8 @@ export function TasksList({
   const upNext = tasks.filter((task) => task.stage.behavior === "DISPATCH");
   const inbox = tasks.filter((task) => task.stage.behavior === "INTAKE" && !task.schedule);
   const oneTimeScheduled = tasks.filter((task) => task.stage.behavior === "INTAKE" && task.schedule && !task.schedule.recurrenceId);
-  const recurrenceTasks = [...tasks]
-    .filter((task) => task.schedule?.recurrenceId)
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .filter((task, index, candidates) => candidates.findIndex((candidate) => candidate.schedule?.recurrenceId === task.schedule?.recurrenceId) === index);
-  const initialLoading = !taskConnection && !actionResult.data && taskResult.loading && actionResult.loading;
+  const initialLoading = !taskConnection && !recurrenceResult.data && !actionResult.data
+    && taskResult.loading && recurrenceResult.loading && actionResult.loading;
 
   return (
     <div {...stylex.props(styles.dashboard)}>
@@ -72,6 +80,9 @@ export function TasksList({
           <>
             {!actionResult.data && actionResult.error ? (
               <ListMessage loading={false} error retry={() => actionResult.refetch()} label="interventions" />
+            ) : null}
+            {!recurrenceResult.data ? (
+              <ListMessage loading={recurrenceResult.loading} error={Boolean(recurrenceResult.error)} retry={() => recurrenceResult.refetch()} label="recurring tasks" />
             ) : null}
             <AnimatePresence>
               {visibleInterventions.length > 0 ? (
@@ -88,7 +99,7 @@ export function TasksList({
               <ListMessage loading={taskResult.loading} error={Boolean(taskResult.error)} retry={() => taskResult.refetch()} label="tasks" />
             ) : null}
             {running.length ? <TaskGroup title="Running" tasks={running} /> : null}
-            {oneTimeScheduled.length || recurrenceTasks.length ? <ScheduledGroup oneTimeTasks={oneTimeScheduled} recurrenceTasks={recurrenceTasks} /> : null}
+            {oneTimeScheduled.length || recurrences.length ? <ScheduledGroup oneTimeTasks={oneTimeScheduled} recurrences={recurrences} /> : null}
             {upNext.length ? <TaskGroup title="Up next" tasks={upNext} /> : null}
             {inbox.length ? <TaskGroup title="Inbox" tasks={inbox} /> : null}
             <ListLoadMore
@@ -257,37 +268,33 @@ function TaskGroup({ title, tasks }: { title: string; tasks: readonly TasksTask[
   );
 }
 
-function ScheduledGroup({ oneTimeTasks, recurrenceTasks }: { oneTimeTasks: readonly TasksTask[]; recurrenceTasks: readonly TasksTask[] }) {
+type TasksRecurrence = TasksRecurrencesQuery["taskRecurrences"][number];
+
+function ScheduledGroup({ oneTimeTasks, recurrences }: { oneTimeTasks: readonly TasksTask[]; recurrences: readonly TasksRecurrence[] }) {
   return (
     <VStack as="section" aria-labelledby="tasks-group-scheduled" gap={1.5} className={stylex.props(styles.taskGroup).className}>
-      <SectionHeader id="tasks-group-scheduled" title="Scheduled" count={oneTimeTasks.length + recurrenceTasks.length} />
+      <SectionHeader id="tasks-group-scheduled" title="Scheduled" count={oneTimeTasks.length + recurrences.length} />
       <VStack as="ul" gap={1.5} className={stylex.props(styles.cards).className}>
         {oneTimeTasks.map((task) => (
           <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status="queued" statusLabel="Scheduled" timestamp={task.schedule!.scheduledFor} />
         ))}
-        {recurrenceTasks.map((task) => <RecurrenceTaskCard key={task.schedule!.recurrenceId} task={task} />)}
+        {recurrences.map((recurrence) => <RecurrenceTaskCard key={recurrence.recurrenceId} recurrence={recurrence} />)}
       </VStack>
     </VStack>
   );
 }
 
-function RecurrenceTaskCard({ task }: { task: TasksTask }) {
-  const recurrenceId = task.schedule?.recurrenceId ?? "";
-  const result = useQuery(TasksTaskRecurrenceDocument, { variables: { recurrenceId }, skip: !recurrenceId });
-  const recurrence = result.data?.taskRecurrence;
-  if (recurrence?.lifecycle === "ENDED") return null;
-  const nextRun = recurrence?.nextRunAt ?? task.schedule!.scheduledFor;
-  const repeat = recurrence ? recurrenceSummary(recurrence.cronExpression) : "Repeating";
+function RecurrenceTaskCard({ recurrence }: { recurrence: TasksRecurrence }) {
+  const timestamp = recurrence.nextRunAt ?? recurrence.updatedAt;
+  const repeat = recurrenceSummary(recurrence.cronExpression);
   return (
     <TaskCard
-      taskId={task.taskId}
-      recurrenceId={recurrenceId}
-      title={recurrence?.title ?? task.title}
-      note={`${repeat} · Next ${timestampLabel(nextRun)}`}
-      project={task.project?.name}
+      recurrenceId={recurrence.recurrenceId}
+      title={recurrence.title}
+      note={recurrence.nextRunAt ? `${repeat} · Next ${timestampLabel(recurrence.nextRunAt)}` : repeat}
       status="queued"
-      statusLabel={recurrence?.lifecycle === "PAUSED" ? "Paused" : task.attention ? "Needs you" : "Recurring"}
-      timestamp={nextRun}
+      statusLabel={recurrence.lifecycle === "PAUSED" ? "Paused" : "Recurring"}
+      timestamp={timestamp}
     />
   );
 }
@@ -301,8 +308,8 @@ function SectionHeader({ id, title, count, attention = false }: { id: string; ti
   );
 }
 
-function TaskCard({ taskId, recurrenceId, title, note, project, status, statusLabel, timestamp, listItem = true, attached = false }: {
-  taskId: string;
+function TaskCard({ taskId = "", recurrenceId, title, note, project, status, statusLabel, timestamp, listItem = true, attached = false }: {
+  taskId?: string;
   recurrenceId?: string;
   title: string;
   note?: string | null;

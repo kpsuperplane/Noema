@@ -149,6 +149,10 @@ Task detail reads `Result` from `RESULT.md` and `Task` from `TASK.md`.
 It shows `Result`, `Task`, and `Transcript` in that order when a result exists.
 It omits blank results and never appends `REVIEW.md` to either document view.
 
+The Tasks list reads recurring authorities directly. A recurrence remains in
+Scheduled when all of its Task instances are terminal. Instances provide run
+history and do not control recurrence visibility.
+
 Memory articles keep prose primary. One numeric citation represents one nearby
 claim. Its hover or focus card shows every exact evidence source with type,
 date, excerpt, and identifier.

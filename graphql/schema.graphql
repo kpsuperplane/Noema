@@ -3600,6 +3600,10 @@ type QueryRoot {
 	"""
 	taskRecurrence(recurrenceId: String!, first: Int): TaskRecurrence!
 	"""
+	List current recurring authorities for one Tasks list scope.
+	"""
+	taskRecurrences(workspaceId: String!, projectId: String, text: String, first: Int): [TaskRecurrenceSummary!]!
+	"""
 	List owner-authorized projects in stable update order.
 	"""
 	projects(workspaceId: String!, includeArchived: Boolean, first: Int, after: String): ProjectConnection!
@@ -5203,6 +5207,36 @@ input TaskRecurrenceCommandInput {
 	Caller idempotency key.
 	"""
 	clientMutationId: String!
+}
+
+"""
+Current recurring authority for the Tasks list.
+"""
+type TaskRecurrenceSummary {
+	"""
+	Recurring template identity.
+	"""
+	recurrenceId: String!
+	"""
+	Current title for future occurrences.
+	"""
+	title: String!
+	"""
+	Five-field cron expression.
+	"""
+	cronExpression: String!
+	"""
+	Lifecycle.
+	"""
+	lifecycle: RecurrenceLifecycle!
+	"""
+	Next projected UTC slot.
+	"""
+	nextRunAt: String
+	"""
+	Last authority update timestamp.
+	"""
+	updatedAt: String!
 }
 
 """

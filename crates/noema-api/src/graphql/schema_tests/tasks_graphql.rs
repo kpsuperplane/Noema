@@ -37,6 +37,7 @@ fn tasks_schema_exposes_semantic_operations_without_task_status_aliases() {
         "queueTask",
         "scheduleTask",
         "taskRecurrence",
+        "taskRecurrences",
         "taskSchedulePreview",
         "reopenTask",
         "tasksEvents",
@@ -50,6 +51,79 @@ fn tasks_schema_exposes_semantic_operations_without_task_status_aliases() {
     assert!(sdl.contains("stage: WorkflowStage!"));
     assert!(!sdl.contains("executionPhase:"));
     assert!(!sdl.contains("setTaskStage"));
+}
+
+#[tokio::test]
+async fn recurrence_list_does_not_depend_on_an_active_task_instance() {
+    let store = crate::test_support::test_store().await;
+    let schema = build_schema(GraphqlState::for_tests_with_store(store));
+    let captured = response_json(
+        schema
+            .execute(
+                r#"mutation {
+                  captureTask(input: {
+                    workspaceId: "workspace:personal"
+                    title: "Show positive news"
+                    schedule: {
+                      scheduledFor: "2030-01-01T08:00:00Z"
+                      timeZone: "UTC"
+                      recurrence: { startsAt: "2030-01-01T08:00:00Z", cronExpression: "0 8 * * *" }
+                    }
+                    clientMutationId: "recurrence-list-capture"
+                  }) {
+                    task { taskId revision generation }
+                  }
+                }"#,
+            )
+            .await,
+        "recurring capture",
+    );
+    let task = &captured["captureTask"]["task"];
+    let cancelled = schema
+        .execute(format!(
+            r#"mutation {{
+              cancelTask(input: {{
+                taskId: "{}"
+                expectedRevision: {}
+                expectedGeneration: {}
+                clientMutationId: "recurrence-list-cancel"
+              }}) {{ task {{ taskId }} }}
+            }}"#,
+            task["taskId"].as_str().expect("task id"),
+            task["revision"].as_i64().expect("task revision"),
+            task["generation"].as_i64().expect("task generation"),
+        ))
+        .await;
+    assert!(cancelled.errors.is_empty(), "{:?}", cancelled.errors);
+
+    let listed = response_json(
+        schema
+            .execute(
+                r#"query {
+                  tasks(input: { workspaceId: "workspace:personal", scope: ACTIVE }) {
+                    edges { node { taskId } }
+                  }
+                  taskRecurrences(workspaceId: "workspace:personal", text: "positive") {
+                    recurrenceId title lifecycle nextRunAt
+                  }
+                }"#,
+            )
+            .await,
+        "recurrence list",
+    );
+    assert_eq!(listed["tasks"]["edges"], json!([]));
+    assert_eq!(listed["taskRecurrences"].as_array().map(Vec::len), Some(1));
+    assert_json_values(
+        &listed,
+        &[
+            ("/taskRecurrences/0/title", json!("Show positive news")),
+            ("/taskRecurrences/0/lifecycle", json!("ACTIVE")),
+            (
+                "/taskRecurrences/0/nextRunAt",
+                json!("2030-01-02T08:00:00Z"),
+            ),
+        ],
+    );
 }
 
 #[test]

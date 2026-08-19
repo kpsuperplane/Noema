@@ -229,6 +229,20 @@ impl QueryRoot {
         tasks::task_recurrence(state, principal, recurrence_id, first).await
     }
 
+    /// List current recurring authorities for one Tasks list scope.
+    async fn task_recurrences(
+        &self,
+        ctx: &Context<'_>,
+        workspace_id: String,
+        project_id: Option<String>,
+        text: Option<String>,
+        first: Option<i32>,
+    ) -> Result<Vec<GraphqlTaskRecurrenceSummary>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::task_recurrences(state, principal, workspace_id, project_id, text, first).await
+    }
+
     /// List owner-authorized projects in stable update order.
     async fn projects(
         &self,

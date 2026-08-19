@@ -85,6 +85,46 @@ pub(in crate::graphql) async fn task_recurrence(
     })
 }
 
+/// Resolve current recurring authorities for one Tasks list scope.
+pub(in crate::graphql) async fn task_recurrences(
+    state: &GraphqlState,
+    principal_subject: &str,
+    workspace_id: String,
+    project_id: Option<String>,
+    text: Option<String>,
+    first: Option<i32>,
+) -> Result<Vec<GraphqlTaskRecurrenceSummary>> {
+    require_owner(principal_subject)?;
+    let workspace_id = parse_workspace_id(&workspace_id)?;
+    require_personal_workspace(&workspace_id)?;
+    let project_id = project_id.as_deref().map(parse_project_id).transpose()?;
+    if let Some(project_id) = project_id.as_ref() {
+        require_personal_project(state.store()?, project_id).await?;
+    }
+    state
+        .store()?
+        .list_task_recurrences(
+            &workspace_id,
+            project_id.as_ref(),
+            text.as_deref(),
+            page_size(first)?,
+        )
+        .await
+        .map_err(task_error)?
+        .into_iter()
+        .map(|recurrence| {
+            Ok(GraphqlTaskRecurrenceSummary {
+                recurrence_id: recurrence.recurrence_id.into_string(),
+                title: recurrence.title,
+                cron_expression: recurrence.cron_expression,
+                lifecycle: recurrence.lifecycle.into(),
+                next_run_at: recurrence.next_run_at.map(instant).transpose()?,
+                updated_at: recurrence.updated_at,
+            })
+        })
+        .collect()
+}
+
 /// Resolve one owner-authorized task detail.
 pub(in crate::graphql) async fn task(
     state: &GraphqlState,

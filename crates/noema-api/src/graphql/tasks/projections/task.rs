@@ -51,6 +51,15 @@ graphql_object! { "Continuing authority and recent history for recurring work." 
     "Newest occurrence history." => occurrences: Vec<GraphqlRecurrenceOccurrence>,
 } }
 
+graphql_object! { "Current recurring authority for the Tasks list." => pub struct GraphqlTaskRecurrenceSummary("TaskRecurrenceSummary") {
+    "Recurring template identity." => recurrence_id: String,
+    "Current title for future occurrences." => title: String,
+    "Five-field cron expression." => cron_expression: String,
+    "Lifecycle." => lifecycle: GraphqlRecurrenceLifecycle,
+    "Next projected UTC slot." => next_run_at: Option<String>,
+    "Last authority update timestamp." => updated_at: String,
+} }
+
 graphql_object_from! { "Safe task provenance." => pub struct GraphqlTaskSource("TaskSource")
     from noema_tasks::TaskProvenance as value {
     "Source conversation." => conversation_id: Option<String> = value.conversation_id,
