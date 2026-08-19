@@ -4,6 +4,7 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { Check, Code2, RefreshCcw, X } from "lucide-react";
+import { MarkdownContent } from "@/components/MarkdownContent";
 
 export type TaskMarkdownEditorProps = {
   value: string;
@@ -12,6 +13,7 @@ export type TaskMarkdownEditorProps = {
   density?: "default" | "inline";
   sourceMode?: boolean;
   onSourceModeChange?: (sourceMode: boolean) => void;
+  onReady?: () => void;
 };
 
 const TaskMarkdownEditorImpl = React.lazy(() => import("./TaskMarkdownEditorImpl"));
@@ -37,6 +39,7 @@ export function TaskDocumentInlineEditor({ document, digest, edit, label, scope,
 }) {
   const [draft, setDraft] = React.useState(document);
   const [sourceMode, setSourceMode] = React.useState(false);
+  const [editorReady, setEditorReady] = React.useState(false);
   const saveLabel = scope ? "Save description for future occurrences" : "Save description";
   return (
     <VStack as="section" aria-labelledby="task-document-editor-title" gap={2} className={className}>
@@ -52,7 +55,12 @@ export function TaskDocumentInlineEditor({ document, digest, edit, label, scope,
         </span>
       </HStack>
       <VStack className={stylex.props(styles.editor, Boolean(edit.error || edit.actionUnavailable) && styles.editorError).className}>
-        <TaskMarkdownEditor key={digest} value={draft} onChange={setDraft} label={label} density="inline" sourceMode={sourceMode} onSourceModeChange={setSourceMode} />
+        <div {...stylex.props(styles.editorFrame)}>
+          {!editorReady ? <MarkdownContent density="compact" className={stylex.props(styles.preview).className}>{draft}</MarkdownContent> : null}
+          <div {...stylex.props(!editorReady && styles.editorLoading)}>
+            <TaskMarkdownEditor key={digest} value={draft} onChange={setDraft} label={label} density="inline" sourceMode={sourceMode} onSourceModeChange={setSourceMode} onReady={() => setEditorReady(true)} />
+          </div>
+        </div>
       </VStack>
       {edit.error ? <span role="alert" {...stylex.props(styles.error)}>{edit.error}</span> : null}
     </VStack>
@@ -65,6 +73,9 @@ const styles = stylex.create({
   scope: { color: "var(--noema-text-muted)", fontSize: 11 },
   controls: { display: "inline-flex", width: 96, minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
   editor: { display: "grid", gap: "var(--spacing-2)", borderRadius: "var(--radius-element)" },
+  editorFrame: { position: "relative", minHeight: "var(--spacing-5)" },
+  editorLoading: { position: "absolute", inset: 0, visibility: "hidden", pointerEvents: "none" },
+  preview: { paddingInline: "var(--spacing-2)" },
   editorError: { outlineWidth: 1, outlineStyle: "solid", outlineColor: "var(--destructive)" },
   error: { color: "var(--destructive)", fontSize: 12, lineHeight: 1.4 }
 });

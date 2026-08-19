@@ -8,11 +8,12 @@ import "@milkdown/crepe/theme/frame.css";
 import * as stylex from "@stylexjs/stylex";
 import type { TaskMarkdownEditorProps } from "./TaskMarkdownEditor";
 
-export default function TaskMarkdownEditorImpl({ value, onChange, label = "Task document", density = "default", sourceMode: controlledSourceMode, onSourceModeChange }: TaskMarkdownEditorProps) {
+export default function TaskMarkdownEditorImpl({ value, onChange, label = "Task document", density = "default", sourceMode: controlledSourceMode, onSourceModeChange, onReady }: TaskMarkdownEditorProps) {
   const [internalSourceMode, setInternalSourceMode] = React.useState(false);
   const [richFailed, setRichFailed] = React.useState(false);
   const sourceMode = controlledSourceMode ?? internalSourceMode;
   const setSourceMode = (next: boolean) => onSourceModeChange ? onSourceModeChange(next) : setInternalSourceMode(next);
+  React.useLayoutEffect(() => { if (sourceMode) onReady?.(); }, [onReady, sourceMode]);
   const modeLabel = sourceMode ? "Use rich editor" : "Edit source";
   const modeButton = <Button type="button" size="sm" variant="ghost" label={modeLabel} isDisabled={richFailed && sourceMode} onClick={() => setSourceMode(!sourceMode)} />;
   return (
@@ -36,6 +37,7 @@ export default function TaskMarkdownEditorImpl({ value, onChange, label = "Task 
           initialValue={value}
           inline={density === "inline"}
           onChange={onChange}
+          onReady={onReady}
           onFailure={() => {
             setRichFailed(true);
             setSourceMode(true);
@@ -47,14 +49,16 @@ export default function TaskMarkdownEditorImpl({ value, onChange, label = "Task 
   );
 }
 
-function MilkdownCrepe({ initialValue, inline, onChange, onFailure }: { initialValue: string; inline: boolean; onChange: (value: string) => void; onFailure: () => void }) {
+function MilkdownCrepe({ initialValue, inline, onChange, onFailure, onReady }: { initialValue: string; inline: boolean; onChange: (value: string) => void; onFailure: () => void; onReady?: () => void }) {
   const root = React.useRef<HTMLDivElement>(null);
   const initialValueRef = React.useRef(initialValue);
   const onChangeRef = React.useRef(onChange);
   const onFailureRef = React.useRef(onFailure);
+  const onReadyRef = React.useRef(onReady);
   React.useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
   React.useEffect(() => { onFailureRef.current = onFailure; }, [onFailure]);
-  React.useEffect(() => {
+  React.useEffect(() => { onReadyRef.current = onReady; }, [onReady]);
+  React.useLayoutEffect(() => {
     if (!root.current) return;
     const crepe = new Crepe({
       root: root.current,
@@ -72,7 +76,7 @@ function MilkdownCrepe({ initialValue, inline, onChange, onFailure }: { initialV
       });
     });
     let active = true;
-    void crepe.create().catch(() => { if (active) onFailureRef.current(); });
+    void crepe.create().then(() => { if (active) onReadyRef.current?.(); }).catch(() => { if (active) { onFailureRef.current(); onReadyRef.current?.(); } });
     return () => {
       active = false;
       void crepe.destroy().catch(() => undefined);

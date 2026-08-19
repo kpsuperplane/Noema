@@ -187,10 +187,10 @@ a[href][data-slot="shell-sidebar-control"] {
   > span:first-child
   > span,
 [data-slot="task-markdown-editor"][data-density="inline"]
-  .milkdown
-  .ProseMirror
-  ul
-  > li:not([data-item-type="task"])::before {
+  .milkdown-list-item-block
+  > .list-item
+  > .label-wrapper
+  > .label.bullet {
   width: var(--spacing-1);
   height: var(--spacing-1);
   border-radius: var(--radius-full);
@@ -214,10 +214,10 @@ a[href][data-slot="shell-sidebar-control"] {
   > .astryx-list-item
   > span:first-child,
 [data-slot="task-markdown-editor"][data-density="inline"]
-  .milkdown
-  .ProseMirror
-  ol
-  > li:not([data-item-type="task"])::before {
+  .milkdown-list-item-block
+  > .list-item
+  > .label-wrapper
+  > .label.ordered {
   display: inline-flex;
   width: var(--spacing-5);
   height: var(--spacing-5);
@@ -271,6 +271,7 @@ a[href][data-slot="shell-sidebar-control"] {
 [data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror p {
   margin-block: var(--spacing-1);
   padding: 0;
+  line-height: var(--text-body-leading);
 }
 
 [data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror ul,
@@ -279,40 +280,72 @@ a[href][data-slot="shell-sidebar-control"] {
   flex-direction: column;
   gap: var(--spacing-0-5);
   margin-block: var(--spacing-1);
+  margin-inline: calc(-1 * var(--spacing-2));
   padding: 0;
   list-style: none;
 }
 
-[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror ul > li:not([data-item-type="task"]),
-[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror ol > li:not([data-item-type="task"]) {
-  display: grid;
-  grid-template-columns: var(--spacing-2) minmax(0, 1fr);
-  column-gap: var(--spacing-2);
-  align-items: start;
+[data-slot="task-markdown-editor"][data-density="inline"]
+  .milkdown-list-item-block
+  > .list-item {
+  gap: var(--spacing-2);
+  align-items: center;
   margin-inline-start: calc(-1 * var(--spacing-2));
+  padding-block: var(--spacing-1);
   padding-inline: var(--spacing-1);
 }
 
-[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror ul > li:not([data-item-type="task"])::before {
-  content: "";
-  margin-block-start: calc((1em * var(--text-body-leading) - var(--spacing-1)) / 2);
+[data-slot="task-markdown-editor"][data-density="inline"]
+  .milkdown-list-item-block
+  > .list-item
+  > .label-wrapper:has(.label.bullet) {
+  align-self: baseline;
+  width: var(--spacing-2);
+  height: auto;
+  margin-block-start: calc((1em * var(--text-body-leading) - var(--spacing-1-5)) / 2);
 }
 
-[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror ol {
-  counter-reset: noema-editor-list;
+[data-slot="task-markdown-editor"][data-density="inline"]
+  .milkdown-list-item-block
+  > .list-item
+  > .label-wrapper
+  > .label.bullet {
+  padding: 0;
 }
 
-[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror ol > li:not([data-item-type="task"]) {
-  counter-increment: noema-editor-list;
-  grid-template-columns: var(--spacing-5) minmax(0, 1fr);
+[data-slot="task-markdown-editor"][data-density="inline"]
+  .milkdown-list-item-block
+  > .list-item
+  > .label-wrapper
+  > .label.ordered {
+  padding: 0;
 }
 
-[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror ol > li:not([data-item-type="task"])::before {
-  content: counter(noema-editor-list);
+[data-slot="task-markdown-editor"][data-density="inline"]
+  .milkdown-list-item-block
+  > .list-item
+  > .label-wrapper
+  > .label.bullet
+  > svg {
+  display: none;
 }
 
-[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror li > p {
+[data-slot="task-markdown-editor"][data-density="inline"]
+  .milkdown-list-item-block
+  > .list-item
+  > .label-wrapper:has(.label.ordered) {
+  align-self: baseline;
+  width: var(--spacing-5);
+  height: var(--spacing-5);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"]
+  .milkdown-list-item-block
+  > .list-item
+  > .children
+  > p {
   margin: 0;
+  padding: 0;
 }
 
 [data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror blockquote {

@@ -3,6 +3,7 @@ import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import * as stylex from "@stylexjs/stylex";
 import { Pencil } from "lucide-react";
+import { MarkdownContent } from "@/components/MarkdownContent";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { ProviderCitationMarkdown, taskResultCitationContent } from "@/components/transcript/ProviderCitationSources";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
@@ -136,7 +137,9 @@ function TaskDocument({ detail, edit, fileName, text }: { detail?: TaskDetail; e
     <div data-slot="task-document" {...stylex.props(styles.taskScroller, !detail && styles.resultScroller)}>
       {detail ? <TaskDocumentBar edit={edit} /> : null}
       <div {...stylex.props(styles.taskContent)}>
-        {response ? (
+        {response && detail ? (
+          <MarkdownContent density="compact" className={stylex.props(styles.taskDescription).className}>{response}</MarkdownContent>
+        ) : response ? (
           <ProviderCitationMarkdown
             contentAlign="center"
             contentWidth="min(760px, calc(100% - var(--spacing-6) - var(--spacing-6)))"
@@ -230,6 +233,7 @@ const styles = stylex.create({
   documentLabel: { color: "var(--noema-text-muted)", fontSize: 12, fontWeight: 650 },
   editControls: { display: "inline-flex", width: "100%", minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
   editorContent: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", borderRadius: "var(--radius-element)" },
+  taskDescription: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", paddingInline: "var(--spacing-2)" },
   taskContent: {
     display: "grid",
     gap: "var(--spacing-4)",
