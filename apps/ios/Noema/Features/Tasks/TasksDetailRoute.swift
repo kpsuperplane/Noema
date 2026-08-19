@@ -68,6 +68,7 @@ private struct TasksDetailContent: View {
   @State private var cancelPresented = false
   @State private var gateResponse = ""
   @State private var selectedTab: TaskDetailTab
+  @State private var prefersInitialResult: Bool
   @State private var followsTranscriptBottom = true
   @State private var initialScrollTaskID: String?
   @State private var completedInitialHydration = false
@@ -83,7 +84,9 @@ private struct TasksDetailContent: View {
     self.detail = detail
     self.compactPresentation = compactPresentation
     self.onOpenRecurrence = onOpenRecurrence
-    _selectedTab = State(initialValue: detail.resultDocument?.nilIfBlank == nil ? .task : .result)
+    let hasResult = detail.resultDocument?.nilIfBlank != nil
+    _selectedTab = State(initialValue: hasResult ? .result : .task)
+    _prefersInitialResult = State(initialValue: !hasResult)
   }
 
   var body: some View {
@@ -140,10 +143,15 @@ private struct TasksDetailContent: View {
     }
     .onChange(of: detail.id) { _, _ in
       gateResponse = ""
-      selectedTab = detail.resultDocument?.nilIfBlank == nil ? .task : .result
+      let hasResult = detail.resultDocument?.nilIfBlank != nil
+      selectedTab = hasResult ? .result : .task
+      prefersInitialResult = !hasResult
     }
     .onChange(of: detail.resultDocument?.nilIfBlank != nil) { _, hasResult in
-      if !hasResult, selectedTab == .result {
+      if hasResult, prefersInitialResult {
+        selectedTab = .result
+        prefersInitialResult = false
+      } else if !hasResult, selectedTab == .result {
         selectedTab = .task
       }
     }
@@ -164,8 +172,8 @@ private struct TasksDetailContent: View {
 
   private var wideTabView: some View {
     VStack(spacing: 0) {
-      TasksDetailTabBar(selection: $selectedTab, tabs: availableTabs)
-      TasksDetailPager(selection: $selectedTab, tabs: availableTabs) {
+      TasksDetailTabBar(selection: tabSelection, tabs: availableTabs)
+      TasksDetailPager(selection: tabSelection, tabs: availableTabs) {
         resultView
       } task: {
         taskView
@@ -176,7 +184,7 @@ private struct TasksDetailContent: View {
   }
 
   private var compactTabView: some View {
-    TabView(selection: $selectedTab) {
+    TabView(selection: tabSelection) {
       if availableTabs.contains(.result) {
         Tab("Result", systemImage: "doc.text", value: TaskDetailTab.result) {
           resultView
@@ -279,6 +287,16 @@ private struct TasksDetailContent: View {
     detail.resultDocument?.nilIfBlank == nil
       ? [.task, .transcript]
       : [.result, .task, .transcript]
+  }
+
+  private var tabSelection: Binding<TaskDetailTab> {
+    Binding(
+      get: { selectedTab },
+      set: { tab in
+        selectedTab = tab
+        prefersInitialResult = false
+      }
+    )
   }
 
   private var taskActionsMenu: some View {
