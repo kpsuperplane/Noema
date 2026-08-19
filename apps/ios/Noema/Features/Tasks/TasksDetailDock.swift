@@ -75,6 +75,7 @@ struct TasksTaskStatusSurface: View {
   let activity: String?
   let embeddedInGlassAccessory: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var statusTextWidth: CGFloat?
 
   private var statusText: String {
     activity?.taskDockText ?? run?.activity.taskDockText ?? fallbackStatus
@@ -94,6 +95,18 @@ struct TasksTaskStatusSurface: View {
       .foregroundStyle(NoemaColor.contentSecondary)
       .lineLimit(1)
       .clipped()
+      .background {
+        Text(statusText)
+          .font(NoemaFont.monoCompact)
+          .fixedSize()
+          .hidden()
+          .onGeometryChange(for: CGFloat.self) { geometry in
+            geometry.size.width
+          } action: { width in
+            statusTextWidth = width
+          }
+      }
+      .frame(width: statusTextWidth, alignment: .leading)
     }
     .padding(.horizontal, NoemaSpacing.md)
     .padding(.top, embeddedInGlassAccessory ? NoemaSpacing.sm : NoemaSpacing.xs)
@@ -114,7 +127,8 @@ struct TasksTaskStatusSurface: View {
       radius: NoemaSpacing.sm,
       y: NoemaSpacing.xs
     )
-    .animation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion), value: statusText)
+    .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: statusText)
+    .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: statusTextWidth)
     .accessibilityElement(children: .combine)
     .accessibilityLabel("Task status: \(statusText)")
   }
@@ -158,8 +172,8 @@ struct TasksTaskStatusSurface: View {
   private var statusTransition: AnyTransition {
     guard !reduceMotion else { return .identity }
     return .asymmetric(
-      insertion: .move(edge: .bottom).combined(with: .opacity),
-      removal: .move(edge: .top).combined(with: .opacity)
+      insertion: .offset(y: NoemaSpacing.xs).combined(with: .opacity),
+      removal: .offset(y: -NoemaSpacing.xs).combined(with: .opacity)
     )
   }
 
