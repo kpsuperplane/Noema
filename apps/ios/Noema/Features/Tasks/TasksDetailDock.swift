@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TasksTaskContextDock: View {
   let run: TasksRunSnapshot?
+  let embeddedInSystemAccessory: Bool
   let canCancel: Bool
   let cancel: () -> Void
   let showInfo: () -> Void
@@ -49,12 +50,23 @@ struct TasksTaskContextDock: View {
       .padding(.horizontal, NoemaSpacing.md)
       .frame(height: 45)
     }
-    .background(NoemaColor.surface, in: NoemaSuperellipse(cornerRadius: NoemaSpacing.xxl, treatment: .container))
-    .overlay {
-      NoemaSuperellipse(cornerRadius: NoemaSpacing.xxl, treatment: .container)
-        .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+    .background {
+      if !embeddedInSystemAccessory {
+        NoemaSuperellipse(cornerRadius: NoemaSpacing.xxl, treatment: .container)
+          .fill(NoemaColor.surface)
+      }
     }
-    .shadow(color: NoemaColor.ink900.opacity(0.13), radius: 14, y: 5)
+    .overlay {
+      if !embeddedInSystemAccessory {
+        NoemaSuperellipse(cornerRadius: NoemaSpacing.xxl, treatment: .container)
+          .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+      }
+    }
+    .shadow(
+      color: embeddedInSystemAccessory ? .clear : NoemaColor.ink900.opacity(0.13),
+      radius: 14,
+      y: 5
+    )
   }
 }
 

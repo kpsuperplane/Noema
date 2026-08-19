@@ -209,6 +209,7 @@ private struct TasksDetailContent: View {
       }
       TasksTaskContextDock(
         run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
+        embeddedInSystemAccessory: compactPresentation,
         canCancel: hasAction("CANCEL") && model.isConnected,
         cancel: { cancelPresented = true },
         showInfo: { taskInfoPresented = true }
@@ -217,7 +218,7 @@ private struct TasksDetailContent: View {
       .padding(.bottom, hasSecondarySurface ? -NoemaSpacing.xxl : 0)
       .zIndex(2)
     }
-    .padding(.horizontal, NoemaSpacing.lg)
+    .padding(.horizontal, compactPresentation ? 0 : NoemaSpacing.lg)
     .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: secondarySurfaceKey)
   }
 
