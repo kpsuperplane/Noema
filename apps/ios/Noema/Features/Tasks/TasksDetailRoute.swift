@@ -255,6 +255,7 @@ private struct TasksDetailContent: View {
         secondarySurface
           .id(secondarySurfaceKey)
           .transition(secondarySurfaceTransition)
+          .clipShape(compactSecondaryAccessoryShape)
           .glassEffect(
             .regular,
             in: compactSecondaryAccessoryShape
@@ -594,7 +595,7 @@ private struct TasksGatePanel: View {
       .padding(.top, NoemaSpacing.md)
       .padding(.bottom, embeddedInGlassAccessory ? NoemaSpacing.md : 36)
     }
-    .frame(maxHeight: 236)
+    .frame(maxHeight: embeddedInGlassAccessory ? 360 : 236)
     .background {
       if !embeddedInGlassAccessory {
         attachedShape.fill(NoemaColor.surface)
