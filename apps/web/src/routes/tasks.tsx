@@ -1,4 +1,4 @@
-import { createFileRoute, useMatchRoute } from "@tanstack/react-router";
+import { createFileRoute, useMatch } from "@tanstack/react-router";
 import { TasksSurface } from "@/components/tasks/TasksSurface";
 import { normalizeTasksSearch } from "@/components/tasks/tasksTypes";
 
@@ -10,12 +10,11 @@ export const Route = createFileRoute("/tasks")({
 function TasksLayoutRoute() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const matchRoute = useMatchRoute();
-  const taskMatch = matchRoute({ to: "/tasks/$taskId" });
-  const recurrenceMatch = matchRoute({ to: "/tasks/recurrences/$recurrenceId" });
-  const selectedTaskId = taskMatch ? taskMatch.taskId : undefined;
+  const taskMatch = useMatch({ from: "/tasks/$taskId", shouldThrow: false });
+  const recurrenceMatch = useMatch({ from: "/tasks/recurrences/$recurrenceId", shouldThrow: false });
+  const selectedTaskId = taskMatch ? taskMatch.params.taskId : undefined;
   const selectedDetail = recurrenceMatch
-    ? { type: "recurrence" as const, recurrenceId: recurrenceMatch.recurrenceId }
+    ? { type: "recurrence" as const, recurrenceId: recurrenceMatch.params.recurrenceId }
     : selectedTaskId
       ? { type: "task" as const, taskId: selectedTaskId }
       : undefined;

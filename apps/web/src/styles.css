@@ -185,7 +185,12 @@ a[href][data-slot="shell-sidebar-control"] {
   .astryx-list[data-list-style="disc"]
   > .astryx-list-item
   > span:first-child
-  > span {
+  > span,
+[data-slot="task-markdown-editor"][data-density="inline"]
+  .milkdown
+  .ProseMirror
+  ul
+  > li:not([data-item-type="task"])::before {
   width: var(--spacing-1);
   height: var(--spacing-1);
   border-radius: var(--radius-full);
@@ -207,7 +212,12 @@ a[href][data-slot="shell-sidebar-control"] {
 .noema-markdown
   .astryx-list[data-list-style="decimal"]
   > .astryx-list-item
-  > span:first-child {
+  > span:first-child,
+[data-slot="task-markdown-editor"][data-density="inline"]
+  .milkdown
+  .ProseMirror
+  ol
+  > li:not([data-item-type="task"])::before {
   display: inline-flex;
   width: var(--spacing-5);
   height: var(--spacing-5);
@@ -261,6 +271,72 @@ a[href][data-slot="shell-sidebar-control"] {
 [data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror p {
   margin-block: var(--spacing-1);
   padding: 0;
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror ul,
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror ol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-0-5);
+  margin-block: var(--spacing-1);
+  padding: 0;
+  list-style: none;
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror ul > li:not([data-item-type="task"]),
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror ol > li:not([data-item-type="task"]) {
+  display: grid;
+  grid-template-columns: var(--spacing-2) minmax(0, 1fr);
+  column-gap: var(--spacing-2);
+  align-items: start;
+  margin-inline-start: calc(-1 * var(--spacing-2));
+  padding-inline: var(--spacing-1);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror ul > li:not([data-item-type="task"])::before {
+  content: "";
+  margin-block-start: calc((1em * var(--text-body-leading) - var(--spacing-1)) / 2);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror ol {
+  counter-reset: noema-editor-list;
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror ol > li:not([data-item-type="task"]) {
+  counter-increment: noema-editor-list;
+  grid-template-columns: var(--spacing-5) minmax(0, 1fr);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror ol > li:not([data-item-type="task"])::before {
+  content: counter(noema-editor-list);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror li > p {
+  margin: 0;
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror blockquote {
+  margin-block: var(--spacing-2);
+  border-inline-start: var(--spacing-0-5) solid var(--color-border-emphasized);
+  padding: 0 0 0 var(--spacing-4);
+  color: var(--color-text-secondary);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror blockquote::before {
+  content: none;
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror pre {
+  margin-block: var(--spacing-2);
+}
+
+[data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror hr {
+  height: 0;
+  margin-block: var(--spacing-3);
+  border: 0;
+  border-top: var(--border-width) solid var(--color-border);
+  padding: 0;
+  background: transparent;
 }
 
 [data-slot="task-markdown-editor"][data-density="inline"] .milkdown .ProseMirror h1 {

@@ -83,7 +83,7 @@ function MilkdownCrepe({ initialValue, inline, onChange, onFailure }: { initialV
 
 const styles = stylex.create({
   root: { position: "relative", minWidth: 0, minHeight: 320, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: "var(--radius-element)", overflow: "hidden", backgroundColor: "var(--background)" },
-  inlineRoot: { minHeight: 0, overflow: "visible", borderWidth: 0, outlineWidth: 1, outlineStyle: "solid", outlineColor: "var(--border)", outlineOffset: -1 },
+  inlineRoot: { minHeight: 0, overflow: "visible", borderWidth: 0, borderRadius: 0 },
   modeBar: { minHeight: 38, borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border)", paddingInline: "var(--spacing-2)" },
   modeLabel: { color: "var(--muted-foreground)", fontSize: 12, fontWeight: 600 },
   editor: { minHeight: 280, color: "var(--foreground)", fontFamily: "var(--font-family-body)" },
