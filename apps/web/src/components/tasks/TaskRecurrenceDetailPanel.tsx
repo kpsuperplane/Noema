@@ -41,7 +41,18 @@ export function TaskRecurrenceDetailPanel({ recurrenceId, onTitleChange }: { rec
     if (recurrence?.title) onTitleChange(recurrence.title);
   }, [onTitleChange, recurrence?.title]);
   if (!recurrence) {
-    return <div role={result.error ? "alert" : "status"} {...stylex.props(styles.state)}>{result.error ? "Recurring task details could not be loaded." : "Loading recurring task…"}</div>;
+    return (
+      <VStack
+        role={result.error ? "alert" : "status"}
+        gap={2}
+        align="center"
+        justify="center"
+        className={stylex.props(styles.state).className}
+      >
+        <span>{result.error ? "Recurring task details could not be loaded." : "Loading recurring task…"}</span>
+        {result.error ? <Button type="button" size="sm" variant="secondary" label="Retry" onClick={() => void result.refetch().catch(() => undefined)} /> : null}
+      </VStack>
+    );
   }
   const busy = pauseState.loading || resumeState.loading || runNowState.loading || skipState.loading || endState.loading;
   const error = pauseState.error ?? resumeState.error ?? runNowState.error ?? skipState.error ?? endState.error;
@@ -70,15 +81,37 @@ export function TaskRecurrenceDetailPanel({ recurrenceId, onTitleChange }: { rec
             placement="below"
             menuWidth={210}
             items={[
-              { label: "Run now", icon: <Play aria-hidden="true" size={14} />, onClick: () => void runNow({ variables: { input: commandInput } }).then(() => result.refetch()).catch(() => undefined), isDisabled: busy },
               { label: "Edit schedule", icon: <Pencil aria-hidden="true" size={14} />, onClick: () => setEditing(true), isDisabled: busy },
-              { label: active ? "Pause future runs" : "Resume future runs", icon: active ? <Pause aria-hidden="true" size={14} /> : <Play aria-hidden="true" size={14} />, onClick: () => void change(active ? "pause" : "resume").catch(() => undefined), isDisabled: busy },
               { label: "Skip next run", icon: <SkipForward aria-hidden="true" size={14} />, onClick: () => void change("skip").catch(() => undefined), isDisabled: busy || !recurrence.nextRunAt },
               { type: "divider" },
               { label: "End recurring task", icon: <CircleStop aria-hidden="true" size={14} />, onClick: () => setConfirmingEnd(true), isDisabled: busy }
             ]}
           /> : null}
         </HStack>
+        {!ended ? (
+          <HStack gap={2} wrap="wrap">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              label="Run now"
+              icon={<Play aria-hidden="true" size={14} />}
+              isLoading={runNowState.loading}
+              isDisabled={busy}
+              onClick={() => void runNow({ variables: { input: commandInput } }).then(() => result.refetch()).catch(() => undefined)}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              label={active ? "Pause schedule" : "Resume schedule"}
+              icon={active ? <Pause aria-hidden="true" size={14} /> : <Play aria-hidden="true" size={14} />}
+              isLoading={active ? pauseState.loading : resumeState.loading}
+              isDisabled={busy}
+              onClick={() => void change(active ? "pause" : "resume").catch(() => undefined)}
+            />
+          </HStack>
+        ) : null}
         {recurrence.description.trim() ? <MarkdownContent className={stylex.props(styles.description).className}>{recurrence.description}</MarkdownContent> : null}
         {error ? <span role="alert" {...stylex.props(styles.error)}>{error.message}</span> : null}
       </VStack>
@@ -90,11 +123,17 @@ export function TaskRecurrenceDetailPanel({ recurrenceId, onTitleChange }: { rec
         {recurrence.occurrences.length ? <VStack as="ul" gap={0} className={stylex.props(styles.history).className}>
           {recurrence.occurrences.map((occurrence) => (
             <li key={`${occurrence.localSlot}:${occurrence.recurrenceRevision}`} {...stylex.props(styles.rowItem)}>
-              {occurrence.taskId ? <Link to="/tasks/$taskId" params={{ taskId: occurrence.taskId }} search={(current) => normalizeTasksSearch(current)} {...stylex.props(styles.row)}>
-                <span>{dateLabel(occurrence.scheduledFor, recurrence.timeZone)}</span>
-                <span {...stylex.props(styles.rowState)}>{occurrence.trigger === "MANUAL" ? "Run manually" : "Open task"}</span>
-              </Link> : <HStack justify="between" className={stylex.props(styles.row).className}>
-                <span>{dateLabel(occurrence.scheduledFor, recurrence.timeZone)}</span>
+              {occurrence.taskId ? <Link to="/tasks/$taskId" params={{ taskId: occurrence.taskId }} search={(current) => normalizeTasksSearch(current)} {...stylex.props(styles.row, styles.rowLink)}>
+                <VStack gap={0.5} className={stylex.props(styles.rowIdentity).className}>
+                  <time dateTime={occurrence.scheduledFor} {...stylex.props(styles.rowDate)}>{dateLabel(occurrence.scheduledFor, recurrence.timeZone)}</time>
+                  <span {...stylex.props(styles.rowMeta)}>{occurrenceTriggerLabel(occurrence.trigger)}</span>
+                </VStack>
+                <span {...stylex.props(styles.rowState)}>Open task</span>
+              </Link> : <HStack justify="between" align="start" className={stylex.props(styles.row).className}>
+                <VStack gap={0.5} className={stylex.props(styles.rowIdentity).className}>
+                  <time dateTime={occurrence.scheduledFor} {...stylex.props(styles.rowDate)}>{dateLabel(occurrence.scheduledFor, recurrence.timeZone)}</time>
+                  <span {...stylex.props(styles.rowMeta)}>{occurrenceTriggerLabel(occurrence.trigger)}</span>
+                </VStack>
                 <span {...stylex.props(styles.rowState)}>{occurrenceLabel(occurrence.resolution)}</span>
               </HStack>}
             </li>
@@ -120,11 +159,12 @@ function RecurrenceEditDialog({ recurrence, onClose, onUpdated }: { recurrence: 
 }
 
 function dateLabel(value: string, timeZone: string) { return new Intl.DateTimeFormat(undefined, { timeZone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(value)); }
-function occurrenceLabel(resolution: Recurrence["occurrences"][number]["resolution"]) { return resolution === "SKIPPED" ? "Skipped" : resolution === "COALESCED" ? "Combined" : "Pending"; }
+function occurrenceLabel(resolution: Recurrence["occurrences"][number]["resolution"]) { return resolution === "SKIPPED" ? "Skipped" : resolution === "COALESCED" ? "Combined" : "Created"; }
+function occurrenceTriggerLabel(trigger: Recurrence["occurrences"][number]["trigger"]) { return trigger === "MANUAL" ? "Manual run" : "Scheduled run"; }
 
 const styles = stylex.create({
   root: { minWidth: 0, maxWidth: 760, marginInline: "auto", padding: "var(--spacing-4)" },
-  section: { minWidth: 0, borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-4)", backgroundColor: "var(--noema-surface-card)" },
+  section: { minWidth: 0 },
   eyebrow: { color: "var(--noema-text-muted)", fontSize: 12, fontWeight: 650, textTransform: "uppercase", letterSpacing: "0.04em" },
   cadence: { color: "var(--noema-text-primary)", fontSize: 15, lineHeight: 1.35 },
   meta: { color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.4, fontVariantNumeric: "tabular-nums" },
@@ -133,10 +173,14 @@ const styles = stylex.create({
   count: { color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 12 },
   history: { margin: 0, padding: 0, listStyle: "none", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)" },
   rowItem: { minWidth: 0, listStyle: "none", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)" },
-  row: { display: "flex", minWidth: 0, justifyContent: "space-between", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 12, fontVariantNumeric: "tabular-nums", textDecoration: "none" },
-  rowState: { flexShrink: 0, color: "var(--noema-text-muted)" },
+  row: { display: "flex", minWidth: 0, alignItems: "flex-start", justifyContent: "space-between", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 12, fontVariantNumeric: "tabular-nums", textDecoration: "none" },
+  rowLink: { borderRadius: "var(--radius-element)", ":hover": { backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 2 } },
+  rowIdentity: { minWidth: 0 },
+  rowDate: { color: "var(--noema-text-secondary)", lineHeight: 1.4, overflowWrap: "anywhere" },
+  rowMeta: { color: "var(--noema-text-muted)", lineHeight: 1.35 },
+  rowState: { flexShrink: 0, color: "var(--noema-text-muted)", lineHeight: 1.4 },
   empty: { margin: 0, color: "var(--noema-text-muted)", fontSize: 12 },
-  state: { display: "grid", minHeight: "100%", placeItems: "center", padding: "var(--spacing-4)", color: "var(--noema-text-muted)", fontSize: 13 },
+  state: { minHeight: "100%", padding: "var(--spacing-4)", color: "var(--noema-text-muted)", fontSize: 13 },
   warning: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.45 },
   error: { color: "var(--destructive)", fontSize: 12 }
 });
