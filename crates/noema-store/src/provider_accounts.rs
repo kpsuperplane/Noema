@@ -626,7 +626,7 @@ fn parse_provider_auth_method(value: &str) -> Result<ProviderAuthMethod, StoreEr
     }
 }
 
-fn parse_provider_status(value: &str) -> Result<ProviderAccountStatus, StoreError> {
+pub(super) fn parse_provider_status(value: &str) -> Result<ProviderAccountStatus, StoreError> {
     match value {
         "unknown" => Ok(ProviderAccountStatus::Unknown),
         "checking" => Ok(ProviderAccountStatus::Checking),

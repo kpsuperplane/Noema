@@ -698,6 +698,41 @@ async fn browser_route_replacement_is_unbounded_atomic_and_preserves_fallbacks()
         account_ids.len()
     );
 
+    let unavailable_account = ProviderAccountPersistence::create_provider_account(
+        &store,
+        NewProviderAccount {
+            provider_kind: "kernel".to_string(),
+            display_name: Some("Unavailable Kernel".to_string()),
+            auth_method: ProviderAuthMethod::SecretInput,
+            status: ProviderAccountStatus::Unauthenticated,
+            metadata: json!({}),
+        },
+    )
+    .await
+    .expect("create unavailable Kernel account");
+    let unavailable_request = ReplaceProviderCapabilityRouteRequest::new(
+        ToolName::new("web.browse").expect("browse tool"),
+        CapabilityId::WebBrowse,
+        vec![
+            ProviderCapabilityAccountReference::persisted(&account_ids[0]),
+            ProviderCapabilityAccountReference::persisted(&unavailable_account.provider_account_id),
+        ],
+    )
+    .expect("unavailable-account route request");
+    ProviderCapabilityAssignmentPersistence::replace_provider_capability_route(
+        &store,
+        unavailable_request,
+    )
+    .await
+    .expect_err("unavailable account rejects route");
+    assert_eq!(
+        ProviderCapabilityAssignmentPersistence::provider_capability_route(&store, &key)
+            .await
+            .expect("read route after unavailable account")
+            .len(),
+        account_ids.len()
+    );
+
     let preferred = account_ids[3].clone();
     ProviderCapabilityAssignmentPersistence::upsert_provider_capability_assignment(
         &store,

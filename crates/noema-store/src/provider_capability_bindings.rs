@@ -2,7 +2,8 @@ use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use noema_providers::{
     ProviderCapabilityAccountReference, ProviderCapabilityAssignment,
-    ProviderCapabilityAssignmentKey, ReplaceProviderCapabilityRouteRequest,
+    ProviderCapabilityAssignmentKey, ProviderCapabilityStatus,
+    ReplaceProviderCapabilityRouteRequest, capabilities_for_provider_account,
 };
 
 use super::{NoemaStore, StoreError};
@@ -21,7 +22,7 @@ impl NoemaStore {
     ) -> Result<ProviderCapabilityAssignment, StoreError> {
         self.with_connection(|conn| {
             let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            require_persisted_account(&transaction, account_reference)?;
+            require_available_capability(&transaction, account_reference, capability_id)?;
             let mut account_ids = if tool_name == "web.browse" {
                 provider_capability_route_account_ids(&transaction, tool_name, capability_id)?
             } else {
@@ -96,7 +97,11 @@ impl NoemaStore {
         self.with_connection(|conn| {
             let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             for reference in request.account_references() {
-                require_persisted_account(&transaction, reference)?;
+                require_available_capability(
+                    &transaction,
+                    reference,
+                    request.key().capability_id_str(),
+                )?;
             }
             let account_ids = request
                 .account_references()
@@ -140,22 +145,36 @@ impl NoemaStore {
     }
 }
 
-fn require_persisted_account(
+fn require_available_capability(
     transaction: &Transaction<'_>,
     account_reference: &ProviderCapabilityAccountReference,
+    capability_id: &str,
 ) -> Result<(), StoreError> {
     let provider_account_id = account_reference.provider_account_id();
-    let account_exists = transaction
+    let account = transaction
         .query_row(
-            "SELECT 1 FROM provider_accounts WHERE provider_account_id = ?1 LIMIT 1",
+            "SELECT provider_kind, account_key, status FROM provider_accounts WHERE provider_account_id = ?1 LIMIT 1",
             [provider_account_id],
-            |_| Ok(()),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
         )
-        .optional()?
-        .is_some();
-    if !account_exists {
+        .optional()?;
+    let Some((provider_kind, account_key, status)) = account else {
         return Err(StoreError::ProviderAccountNotFound {
             provider_account_id: provider_account_id.to_string(),
+        });
+    };
+    let status = super::provider_accounts::parse_provider_status(&status)?;
+    if !capabilities_for_provider_account(&provider_kind, &account_key, status)
+        .iter()
+        .any(|capability| {
+            capability.capability_id.as_str() == capability_id
+                && capability.status == ProviderCapabilityStatus::Available
+        })
+    {
+        return Err(StoreError::InvariantViolation {
+            message: format!(
+                "provider account {provider_account_id} does not provide available {capability_id}"
+            ),
         });
     }
     Ok(())

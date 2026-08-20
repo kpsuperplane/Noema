@@ -478,7 +478,7 @@ mod tests {
             .record_observed_urls(
                 ObservedUrlSource::SearchResult,
                 "search:one",
-                &[url.clone()],
+                std::slice::from_ref(&url),
             )
             .await
             .expect("record URL");

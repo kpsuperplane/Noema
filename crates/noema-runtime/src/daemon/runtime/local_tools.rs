@@ -855,7 +855,7 @@ impl RuntimeActor {
         };
         match self
             .web_backends
-            .resolve_browse(web_backend_request(&resolved))
+            .resolve_browse(web_backend_request(resolved))
             .await
         {
             Ok(provider) => Ok(provider),
