@@ -414,7 +414,7 @@ impl KernelBrowseBackend {
             .post(endpoint(&self.inner.base_url, "/browsers"))
             .bearer_auth(&self.inner.api_key)
             .json(&CreateBrowserRequest {
-                headless: true,
+                headless: false,
                 stealth: true,
                 timeout_seconds: IDLE_TIMEOUT.as_secs(),
             })
@@ -988,6 +988,10 @@ mod tests {
         assert_eq!(requests.len(), 3);
         assert_eq!(requests[0].method, "POST");
         assert_eq!(requests[0].path, "/browsers");
+        let create_body: Value =
+            serde_json::from_str(&requests[0].body).expect("browser creation body");
+        assert_eq!(create_body["headless"], false);
+        assert_eq!(create_body["stealth"], true);
         assert_eq!(
             requests[0].headers.get("authorization"),
             Some(&"Bearer kernel-secret".to_string())
