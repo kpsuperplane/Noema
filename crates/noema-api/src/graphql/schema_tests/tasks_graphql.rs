@@ -149,6 +149,7 @@ fn tasks_schema_exposes_exact_detail_attention_and_closed_vocabularies() {
         "taskDocument: String!",
         "taskDocumentDigest: String!",
         "resultDocument: String",
+        "resultMetadata: JSON!",
         "reviewDocument: String",
         "messages: [TaskMessage!]!",
         "runs: [TaskRun!]!",
@@ -398,6 +399,7 @@ async fn capture_task_returns_authoritative_task_projection() {
                   schedule { scheduledFor timeZone recurrenceId recurrenceRevision }
                   taskDocument
                   resultDocument
+                  resultMetadata
                   reviewDocument
                   artifacts { artifactId }
                 }
@@ -423,6 +425,7 @@ async fn capture_task_returns_authoritative_task_projection() {
                 json!("Exact request\n\nA durable capture.\n"),
             ),
             ("/captureTask/task/resultDocument", serde_json::Value::Null),
+            ("/captureTask/task/resultMetadata", json!({})),
             ("/captureTask/task/reviewDocument", serde_json::Value::Null),
             ("/captureTask/task/artifacts", json!([])),
         ],
@@ -441,19 +444,33 @@ async fn capture_task_returns_authoritative_task_projection() {
     )
     .expect("valid Task id");
     store
-        .write_task_file(&task_id, noema_store::TASK_RESULT, "Current result.\n")
+        .write_task_file(
+            &task_id,
+            noema_store::TASK_RESULT,
+            "Current result.[^noema-source-1]\n\n[^noema-source-1]: [Current source](<https://example.com/current>)\n",
+        )
         .await
         .expect("write current result");
     let current = response_json(
         schema
             .execute(format!(
-                "query {{ task(taskId: \"{}\") {{ resultDocument }} }}",
+                "query {{ task(taskId: \"{}\") {{ resultDocument resultMetadata }} }}",
                 task_id.as_str()
             ))
             .await,
         "current Task result",
     );
-    assert_eq!(current["task"]["resultDocument"], json!("Current result.\n"));
+    assert_eq!(current["task"]["resultDocument"], json!("Current result.\n\n"));
+    assert_eq!(
+        current["task"]["resultMetadata"],
+        json!({
+            "citations": [{
+                "title": "Current source",
+                "url": "https://example.com/current",
+                "end_index": 15
+            }]
+        })
+    );
 }
 
 #[tokio::test]

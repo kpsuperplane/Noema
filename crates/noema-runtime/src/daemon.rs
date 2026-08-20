@@ -43,5 +43,6 @@ pub use protocol::{
 pub use runtime::turn_timing::mark_turn_timing_event;
 pub use runtime::{
     CapabilityIntegrationKind, CapabilitySetupCompletion, RuntimeHandle, RuntimeSpawnConfig,
+    project_task_result,
 };
 pub use task_runtime::TaskRuntimeHandle;

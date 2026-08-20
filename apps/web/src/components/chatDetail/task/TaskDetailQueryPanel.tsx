@@ -139,6 +139,7 @@ function mapTaskDetail(task: TasksDetail): TaskDetail {
     capturedRequest: task.title,
     taskDocument: task.taskDocument,
     resultDocument: task.resultDocument,
+    resultMetadata: task.resultMetadata,
     reviewDocument: task.reviewDocument,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,

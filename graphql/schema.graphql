@@ -4693,9 +4693,13 @@ type TaskDetail {
 	"""
 	taskDocumentDigest: String!
 	"""
-	Current mutable RESULT.md content, when it exists.
+	Readable current RESULT.md text, when it exists.
 	"""
 	resultDocument: String
+	"""
+	Provider citation metadata for the projected result.
+	"""
+	resultMetadata: JSON!
 	"""
 	Current mutable REVIEW.md content, when it exists.
 	"""

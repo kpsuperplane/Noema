@@ -182,6 +182,7 @@ export const TasksTaskDetailDocument = gql`
       taskDocument
       taskDocumentDigest
       resultDocument
+      resultMetadata
       reviewDocument
       attention {
         kind

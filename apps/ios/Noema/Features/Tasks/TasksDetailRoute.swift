@@ -214,7 +214,7 @@ private struct TasksDetailContent: View {
 
   private var resultView: some View {
     ScrollView {
-      TasksDocumentView(document: detail.resultDocument ?? "", fileName: "RESULT.md")
+      TasksDocumentView(citations: detail.resultCitations, document: detail.resultDocument ?? "", fileName: "RESULT.md")
     }
     .scrollDismissesKeyboard(.interactively)
   }

@@ -206,6 +206,7 @@ fragment TasksDetailOutcomeFields on TaskDetail {
   taskDocument
   taskDocumentDigest
   resultDocument
+  resultMetadata
   reviewDocument
 }
 

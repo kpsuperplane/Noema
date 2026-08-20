@@ -215,6 +215,7 @@ struct TasksDetailSnapshot: Identifiable, Hashable, Sendable {
   var taskDocument: String
   var taskDocumentDigest: String
   var resultDocument: String?
+  var resultCitations: [ProviderCitation]
   var reviewDocument: String?
   var currentRun: TasksRunSnapshot?
   var activeGate: TasksGateSnapshot?
@@ -240,6 +241,7 @@ extension TasksTaskRow {
       taskDocument: summary,
       taskDocumentDigest: "",
       resultDocument: nil,
+      resultCitations: [],
       reviewDocument: nil,
       currentRun: currentRun,
       activeGate: gate,

@@ -118,13 +118,21 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         })
         .collect::<async_graphql::Result<_>>()?;
     let schedule = task_schedule(&value.task)?;
+    let (result_document, result_metadata) = value.result_document.map_or_else(
+        || (None, serde_json::json!({})),
+        |document| {
+            let (text, citations) = noema_runtime::project_task_result(&document);
+            (Some(text), serde_json::json!({ "citations": citations }))
+        },
+    );
     Ok(GraphqlTaskDetail {
         task_id,
         project: value.project.map(TryInto::try_into).transpose()?,
         title: value.task.title,
         task_document: value.task_document,
         task_document_digest: value.task_document_digest,
-        result_document: value.result_document,
+        result_document,
+        result_metadata: async_graphql::Json(result_metadata),
         review_document: value.review_document,
         stage: value.stage.into(),
         revision: exact_u64(value.task.revision)?,

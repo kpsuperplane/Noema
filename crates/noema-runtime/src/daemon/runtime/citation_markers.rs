@@ -34,6 +34,13 @@ pub(crate) struct NormalizedCitationText {
     pub(crate) unresolved_references: Vec<String>,
 }
 
+/// Project one stored Task result into the provider citation contract.
+#[must_use]
+pub fn project_task_result(text: &str) -> (String, Vec<GenerateCitation>) {
+    let decoded = decode_task_sources(text);
+    (decoded.text, decoded.citations)
+}
+
 impl CitationSourceRegistry {
     pub(crate) fn observe(&mut self, round_index: usize, searches: &[GenerateHostedWebSearch]) {
         for search in searches {
