@@ -1,11 +1,11 @@
 import { Divider } from "@astryxdesign/core/Divider";
-import { IconButton } from "@astryxdesign/core/IconButton";
+import { Citation } from "@astryxdesign/core/Citation";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { parseMarkdown } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
-import { BookOpen } from "lucide-react";
+import sourcesIconUrl from "lucide-static/icons/book-open.svg";
 import { useMemo, useState } from "react";
 import {
   MarkdownContent,
@@ -40,16 +40,26 @@ const SOURCES_ACTION_URL = "noema-sources://open";
 
 const styles = stylex.create({
   sourcesAction: {
+    display: "inline-flex",
     marginInlineStart: "var(--spacing-1)",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--noema-border-subtle)",
-    borderRadius: "var(--radius-pill)",
-    cornerShape: "var(--corner-shape-full)",
-    backgroundColor: "var(--noema-surface-card)",
-    boxShadow: "none",
+    appearance: "none",
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: "var(--radius-element)",
+    backgroundColor: "transparent",
     verticalAlign: "middle",
-    ":hover": { backgroundColor: "var(--noema-surface-hover)" }
+    ":focus-visible": {
+      outlineWidth: 2,
+      outlineStyle: "solid",
+      outlineColor: "var(--ring)",
+      outlineOffset: 2
+    }
+  },
+  sourcesCitation: {
+    gap: 0,
+    marginInlineStart: 0,
+    paddingInline: "var(--spacing-0-5)",
+    ":hover": { backgroundColor: "var(--color-overlay-hover)" }
   },
   sourceLink: {
     display: "block",
@@ -117,16 +127,21 @@ export function CitationReference({
 }) {
   if (source.url === SOURCES_ACTION_URL) {
     return (
-      <IconButton
+      <button
         type="button"
-        size="sm"
-        variant="ghost"
-        label="Sources"
-        tooltip="Sources"
-        icon={<BookOpen aria-hidden="true" size={12} />}
+        aria-label="Sources"
+        title="Sources"
         onClick={onOpenSources}
-        xstyle={styles.sourcesAction}
-      />
+        {...stylex.props(styles.sourcesAction)}
+      >
+        <Citation
+          aria-hidden="true"
+          source={{ title: "", icon: sourcesIconUrl }}
+          number={1}
+          variant="label"
+          xstyle={styles.sourcesCitation}
+        />
+      </button>
     );
   }
   return <sup>{number}</sup>;

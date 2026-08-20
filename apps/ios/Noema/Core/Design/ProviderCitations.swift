@@ -171,11 +171,13 @@ struct CitationSourcesButton: View {
   var body: some View {
     Button(action: action) {
       NoemaIcon(.bookOpen, size: 12)
-        .foregroundStyle(NoemaColor.contentSecondary)
-        .padding(.horizontal, NoemaSpacing.compact)
+        .foregroundStyle(NoemaColor.content)
+        .frame(width: NoemaSpacing.lg, height: NoemaSpacing.lg)
+        .background(NoemaColor.surface, in: NoemaSuperellipse.full)
+        .overlay { NoemaSuperellipse.full.stroke(NoemaColor.separator, lineWidth: 1) }
+        .padding(NoemaSpacing.xxs)
         .frame(height: NoemaSpacing.xl)
-        .background(NoemaColor.controlFill, in: NoemaSuperellipse.full)
-        .overlay { NoemaSuperellipse.full.stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+        .overlay { NoemaSuperellipse.full.stroke(NoemaColor.separator, lineWidth: 1) }
     }
     .buttonStyle(.plain)
     .contentShape(.interaction, NoemaSuperellipse.full.inset(by: -NoemaSpacing.md))

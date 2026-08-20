@@ -190,6 +190,9 @@ non-interactive superscript numbers. One Sources icon follows the cited content
 and opens its Sources view. The icon remains inline for Chat messages. Each
 source shows its title and host and opens the exact URL.
 
+Web renders every Sources control with Astryx Citation. iOS matches its compact
+size, border, and nested icon well.
+
 The backend decodes reserved source footnotes from completed Task results. It
 returns readable text and the same structured provider citation metadata that
 Chat uses. Web and iOS use the shared marker, icon, and Sources presentation.
