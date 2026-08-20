@@ -205,6 +205,7 @@ struct CitationSourcesButton: View {
     .contentShape(.interaction, NoemaSuperellipse.full.inset(by: -NoemaSpacing.md))
     .accessibilityLabel("Sources")
     .accessibilityHint("Shows citation sources")
+    .padding(.top, NoemaSpacing.xs)
   }
 
   private func groupedFavicon(_ hostname: String) -> some View {
@@ -270,6 +271,7 @@ private struct ProviderCitationSheet: View {
                   Text(citation.title)
                     .font(NoemaFont.body.weight(.semibold))
                     .foregroundStyle(NoemaColor.content)
+                    .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                   HStack(spacing: NoemaSpacing.xs) {
                     NoemaFaviconImage(
@@ -291,13 +293,13 @@ private struct ProviderCitationSheet: View {
               .contentShape(Rectangle())
             }
             .accessibilityLabel("Source \(index + 1): \(citation.title)")
+            .frame(maxWidth: .infinity, alignment: .leading)
             if index + 1 < citations.count {
               Divider()
             }
           }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .multilineTextAlignment(.leading)
         .padding(.horizontal, NoemaSpacing.lg)
       }
     }

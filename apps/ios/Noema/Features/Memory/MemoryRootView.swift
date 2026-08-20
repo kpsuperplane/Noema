@@ -341,6 +341,7 @@ private struct MemoryCitationSheet: View {
           }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .multilineTextAlignment(.leading)
         .padding(NoemaSpacing.lg)
       }
     }
