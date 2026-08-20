@@ -4,6 +4,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { AnimatePresence, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { ErrorMarker } from "@/components/ErrorMarker";
+import { RenderErrorBoundary } from "@/components/errors/RenderErrorBoundary";
 import {
   pageWaveLeadingTransition,
   pageWaveTrailingTransition
@@ -12,11 +13,34 @@ import { AppBootSkeleton } from "./AppBootSkeleton";
 
 export function AppBootBoundary({ children }: { children: React.ReactNode }) {
   return (
-    <AppBootErrorBoundary>
+    <RenderErrorBoundary
+      errorScope="app.runtime"
+      fallback={({ retry }) => <AppLoadError actionLabel="Retry" onAction={retry} />}
+    >
       <React.Suspense fallback={<AppBootSkeleton />}>
         <AppBootReveal>{children}</AppBootReveal>
       </React.Suspense>
-    </AppBootErrorBoundary>
+    </RenderErrorBoundary>
+  );
+}
+
+export function AppFatalBoundary({ children }: { children: React.ReactNode }) {
+  return (
+    <RenderErrorBoundary
+      errorScope="app.providers"
+      fallback={() => <AppBootstrapError />}
+    >
+      {children}
+    </RenderErrorBoundary>
+  );
+}
+
+export function AppBootstrapError() {
+  return (
+    <AppLoadError
+      actionLabel="Reload Noema"
+      onAction={() => window.location.reload()}
+    />
   );
 }
 
@@ -68,49 +92,32 @@ function AppBootReveal({ children }: { children: React.ReactNode }) {
   );
 }
 
-type AppBootErrorBoundaryState = {
-  error: Error | null;
-};
-
-class AppBootErrorBoundary extends React.Component<
-  { children: React.ReactNode },
-  AppBootErrorBoundaryState
-> {
-  state: AppBootErrorBoundaryState = {
-    error: null
-  };
-
-  static getDerivedStateFromError(error: unknown): AppBootErrorBoundaryState {
-    return {
-      error: error instanceof Error ? error : new Error("Noema could not load.")
-    };
-  }
-
-  render() {
-    if (this.state.error) {
-      return (
-        <main {...stylex.props(styles.root)} aria-label="Noema status">
-          <div {...stylex.props(styles.errorFrame)}>
-            <img
-              src={`${import.meta.env.BASE_URL}pwa-192x192.png`}
-              width="36"
-              height="36"
-              alt=""
-            />
-            <ErrorMarker message="Noema could not load." recoverable={false} />
-            <Button
-              type="button"
-              variant="secondary"
-              label="Retry"
-              onClick={() => this.setState({ error: null })}
-            />
-          </div>
-        </main>
-      );
-    }
-
-    return this.props.children;
-  }
+function AppLoadError({
+  actionLabel,
+  onAction
+}: {
+  actionLabel: string;
+  onAction: () => void;
+}) {
+  return (
+    <main {...stylex.props(styles.root)} aria-label="Noema status">
+      <div {...stylex.props(styles.errorFrame)}>
+        <img
+          src={`${import.meta.env.BASE_URL}pwa-192x192.png`}
+          width="36"
+          height="36"
+          alt=""
+        />
+        <ErrorMarker message="Noema could not load." recoverable={false} />
+        <Button
+          type="button"
+          variant="secondary"
+          label={actionLabel}
+          onClick={onAction}
+        />
+      </div>
+    </main>
+  );
 }
 
 const styles = stylex.create({

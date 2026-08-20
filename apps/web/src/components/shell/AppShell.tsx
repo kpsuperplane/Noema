@@ -57,6 +57,7 @@ import {
 import { useTaskProjects } from "@/components/tasks/useTaskProjects";
 import { TasksSidebar } from "@/components/tasks/TasksSidebar";
 import type { PwaRuntimeSnapshot } from "@/pwa/runtime";
+import { RenderErrorBoundary } from "@/components/errors/RenderErrorBoundary";
 
 export type ShellAttention = {
   tone: "progress" | "warning";
@@ -415,6 +416,11 @@ export function AppShell({
   const iosPageFade = shouldUseIosPageFade();
   const routePathname = useLocation({ select: (location) => location.pathname });
   const routeSurfaceKey = pageSurfaceKeyForPathname(routePathname);
+  const sidebarResetKey = tasksOpen
+    ? tasksProjectsResult.projects
+    : memoryOpen
+      ? memoryTree
+      : routeSurfaceKey;
   const previousRouteSurfaceKeyRef = React.useRef(routeSurfaceKey);
   const [primaryNavigationRoute, setOptimisticPrimaryRoute] = React.useOptimistic(
     route,
@@ -670,31 +676,48 @@ export function AppShell({
       >
         <AnimatePresence initial={false}>
           {hasShellSidebar ? (
-            <ShellSidebarRouteContent key="shell-sidebar-route-content">
-              {tasksMenuLevel ? (
-                <TasksSidebar
-                  menuLevel={tasksMenuLevel}
-                  projects={tasksProjectsResult.projects}
-                  onSelectItem={selectShellMenuItem}
-                  onUpdated={async () => {
-                    await tasksProjectsResult.refetch();
-                  }}
-                />
-              ) : menuLevel ? (
-                <ShellSidebar menuLevel={menuLevel} onSelectItem={selectShellMenuItem} />
-              ) : memoryTree?.root ? (
-                <MemoryPageTree
-                  activePath={memoryBreadcrumb?.currentPath ?? memoryTree.root.path}
-                  pages={memoryTree.pages}
-                  root={memoryTree.root}
-                  onNavigate={deckNavigation.navOpen ? closeNav : undefined}
-                />
-              ) : (
-                <div role="status" {...stylex.props(styles.sidebarState)}>
-                  {memoryTree ? "No memory pages yet." : "Loading memory…"}
+            <RenderErrorBoundary
+              errorScope="shell.sidebar"
+              resetKey={sidebarResetKey}
+              fallback={({ retry }) => (
+                <div role="alert" {...stylex.props(styles.sidebarState, styles.sidebarError)}>
+                  <span>Navigation could not display.</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    label="Retry navigation"
+                    onClick={retry}
+                  />
                 </div>
               )}
-            </ShellSidebarRouteContent>
+            >
+              <ShellSidebarRouteContent key="shell-sidebar-route-content">
+                {tasksMenuLevel ? (
+                  <TasksSidebar
+                    menuLevel={tasksMenuLevel}
+                    projects={tasksProjectsResult.projects}
+                    onSelectItem={selectShellMenuItem}
+                    onUpdated={async () => {
+                      await tasksProjectsResult.refetch();
+                    }}
+                  />
+                ) : menuLevel ? (
+                  <ShellSidebar menuLevel={menuLevel} onSelectItem={selectShellMenuItem} />
+                ) : memoryTree?.root ? (
+                  <MemoryPageTree
+                    activePath={memoryBreadcrumb?.currentPath ?? memoryTree.root.path}
+                    pages={memoryTree.pages}
+                    root={memoryTree.root}
+                    onNavigate={deckNavigation.navOpen ? closeNav : undefined}
+                  />
+                ) : (
+                  <div role="status" {...stylex.props(styles.sidebarState)}>
+                    {memoryTree ? "No memory pages yet." : "Loading memory…"}
+                  </div>
+                )}
+              </ShellSidebarRouteContent>
+            </RenderErrorBoundary>
           ) : null}
         </AnimatePresence>
       </aside>
@@ -874,6 +897,12 @@ const styles = stylex.create({
     paddingInline: "var(--spacing-5)",
     color: "var(--muted-foreground)",
     fontSize: 13
+  },
+  sidebarError: {
+    display: "grid",
+    alignContent: "start",
+    justifyItems: "start",
+    gap: "var(--spacing-2)"
   },
   navBackdrop: {
     position: "absolute",

@@ -41,6 +41,7 @@ import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { RollingSwap } from "@/components/RollingText";
 import { springs } from "@/motion/springs";
 import { HumanInterventionCard } from "./HumanInterventionCard";
+import { RenderErrorBoundary } from "@/components/errors/RenderErrorBoundary";
 import {
   AdapterAuthenticationCard,
   GovernedActionCard,
@@ -297,11 +298,34 @@ export function HumanInterventionList({
         {interventions.map((intervention) => {
           const key = humanInterventionKey(intervention);
           const item = (
-            <HumanInterventionListItem
-              intervention={intervention}
-              onResolved={onResolved}
-              onDismissAdapterSetup={onDismissAdapterSetup}
-            />
+            <RenderErrorBoundary
+              errorScope={`intervention.${key}`}
+              resetKey={intervention}
+              fallback={({ retry }) => (
+                <InterventionCardShell
+                  copy={(
+                    <span role="alert">
+                      This request could not display. Other requests remain available.
+                    </span>
+                  )}
+                  actions={(
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      label="Retry request"
+                      onClick={retry}
+                    />
+                  )}
+                />
+              )}
+            >
+              <HumanInterventionListItem
+                intervention={intervention}
+                onResolved={onResolved}
+                onDismissAdapterSetup={onDismissAdapterSetup}
+              />
+            </RenderErrorBoundary>
           );
           return animateItems ? (
             <HumanInterventionMotionItem key={key}>{item}</HumanInterventionMotionItem>

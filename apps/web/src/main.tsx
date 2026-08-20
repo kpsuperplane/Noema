@@ -7,20 +7,47 @@ import { MotionRoot } from "./motion/MotionRoot";
 import { router } from "./router";
 import { AuthGate } from "./auth/AuthGate";
 import { DesktopConnectionGate } from "./desktop/DesktopConnectionGate";
+import {
+  AppBootstrapError,
+  AppFatalBoundary
+} from "./components/shell/AppBootBoundary";
+import {
+  reportCaughtReactError,
+  reportReactError
+} from "./components/errors/RenderErrorBoundary";
 import "./styles.css";
 
-const apolloClient = await createApolloClient();
+const rootElement = document.getElementById("root");
+if (!rootElement) {
+  throw new Error("Noema root is missing.");
+}
 
-createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <MotionRoot>
-      <DesktopConnectionGate>
-        <ApolloProvider client={apolloClient}>
-          <AuthGate>
-            <RouterProvider router={router} />
-          </AuthGate>
-        </ApolloProvider>
-      </DesktopConnectionGate>
-    </MotionRoot>
-  </React.StrictMode>,
-);
+const root = createRoot(rootElement, {
+  onCaughtError: reportCaughtReactError,
+  onUncaughtError: (error, info) =>
+    reportReactError("react.uncaught", error, info.componentStack),
+  onRecoverableError: (error, info) =>
+    reportReactError("react.recoverable", error, info.componentStack)
+});
+
+try {
+  const apolloClient = await createApolloClient();
+  root.render(
+    <React.StrictMode>
+      <AppFatalBoundary>
+        <MotionRoot>
+          <DesktopConnectionGate>
+            <ApolloProvider client={apolloClient}>
+              <AuthGate>
+                <RouterProvider router={router} />
+              </AuthGate>
+            </ApolloProvider>
+          </DesktopConnectionGate>
+        </MotionRoot>
+      </AppFatalBoundary>
+    </React.StrictMode>
+  );
+} catch (error) {
+  reportReactError("app.bootstrap", error);
+  root.render(<AppBootstrapError />);
+}

@@ -86,6 +86,12 @@ Settings panes own their data loading and mutations directly unless a shared
 controller has multiple production consumers. Editing is either inline without
 a separate Save button or performed in a focused dialog with explicit Save.
 
+Unexpected render failures preserve the nearest stable human task. Provider or
+runtime failures use the full-page recovery surface. Route failures keep the
+product shell available. Transcript items, human intervention cards, detail
+rails, sidebars, and the rich Task editor fail within their local surfaces.
+Error boundaries do not replace explicit query, mutation, or connection errors.
+
 The desktop app runs one embedded local instance or one connected remote server.
 A connection link carries only the validated server origin. Rust opens the
 system browser for OAuth with PKCE and recent passkey approval. Remote mode uses

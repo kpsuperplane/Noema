@@ -1,4 +1,5 @@
 import React from "react";
+import { Button } from "@astryxdesign/core/Button";
 import {
   ResizeHandle,
   useResizable,
@@ -24,6 +25,7 @@ import type { A2UIActionSubmission, ConversationAgentStatus, TranscriptEntry } f
 import { springs } from "@/motion/springs";
 import { MobileDrawer, useLatchedDrawerPresentation } from "./MobileDrawer";
 import { DetailPanePresentationProvider } from "./shell/MasterDetailLayout";
+import { RenderErrorBoundary } from "./errors/RenderErrorBoundary";
 
 export function shouldFocusChatComposer({
   ready,
@@ -182,31 +184,50 @@ export function ChatSurface({
         {...stylex.props(styles.mainPane)}
       >
         <div {...stylex.props(styles.contentLayer)}>
-          {offline && transcript.length === 0 ? (
-            <TranscriptSystemNotice role="status" tone="warning">
-              Reconnect to load this conversation.
-            </TranscriptSystemNotice>
-          ) : loadingInitialTranscript || transcript.length === 0 ? (
-            <TranscriptLoadingSkeleton />
-          ) : (
-            <Transcript
-              entries={transcript}
-              loadingOlderTranscript={loadingOlderTranscript}
-              hasMoreTranscriptBefore={hasMoreTranscriptBefore}
-              olderTranscriptPageError={olderTranscriptPageError}
-              pending={pending}
-              agentStatus={agentStatus}
-              awaitingAssistantTurn={awaitingAssistantTurn}
-              expandedActivities={expandedActivities}
-              sentMessageScrollRequest={sentMessageScrollRequest}
-              onToggleActivity={onToggleActivity}
-              onSubmitA2UIAction={ready ? onSubmitA2UIAction : undefined}
-              onSubmitMultipleChoiceSelection={onSubmitMultipleChoiceSelection}
-              onLoadOlderTranscript={onLoadOlderTranscript}
-              onOpenDetail={openDetail}
-              collapseConsecutiveToolCalls
-            />
-          )}
+          <RenderErrorBoundary
+            errorScope="chat.transcript"
+            resetKey={conversationId}
+            fallback={({ retry }) => (
+              <div {...stylex.props(styles.transcriptRecovery)}>
+                <TranscriptSystemNotice role="alert" tone="error">
+                  This conversation could not display. The composer remains available.
+                </TranscriptSystemNotice>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  label="Retry conversation"
+                  onClick={retry}
+                />
+              </div>
+            )}
+          >
+            {offline && transcript.length === 0 ? (
+              <TranscriptSystemNotice role="status" tone="warning">
+                Reconnect to load this conversation.
+              </TranscriptSystemNotice>
+            ) : loadingInitialTranscript || transcript.length === 0 ? (
+              <TranscriptLoadingSkeleton />
+            ) : (
+              <Transcript
+                entries={transcript}
+                loadingOlderTranscript={loadingOlderTranscript}
+                hasMoreTranscriptBefore={hasMoreTranscriptBefore}
+                olderTranscriptPageError={olderTranscriptPageError}
+                pending={pending}
+                agentStatus={agentStatus}
+                awaitingAssistantTurn={awaitingAssistantTurn}
+                expandedActivities={expandedActivities}
+                sentMessageScrollRequest={sentMessageScrollRequest}
+                onToggleActivity={onToggleActivity}
+                onSubmitA2UIAction={ready ? onSubmitA2UIAction : undefined}
+                onSubmitMultipleChoiceSelection={onSubmitMultipleChoiceSelection}
+                onLoadOlderTranscript={onLoadOlderTranscript}
+                onOpenDetail={openDetail}
+                collapseConsecutiveToolCalls
+              />
+            )}
+          </RenderErrorBoundary>
         </div>
 
         <div ref={composerDockRef} data-slot="chat-composer-dock" {...stylex.props(styles.composerDock)}>
@@ -348,6 +369,14 @@ const styles = stylex.create({
     gridArea: "1 / 1",
     minHeight: 0,
     overflow: "hidden"
+  },
+  transcriptRecovery: {
+    display: "grid",
+    height: "100%",
+    alignContent: "center",
+    justifyItems: "center",
+    gap: "var(--spacing-2)",
+    padding: "var(--spacing-4)"
   },
   composerDock: {
     position: "relative",
