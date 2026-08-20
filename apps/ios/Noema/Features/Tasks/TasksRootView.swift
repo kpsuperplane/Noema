@@ -409,7 +409,6 @@ struct TasksListDeck: View {
       }
       .tracksNoemaSurfaceTop(for: .tasks)
       .scrollIndicators(.hidden)
-      .refreshable { await model.refresh() }
     }
     .background(NoemaColor.surface)
     .overlay(alignment: .bottomTrailing) {
