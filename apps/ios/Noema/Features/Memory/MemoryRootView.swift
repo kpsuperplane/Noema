@@ -177,7 +177,7 @@ private struct MemoryArticleView: View {
       }
 
       if !article.citations.isEmpty {
-        CitationSourcesButton {
+        CitationSourcesButton(hostnames: [], profile: nil) {
           sourcesPresented = true
         }
       }

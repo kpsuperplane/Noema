@@ -58,8 +58,10 @@ nonisolated public struct TasksDetailOutcomeQuery: GraphQLQuery {
       public var taskDocument: String { __data["taskDocument"] }
       /// Transient SHA-256 of the current Task document.
       public var taskDocumentDigest: String { __data["taskDocumentDigest"] }
-      /// Current mutable RESULT.md content, when it exists.
+      /// Readable current RESULT.md text, when it exists.
       public var resultDocument: String? { __data["resultDocument"] }
+      /// Provider citation metadata for the projected result.
+      public var resultMetadata: NoemaAPI.JSON { __data["resultMetadata"] }
       /// Current mutable REVIEW.md content, when it exists.
       public var reviewDocument: String? { __data["reviewDocument"] }
 

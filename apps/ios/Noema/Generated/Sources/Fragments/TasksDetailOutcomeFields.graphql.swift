@@ -6,7 +6,7 @@
 
 nonisolated public struct TasksDetailOutcomeFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksDetailOutcomeFields on TaskDetail { __typename taskId taskDocument taskDocumentDigest resultDocument reviewDocument }"#
+    #"fragment TasksDetailOutcomeFields on TaskDetail { __typename taskId taskDocument taskDocumentDigest resultDocument resultMetadata reviewDocument }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -19,6 +19,7 @@ nonisolated public struct TasksDetailOutcomeFields: NoemaAPI.SelectionSet, Fragm
     .field("taskDocument", String.self),
     .field("taskDocumentDigest", String.self),
     .field("resultDocument", String?.self),
+    .field("resultMetadata", NoemaAPI.JSON.self),
     .field("reviewDocument", String?.self),
   ] }
   @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
@@ -31,8 +32,10 @@ nonisolated public struct TasksDetailOutcomeFields: NoemaAPI.SelectionSet, Fragm
   public var taskDocument: String { __data["taskDocument"] }
   /// Transient SHA-256 of the current Task document.
   public var taskDocumentDigest: String { __data["taskDocumentDigest"] }
-  /// Current mutable RESULT.md content, when it exists.
+  /// Readable current RESULT.md text, when it exists.
   public var resultDocument: String? { __data["resultDocument"] }
+  /// Provider citation metadata for the projected result.
+  public var resultMetadata: NoemaAPI.JSON { __data["resultMetadata"] }
   /// Current mutable REVIEW.md content, when it exists.
   public var reviewDocument: String? { __data["reviewDocument"] }
 }
