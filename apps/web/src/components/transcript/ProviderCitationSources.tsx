@@ -5,6 +5,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { parseMarkdown } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
+import { BookOpen } from "lucide-react";
 import sourcesIconUrl from "lucide-static/icons/book-open.svg";
 import { useMemo, useState } from "react";
 import { FaviconImage } from "@/components/FaviconImage";
@@ -35,6 +36,7 @@ type ProviderCitationMarkdownProps = Omit<
 > & {
   text: string;
   citations: readonly ProviderCitation[];
+  sourcesOnOwnLine?: boolean;
 };
 
 const SOURCES_ACTION_URL = "noema-sources://open";
@@ -71,28 +73,43 @@ const styles = stylex.create({
     backgroundSize: "var(--spacing-3)",
     ":hover": { backgroundColor: "var(--color-overlay-hover)" }
   },
-  sourcesCitationTwo: { width: "var(--spacing-7)" },
-  sourcesCitationThree: { width: "var(--spacing-9)" },
-  sourcesCitationOverflow: { width: "var(--spacing-12)" },
-  sourceFacepile: {
+  sourcesCitationHosted: {
     position: "absolute",
     inset: 0,
+    width: "100%",
+    minWidth: "100%"
+  },
+  sourcesOwnLine: {
+    display: "block",
+    marginInlineStart: "calc(-1 * var(--spacing-1))"
+  },
+  sourceFacepile: {
+    position: "relative",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    gap: "var(--spacing-1)",
+    height: "var(--spacing-5)",
+    paddingInline: "var(--spacing-2)",
     pointerEvents: "none"
   },
-  sourceFacepileIcon: {
-    display: "inline-flex",
-    marginInlineStart: "calc(-1 * var(--spacing-1))",
-    ":first-child": { marginInlineStart: 0 }
+  sourceAvatars: {
+    display: "flex",
+    alignItems: "center",
+    ":empty": { display: "none" }
   },
-  sourceOverflow: {
-    marginInlineStart: "var(--spacing-0-5)",
+  sourceDomain: {
     color: "var(--color-text-secondary)",
-    fontSize: "var(--font-size-3xs)",
-    fontWeight: "var(--font-weight-semibold)",
-    lineHeight: 1
+    fontSize: "var(--text-supporting-size)",
+    fontWeight: "var(--text-supporting-weight)",
+    lineHeight: "var(--text-supporting-leading)",
+    whiteSpace: "nowrap"
+  },
+  sourceFallbackIcon: {
+    width: "var(--spacing-3)",
+    height: "var(--spacing-3)",
+    flexShrink: 0,
+    color: "var(--color-text-secondary)"
   },
   sourceLink: {
     display: "block",
@@ -118,14 +135,18 @@ const styles = stylex.create({
 export function ProviderCitationMarkdown({
   text,
   citations,
+  sourcesOnOwnLine = false,
   ...markdownProps
 }: ProviderCitationMarkdownProps) {
   const [open, setOpen] = useState(false);
   const content = useMemo(() => {
-    const cited = providerCitationContent(text, citations);
-    if (cited.citations.length === 0) return cited;
-    return { ...cited, ...citationContentWithSourcesAction(cited.text, cited.sources) };
+    return providerCitationContent(text, citations);
   }, [citations, text]);
+  const markdownContent = useMemo(() => {
+    if (content.citations.length === 0 || sourcesOnOwnLine) return content;
+    const cited = content;
+    return { ...cited, ...citationContentWithSourcesAction(cited.text, cited.sources) };
+  }, [content, sourcesOnOwnLine]);
   const components = useMemo<MarkdownComponents>(
     () => ({
       citation: (props) => (
@@ -145,10 +166,21 @@ export function ProviderCitationMarkdown({
         {...markdownProps}
         citationStyle="number"
         components={components}
-        sources={content.sources}
+        sources={markdownContent.sources}
       >
-        {content.text}
+        {markdownContent.text}
       </MarkdownContent>
+      {sourcesOnOwnLine && content.citations.length > 0 ? (
+        <span {...stylex.props(styles.sourcesOwnLine)}>
+          <CitationReference
+            source={{ title: "Sources", url: SOURCES_ACTION_URL }}
+            number={1}
+            variant="label"
+            hosts={providerCitationHosts(content.citations)}
+            onOpenSources={() => setOpen(true)}
+          />
+        </span>
+      ) : null}
       <ProviderCitationDialog citations={content.citations} open={open} onOpenChange={setOpen} />
     </>
   );
@@ -168,14 +200,6 @@ export function CitationReference({
 }) {
   if (source.url === SOURCES_ACTION_URL) {
     const visibleHosts = hosts?.slice(0, 3) ?? [];
-    const overflow = Math.max(0, (hosts?.length ?? 0) - visibleHosts.length);
-    const citationSize = overflow > 0
-      ? styles.sourcesCitationOverflow
-      : visibleHosts.length === 3
-        ? styles.sourcesCitationThree
-        : visibleHosts.length === 2
-          ? styles.sourcesCitationTwo
-          : undefined;
     return (
       <button
         type="button"
@@ -189,17 +213,27 @@ export function CitationReference({
           source={{ title: "" }}
           number={1}
           variant="label"
-          xstyle={[styles.sourcesCitation, citationSize]}
+          xstyle={[styles.sourcesCitation, visibleHosts.length > 0 && styles.sourcesCitationHosted]}
           style={visibleHosts.length === 0 ? { backgroundImage: `url("${sourcesIconUrl}")` } : undefined}
         />
         {visibleHosts.length > 0 ? (
           <span aria-hidden="true" {...stylex.props(styles.sourceFacepile)}>
-            {visibleHosts.map((hostname) => (
-              <span key={hostname} {...stylex.props(styles.sourceFacepileIcon)}>
-                <FaviconImage hostname={hostname} size="compact" />
-              </span>
-            ))}
-            {overflow > 0 ? <span {...stylex.props(styles.sourceOverflow)}>+{overflow}</span> : null}
+            <span {...stylex.props(styles.sourceAvatars)}>
+              {visibleHosts.map((hostname, index) => (
+                <FaviconImage
+                  key={hostname}
+                  hostname={hostname}
+                  fallback={
+                    hosts?.length === 1 && index === 0 ? (
+                      <BookOpen aria-hidden="true" {...stylex.props(styles.sourceFallbackIcon)} />
+                    ) : undefined
+                  }
+                  grouped
+                  size="compact"
+                />
+              ))}
+            </span>
+            <span {...stylex.props(styles.sourceDomain)}>{sourceDomainLabel(hosts ?? [])}</span>
           </span>
         ) : null}
       </button>
@@ -355,14 +389,16 @@ function ProviderCitationDialog({
                       >
                         {index + 1}
                       </Text>
-                      <FaviconImage hostname={sourceHost(citation.url)} />
                       <VStack gap={0.5} xstyle={styles.sourceText}>
                         <Text type="body" weight="semibold" xstyle={styles.sourceTitle}>
                           {citation.title}
                         </Text>
-                        <Text type="supporting" color="secondary" xstyle={styles.sourceHost}>
-                          {sourceHost(citation.url)}
-                        </Text>
+                        <HStack gap={1} vAlign="center">
+                          <FaviconImage hostname={sourceHost(citation.url)} size="compact" />
+                          <Text type="supporting" color="secondary" xstyle={styles.sourceHost}>
+                            {displayHost(sourceHost(citation.url))}
+                          </Text>
+                        </HStack>
                       </VStack>
                     </HStack>
                   </a>
@@ -387,6 +423,17 @@ function sourceHost(url: string): string {
   } catch {
     return url;
   }
+}
+
+function displayHost(hostname: string): string {
+  return hostname.replace(/^www\./i, "");
+}
+
+function sourceDomainLabel(hosts: readonly string[]): string {
+  const first = hosts[0];
+  if (!first) return "";
+  const overflow = hosts.length - 1;
+  return `${displayHost(first)}${overflow > 0 ? ` +${overflow}` : ""}`;
 }
 
 function providerCitationHosts(citations: readonly ProviderCitation[]): string[] {
