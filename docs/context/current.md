@@ -100,7 +100,11 @@ slice or a net-negative reduction.
 - The Tauri app defaults to its embedded host and can connect to one remote
   HTTPS server. Rust owns OAuth, credentials, transport, and local return.
 - Interactive browser sessions belong to one conversation or task generation.
-  Each session is process-isolated. Every navigation reruns network and SSRF checks.
+  The human configures an ordered provider route. Obscura remains the default.
+- The agent changes providers only through `web.browse.switch_provider`.
+  A switch starts fresh and never transfers browser state.
+- One coordinator owns the active backend and public snapshot revisions.
+  Every navigation reruns network and SSRF checks.
 - Browser worker commands have a 30-second deadline. A timed-out worker is discarded.
 - Web Push registrations belong to browser sessions. Browser logout removes
   session-bound registrations. Installed mode can erase its private local data.

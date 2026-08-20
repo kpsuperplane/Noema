@@ -363,6 +363,7 @@ export const WebToolSettingsDocument = gql`
         toolName
         capabilityId
         activeProviderAccountId
+        providerRouteAccountIds
         providerOptions {
           providerAccountId
           providerKind
@@ -397,6 +398,30 @@ export const SaveWebToolProviderBindingDocument = gql`
         dataFlowClass
         citations
         directUrlFetch
+      }
+    }
+  }
+`;
+
+export const SaveBrowserProviderRouteDocument = gql`
+  mutation SaveBrowserProviderRoute($input: SaveBrowserProviderRouteInput!) {
+    saveBrowserProviderRoute(input: $input) {
+      toolName
+      capabilityId
+      activeProviderAccountId
+      providerRouteAccountIds
+      providerOptions {
+        providerAccountId
+        providerKind
+        accountKey
+        displayName
+        capabilityId
+        reliabilityContract
+        dataFlowClass
+        citations
+        directUrlFetch
+        jsRendering
+        authenticatedContext
       }
     }
   }

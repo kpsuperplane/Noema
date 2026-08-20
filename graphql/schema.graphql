@@ -2817,6 +2817,10 @@ type MutationRoot {
 	"""
 	saveWebToolProviderBinding(input: SaveWebToolProviderBindingInput!): WebToolBindingSettings!
 	"""
+	Save the ordered interactive browser provider route.
+	"""
+	saveBrowserProviderRoute(input: SaveBrowserProviderRouteInput!): WebToolBindingSettings!
+	"""
 	Save the tool progress audit model/provider preference.
 	"""
 	saveToolProgressAuditPreference(input: SaveToolProgressAuditPreferenceInput!): AgentModelPreference!
@@ -4096,6 +4100,10 @@ input SaveAgentModelPreferenceInput {
 	Whether this preference requests faster service.
 	"""
 	fastMode: Boolean!
+}
+
+input SaveBrowserProviderRouteInput {
+	providerAccountIds: [String!]!
 }
 
 input SaveCapabilityConnectionLabelInput {
@@ -6202,6 +6210,7 @@ type WebToolBindingSettings {
 	toolName: String!
 	capabilityId: String!
 	activeProviderAccountId: String!
+	providerRouteAccountIds: [String!]!
 	providerOptions: [WebToolProviderOption!]!
 }
 
