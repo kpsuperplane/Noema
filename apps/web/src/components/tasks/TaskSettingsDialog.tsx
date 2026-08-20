@@ -15,7 +15,7 @@ export function TaskSettingsDialog({ task, projects, busy, acknowledging, requir
   const [projectId, setProjectId] = React.useState(task.project?.projectId ?? "");
   const [executorAgentId, setExecutorAgentId] = React.useState(task.executorAgentId ?? "agent:task-executor");
   const [cwdOverride, setCwdOverride] = React.useState(task.cwdOverride ?? "");
-  const acpAgents = useQuery(AcpAgentsDocument, { fetchPolicy: "cache-and-network" });
+  const acpAgents = useQuery(AcpAgentsDocument, { fetchPolicy: "cache-first" });
   return (
     <Dialog isOpen onOpenChange={(open) => { if (!open) onCancel(); }} purpose="form" width={520} aria-label="Edit task settings">
       <Layout

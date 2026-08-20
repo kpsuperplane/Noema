@@ -5,7 +5,7 @@ import * as stylex from "@stylexjs/stylex";
 import { Pencil } from "lucide-react";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
-import { ProviderCitationMarkdown, taskResultCitationContent } from "@/components/transcript/ProviderCitationSources";
+import { ProviderCitationMarkdown, providerCitationsFromMetadata } from "@/components/transcript/ProviderCitationSources";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { taskStageLabel } from "./TaskOverview";
 import type { TaskRunLatestEntryChange } from "./TaskRunTranscript";
@@ -102,7 +102,7 @@ export function TaskBody({
         onTouchCancel={() => { swipeOriginRef.current = null; }}
       >
         {activeTab === "result" ? (
-          <TaskDocument fileName="RESULT.md" text={detail.resultDocument ?? ""} />
+          <TaskDocument citations={providerCitationsFromMetadata(detail.resultMetadata)} fileName="RESULT.md" text={detail.resultDocument ?? ""} />
         ) : activeTab === "task" ? (
           <TaskDocument detail={detail} edit={edit} fileName="TASK.md" text={detail.taskDocument} />
         ) : (
@@ -121,7 +121,7 @@ export function TaskBody({
   );
 }
 
-function TaskDocument({ detail, edit, fileName, text }: { detail?: TaskDetail; edit?: TaskInlineEditController; fileName: string; text: string }) {
+function TaskDocument({ citations = [], detail, edit, fileName, text }: { citations?: Parameters<typeof ProviderCitationMarkdown>[0]["citations"]; detail?: TaskDetail; edit?: TaskInlineEditController; fileName: string; text: string }) {
   if (detail && edit?.field === "DOCUMENT") {
     return <div data-slot="task-document" {...stylex.props(styles.taskScroller)}>
       <TaskDocumentInlineEditor key={`${detail.taskId}:document`} className={stylex.props(styles.editorContent).className} document={detail.taskDocument} digest={edit.task.taskDocumentDigest} edit={edit} label="Task description" onSave={edit.saveDocument} />
@@ -129,9 +129,6 @@ function TaskDocument({ detail, edit, fileName, text }: { detail?: TaskDetail; e
     </div>;
   }
   const response = text.trim() || undefined;
-  const content = response && fileName === "RESULT.md"
-    ? taskResultCitationContent(response)
-    : { text: response ?? "", citations: [] };
 
   return (
     <div data-slot="task-document" {...stylex.props(styles.taskScroller, !detail && styles.resultScroller)}>
@@ -145,8 +142,8 @@ function TaskDocument({ detail, edit, fileName, text }: { detail?: TaskDetail; e
             contentWidth="min(760px, calc(100% - var(--spacing-6) - var(--spacing-6)))"
             density="default"
             headingLevelStart={1}
-            citations={content.citations}
-            text={content.text}
+            citations={citations}
+            text={response}
             xstyle={styles.markdown}
           />
         ) : (

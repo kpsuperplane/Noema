@@ -4,15 +4,15 @@ import { Switch } from "@astryxdesign/core/Switch";
 import type {
   NoemaModelUseCase,
   TaskComplexity,
+  TaskModelPoolEntryFieldsFragment,
   TaskModelPoolEntryInput,
-  TaskModelPoolsQuery
 } from "@/generated/graphql";
 import { ControlledModelPreferenceSelect } from "./ControlledModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
 import type { ModelPreferenceSaveInput, ModelProviderOption } from "./modelPreferenceTypes";
 import { SettingsList, SettingsListItem, SettingsLocalFeedback, SettingsSection, SettingsSectionInset } from "./SettingsPrimitives";
 
-type PoolEntry = TaskModelPoolsQuery["taskModelPools"][number];
+type PoolEntry = TaskModelPoolEntryFieldsFragment;
 const complexities: readonly TaskComplexity[] = ["SIMPLE", "MEDIUM", "DIFFICULT"];
 
 export function TaskModelPoolsSettings({

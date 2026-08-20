@@ -50,16 +50,41 @@ impl RuntimeActor {
         name: &str,
         arguments: &Value,
     ) -> Result<(), WebBrowseError> {
+        if name == noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL {
+            let Ok(request) = parse_provider_switch(arguments) else {
+                return Ok(());
+            };
+            let session = self
+                .browser_sessions
+                .session(owner_key)
+                .ok_or(WebBrowseError::SessionNotFound)?;
+            if !session
+                .backend
+                .has_session(&WebBrowseOwner::new(owner_key))
+                .await
+            {
+                return Err(WebBrowseError::SessionNotFound);
+            }
+            return match session.snapshot {
+                Some(snapshot) if snapshot.revision == request.snapshot_revision => Ok(()),
+                Some(_) => Err(WebBrowseError::StaleSnapshot),
+                None => Err(WebBrowseError::SessionNotFound),
+            };
+        }
         let command = match parse_command(name, arguments) {
             Ok(BrowseCommand::Interact(request)) => BrowseCommand::Interact(request),
             Ok(BrowseCommand::History(request)) => BrowseCommand::History(request),
             _ => return Ok(()),
         };
-        let (provider, _) = self
-            .web_browse_runtime_provider_resolution()
+        let session = self
+            .browser_sessions
+            .session(owner_key)
+            .ok_or(WebBrowseError::SessionNotFound)?;
+        if !session
+            .backend
+            .has_session(&WebBrowseOwner::new(owner_key))
             .await
-            .map_err(|_| WebBrowseError::Unavailable)?;
-        if !provider.has_session(&WebBrowseOwner::new(owner_key)).await {
+        {
             return Err(WebBrowseError::SessionNotFound);
         }
         self.validate_browser_snapshot_call(owner_key, command)
@@ -70,12 +95,9 @@ impl RuntimeActor {
         owner_key: &str,
         command: BrowseCommand,
     ) -> Result<(), WebBrowseError> {
-        let contexts = self
-            .browser_snapshot_contexts
-            .lock()
-            .expect("browser snapshot context lock");
-        let context = contexts
-            .get(owner_key)
+        let context = self
+            .browser_sessions
+            .snapshot(owner_key)
             .ok_or(WebBrowseError::SessionNotFound)?;
         match command {
             BrowseCommand::Interact(request) => {
@@ -178,16 +200,14 @@ impl RuntimeActor {
     ) -> CapabilityOutput {
         let result = if name == noema_capabilities::web::browse::WEB_BROWSE_CLOSE_TOOL {
             self.close_browser_session(&owner_key).await
+        } else if name == noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL {
+            self.switch_browser_provider(&owner_key, arguments).await
         } else {
-            self.execute_web_browse(WebBrowseOwner::new(owner_key.clone()), name, arguments)
-                .await
+            self.execute_web_browse(&owner_key, name, arguments).await
         };
         match result {
             Ok(payload) => {
                 self.record_browser_urls(source, &payload).await;
-                if name != noema_capabilities::web::browse::WEB_BROWSE_CLOSE_TOOL {
-                    self.remember_browser_snapshot(&owner_key, &payload);
-                }
                 browser_capability_output(payload)
             }
             Err(message) => CapabilityOutput::failed(json!({"error": message})),

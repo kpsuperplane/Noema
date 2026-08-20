@@ -10,17 +10,15 @@ import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import {
   ContinueMcpServerSetupDocument,
-  CapabilityIntegrationsDocument,
   CreateMcpServerDocument,
   DeleteMcpServerDocument,
-  McpSettingsDocument,
+  McpManagementRootDocument,
   StartMcpServerReauthenticationOauthSetupDocument,
   StartMcpServerOauthSetupDocument,
   type CreateMcpServerMutation,
   type ContinueMcpServerSetupMutation,
-  type CapabilityIntegrationsQuery,
   type DeleteMcpServerMutation,
-  type McpSettingsQuery,
+  type McpManagementRootQuery,
   type StartMcpServerReauthenticationOauthSetupMutation,
   type StartMcpServerOauthSetupMutation
 } from "@/generated/graphql";
@@ -45,19 +43,13 @@ import { SettingsSection } from "./SettingsPrimitives";
 
 export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
   const navigate = useNavigate();
-  const result = useQuery<McpSettingsQuery>(McpSettingsDocument, {
+  const rootResult = useQuery<McpManagementRootQuery>(McpManagementRootDocument, {
     fetchPolicy: "cache-and-network"
   });
-  const integrationsResult = useQuery<CapabilityIntegrationsQuery>(CapabilityIntegrationsDocument, {
-    variables: { kind: "MCP" },
-    fetchPolicy: "cache-and-network"
-  });
-  const {
-    startPolling: startIntegrationPolling,
-    stopPolling: stopIntegrationPolling
-  } = integrationsResult;
+  const result = rootResult;
+  const integrationsResult = rootResult;
   async function refetchManagement() {
-    await Promise.all([result.refetch(), integrationsResult.refetch()]);
+    await rootResult.refetch();
   }
   const shouldPollToolClassification =
     result.data?.mcpServers.some((server) => server.pendingToolCount > 0) ?? false;
@@ -207,22 +199,13 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
   React.useEffect(() => {
     if (shouldPollToolClassification) {
       startPolling(1500);
-      startIntegrationPolling(1500);
     } else {
       stopPolling();
-      stopIntegrationPolling();
     }
     return () => {
       stopPolling();
-      stopIntegrationPolling();
     };
-  }, [
-    shouldPollToolClassification,
-    startIntegrationPolling,
-    startPolling,
-    stopIntegrationPolling,
-    stopPolling
-  ]);
+  }, [shouldPollToolClassification, startPolling, stopPolling]);
 
   const servers: readonly McpSettingsServer[] = result.data?.mcpServers ?? [];
   const integrations: readonly CapabilityIntegration[] =

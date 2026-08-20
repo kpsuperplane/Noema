@@ -17,7 +17,7 @@ use super::{
         ReviewedActionPreparation, action_store_failure_result, awaiting_approval_result,
         capability_failure_code,
     },
-    actor::{BrowserSnapshotContext, RuntimeActor},
+    actor::{BrowserSessionState, BrowserSnapshotContext, RuntimeActor},
     tool_lifecycle::LocalToolCall,
     turn::SuccessfulProviderTurn,
 };
@@ -45,12 +45,15 @@ use crate::file_tools::{execute_file_download, execute_file_parse};
 use crate::search::tool::is_web_search_tool;
 use crate::web_fetch::tool::is_web_fetch_tool;
 use crate::{WebBackendRequest, WebBackendResolverError};
-use noema_capabilities::web::browse::{BrowseCommand, parse_command};
+use noema_capabilities::web::browse::{
+    BrowseCommand, BrowseNavigationRequest, BrowseResponse, BrowseWaitUntil, parse_command,
+    parse_provider_switch,
+};
 use noema_capabilities::web::fetch::WEB_FETCH_TOOL;
 use noema_providers::{
     DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID, OBSCURA_BROWSER_PROVIDER_ID,
     WebBrowseBackendHandle, WebBrowseError, WebBrowseOwner, WebFetchBackendHandle, WebFetchContext,
-    WebSearchBackendHandle,
+    WebFetchError, WebSearchBackendHandle,
 };
 
 const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated";
@@ -835,30 +838,30 @@ impl RuntimeActor {
             .await;
     }
 
-    pub(super) async fn web_browse_runtime_provider_resolution(
+    async fn resolve_browser_backend(
         &self,
-    ) -> Result<(WebBrowseBackendHandle, Option<ProviderAuthFailureTarget>), String> {
-        let resolved = super::web_tools::resolve_web_browse_provider(&self.store)
-            .await
-            .map_err(|_| "web.browse provider binding could not be resolved".to_string())?;
+        resolved: &super::web_tools::ResolvedWebProvider,
+    ) -> Result<WebBrowseBackendHandle, String> {
+        if resolved.capability_status != noema_providers::ProviderCapabilityStatus::Available {
+            return Err(format!(
+                "web.browse provider '{}' is {}",
+                resolved.provider_kind,
+                resolved.capability_status.as_str()
+            ));
+        }
         let target = ProviderAuthFailureTarget {
             provider_account_id: resolved.provider_account_id.clone(),
             credential_revision: resolved.credential_revision,
         };
         match self
             .web_backends
-            .resolve_browse(web_backend_request(&resolved))
+            .resolve_browse(web_backend_request(resolved))
             .await
         {
-            Ok(provider) => Ok((provider, auth_failure_target(&resolved))),
+            Ok(provider) => Ok(provider),
             Err(WebBackendResolverError::Unauthenticated) => {
                 self.mark_provider_account_unauthenticated(&target).await;
-                let provider = self
-                    .web_backends
-                    .resolve_browse(default_browse_backend_request())
-                    .await
-                    .map_err(|_| "web.browse fallback provider is unavailable".to_string())?;
-                Ok((provider, None))
+                Err(WebBrowseError::Unauthenticated.to_string())
             }
             Err(WebBackendResolverError::Unavailable) => Err(format!(
                 "web.browse provider '{}' is unavailable",
@@ -869,75 +872,275 @@ impl RuntimeActor {
 
     async fn execute_web_browse(
         &self,
-        owner: WebBrowseOwner,
+        owner_key: &str,
         name: &str,
         payload: &Value,
     ) -> Result<Value, String> {
-        let command = parse_command(name, payload).map_err(|error| error.message().to_string())?;
-        let (provider, auth_failure_target) = self.web_browse_runtime_provider_resolution().await?;
-        let result = provider
-            .execute(&owner, command)
-            .await
-            .and_then(|response| {
-                serde_json::to_value(response)
-                    .map_err(|_| noema_providers::WebBrowseError::Unavailable)
-            });
-        if matches!(result, Err(WebBrowseError::Unauthenticated))
-            && let Some(target) = auth_failure_target
+        let mut command =
+            parse_command(name, payload).map_err(|error| error.message().to_string())?;
+        let gate = self.browser_sessions.gate(owner_key);
+        let _guard = gate.lock().await;
+        let route = match super::web_tools::resolve_web_browse_route(&self.store).await {
+            Ok(route) => route,
+            Err(_) => {
+                if let Some(obsolete) = self.browser_sessions.remove(owner_key) {
+                    let _ = obsolete
+                        .backend
+                        .execute(&WebBrowseOwner::new(owner_key), BrowseCommand::Close)
+                        .await;
+                }
+                return Err("web.browse provider route could not be resolved".to_string());
+            }
+        };
+        let mut session = self.browser_sessions.session(owner_key);
+        if session
+            .as_ref()
+            .is_some_and(|session| session.route.digest != route.digest)
         {
-            self.mark_provider_account_unauthenticated(&target).await;
+            if let Some(obsolete) = self.browser_sessions.remove(owner_key) {
+                let _ = obsolete
+                    .backend
+                    .execute(&WebBrowseOwner::new(owner_key), BrowseCommand::Close)
+                    .await;
+            }
+            session = None;
         }
-        result.map_err(|error| error.to_string())
+        let owner = WebBrowseOwner::new(owner_key);
+        let mut state = match session {
+            Some(state) => {
+                translate_browser_revision(&state, &mut command)?;
+                state
+            }
+            None if matches!(command, BrowseCommand::Open(_)) => {
+                let resolved = route
+                    .providers
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| "web.browse provider route is empty".to_string())?;
+                let backend = self.resolve_browser_backend(&resolved).await?;
+                BrowserSessionState {
+                    route,
+                    active_position: 0,
+                    attempted_positions: [0].into_iter().collect(),
+                    backend,
+                    public_revision: 0,
+                    backend_revision: 0,
+                    snapshot: None,
+                }
+            }
+            None => return Err(WebBrowseError::SessionNotFound.to_string()),
+        };
+        let result = state.backend.execute(&owner, command).await;
+        if matches!(result, Err(WebBrowseError::Unauthenticated)) {
+            let resolved = &state.route.providers[state.active_position];
+            if let Some(target) = auth_failure_target(resolved) {
+                self.mark_provider_account_unauthenticated(&target).await;
+            }
+        }
+        let mut response = result.map_err(|error| error.to_string())?;
+        let public_revision = response
+            .snapshot
+            .as_ref()
+            .map(|_| self.browser_sessions.next_revision(owner_key))
+            .unwrap_or(state.public_revision);
+        update_browser_snapshot_authority(&mut state, &mut response, public_revision);
+        self.browser_sessions
+            .set_session(owner_key.to_string(), state);
+        serde_json::to_value(response).map_err(|_| WebBrowseError::Unavailable.to_string())
     }
 
     pub(super) async fn close_browser_session(&self, owner_key: &str) -> Result<Value, String> {
-        self.browser_snapshot_contexts
-            .lock()
-            .expect("browser snapshot context lock")
-            .remove(owner_key);
-        let (provider, auth_failure_target) = self.web_browse_runtime_provider_resolution().await?;
-        let result = provider
+        let gate = self.browser_sessions.gate(owner_key);
+        let _guard = gate.lock().await;
+        let Some(session) = self.browser_sessions.remove(owner_key) else {
+            return serde_json::to_value(BrowseResponse {
+                provider: OBSCURA_BROWSER_PROVIDER_ID.to_string(),
+                state: "closed".to_string(),
+                snapshot: None,
+                screenshot: None,
+            })
+            .map_err(|_| WebBrowseError::Unavailable.to_string());
+        };
+        session
+            .backend
             .execute(&WebBrowseOwner::new(owner_key), BrowseCommand::Close)
             .await
             .and_then(|response| {
-                serde_json::to_value(response)
-                    .map_err(|_| noema_providers::WebBrowseError::Unavailable)
-            });
-        if matches!(result, Err(WebBrowseError::Unauthenticated))
-            && let Some(target) = auth_failure_target
-        {
-            self.mark_provider_account_unauthenticated(&target).await;
-        }
-        result.map_err(|error| error.to_string())
+                serde_json::to_value(response).map_err(|_| WebBrowseError::Unavailable)
+            })
+            .map_err(|error| error.to_string())
     }
 
-    pub(super) fn remember_browser_snapshot(&self, owner: &str, payload: &Value) {
-        let mut contexts = self
-            .browser_snapshot_contexts
-            .lock()
-            .expect("browser snapshot context lock");
-        let Ok(response) = serde_json::from_value::<noema_capabilities::web::browse::BrowseResponse>(
-            payload.clone(),
-        ) else {
-            return;
+    async fn switch_browser_provider(
+        &self,
+        owner_key: &str,
+        payload: &Value,
+    ) -> Result<Value, String> {
+        let request =
+            parse_provider_switch(payload).map_err(|error| error.message().to_string())?;
+        let gate = self.browser_sessions.gate(owner_key);
+        let _guard = gate.lock().await;
+        let mut source = self
+            .browser_sessions
+            .session(owner_key)
+            .ok_or_else(|| WebBrowseError::SessionNotFound.to_string())?;
+        let route = match super::web_tools::resolve_web_browse_route(&self.store).await {
+            Ok(route) => route,
+            Err(_) => {
+                self.browser_sessions.remove(owner_key);
+                let _ = source
+                    .backend
+                    .execute(&WebBrowseOwner::new(owner_key), BrowseCommand::Close)
+                    .await;
+                return Err("web.browse provider route could not be resolved".to_string());
+            }
         };
-        let Some(snapshot) = response.snapshot else {
-            return;
+        if source.route.digest != route.digest {
+            self.browser_sessions.remove(owner_key);
+            let _ = source
+                .backend
+                .execute(&WebBrowseOwner::new(owner_key), BrowseCommand::Close)
+                .await;
+            return Err(WebBrowseError::SessionNotFound.to_string());
+        }
+        let snapshot = source
+            .snapshot
+            .as_ref()
+            .ok_or_else(|| WebBrowseError::SessionNotFound.to_string())?;
+        if request.snapshot_revision != snapshot.revision {
+            return Err(WebBrowseError::StaleSnapshot.to_string());
+        }
+        noema_providers::validate_public_url(&request.url)
+            .await
+            .map_err(browser_url_policy_error)?;
+        let target_position = next_browser_route_position(&source)
+            .ok_or_else(|| "no later browser provider is configured".to_string())?;
+        source.attempted_positions.insert(target_position);
+        let resolved = &source.route.providers[target_position];
+        let target = match self.resolve_browser_backend(resolved).await {
+            Ok(target) => target,
+            Err(error) => {
+                self.browser_sessions
+                    .set_session(owner_key.to_string(), source);
+                return Err(error);
+            }
         };
-        contexts.insert(
-            owner.to_string(),
-            BrowserSnapshotContext {
-                url: snapshot.url,
-                title: snapshot.title,
-                revision: snapshot.snapshot_revision,
-                elements: snapshot
-                    .elements
-                    .into_iter()
-                    .map(|element| (element.reference.clone(), element))
-                    .collect(),
-            },
-        );
+        let owner = WebBrowseOwner::new(owner_key);
+        let result = target
+            .execute(
+                &owner,
+                BrowseCommand::Open(BrowseNavigationRequest {
+                    url: request.url,
+                    reason: None,
+                    wait_until: BrowseWaitUntil::Load,
+                }),
+            )
+            .await;
+        let mut response = match result {
+            Ok(response) if response.snapshot.is_some() => response,
+            Ok(_) => {
+                let _ = target.execute(&owner, BrowseCommand::Close).await;
+                self.browser_sessions
+                    .set_session(owner_key.to_string(), source);
+                return Err(WebBrowseError::NavigationFailed.to_string());
+            }
+            Err(error) => {
+                if error == WebBrowseError::Unauthenticated
+                    && let Some(target) = auth_failure_target(resolved)
+                {
+                    self.mark_provider_account_unauthenticated(&target).await;
+                }
+                let _ = target.execute(&owner, BrowseCommand::Close).await;
+                self.browser_sessions
+                    .set_session(owner_key.to_string(), source);
+                return Err(error.to_string());
+            }
+        };
+        let _ = source.backend.execute(&owner, BrowseCommand::Close).await;
+        source.active_position = target_position;
+        source.backend = target;
+        let public_revision = self.browser_sessions.next_revision(owner_key);
+        update_browser_snapshot_authority(&mut source, &mut response, public_revision);
+        self.browser_sessions
+            .set_session(owner_key.to_string(), source);
+        serde_json::to_value(response).map_err(|_| WebBrowseError::Unavailable.to_string())
     }
+}
+
+fn translate_browser_revision(
+    state: &BrowserSessionState,
+    command: &mut BrowseCommand,
+) -> Result<(), String> {
+    match command {
+        BrowseCommand::Interact(request) => {
+            let snapshot = state
+                .snapshot
+                .as_ref()
+                .ok_or_else(|| WebBrowseError::SessionNotFound.to_string())?;
+            if request.snapshot_revision != snapshot.revision {
+                return Err(WebBrowseError::StaleSnapshot.to_string());
+            }
+            if !snapshot.elements.contains_key(&request.reference) {
+                return Err(WebBrowseError::ElementNotFound.to_string());
+            }
+            request.snapshot_revision = state.backend_revision;
+        }
+        BrowseCommand::History(request) => {
+            let snapshot = state
+                .snapshot
+                .as_ref()
+                .ok_or_else(|| WebBrowseError::SessionNotFound.to_string())?;
+            if request.snapshot_revision != snapshot.revision {
+                return Err(WebBrowseError::StaleSnapshot.to_string());
+            }
+            request.snapshot_revision = state.backend_revision;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn next_browser_route_position(state: &BrowserSessionState) -> Option<usize> {
+    ((state.active_position + 1)..state.route.providers.len())
+        .find(|position| !state.attempted_positions.contains(position))
+}
+
+fn browser_url_policy_error(error: WebFetchError) -> String {
+    match error {
+        WebFetchError::UnsupportedScheme | WebFetchError::MalformedUrl => {
+            WebBrowseError::InvalidUrl
+        }
+        WebFetchError::BlockedTarget | WebFetchError::RedirectBlocked => {
+            WebBrowseError::BlockedTarget
+        }
+        WebFetchError::Timeout => WebBrowseError::Timeout,
+        _ => WebBrowseError::NavigationFailed,
+    }
+    .to_string()
+}
+
+fn update_browser_snapshot_authority(
+    state: &mut BrowserSessionState,
+    response: &mut BrowseResponse,
+    public_revision: u64,
+) {
+    let Some(snapshot) = response.snapshot.as_mut() else {
+        return;
+    };
+    state.backend_revision = snapshot.snapshot_revision;
+    state.public_revision = public_revision;
+    snapshot.snapshot_revision = public_revision;
+    state.snapshot = Some(BrowserSnapshotContext {
+        url: snapshot.url.clone(),
+        title: snapshot.title.clone(),
+        revision: snapshot.snapshot_revision,
+        elements: snapshot
+            .elements
+            .iter()
+            .cloned()
+            .map(|element| (element.reference.clone(), element))
+            .collect(),
+    });
 }
 
 pub(super) fn browse_owner_key_for_turn(turn: &SuccessfulProviderTurn) -> String {
@@ -1012,14 +1215,6 @@ fn default_fetch_backend_request() -> WebBackendRequest {
     WebBackendRequest {
         provider_kind: provider_kind.to_string(),
         provider_account_id: format!("provider_account:{provider_kind}:system"),
-        credential_revision: 0,
-    }
-}
-
-fn default_browse_backend_request() -> WebBackendRequest {
-    WebBackendRequest {
-        provider_kind: OBSCURA_BROWSER_PROVIDER_ID.to_string(),
-        provider_account_id: format!("provider_account:{OBSCURA_BROWSER_PROVIDER_ID}:system"),
         credential_revision: 0,
     }
 }

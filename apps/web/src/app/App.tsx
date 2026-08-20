@@ -144,16 +144,17 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const [createProviderAccount, createProviderAccountResult] = useMutation(
     CreateProviderAccountDocument
   );
+  const onboarding = boot.data.onboardingStatus;
+  const onboarded = onboarding.isUserOnboarded;
   const localSetupResult = useQuery(LocalModelSetupDocument, {
-    fetchPolicy: "cache-and-network"
+    fetchPolicy: "cache-and-network",
+    skip: onboarded
   });
   const [installLocalModel, installLocalModelResult] = useMutation(InstallLocalModelDocument);
   const [cancelLocalModelInstall, cancelLocalModelInstallResult] = useMutation(CancelLocalModelInstallDocument);
-  const onboarding = boot.data.onboardingStatus;
   const refetchOnboarding = boot.refetch;
   const refetchBoot = boot.refetch;
   const localSetup = localSetupResult.data?.localModelSetup ?? null;
-  const onboarded = onboarding.isUserOnboarded;
   const chatRoute = route.kind === "chat";
   const [ensurePrimaryConversation] = useMutation(EnsurePrimaryConversationDocument);
   const [sendConversationTurn] = useMutation(SendConversationTurnDocument);
@@ -189,6 +190,8 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const [awaitingAssistantTurn, setAwaitingAssistantTurn] = React.useState(false);
   const [expandedActivities, setExpandedActivities] = React.useState<Set<string>>(new Set());
   const [sentMessageScrollRequest, setSentMessageScrollRequest] = React.useState(0);
+  const [interventionsRefreshKey, setInterventionsRefreshKey] = React.useState(0);
+  const conversationSubscriptionReadyRef = React.useRef(false);
   const startingConversationRef = React.useRef(false);
   const latestTranscriptLoadedConversationRef = React.useRef<string | null>(null);
   const latestTranscriptRetryBlockedConversationRef = React.useRef<string | null>(null);
@@ -197,6 +200,10 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const draftLoadedConversationRef = React.useRef<string | null>(null);
   const reconcilingRecoveryRef = React.useRef(false);
   const localStatusRefetchRef = React.useRef(boot.refetch);
+
+  React.useEffect(() => {
+    conversationSubscriptionReadyRef.current = false;
+  }, [conversationId]);
 
   const navigate = React.useCallback(
     (nextRoute: AppRoute) => {
@@ -242,6 +249,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   }, [localSetupResult, refetchOnboardingStatus]);
 
   useSubscription(LocalModelEventsDocument, {
+    skip: onboarded,
     onData: () => void refreshLocalSetup()
   });
 
@@ -619,8 +627,16 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const applyConversationEvent = React.useCallback((event: ConversationEvent) => {
     markConversationEventReceived(event);
     if (event.__typename === "SubscriptionReadyEvent") {
-      reconcilingRecoveryRef.current = true;
-      void loadConversationTranscriptPage({ cursor: null, placement: "latest" });
+      const reconnecting = conversationSubscriptionReadyRef.current || reconcilingRecoveryRef.current;
+      conversationSubscriptionReadyRef.current = true;
+      if (reconnecting) {
+        reconcilingRecoveryRef.current = true;
+        setInterventionsRefreshKey((current) => current + 1);
+        void loadConversationTranscriptPage({ cursor: null, placement: "latest" });
+      }
+      markConversationEventScheduled(event);
+    } else if (event.__typename === "HumanInterventionsChangedEvent") {
+      setInterventionsRefreshKey((current) => current + 1);
       markConversationEventScheduled(event);
     } else if (isTurnCompletedEvent(event)) {
       setPending(false);
@@ -919,6 +935,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
       offline={pwa.installed && pwa.state === "offline"}
       loadingInitialTranscript={loadingInitialChat}
       agentName={agentName}
+      interventionsRefreshKey={interventionsRefreshKey}
       onToggleActivity={(id) =>
         setExpandedActivities((current) => {
           const next = new Set(current);

@@ -26,6 +26,8 @@ import { taskScheduleTimestampLabel } from "../tasks/tasksModel";
 import { normalizeTasksSearch } from "../tasks/tasksTypes";
 import { ChatDetailCloseButton } from "./ChatDetailCloseButton";
 import type { TaskInlineEditController } from "@/components/tasks/TaskActions";
+import { ErrorMarker } from "@/components/ErrorMarker";
+import { RenderErrorBoundary } from "@/components/errors/RenderErrorBoundary";
 
 export function ChatDetailRail({
   target,
@@ -38,14 +40,64 @@ export function ChatDetailRail({
   animateEntrance?: boolean;
   showTasksLink?: boolean;
 }) {
+  const targetKey = detailTargetKey(target);
   return (
-    <RoutedChatDetailRail
-      key={detailTargetKey(target)}
-      animateEntrance={animateEntrance}
-      initialTarget={target}
-      onClose={onClose}
-      showTasksLink={showTasksLink}
-    />
+    <RenderErrorBoundary
+      errorScope={`detail.${targetKey}`}
+      resetKey={targetKey}
+      fallback={({ retry }) => (
+        <ChatDetailRailError onClose={onClose} onRetry={retry} />
+      )}
+    >
+      <RoutedChatDetailRail
+        key={targetKey}
+        animateEntrance={animateEntrance}
+        initialTarget={target}
+        onClose={onClose}
+        showTasksLink={showTasksLink}
+      />
+    </RenderErrorBoundary>
+  );
+}
+
+function ChatDetailRailError({
+  onClose,
+  onRetry
+}: {
+  onClose: () => void;
+  onRetry: () => void;
+}) {
+  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
+  const contained = useDetailPanePresentation() === "drawer";
+  return (
+    <aside
+      aria-label="Detail recovery"
+      role={contained ? "region" : "complementary"}
+      {...stylex.props(styles.rail, contained && styles.containedRail)}
+    >
+      <div {...stylex.props(styles.surface, styles.errorSurface)}>
+        <header {...stylex.props(styles.header, styles.errorHeader)}>
+          <h2 {...stylex.props(styles.title)}>Details unavailable</h2>
+          <ChatDetailCloseButton
+            closeButtonRef={closeButtonRef}
+            onClose={onClose}
+          />
+        </header>
+        <div {...stylex.props(styles.errorBody)}>
+          <ErrorMarker
+            message="This detail could not display. Chat and other pages remain available."
+            recoverable={false}
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            label="Retry details"
+            onClick={onRetry}
+          />
+        </div>
+      </div>
+    </aside>
   );
 }
 
@@ -488,6 +540,21 @@ const styles = stylex.create({
     height: "100%",
     overflow: "hidden",
     backgroundColor: "var(--noema-surface-card)"
+  },
+  errorSurface: {
+    display: "grid",
+    gridTemplateRows: "auto minmax(0, 1fr)"
+  },
+  errorHeader: {
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    alignItems: "center"
+  },
+  errorBody: {
+    display: "grid",
+    alignContent: "center",
+    justifyItems: "center",
+    gap: "var(--spacing-3)",
+    padding: "var(--spacing-4)"
   },
   routeFrame: {
     position: "absolute",

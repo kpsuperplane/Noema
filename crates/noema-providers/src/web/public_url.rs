@@ -4,7 +4,10 @@ use crate::WebFetchError;
 use noema_capabilities::web::url_policy::{
     PublicUrlError, is_public_ip, validate_parsed_public_url,
 };
+use reqwest::Client;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::time::Duration;
+use url::Host;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +36,25 @@ pub async fn validate_public_url(raw_url: &str) -> Result<CheckedUrl, WebFetchEr
 pub async fn validate_public_url_parsed(url: Url) -> Result<CheckedUrl, WebFetchError> {
     let url = validate_parsed_public_url(url).map_err(map_policy_error)?;
     resolve_public_url(url).await
+}
+
+/// Build one no-proxy client pinned to the checked public addresses.
+///
+/// # Errors
+/// Returns [`WebFetchError`] when the HTTP client cannot be built.
+pub fn checked_public_http_client(
+    checked: &CheckedUrl,
+    timeout: Duration,
+) -> Result<Client, WebFetchError> {
+    let mut builder = Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(timeout);
+    if matches!(checked.url.host(), Some(Host::Domain(_))) {
+        let host = checked.url.host_str().ok_or(WebFetchError::MalformedUrl)?;
+        builder = builder.resolve_to_addrs(host, &checked.resolved_addrs);
+    }
+    builder.build().map_err(|_| WebFetchError::Http)
 }
 
 async fn resolve_public_url(url: Url) -> Result<CheckedUrl, WebFetchError> {

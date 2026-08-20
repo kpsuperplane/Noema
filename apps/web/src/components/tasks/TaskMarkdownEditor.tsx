@@ -1,10 +1,12 @@
 import * as React from "react";
 import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
+import { TextArea } from "@astryxdesign/core/TextArea";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { Check, Code2, RefreshCcw, X } from "lucide-react";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { RenderErrorBoundary } from "@/components/errors/RenderErrorBoundary";
 
 export type TaskMarkdownEditorProps = {
   value: string;
@@ -20,9 +22,39 @@ const TaskMarkdownEditorImpl = React.lazy(() => import("./TaskMarkdownEditorImpl
 
 export function TaskMarkdownEditor(props: TaskMarkdownEditorProps) {
   return (
-    <React.Suspense fallback={<p role="status">Loading Markdown editor…</p>}>
-      <TaskMarkdownEditorImpl {...props} />
-    </React.Suspense>
+    <RenderErrorBoundary
+      errorScope="task.markdown_editor"
+      fallback={() => <TaskMarkdownEditorFallback {...props} />}
+    >
+      <React.Suspense fallback={<p role="status">Loading Markdown editor…</p>}>
+        <TaskMarkdownEditorImpl {...props} />
+      </React.Suspense>
+    </RenderErrorBoundary>
+  );
+}
+
+function TaskMarkdownEditorFallback({
+  value,
+  onChange,
+  onReady,
+  label = "Task document",
+  density = "default"
+}: TaskMarkdownEditorProps) {
+  React.useLayoutEffect(() => onReady?.(), [onReady]);
+  return (
+    <VStack gap={2}>
+      <p role="status" {...stylex.props(styles.editorNotice)}>
+        Rich editing is unavailable. Markdown source remains editable.
+      </p>
+      <TextArea
+        isLabelHidden
+        label={`${label} Markdown source`}
+        rows={density === "inline" ? 6 : 14}
+        value={value}
+        width="100%"
+        onChange={onChange}
+      />
+    </VStack>
   );
 }
 
@@ -77,5 +109,11 @@ const styles = stylex.create({
   editorLoading: { position: "absolute", inset: 0, visibility: "hidden", pointerEvents: "none" },
   preview: { paddingInline: "var(--spacing-2)" },
   editorError: { outlineWidth: 1, outlineStyle: "solid", outlineColor: "var(--destructive)" },
-  error: { color: "var(--destructive)", fontSize: 12, lineHeight: 1.4 }
+  error: { color: "var(--destructive)", fontSize: 12, lineHeight: 1.4 },
+  editorNotice: {
+    margin: "var(--spacing-0)",
+    color: "var(--muted-foreground)",
+    fontSize: 12,
+    lineHeight: 1.4
+  }
 });

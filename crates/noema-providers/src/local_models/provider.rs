@@ -198,9 +198,15 @@ fn forward_stream_event(
                 delta,
             });
         }
-        ChatStreamEvent::ToolCallStarted { output_index, name } => {
-            on_event(GenerateStreamEvent::ToolCallStarted { output_index, name })
-        }
+        ChatStreamEvent::ToolCallStarted {
+            output_index,
+            provider_call_id,
+            name,
+        } => on_event(GenerateStreamEvent::ToolCallStarted {
+            output_index,
+            provider_call_id,
+            name,
+        }),
     }
 }
 

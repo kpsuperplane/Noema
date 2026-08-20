@@ -58,6 +58,10 @@ destinations to preserve an obsolete staged rollout.
   a rebuildable search projection.
 - GraphQL queries provide scoped read models, mutations execute explicit
   commands, and subscriptions carry live changes.
+- Each route composes one root query from shared fragments. Mutation payloads
+  update normalized cache objects when they contain the changed state.
+- A subscription invalidates its active root. Refetch after a mutation only
+  when the payload cannot represent server-derived state.
 - Daemon and WebSocket state is coordination state, not a second durable
   transcript or task authority.
 - Browser code never receives credential material. Provider-auth redirects and
@@ -85,6 +89,12 @@ fences required by the runtime.
 Settings panes own their data loading and mutations directly unless a shared
 controller has multiple production consumers. Editing is either inline without
 a separate Save button or performed in a focused dialog with explicit Save.
+
+Unexpected render failures preserve the nearest stable human task. Provider or
+runtime failures use the full-page recovery surface. Route failures keep the
+product shell available. Transcript items, human intervention cards, detail
+rails, sidebars, and the rich Task editor fail within their local surfaces.
+Error boundaries do not replace explicit query, mutation, or connection errors.
 
 The desktop app runs one embedded local instance or one connected remote server.
 A connection link carries only the validated server origin. Rust opens the
@@ -167,23 +177,29 @@ The Tasks list reads recurring authorities directly. A recurrence remains in
 Scheduled when all of its Task instances are terminal. Instances provide run
 history and do not control recurrence visibility.
 
-Memory articles keep prose primary. One numeric citation represents one nearby
-claim. Its hover or focus card shows every exact evidence source with type,
+Memory articles keep prose primary. One plain superscript number represents one
+nearby claim. One Sources icon follows the article and opens the complete
+Sources view. Each citation group shows every exact evidence source with type,
 date, excerpt, and identifier.
 
 Web and iOS use one provider citation contract for Chat messages and completed
 Task results. They number unique URLs in first-use order. Each citation marker
 follows its claim when the provider supplies a valid UTF-16 end offset. A marker
-without a valid offset follows the complete message. Every marker opens one
-message-owned Sources view. Each source shows its title and host and opens the
-exact URL. The message does not show a separate Sources footer.
+without a valid offset follows the complete message. Markers use plain,
+non-interactive superscript numbers. One Sources control follows the cited
+content and opens its Sources view. The control remains inline for Chat
+messages. Each source shows its title, host, favicon, and exact URL.
 
-Completed Task results decode the reserved source footnotes stored in
-`RESULT.md`. Chat continues to read structured provider citation metadata.
-Both paths use the same marker and Sources presentation.
+Web renders every Sources control with Astryx Citation. Web and iOS show up to
+three exact-host favicons in a compact transparent pill. Extra hosts use a
+count. Loading and failed favicons show the first site-domain letter without
+changing layout. Sources without website hosts keep the generic Sources icon.
 
-Clients decode only `[^noema-source-N]` markers with matching canonical
-definitions. They keep other Markdown footnotes and links as ordinary content.
+The backend decodes reserved source footnotes from completed Task results. It
+returns readable text and the same structured provider citation metadata that
+Chat uses. Web and iOS use the shared marker, icon, and Sources presentation.
+
+Clients do not parse `[^noema-source-N]` markers or definitions.
 
 ## Validation
 

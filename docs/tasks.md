@@ -63,6 +63,9 @@ Markdown footnote definitions. The Runtime resolves provider-private markers
 before an Executor terminal commits. This format keeps citations with the
 mutable result during continuation, review, correction, and reopening.
 
+Task read projections convert this stored format into readable result text and
+structured provider citation metadata. Clients do not parse the reserved footnotes.
+
 ```markdown
 Supported claim.[^noema-source-1]
 

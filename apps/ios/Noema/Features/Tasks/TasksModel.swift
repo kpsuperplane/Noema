@@ -1268,6 +1268,7 @@ final class TasksModel {
     next.taskDocument = source.taskDocument
     next.taskDocumentDigest = source.taskDocumentDigest
     next.resultDocument = source.resultDocument
+    next.resultCitations = ProviderCitation.from(metadata: source.resultMetadata.encodedString)
     next.reviewDocument = source.reviewDocument
     return next
   }
@@ -1287,6 +1288,7 @@ final class TasksModel {
       taskDocument: "",
       taskDocumentDigest: "",
       resultDocument: nil,
+      resultCitations: [],
       reviewDocument: nil,
       currentRun: nil,
       activeGate: nil,
@@ -1298,7 +1300,7 @@ final class TasksModel {
   }
 
   private func mergeCommand(_ source: TasksCommandTaskFields, into previous: TasksDetailSnapshot?) -> TasksDetailSnapshot {
-    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, project: nil, executor: TasksExecutorSnapshot.default, schedule: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, createdAt: "", sourceLabel: nil, taskDocument: source.taskDocument, taskDocumentDigest: source.taskDocumentDigest, resultDocument: nil, reviewDocument: nil, currentRun: nil, activeGate: nil, messages: [], runs: [], contributorInstanceNames: [], validActions: [])
+    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, project: nil, executor: TasksExecutorSnapshot.default, schedule: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, createdAt: "", sourceLabel: nil, taskDocument: source.taskDocument, taskDocumentDigest: source.taskDocumentDigest, resultDocument: nil, resultCitations: [], reviewDocument: nil, currentRun: nil, activeGate: nil, messages: [], runs: [], contributorInstanceNames: [], validActions: [])
     next.title = source.title
     next.taskDocument = source.taskDocument
     next.taskDocumentDigest = source.taskDocumentDigest

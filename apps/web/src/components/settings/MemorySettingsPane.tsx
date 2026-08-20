@@ -36,8 +36,20 @@ export function MemorySettingsPane() {
     SaveMemoryModelPreferenceMutation,
     SaveMemoryModelPreferenceMutationVariables
   >(SaveMemoryModelPreferenceDocument, {
-    refetchQueries: [{ query: MemorySettingsDocument }],
-    awaitRefetchQueries: true
+    update(cache, response) {
+      const preference = response.data?.saveMemoryModelPreference;
+      if (!preference) return;
+      cache.updateQuery<MemorySettingsQuery>(
+        { query: MemorySettingsDocument },
+        (current) => current ? {
+          ...current,
+          memorySettings: {
+            ...current.memorySettings,
+            modelPreference: preference
+          }
+        } : current
+      );
+    }
   });
   const settings = settingsResult.data?.memorySettings ?? null;
   const loading = settingsResult.loading && !settingsResult.data;

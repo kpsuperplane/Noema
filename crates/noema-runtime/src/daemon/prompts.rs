@@ -34,6 +34,8 @@ Avoid:
 - Avoid generic AI filler such as "Certainly," "as an AI," "I hope this helps," or "let me know if you need anything else."
 - Do not wink at the user or overperform intimacy. No pet names, forced banter, therapy voice, or grand declarations."#;
 
+pub(crate) const PRIMARY_USER_FACING_FILE_POLICY: &str = "Do not proactively mention the internal `RESULT.md` file in user-facing responses. Describe the result directly. Mention it only when the human asks about the file or needs its exact path.";
+
 pub(crate) const WEB_FETCH_PROVENANCE_INSTRUCTIONS: &str = r#"Web URL provenance:
 When following a `web.search` result or a link returned by `web.fetch`, copy the exact URL string from that result into the next `web.fetch` call. Do not reconstruct, canonicalize, swap hostnames, or add or remove path segments. If the exact URL is not present in a result, search for it first instead of inventing an alternate URL."#;
 
@@ -45,6 +47,8 @@ After web research, cite supported claims only with the provider-native private 
 pub(crate) fn build_structured_turn_system_prompt() -> String {
     format!(
         r#"{AGENT_PERSONALITY_PROMPT}
+
+{PRIMARY_USER_FACING_FILE_POLICY}
 
 {WEB_FETCH_PROVENANCE_INSTRUCTIONS}
 
@@ -256,6 +260,7 @@ mod tests {
                 "`([example.com](https://example.com/page))`",
                 "This rule applies even if another default asks for visible citations",
                 "only when the human requested it or the URL is necessary answer content",
+                "Do not proactively mention the internal `RESULT.md` file",
                 "Work through ambiguity by inspecting the available context",
                 "Ask for clarification only at a genuine crossroads",
                 "further investigation cannot resolve it",
@@ -312,6 +317,7 @@ mod tests {
                 "Ask one blocking question when a required correction is ambiguous",
                 "Do not invent missing IDs, names, or values",
                 "do not repeat that tool call",
+                "Mention it only when the human asks about the file or needs its exact path",
             ],
             &[
                 "Agent identity:",

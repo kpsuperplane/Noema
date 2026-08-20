@@ -218,7 +218,7 @@ impl ChatSseAccumulator {
                 .and_then(Value::as_u64)
                 .and_then(|index| usize::try_from(index).ok())
                 .unwrap_or(position);
-            let started_name = {
+            let started_call = {
                 let call = self.choice.tool_calls.entry(index).or_default();
                 if let Some(id) = fragment.get("id").and_then(Value::as_str) {
                     call.id.get_or_insert_with(|| id.to_string());
@@ -232,20 +232,22 @@ impl ChatSseAccumulator {
                     }
                 }
                 if !call.started {
-                    call.name
+                    call.id
                         .as_deref()
-                        .filter(|name| !name.is_empty())
-                        .map(|name| {
+                        .filter(|id| !id.is_empty())
+                        .zip(call.name.as_deref().filter(|name| !name.is_empty()))
+                        .map(|(provider_call_id, name)| {
                             call.started = true;
-                            name.to_string()
+                            (provider_call_id.to_string(), name.to_string())
                         })
                 } else {
                     None
                 }
             };
-            if let Some(name) = started_name {
+            if let Some((provider_call_id, name)) = started_call {
                 on_event(GenerateStreamEvent::ToolCallStarted {
                     output_index: index,
+                    provider_call_id,
                     name,
                 });
             }
@@ -270,9 +272,10 @@ impl ChatSseAccumulator {
                 .and_then(Value::as_str)
                 .map(ToString::to_string)
                 .unwrap_or_else(|| format!("0:{}", self.started_hosted_searches.len()));
+            let output_index = self.started_hosted_searches.len();
             if self.started_hosted_searches.insert(key.clone()) {
                 on_event(GenerateStreamEvent::HostedWebSearchStarted {
-                    output_index: 0,
+                    output_index,
                     id: Some(key),
                 });
             }

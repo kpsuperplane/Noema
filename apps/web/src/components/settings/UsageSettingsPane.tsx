@@ -3,13 +3,11 @@ import { useMutation, useQuery } from "@apollo/client/react";
 import { VStack } from "@astryxdesign/core/VStack";
 import {
   SaveToolProgressAuditPreferenceDocument,
-  TaskExecutionPolicyDocument,
   UpdateTaskExecutionPolicyDocument,
-  UsageSettingsDocument,
+  UsageSettingsRootDocument,
   type SaveToolProgressAuditPreferenceMutation,
   type SaveToolProgressAuditPreferenceMutationVariables,
-  type TaskExecutionPolicyQuery,
-  type UsageSettingsQuery
+  type UsageSettingsRootQuery
 } from "@/generated/graphql";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
@@ -18,31 +16,49 @@ import { SettingsList, SettingsListItem, SettingsLocalFeedback, SettingsRowActio
 import type { ModelPreferenceSaveInput } from "./modelPreferenceTypes";
 
 export function UsageSettingsPane() {
-  const usageResult = useQuery<UsageSettingsQuery>(UsageSettingsDocument, {
-    fetchPolicy: "cache-and-network"
-  });
-  const policyResult = useQuery<TaskExecutionPolicyQuery>(TaskExecutionPolicyDocument, {
+  const rootResult = useQuery<UsageSettingsRootQuery>(UsageSettingsRootDocument, {
     fetchPolicy: "cache-and-network"
   });
   const [savePreference, saveResult] = useMutation<
     SaveToolProgressAuditPreferenceMutation,
     SaveToolProgressAuditPreferenceMutationVariables
   >(SaveToolProgressAuditPreferenceDocument, {
-    refetchQueries: [{ query: UsageSettingsDocument }],
-    awaitRefetchQueries: true
+    update(cache, response) {
+      const preference = response.data?.saveToolProgressAuditPreference;
+      if (!preference) return;
+      cache.updateQuery<UsageSettingsRootQuery>(
+        { query: UsageSettingsRootDocument },
+        (current) => current ? {
+          ...current,
+          usageSettings: {
+            ...current.usageSettings,
+            progressAudit: {
+              ...current.usageSettings.progressAudit,
+              modelPreference: preference
+            }
+          }
+        } : current
+      );
+    }
   });
   const [updatePolicy, updatePolicyResult] = useMutation(UpdateTaskExecutionPolicyDocument, {
-    refetchQueries: [{ query: TaskExecutionPolicyDocument }],
-    awaitRefetchQueries: true
+    update(cache, response) {
+      const policy = response.data?.updateTaskExecutionPolicy;
+      if (!policy) return;
+      cache.updateQuery<UsageSettingsRootQuery>(
+        { query: UsageSettingsRootDocument },
+        (current) => current ? { ...current, taskExecutionPolicy: policy } : current
+      );
+    }
   });
-  const progressAudit = usageResult.data?.usageSettings.progressAudit ?? null;
-  const loading = usageResult.loading && !usageResult.data;
-  const error = usageResult.error?.message ?? null;
+  const progressAudit = rootResult.data?.usageSettings.progressAudit ?? null;
+  const loading = rootResult.loading && !rootResult.data;
+  const error = rootResult.error?.message ?? null;
   const saving = saveResult.loading;
   const saveError = saveResult.error?.message ?? null;
-  const taskExecutionPolicy = policyResult.data?.taskExecutionPolicy ?? null;
-  const taskExecutionPolicyLoading = policyResult.loading && !policyResult.data;
-  const taskExecutionPolicyError = policyResult.error?.message ?? null;
+  const taskExecutionPolicy = rootResult.data?.taskExecutionPolicy ?? null;
+  const taskExecutionPolicyLoading = rootResult.loading && !rootResult.data;
+  const taskExecutionPolicyError = rootResult.error?.message ?? null;
   const taskExecutionPolicySaving = updatePolicyResult.loading;
   const taskExecutionPolicySaveError = updatePolicyResult.error?.message ?? null;
   const onUpdateTaskExecutionPolicy = async (input: TaskExecutionPolicyValue) => {

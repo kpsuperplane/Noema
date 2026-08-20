@@ -10,6 +10,7 @@ import type { A2UIActionSubmission, RuntimeDebugScope, TranscriptEntry } from "@
 import { ActivityRow, activityRendersAsSystemNotice } from "./ActivityRow";
 import { ArtifactReferenceCard } from "./ArtifactReferenceCard";
 import { ErrorNotice } from "./ErrorNotice";
+import { RenderErrorBoundary } from "@/components/errors/RenderErrorBoundary";
 import { Message } from "./Message";
 import { MultipleChoicePrompt } from "./MultipleChoicePrompt";
 import { RenderedTranscriptEntryFrame } from "./RenderedTranscriptEntryFrame";
@@ -249,30 +250,45 @@ export function Transcript({
               messageId={messageId}
               scrollAnchor={shouldAnchorRenderedEntry(entry)}
             >
-              <RenderedTranscriptEntryFrame
-                animateArrival={animateArrival}
-                lane={lane}
-                systemNotice={systemNotice}
-                systemNoticeHasAvatarGutters={showActorAvatars}
-              >
-                {renderTranscriptRenderEntry(
-                  entry,
-                  visibleEntries,
-                  expandedActivities,
-                  onToggleActivity,
-                  onSubmitA2UIAction,
-                  onSubmitMultipleChoiceSelection,
-                  pending,
-                  avatarActivity,
-                  avatarAnimated,
-                  showAvatar,
-                  showActorAvatars,
-                  bubbleGroup,
-                  animateText,
-                  onOpenDetail,
-                  setDebugTarget
+              <RenderErrorBoundary
+                errorScope={`transcript.item.${messageId}`}
+                resetKey={entry}
+                fallback={() => (
+                  <ErrorNotice
+                    message="This conversation item could not display."
+                    recoverable
+                  />
                 )}
-              </RenderedTranscriptEntryFrame>
+              >
+                <TranscriptEntryRender
+                  render={() => (
+                    <RenderedTranscriptEntryFrame
+                      animateArrival={animateArrival}
+                      lane={lane}
+                      systemNotice={systemNotice}
+                      systemNoticeHasAvatarGutters={showActorAvatars}
+                    >
+                      {renderTranscriptRenderEntry(
+                      entry,
+                      visibleEntries,
+                      expandedActivities,
+                      onToggleActivity,
+                      onSubmitA2UIAction,
+                      onSubmitMultipleChoiceSelection,
+                      pending,
+                      avatarActivity,
+                      avatarAnimated,
+                      showAvatar,
+                      showActorAvatars,
+                      bubbleGroup,
+                      animateText,
+                      onOpenDetail,
+                      setDebugTarget
+                      )}
+                    </RenderedTranscriptEntryFrame>
+                  )}
+                />
+              </RenderErrorBoundary>
             </TranscriptScrollerItem>
           );
         }}
@@ -293,6 +309,14 @@ export function Transcript({
       />
     </TranscriptScrollerProvider>
   );
+}
+
+function TranscriptEntryRender({
+  render
+}: {
+  render: () => React.ReactNode;
+}) {
+  return render();
 }
 
 function isHistoryPrepend(current: readonly TranscriptEntry[], next: readonly TranscriptEntry[]) {

@@ -301,7 +301,9 @@ fn provider_stream_event_fields(event: &GenerateStreamEvent) -> serde_json::Valu
             "response_index": response_index,
             "delta_chars": delta.chars().count(),
         }),
-        GenerateStreamEvent::ToolCallStarted { output_index, name } => json!({
+        GenerateStreamEvent::ToolCallStarted {
+            output_index, name, ..
+        } => json!({
             "stream_event": "tool_call_started",
             "output_index": output_index,
             "tool_name": name,

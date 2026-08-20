@@ -361,6 +361,11 @@ passkey authentication.
 Private HTML, GraphQL, artifact, authentication, and OAuth responses use
 `Cache-Control: no-store`. Immutable public assets can use content-hash caching.
 
+Authenticated favicon responses contain only normalized public-site image
+bytes. They can use `Cache-Control: private, max-age=86400` and an ETag. The
+service accepts one hostname, rechecks each outbound destination, and stores
+only rebuildable image data under `${NOEMA_HOME}/system/cache/favicons/`.
+
 Browser responses use a restrictive CSP, `frame-ancestors 'none'`,
 `base-uri 'none'`, `form-action 'self'`, `nosniff`, no-referrer policy, and a
 minimal Permissions Policy.

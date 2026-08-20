@@ -730,6 +730,16 @@ impl MutationRoot {
         web_tool_settings::save_web_tool_provider_binding(state, input).await
     }
 
+    /// Save the ordered interactive browser provider route.
+    async fn save_browser_provider_route(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSaveBrowserProviderRouteInput,
+    ) -> Result<GraphqlWebToolBindingSettings> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        web_tool_settings::save_browser_provider_route(state, input).await
+    }
+
     /// Save the tool progress audit model/provider preference.
     async fn save_tool_progress_audit_preference(
         &self,

@@ -3,6 +3,7 @@
 mod assets;
 pub(super) mod authority;
 mod clients;
+mod favicons;
 mod local_graphql;
 mod native_oauth;
 mod passkey;
@@ -23,6 +24,23 @@ pub(super) use local_graphql::LocalGraphqlServer;
 pub(crate) enum WebAuthMode {
     Required,
     DisabledForDevelopment,
+}
+
+pub(super) struct WebFiles {
+    recovery: Option<noema_host::RecoveryCodeStore>,
+    noema_paths: noema_home::NoemaPaths,
+}
+
+impl WebFiles {
+    pub(super) const fn new(
+        recovery: Option<noema_host::RecoveryCodeStore>,
+        noema_paths: noema_home::NoemaPaths,
+    ) -> Self {
+        Self {
+            recovery,
+            noema_paths,
+        }
+    }
 }
 
 impl WebAuthMode {
@@ -50,6 +68,7 @@ pub(crate) struct WebState {
     passkeys: passkey::PasskeySecurity,
     graphiql_enabled: bool,
     recovery: Option<noema_host::RecoveryCodeStore>,
+    favicons: favicons::FaviconService,
     websocket_slots: std::sync::Arc<Semaphore>,
 }
 
@@ -61,7 +80,7 @@ impl WebState {
         sessions: session::SessionSecurity,
         auth_mode: WebAuthMode,
         graphiql_enabled: bool,
-        recovery: Option<noema_host::RecoveryCodeStore>,
+        files: WebFiles,
     ) -> Result<Self, String> {
         let graphql_schema = noema_api::graphql::build_schema(graphql_state.clone());
         let passkeys = passkey::PasskeySecurity::new(&authority)?;
@@ -74,7 +93,8 @@ impl WebState {
             store,
             passkeys,
             graphiql_enabled,
-            recovery,
+            recovery: files.recovery,
+            favicons: favicons::FaviconService::new(files.noema_paths.favicon_cache_dir()),
             websocket_slots: std::sync::Arc::new(Semaphore::new(MAX_WEBSOCKET_CONNECTIONS)),
         })
     }
@@ -110,7 +130,10 @@ mod tests {
             session::SessionSecurity::for_tests("WebSocket capacity"),
             WebAuthMode::DisabledForDevelopment,
             false,
-            None,
+            WebFiles::new(
+                None,
+                noema_home::NoemaPaths::from_noema_home(root.path()).expect("paths"),
+            ),
         )
         .expect("web state");
         let permits = (0..MAX_WEBSOCKET_CONNECTIONS)

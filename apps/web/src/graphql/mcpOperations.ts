@@ -1,18 +1,26 @@
 import { gql } from "@apollo/client";
+import { CapabilityIntegrationFields } from "./capabilityIntegrationOperations";
 
-export const McpSettingsDocument = gql`
-  query McpSettings {
-    mcpServers {
-      mcpServerId
-      displayName
-      transportKind
-      healthStatus
-      authStatus
-      toolCount
-      pendingToolCount
-      browserOauthReauthenticationSupported
-    }
+export const McpServerFields = gql`
+  fragment McpServerFields on McpServer {
+    mcpServerId
+    displayName
+    transportKind
+    healthStatus
+    authStatus
+    toolCount
+    pendingToolCount
+    browserOauthReauthenticationSupported
   }
+`;
+
+export const McpManagementRootDocument = gql`
+  query McpManagementRoot {
+    mcpServers { ...McpServerFields }
+    capabilityIntegrations(kind: MCP) { ...CapabilityIntegrationFields }
+  }
+  ${McpServerFields}
+  ${CapabilityIntegrationFields}
 `;
 
 const McpServerSetupResultFields = gql`

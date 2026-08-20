@@ -1,7 +1,48 @@
 import { gql } from "@apollo/client";
+import {
+  AcpAgentFields,
+  AgentFields,
+  AgentModelPreferenceFields,
+  AgentModelProviderOptionFields
+} from "./operations";
 
-export const TaskExecutionPolicyDocument = gql`
-  query TaskExecutionPolicy {
+export const TaskModelPoolEntryFields = gql`
+  fragment TaskModelPoolEntryFields on TaskModelPoolEntry {
+    poolEntryId
+    complexity
+    label
+    providerKind
+    providerAccountId
+    modelProfile
+    reasoningEffort
+    selectionMode
+    fastMode
+    enabled
+    sortOrder
+    createdAt
+    updatedAt
+  }
+`;
+
+export const AgentsSettingsRootDocument = gql`
+  query AgentsSettingsRoot {
+    agents { ...AgentFields }
+    acpAgents { ...AcpAgentFields }
+    taskModelPools { ...TaskModelPoolEntryFields }
+  }
+  ${AgentFields}
+  ${AcpAgentFields}
+  ${TaskModelPoolEntryFields}
+`;
+
+export const UsageSettingsRootDocument = gql`
+  query UsageSettingsRoot {
+    usageSettings {
+      progressAudit {
+        modelPreference { ...AgentModelPreferenceFields }
+        modelOptions { ...AgentModelProviderOptionFields }
+      }
+    }
     taskExecutionPolicy {
       maxProviderContinuations
       maxToolCalls
@@ -9,6 +50,8 @@ export const TaskExecutionPolicyDocument = gql`
       progressAuditInterval
     }
   }
+  ${AgentModelPreferenceFields}
+  ${AgentModelProviderOptionFields}
 `;
 
 export const UpdateTaskExecutionPolicyDocument = gql`
@@ -22,44 +65,11 @@ export const UpdateTaskExecutionPolicyDocument = gql`
   }
 `;
 
-export const TaskModelPoolsDocument = gql`
-  query TaskModelPools {
-    taskModelPools {
-      poolEntryId
-      complexity
-      label
-      providerKind
-      providerAccountId
-      modelProfile
-      reasoningEffort
-      selectionMode
-      fastMode
-      enabled
-      sortOrder
-      createdAt
-      updatedAt
-    }
-  }
-`;
-
 export const UpdateTaskModelPoolEntryDocument = gql`
   mutation UpdateTaskModelPoolEntry($poolEntryId: String!, $input: TaskModelPoolEntryInput!) {
-    updateTaskModelPoolEntry(poolEntryId: $poolEntryId, input: $input) {
-      poolEntryId
-      complexity
-      label
-      providerKind
-      providerAccountId
-      modelProfile
-      reasoningEffort
-      selectionMode
-      fastMode
-      enabled
-      sortOrder
-      createdAt
-      updatedAt
-    }
+    updateTaskModelPoolEntry(poolEntryId: $poolEntryId, input: $input) { ...TaskModelPoolEntryFields }
   }
+  ${TaskModelPoolEntryFields}
 `;
 
 export const CreateConversationExternalArtifactDocument = gql`

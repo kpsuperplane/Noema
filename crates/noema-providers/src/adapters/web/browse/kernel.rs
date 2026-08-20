@@ -414,7 +414,7 @@ impl KernelBrowseBackend {
             .post(endpoint(&self.inner.base_url, "/browsers"))
             .bearer_auth(&self.inner.api_key)
             .json(&CreateBrowserRequest {
-                headless: true,
+                headless: false,
                 stealth: true,
                 timeout_seconds: IDLE_TIMEOUT.as_secs(),
             })
@@ -889,19 +889,22 @@ await context.route('**/*', async route => {
 
 const SNAPSHOT_SCRIPT: &str = r#"
 const collectSnapshot = async () => {
-  const body = document.body ? document.body.cloneNode(true) : null;
-  if (body) body.querySelectorAll('noscript,script,style,template').forEach(element => element.remove());
-  const selectors = 'a[href],button,input,textarea,select,[role="button"],[tabindex]';
-  const nodes = Array.from(document.querySelectorAll(selectors));
-  const elements = nodes.map((element, index) => {
-    const ref = `e${index + 1}`;
-    element.dataset.noemaRef = ref;
-    const name = element.getAttribute('aria-label') || element.innerText || element.value || element.getAttribute('placeholder') || '';
-    return {ref, role: element.getAttribute('role') || element.tagName.toLowerCase(), name: String(name).trim(), href: element.href || null, disabled: Boolean(element.disabled || element.getAttribute('aria-disabled') === 'true')};
+  const snapshot = await page.evaluate(() => {
+    const body = document.body ? document.body.cloneNode(true) : null;
+    if (body) body.querySelectorAll('noscript,script,style,template').forEach(element => element.remove());
+    const selectors = 'a[href],button,input,textarea,select,[role="button"],[tabindex]';
+    const nodes = Array.from(document.querySelectorAll(selectors));
+    const elements = nodes.map((element, index) => {
+      const ref = `e${index + 1}`;
+      element.dataset.noemaRef = ref;
+      const name = element.getAttribute('aria-label') || element.innerText || element.value || element.getAttribute('placeholder') || '';
+      return {ref, role: element.getAttribute('role') || element.tagName.toLowerCase(), name: String(name).trim(), href: element.href || null, disabled: Boolean(element.disabled || element.getAttribute('aria-disabled') === 'true')};
+    });
+    return {url: window.location.href, title: String(document.title), text: String(body ? body.innerText : ''), elements, width: Number(window.innerWidth) || 0, height: Number(window.innerHeight) || 0};
   });
   let screenshot = null;
   try { screenshot = (await page.screenshot({type:'png'})).toString('base64'); } catch (_) {}
-  return {url: page.url(), title: String(await page.title()), text: String(body ? body.innerText : ''), elements, screenshot, width: Number(await page.evaluate(() => window.innerWidth)) || 0, height: Number(await page.evaluate(() => window.innerHeight)) || 0};
+  return {...snapshot, screenshot};
 };
 return {ok:true,snapshot:await collectSnapshot()};
 "#;
@@ -988,6 +991,10 @@ mod tests {
         assert_eq!(requests.len(), 3);
         assert_eq!(requests[0].method, "POST");
         assert_eq!(requests[0].path, "/browsers");
+        let create_body: Value =
+            serde_json::from_str(&requests[0].body).expect("browser creation body");
+        assert_eq!(create_body["headless"], false);
+        assert_eq!(create_body["stealth"], true);
         assert_eq!(
             requests[0].headers.get("authorization"),
             Some(&"Bearer kernel-secret".to_string())
@@ -995,6 +1002,7 @@ mod tests {
         assert!(!requests[0].body.contains("kernel-secret"));
         assert_eq!(requests[1].path, "/browsers/browser-123/playwright/execute");
         assert!(requests[1].body.contains("page.goto"));
+        assert!(requests[1].body.contains("page.evaluate"));
         assert_eq!(requests[2].method, "DELETE");
         assert_eq!(requests[2].path, "/browsers/browser-123");
 

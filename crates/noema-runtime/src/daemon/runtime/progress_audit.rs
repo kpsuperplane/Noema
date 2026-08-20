@@ -8,6 +8,7 @@ use super::typed_terminal_tools::{
     SUBMIT_PROGRESS_AUDIT_TOOL, progress_audit_tool_spec, required_native_tool,
     required_tool_payload,
 };
+use crate::daemon::prompts::PRIMARY_USER_FACING_FILE_POLICY;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ProgressAuditDecision {
@@ -136,6 +137,7 @@ pub(super) fn build_no_tools_finalization_prompt(reason: &str) -> String {
         r#"The tool-continuation loop must stop now because: {reason}.
 Deliver one concise final message to the user using only gathered context.
 Do not call tools. Explain what was accomplished and what remains.
+{PRIMARY_USER_FACING_FILE_POLICY}
 When the reason is "background task handoff completed", briefly confirm the handoff and say that you will automatically share the results when they are ready. Do not ask the user to reply, check back, or continue later.
 For other stop reasons, explain any required next step in plain language without mentioning internal conversation boundaries such as turns.
 Return one ordinary plain-text assistant message."#

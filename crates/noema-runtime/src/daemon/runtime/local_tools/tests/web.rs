@@ -16,35 +16,78 @@ fn foreground_browser_owner_is_conversation_scoped() {
     );
 }
 
+async fn set_browser_snapshot_for_test(
+    actor: &RuntimeActor,
+    owner: &str,
+    revision: u64,
+    reference: &str,
+    role: &str,
+    name: &str,
+) {
+    let route = crate::daemon::runtime::web_tools::resolve_web_browse_route(&actor.store)
+        .await
+        .expect("browser route");
+    let backend = noema_providers::WebBrowseBackendHandle::obscura(1, 64);
+    let element = noema_capabilities::web::browse::BrowseInteractiveElement {
+        reference: reference.to_string(),
+        role: role.to_string(),
+        name: name.to_string(),
+        href: None,
+        disabled: false,
+    };
+    actor.browser_sessions.set_session(
+        owner.to_string(),
+        crate::daemon::runtime::actor::BrowserSessionState {
+            route,
+            active_position: 0,
+            attempted_positions: [0].into_iter().collect(),
+            backend,
+            public_revision: revision,
+            backend_revision: revision,
+            snapshot: Some(crate::daemon::runtime::actor::BrowserSnapshotContext {
+                url: "https://example.com/form".to_string(),
+                title: "Newsletter".to_string(),
+                revision,
+                elements: HashMap::from([(reference.to_string(), element)]),
+            }),
+        },
+    );
+}
+
+#[test]
+fn browser_public_revisions_do_not_repeat_after_session_removal() {
+    let coordinator = crate::daemon::runtime::actor::BrowserSessionCoordinator::default();
+    assert_eq!(coordinator.next_revision("conversation:revision"), 1);
+    coordinator.remove("conversation:revision");
+    assert_eq!(coordinator.next_revision("conversation:revision"), 2);
+}
+
+#[tokio::test]
+async fn browser_switch_skips_failed_route_positions() {
+    let actor = test_actor().await;
+    let mut route = crate::daemon::runtime::web_tools::resolve_web_browse_route(&actor.store)
+        .await
+        .expect("browser route");
+    route.providers.push(route.providers[0].clone());
+    route.providers.push(route.providers[0].clone());
+    let state = crate::daemon::runtime::actor::BrowserSessionState {
+        route,
+        active_position: 0,
+        attempted_positions: [0, 1].into_iter().collect(),
+        backend: noema_providers::WebBrowseBackendHandle::obscura(1, 64),
+        public_revision: 1,
+        backend_revision: 1,
+        snapshot: None,
+    };
+
+    assert_eq!(super::next_browser_route_position(&state), Some(2));
+}
+
 #[tokio::test]
 async fn browser_interactions_without_a_live_backend_fail_before_action_review() {
     let actor = test_actor().await;
     let mut turn = test_turn();
     turn.initial_model_tools = test_governed_web_browse_model_tools();
-    let owner = super::browse_owner_key_for_turn(&turn);
-    actor
-        .browser_snapshot_contexts
-        .lock()
-        .expect("browser snapshot context lock")
-        .insert(
-            owner,
-            crate::daemon::runtime::actor::BrowserSnapshotContext {
-                url: "https://example.com/form".to_string(),
-                title: "Newsletter".to_string(),
-                revision: 2,
-                elements: HashMap::from([(
-                    "e6".to_string(),
-                    noema_capabilities::web::browse::BrowseInteractiveElement {
-                        reference: "e6".to_string(),
-                        role: "input".to_string(),
-                        name: "Next calendar event".to_string(),
-                        href: None,
-                        disabled: false,
-                    },
-                )]),
-            },
-        );
-
     let result = actor
         .execute_local_tool(
             &turn,
@@ -61,7 +104,10 @@ async fn browser_interactions_without_a_live_backend_fail_before_action_review()
 
     assert!(!result.success);
     assert!(result.blocked_action_request.is_none());
-    assert_eq!(result.payload["error"], "browser worker unavailable");
+    assert_eq!(
+        result.payload["error"],
+        "this conversation or task has no active browser session"
+    );
     assert!(
         actor
             .store
@@ -76,28 +122,15 @@ async fn browser_interactions_without_a_live_backend_fail_before_action_review()
 async fn browser_snapshot_validation_rejects_stale_revision_and_missing_target() {
     let actor = test_actor().await;
     let owner = "conversation:current";
-    actor
-        .browser_snapshot_contexts
-        .lock()
-        .expect("browser snapshot context lock")
-        .insert(
-            owner.to_string(),
-            crate::daemon::runtime::actor::BrowserSnapshotContext {
-                url: "https://example.com/form".to_string(),
-                title: "Newsletter".to_string(),
-                revision: 2,
-                elements: HashMap::from([(
-                    "e6".to_string(),
-                    noema_capabilities::web::browse::BrowseInteractiveElement {
-                        reference: "e6".to_string(),
-                        role: "input".to_string(),
-                        name: "Next calendar event".to_string(),
-                        href: None,
-                        disabled: false,
-                    },
-                )]),
-            },
-        );
+    set_browser_snapshot_for_test(
+        &actor,
+        owner,
+        2,
+        "e6",
+        "input",
+        "Next calendar event",
+    )
+    .await;
 
     assert_eq!(
         actor.validate_browser_snapshot_call(
@@ -221,28 +254,7 @@ async fn browser_approval_persists_page_and_target_review_context() {
     turn.user_item_id = item_id;
     turn.initial_model_tools = test_governed_web_browse_model_tools();
     let owner = super::browse_owner_key_for_turn(&turn);
-    actor
-        .browser_snapshot_contexts
-        .lock()
-        .expect("browser snapshot context lock")
-        .insert(
-            owner.clone(),
-            crate::daemon::runtime::actor::BrowserSnapshotContext {
-                url: "https://example.com/form".to_string(),
-                title: "Newsletter".to_string(),
-                revision: 3,
-                elements: HashMap::from([(
-                    "e8".to_string(),
-                    noema_capabilities::web::browse::BrowseInteractiveElement {
-                        reference: "e8".to_string(),
-                        role: "button".to_string(),
-                        name: "Submit".to_string(),
-                        href: None,
-                        disabled: false,
-                    },
-                )]),
-            },
-        );
+    set_browser_snapshot_for_test(&actor, &owner, 3, "e8", "button", "Submit").await;
 
     let call = test_tool_call(
         noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
@@ -311,15 +323,9 @@ async fn browser_approval_persists_page_and_target_review_context() {
                 "test",
             )
             .await;
-        assert!(!closed.success);
+        assert!(closed.success);
     }
-    assert!(
-        !actor
-            .browser_snapshot_contexts
-            .lock()
-            .expect("browser snapshot context lock")
-            .contains_key(&owner)
-    );
+    assert!(actor.browser_sessions.session(&owner).is_none());
 }
 
 #[tokio::test]

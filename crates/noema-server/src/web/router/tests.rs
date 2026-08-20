@@ -12,6 +12,7 @@ use tokio_tungstenite::{
 use tower::ServiceExt;
 
 use super::super::WebAuthMode;
+use super::super::WebFiles;
 
 use super::*;
 
@@ -43,7 +44,7 @@ fn web_state_with_store(
         sessions,
         auth_mode,
         false,
-        Some(test_recovery()),
+        WebFiles::new(Some(test_recovery()), test_paths()),
     )
     .expect("web state")
 }
@@ -57,6 +58,11 @@ fn test_recovery() -> noema_host::RecoveryCodeStore {
     )
     .expect("recovery config");
     noema_host::RecoveryCodeStore::open(path).expect("recovery store")
+}
+
+fn test_paths() -> noema_home::NoemaPaths {
+    noema_home::NoemaPaths::from_noema_home(tempfile::tempdir().expect("Noema home").keep())
+        .expect("Noema paths")
 }
 
 async fn test_router() -> Router {
@@ -87,6 +93,54 @@ async fn test_setup_router() -> Router {
         )
         .await,
     )
+}
+
+#[tokio::test]
+async fn favicon_route_requires_authentication_and_serves_cached_images() {
+    let state = web_state(
+        session::SessionSecurity::for_tests("favicon-route"),
+        WebAuthMode::Required,
+    )
+    .await;
+    state.favicons.seed_test_icon("example.com", b"png");
+    let router = build_router(state);
+    let cookie = authenticate(router.clone()).await;
+
+    let (status, _, _) = request(
+        router.clone(),
+        empty_request(Method::GET, "/favicons/example.com"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let favicon_request = || {
+        Request::get("/favicons/example.com")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .expect("favicon request")
+    };
+    let (status, headers, body) = request(router.clone(), favicon_request()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "image/png");
+    assert_eq!(headers[header::CACHE_CONTROL], "private, max-age=86400");
+    assert_eq!(body.as_ref(), b"png");
+
+    let etag = headers[header::ETAG].clone();
+    let mut conditional = favicon_request();
+    conditional
+        .headers_mut()
+        .insert(header::IF_NONE_MATCH, etag);
+    let (status, _, body) = request(router.clone(), conditional).await;
+    assert_eq!(status, StatusCode::NOT_MODIFIED);
+    assert!(body.is_empty());
+
+    let mut invalid = empty_request(Method::GET, "/favicons/127.0.0.1");
+    invalid.headers_mut().insert(
+        header::COOKIE,
+        cookie.parse().expect("session cookie header"),
+    );
+    let (status, _, _) = request(router, invalid).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 fn empty_request(method: Method, uri: impl AsRef<str>) -> Request<Body> {
@@ -259,7 +313,7 @@ async fn authority_session_and_removed_bootstrap_boundary() {
         session::SessionSecurity::for_tests("secure-cookie"),
         WebAuthMode::Required,
         false,
-        Some(test_recovery()),
+        WebFiles::new(Some(test_recovery()), test_paths()),
     )
     .expect("secure state");
     let (_, secure_headers, _) = raw_request(
@@ -780,7 +834,7 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
         session::SessionSecurity::for_tests("ws-test-capability"),
         WebAuthMode::Required,
         false,
-        Some(test_recovery()),
+        WebFiles::new(Some(test_recovery()), test_paths()),
     )
     .expect("web state");
     let server = tokio::spawn(async move {
@@ -971,7 +1025,7 @@ async fn client_bearer_authorizes_http_and_ws_without_browser_origin_and_revocat
         session::SessionSecurity::for_tests("client-test-capability"),
         WebAuthMode::Required,
         false,
-        Some(test_recovery()),
+        WebFiles::new(Some(test_recovery()), test_paths()),
     )
     .expect("web state");
     let server = tokio::spawn(async move {

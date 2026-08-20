@@ -186,6 +186,9 @@ export const TasksCommandTaskFields = gql`
   fragment TasksCommandTaskFields on TaskDetail {
     taskId
     title
+    taskDocument
+    taskDocumentDigest
+    project { ...TasksProjectFields }
     stage {
       ...TasksStageFields
     }
@@ -210,6 +213,7 @@ export const TasksCommandTaskFields = gql`
     }
   }
   ${TasksStageFields}
+  ${TasksProjectFields}
   ${TasksGateFields}
   ${TasksCurrentRunFields}
 `;

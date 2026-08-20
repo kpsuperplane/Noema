@@ -2817,6 +2817,10 @@ type MutationRoot {
 	"""
 	saveWebToolProviderBinding(input: SaveWebToolProviderBindingInput!): WebToolBindingSettings!
 	"""
+	Save the ordered interactive browser provider route.
+	"""
+	saveBrowserProviderRoute(input: SaveBrowserProviderRouteInput!): WebToolBindingSettings!
+	"""
 	Save the tool progress audit model/provider preference.
 	"""
 	saveToolProgressAuditPreference(input: SaveToolProgressAuditPreferenceInput!): AgentModelPreference!
@@ -4098,6 +4102,10 @@ input SaveAgentModelPreferenceInput {
 	fastMode: Boolean!
 }
 
+input SaveBrowserProviderRouteInput {
+	providerAccountIds: [String!]!
+}
+
 input SaveCapabilityConnectionLabelInput {
 	kind: CapabilityIntegrationKind!
 	connectionId: String!
@@ -4685,9 +4693,13 @@ type TaskDetail {
 	"""
 	taskDocumentDigest: String!
 	"""
-	Current mutable RESULT.md content, when it exists.
+	Readable current RESULT.md text, when it exists.
 	"""
 	resultDocument: String
+	"""
+	Provider citation metadata for the projected result.
+	"""
+	resultMetadata: JSON!
 	"""
 	Current mutable REVIEW.md content, when it exists.
 	"""
@@ -6202,6 +6214,7 @@ type WebToolBindingSettings {
 	toolName: String!
 	capabilityId: String!
 	activeProviderAccountId: String!
+	providerRouteAccountIds: [String!]!
 	providerOptions: [WebToolProviderOption!]!
 }
 

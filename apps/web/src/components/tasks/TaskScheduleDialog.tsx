@@ -15,11 +15,10 @@ import { createClientId } from "@/shared/clientId";
 import { initialScheduleDraft, scheduleInput, ScheduleFields, type ScheduleDraft } from "./ScheduleFields";
 import type { TaskCommandSubject } from "./useTaskCommands";
 
-export function TaskScheduleDialog({ action, task, onClose, onUpdated }: {
+export function TaskScheduleDialog({ action, task, onClose }: {
   action: "SCHEDULE" | "RESCHEDULE" | "UNSCHEDULE" | null;
   task: TaskCommandSubject;
   onClose: () => void;
-  onUpdated?: () => void | Promise<void>;
 }) {
   const open = action !== null;
   const [draft, setDraft] = React.useState<ScheduleDraft>(() => initialScheduleDraft(task.schedule ?? undefined));
@@ -56,7 +55,7 @@ export function TaskScheduleDialog({ action, task, onClose, onUpdated }: {
               : nextSchedule
                 ? (action === "RESCHEDULE" ? reschedule : schedule)({ variables: { input: { ...base, schedule: nextSchedule } } })
                 : Promise.reject(new Error("Invalid schedule"));
-            void mutation.then(async () => { await onUpdated?.(); onClose(); }).catch(() => undefined);
+            void mutation.then(onClose).catch(() => undefined);
           }}>
             {action === "UNSCHEDULE" ? <p>This removes only future timing. The task content and history stay intact.</p> : <ScheduleFields value={effectiveDraft} onChange={setDraft} />}
             {error ? <p role="alert">{error.message}</p> : null}

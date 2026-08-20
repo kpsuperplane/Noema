@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock, atomic::AtomicBool};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex, RwLock, atomic::AtomicBool};
 
 use noema_capabilities::{CapabilityBindingSourceHandle, CapabilityInvokerRegistration};
 use noema_conversations::{ConversationItemKind, ConversationItemRecord};
@@ -23,8 +23,7 @@ use crate::daemon::{
 
 pub(in crate::daemon) struct RuntimeActor {
     pub(super) capability_auth_arguments: CapabilityAuthArgumentStore,
-    pub(super) browser_snapshot_contexts:
-        Arc<std::sync::Mutex<HashMap<String, BrowserSnapshotContext>>>,
+    pub(super) browser_sessions: Arc<BrowserSessionCoordinator>,
     pub(in crate::daemon) primary_provider: RegistryProviderRouteResolver,
     pub(in crate::daemon) default_provider: RegistryProviderRouteResolver,
     pub(in crate::daemon) progress_audit_provider: RegistryProviderRouteResolver,
@@ -51,6 +50,68 @@ pub(super) struct BrowserSnapshotContext {
     pub(super) title: String,
     pub(super) revision: u64,
     pub(super) elements: HashMap<String, noema_capabilities::web::browse::BrowseInteractiveElement>,
+}
+
+#[derive(Clone)]
+pub(super) struct BrowserSessionState {
+    pub(super) route: super::web_tools::ResolvedBrowserProviderRoute,
+    pub(super) active_position: usize,
+    pub(super) attempted_positions: HashSet<usize>,
+    pub(super) backend: noema_providers::WebBrowseBackendHandle,
+    pub(super) public_revision: u64,
+    pub(super) backend_revision: u64,
+    pub(super) snapshot: Option<BrowserSnapshotContext>,
+}
+
+#[derive(Default)]
+pub(super) struct BrowserSessionCoordinator {
+    gates: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    sessions: Mutex<HashMap<String, BrowserSessionState>>,
+    revisions: Mutex<HashMap<String, u64>>,
+}
+
+impl BrowserSessionCoordinator {
+    pub(super) fn gate(&self, owner: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.gates
+            .lock()
+            .expect("browser session gate lock")
+            .entry(owner.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
+    }
+
+    pub(super) fn session(&self, owner: &str) -> Option<BrowserSessionState> {
+        self.sessions
+            .lock()
+            .expect("browser session state lock")
+            .get(owner)
+            .cloned()
+    }
+
+    pub(super) fn set_session(&self, owner: String, state: BrowserSessionState) {
+        self.sessions
+            .lock()
+            .expect("browser session state lock")
+            .insert(owner, state);
+    }
+
+    pub(super) fn remove(&self, owner: &str) -> Option<BrowserSessionState> {
+        self.sessions
+            .lock()
+            .expect("browser session state lock")
+            .remove(owner)
+    }
+
+    pub(super) fn snapshot(&self, owner: &str) -> Option<BrowserSnapshotContext> {
+        self.session(owner).and_then(|session| session.snapshot)
+    }
+
+    pub(super) fn next_revision(&self, owner: &str) -> u64 {
+        let mut revisions = self.revisions.lock().expect("browser revision lock");
+        let revision = revisions.entry(owner.to_string()).or_default();
+        *revision = revision.saturating_add(1);
+        *revision
+    }
 }
 
 impl std::fmt::Debug for RuntimeActor {
@@ -125,7 +186,7 @@ impl RuntimeActor {
     pub(in crate::daemon) fn from_spawn_config(config: RuntimeSpawnConfig) -> Self {
         Self {
             capability_auth_arguments: CapabilityAuthArgumentStore::new(config.noema_paths),
-            browser_snapshot_contexts: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            browser_sessions: Arc::new(BrowserSessionCoordinator::default()),
             primary_provider: config.primary_provider,
             default_provider: config.default_provider,
             progress_audit_provider: config.progress_audit_provider,
@@ -187,7 +248,7 @@ impl RuntimeActor {
     pub(super) fn clone_for_background(&self) -> Self {
         Self {
             capability_auth_arguments: self.capability_auth_arguments.clone(),
-            browser_snapshot_contexts: Arc::clone(&self.browser_snapshot_contexts),
+            browser_sessions: Arc::clone(&self.browser_sessions),
             primary_provider: self.primary_provider.clone(),
             default_provider: self.default_provider.clone(),
             progress_audit_provider: self.progress_audit_provider.clone(),

@@ -19,18 +19,17 @@ import {
   ClearProviderSecretDocument,
   CreateProviderAccountDocument,
   DeleteProviderAccountDocument,
-  ProviderAccountsDocument,
+  ProvidersSettingsRootDocument,
   ProviderAuthAttemptEventsDocument,
   SaveProviderSecretInputDocument,
   StartProviderAuthAttemptDocument,
-  WebToolSettingsDocument,
   type ClearProviderSecretMutation,
   type ClearProviderSecretMutationVariables,
   type CreateProviderAccountMutation,
   type CreateProviderAccountMutationVariables,
   type DeleteProviderAccountMutation,
   type DeleteProviderAccountMutationVariables,
-  type ProviderAccountsQuery,
+  type ProvidersSettingsRootQuery,
   type SaveProviderSecretInputMutation,
   type SaveProviderSecretInputMutationVariables,
   type StartProviderAuthAttemptMutation
@@ -60,9 +59,11 @@ export function ProvidersSettingsPane({ providerAccountId }: { providerAccountId
   const navigate = useNavigate();
   const desktop = useMediaQuery("(min-width: 980px)");
   const [authAttempt, setAuthAttempt] = useState<StartProviderAuthAttemptMutation["startProviderAuthAttempt"] | null>(null);
-  const result = useQuery<ProviderAccountsQuery>(ProviderAccountsDocument, { fetchPolicy: "cache-and-network" });
-  const refetchQueries = [{ query: ProviderAccountsDocument }, { query: WebToolSettingsDocument }];
-  const mutationOptions = { refetchQueries, awaitRefetchQueries: true };
+  const result = useQuery<ProvidersSettingsRootQuery>(ProvidersSettingsRootDocument, { fetchPolicy: "cache-and-network" });
+  const mutationOptions = {
+    refetchQueries: [{ query: ProvidersSettingsRootDocument }],
+    awaitRefetchQueries: true
+  };
   const [createProviderAccount, createResult] = useMutation<CreateProviderAccountMutation, CreateProviderAccountMutationVariables>(CreateProviderAccountDocument, mutationOptions);
   const [saveProviderSecretInput, saveSecretResult] = useMutation<SaveProviderSecretInputMutation, SaveProviderSecretInputMutationVariables>(SaveProviderSecretInputDocument, mutationOptions);
   const [clearProviderSecret, clearSecretResult] = useMutation<ClearProviderSecretMutation, ClearProviderSecretMutationVariables>(ClearProviderSecretDocument, mutationOptions);

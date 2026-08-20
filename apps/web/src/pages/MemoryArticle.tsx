@@ -1,14 +1,21 @@
-import { HoverCard } from "@astryxdesign/core/HoverCard";
+import { Divider } from "@astryxdesign/core/Divider";
 import { Item } from "@astryxdesign/core/Item";
+import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { memoryPageUrlPath } from "@/app/routes";
 import { MarkdownContent, type MarkdownComponents } from "@/components/MarkdownContent";
+import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { ShellPageLayout, ShellPageSubtitle, ShellPageTrack } from "@/components/shell/ShellPageLayout";
 import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
+import {
+  CitationReference,
+  citationContentWithSourcesAction
+} from "@/components/transcript/ProviderCitationSources";
 import type { GraphqlNativeMemorySourceKind } from "@/generated/graphql";
 import { buildMemoryArticle, memoryHeadingId, type MemoryCitationGroup } from "@/pages/memoryArticleModel";
 import { styles } from "@/pages/memoryPageStyles";
@@ -29,12 +36,13 @@ const baseArticleComponents: MarkdownComponents = {
 
 export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
   const article = buildMemoryArticle(page.body, page.citations);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const citationContent = article.content && article.citationGroups.length > 0
+    ? citationContentWithSourcesAction(article.content, article.sources)
+    : { text: article.content, sources: article.sources };
   const articleComponents: MarkdownComponents = {
     ...baseArticleComponents,
-    citation: (props) => {
-      const index = Number(props.source.url);
-      return <ArticleCitation {...props} citation={article.citationGroups[index]} />;
-    }
+    citation: (props) => <CitationReference {...props} onOpenSources={() => setSourcesOpen(true)} />
   };
   const hasContents = article.outline.length > 0 || page.children.length > 0;
   return (
@@ -66,16 +74,16 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
               </nav>
             ) : null}
 
-            {article.content ? (
+            {citationContent.text ? (
               <MarkdownContent
                 citationStyle="number"
                 components={articleComponents}
                 density="default"
                 headingLevelStart={1}
-                sources={article.sources}
+                sources={citationContent.sources}
                 xstyle={styles.articleBody}
               >
-                {article.content}
+                {citationContent.text}
               </MarkdownContent>
             ) : (
               <p {...stylex.props(styles.stub)}>This biographical article is a stub. It will expand once the first durable facts are recorded.</p>
@@ -112,35 +120,66 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
           </div>
         </ShellPageTrack>
       </article>
+      <MemoryCitationDialog
+        citations={article.citationGroups}
+        open={sourcesOpen}
+        onOpenChange={setSourcesOpen}
+      />
     </ShellPageLayout>
   );
 }
 
-function ArticleCitation({ citation, number }: { citation?: MemoryCitationGroup; source: { title?: string; url?: string }; number: number; variant: "label" | "number" }) {
-  const sources = citation?.sources ?? [];
+function MemoryCitationDialog({
+  citations,
+  open,
+  onOpenChange
+}: {
+  citations: readonly MemoryCitationGroup[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   return (
-    <sup {...stylex.props(styles.citation)}>
-      <HoverCard
-        content={(
-          <span {...stylex.props(styles.citationCard)}>
-            <strong {...stylex.props(styles.citationTitle)}>Why Noema remembers this</strong>
-            {sources.map((source) => (
-              <span key={source.source} {...stylex.props(styles.citationSource)}>
-                <span {...stylex.props(styles.citationExcerpt)}>&ldquo;{source.excerpt ?? "This source is no longer available."}&rdquo;</span>
-                <span {...stylex.props(styles.citationContext)}>{evidenceKindLabel(source.kind)}{source.createdAt ? ` · ${formatEvidenceDate(source.createdAt)}` : ""}</span>
-                <span {...stylex.props(styles.citationReference)}>{source.source}</span>
-              </span>
-            ))}
-          </span>
-        )}
-        placement="above"
-        alignment="start"
-        delay={120}
-        hasHoverIndication={false}
-      >
-        <button type="button" aria-label={`Show source ${number}`} {...stylex.props(styles.citationTrigger)}>[{number}]</button>
-      </HoverCard>
-    </sup>
+    <Dialog
+      isOpen={open}
+      onOpenChange={onOpenChange}
+      purpose="info"
+      width={520}
+      maxHeight="min(680px, calc(100dvh - var(--spacing-8)))"
+      aria-label="Sources"
+    >
+      <Layout
+        height="auto"
+        header={<DialogHeader title="Sources" onOpenChange={onOpenChange} hasDivider />}
+        content={
+          <LayoutContent>
+            <VStack gap={3}>
+              {citations.map((citation, citationIndex) => (
+                <VStack key={citationIndex} gap={2}>
+                  <Text type="supporting" color="accent" weight="semibold">
+                    Citation {citationIndex + 1}
+                  </Text>
+                  {citation.sources.map((source) => (
+                    <VStack key={source.source} gap={1} xstyle={styles.citationSource}>
+                      <Text type="body" xstyle={styles.citationExcerpt}>
+                        &ldquo;{source.excerpt ?? "This source is no longer available."}&rdquo;
+                      </Text>
+                      <Text type="supporting" color="secondary" xstyle={styles.citationContext}>
+                        {evidenceKindLabel(source.kind)}
+                        {source.createdAt ? ` · ${formatEvidenceDate(source.createdAt)}` : ""}
+                      </Text>
+                      <Text type="supporting" color="secondary" xstyle={styles.citationReference}>
+                        {source.source}
+                      </Text>
+                    </VStack>
+                  ))}
+                  {citationIndex + 1 < citations.length ? <Divider /> : null}
+                </VStack>
+              ))}
+            </VStack>
+          </LayoutContent>
+        }
+      />
+    </Dialog>
   );
 }
 

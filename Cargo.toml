@@ -47,6 +47,7 @@ figment = { version = "0.10", features = ["env", "yaml"] }
 futures-util = "0.3"
 fs2 = "0.4"
 http = "1"
+image = { version = "0.25.9", default-features = false, features = ["gif", "ico", "jpeg", "png", "webp"] }
 libc = "0.2"
 mlua = { version = "0.12", default-features = false, features = ["luau", "vendored"] }
 oauth2 = { version = "5", default-features = false }

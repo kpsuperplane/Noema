@@ -237,15 +237,20 @@ fn stream_normalization_assembles_text_tools_reasoning_citations_search_and_usag
 
 data: {"id":"chat_1","model":"anthropic/claude-haiku-4.5","choices":[{"index":0,"delta":{"role":"assistant","content":"Hel","reasoning_details":[{"type":"reasoning.encrypted","id":"rs_1","data":"opa"}]}}]}
 
-data: {"choices":[{"index":0,"delta":{"content":"lo","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"search_memory","arguments":"{\"query\":\""}}]}}]}
+data: {"choices":[{"index":0,"delta":{"content":"lo","tool_calls":[{"index":0,"type":"function","function":{"name":"search_memory","arguments":"{\"query\":\""}}]}}]}
 
 "#,
             &mut |event| events.push(event),
         )
         .expect("first stream chunk");
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, crate::GenerateStreamEvent::ToolCallStarted { .. }))
+    );
     accumulator
         .push_bytes(
-            br#"data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"trains\"}"}}],"reasoning_details":[{"type":"reasoning.encrypted","id":"rs_1","data":"que"},{"type":"reasoning.summary","text":"Searching"},{"type":"reasoning.server_tool_call","id":"ws_1","name":"web.search","status":"completed","arguments":{"query":"trains"},"result":{"sources":1}}],"annotations":[{"type":"url_citation","url_citation":{"title":"Official","url":"https://example.test/source","start_index":0,"end_index":5}}]}}]}
+            br#"data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"arguments":"trains\"}"}}],"reasoning_details":[{"type":"reasoning.encrypted","id":"rs_1","data":"que"},{"type":"reasoning.summary","text":"Searching"},{"type":"reasoning.server_tool_call","id":"ws_1","name":"web.search","status":"completed","arguments":{"query":"trains"},"result":{"sources":1}},{"type":"reasoning.server_tool_call","id":"ws_2","name":"web.search","status":"completed","arguments":{"query":"stations"},"result":{"sources":2}}],"annotations":[{"type":"url_citation","url_citation":{"title":"Official","url":"https://example.test/source","start_index":0,"end_index":5}}]}}]}
 
 data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":8,"total_tokens":108,"prompt_tokens_details":{"cached_tokens":96},"server_tool_use":{"web_search_requests":1}}}
 
@@ -285,7 +290,7 @@ data: [DONE]
             .provider_details
             .as_ref()
             .map(Vec::len),
-        Some(3)
+        Some(4)
     );
     assert_eq!(
         normalized.reasoning_items[0].encrypted_content.as_deref(),
@@ -295,8 +300,10 @@ data: [DONE]
     assert_eq!(citations[0].url, "https://example.test/source");
     assert_eq!(citations[0].start_index, Some(0));
     assert_eq!(citations[0].end_index, Some(5));
-    assert_eq!(normalized.hosted_web_searches.len(), 1);
+    assert_eq!(normalized.hosted_web_searches.len(), 2);
     assert_eq!(normalized.hosted_web_searches[0].tool_name, "web.search");
+    assert_eq!(normalized.hosted_web_searches[0].output_index, 0);
+    assert_eq!(normalized.hosted_web_searches[1].output_index, 1);
     assert_eq!(
         normalized
             .usage
@@ -313,6 +320,7 @@ data: [DONE]
     assert!(
         events.contains(&crate::GenerateStreamEvent::ToolCallStarted {
             output_index: 0,
+            provider_call_id: "call_1".to_string(),
             name: "search_memory".to_string(),
         })
     );
@@ -320,6 +328,12 @@ data: [DONE]
         events.contains(&crate::GenerateStreamEvent::HostedWebSearchStarted {
             output_index: 0,
             id: Some("ws_1".to_string()),
+        })
+    );
+    assert!(
+        events.contains(&crate::GenerateStreamEvent::HostedWebSearchStarted {
+            output_index: 1,
+            id: Some("ws_2".to_string()),
         })
     );
 }

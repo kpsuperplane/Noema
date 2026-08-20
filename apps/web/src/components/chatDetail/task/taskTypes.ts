@@ -123,6 +123,7 @@ export type TaskDetail = {
   capturedRequest: string;
   taskDocument: string;
   resultDocument?: string | null;
+  resultMetadata?: unknown;
   reviewDocument?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;

@@ -95,7 +95,8 @@ pub(crate) fn build_action_reviewer_input(
     let verified_context = match action.capability_name.as_str() {
         noema_capabilities::web::browse::WEB_BROWSE_OPEN_TOOL
         | noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
-        | noema_capabilities::web::browse::WEB_BROWSE_HISTORY_TOOL => json!({
+        | noema_capabilities::web::browse::WEB_BROWSE_HISTORY_TOOL
+        | noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL => json!({
             "browser_session": {
                 "owner_scope": "conversation_or_task_generation",
                 "storage_lifetime": "session_only",

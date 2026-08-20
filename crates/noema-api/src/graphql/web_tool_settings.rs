@@ -2,7 +2,8 @@ use async_graphql::{InputObject, Result, SimpleObject};
 use noema_providers::{
     ProviderAccountRecord, ProviderCapability, ProviderCapabilityAccountReference,
     ProviderCapabilityAssignmentKey, ProviderCapabilityAssignmentPersistence,
-    ProviderCapabilityStatus, UpsertProviderCapabilityAssignmentRequest,
+    ProviderCapabilityStatus, ReplaceProviderCapabilityRouteRequest,
+    UpsertProviderCapabilityAssignmentRequest,
 };
 
 use noema_capabilities::{CapabilityId, ToolName};
@@ -31,6 +32,7 @@ pub struct GraphqlWebToolBindingSettings {
     pub tool_name: String,
     pub capability_id: String,
     pub active_provider_account_id: String,
+    pub provider_route_account_ids: Vec<String>,
     pub provider_options: Vec<GraphqlWebToolProviderOption>,
 }
 
@@ -56,6 +58,12 @@ pub struct GraphqlSaveWebToolProviderBindingInput {
     pub tool_name: String,
     pub capability_id: String,
     pub provider_account_id: String,
+}
+
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "SaveBrowserProviderRouteInput")]
+pub struct GraphqlSaveBrowserProviderRouteInput {
+    pub provider_account_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -203,6 +211,36 @@ pub(super) async fn save_web_tool_provider_binding(
     })
 }
 
+pub(super) async fn save_browser_provider_route(
+    state: &GraphqlState,
+    input: GraphqlSaveBrowserProviderRouteInput,
+) -> Result<GraphqlWebToolBindingSettings> {
+    let store = state.store()?;
+    let accounts = selectable_accounts(state).await?;
+    let references = input
+        .provider_account_ids
+        .iter()
+        .map(|provider_account_id| {
+            selectable_account_reference(&accounts, CapabilityId::WebBrowse, provider_account_id)
+                .ok_or_else(|| {
+                    async_graphql::Error::new(
+                        "provider account does not supply interactive browsing",
+                    )
+                })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let request = ReplaceProviderCapabilityRouteRequest::new(
+        ToolName::new(WEB_BROWSE_TOOL).map_err(graphql_error)?,
+        CapabilityId::WebBrowse,
+        references,
+    )
+    .map_err(graphql_error)?;
+    ProviderCapabilityAssignmentPersistence::replace_provider_capability_route(store, request)
+        .await
+        .map_err(graphql_error)?;
+    Ok(web_tool_settings(state).await?.browse)
+}
+
 async fn selectable_accounts(state: &GraphqlState) -> Result<Vec<SelectableProviderAccount>> {
     Ok(state
         .provider_account_operations()?
@@ -232,17 +270,22 @@ async fn binding_settings(
     let tool_name = ToolName::new(tool_name).map_err(graphql_error)?;
     let key =
         ProviderCapabilityAssignmentKey::new(tool_name, capability_id).map_err(graphql_error)?;
-    let configured_provider_account_id =
-        ProviderCapabilityAssignmentPersistence::provider_capability_assignment(store, &key)
+    let configured_provider_account_ids =
+        ProviderCapabilityAssignmentPersistence::provider_capability_route(store, &key)
             .await
             .map_err(graphql_error)?
+            .into_iter()
             .map(|binding| binding.provider_account_id)
             .filter(|provider_account_id| {
                 provider_options
                     .iter()
                     .any(|option| option.provider_account_id == *provider_account_id)
             })
-            .unwrap_or(default_provider_account_id);
+            .collect::<Vec<_>>();
+    let configured_provider_account_id = configured_provider_account_ids
+        .first()
+        .cloned()
+        .unwrap_or_else(|| default_provider_account_id.clone());
     let active_provider_account_id = if use_native_default {
         native_provider
             .map(|provider| provider.account.provider_account_id.clone())
@@ -254,6 +297,13 @@ async fn binding_settings(
     Ok(GraphqlWebToolBindingSettings {
         tool_name: key.tool_name_str().to_string(),
         capability_id: capability_id.as_str().to_string(),
+        provider_route_account_ids: if configured_provider_account_ids.is_empty()
+            || use_native_default
+        {
+            vec![active_provider_account_id.clone()]
+        } else {
+            configured_provider_account_ids
+        },
         active_provider_account_id,
         provider_options,
     })

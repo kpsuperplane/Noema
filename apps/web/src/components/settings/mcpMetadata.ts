@@ -1,6 +1,6 @@
-import type { McpSettingsQuery } from "@/generated/graphql";
+import type { McpServerFieldsFragment } from "@/generated/graphql";
 
-export type McpSettingsServer = McpSettingsQuery["mcpServers"][number];
+export type McpSettingsServer = McpServerFieldsFragment;
 
 export function mcpToolCountLabel(toolCount: number) {
   return `${toolCount} ${toolCount === 1 ? "tool" : "tools"}`;

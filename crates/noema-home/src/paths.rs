@@ -88,6 +88,12 @@ impl NoemaPaths {
         self.root.join("errors.log")
     }
 
+    /// Rebuildable favicon cache used by authenticated clients.
+    #[must_use]
+    pub fn favicon_cache_dir(&self) -> PathBuf {
+        self.root.join("system/cache/favicons")
+    }
+
     /// Path to the canonical SQLite database file.
     #[must_use]
     pub fn sqlite_db_path(&self) -> PathBuf {

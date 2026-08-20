@@ -11,13 +11,11 @@ import { Check, FileKey2, MoreHorizontal, Pencil, Plus, Trash2, Unplug } from "l
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import {
-  AdapterDefinitionsDocument,
+  AdapterManagementRootDocument,
   AdapterOauthAttemptDocument,
   AdapterOauthAttemptEventsDocument,
-  AdapterOauthStateDocument,
   ApproveAdapterDefinitionDocument,
   AttachAdapterOauthConnectionDocument,
-  CapabilityIntegrationsDocument,
   DeleteAdapterConnectionDocument,
   DeleteAdapterOauthApplicationDocument,
   DeleteAdapterServiceDocument,
@@ -28,9 +26,7 @@ import {
   SetAdapterConnectionActiveDocument,
   SetupAdapterConnectionDocument,
   StartAdapterOauthSetupDocument,
-  type AdapterDefinitionsQuery,
-  type AdapterOauthStateQuery,
-  type CapabilityIntegrationsQuery
+  type AdapterManagementRootQuery
 } from "@/generated/graphql";
 import { reserveExternalAuthNavigation } from "@/graphql/externalUrls";
 import { ListCardButton } from "@/components/ListCardLink";
@@ -50,8 +46,10 @@ import { SettingsEditDialog } from "./SettingsEditDialog";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 
-type AdapterDefinition = AdapterDefinitionsQuery["adapterDefinitions"][number];
-type Grant = AdapterOauthStateQuery["adapterOauthState"]["grants"][number];
+type AdapterDefinition = AdapterManagementRootQuery["adapterDefinitions"][number];
+type AdapterOauthState = AdapterManagementRootQuery["adapterOauthState"];
+type CapabilityIntegration = AdapterManagementRootQuery["capabilityIntegrations"][number];
+type Grant = AdapterOauthState["grants"][number];
 type NextAction = NonNullable<AdapterDefinition["nextAction"]>;
 type ConnectionAction = AdapterDefinition["connectionActions"][number];
 type OAuthAction = NextAction | ConnectionAction;
@@ -67,16 +65,12 @@ type ProviderAddFlow = {
 
 export function AdapterSettingsPane({ connectionId }: { connectionId?: string }) {
   const navigate = useNavigate();
-  const definitionsResult = useQuery<AdapterDefinitionsQuery>(AdapterDefinitionsDocument, {
+  const rootResult = useQuery<AdapterManagementRootQuery>(AdapterManagementRootDocument, {
     fetchPolicy: "cache-and-network"
   });
-  const oauthResult = useQuery<AdapterOauthStateQuery>(AdapterOauthStateDocument, {
-    fetchPolicy: "cache-and-network"
-  });
-  const integrationsResult = useQuery<CapabilityIntegrationsQuery>(CapabilityIntegrationsDocument, {
-    variables: { kind: "API" },
-    fetchPolicy: "cache-and-network"
-  });
+  const definitionsResult = rootResult;
+  const oauthResult = rootResult;
+  const integrationsResult = rootResult;
   const [approve, approval] = useMutation(ApproveAdapterDefinitionDocument);
   const [setupConnection, credentialSetupState] = useMutation(SetupAdapterConnectionDocument);
   const [importApplication, applicationImportState] = useMutation(ImportAdapterOauthApplicationDocument);
@@ -112,11 +106,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const [error, setError] = useState<string | null>(null);
 
   const refresh = async () => {
-    await Promise.all([
-      definitionsResult.refetch(),
-      oauthResult.refetch(),
-      integrationsResult.refetch()
-    ]);
+    await rootResult.refetch();
   };
 
   const finishOauthAttempt = async (event: {
@@ -764,7 +754,7 @@ function actionLabel(definition: AdapterDefinition) {
 function connectionActionLabel(
   definition: AdapterDefinition,
   action: ConnectionAction,
-  oauth: AdapterOauthStateQuery["adapterOauthState"]
+  oauth: AdapterOauthState
 ) {
   const grant = oauth.grants.find((item) => item.grantId === action.grantId);
   const account = grant?.accountLabel ?? (grant ? "Unlabeled account" : null);
@@ -802,7 +792,7 @@ function connectionActionDescription(definition: AdapterDefinition, action: Conn
 
 function dependentApiNames(
   action: OAuthAction,
-  oauth: AdapterOauthStateQuery["adapterOauthState"],
+  oauth: AdapterOauthState,
   definitions: AdapterDefinition[]
 ) {
   const connectionIds = new Set(
@@ -841,7 +831,7 @@ function oauthProviderId(providerName: string) {
 
 function oauthApplicationsForProvider(
   provider: CapabilityProvider,
-  oauth: AdapterOauthStateQuery["adapterOauthState"]
+  oauth: AdapterOauthState
 ) {
   return oauth.applications.filter(
     (application) => oauthProviderId(application.providerDisplayName) === provider.id
@@ -851,7 +841,7 @@ function oauthApplicationsForProvider(
 function serviceDefinitionsForProvider(
   provider: CapabilityProvider,
   definitions: AdapterDefinition[],
-  oauth: AdapterOauthStateQuery["adapterOauthState"],
+  oauth: AdapterOauthState,
   applicationId?: string | null
 ) {
   const applicationIds = new Set(oauthApplicationsForProvider(provider, oauth)
@@ -875,7 +865,7 @@ function directProviderId(origin: string) {
 
 function directProvider(
   definition: AdapterDefinition | undefined,
-  integration: CapabilityIntegrationsQuery["capabilityIntegrations"][number]
+  integration: CapabilityIntegration
 ): CapabilityProvider {
   const origin = definition?.origin;
   if (!origin) return { id: `provider:${integration.definitionId}`, name: titleize(integration.name) };

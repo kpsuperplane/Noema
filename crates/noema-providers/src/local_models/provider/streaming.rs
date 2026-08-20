@@ -27,7 +27,11 @@ pub(super) struct ChatStreamOutput {
 #[derive(Debug)]
 pub(super) enum ChatStreamEvent {
     AssistantTextDelta(String),
-    ToolCallStarted { output_index: usize, name: String },
+    ToolCallStarted {
+        output_index: usize,
+        provider_call_id: String,
+        name: String,
+    },
 }
 
 #[derive(Debug, Default)]
@@ -159,10 +163,14 @@ impl ChatSseAccumulator {
                 partial.arguments.push_str(&arguments);
             }
         }
-        if !partial.started && !partial.name.is_empty() {
+        if !partial.started
+            && !partial.name.is_empty()
+            && let Some(provider_call_id) = partial.id.clone()
+        {
             partial.started = true;
             on_event(ChatStreamEvent::ToolCallStarted {
                 output_index,
+                provider_call_id,
                 name: partial.name.clone(),
             });
         }
@@ -357,7 +365,7 @@ mod tests {
         let mut events = Vec::new();
         accumulator
             .push_bytes(
-                br#"data: {"id":"chat-1","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"search_memory","arguments":"{\"query\":\"tra"}}]}}]}
+                br#"data: {"id":"chat-1","choices":[{"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"search_memory","arguments":"{\"query\":\"tra"}}]}}]}
 
 "#,
                 |event| events.push(event),
@@ -365,7 +373,7 @@ mod tests {
             .expect("first tool chunk");
         accumulator
             .push_bytes(
-                br#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ins\"}"}}]}}]}
+                br#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"arguments":"ins\"}"}}]}}]}
 
 data: [DONE]
 
@@ -379,7 +387,7 @@ data: [DONE]
             .expect("tool output");
 
         assert!(events.iter().any(|event| {
-            matches!(event, ChatStreamEvent::ToolCallStarted { output_index: 0, name } if name == "search_memory")
+            matches!(event, ChatStreamEvent::ToolCallStarted { output_index: 0, provider_call_id, name } if provider_call_id == "call-1" && name == "search_memory")
         }));
         assert_eq!(output.tool_calls.len(), 1);
         assert_eq!(

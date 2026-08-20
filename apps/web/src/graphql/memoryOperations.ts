@@ -1,33 +1,18 @@
 import { gql } from "@apollo/client";
+import {
+  AgentModelPreferenceFields,
+  AgentModelProviderOptionFields
+} from "./operations";
 
 export const MemorySettingsDocument = gql`
   query MemorySettings {
     memorySettings {
-      modelPreference {
-        providerKind
-        providerAccountId
-        modelProfile
-        reasoningEffort
-        selectionMode
-        fastMode
-      }
-      modelOptions {
-        providerKind
-        providerAccountId
-        providerDisplayName
-        status
-        disabledReason
-        profiles {
-          id
-          label
-          disabledReason
-          reasoningEfforts
-          defaultReasoningEffort
-        }
-        recommendations { useCase modelProfile reasoningEffort disabledReason }
-      }
+      modelPreference { ...AgentModelPreferenceFields }
+      modelOptions { ...AgentModelProviderOptionFields }
     }
   }
+  ${AgentModelPreferenceFields}
+  ${AgentModelProviderOptionFields}
 `;
 
 export const MemoryTreeDocument = gql`
@@ -176,13 +161,7 @@ export const UpdateMemoryDocument = gql`
 
 export const SaveMemoryModelPreferenceDocument = gql`
   mutation SaveMemoryModelPreference($input: GraphqlSaveMemoryModelPreferenceInput!) {
-    saveMemoryModelPreference(input: $input) {
-      providerKind
-      providerAccountId
-      modelProfile
-      reasoningEffort
-      selectionMode
-      fastMode
-    }
+    saveMemoryModelPreference(input: $input) { ...AgentModelPreferenceFields }
   }
+  ${AgentModelPreferenceFields}
 `;

@@ -2,20 +2,11 @@ import * as React from "react";
 import type { ApolloClient } from "@apollo/client";
 import type { DocumentNode } from "graphql";
 import {
-  TasksHistoryDocument,
-  TasksNeedsYouDocument,
-  TasksListDocument,
-  PendingHumanInterventionsDocument,
+  TasksOverviewDocument,
   type TasksEventsSubscription
 } from "@/generated/graphql";
 
 type TasksEvent = TasksEventsSubscription["tasksEvents"];
-const tasksDocuments: readonly DocumentNode[] = [
-  TasksListDocument,
-  TasksNeedsYouDocument,
-  PendingHumanInterventionsDocument,
-  TasksHistoryDocument
-];
 
 export function useTasksEventInvalidation({
   client,
@@ -43,8 +34,13 @@ export function useTasksEventInvalidation({
   }, []);
 
   return React.useCallback((event: TasksEvent) => {
-    for (const document of tasksDocuments) documentsRef.current.add(document);
-    if (!event.taskId) refetchProjectsRef.current = true;
+    if (event.kind.startsWith("project.")) {
+      refetchProjectsRef.current = true;
+    } else if (event.kind === "recurrence.changed") {
+      documentsRef.current.add(TasksOverviewDocument);
+    } else if (event.taskId) {
+      documentsRef.current.add(TasksOverviewDocument);
+    }
     if (timerRef.current === null) timerRef.current = window.setTimeout(flush, 75);
   }, [flush]);
 }

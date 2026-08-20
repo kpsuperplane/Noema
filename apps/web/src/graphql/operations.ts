@@ -1,4 +1,66 @@
 import { gql } from "@apollo/client";
+
+export const AgentModelPreferenceFields = gql`
+  fragment AgentModelPreferenceFields on AgentModelPreference {
+    providerKind
+    providerAccountId
+    modelProfile
+    reasoningEffort
+    selectionMode
+    fastMode
+  }
+`;
+
+export const AgentModelProviderOptionFields = gql`
+  fragment AgentModelProviderOptionFields on AgentModelProviderOption {
+    providerKind
+    providerAccountId
+    providerDisplayName
+    status
+    disabledReason
+    profiles { id label disabledReason reasoningEfforts defaultReasoningEffort }
+    recommendations { useCase modelProfile reasoningEffort disabledReason }
+  }
+`;
+
+export const AgentFields = gql`
+  fragment AgentFields on Agent {
+    agentId
+    displayName
+    isPrimary
+    modelPreference { ...AgentModelPreferenceFields }
+    modelOptions { ...AgentModelProviderOptionFields }
+  }
+  ${AgentModelPreferenceFields}
+  ${AgentModelProviderOptionFields}
+`;
+
+export const WebToolProviderOptionFields = gql`
+  fragment WebToolProviderOptionFields on WebToolProviderOption {
+    providerAccountId
+    providerKind
+    accountKey
+    displayName
+    capabilityId
+    reliabilityContract
+    dataFlowClass
+    citations
+    directUrlFetch
+    jsRendering
+    authenticatedContext
+  }
+`;
+
+export const WebToolBindingSettingsFields = gql`
+  fragment WebToolBindingSettingsFields on WebToolBindingSettings {
+    toolName
+    capabilityId
+    activeProviderAccountId
+    providerRouteAccountIds
+    providerOptions { ...WebToolProviderOptionFields }
+  }
+  ${WebToolProviderOptionFields}
+`;
 export const LocalStatusDocument = gql`
   query LocalStatus {
     localStatus {
@@ -71,9 +133,8 @@ export const ConfirmOnboardingModelSelectionsDocument = gql`
   }
 `;
 
-export const ProviderAccountsDocument = gql`
-  query ProviderAccounts {
-    providerAccountCatalog {
+export const ProviderAccountCatalogFields = gql`
+  fragment ProviderAccountCatalogFields on ProviderAccountCatalogEntry {
       providerKind
       displayName
       preferredAuthMethod
@@ -84,8 +145,11 @@ export const ProviderAccountsDocument = gql`
         reliabilityContract
         dataFlowClass
       }
-    }
-    providerAccounts {
+  }
+`;
+
+export const ProviderAccountFields = gql`
+  fragment ProviderAccountFields on ProviderAccount {
       providerAccountId
       providerKind
       accountKey
@@ -104,103 +168,48 @@ export const ProviderAccountsDocument = gql`
         reliabilityContract
         dataFlowClass
       }
+  }
+`;
+
+export const ProvidersSettingsRootDocument = gql`
+  query ProvidersSettingsRoot {
+    providerAccountCatalog { ...ProviderAccountCatalogFields }
+    providerAccounts { ...ProviderAccountFields }
+    webToolSettings {
+      search { ...WebToolBindingSettingsFields }
+      fetch { ...WebToolBindingSettingsFields }
+      browse { ...WebToolBindingSettingsFields }
     }
   }
+  ${ProviderAccountCatalogFields}
+  ${ProviderAccountFields}
+  ${WebToolBindingSettingsFields}
 `;
 
 export const CreateProviderAccountDocument = gql`
   mutation CreateProviderAccount($input: CreateProviderAccountInput!) {
-    createProviderAccount(input: $input) {
-      providerAccountId
-      providerKind
-      accountKey
-      displayName
-      authMethod
-      status
-      isActive
-      isDefault
-      lastCheckedAt
-      lastAuthenticatedAt
-      lastErrorCode
-      lastErrorMessage
-    }
+    createProviderAccount(input: $input) { ...ProviderAccountFields }
   }
+  ${ProviderAccountFields}
 `;
 
 export const SaveProviderSecretInputDocument = gql`
   mutation SaveProviderSecretInput($input: ProviderSecretInput!) {
-    saveProviderSecretInput(input: $input) {
-      providerAccountId
-      providerKind
-      accountKey
-      displayName
-      authMethod
-      status
-      isActive
-      isDefault
-      lastCheckedAt
-      lastAuthenticatedAt
-      lastErrorCode
-      lastErrorMessage
-    }
+    saveProviderSecretInput(input: $input) { ...ProviderAccountFields }
   }
+  ${ProviderAccountFields}
 `;
 
 export const ClearProviderSecretDocument = gql`
   mutation ClearProviderSecret($input: ClearProviderSecretInput!) {
-    clearProviderSecret(input: $input) {
-      providerAccountId
-      providerKind
-      accountKey
-      displayName
-      authMethod
-      status
-      isActive
-      isDefault
-      lastCheckedAt
-      lastAuthenticatedAt
-      lastErrorCode
-      lastErrorMessage
-    }
+    clearProviderSecret(input: $input) { ...ProviderAccountFields }
   }
+  ${ProviderAccountFields}
 `;
 
 export const DeleteProviderAccountDocument = gql`
   mutation DeleteProviderAccount($input: DeleteProviderAccountInput!) {
     deleteProviderAccount(input: $input)
-  }
-`;
-
-export const AgentsDocument = gql`
-  query Agents {
-    agents {
-      agentId
-      displayName
-      isPrimary
-      modelPreference {
-        providerKind
-        providerAccountId
-        modelProfile
-        reasoningEffort
-        selectionMode
-        fastMode
-      }
-      modelOptions {
-        providerKind
-        providerAccountId
-        providerDisplayName
-        status
-        disabledReason
-        profiles {
-          id
-          label
-          disabledReason
-          reasoningEfforts
-          defaultReasoningEffort
-        }
-        recommendations { useCase modelProfile reasoningEffort disabledReason }
-      }
-    }
   }
 `;
 
@@ -275,219 +284,69 @@ export const SaveAgentModelPreferenceDocument = gql`
   }
 `;
 
-export const WebFetchSettingsDocument = gql`
-  query WebFetchSettings {
-    webFetchSettings {
-      summarizer {
-      modelPreference {
-          providerKind
-          providerAccountId
-          modelProfile
-        reasoningEffort
-        selectionMode
-        fastMode
-        }
-        modelOptions {
-          providerKind
-          providerAccountId
-          providerDisplayName
-          status
-          disabledReason
-          profiles {
-            id
-            label
-            disabledReason
-            reasoningEfforts
-            defaultReasoningEffort
-          }
-          recommendations { useCase modelProfile reasoningEffort disabledReason }
-        }
-      }
-    }
-  }
-`;
-
 export const SaveWebFetchSummarizerPreferenceDocument = gql`
   mutation SaveWebFetchSummarizerPreference($input: SaveWebFetchSummarizerPreferenceInput!) {
-    saveWebFetchSummarizerPreference(input: $input) {
-      providerKind
-      providerAccountId
-      modelProfile
-      reasoningEffort
-      selectionMode
-      fastMode
-    }
+    saveWebFetchSummarizerPreference(input: $input) { ...AgentModelPreferenceFields }
   }
+  ${AgentModelPreferenceFields}
 `;
 
-export const WebToolSettingsDocument = gql`
-  query WebToolSettings {
-    webToolSettings {
-      search {
-        toolName
-        capabilityId
-        activeProviderAccountId
-        providerOptions {
-          providerAccountId
-          providerKind
-          accountKey
-          displayName
-          capabilityId
-          reliabilityContract
-          dataFlowClass
-          citations
-          directUrlFetch
-          jsRendering
-          authenticatedContext
-        }
-      }
-      fetch {
-        toolName
-        capabilityId
-        activeProviderAccountId
-        providerOptions {
-          providerAccountId
-          providerKind
-          accountKey
-          displayName
-          capabilityId
-          reliabilityContract
-          dataFlowClass
-          citations
-          directUrlFetch
-          jsRendering
-          authenticatedContext
-        }
-      }
-      browse {
-        toolName
-        capabilityId
-        activeProviderAccountId
-        providerOptions {
-          providerAccountId
-          providerKind
-          accountKey
-          displayName
-          capabilityId
-          reliabilityContract
-          dataFlowClass
-          citations
-          directUrlFetch
-          jsRendering
-          authenticatedContext
-        }
+export const WebSettingsRootDocument = gql`
+  query WebSettingsRoot {
+    webFetchSettings {
+      summarizer {
+        modelPreference { ...AgentModelPreferenceFields }
+        modelOptions { ...AgentModelProviderOptionFields }
       }
     }
+    webToolSettings {
+      search { ...WebToolBindingSettingsFields }
+      fetch { ...WebToolBindingSettingsFields }
+      browse { ...WebToolBindingSettingsFields }
+    }
   }
+  ${AgentModelPreferenceFields}
+  ${AgentModelProviderOptionFields}
+  ${WebToolBindingSettingsFields}
 `;
 
 export const SaveWebToolProviderBindingDocument = gql`
   mutation SaveWebToolProviderBinding($input: SaveWebToolProviderBindingInput!) {
-    saveWebToolProviderBinding(input: $input) {
-      toolName
-      capabilityId
-      activeProviderAccountId
-      providerOptions {
-        providerAccountId
-        providerKind
-        accountKey
-        displayName
-        capabilityId
-        reliabilityContract
-        dataFlowClass
-        citations
-        directUrlFetch
-      }
-    }
+    saveWebToolProviderBinding(input: $input) { ...WebToolBindingSettingsFields }
   }
+  ${WebToolBindingSettingsFields}
 `;
 
-export const UsageSettingsDocument = gql`
-  query UsageSettings {
-    usageSettings {
-      progressAudit {
-        modelPreference {
-          providerKind
-          providerAccountId
-          modelProfile
-          reasoningEffort
-          selectionMode
-          fastMode
-        }
-        modelOptions {
-          providerKind
-          providerAccountId
-          providerDisplayName
-          status
-          disabledReason
-          profiles {
-            id
-            label
-            disabledReason
-            reasoningEfforts
-            defaultReasoningEffort
-          }
-          recommendations { useCase modelProfile reasoningEffort disabledReason }
-        }
-      }
-    }
+export const SaveBrowserProviderRouteDocument = gql`
+  mutation SaveBrowserProviderRoute($input: SaveBrowserProviderRouteInput!) {
+    saveBrowserProviderRoute(input: $input) { ...WebToolBindingSettingsFields }
   }
+  ${WebToolBindingSettingsFields}
 `;
 
 export const SaveToolProgressAuditPreferenceDocument = gql`
   mutation SaveToolProgressAuditPreference($input: SaveToolProgressAuditPreferenceInput!) {
-    saveToolProgressAuditPreference(input: $input) {
-      providerKind
-      providerAccountId
-      modelProfile
-      reasoningEffort
-      selectionMode
-      fastMode
-    }
+    saveToolProgressAuditPreference(input: $input) { ...AgentModelPreferenceFields }
   }
+  ${AgentModelPreferenceFields}
 `;
 
 export const PrivacySettingsDocument = gql`
   query PrivacySettings {
     privacySettings {
       reviewer {
-        modelPreference {
-          providerKind
-          providerAccountId
-          modelProfile
-          reasoningEffort
-          selectionMode
-          fastMode
-        }
-        modelOptions {
-          providerKind
-          providerAccountId
-          providerDisplayName
-          status
-          disabledReason
-          profiles {
-            id
-            label
-            disabledReason
-            reasoningEfforts
-            defaultReasoningEffort
-          }
-          recommendations { useCase modelProfile reasoningEffort disabledReason }
-        }
+        modelPreference { ...AgentModelPreferenceFields }
+        modelOptions { ...AgentModelProviderOptionFields }
       }
     }
   }
+  ${AgentModelPreferenceFields}
+  ${AgentModelProviderOptionFields}
 `;
 
 export const SaveActionReviewerPreferenceDocument = gql`
   mutation SaveActionReviewerPreference($input: SaveActionReviewerPreferenceInput!) {
-    saveActionReviewerPreference(input: $input) {
-      providerKind
-      providerAccountId
-      modelProfile
-      reasoningEffort
-      selectionMode
-      fastMode
-    }
+    saveActionReviewerPreference(input: $input) { ...AgentModelPreferenceFields }
   }
+  ${AgentModelPreferenceFields}
 `;

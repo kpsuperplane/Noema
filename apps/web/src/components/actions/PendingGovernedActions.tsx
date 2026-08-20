@@ -20,7 +20,6 @@ import {
   ImportAdapterOauthApplicationDocument,
   AttachAdapterOauthConnectionDocument,
   SaveCapabilityConnectionPolicyDocument,
-  ConversationEventsDocument,
   type PendingHumanInterventionsQuery,
   type SaveCapabilityConnectionPolicyMutation
 } from "@/generated/graphql";
@@ -35,12 +34,12 @@ import {
   openExternalUrlForAuth,
   reserveExternalAuthNavigation
 } from "@/graphql/externalUrls";
-import { TasksTaskRuntimeEventsDocument } from "@/graphql/tasksOperations";
 import { McpChatSetupCard } from "@/components/mcp/McpChatSetupCard";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { RollingSwap } from "@/components/RollingText";
 import { springs } from "@/motion/springs";
 import { HumanInterventionCard } from "./HumanInterventionCard";
+import { RenderErrorBoundary } from "@/components/errors/RenderErrorBoundary";
 import {
   AdapterAuthenticationCard,
   GovernedActionCard,
@@ -56,9 +55,16 @@ type Scope = {
   conversationId?: string | null;
   taskId?: string;
   projectId?: string;
+  refreshKey?: number;
 };
 
 export type HumanInterventionPlacement = "chat" | "dock" | "queue" | "task";
+type PendingHumanInterventionsResultLike = {
+  data?: { pendingHumanInterventions: PendingHumanIntervention[] } | null;
+  error?: unknown;
+  loading: boolean;
+  refetch: () => Promise<unknown>;
+};
 
 const dismissedAdapterSetupsKey = "noema.dismissed-adapter-setups";
 
@@ -74,16 +80,13 @@ export function usePendingHumanInterventions(scope: Scope = {}) {
     fetchPolicy: "cache-and-network",
     notifyOnNetworkStatusChange: true
   });
-  useSubscription(ConversationEventsDocument, {
-    variables: { conversationId: scope.conversationId ?? "" },
-    skip: !scope.conversationId,
-    onData: () => void result.refetch()
-  });
-  useSubscription(TasksTaskRuntimeEventsDocument, {
-    variables: { taskId: scope.taskId ?? "" },
-    skip: !scope.taskId,
-    onData: () => void result.refetch()
-  });
+  const previousRefreshKey = React.useRef(scope.refreshKey);
+  const refetch = result.refetch;
+  React.useEffect(() => {
+    if (scope.refreshKey === undefined || previousRefreshKey.current === scope.refreshKey) return;
+    previousRefreshKey.current = scope.refreshKey;
+    void refetch();
+  }, [refetch, scope.refreshKey]);
   return result;
 }
 
@@ -91,10 +94,11 @@ export function PendingHumanInterventions({
   conversationId,
   taskId,
   projectId,
+  refreshKey,
   placement = "chat",
   emptyContent
 }: Scope & { placement?: HumanInterventionPlacement; emptyContent?: React.ReactNode }) {
-  const result = usePendingHumanInterventions({ conversationId, taskId, projectId });
+  const result = usePendingHumanInterventions({ conversationId, taskId, projectId, refreshKey });
   return (
     <PendingHumanInterventionsResult
       conversationId={conversationId}
@@ -114,7 +118,7 @@ export function PendingHumanInterventionsResult({
   conversationId?: string | null;
   placement?: HumanInterventionPlacement;
   emptyContent?: React.ReactNode;
-  result: ReturnType<typeof usePendingHumanInterventions>;
+  result: PendingHumanInterventionsResultLike;
 }) {
   const interventions = result.data?.pendingHumanInterventions ?? [];
   const [dismissedAdapterSetups, setDismissedAdapterSetups] = React.useState(readDismissedAdapterSetups);
@@ -260,7 +264,7 @@ export function PendingHumanInterventionsResult({
 }
 
 export function pendingHumanInterventionsAreFresh(
-  result: ReturnType<typeof usePendingHumanInterventions>
+  result: PendingHumanInterventionsResultLike
 ) {
   return Boolean(result.data) && !result.error;
 }
@@ -297,11 +301,34 @@ export function HumanInterventionList({
         {interventions.map((intervention) => {
           const key = humanInterventionKey(intervention);
           const item = (
-            <HumanInterventionListItem
-              intervention={intervention}
-              onResolved={onResolved}
-              onDismissAdapterSetup={onDismissAdapterSetup}
-            />
+            <RenderErrorBoundary
+              errorScope={`intervention.${key}`}
+              resetKey={intervention}
+              fallback={({ retry }) => (
+                <InterventionCardShell
+                  copy={(
+                    <span role="alert">
+                      This request could not display. Other requests remain available.
+                    </span>
+                  )}
+                  actions={(
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      label="Retry request"
+                      onClick={retry}
+                    />
+                  )}
+                />
+              )}
+            >
+              <HumanInterventionListItem
+                intervention={intervention}
+                onResolved={onResolved}
+                onDismissAdapterSetup={onDismissAdapterSetup}
+              />
+            </RenderErrorBoundary>
           );
           return animateItems ? (
             <HumanInterventionMotionItem key={key}>{item}</HumanInterventionMotionItem>

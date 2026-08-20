@@ -11,7 +11,7 @@ workspace = true
 
 [features]
 default = []
-public-http = ["dep:tokio", "dep:url"]
+public-http = ["dep:reqwest", "dep:tokio", "dep:url"]
 adapters = [
     "dep:async-stream",
     "dep:base64",

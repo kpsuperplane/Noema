@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
+import type { ApolloCache } from "@apollo/client";
 import { useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { Avatar } from "@astryxdesign/core/Avatar";
 import { Badge } from "@astryxdesign/core/Badge";
@@ -62,15 +63,34 @@ export function LocalModelsSettingsPane({
   const result = useQuery<LocalModelsSettingsQuery>(LocalModelsSettingsDocument, {
     fetchPolicy: "cache-and-network"
   });
-  const refetchQueries = [{ query: LocalModelsSettingsDocument }];
-  const mutationOptions = { refetchQueries, awaitRefetchQueries: true };
-  const [install, installResult] = useMutation(InstallLocalModelDocument, mutationOptions);
-  const [importModel, importResult] = useMutation(ImportLocalModelDocument, mutationOptions);
-  const [cancel, cancelResult] = useMutation(CancelLocalModelInstallDocument, mutationOptions);
-  const [remove, removeResult] = useMutation(RemoveLocalModelDocument, mutationOptions);
-  const [activate, activateResult] = useMutation(ActivateLocalModelDocument, mutationOptions);
-  const [retryRuntime, retryResult] = useMutation(RetryLocalModelRuntimeDocument, mutationOptions);
-  useSubscription(LocalModelEventsDocument, { onData: () => void result.refetch() });
+  const [install, installResult] = useMutation(InstallLocalModelDocument, {
+    update(cache, response) {
+      const installation = response.data?.installLocalModel;
+      if (installation) upsertLocalModelInstallation(cache, installation);
+    }
+  });
+  const [importModel, importResult] = useMutation(ImportLocalModelDocument, {
+    update(cache, response) {
+      const installation = response.data?.importLocalModel;
+      if (installation) upsertLocalModelInstallation(cache, installation);
+    }
+  });
+  const [cancel, cancelResult] = useMutation(CancelLocalModelInstallDocument);
+  const [remove, removeResult] = useMutation(RemoveLocalModelDocument, {
+    update(cache, _response, options) {
+      const installationId = options.variables?.installationId;
+      if (installationId) removeLocalModelInstallation(cache, installationId);
+    }
+  });
+  const [activate, activateResult] = useMutation(ActivateLocalModelDocument);
+  const [retryRuntime, retryResult] = useMutation(RetryLocalModelRuntimeDocument);
+  useSubscription(LocalModelEventsDocument, {
+    onData: ({ data }) => {
+      const event = data.data?.localModelEvents;
+      if (!event || event.kind === "TRANSFER_PROGRESS") return;
+      void result.refetch();
+    }
+  });
 
   const setup = result.data?.localModelSetup ?? null;
   const catalog = result.data?.localModelCatalog ?? [];
@@ -231,6 +251,41 @@ export function LocalModelsSettingsPane({
       onConfirm={() => void removeInstallation()}
     />
   </>;
+}
+
+type LocalModelInstallation = LocalModelsSettingsQuery["localModelInstallations"][number];
+
+function upsertLocalModelInstallation(
+  cache: ApolloCache,
+  installation: LocalModelInstallation
+) {
+  cache.updateQuery<LocalModelsSettingsQuery>(
+    { query: LocalModelsSettingsDocument },
+    (current) => current ? {
+      ...current,
+      localModelInstallations: [
+        ...current.localModelInstallations.filter(
+          (item) => item.installationId !== installation.installationId
+        ),
+        installation
+      ]
+    } : current
+  );
+}
+
+function removeLocalModelInstallation(
+  cache: ApolloCache,
+  installationId: string
+) {
+  cache.updateQuery<LocalModelsSettingsQuery>(
+    { query: LocalModelsSettingsDocument },
+    (current) => current ? {
+      ...current,
+      localModelInstallations: current.localModelInstallations.filter(
+        (item) => item.installationId !== installationId
+      )
+    } : current
+  );
 }
 
 function LocalModelList({

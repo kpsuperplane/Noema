@@ -16,7 +16,7 @@ import { readTaskCaptureDraft, writeTaskCaptureDraft } from "@/pwa/storage";
 import { initialScheduleDraft, scheduleInput, ScheduleFields } from "./ScheduleFields";
 import { TaskMarkdownEditor } from "./TaskMarkdownEditor";
 
-export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChange, onCreated }: { open: boolean; projects: readonly TasksProject[]; initialProjectId?: string; onOpenChange: (open: boolean) => void; onCreated: () => void | Promise<void> }) {
+export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChange }: { open: boolean; projects: readonly TasksProject[]; initialProjectId?: string; onOpenChange: (open: boolean) => void }) {
   const [title, setTitle] = React.useState("");
   const [taskDocument, setTaskDocument] = React.useState("");
   const [projectId, setProjectId] = React.useState(initialProjectId ?? "");
@@ -25,7 +25,7 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
   const [cwdOverride, setCwdOverride] = React.useState("");
   const [schedule, setSchedule] = React.useState(initialScheduleDraft);
   const [capture, state] = useMutation(TasksCaptureTaskDocument);
-  const acpAgents = useQuery(AcpAgentsDocument, { fetchPolicy: "cache-and-network" });
+  const acpAgents = useQuery(AcpAgentsDocument, { fetchPolicy: "cache-first" });
   const pwa = React.useSyncExternalStore(
     pwaRuntime.subscribe,
     pwaRuntime.getSnapshot,
@@ -108,7 +108,6 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                     setCwdOverride("");
                     setSchedule(initialScheduleDraft());
                     await writeTaskCaptureDraft({ title: "", taskDocument: "", projectId: "" });
-                    await onCreated();
                     onOpenChange(false);
                   })
                   .catch(() => undefined);

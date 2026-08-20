@@ -2,13 +2,12 @@ import { gql } from "@apollo/client";
 import {
   TasksCommandTaskFields,
   TasksEventFields,
-  TasksGateFields,
   TasksPageInfoFields,
   TasksProjectFields,
   TasksRunFields,
-  TasksTaskCardFields,
   TasksTaskSummaryFields
 } from "./tasksFragments";
+import { HumanInterventionFields } from "./governedActionOperations";
 
 export const TasksProjectsDocument = gql`
   query TasksProjects($workspaceId: String!, $includeArchived: Boolean!, $first: Int = 100, $after: String) {
@@ -28,109 +27,41 @@ export const TasksProjectsDocument = gql`
   ${TasksPageInfoFields}
 `;
 
-export const TasksListDocument = gql`
-  query TasksList($input: TaskListInput!, $first: Int = 50, $after: String) {
-    tasks(input: $input, first: $first, after: $after) {
-      edges {
-        cursor
-        node {
-          ...TasksTaskSummaryFields
-        }
-      }
-      pageInfo {
-        ...TasksPageInfoFields
-      }
+export const TasksOverviewDocument = gql`
+  query TasksOverview(
+    $input: TaskListInput!
+    $workspaceId: String!
+    $projectId: String
+    $historyKind: TerminalTaskKind
+    $activeFirst: Int = 100
+    $activeAfter: String
+    $historyFirst: Int = 10
+    $historyAfter: String
+  ) {
+    tasks(input: $input, first: $activeFirst, after: $activeAfter) {
+      edges { cursor node { ...TasksTaskSummaryFields } }
+      pageInfo { ...TasksPageInfoFields }
+    }
+    taskRecurrences(workspaceId: $workspaceId, projectId: $projectId, first: 100) {
+      recurrenceId title cronExpression lifecycle nextRunAt updatedAt
+    }
+    taskHistory(
+      workspaceId: $workspaceId
+      projectId: $projectId
+      kind: $historyKind
+      first: $historyFirst
+      after: $historyAfter
+    ) {
+      edges { cursor node { ...TasksTaskSummaryFields } }
+      pageInfo { ...TasksPageInfoFields }
+    }
+    pendingHumanInterventions(projectId: $projectId, first: 50) {
+      ...HumanInterventionFields
     }
   }
   ${TasksTaskSummaryFields}
   ${TasksPageInfoFields}
-`;
-
-export const TasksRecurrencesDocument = gql`
-  query TasksRecurrences($workspaceId: String!, $projectId: String, $first: Int = 100) {
-    taskRecurrences(workspaceId: $workspaceId, projectId: $projectId, first: $first) {
-      recurrenceId
-      title
-      cronExpression
-      lifecycle
-      nextRunAt
-      updatedAt
-    }
-  }
-`;
-
-export const TasksNeedsYouDocument = gql`
-  query TasksNeedsYou($workspaceId: String!, $projectId: String, $first: Int = 50, $after: String) {
-    needsYou(workspaceId: $workspaceId, projectId: $projectId, first: $first, after: $after) {
-      edges {
-        cursor
-        node {
-          kind
-          title
-          summary
-          validActions
-          gate {
-            ...TasksGateFields
-          }
-          task {
-            ...TasksTaskCardFields
-          }
-        }
-      }
-      pageInfo {
-        ...TasksPageInfoFields
-      }
-    }
-  }
-  ${TasksGateFields}
-  ${TasksTaskCardFields}
-  ${TasksPageInfoFields}
-`;
-
-export const TasksHistoryDocument = gql`
-  query TasksHistory($workspaceId: String!, $projectId: String, $kind: TerminalTaskKind, $first: Int = 50, $after: String) {
-    taskHistory(workspaceId: $workspaceId, projectId: $projectId, kind: $kind, first: $first, after: $after) {
-      edges {
-        cursor
-        node {
-          ...TasksTaskSummaryFields
-        }
-      }
-      pageInfo {
-        ...TasksPageInfoFields
-      }
-    }
-  }
-  ${TasksTaskSummaryFields}
-  ${TasksPageInfoFields}
-`;
-
-export const TasksPanelDocument = gql`
-  query TasksPanel($workspaceId: String!) {
-    tasks(input: { workspaceId: $workspaceId, scope: ACTIVE }, first: 16) {
-      edges {
-        node {
-          taskId
-          title
-          stage { name }
-          currentRun { activityLabel }
-          attention { kind }
-        }
-      }
-    }
-    needsYou(workspaceId: $workspaceId, first: 5) {
-      edges {
-        node {
-          kind
-          summary
-          task {
-            taskId
-            title
-          }
-        }
-      }
-    }
-  }
+  ${HumanInterventionFields}
 `;
 
 export const TasksTaskEditFieldsDocument = gql`
@@ -182,6 +113,7 @@ export const TasksTaskDetailDocument = gql`
       taskDocument
       taskDocumentDigest
       resultDocument
+      resultMetadata
       reviewDocument
       attention {
         kind
@@ -199,10 +131,14 @@ export const TasksTaskDetailDocument = gql`
       }
       contributorInstanceNames
     }
+    pendingHumanInterventions(taskId: $taskId, first: 50) {
+      ...HumanInterventionFields
+    }
   }
   ${TasksCommandTaskFields}
   ${TasksProjectFields}
   ${TasksRunFields}
+  ${HumanInterventionFields}
 `;
 
 export const TasksTaskRunItemsDocument = gql`

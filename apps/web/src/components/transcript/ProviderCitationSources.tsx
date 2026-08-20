@@ -1,9 +1,13 @@
 import { Divider } from "@astryxdesign/core/Divider";
+import { Citation } from "@astryxdesign/core/Citation";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { parseMarkdown } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
+import sourcesIconUrl from "lucide-static/icons/book-open.svg";
 import { useMemo, useState } from "react";
+import { FaviconImage } from "@/components/FaviconImage";
 import {
   MarkdownContent,
   type MarkdownComponents,
@@ -33,26 +37,62 @@ type ProviderCitationMarkdownProps = Omit<
   citations: readonly ProviderCitation[];
 };
 
+const SOURCES_ACTION_URL = "noema-sources://open";
+
 const styles = stylex.create({
-  marker: {
-    display: "inline",
-    borderWidth: 0,
+  sourcesAction: {
+    position: "relative",
+    display: "inline-flex",
+    marginInlineStart: "var(--spacing-1)",
+    appearance: "none",
     padding: 0,
+    borderWidth: 0,
+    borderRadius: "var(--radius-full)",
+    cornerShape: "var(--corner-shape-full)",
     backgroundColor: "transparent",
-    color: "var(--color-text-accent)",
-    font: "inherit",
-    fontSize: "0.72em",
-    fontWeight: 600,
-    lineHeight: 1,
-    verticalAlign: "super",
-    cursor: "pointer",
-    ":hover": { textDecoration: "underline" },
+    verticalAlign: "middle",
     ":focus-visible": {
       outlineWidth: 2,
       outlineStyle: "solid",
       outlineColor: "var(--ring)",
       outlineOffset: 2
     }
+  },
+  sourcesCitation: {
+    width: "var(--spacing-5)",
+    minWidth: "var(--spacing-5)",
+    height: "var(--spacing-5)",
+    marginInlineStart: 0,
+    paddingInline: 0,
+    borderRadius: "var(--radius-full)",
+    cornerShape: "var(--corner-shape-full)",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    backgroundSize: "var(--spacing-3)",
+    ":hover": { backgroundColor: "var(--color-overlay-hover)" }
+  },
+  sourcesCitationTwo: { width: "var(--spacing-7)" },
+  sourcesCitationThree: { width: "var(--spacing-9)" },
+  sourcesCitationOverflow: { width: "var(--spacing-12)" },
+  sourceFacepile: {
+    position: "absolute",
+    inset: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    pointerEvents: "none"
+  },
+  sourceFacepileIcon: {
+    display: "inline-flex",
+    marginInlineStart: "calc(-1 * var(--spacing-1))",
+    ":first-child": { marginInlineStart: 0 }
+  },
+  sourceOverflow: {
+    marginInlineStart: "var(--spacing-0-5)",
+    color: "var(--color-text-secondary)",
+    fontSize: "var(--font-size-3xs)",
+    fontWeight: "var(--font-weight-semibold)",
+    lineHeight: 1
   },
   sourceLink: {
     display: "block",
@@ -81,21 +121,22 @@ export function ProviderCitationMarkdown({
   ...markdownProps
 }: ProviderCitationMarkdownProps) {
   const [open, setOpen] = useState(false);
-  const content = useMemo(() => providerCitationContent(text, citations), [citations, text]);
+  const content = useMemo(() => {
+    const cited = providerCitationContent(text, citations);
+    if (cited.citations.length === 0) return cited;
+    return { ...cited, ...citationContentWithSourcesAction(cited.text, cited.sources) };
+  }, [citations, text]);
   const components = useMemo<MarkdownComponents>(
     () => ({
-      citation: ({ number }) => (
-        <button
-          type="button"
-          aria-label="Show sources for this message"
-          onClick={() => setOpen(true)}
-          {...stylex.props(styles.marker)}
-        >
-          [{number}]
-        </button>
+      citation: (props) => (
+        <CitationReference
+          {...props}
+          hosts={providerCitationHosts(content.citations)}
+          onOpenSources={() => setOpen(true)}
+        />
       )
     }),
-    []
+    [content.citations]
   );
 
   return (
@@ -111,6 +152,76 @@ export function ProviderCitationMarkdown({
       <ProviderCitationDialog citations={content.citations} open={open} onOpenChange={setOpen} />
     </>
   );
+}
+
+export function CitationReference({
+  source,
+  number,
+  hosts,
+  onOpenSources
+}: {
+  source: MarkdownSource;
+  number: number;
+  variant: "label" | "number";
+  hosts?: readonly string[];
+  onOpenSources: () => void;
+}) {
+  if (source.url === SOURCES_ACTION_URL) {
+    const visibleHosts = hosts?.slice(0, 3) ?? [];
+    const overflow = Math.max(0, (hosts?.length ?? 0) - visibleHosts.length);
+    const citationSize = overflow > 0
+      ? styles.sourcesCitationOverflow
+      : visibleHosts.length === 3
+        ? styles.sourcesCitationThree
+        : visibleHosts.length === 2
+          ? styles.sourcesCitationTwo
+          : undefined;
+    return (
+      <button
+        type="button"
+        aria-label="Sources"
+        title="Sources"
+        onClick={onOpenSources}
+        {...stylex.props(styles.sourcesAction)}
+      >
+        <Citation
+          aria-hidden="true"
+          source={{ title: "" }}
+          number={1}
+          variant="label"
+          xstyle={[styles.sourcesCitation, citationSize]}
+          style={visibleHosts.length === 0 ? { backgroundImage: `url("${sourcesIconUrl}")` } : undefined}
+        />
+        {visibleHosts.length > 0 ? (
+          <span aria-hidden="true" {...stylex.props(styles.sourceFacepile)}>
+            {visibleHosts.map((hostname) => (
+              <span key={hostname} {...stylex.props(styles.sourceFacepileIcon)}>
+                <FaviconImage hostname={hostname} size="compact" />
+              </span>
+            ))}
+            {overflow > 0 ? <span {...stylex.props(styles.sourceOverflow)}>+{overflow}</span> : null}
+          </span>
+        ) : null}
+      </button>
+    );
+  }
+  return <sup>{number}</sup>;
+}
+
+export function citationContentWithSourcesAction(
+  text: string,
+  sources: Record<string, MarkdownSource>
+): { text: string; sources: Record<string, MarkdownSource> } {
+  const sourceId = unusedSourcesActionId(text, sources);
+  const lastBlock = parseMarkdown(text).at(-1)?.type;
+  const separator = lastBlock === "paragraph" ? " " : "\n\n";
+  return {
+    text: `${text}${separator}[${sourceId}]`,
+    sources: {
+      ...sources,
+      [sourceId]: { title: "Sources", url: SOURCES_ACTION_URL }
+    }
+  };
 }
 
 export function providerCitationsFromMetadata(metadata: unknown): ProviderCitation[] {
@@ -134,43 +245,6 @@ export function providerCitationsFromMetadata(metadata: unknown): ProviderCitati
     seen.add(key);
     return [{ title, url, startIndex, endIndex }];
   });
-}
-
-export function taskResultCitationContent(text: string): ProviderCitationContent {
-  const definitions = new Map<string, { title: string; url: string }>();
-  const definition = /^\[\^noema-source-(\d+)\]: \[((?:\\.|[^\\]])+)\]\(<(https?:\/\/[^>]+)>\)$/;
-  const body = text.split("\n").filter((line) => {
-    const match = definition.exec(line);
-    if (!match) return true;
-    try {
-      const url = new URL(match[3]);
-      if (url.protocol !== "http:" && url.protocol !== "https:") return true;
-      definitions.set(match[1], {
-        title: match[2].replace(/\\([\\[\]])/g, "$1"),
-        url: url.toString()
-      });
-      return false;
-    } catch {
-      return true;
-    }
-  }).join("\n");
-  const citations: ProviderCitation[] = [];
-  const marker = /\[\^noema-source-(\d+)\]/g;
-  let clean = "";
-  let prior = 0;
-  for (const match of body.matchAll(marker)) {
-    const source = definitions.get(match[1]);
-    const index = match.index ?? 0;
-    clean += body.slice(prior, index);
-    if (source) {
-      citations.push({ ...source, startIndex: null, endIndex: clean.length });
-    } else {
-      clean += match[0];
-    }
-    prior = index + match[0].length;
-  }
-  clean += body.slice(prior);
-  return { text: clean, sources: {}, citations };
 }
 
 export function providerCitationContent(
@@ -281,6 +355,7 @@ function ProviderCitationDialog({
                       >
                         {index + 1}
                       </Text>
+                      <FaviconImage hostname={sourceHost(citation.url)} />
                       <VStack gap={0.5} xstyle={styles.sourceText}>
                         <Text type="body" weight="semibold" xstyle={styles.sourceTitle}>
                           {citation.title}
@@ -314,6 +389,15 @@ function sourceHost(url: string): string {
   }
 }
 
+function providerCitationHosts(citations: readonly ProviderCitation[]): string[] {
+  const hosts = new Set<string>();
+  for (const citation of citations) {
+    const hostname = sourceHost(citation.url);
+    if (hostname) hosts.add(hostname.toLowerCase());
+  }
+  return [...hosts];
+}
+
 function unusedSourceId(
   text: string,
   sources: Record<string, MarkdownSource>,
@@ -328,6 +412,18 @@ function unusedSourceId(
     number += 1;
   }
   return `noema-citation-${number}`;
+}
+
+function unusedSourcesActionId(text: string, sources: Record<string, MarkdownSource>): string {
+  let number = 1;
+  while (
+    sources[`noema-sources-${number}`] ||
+    text.includes(`[noema-sources-${number}]`) ||
+    text.includes(`【noema-sources-${number}】`)
+  ) {
+    number += 1;
+  }
+  return `noema-sources-${number}`;
 }
 
 function nonNegativeInteger(value: unknown): number | null {

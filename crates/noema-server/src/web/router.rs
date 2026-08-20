@@ -8,7 +8,7 @@ use axum::{
     Router,
     body::Body,
     extract::{Extension, FromRequest, Path, RawQuery, Request, State, WebSocketUpgrade},
-    http::{HeaderValue, Method, StatusCode, Uri, header},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
@@ -119,6 +119,7 @@ pub(crate) fn build_router(state: WebState) -> Router {
             "/artifacts/versions/{artifact_version_slug}/download",
             get_only!(download_artifact_slug),
         )
+        .route("/favicons/{hostname}", get_only!(favicon))
         .fallback(asset_or_not_found);
     #[cfg(test)]
     let router = router.route("/__test/authenticate", post(authenticate_test_session));
@@ -166,6 +167,48 @@ pub(crate) fn build_router(state: WebState) -> Router {
             authority::enforce_authority,
         ))
         .with_state(state)
+}
+
+async fn favicon(
+    State(state): State<WebState>,
+    session: Session,
+    principal: Option<Extension<noema_api::RequestPrincipal>>,
+    Path(hostname): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if authenticated_principal(&state, &session, principal)
+        .await
+        .is_none()
+    {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    match state.favicons.get(&hostname).await {
+        Ok(icon) => {
+            let not_modified = headers
+                .get(header::IF_NONE_MATCH)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value == icon.etag);
+            let mut response = if not_modified {
+                StatusCode::NOT_MODIFIED.into_response()
+            } else {
+                ([(header::CONTENT_TYPE, "image/png")], icon.png).into_response()
+            };
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("private, max-age=86400"),
+            );
+            if let Ok(etag) = HeaderValue::from_str(&icon.etag) {
+                response.headers_mut().insert(header::ETAG, etag);
+            }
+            response
+        }
+        Err(super::favicons::FaviconError::InvalidHostname) => {
+            StatusCode::BAD_REQUEST.into_response()
+        }
+        Err(super::favicons::FaviconError::Missing) => StatusCode::NOT_FOUND.into_response(),
+        Err(super::favicons::FaviconError::Transient) => StatusCode::BAD_GATEWAY.into_response(),
+        Err(super::favicons::FaviconError::Timeout) => StatusCode::GATEWAY_TIMEOUT.into_response(),
+    }
 }
 
 async fn refresh_browser_activity(

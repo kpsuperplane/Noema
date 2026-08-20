@@ -117,6 +117,7 @@ struct ChatAvatarView: View {
 
 struct ChatMessageView: View {
   let client: ApolloClient?
+  let profile: NoemaProfile?
   let message: ChatMessage
   let attachedTaskIDs: [String]
   let group: ChatBubbleGroup
@@ -164,7 +165,13 @@ struct ChatMessageView: View {
       ) {
         ChatBubbleView(lane: .assistant, group: group) {
           VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-            ProviderCitationMarkdown(text: text, citations: citations, role: .assistantMessage)
+            ProviderCitationMarkdown(
+              text: text,
+              citations: citations,
+              role: .assistantMessage,
+              sourcesInline: true,
+              profile: profile
+            )
             ForEach(attachedTaskIDs, id: \.self) { taskID in
               TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
             }

@@ -22,7 +22,7 @@ pub use daemon::{
     AgentStatus, CapabilityIntegrationKind, CapabilitySetupCompletion, ConversationRuntimeEvent,
     MemoryRuntimeEvent, RuntimeError, RuntimeEventRegistry, RuntimeHandle, RuntimeSpawnConfig,
     StartedConversation, TaskRuntimeEvent, TaskRuntimeHandle, TurnActivityStatus, TurnStreamEvent,
-    TurnTranscriptItem, WorkRuntimeEvent, mark_turn_timing_event,
+    TurnTranscriptItem, WorkRuntimeEvent, mark_turn_timing_event, project_task_result,
 };
 pub use file_tools::run_file_parse_worker_if_requested;
 pub use tool_marker::tool_marker_for_action;

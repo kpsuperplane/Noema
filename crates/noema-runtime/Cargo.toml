@@ -47,5 +47,6 @@ rustix.workspace = true
 
 [dev-dependencies]
 noema-artifacts = { path = "../noema-artifacts", default-features = false, features = ["filesystem"] }
+noema-providers = { path = "../noema-providers", default-features = false, features = ["adapters"] }
 noema-store = { path = "../noema-store", default-features = false, features = ["test-support"] }
 tempfile.workspace = true

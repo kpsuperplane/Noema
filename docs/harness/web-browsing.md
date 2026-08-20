@@ -6,12 +6,21 @@ remain separate capabilities with their existing defaults.
 
 ## Model contract
 
-The stable tools are `open`, `snapshot`, `interact`, `wait`, `history`, and
-`close` under `web.browse.*`. Browser session identifiers,
+The stable tools are `open`, `snapshot`, `interact`, `wait`, `history`,
+`switch_provider`, and `close` under `web.browse.*`. Browser session identifiers,
 selectors, JavaScript, cookies, storage, response bodies, and network state are
 not model-visible. Snapshots expose bounded untrusted page text and bounded
 element references. An interaction or history operation must present the latest
 snapshot revision; a stale revision fails before acting.
+
+The human configures an ordered provider route. Obscura is the default route.
+The agent can use `switch_provider` when the active provider cannot continue.
+Noema does not classify CAPTCHAs or other access challenges.
+
+The switch input contains the latest public snapshot revision and a public URL.
+The agent can select the current URL or an earlier navigation point.
+Noema selects the next unattempted provider in route order.
+Ordinary `open` calls stay on the active provider.
 
 Page-authored content is untrusted data, not agent instruction. Agents should
 prefer hosted web for ordinary page reading. They should use browsing only when
@@ -22,8 +31,14 @@ resources. `file.parse` returns bounded text from supported local files.
 
 - `open` creates the owner's session or reuses its current session for a new
   public URL. A reused session keeps its ephemeral cookies and storage.
-- One browser session may be open for an owner. Foreground ownership is the
-  conversation. Task ownership is the task ID plus task generation.
+- One browser provider is active for an owner. Foreground ownership is the conversation.
+  Task ownership is the task ID plus task generation.
+- A switch keeps the source session until the target returns a valid snapshot.
+  A target failure closes the target and keeps the source active.
+- A successful switch closes the source and makes the target active.
+  Cookies, storage, history, DOM state, and element references never cross providers.
+- Each owner has one monotonic public snapshot revision stream.
+  Noema translates public revisions to the active provider's backend revisions.
 - A task session remains open while the same task generation is nonterminal.
   This rule includes human gates and approval continuations.
 - After a run settles, Noema reads the task before reconciliation. It closes the
@@ -69,6 +84,9 @@ are JSON encoded into those scripts. Arbitrary JavaScript evaluation, selectors,
 downloads, uploads, multiple tabs, proxies, durable profiles, and cross-owner
 reuse are intentionally absent.
 
+Kernel sessions use headful stealth mode. Kernel supplies its managed proxy and challenge handling.
+Noema does not add provider-specific challenge detection or waiting.
+
 Each successful page result can include one bounded PNG of the current viewport.
 The worker omits an unavailable or oversized render without failing the browser
 operation. The image stays outside model context. Noema stores it with the
@@ -80,7 +98,7 @@ contains failures, but it is not a sandbox for hostile native code.
 
 ## Governance and persistence
 
-`open` and `file.download` follow external-read execution policy. An observed
+`open`, `switch_provider`, and `file.download` follow external-read execution policy. An observed
 URL can use the existing narrow admission. Other URLs use normal action review.
 `interact` and `history` are non-idempotent open-world actions and use LLM/human review.
 `snapshot`, `wait`, and `close` execute immediately after ownership checks.
@@ -95,6 +113,12 @@ the session ownership and storage lifetime. These facts can constrain scope,
 but they cannot create human authority. Before review and after approval, Noema
 revalidates the session, snapshot revision, and exact target. It supersedes a
 stale request instead of acting on a changed page or missing session.
+
+The browser destination records the complete route through one ordered-route digest.
+The digest includes account order, capability state, and credential revisions.
+Noema recomputes this destination before approved execution.
+Saving a hosted route permits agent selection, hosted data flow, and hosted charges.
+The switch call remains the disclosure event for its selected URL.
 
 Browser result persistence is compact: provider, URL/title with only actual
 credential-bearing components removed, revision, element count, truncation,

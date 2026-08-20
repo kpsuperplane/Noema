@@ -9,7 +9,6 @@ import { Pencil } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 import {
   CapabilityConnectionDocument,
-  CapabilityIntegrationsDocument,
   ResetCapabilityToolPolicyDocument,
   SaveCapabilityConnectionPolicyDocument,
   SaveCapabilityConnectionLabelDocument,
@@ -119,14 +118,6 @@ export function CapabilityConnectionDetail({
     expectedConnectionRevision: connection.connectionRevision
   } as const;
 
-  async function refresh() {
-    setEditing(null);
-    setDraft(null);
-    setSharing(null);
-    setUnsafeActions(null);
-    await result.refetch();
-  }
-
   async function submitPolicy(policy: {
     dataSharingPolicy: CapabilityDataSharingPolicy;
     unsafeActionPolicy: CapabilityUnsafeActionPolicy;
@@ -154,32 +145,22 @@ export function CapabilityConnectionDetail({
       setPolicyBusy(false);
       return;
     }
-    try {
-      await result.refetch();
-      setSharing(null);
-      setUnsafeActions(null);
-    } catch {
-      setPolicyError("Policy saved, but connection details could not refresh.");
-    } finally {
-      policySaving.current = false;
-      setPolicyBusy(false);
-    }
+    setSharing(null);
+    setUnsafeActions(null);
+    policySaving.current = false;
+    setPolicyBusy(false);
   }
 
   async function submitLabel() {
     if (!connection) return;
     setError(null);
     try {
-      await saveLabel({
-        variables: { input: {
+      await saveLabel({ variables: { input: {
           ...fence,
           expectedConnectionLabel: connection.connectionLabel,
           connectionLabel: labelDraft
-        } },
-        refetchQueries: [{ query: CapabilityIntegrationsDocument, variables: { kind } }]
-      });
+        } } });
       setRenaming(false);
-      await refresh();
     } catch {
       setError("This connection label changed. Reload it and try again.");
     }
@@ -207,7 +188,8 @@ export function CapabilityConnectionDetail({
         expectedPolicyRevision: tool.policyRevision,
         ...draft
       } } });
-      await refresh();
+      setEditing(null);
+      setDraft(null);
     } catch {
       setError("This tool changed. Reload it and try again.");
     }
@@ -222,7 +204,6 @@ export function CapabilityConnectionDetail({
         sourceRevision: tool.sourceRevision,
         expectedPolicyRevision: tool.policyRevision
       } } });
-      await refresh();
     } catch {
       setError(`Could not reset ${tool.name}.`);
     }
@@ -238,7 +219,6 @@ export function CapabilityConnectionDetail({
         expectedPolicyRevision: tool.policyRevision,
         enabled
       } } });
-      await refresh();
     } catch {
       setError(`Could not ${enabled ? "turn on" : "turn off"} ${tool.name}.`);
     }

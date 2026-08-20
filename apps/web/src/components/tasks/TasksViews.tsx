@@ -8,8 +8,7 @@ import { ListCardLink } from "@/components/ListCardLink";
 import {
   HumanInterventionList,
   HumanInterventionMotionItem,
-  humanInterventionKey,
-  usePendingHumanInterventions
+  humanInterventionKey
 } from "@/components/actions/PendingGovernedActions";
 import {
   TaskStatusBadge,
@@ -17,11 +16,8 @@ import {
 } from "@/components/chatDetail/task/TaskStatusBadge";
 import type { TaskStatus } from "@/components/chatDetail/task/taskTypes";
 import {
-  TasksHistoryDocument,
-  TasksListDocument,
-  TasksRecurrencesDocument,
-  type TasksRecurrencesQuery,
-  type PendingHumanInterventionsQuery
+  TasksOverviewDocument,
+  type TasksOverviewQuery
 } from "@/generated/graphql";
 import { recurrenceSummary, relativeTime, taskRunLabel, timestampLabel } from "./tasksModel";
 import { normalizeTasksSearch, PERSONAL_WORKSPACE_ID, type TasksTask } from "./tasksTypes";
@@ -35,26 +31,21 @@ export function TasksList({
   selectedTaskId?: string;
   terminal: "all" | "completed" | "cancelled";
 }) {
-  const taskResult = useQuery(TasksListDocument, {
+  const historyKind = terminal === "completed" ? "COMPLETED" : terminal === "cancelled" ? "CANCELLED" : "ALL";
+  const rootResult = useQuery(TasksOverviewDocument, {
     variables: {
       input: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, scope: "ACTIVE" },
-      first: 100
-    },
-    fetchPolicy: "cache-and-network"
-  });
-  const recurrenceResult = useQuery(TasksRecurrencesDocument, {
-    variables: {
       workspaceId: PERSONAL_WORKSPACE_ID,
       projectId,
-      first: 100
+      historyKind
     },
-    fetchPolicy: "cache-and-network"
+    fetchPolicy: "cache-and-network",
+    errorPolicy: "all"
   });
-  const actionResult = usePendingHumanInterventions({ projectId });
-  const taskConnection = taskResult.data?.tasks;
+  const taskConnection = rootResult.data?.tasks;
   const tasks = taskConnection?.edges.map((edge) => edge.node) ?? [];
-  const recurrences = recurrenceResult.data?.taskRecurrences ?? [];
-  const interventions = actionResult.data?.pendingHumanInterventions ?? [];
+  const recurrences = rootResult.data?.taskRecurrences ?? [];
+  const interventions = rootResult.data?.pendingHumanInterventions ?? [];
   const visibleInterventions = selectedTaskId
     ? interventions.filter((intervention) => (
         intervention.__typename === "TaskAttention"
@@ -65,35 +56,31 @@ export function TasksList({
   const upNext = tasks.filter((task) => task.stage.behavior === "DISPATCH");
   const inbox = tasks.filter((task) => task.stage.behavior === "INTAKE" && !task.schedule);
   const oneTimeScheduled = tasks.filter((task) => task.stage.behavior === "INTAKE" && task.schedule && !task.schedule.recurrenceId);
-  const initialLoading = !taskConnection && !recurrenceResult.data && !actionResult.data
-    && taskResult.loading && recurrenceResult.loading && actionResult.loading;
+  const initialLoading = !rootResult.data && rootResult.loading;
 
   return (
     <div {...stylex.props(styles.dashboard)}>
       <VStack aria-label="Tasks" gap={4} className={stylex.props(styles.taskList).className}>
         {initialLoading ? (
-          <ListMessage loading error={false} retry={() => Promise.all([taskResult.refetch(), actionResult.refetch()])} label="tasks" />
+          <ListMessage loading error={false} retry={() => rootResult.refetch()} label="tasks" />
         ) : (
           <>
-            {!actionResult.data && actionResult.error ? (
-              <ListMessage loading={false} error retry={() => actionResult.refetch()} label="interventions" />
-            ) : null}
-            {!recurrenceResult.data ? (
-              <ListMessage loading={recurrenceResult.loading} error={Boolean(recurrenceResult.error)} retry={() => recurrenceResult.refetch()} label="recurring tasks" />
+            {!rootResult.data ? (
+              <ListMessage loading={rootResult.loading} error={Boolean(rootResult.error)} retry={() => rootResult.refetch()} label="recurring tasks" />
             ) : null}
             <AnimatePresence>
               {visibleInterventions.length > 0 ? (
                 <HumanInterventionMotionItem key="tasks-needs-you" exitGap="var(--spacing-4)">
                   <AttentionGroup
                     interventions={visibleInterventions}
-                    onResolved={() => void actionResult.refetch()}
+                    onResolved={() => void rootResult.refetch()}
                     selectedTaskId={selectedTaskId}
                   />
                 </HumanInterventionMotionItem>
               ) : null}
             </AnimatePresence>
             {!taskConnection ? (
-              <ListMessage loading={taskResult.loading} error={Boolean(taskResult.error)} retry={() => taskResult.refetch()} label="tasks" />
+              <ListMessage loading={rootResult.loading} error={Boolean(rootResult.error)} retry={() => rootResult.refetch()} label="tasks" />
             ) : null}
             {running.length ? <TaskGroup title="Running" tasks={running} /> : null}
             {oneTimeScheduled.length || recurrences.length ? <ScheduledGroup oneTimeTasks={oneTimeScheduled} recurrences={recurrences} /> : null}
@@ -101,9 +88,9 @@ export function TasksList({
             {inbox.length ? <TaskGroup title="Inbox" tasks={inbox} /> : null}
             <ListLoadMore
               visible={Boolean(taskConnection?.pageInfo.hasNextPage)}
-              loading={taskResult.loading}
-              onLoad={() => taskResult.fetchMore({
-                variables: { after: taskConnection?.pageInfo.endCursor },
+              loading={rootResult.loading}
+              onLoad={() => rootResult.fetchMore({
+                variables: { activeAfter: taskConnection?.pageInfo.endCursor },
                 updateQuery: (previous, { fetchMoreResult }) => ({
                   ...fetchMoreResult,
                   tasks: {
@@ -114,8 +101,20 @@ export function TasksList({
               })}
             />
             <TasksHistory
-              projectId={projectId}
-              terminal={terminal}
+              connection={rootResult.data?.taskHistory}
+              error={Boolean(rootResult.error)}
+              loading={rootResult.loading}
+              onRefetch={rootResult.refetch}
+              onLoadMore={(historyAfter) => rootResult.fetchMore({
+                variables: { historyAfter },
+                updateQuery: (previous, { fetchMoreResult }) => ({
+                  ...fetchMoreResult,
+                  taskHistory: {
+                    ...fetchMoreResult.taskHistory,
+                    edges: [...previous.taskHistory.edges, ...fetchMoreResult.taskHistory.edges]
+                  }
+                })
+              })}
             />
           </>
         )}
@@ -187,7 +186,7 @@ function AttentionGroup({
   );
 }
 
-type HumanInterventions = PendingHumanInterventionsQuery["pendingHumanInterventions"];
+type HumanInterventions = TasksOverviewQuery["pendingHumanInterventions"];
 type AttachedTask = Pick<TasksTask, "project" | "taskId" | "title" | "updatedAt">;
 type AttachedIntervention = {
   intervention: HumanInterventions[number];
@@ -264,7 +263,7 @@ function TaskGroup({ title, tasks }: { title: string; tasks: readonly TasksTask[
   );
 }
 
-type TasksRecurrence = TasksRecurrencesQuery["taskRecurrences"][number];
+type TasksRecurrence = TasksOverviewQuery["taskRecurrences"][number];
 
 function ScheduledGroup({ oneTimeTasks, recurrences }: { oneTimeTasks: readonly TasksTask[]; recurrences: readonly TasksRecurrence[] }) {
   return (
@@ -344,23 +343,26 @@ function TaskCard({ taskId = "", recurrenceId, title, note, project, status, sta
   return listItem ? <li {...stylex.props(styles.cardListItem)}>{link}</li> : link;
 }
 
-function TasksHistory({ projectId, terminal }: { projectId?: string; terminal: "all" | "completed" | "cancelled" }) {
-  const kind = terminal === "completed" ? "COMPLETED" : terminal === "cancelled" ? "CANCELLED" : "ALL";
-  const result = useQuery(TasksHistoryDocument, {
-    variables: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, kind, first: 10 },
-    fetchPolicy: "cache-and-network"
-  });
-  const connection = result.data?.taskHistory;
+function TasksHistory({ connection, error, loading, onRefetch, onLoadMore }: {
+  connection?: TasksOverviewQuery["taskHistory"];
+  error: boolean;
+  loading: boolean;
+  onRefetch: () => unknown;
+  onLoadMore: (after: string) => unknown;
+}) {
   const tasks = connection?.edges.map((edge) => edge.node) ?? [];
   return (
     <VStack as="section" aria-labelledby="tasks-history" gap={1.5} className={stylex.props(styles.taskGroup).className}>
       <SectionHeader id="tasks-history" title="History" count={tasks.length} />
-      {!connection ? <ListMessage loading={result.loading} error={Boolean(result.error)} retry={() => result.refetch()} label="history" /> : null}
+      {!connection ? <ListMessage loading={loading} error={error} retry={onRefetch} label="history" /> : null}
       {connection && !tasks.length ? <ListEmpty title="No matching history" detail="Done and cancelled tasks remain available here." /> : null}
       <VStack as="ul" gap={1.5} className={stylex.props(styles.cards).className}>
         {tasks.map((task) => <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.taskDocumentPreview} project={task.project?.name} status={taskStatusFromProjection(task)} statusLabel={task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />)}
       </VStack>
-      <ListLoadMore visible={Boolean(connection?.pageInfo.hasNextPage)} loading={result.loading} onLoad={() => result.fetchMore({ variables: { after: connection?.pageInfo.endCursor }, updateQuery: (previous, { fetchMoreResult }) => ({ ...fetchMoreResult, taskHistory: { ...fetchMoreResult.taskHistory, edges: [...previous.taskHistory.edges, ...fetchMoreResult.taskHistory.edges] } }) })} />
+      <ListLoadMore visible={Boolean(connection?.pageInfo.hasNextPage)} loading={loading} onLoad={() => {
+        const cursor = connection?.pageInfo.endCursor;
+        if (cursor) onLoadMore(cursor);
+      }} />
     </VStack>
   );
 }

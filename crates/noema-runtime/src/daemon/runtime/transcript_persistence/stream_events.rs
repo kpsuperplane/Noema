@@ -67,13 +67,17 @@ pub(super) fn handle_provider_stream_event(
             response_index,
             delta,
         ),
-        GenerateStreamEvent::ToolCallStarted { output_index, name } => {
+        GenerateStreamEvent::ToolCallStarted {
+            output_index,
+            provider_call_id,
+            name,
+        } => {
             send_tool_call_started_transient(
                 context,
                 item_tx,
                 output_index_base + output_index,
                 &name,
-                None,
+                Some(&provider_call_id),
             );
         }
         GenerateStreamEvent::HostedWebSearchStarted { output_index, id } => {

@@ -15,6 +15,7 @@ pub const WEB_BROWSE_SNAPSHOT_TOOL: &str = "web.browse.snapshot";
 pub const WEB_BROWSE_INTERACT_TOOL: &str = "web.browse.interact";
 pub const WEB_BROWSE_WAIT_TOOL: &str = "web.browse.wait";
 pub const WEB_BROWSE_HISTORY_TOOL: &str = "web.browse.history";
+pub const WEB_BROWSE_SWITCH_PROVIDER_TOOL: &str = "web.browse.switch_provider";
 pub const WEB_BROWSE_CLOSE_TOOL: &str = "web.browse.close";
 pub const DEFAULT_SNAPSHOT_CHARS: usize = 12_000;
 pub const MAX_SNAPSHOT_CHARS: usize = 20_000;
@@ -87,6 +88,12 @@ pub struct BrowseWaitRequest {
 pub struct BrowseHistoryRequest {
     pub snapshot_revision: u64,
     pub action: BrowseHistoryAction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrowseProviderSwitchRequest {
+    pub snapshot_revision: u64,
+    pub url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -188,6 +195,13 @@ struct HistoryArguments {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ProviderSwitchArguments {
+    snapshot_revision: u64,
+    url: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct EmptyArguments {}
 
 /// Build the stable model-visible browser tool schemas.
@@ -242,6 +256,16 @@ pub fn tool_specs() -> Result<Vec<ToolSpec>, ToolContractError> {
             }),
         )?,
         ToolSpec::new(
+            WEB_BROWSE_SWITCH_PROVIDER_TOOL,
+            "Open an agent-selected public URL with the next configured browser provider when the current provider cannot continue. A successful switch creates a fresh session and destroys the previous cookies, local storage, session storage, browser history, DOM state, and element references.",
+            json!({
+                "type":"object", "properties": {
+                    "snapshot_revision":{"type":"integer","minimum":1},
+                    "url":{"type":"string","minLength":1,"maxLength":MAX_URL_CHARS}
+                }, "required":["snapshot_revision","url"], "additionalProperties":false
+            }),
+        )?,
+        ToolSpec::new(
             WEB_BROWSE_CLOSE_TOOL,
             "Close the active browser session and destroy its page, cookies, and storage.",
             json!({
@@ -249,6 +273,33 @@ pub fn tool_specs() -> Result<Vec<ToolSpec>, ToolContractError> {
             }),
         )?,
     ])
+}
+
+/// Parse one provider-switch request without exposing it to provider adapters.
+///
+/// # Errors
+///
+/// Returns an error when the input does not name the latest snapshot and a
+/// bounded public navigation URL.
+pub fn parse_provider_switch(
+    payload: &Value,
+) -> Result<BrowseProviderSwitchRequest, BrowseArgumentError> {
+    let arguments = super::nested_arguments(payload).map_err(argument_error)?;
+    let mut value: ProviderSwitchArguments = decode(arguments)?;
+    value.url = value.url.trim().to_string();
+    if value.snapshot_revision == 0 {
+        return Err(argument_error("snapshot_revision must be positive"));
+    }
+    if value.url.is_empty() {
+        return Err(argument_error("url is required"));
+    }
+    if value.url.chars().count() > MAX_URL_CHARS {
+        return Err(argument_error("url is too long"));
+    }
+    Ok(BrowseProviderSwitchRequest {
+        snapshot_revision: value.snapshot_revision,
+        url: value.url,
+    })
 }
 
 fn navigation_spec(name: &str, description: &str) -> Result<ToolSpec, ToolContractError> {
@@ -454,6 +505,15 @@ mod tests {
                 .unwrap_err()
                 .message(),
             "wait text is too long"
+        );
+        assert_eq!(
+            parse_provider_switch(&json!({
+                "snapshot_revision": 4,
+                "url": " https://example.com/start "
+            }))
+            .expect("provider switch")
+            .url,
+            "https://example.com/start"
         );
         let specs = tool_specs().expect("browser tool specs");
         let open = specs

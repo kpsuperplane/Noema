@@ -388,6 +388,37 @@ async fn v31_upgrade_and_fresh_schema_converge_on_web_browse_contract() {
 }
 
 #[tokio::test]
+async fn browser_provider_route_migration_preserves_v59_assignment_at_position_zero() {
+    let home = TempDir::new().expect("v59 route root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    let mut connection = Connection::open(&config.path).expect("v59 database");
+    store_migrations()
+        .to_version(&mut connection, 59)
+        .expect("construct v59 schema");
+    connection
+        .execute(
+            "INSERT INTO provider_capability_bindings (binding_id, tool_name, capability_id, provider_account_id) VALUES ('provider_capability_binding:web.browse:web.browse', 'web.browse', 'web.browse', 'provider_account:obscura:system')",
+            [],
+        )
+        .expect("save v59 browse assignment");
+    drop(connection);
+
+    drop(NoemaStore::open(&config).await.expect("upgrade v59 route"));
+    let connection = Connection::open(&config.path).expect("upgraded route database");
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT route_position FROM provider_capability_bindings WHERE tool_name = 'web.browse'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("read migrated route position"),
+        0
+    );
+}
+
+#[tokio::test]
 async fn v32_upgrade_persists_system_provider_accounts_and_matches_fresh_schema() {
     let upgrade_home = TempDir::new().expect("v32 root");
     let upgrade_config = store_config(upgrade_home.path());
