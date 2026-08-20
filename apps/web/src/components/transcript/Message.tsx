@@ -194,6 +194,7 @@ function MessageMarkdown({
       headingLevelStart={3}
       isStreaming={animate}
       citations={citations}
+      sourcesOnOwnLine
       text={text}
       xstyle={styles.markdown}
     />

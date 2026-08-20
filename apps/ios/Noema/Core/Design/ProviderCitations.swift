@@ -50,22 +50,22 @@ struct ProviderCitationMarkdown: View {
   let text: String
   let citations: [ProviderCitation]
   let role: NoemaMarkdown.Role
-  let sourcesInline: Bool
   let profile: NoemaProfile?
+  let sourcesSpacing: CGFloat
   @State private var sourcesPresented = false
 
   init(
     text: String,
     citations: [ProviderCitation],
     role: NoemaMarkdown.Role,
-    sourcesInline: Bool = false,
-    profile: NoemaProfile? = nil
+    profile: NoemaProfile? = nil,
+    sourcesSpacing: CGFloat = NoemaSpacing.xs
   ) {
     self.text = text
     self.citations = citations
     self.role = role
-    self.sourcesInline = sourcesInline
     self.profile = profile
+    self.sourcesSpacing = sourcesSpacing
   }
 
   @ViewBuilder
@@ -73,19 +73,8 @@ struct ProviderCitationMarkdown: View {
     let content = ProviderCitationContent(text: text, citations: citations)
     if content.citations.isEmpty {
       NoemaMarkdown(content.text, role: role)
-    } else if sourcesInline {
-      HStack(alignment: .bottom, spacing: NoemaSpacing.xs) {
-        NoemaMarkdown(content.text, role: role)
-          .layoutPriority(1)
-        CitationSourcesButton(hostnames: citationHostnames(content.citations), profile: profile) {
-          sourcesPresented = true
-        }
-      }
-      .noemaSheet(isPresented: $sourcesPresented) {
-        ProviderCitationSheet(citations: content.citations, profile: profile)
-      }
     } else {
-      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+      VStack(alignment: .leading, spacing: sourcesSpacing) {
         NoemaMarkdown(content.text, role: role)
         CitationSourcesButton(hostnames: citationHostnames(content.citations), profile: profile) {
           sourcesPresented = true
@@ -173,6 +162,16 @@ struct CitationSourcesButton: View {
   let profile: NoemaProfile?
   let action: () -> Void
 
+  init(
+    hostnames: [String] = [],
+    profile: NoemaProfile? = nil,
+    action: @escaping () -> Void
+  ) {
+    self.hostnames = hostnames
+    self.profile = profile
+    self.action = action
+  }
+
   var body: some View {
     Button(action: action) {
       if hostnames.isEmpty {
@@ -181,19 +180,23 @@ struct CitationSourcesButton: View {
           .frame(width: NoemaSpacing.xl, height: NoemaSpacing.xl)
           .overlay { NoemaSuperellipse.full.stroke(NoemaColor.separator, lineWidth: 1) }
       } else {
-        HStack(spacing: NoemaSpacing.xxs) {
-          HStack(spacing: -NoemaSpacing.xs) {
-            ForEach(Array(hostnames.prefix(3)), id: \.self) { hostname in
-              NoemaFaviconImage(hostname: hostname, profile: profile, size: .compact)
+        HStack(spacing: NoemaSpacing.xs) {
+          if hostnames.count == 1, let hostname = hostnames.first {
+            singleSourceIcon(hostname)
+          } else {
+            HStack(spacing: -NoemaSpacing.xs) {
+              ForEach(Array(hostnames.prefix(3).enumerated()), id: \.element) { index, hostname in
+                groupedFavicon(hostname)
+                  .zIndex(Double(index))
+              }
             }
           }
-          if hostnames.count > 3 {
-            Text("+\(hostnames.count - 3)")
-              .font(NoemaFont.metadata.weight(.semibold))
-              .foregroundStyle(NoemaColor.contentSecondary)
-          }
+          Text(citationDomainLabel(hostnames))
+            .font(NoemaFont.compact)
+            .foregroundStyle(NoemaColor.contentSecondary)
+            .lineLimit(1)
         }
-        .padding(.horizontal, NoemaSpacing.xs)
+        .padding(.horizontal, NoemaSpacing.sm)
         .frame(height: NoemaSpacing.xl)
         .overlay { NoemaSuperellipse.full.stroke(NoemaColor.separator, lineWidth: 1) }
       }
@@ -202,6 +205,20 @@ struct CitationSourcesButton: View {
     .contentShape(.interaction, NoemaSuperellipse.full.inset(by: -NoemaSpacing.md))
     .accessibilityLabel("Sources")
     .accessibilityHint("Shows citation sources")
+  }
+
+  private func groupedFavicon(_ hostname: String) -> some View {
+    NoemaFaviconImage(hostname: hostname, profile: profile, size: .compact)
+      .overlay { Circle().stroke(NoemaColor.surface, lineWidth: 1) }
+  }
+
+  private func singleSourceIcon(_ hostname: String) -> some View {
+    ZStack {
+      NoemaIcon(.bookOpen, size: NoemaSpacing.md)
+        .foregroundStyle(NoemaColor.contentSecondary)
+      groupedFavicon(hostname)
+    }
+    .frame(width: NoemaSpacing.md, height: NoemaSpacing.md)
   }
 }
 
@@ -249,19 +266,24 @@ private struct ProviderCitationSheet: View {
                   .font(NoemaFont.metadata.weight(.semibold))
                   .foregroundStyle(NoemaColor.accent)
                   .frame(minWidth: NoemaSpacing.lg, alignment: .leading)
-                NoemaFaviconImage(
-                  hostname: citation.destination.host ?? "",
-                  profile: profile
-                )
                 VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
                   Text(citation.title)
                     .font(NoemaFont.body.weight(.semibold))
                     .foregroundStyle(NoemaColor.content)
                     .fixedSize(horizontal: false, vertical: true)
-                  Text(citation.destination.host ?? citation.destination.absoluteString)
-                    .font(NoemaFont.caption)
-                    .foregroundStyle(NoemaColor.contentSecondary)
-                    .lineLimit(2)
+                  HStack(spacing: NoemaSpacing.xs) {
+                    NoemaFaviconImage(
+                      hostname: citation.destination.host ?? "",
+                      profile: profile,
+                      size: .compact
+                    )
+                    Text(citationDisplayHostname(
+                      citation.destination.host ?? citation.destination.absoluteString
+                    ))
+                      .font(NoemaFont.caption)
+                      .foregroundStyle(NoemaColor.contentSecondary)
+                      .lineLimit(2)
+                  }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
               }
@@ -275,10 +297,21 @@ private struct ProviderCitationSheet: View {
           }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .multilineTextAlignment(.leading)
         .padding(.horizontal, NoemaSpacing.lg)
       }
     }
     .presentationDetents([.medium, .large])
     .presentationDragIndicator(.visible)
   }
+}
+
+private func citationDisplayHostname(_ hostname: String) -> String {
+  hostname.lowercased().hasPrefix("www.") ? String(hostname.dropFirst(4)) : hostname
+}
+
+private func citationDomainLabel(_ hostnames: [String]) -> String {
+  guard let first = hostnames.first else { return "" }
+  let overflow = hostnames.count - 1
+  return citationDisplayHostname(first) + (overflow > 0 ? " +\(overflow)" : "")
 }

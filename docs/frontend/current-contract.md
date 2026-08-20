@@ -187,13 +187,15 @@ Task results. They number unique URLs in first-use order. Each citation marker
 follows its claim when the provider supplies a valid UTF-16 end offset. A marker
 without a valid offset follows the complete message. Markers use plain,
 non-interactive superscript numbers. One Sources control follows the cited
-content and opens its Sources view. The control remains inline for Chat
-messages. Each source shows its title, host, favicon, and exact URL.
+content and opens its Sources view. The control uses its own line in Chat
+message bubbles. Each source shows its title, host, favicon, and exact URL.
 
 Web renders every Sources control with Astryx Citation. Web and iOS show up to
-three exact-host favicons in a compact transparent pill. Extra hosts use a
-count. Loading and failed favicons show the first site-domain letter without
-changing layout. Sources without website hosts keep the generic Sources icon.
+three exact-host favicons in a compact transparent pill. Surface-colored rings
+separate overlapping favicons. The first domain always appears without a leading
+`www.` label. Extra domains use one `+N` suffix. Failed favicons disappear instead
+of showing a fallback avatar. One source with no favicon uses a plain Sources
+book icon. Sources without website hosts keep the generic Sources icon.
 
 The backend decodes reserved source footnotes from completed Task results. It
 returns readable text and the same structured provider citation metadata that

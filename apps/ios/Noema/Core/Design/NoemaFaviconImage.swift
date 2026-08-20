@@ -109,52 +109,37 @@ struct NoemaFaviconImage: View {
   let profile: NoemaProfile?
   var size: NoemaFaviconSize = .standard
   @State private var data: Data?
+  @State private var unavailable = false
 
   var body: some View {
-    ZStack {
-      Circle().fill(NoemaColor.surfaceSecondary)
-      if let initial = noemaSiteInitial(hostname) {
-        Text(initial)
-          .font(NoemaFont.metadata.weight(.semibold))
-          .foregroundStyle(NoemaColor.contentSecondary)
-          .minimumScaleFactor(0.5)
-      } else {
-        NoemaIcon(.globe, size: NoemaSpacing.sm)
-          .foregroundStyle(NoemaColor.contentSecondary)
-      }
+    Group {
       if let data, let image = UIImage(data: data) {
         Image(uiImage: image)
           .resizable()
           .scaledToFit()
+      } else {
+        Color.clear
       }
     }
-    .frame(width: size.dimension, height: size.dimension)
+    .frame(
+      width: unavailable ? 0 : size.dimension,
+      height: unavailable ? 0 : size.dimension
+    )
     .clipShape(Circle())
     .accessibilityHidden(true)
     .task(id: requestID) {
       data = nil
-      guard let profile else { return }
+      unavailable = false
+      guard let profile else {
+        unavailable = true
+        return
+      }
       data = await NoemaFaviconLoader.shared.data(hostname: hostname, profile: profile)
+      unavailable = data == nil
     }
   }
 
   private var requestID: String {
     "\(profile?.origin.absoluteString ?? "")#\(profile?.accessExpiresAt.timeIntervalSince1970 ?? 0)#\(hostname)"
   }
-}
-
-func noemaSiteInitial(_ hostname: String) -> String? {
-  var labels = hostname.lowercased().split(separator: ".").map(String.init)
-  let prefix = labels.first ?? ""
-  let wwwSuffix = prefix.hasPrefix("www") ? String(prefix.dropFirst(3)) : "x"
-  if prefix == "www"
-      || (!wwwSuffix.isEmpty && wwwSuffix.allSatisfy(\.isNumber))
-      || prefix == "m"
-      || prefix == "mobile" {
-    labels.removeFirst()
-  }
-  guard let character = labels.first?.first(where: { $0.isLetter || $0.isNumber }) else {
-    return nil
-  }
-  return String(character).uppercased()
 }

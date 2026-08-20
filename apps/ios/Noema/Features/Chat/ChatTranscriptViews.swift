@@ -169,8 +169,8 @@ struct ChatMessageView: View {
               text: text,
               citations: citations,
               role: .assistantMessage,
-              sourcesInline: true,
-              profile: profile
+              profile: profile,
+              sourcesSpacing: 0
             )
             ForEach(attachedTaskIDs, id: \.self) { taskID in
               TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
