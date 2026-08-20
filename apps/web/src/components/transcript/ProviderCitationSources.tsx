@@ -39,7 +39,18 @@ type ProviderCitationMarkdownProps = Omit<
 const SOURCES_ACTION_URL = "noema-sources://open";
 
 const styles = stylex.create({
-  sourcesAction: { marginInlineStart: "var(--spacing-1)", verticalAlign: "middle" },
+  sourcesAction: {
+    marginInlineStart: "var(--spacing-1)",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--noema-border-subtle)",
+    borderRadius: "var(--radius-pill)",
+    cornerShape: "var(--corner-shape-full)",
+    backgroundColor: "var(--noema-surface-card)",
+    boxShadow: "none",
+    verticalAlign: "middle",
+    ":hover": { backgroundColor: "var(--noema-surface-hover)" }
+  },
   sourceLink: {
     display: "block",
     padding: "var(--spacing-2)",
@@ -109,10 +120,10 @@ export function CitationReference({
       <IconButton
         type="button"
         size="sm"
-        variant="secondary"
+        variant="ghost"
         label="Sources"
         tooltip="Sources"
-        icon={<BookOpen aria-hidden="true" size={14} />}
+        icon={<BookOpen aria-hidden="true" size={12} />}
         onClick={onOpenSources}
         xstyle={styles.sourcesAction}
       />

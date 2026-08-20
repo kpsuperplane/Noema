@@ -170,9 +170,10 @@ struct CitationSourcesButton: View {
 
   var body: some View {
     Button(action: action) {
-      NoemaIcon(.bookOpen, size: 14)
+      NoemaIcon(.bookOpen, size: 12)
         .foregroundStyle(NoemaColor.contentSecondary)
-        .frame(width: NoemaSpacing.xxl, height: NoemaSpacing.xxl)
+        .padding(.horizontal, NoemaSpacing.compact)
+        .frame(height: NoemaSpacing.xl)
         .background(NoemaColor.controlFill, in: NoemaSuperellipse.full)
         .overlay { NoemaSuperellipse.full.stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
     }
