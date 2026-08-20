@@ -6,7 +6,7 @@
 
 nonisolated public struct TasksDetailOutcomeFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksDetailOutcomeFields on TaskDetail { __typename taskId taskDocument resultDocument reviewDocument }"#
+    #"fragment TasksDetailOutcomeFields on TaskDetail { __typename taskId taskDocument taskDocumentDigest resultDocument reviewDocument }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -17,6 +17,7 @@ nonisolated public struct TasksDetailOutcomeFields: NoemaAPI.SelectionSet, Fragm
     .field("__typename", String.self),
     .field("taskId", String.self),
     .field("taskDocument", String.self),
+    .field("taskDocumentDigest", String.self),
     .field("resultDocument", String?.self),
     .field("reviewDocument", String?.self),
   ] }
@@ -28,6 +29,8 @@ nonisolated public struct TasksDetailOutcomeFields: NoemaAPI.SelectionSet, Fragm
   public var taskId: String { __data["taskId"] }
   /// Current mutable TASK.md content.
   public var taskDocument: String { __data["taskDocument"] }
+  /// Transient SHA-256 of the current Task document.
+  public var taskDocumentDigest: String { __data["taskDocumentDigest"] }
   /// Current mutable RESULT.md content, when it exists.
   public var resultDocument: String? { __data["resultDocument"] }
   /// Current mutable REVIEW.md content, when it exists.

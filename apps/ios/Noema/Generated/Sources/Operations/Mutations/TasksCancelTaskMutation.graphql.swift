@@ -81,8 +81,10 @@ nonisolated public struct TasksCancelTaskMutation: GraphQLMutation {
         public var taskId: String { __data["taskId"] }
         /// Full title.
         public var title: String { __data["title"] }
-        /// Full description Markdown.
-        public var description: String { __data["description"] }
+        /// Current mutable TASK.md content.
+        public var taskDocument: String { __data["taskDocument"] }
+        /// Transient SHA-256 of the current Task document.
+        public var taskDocumentDigest: String { __data["taskDocumentDigest"] }
         /// Assigned executor agent identity.
         public var executorAgentId: String { __data["executorAgentId"] }
         /// Assigned executor backend.

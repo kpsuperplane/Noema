@@ -202,8 +202,8 @@ nonisolated public struct PendingChatInterventionsQuery: GraphQLQuery {
           public var project: Project? { __data["project"] }
           /// Human title.
           public var title: String { __data["title"] }
-          /// Bounded description preview.
-          public var descriptionPreview: String { __data["descriptionPreview"] }
+          /// Bounded current Task document preview.
+          public var taskDocumentPreview: String { __data["taskDocumentPreview"] }
           /// Assigned executor agent identity.
           public var executorAgentId: String { __data["executorAgentId"] }
           /// Assigned executor backend.

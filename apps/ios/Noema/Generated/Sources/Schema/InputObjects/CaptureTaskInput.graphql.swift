@@ -15,7 +15,7 @@ nonisolated public struct CaptureTaskInput: InputObject {
     workspaceId: String,
     projectId: GraphQLNullable<String> = nil,
     title: String,
-    description: String? = nil,
+    taskDocument: String? = nil,
     schedule: GraphQLNullable<NewTaskScheduleInput> = nil,
     executorAgentId: GraphQLNullable<String> = nil,
     cwdOverride: GraphQLNullable<String> = nil,
@@ -25,7 +25,7 @@ nonisolated public struct CaptureTaskInput: InputObject {
       "workspaceId": workspaceId,
       "projectId": projectId,
       "title": title,
-      "description": description ?? GraphQLNullable.none,
+      "taskDocument": taskDocument ?? GraphQLNullable.none,
       "schedule": schedule,
       "executorAgentId": executorAgentId,
       "cwdOverride": cwdOverride,
@@ -51,10 +51,10 @@ nonisolated public struct CaptureTaskInput: InputObject {
     set { __data["title"] = newValue }
   }
 
-  /// Fuller capture description.
-  public var description: String? {
-    get { __data["description"] }
-    set { __data["description"] = newValue }
+  /// Exact initial TASK.md content.
+  public var taskDocument: String? {
+    get { __data["taskDocument"] }
+    set { __data["taskDocument"] = newValue }
   }
 
   /// Optional one-time or repeating execution schedule.

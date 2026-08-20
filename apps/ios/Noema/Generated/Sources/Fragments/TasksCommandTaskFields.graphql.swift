@@ -6,7 +6,7 @@
 
 nonisolated public struct TasksCommandTaskFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksCommandTaskFields on TaskDetail { __typename taskId title description executorAgentId executorBackend cwdOverride effectiveCwd effectiveCwdSource stage { __typename ...TasksStageFields } revision generation updatedAt schedule { __typename scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor } completedAt validActions activeGate { __typename ...TasksGateFields } currentRun { __typename ...TasksCurrentRunFields } }"#
+    #"fragment TasksCommandTaskFields on TaskDetail { __typename taskId title taskDocument taskDocumentDigest executorAgentId executorBackend cwdOverride effectiveCwd effectiveCwdSource stage { __typename ...TasksStageFields } revision generation updatedAt schedule { __typename scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor } completedAt validActions activeGate { __typename ...TasksGateFields } currentRun { __typename ...TasksCurrentRunFields } }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -17,7 +17,8 @@ nonisolated public struct TasksCommandTaskFields: NoemaAPI.SelectionSet, Fragmen
     .field("__typename", String.self),
     .field("taskId", String.self),
     .field("title", String.self),
-    .field("description", String.self),
+    .field("taskDocument", String.self),
+    .field("taskDocumentDigest", String.self),
     .field("executorAgentId", String.self),
     .field("executorBackend", String.self),
     .field("cwdOverride", String?.self),
@@ -41,8 +42,10 @@ nonisolated public struct TasksCommandTaskFields: NoemaAPI.SelectionSet, Fragmen
   public var taskId: String { __data["taskId"] }
   /// Full title.
   public var title: String { __data["title"] }
-  /// Full description Markdown.
-  public var description: String { __data["description"] }
+  /// Current mutable TASK.md content.
+  public var taskDocument: String { __data["taskDocument"] }
+  /// Transient SHA-256 of the current Task document.
+  public var taskDocumentDigest: String { __data["taskDocumentDigest"] }
   /// Assigned executor agent identity.
   public var executorAgentId: String { __data["executorAgentId"] }
   /// Assigned executor backend.

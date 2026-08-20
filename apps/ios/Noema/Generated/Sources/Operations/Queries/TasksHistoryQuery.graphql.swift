@@ -8,14 +8,13 @@ nonisolated public struct TasksHistoryQuery: GraphQLQuery {
   public static let operationName: String = "TasksHistory"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"query TasksHistory($workspaceId: String!, $projectId: String, $kind: TerminalTaskKind, $text: String, $first: Int = 50, $after: String) { taskHistory( workspaceId: $workspaceId projectId: $projectId kind: $kind text: $text first: $first after: $after ) { __typename edges { __typename cursor node { __typename ...TasksTaskSummaryFields } } pageInfo { __typename ...TasksPageInfoFields } } }"#,
+      #"query TasksHistory($workspaceId: String!, $projectId: String, $kind: TerminalTaskKind, $first: Int = 50, $after: String) { taskHistory( workspaceId: $workspaceId projectId: $projectId kind: $kind first: $first after: $after ) { __typename edges { __typename cursor node { __typename ...TasksTaskSummaryFields } } pageInfo { __typename ...TasksPageInfoFields } } }"#,
       fragments: [TasksCurrentRunFields.self, TasksGateFields.self, TasksPageInfoFields.self, TasksProjectFields.self, TasksStageFields.self, TasksTaskSummaryFields.self, TasksWorkspaceFields.self]
     ))
 
   public var workspaceId: String
   public var projectId: GraphQLNullable<String>
   public var kind: GraphQLNullable<GraphQLEnum<TerminalTaskKind>>
-  public var text: GraphQLNullable<String>
   public var first: GraphQLNullable<Int32>
   public var after: GraphQLNullable<String>
 
@@ -23,14 +22,12 @@ nonisolated public struct TasksHistoryQuery: GraphQLQuery {
     workspaceId: String,
     projectId: GraphQLNullable<String>,
     kind: GraphQLNullable<GraphQLEnum<TerminalTaskKind>>,
-    text: GraphQLNullable<String>,
     first: GraphQLNullable<Int32> = 50,
     after: GraphQLNullable<String>
   ) {
     self.workspaceId = workspaceId
     self.projectId = projectId
     self.kind = kind
-    self.text = text
     self.first = first
     self.after = after
   }
@@ -39,7 +36,6 @@ nonisolated public struct TasksHistoryQuery: GraphQLQuery {
     "workspaceId": workspaceId,
     "projectId": projectId,
     "kind": kind,
-    "text": text,
     "first": first,
     "after": after
   ] }
@@ -54,7 +50,6 @@ nonisolated public struct TasksHistoryQuery: GraphQLQuery {
         "workspaceId": .variable("workspaceId"),
         "projectId": .variable("projectId"),
         "kind": .variable("kind"),
-        "text": .variable("text"),
         "first": .variable("first"),
         "after": .variable("after")
       ]),
@@ -135,8 +130,8 @@ nonisolated public struct TasksHistoryQuery: GraphQLQuery {
           public var project: Project? { __data["project"] }
           /// Human title.
           public var title: String { __data["title"] }
-          /// Bounded description preview.
-          public var descriptionPreview: String { __data["descriptionPreview"] }
+          /// Bounded current Task document preview.
+          public var taskDocumentPreview: String { __data["taskDocumentPreview"] }
           /// Assigned executor agent identity.
           public var executorAgentId: String { __data["executorAgentId"] }
           /// Assigned executor backend.

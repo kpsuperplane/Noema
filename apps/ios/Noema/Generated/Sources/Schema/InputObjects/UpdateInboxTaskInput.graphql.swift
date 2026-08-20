@@ -16,7 +16,8 @@ nonisolated public struct UpdateInboxTaskInput: InputObject {
     expectedRevision: Int32,
     expectedGeneration: Int32,
     title: GraphQLNullable<String> = nil,
-    description: GraphQLNullable<String> = nil,
+    taskDocument: GraphQLNullable<String> = nil,
+    expectedTaskDocumentDigest: GraphQLNullable<String> = nil,
     projectId: GraphQLNullable<String> = nil,
     clearProject: GraphQLNullable<Bool> = nil,
     executorAgentId: GraphQLNullable<String> = nil,
@@ -29,7 +30,8 @@ nonisolated public struct UpdateInboxTaskInput: InputObject {
       "expectedRevision": expectedRevision,
       "expectedGeneration": expectedGeneration,
       "title": title,
-      "description": description,
+      "taskDocument": taskDocument,
+      "expectedTaskDocumentDigest": expectedTaskDocumentDigest,
       "projectId": projectId,
       "clearProject": clearProject,
       "executorAgentId": executorAgentId,
@@ -63,10 +65,16 @@ nonisolated public struct UpdateInboxTaskInput: InputObject {
     set { __data["title"] = newValue }
   }
 
-  /// Optional replacement description.
-  public var description: GraphQLNullable<String> {
-    get { __data["description"] }
-    set { __data["description"] = newValue }
+  /// Optional replacement Task document.
+  public var taskDocument: GraphQLNullable<String> {
+    get { __data["taskDocument"] }
+    set { __data["taskDocument"] = newValue }
+  }
+
+  /// Required current document digest when taskDocument is present.
+  public var expectedTaskDocumentDigest: GraphQLNullable<String> {
+    get { __data["expectedTaskDocumentDigest"] }
+    set { __data["expectedTaskDocumentDigest"] = newValue }
   }
 
   /// Optional project assignment. Null means omitted unless clearProject is true.

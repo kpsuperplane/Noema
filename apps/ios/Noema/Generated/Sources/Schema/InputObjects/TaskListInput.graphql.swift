@@ -16,7 +16,6 @@ nonisolated public struct TaskListInput: InputObject {
     projectId: GraphQLNullable<String> = nil,
     stageIds: GraphQLNullable<[String]> = nil,
     stageBehaviors: GraphQLNullable<[GraphQLEnum<WorkflowStageBehavior>]> = nil,
-    text: GraphQLNullable<String> = nil,
     attentionOnly: Bool? = nil,
     scope: GraphQLEnum<TaskScope>? = nil
   ) {
@@ -25,7 +24,6 @@ nonisolated public struct TaskListInput: InputObject {
       "projectId": projectId,
       "stageIds": stageIds,
       "stageBehaviors": stageBehaviors,
-      "text": text,
       "attentionOnly": attentionOnly ?? GraphQLNullable.none,
       "scope": scope ?? GraphQLNullable.none
     ])
@@ -53,12 +51,6 @@ nonisolated public struct TaskListInput: InputObject {
   public var stageBehaviors: GraphQLNullable<[GraphQLEnum<WorkflowStageBehavior>]> {
     get { __data["stageBehaviors"] }
     set { __data["stageBehaviors"] = newValue }
-  }
-
-  /// Case-insensitive title/description search.
-  public var text: GraphQLNullable<String> {
-    get { __data["text"] }
-    set { __data["text"] = newValue }
   }
 
   /// Restrict results to unresolved human attention.

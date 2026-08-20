@@ -15,7 +15,8 @@ nonisolated public struct UpdateTaskRecurrenceInput: InputObject {
     recurrenceId: String,
     expectedRevision: Int32,
     title: GraphQLNullable<String> = nil,
-    description: GraphQLNullable<String> = nil,
+    taskDocument: GraphQLNullable<String> = nil,
+    expectedTaskDocumentDigest: GraphQLNullable<String> = nil,
     projectId: GraphQLNullable<String> = nil,
     clearProject: GraphQLNullable<Bool> = nil,
     startsAt: GraphQLNullable<String> = nil,
@@ -29,7 +30,8 @@ nonisolated public struct UpdateTaskRecurrenceInput: InputObject {
       "recurrenceId": recurrenceId,
       "expectedRevision": expectedRevision,
       "title": title,
-      "description": description,
+      "taskDocument": taskDocument,
+      "expectedTaskDocumentDigest": expectedTaskDocumentDigest,
       "projectId": projectId,
       "clearProject": clearProject,
       "startsAt": startsAt,
@@ -59,10 +61,16 @@ nonisolated public struct UpdateTaskRecurrenceInput: InputObject {
     set { __data["title"] = newValue }
   }
 
-  /// Optional future description snapshot.
-  public var description: GraphQLNullable<String> {
-    get { __data["description"] }
-    set { __data["description"] = newValue }
+  /// Optional replacement recurrence template.
+  public var taskDocument: GraphQLNullable<String> {
+    get { __data["taskDocument"] }
+    set { __data["taskDocument"] = newValue }
+  }
+
+  /// Required current template digest when taskDocument is present.
+  public var expectedTaskDocumentDigest: GraphQLNullable<String> {
+    get { __data["expectedTaskDocumentDigest"] }
+    set { __data["expectedTaskDocumentDigest"] = newValue }
   }
 
   /// Optional project assignment.

@@ -8,7 +8,7 @@ nonisolated public struct TasksTaskRecurrenceQuery: GraphQLQuery {
   public static let operationName: String = "TasksTaskRecurrence"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"query TasksTaskRecurrence($recurrenceId: String!, $first: Int = 30) { taskRecurrence(recurrenceId: $recurrenceId, first: $first) { __typename recurrenceId title description startsAt cronExpression timeZone missedRunPolicy overlapPolicy lifecycle revision nextRunAt pendingCoalescedAt occurrences { __typename recurrenceRevision scheduledFor localSlot trigger resolution taskId createdAt } } }"#
+      #"query TasksTaskRecurrence($recurrenceId: String!, $first: Int = 30) { taskRecurrence(recurrenceId: $recurrenceId, first: $first) { __typename recurrenceId title taskDocument taskDocumentDigest startsAt cronExpression timeZone missedRunPolicy overlapPolicy lifecycle revision nextRunAt pendingCoalescedAt occurrences { __typename recurrenceRevision scheduledFor localSlot trigger resolution taskId createdAt } } }"#
     ))
 
   public var recurrenceId: String
@@ -57,7 +57,8 @@ nonisolated public struct TasksTaskRecurrenceQuery: GraphQLQuery {
         .field("__typename", String.self),
         .field("recurrenceId", String.self),
         .field("title", String.self),
-        .field("description", String.self),
+        .field("taskDocument", String.self),
+        .field("taskDocumentDigest", String.self),
         .field("startsAt", String.self),
         .field("cronExpression", String.self),
         .field("timeZone", String.self),
@@ -77,8 +78,10 @@ nonisolated public struct TasksTaskRecurrenceQuery: GraphQLQuery {
       public var recurrenceId: String { __data["recurrenceId"] }
       /// Current title for future occurrences.
       public var title: String { __data["title"] }
-      /// Current description for future occurrences.
-      public var description: String { __data["description"] }
+      /// Current template TASK.md content.
+      public var taskDocument: String { __data["taskDocument"] }
+      /// Transient SHA-256 of the current template.
+      public var taskDocumentDigest: String { __data["taskDocumentDigest"] }
       /// Inclusive UTC lower bound.
       public var startsAt: String { __data["startsAt"] }
       /// Five-field cron expression.

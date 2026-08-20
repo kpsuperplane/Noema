@@ -6,7 +6,7 @@
 
 nonisolated public struct TasksTaskSummaryFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksTaskSummaryFields on TaskSummary { __typename taskId workspace { __typename ...TasksWorkspaceFields } project { __typename ...TasksProjectFields } title descriptionPreview executorAgentId executorBackend cwdOverride effectiveCwd effectiveCwdSource schedule { __typename scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor } stage { __typename ...TasksStageFields } revision generation createdAt updatedAt completedAt currentRun { __typename ...TasksCurrentRunFields } activeGate { __typename ...TasksGateFields } attention { __typename kind title summary validActions gate { __typename ...TasksGateFields } } validActions }"#
+    #"fragment TasksTaskSummaryFields on TaskSummary { __typename taskId workspace { __typename ...TasksWorkspaceFields } project { __typename ...TasksProjectFields } title taskDocumentPreview executorAgentId executorBackend cwdOverride effectiveCwd effectiveCwdSource schedule { __typename scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor } stage { __typename ...TasksStageFields } revision generation createdAt updatedAt completedAt currentRun { __typename ...TasksCurrentRunFields } activeGate { __typename ...TasksGateFields } attention { __typename kind title summary validActions gate { __typename ...TasksGateFields } } validActions }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -19,7 +19,7 @@ nonisolated public struct TasksTaskSummaryFields: NoemaAPI.SelectionSet, Fragmen
     .field("workspace", Workspace.self),
     .field("project", Project?.self),
     .field("title", String.self),
-    .field("descriptionPreview", String.self),
+    .field("taskDocumentPreview", String.self),
     .field("executorAgentId", String.self),
     .field("executorBackend", String.self),
     .field("cwdOverride", String?.self),
@@ -49,8 +49,8 @@ nonisolated public struct TasksTaskSummaryFields: NoemaAPI.SelectionSet, Fragmen
   public var project: Project? { __data["project"] }
   /// Human title.
   public var title: String { __data["title"] }
-  /// Bounded description preview.
-  public var descriptionPreview: String { __data["descriptionPreview"] }
+  /// Bounded current Task document preview.
+  public var taskDocumentPreview: String { __data["taskDocumentPreview"] }
   /// Assigned executor agent identity.
   public var executorAgentId: String { __data["executorAgentId"] }
   /// Assigned executor backend.
