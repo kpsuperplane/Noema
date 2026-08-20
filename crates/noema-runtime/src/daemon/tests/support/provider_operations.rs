@@ -66,6 +66,11 @@ fn emit_fake_stream_events(
     for (index, call) in response.tool_calls.iter().enumerate() {
         on_event(GenerateStreamEvent::ToolCallStarted {
             output_index: index,
+            provider_call_id: call
+                .provider_call_id
+                .clone()
+                .or_else(|| call.id.clone())
+                .unwrap_or_else(|| format!("test-call-{index}")),
             name: call.name.clone(),
         });
     }

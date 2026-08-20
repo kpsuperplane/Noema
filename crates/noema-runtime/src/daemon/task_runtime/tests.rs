@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     future::Future,
     pin::Pin,
     sync::{
@@ -10,17 +10,18 @@ use std::{
 };
 
 use noema_providers::{
-    GenerateRequest, GenerateResponse, GenerateStreamEvent, GenerateToolCall, ProviderError,
-    ProviderHandle, ProviderToolCapabilities, ProviderToolTransport,
+    GenerateHostedWebSearch, GenerateRequest, GenerateResponse, GenerateStreamEvent,
+    GenerateToolCall, ProviderError, ProviderHandle, ProviderToolCapabilities,
+    ProviderToolTransport,
 };
-use noema_store::WorkCommandService;
+use noema_store::{WorkCommandService, WorkPageSize, WorkRunItemOwnerScope, WorkRunItemQuery};
 use noema_tasks::{
-    CancelTask, CaptureTask, CommandMeta, MissedRunPolicy, NewTaskSchedule, QueueTask, ReopenTask,
-    RunKind, RunStatus, TaskPrecondition, TaskProvenance, TaskReopenDirection, TaskSourceKind,
-    WorkCommand,
+    AgentRunItemKind, AgentRunItemRecord, AgentRunItemStatus, CancelTask, CaptureTask, CommandMeta,
+    MissedRunPolicy, NewTaskSchedule, QueueTask, ReopenTask, RunKind, RunStatus, TaskPrecondition,
+    TaskProvenance, TaskReopenDirection, TaskSourceKind, WorkCommand,
 };
 use noema_workspaces::WorkspaceId;
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 
 use super::{
     ClaimRenewalEvidence, MAX_CONCURRENT_TASK_RUNS, PERSONAL_WORKSPACE_ID, TaskRuntimeHandle,
@@ -28,7 +29,9 @@ use super::{
     notifications::{fail_notification, notification_work_event},
     reconcile_all, task_generation_retains_browser_session,
 };
-use crate::daemon::{RuntimeError, RuntimeEventRegistry, RuntimeHandle, WorkRuntimeEvent};
+use crate::daemon::{
+    RuntimeError, RuntimeEventRegistry, RuntimeHandle, TaskRuntimeEvent, WorkRuntimeEvent,
+};
 
 #[test]
 fn delayed_claim_renewal_records_the_required_timing_and_phase() {
@@ -138,6 +141,76 @@ struct BlockingProvider {
 
 #[derive(Debug)]
 struct FailingProvider;
+
+#[derive(Debug)]
+struct StreamingMarkerProvider {
+    started: Arc<Notify>,
+    release: Arc<Notify>,
+}
+
+impl noema_providers::ProviderOperations for StreamingMarkerProvider {
+    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
+        ProviderToolCapabilities {
+            tool_transport: ProviderToolTransport::Native,
+            hosted_web_provider_name: Some("test"),
+            ..ProviderToolCapabilities::default()
+        }
+    }
+
+    fn generate_streaming<'a>(
+        &'a self,
+        request: GenerateRequest,
+        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
+        Box::pin(async move {
+            on_event(GenerateStreamEvent::HostedWebSearchStarted {
+                output_index: 0,
+                id: Some("search:one".to_string()),
+            });
+            on_event(GenerateStreamEvent::HostedWebSearchStarted {
+                output_index: 1,
+                id: Some("search:two".to_string()),
+            });
+            on_event(GenerateStreamEvent::ToolCallStarted {
+                output_index: 2,
+                provider_call_id: "call:finish".to_string(),
+                name: "task.finish_execution".to_string(),
+            });
+            self.started.notify_one();
+            self.release.notified().await;
+            Ok(GenerateResponse {
+                responses: Vec::new(),
+                tool_calls: vec![GenerateToolCall {
+                    id: Some("item:finish".to_string()),
+                    provider_call_id: Some("call:finish".to_string()),
+                    provider_name: Some("task.finish_execution".to_string()),
+                    name: "task.finish_execution".to_string(),
+                    payload: serde_json::json!({}),
+                }],
+                reasoning_items: Vec::new(),
+                hosted_web_searches: [
+                    (0, "search:one", "first query"),
+                    (1, "search:two", "second query"),
+                ]
+                .into_iter()
+                .map(|(output_index, id, query)| GenerateHostedWebSearch {
+                    output_index,
+                    id: Some(id.to_string()),
+                    tool_name: "web.search".to_string(),
+                    arguments: serde_json::json!({"query": query}),
+                    result: serde_json::json!({"summary": "completed"}),
+                    status: "completed".to_string(),
+                    sources: Vec::new(),
+                })
+                .collect(),
+                provider: "test".to_string(),
+                model: request.model.unwrap_or_else(|| "test-model".to_string()),
+                response_id: Some("response:markers".to_string()),
+                usage: None,
+            })
+        })
+    }
+}
 
 #[derive(Debug)]
 struct TerminalRepairProvider {
@@ -426,6 +499,29 @@ async fn wait_for_run_status(
     .expect("run should reach expected status")
 }
 
+async fn run_items(
+    store: &noema_store::NoemaStore,
+    task_id: &noema_tasks::TaskId,
+    run_id: &str,
+) -> Vec<AgentRunItemRecord> {
+    store
+        .list_work_run_items(WorkRunItemQuery {
+            owner: WorkRunItemOwnerScope {
+                workspace_id: WorkspaceId::new(PERSONAL_WORKSPACE_ID).expect("workspace id"),
+                task_id: Some(task_id.clone()),
+            },
+            run_id: run_id.to_string(),
+            first: WorkPageSize::new(50).expect("page size"),
+            before: None,
+        })
+        .await
+        .expect("load run items")
+        .edges
+        .into_iter()
+        .map(|edge| edge.node)
+        .collect()
+}
+
 fn publish_task(subscriptions: &RuntimeEventRegistry, task_id: &noema_tasks::TaskId) {
     subscriptions.publish_work(WorkRuntimeEvent::Committed {
         workspace_id: PERSONAL_WORKSPACE_ID.to_string(),
@@ -454,6 +550,92 @@ fn queue_command(key: &str, task: &noema_tasks::TaskRecord) -> WorkCommand {
         meta: command_meta(key),
         precondition: precondition(task),
     })
+}
+
+#[tokio::test]
+async fn streamed_tool_starts_are_durable_before_provider_completion() {
+    let store = crate::test_support::test_store().await;
+    let (task, run) = crate::test_support::seed_task(&store, "Stream tool markers").await;
+    store
+        .write_task_file(&task.task_id, noema_store::TASK_RESULT, "Completed result.")
+        .await
+        .expect("write task result");
+    let started = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let provider = Arc::new(StreamingMarkerProvider {
+        started: Arc::clone(&started),
+        release: Arc::clone(&release),
+    });
+    let subscriptions = RuntimeEventRegistry::default();
+    let mut task_events = subscriptions.subscribe_task(task.task_id.as_str());
+    let (runtime, task_runtime) = start_task_runtime(provider, &store, subscriptions.clone()).await;
+    tokio::time::timeout(Duration::from_secs(2), started.notified())
+        .await
+        .expect("provider should emit starts");
+
+    let early_items = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let TaskRuntimeEvent::Changed { task_id, run_id } =
+                task_events.recv().await.expect("task event stream");
+            assert_eq!(task_id, task.task_id.as_str());
+            if run_id.as_deref() != Some(run.run_id.as_str()) {
+                continue;
+            }
+            let items = run_items(&store, &task.task_id, &run.run_id).await;
+            if items
+                .iter()
+                .filter(|item| item.kind == AgentRunItemKind::ToolCall)
+                .count()
+                == 3
+            {
+                break items;
+            }
+        }
+    })
+    .await
+    .expect("all start markers should publish before provider completion");
+    let early_sequences = early_items
+        .iter()
+        .filter(|item| item.kind == AgentRunItemKind::ToolCall)
+        .map(|item| {
+            assert_eq!(item.status, AgentRunItemStatus::Running);
+            assert!(item.payload.get("arguments").is_none());
+            (item.item_id.clone(), item.sequence_index)
+        })
+        .collect::<HashMap<_, _>>();
+
+    release.notify_one();
+    wait_for_run_status(&store, &run.run_id, RunStatus::Completed).await;
+    let final_items = run_items(&store, &task.task_id, &run.run_id).await;
+    let mut final_call_count = 0;
+    for item in final_items
+        .iter()
+        .filter(|item| early_sequences.contains_key(&item.item_id))
+    {
+        final_call_count += 1;
+        assert_eq!(item.status, AgentRunItemStatus::Completed);
+        assert_eq!(
+            early_sequences.get(&item.item_id),
+            Some(&item.sequence_index)
+        );
+    }
+    assert_eq!(final_call_count, 3, "final calls must not duplicate");
+    assert_eq!(
+        final_items
+            .iter()
+            .filter(|item| {
+                item.kind == AgentRunItemKind::ToolResult
+                    && item
+                        .parent_item_id
+                        .as_deref()
+                        .is_some_and(|id| id.contains("hosted_web_search_call"))
+            })
+            .count(),
+        2
+    );
+
+    task_runtime.shutdown().await;
+    runtime.shutdown().await;
 }
 
 #[tokio::test]

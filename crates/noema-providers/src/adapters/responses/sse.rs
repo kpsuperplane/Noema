@@ -15,6 +15,7 @@ pub(crate) struct SseAccumulator {
     model: Option<String>,
     usage: Option<ResponsesUsage>,
     terminal_error: Option<Value>,
+    started_tool_calls: HashSet<String>,
     started_hosted_web_searches: HashSet<usize>,
     searching_hosted_web_searches: HashSet<usize>,
     completed_hosted_web_searches: HashSet<usize>,
@@ -31,6 +32,7 @@ impl SseAccumulator {
             model: None,
             usage: None,
             terminal_error: None,
+            started_tool_calls: HashSet::new(),
             started_hosted_web_searches: HashSet::new(),
             searching_hosted_web_searches: HashSet::new(),
             completed_hosted_web_searches: HashSet::new(),
@@ -230,42 +232,73 @@ impl SseAccumulator {
                     }
                 }
             }
-            "response.output_item.added"
-            | "response.web_search_call.in_progress"
-            | "response.web_search_call.searching" => {
+            "response.output_item.added" => {
                 let item = value.get("item");
-                if event_type == "response.output_item.added"
-                    && item
-                        .and_then(|item| item.get("type"))
-                        .and_then(Value::as_str)
-                        != Some("web_search_call")
-                {
-                    return Ok(());
-                }
                 if let Some(output_index) = value
                     .get("output_index")
                     .and_then(Value::as_u64)
                     .and_then(|index| usize::try_from(index).ok())
-                    && self.started_hosted_web_searches.insert(output_index)
                 {
-                    let id = value
-                        .get("item_id")
-                        .or_else(|| item.and_then(|item| item.get("id")))
+                    match item
+                        .and_then(|item| item.get("type"))
                         .and_then(Value::as_str)
-                        .map(ToString::to_string);
-                    on_event(GenerateStreamEvent::HostedWebSearchStarted { output_index, id });
+                    {
+                        Some("function_call") => {
+                            let provider_call_id = item
+                                .and_then(|item| item.get("call_id"))
+                                .and_then(Value::as_str)
+                                .filter(|value| !value.trim().is_empty());
+                            let name = item
+                                .and_then(|item| item.get("name"))
+                                .and_then(Value::as_str)
+                                .filter(|value| !value.trim().is_empty());
+                            if let (Some(provider_call_id), Some(name)) = (provider_call_id, name)
+                                && self.started_tool_calls.insert(provider_call_id.to_string())
+                            {
+                                on_event(GenerateStreamEvent::ToolCallStarted {
+                                    output_index,
+                                    provider_call_id: provider_call_id.to_string(),
+                                    name: name.to_string(),
+                                });
+                            }
+                        }
+                        Some("web_search_call")
+                            if self.started_hosted_web_searches.insert(output_index) =>
+                        {
+                            let id = item
+                                .and_then(|item| item.get("id"))
+                                .and_then(Value::as_str)
+                                .map(ToString::to_string);
+                            on_event(GenerateStreamEvent::HostedWebSearchStarted {
+                                output_index,
+                                id,
+                            });
+                        }
+                        _ => {}
+                    }
                 }
-                if event_type == "response.web_search_call.searching"
-                    && let Some(output_index) = value
-                        .get("output_index")
-                        .and_then(Value::as_u64)
-                        .and_then(|index| usize::try_from(index).ok())
-                    && self.searching_hosted_web_searches.insert(output_index)
+            }
+            "response.web_search_call.in_progress" | "response.web_search_call.searching" => {
+                if let Some(output_index) = value
+                    .get("output_index")
+                    .and_then(Value::as_u64)
+                    .and_then(|index| usize::try_from(index).ok())
                 {
-                    on_event(GenerateStreamEvent::ProviderTiming {
-                        milestone: ProviderTimingMilestone::HostedWebSearchSearching,
-                        output_index: Some(output_index),
-                    });
+                    if self.started_hosted_web_searches.insert(output_index) {
+                        let id = value
+                            .get("item_id")
+                            .and_then(Value::as_str)
+                            .map(ToString::to_string);
+                        on_event(GenerateStreamEvent::HostedWebSearchStarted { output_index, id });
+                    }
+                    if event_type == "response.web_search_call.searching"
+                        && self.searching_hosted_web_searches.insert(output_index)
+                    {
+                        on_event(GenerateStreamEvent::ProviderTiming {
+                            milestone: ProviderTimingMilestone::HostedWebSearchSearching,
+                            output_index: Some(output_index),
+                        });
+                    }
                 }
             }
             "response.web_search_call.completed" => {
@@ -529,18 +562,32 @@ mod tests {
 
     #[test]
     fn response_from_sse_preserves_function_call_items_with_streamed_text() {
-        let response = response_from_sse(
+        let mut events = Vec::new();
+        let mut accumulator = SseAccumulator::new(test_diagnostics());
+        accumulator
+            .push_chunk(
             "event: response.output_text.delta\n\
              data: {\"type\":\"response.output_text.delta\",\"delta\":\"Checking.\"}\n\
              \n\
+             event: response.output_item.added\n\
+             data: {\"type\":\"response.output_item.added\",\"output_index\":1,\"item\":{\"type\":\"function_call\",\"id\":\"item_1\",\"call_id\":\"call_1\",\"name\":\"search_memory\",\"arguments\":\"\"}}\n\
+             \n\
              event: response.output_item.done\n\
-             data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"item_1\",\"call_id\":\"call_1\",\"name\":\"search_memory\",\"arguments\":\"{\\\"query\\\":\\\"trains\\\"}\"}}\n\
+             data: {\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":{\"type\":\"function_call\",\"id\":\"item_1\",\"call_id\":\"call_1\",\"name\":\"search_memory\",\"arguments\":\"{\\\"query\\\":\\\"trains\\\"}\"}}\n\
              \n\
              event: response.completed\n\
              data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"status\":\"completed\",\"output\":null}}\n\
              \n",
-        )
-        .expect("sse response");
+                &mut |event| events.push(event),
+            )
+            .expect("sse events");
+        let response = accumulator.finish(&mut |_| {}).expect("sse response");
+
+        assert!(events.contains(&GenerateStreamEvent::ToolCallStarted {
+            output_index: 1,
+            provider_call_id: "call_1".to_string(),
+            name: "search_memory".to_string(),
+        }));
 
         assert_eq!(response.output_text().expect("output text"), "Checking.");
         let tools = [noema_capabilities::ToolSpec::new(

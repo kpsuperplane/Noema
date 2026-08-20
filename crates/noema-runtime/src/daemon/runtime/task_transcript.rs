@@ -88,11 +88,71 @@ impl RuntimeActor {
                 tokio::select! {
                     event = event_rx.recv() => {
                         let Some(event) = event else { break; };
-                        if let GenerateStreamEvent::AssistantTextDelta { response_index, delta } = event
-                            && !delta.is_empty()
+                        let item = match event {
+                            GenerateStreamEvent::AssistantTextDelta { response_index, delta } => {
+                                if !delta.is_empty() {
+                                    assistant_text.entry(response_index).or_default().push_str(&delta);
+                                    dirty.insert(response_index);
+                                }
+                                None
+                            }
+                            GenerateStreamEvent::ToolCallStarted {
+                                output_index,
+                                provider_call_id,
+                                name,
+                            } => Some(NewAgentRunItem {
+                                item_id: Some(format!(
+                                    "run_item:tool_call:{run_id_for_writer}:{round_index}:{provider_call_id}"
+                                )),
+                                run_id: run_id_for_writer.clone(),
+                                round_index,
+                                kind: noema_tasks::AgentRunItemKind::ToolCall,
+                                status: noema_tasks::AgentRunItemStatus::Running,
+                                correlation_id: Some(provider_call_id.clone()),
+                                parent_item_id: None,
+                                content_text: Some(name.clone()),
+                                payload: serde_json::json!({
+                                    "output_index": output_index,
+                                    "call_id": provider_call_id,
+                                    "provider_name": name,
+                                }),
+                            }),
+                            GenerateStreamEvent::HostedWebSearchStarted { output_index, id } => {
+                                let correlation_id = id.clone().unwrap_or_else(|| {
+                                    format!(
+                                        "hosted_web_search:{run_id_for_writer}:{round_index}:{output_index}"
+                                    )
+                                });
+                                Some(NewAgentRunItem {
+                                    item_id: Some(format!(
+                                        "run_item:hosted_web_search_call:{run_id_for_writer}:{round_index}:{output_index}"
+                                    )),
+                                    run_id: run_id_for_writer.clone(),
+                                    round_index,
+                                    kind: noema_tasks::AgentRunItemKind::ToolCall,
+                                    status: noema_tasks::AgentRunItemStatus::Running,
+                                    correlation_id: Some(correlation_id),
+                                    parent_item_id: None,
+                                    content_text: Some("web.search".to_string()),
+                                    payload: serde_json::json!({
+                                        "output_index": output_index,
+                                        "provider_call_id": id,
+                                        "name": "web.search",
+                                    }),
+                                })
+                            }
+                            GenerateStreamEvent::ProviderTiming { .. } => None,
+                        };
+                        if let Some(item) = item
+                            && store
+                                .upsert_agent_run_item(item, &fence_for_writer)
+                                .await
+                                .is_ok()
                         {
-                            assistant_text.entry(response_index).or_default().push_str(&delta);
-                            dirty.insert(response_index);
+                            subscriptions_for_writer.publish_task(TaskRuntimeEvent::Changed {
+                                task_id: task_id_for_writer.clone(),
+                                run_id: Some(run_id_for_writer.clone()),
+                            });
                         }
                     }
                     _ = flush.tick(), if !dirty.is_empty() => {
@@ -295,14 +355,9 @@ impl RuntimeActor {
                     .await;
                 }
             }
-            for (search_index, search) in response.hosted_web_searches.iter().enumerate() {
-                let (call_item, result_item) = hosted_web_search_run_items(
-                    run_id,
-                    round_index,
-                    search_index,
-                    &response.provider,
-                    search,
-                );
+            for search in &response.hosted_web_searches {
+                let (call_item, result_item) =
+                    hosted_web_search_run_items(run_id, round_index, &response.provider, search);
                 self.store.append_agent_run_item(call_item, &fence).await?;
                 subscriptions.publish_task(TaskRuntimeEvent::Changed {
                     task_id: task_id.to_string(),
@@ -415,16 +470,16 @@ impl RuntimeActor {
 fn hosted_web_search_run_items(
     run_id: &str,
     round_index: i64,
-    search_index: usize,
     provider: &str,
     search: &GenerateHostedWebSearch,
 ) -> (NewAgentRunItem, NewAgentRunItem) {
+    let output_index = search.output_index;
     let correlation_id = search
         .id
         .clone()
-        .unwrap_or_else(|| format!("hosted_web_search:{run_id}:{round_index}:{search_index}"));
+        .unwrap_or_else(|| format!("hosted_web_search:{run_id}:{round_index}:{output_index}"));
     let call_item_id =
-        format!("run_item:hosted_web_search_call:{run_id}:{round_index}:{search_index}");
+        format!("run_item:hosted_web_search_call:{run_id}:{round_index}:{output_index}");
     let failed = search.status.eq_ignore_ascii_case("failed");
     let status = if failed {
         noema_tasks::AgentRunItemStatus::Failed
@@ -451,7 +506,7 @@ fn hosted_web_search_run_items(
     };
     let result = NewAgentRunItem {
         item_id: Some(format!(
-            "run_item:hosted_web_search_result:{run_id}:{round_index}:{search_index}"
+            "run_item:hosted_web_search_result:{run_id}:{round_index}:{output_index}"
         )),
         run_id: run_id.to_string(),
         round_index,
@@ -545,10 +600,13 @@ mod tests {
             ],
         };
 
-        let (call, result) =
-            hosted_web_search_run_items("run:test", 2, 0, "test-provider", &search);
+        let (call, result) = hosted_web_search_run_items("run:test", 2, "test-provider", &search);
 
         assert_eq!(call.kind, noema_tasks::AgentRunItemKind::ToolCall);
+        assert_eq!(
+            call.item_id.as_deref(),
+            Some("run_item:hosted_web_search_call:run:test:2:3")
+        );
         assert_eq!(call.status, noema_tasks::AgentRunItemStatus::Completed);
         assert_eq!(call.payload["arguments"]["query"], "lowest fare weeks");
         assert_eq!(result.kind, noema_tasks::AgentRunItemKind::ToolResult);

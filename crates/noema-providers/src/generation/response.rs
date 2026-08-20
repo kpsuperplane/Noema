@@ -98,6 +98,8 @@ pub enum GenerateStreamEvent {
     ToolCallStarted {
         /// Zero-based index of the tool call in the provider response.
         output_index: usize,
+        /// Provider-native call id used to correlate the final call and result.
+        provider_call_id: String,
         /// Tool name reported by the provider.
         name: String,
     },
