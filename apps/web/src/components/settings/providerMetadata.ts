@@ -1,8 +1,11 @@
-import type { ProviderAccountsQuery } from "@/generated/graphql";
+import type {
+  ProviderAccountCatalogFieldsFragment,
+  ProviderAccountFieldsFragment
+} from "@/generated/graphql";
 import { settingsStatusLabel } from "./settingsStatus";
 
-export type ProviderSettingsAccount = ProviderAccountsQuery["providerAccounts"][number];
-export type ProviderAccountCatalogEntry = ProviderAccountsQuery["providerAccountCatalog"][number];
+export type ProviderSettingsAccount = ProviderAccountFieldsFragment;
+export type ProviderAccountCatalogEntry = ProviderAccountCatalogFieldsFragment;
 
 export type ProviderMetadataRow = {
   label: string;

@@ -30,8 +30,23 @@ export function PrivacySettingsPane() {
     SaveActionReviewerPreferenceMutation,
     SaveActionReviewerPreferenceMutationVariables
   >(SaveActionReviewerPreferenceDocument, {
-    refetchQueries: [{ query: PrivacySettingsDocument }],
-    awaitRefetchQueries: true
+    update(cache, response) {
+      const preference = response.data?.saveActionReviewerPreference;
+      if (!preference) return;
+      cache.updateQuery<PrivacySettingsQuery>(
+        { query: PrivacySettingsDocument },
+        (current) => current ? {
+          ...current,
+          privacySettings: {
+            ...current.privacySettings,
+            reviewer: {
+              ...current.privacySettings.reviewer,
+              modelPreference: preference
+            }
+          }
+        } : current
+      );
+    }
   });
   const reviewer = privacyResult.data?.privacySettings.reviewer ?? null;
   const loading = privacyResult.loading && !privacyResult.data;

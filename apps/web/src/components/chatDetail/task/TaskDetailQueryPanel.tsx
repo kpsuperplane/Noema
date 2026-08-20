@@ -3,14 +3,12 @@ import { useQuery, useSubscription } from "@apollo/client/react";
 import {
   TasksTaskDetailDocument,
   TasksTaskEventsDocument,
-  TasksTaskRuntimeEventsDocument,
   type TasksTaskDetailQuery
 } from "@/generated/graphql";
 import { TaskActions, type TaskInlineEditController } from "@/components/tasks/TaskActions";
 import {
   PendingHumanInterventionsResult,
-  pendingHumanInterventionsAreFresh,
-  usePendingHumanInterventions
+  pendingHumanInterventionsAreFresh
 } from "@/components/actions/PendingGovernedActions";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { useTaskProjects } from "@/components/tasks/useTaskProjects";
@@ -44,7 +42,6 @@ export function TaskDetailQueryPanel({
     notifyOnNetworkStatusChange: true
   });
   const projects = useTaskProjects();
-  const interventionResult = usePendingHumanInterventions({ taskId });
   const queriedTask = result.data?.task ?? null;
   const task = queriedTask?.taskId === taskId ? queriedTask : null;
   const [cursor, recordCursor] = useTaskEventCursor(taskId);
@@ -58,13 +55,9 @@ export function TaskDetailQueryPanel({
       void result.refetch();
     }
   });
-  useSubscription(TasksTaskRuntimeEventsDocument, {
-    variables: { taskId },
-    onData: () => { void result.refetch(); }
-  });
 
   const detail = React.useMemo(() => task ? mapTaskDetail(task) : null, [task]);
-  const interventionFresh = pendingHumanInterventionsAreFresh(interventionResult);
+  const interventionFresh = pendingHumanInterventionsAreFresh(result);
   const taskControls = result.error
     ? []
     : task?.validActions.filter((action) => (
@@ -84,7 +77,7 @@ export function TaskDetailQueryPanel({
           <PendingHumanInterventionsResult
             emptyContent={status}
             placement="dock"
-            result={interventionResult}
+            result={result}
           />
         )}
         controls={controls}

@@ -11,6 +11,11 @@ export async function createApolloClient() {
   const transport = isTauriRuntime() ? createDesktopGraphqlLink() : createBrowserGraphqlLink();
   const cache = new InMemoryCache({
     typePolicies: {
+      AcpAgent: { keyFields: ["agentId"] },
+      Agent: { keyFields: ["agentId"] },
+      CapabilityConnection: { keyFields: ["kind", "connectionId"] },
+      CapabilityManagedTool: { keyFields: ["kind", "connectionId", "toolId"] },
+      Client: { keyFields: ["clientId"] },
       ConversationItem: {
         keyFields: ["itemId"]
       },
@@ -22,7 +27,21 @@ export async function createApolloClient() {
       },
       TurnCompletedEvent: {
         keyFields: false
-      }
+      },
+      CurrentRunSummary: { keyFields: ["runId"] },
+      LocalModelInstallation: { keyFields: ["installationId"] },
+      Project: { keyFields: ["projectId"] },
+      ProviderAccount: { keyFields: ["providerAccountId"] },
+      TaskCard: { keyFields: ["taskId"] },
+      TaskDetail: { keyFields: ["taskId"] },
+      TaskGate: { keyFields: ["gateId"] },
+      TaskModelPoolEntry: { keyFields: ["poolEntryId"] },
+      TaskRecurrence: { keyFields: ["recurrenceId"] },
+      TaskRecurrenceSummary: { keyFields: ["recurrenceId"] },
+      TaskRun: { keyFields: ["runId"] },
+      TaskSummary: { keyFields: ["taskId"] },
+      WebToolBindingSettings: { keyFields: ["toolName"] },
+      WorkflowStage: { keyFields: ["stageId"] }
     }
   });
   if (durableSnapshot) cache.restore(durableSnapshot.cache);

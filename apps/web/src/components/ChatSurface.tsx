@@ -62,6 +62,7 @@ export type ChatSurfaceProps = {
   offline?: boolean;
   loadingInitialTranscript?: boolean;
   agentName: string | null;
+  interventionsRefreshKey: number;
   onToggleActivity: (id: string) => void;
   onDraftChange: (value: string) => void;
   onLoadOlderTranscript: () => void;
@@ -86,6 +87,7 @@ export function ChatSurface({
   offline = false,
   loadingInitialTranscript = false,
   agentName,
+  interventionsRefreshKey,
   onToggleActivity,
   onDraftChange,
   onLoadOlderTranscript,
@@ -233,7 +235,10 @@ export function ChatSurface({
         <div ref={composerDockRef} data-slot="chat-composer-dock" {...stylex.props(styles.composerDock)}>
           <div aria-hidden="true" data-slot="chat-composer-scrim" {...stylex.props(styles.composerScrim)} />
           <div data-slot="chat-composer-layer" {...stylex.props(styles.composerLayer)}>
-            <PendingHumanInterventions conversationId={conversationId} />
+            <PendingHumanInterventions
+              conversationId={conversationId}
+              refreshKey={interventionsRefreshKey}
+            />
             <WebPushChatPrompt
               activeTurn={pending || awaitingAssistantTurn}
               conversationId={conversationId}

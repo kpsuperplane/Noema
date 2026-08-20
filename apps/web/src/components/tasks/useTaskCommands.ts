@@ -134,11 +134,6 @@ export function useTaskCommands({
         }
         setNotice(actionNotice(action));
         setRequiresAcknowledgement(false);
-        try {
-          await onUpdated?.();
-        } catch {
-          // The committed mutation remains authoritative; mounted queries surface refresh failures.
-        }
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : "Noema could not update this task.";
         if (isStaleCommandError(caught)) {

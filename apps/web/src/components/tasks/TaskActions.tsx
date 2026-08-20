@@ -396,7 +396,7 @@ export function TaskActions({
           setActiveCommand(null);
         }}
       />
-      <TaskScheduleDialog key={`${task.taskId}:${task.revision}:${scheduleAction}`} action={scheduleAction} task={task} onClose={() => setScheduleAction(null)} onUpdated={refresh} />
+      <TaskScheduleDialog key={`${task.taskId}:${task.revision}:${scheduleAction}`} action={scheduleAction} task={task} onClose={() => setScheduleAction(null)} />
     </>
   );
 }

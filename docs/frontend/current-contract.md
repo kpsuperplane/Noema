@@ -58,6 +58,10 @@ destinations to preserve an obsolete staged rollout.
   a rebuildable search projection.
 - GraphQL queries provide scoped read models, mutations execute explicit
   commands, and subscriptions carry live changes.
+- Each route composes one root query from shared fragments. Mutation payloads
+  update normalized cache objects when they contain the changed state.
+- A subscription invalidates its active root. Refetch after a mutation only
+  when the payload cannot represent server-derived state.
 - Daemon and WebSocket state is coordination state, not a second durable
   transcript or task authority.
 - Browser code never receives credential material. Provider-auth redirects and

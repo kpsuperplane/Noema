@@ -12,8 +12,7 @@ import {
   SaveBrowserProviderRouteDocument,
   SaveWebFetchSummarizerPreferenceDocument,
   SaveWebToolProviderBindingDocument,
-  WebFetchSettingsDocument,
-  WebToolSettingsDocument,
+  WebSettingsRootDocument,
   type SaveBrowserProviderRouteMutation,
   type SaveBrowserProviderRouteMutationVariables,
   type SaveWebFetchSummarizerPreferenceMutation,
@@ -21,8 +20,7 @@ import {
   type SaveWebToolProviderBindingInput,
   type SaveWebToolProviderBindingMutation,
   type SaveWebToolProviderBindingMutationVariables,
-  type WebFetchSettingsQuery,
-  type WebToolSettingsQuery
+  type WebSettingsRootQuery
 } from "@/generated/graphql";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
@@ -74,35 +72,44 @@ export type WebToolSettings = {
 };
 
 export function WebSettingsPane() {
-  const webFetchResult = useQuery<WebFetchSettingsQuery>(WebFetchSettingsDocument, {
-    fetchPolicy: "cache-and-network"
-  });
-  const webToolResult = useQuery<WebToolSettingsQuery>(WebToolSettingsDocument, {
+  const rootResult = useQuery<WebSettingsRootQuery>(WebSettingsRootDocument, {
     fetchPolicy: "cache-and-network"
   });
   const [saveWebFetchPreference, saveWebFetchResult] = useMutation<
     SaveWebFetchSummarizerPreferenceMutation,
     SaveWebFetchSummarizerPreferenceMutationVariables
   >(SaveWebFetchSummarizerPreferenceDocument, {
-    refetchQueries: [{ query: WebFetchSettingsDocument }],
-    awaitRefetchQueries: true
+    update(cache, response) {
+      const preference = response.data?.saveWebFetchSummarizerPreference;
+      if (!preference) return;
+      cache.updateQuery<WebSettingsRootQuery>(
+        { query: WebSettingsRootDocument },
+        (current) => current ? {
+          ...current,
+          webFetchSettings: {
+            ...current.webFetchSettings,
+            summarizer: {
+              ...current.webFetchSettings.summarizer,
+              modelPreference: preference
+            }
+          }
+        } : current
+      );
+    }
   });
   const [saveWebToolBinding, saveWebToolResult] = useMutation<
     SaveWebToolProviderBindingMutation,
     SaveWebToolProviderBindingMutationVariables
-  >(SaveWebToolProviderBindingDocument, {
-    refetchQueries: [{ query: WebToolSettingsDocument }],
-    awaitRefetchQueries: true
-  });
+  >(SaveWebToolProviderBindingDocument);
   const [savingToolName, setSavingToolName] = useState<string | null>(null);
-  const webFetchSummarizer = webFetchResult.data?.webFetchSettings.summarizer ?? null;
-  const webToolSettings = webToolResult.data?.webToolSettings ?? null;
-  const loading = webFetchResult.loading && !webFetchResult.data;
-  const error = webFetchResult.error?.message ?? null;
+  const webFetchSummarizer = rootResult.data?.webFetchSettings.summarizer ?? null;
+  const webToolSettings = rootResult.data?.webToolSettings ?? null;
+  const loading = rootResult.loading && !rootResult.data;
+  const error = rootResult.error?.message ?? null;
   const saving = saveWebFetchResult.loading;
   const saveError = saveWebFetchResult.error?.message ?? null;
-  const webToolLoading = webToolResult.loading && !webToolResult.data;
-  const webToolError = webToolResult.error?.message ?? null;
+  const webToolLoading = rootResult.loading && !rootResult.data;
+  const webToolError = rootResult.error?.message ?? null;
   const webToolSaving = saveWebToolResult.loading;
   const webToolSaveError = saveWebToolResult.error?.message ?? null;
   const onSaveWebFetchSummarizerPreference = (input: ModelPreferenceSaveInput) => saveWebFetchPreference({ variables: { input } });
@@ -138,7 +145,7 @@ export function WebSettingsPane() {
           {webToolError || (webToolSaveError && failedToolName === "web.search") ? <SettingsLocalFeedback>
             {webToolError ? <HStack gap={2} wrap="wrap" vAlign="center">
               <p role="alert" {...stylex.props(styles.mutedText)}>Search provider settings could not refresh.</p>
-              <Button type="button" size="sm" variant="secondary" label="Retry" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={() => void webToolResult.refetch()} />
+              <Button type="button" size="sm" variant="secondary" label="Retry" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={() => void rootResult.refetch()} />
             </HStack> : null}
             {webToolSaveError && failedToolName === "web.search" ? <p role="alert" {...stylex.props(styles.saveError)}>Noema could not save the search provider.</p> : null}
           </SettingsLocalFeedback> : null}
@@ -186,7 +193,7 @@ export function WebSettingsPane() {
           {webToolError || error || saveError || (webToolSaveError && failedToolName === "web.fetch") || fetchWarning ? <SettingsLocalFeedback>
             {webToolError || error ? <HStack gap={2} wrap="wrap" vAlign="center">
               <p role="alert" {...stylex.props(styles.mutedText)}>Fetch settings could not refresh.</p>
-              <Button type="button" size="sm" variant="secondary" label="Retry" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={() => void Promise.all([webToolResult.refetch(), webFetchResult.refetch()])} />
+              <Button type="button" size="sm" variant="secondary" label="Retry" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={() => void rootResult.refetch()} />
             </HStack> : null}
             {webToolSaveError && failedToolName === "web.fetch" ? <p role="alert" {...stylex.props(styles.saveError)}>Noema could not save the fetch provider.</p> : null}
             {saveError ? <p role="alert" {...stylex.props(styles.saveError)}>Noema could not save the fetch summarizer model.</p> : null}
@@ -217,7 +224,7 @@ export function WebSettingsPane() {
           {webToolError || (webToolSaveError && failedToolName === "web.browse") ? <SettingsLocalFeedback>
             {webToolError ? <HStack gap={2} wrap="wrap" vAlign="center">
               <p role="alert" {...stylex.props(styles.mutedText)}>Browse provider settings could not refresh.</p>
-              <Button type="button" size="sm" variant="secondary" label="Retry" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={() => void webToolResult.refetch()} />
+              <Button type="button" size="sm" variant="secondary" label="Retry" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={() => void rootResult.refetch()} />
             </HStack> : null}
             {webToolSaveError && failedToolName === "web.browse" ? <p role="alert" {...stylex.props(styles.saveError)}>Noema could not save the browse provider.</p> : null}
           </SettingsLocalFeedback> : null}
@@ -255,10 +262,7 @@ function BrowserProviderRouteRow({
   const [saveRoute, saveResult] = useMutation<
     SaveBrowserProviderRouteMutation,
     SaveBrowserProviderRouteMutationVariables
-  >(SaveBrowserProviderRouteDocument, {
-    refetchQueries: [{ query: WebToolSettingsDocument }],
-    awaitRefetchQueries: true
-  });
+  >(SaveBrowserProviderRouteDocument);
   const options = useMemo(() => settings?.providerOptions ?? [], [settings]);
   const selectorOptions = useMemo<SelectorOptionType[]>(
     () => options.map((option) => ({ value: option.providerAccountId, label: option.displayName })),

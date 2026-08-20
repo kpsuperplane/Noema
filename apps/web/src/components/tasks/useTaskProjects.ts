@@ -12,7 +12,7 @@ export function useTaskProjects({ skip = false }: { skip?: boolean } = {}) {
       includeArchived: true,
       first: 100
     },
-    fetchPolicy: "cache-and-network",
+    fetchPolicy: "cache-first",
     notifyOnNetworkStatusChange: true,
     skip
   });

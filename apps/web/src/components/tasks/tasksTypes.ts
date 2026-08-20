@@ -1,13 +1,13 @@
 import type {
   TasksProjectsQuery,
+  TasksTaskSummaryFieldsFragment,
   TasksTaskDetailQuery,
-  TasksListQuery
 } from "@/generated/graphql";
 
 export const PERSONAL_WORKSPACE_ID = "workspace:personal";
 
 export type TasksProject = TasksProjectsQuery["projects"]["edges"][number]["node"];
-export type TasksTask = TasksListQuery["tasks"]["edges"][number]["node"];
+export type TasksTask = TasksTaskSummaryFieldsFragment;
 export type TasksTaskDetail = NonNullable<TasksTaskDetailQuery["task"]>;
 
 export type TasksSearch = {

@@ -14,11 +14,11 @@ import {
 } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 import { useState, type ReactNode } from "react";
-import type { CapabilityIntegrationsQuery } from "@/generated/graphql";
+import type { CapabilityIntegrationFieldsFragment } from "@/generated/graphql";
 import { ListCardLink } from "@/components/ListCardLink";
 import { settingsStatusLabel } from "./settingsStatus";
 
-export type CapabilityIntegration = CapabilityIntegrationsQuery["capabilityIntegrations"][number];
+export type CapabilityIntegration = CapabilityIntegrationFieldsFragment;
 type CapabilityConnection = CapabilityIntegration["connections"][number];
 export type CapabilityProvider = { id: string; name: string };
 export type CapabilityAccount = { id: string; name: string };

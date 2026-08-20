@@ -1,6 +1,7 @@
 import { gql } from "@apollo/client";
+import { CapabilityIntegrationFields } from "./capabilityIntegrationOperations";
 
-const AdapterDefinitionFields = gql`
+export const AdapterDefinitionFields = gql`
   fragment AdapterDefinitionFields on AdapterDefinition {
     semanticDigest
     definitionId
@@ -114,13 +115,37 @@ const AdapterDefinitionFields = gql`
   }
 `;
 
-export const AdapterDefinitionsDocument = gql`
-  query AdapterDefinitions {
-    adapterDefinitions {
-      ...AdapterDefinitionFields
+export const AdapterOauthStateFields = gql`
+  fragment AdapterOauthStateFields on AdapterOauthState {
+    profiles {
+      profileDigest profileId displayName grantAudience
+      credentialSetup {
+        credentialType setupUrl instructions inputKind
+        fields { fieldId label }
+        documentMediaType redirectUri
+      }
+    }
+    applications {
+      applicationId profileDigest providerDisplayName callbackMode clientId
+      projectLabel revision status grantCount accountCount
+    }
+    accounts { accountId profileDigest accountLabel revision grantIds }
+    grants {
+      grantId applicationId accountId accountLabel providerDisplayName audience
+      desiredScopes grantedScopes authorityRevision tokenRevision status connectionIds
     }
   }
+`;
+
+export const AdapterManagementRootDocument = gql`
+  query AdapterManagementRoot {
+    adapterDefinitions { ...AdapterDefinitionFields }
+    adapterOauthState { ...AdapterOauthStateFields }
+    capabilityIntegrations(kind: API) { ...CapabilityIntegrationFields }
+  }
   ${AdapterDefinitionFields}
+  ${AdapterOauthStateFields}
+  ${CapabilityIntegrationFields}
 `;
 
 export const ApproveAdapterDefinitionDocument = gql`
@@ -165,61 +190,6 @@ export const StartAdapterOauthSetupDocument = gql`
       attemptId
       authorizationUrl
       expiresAtEpochSeconds
-    }
-  }
-`;
-
-export const AdapterOauthStateDocument = gql`
-  query AdapterOauthState {
-    adapterOauthState {
-      profiles {
-        profileDigest
-        profileId
-        displayName
-        grantAudience
-        credentialSetup {
-          credentialType
-          setupUrl
-          instructions
-          inputKind
-          fields { fieldId label }
-          documentMediaType
-          redirectUri
-        }
-      }
-      applications {
-        applicationId
-        profileDigest
-        providerDisplayName
-        callbackMode
-        clientId
-        projectLabel
-        revision
-        status
-        grantCount
-        accountCount
-      }
-      accounts {
-        accountId
-        profileDigest
-        accountLabel
-        revision
-        grantIds
-      }
-      grants {
-        grantId
-        applicationId
-        accountId
-        accountLabel
-        providerDisplayName
-        audience
-        desiredScopes
-        grantedScopes
-        authorityRevision
-        tokenRevision
-        status
-        connectionIds
-      }
     }
   }
 `;

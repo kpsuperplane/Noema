@@ -56,15 +56,25 @@ function ApnsProviderSettings() {
     ConfigureApnsProviderMutation,
     ConfigureApnsProviderMutationVariables
   >(ConfigureApnsProviderDocument, {
-    refetchQueries: [{ query: ApnsProviderStatusDocument }],
-    awaitRefetchQueries: true
+    update(cache, response) {
+      const next = response.data?.configureApnsProvider;
+      if (next) cache.writeQuery({
+        query: ApnsProviderStatusDocument,
+        data: { apnsProviderStatus: next }
+      });
+    }
   });
   const [removeApns, removeResult] = useMutation<
     RemoveApnsProviderMutation,
     RemoveApnsProviderMutationVariables
   >(RemoveApnsProviderDocument, {
-    refetchQueries: [{ query: ApnsProviderStatusDocument }],
-    awaitRefetchQueries: true
+    update(cache, response) {
+      const next = response.data?.removeApnsProvider;
+      if (next) cache.writeQuery({
+        query: ApnsProviderStatusDocument,
+        data: { apnsProviderStatus: next }
+      });
+    }
   });
   const [configureOpen, setConfigureOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);

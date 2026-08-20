@@ -113,6 +113,8 @@ slice or a net-negative reduction.
 - Frontend route and interaction truth is in
   [the current frontend contract](../frontend/current-contract.md). UI changes
   follow [product design guidance](../frontend/product-design.md).
+- Each web route owns one composed GraphQL root read. Shared fragments and normalized mutation payloads update the Apollo cache.
+- Subscriptions invalidate one active root. A mutation refetches only when its payload cannot represent server-derived state.
 - The backend formats built-in tool markers from saved tool facts during reads
   and live delivery. It does not store marker text.
 - Web, iOS, and Live Activities consume the same action, outcome, and status data.

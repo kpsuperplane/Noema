@@ -1,6 +1,6 @@
 import { gql } from "@apollo/client";
 
-const CapabilityConnectionFields = gql`
+export const CapabilityConnectionFields = gql`
   fragment CapabilityConnectionFields on CapabilityConnection {
     kind definitionId connectionId name connectionLabel sourceRevision connectionRevision
     credentialRevision grantRevision policyRevision
@@ -10,7 +10,7 @@ const CapabilityConnectionFields = gql`
   }
 `;
 
-const CapabilityManagedToolFields = gql`
+export const CapabilityManagedToolFields = gql`
   fragment CapabilityManagedToolFields on CapabilityManagedTool {
     kind connectionId toolId name description enabled status policyRevision sourceRevision
     decisionPreview sourceDetails
@@ -21,12 +21,10 @@ const CapabilityManagedToolFields = gql`
   }
 `;
 
-export const CapabilityIntegrationsDocument = gql`
-  query CapabilityIntegrations($kind: CapabilityIntegrationKind!) {
-    capabilityIntegrations(kind: $kind) {
-      kind definitionId name sourceRevision reviewed sourceSummary
-      connections { ...CapabilityConnectionFields }
-    }
+export const CapabilityIntegrationFields = gql`
+  fragment CapabilityIntegrationFields on CapabilityIntegration {
+    kind definitionId name sourceRevision reviewed sourceSummary
+    connections { ...CapabilityConnectionFields }
   }
   ${CapabilityConnectionFields}
 `;

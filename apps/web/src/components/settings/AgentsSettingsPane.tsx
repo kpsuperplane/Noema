@@ -10,22 +10,18 @@ import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
 import {
-  AcpAgentsDocument,
-  AgentsDocument,
+  AgentsSettingsRootDocument,
   AuthenticateAcpAgentDocument,
   CreateAcpAgentDocument,
   DeleteAcpAgentDocument,
   SaveAgentModelPreferenceDocument,
-  TaskModelPoolsDocument,
   TestAcpAgentDocument,
   UpdateAcpAgentDocument,
   UpdateTaskModelPoolEntryDocument,
-  type AcpAgentsQuery,
-  type AgentsQuery,
+  type AgentsSettingsRootQuery,
   type SaveAgentModelPreferenceMutation,
   type SaveAgentModelPreferenceMutationVariables,
   type TaskModelPoolEntryInput,
-  type TaskModelPoolsQuery,
   type UpdateTaskModelPoolEntryMutation,
   type UpdateTaskModelPoolEntryMutationVariables
 } from "@/generated/graphql";
@@ -63,40 +59,73 @@ type SaveAgentModelPreferenceInput = ModelPreferenceSaveInput & {
 };
 
 const TASK_EXECUTOR_AGENT_ID = "agent:task-executor";
-type AcpAgent = AcpAgentsQuery["acpAgents"][number];
+type AcpAgent = AgentsSettingsRootQuery["acpAgents"][number];
 
 export function AgentsSettingsPane() {
-  const agentsResult = useQuery<AgentsQuery>(AgentsDocument, { fetchPolicy: "cache-and-network" });
-  const acpAgentsResult = useQuery<AcpAgentsQuery>(AcpAgentsDocument, { fetchPolicy: "cache-and-network" });
-  const poolsResult = useQuery<TaskModelPoolsQuery>(TaskModelPoolsDocument, { fetchPolicy: "cache-and-network" });
-  const [savePreference, saveResult] = useMutation<SaveAgentModelPreferenceMutation, SaveAgentModelPreferenceMutationVariables>(SaveAgentModelPreferenceDocument, { refetchQueries: [{ query: AgentsDocument }], awaitRefetchQueries: true });
-  const [updatePool, updatePoolResult] = useMutation<UpdateTaskModelPoolEntryMutation, UpdateTaskModelPoolEntryMutationVariables>(UpdateTaskModelPoolEntryDocument, { refetchQueries: [{ query: TaskModelPoolsDocument }], awaitRefetchQueries: true });
-  const mutationOptions = { refetchQueries: [{ query: AcpAgentsDocument }], awaitRefetchQueries: true };
-  const [createAcpAgent, createAcpState] = useMutation(CreateAcpAgentDocument, mutationOptions);
-  const [updateAcpAgent, updateAcpState] = useMutation(UpdateAcpAgentDocument, mutationOptions);
-  const [testAcpAgent, testAcpState] = useMutation(TestAcpAgentDocument, mutationOptions);
-  const [authenticateAcpAgent, authenticateAcpState] = useMutation(AuthenticateAcpAgentDocument, mutationOptions);
-  const [deleteAcpAgent, deleteAcpState] = useMutation(DeleteAcpAgentDocument, {
-    refetchQueries: [{ query: AcpAgentsDocument }, { query: AgentsDocument }],
-    awaitRefetchQueries: true
+  const rootResult = useQuery<AgentsSettingsRootQuery>(AgentsSettingsRootDocument, { fetchPolicy: "cache-and-network" });
+  const [savePreference, saveResult] = useMutation<SaveAgentModelPreferenceMutation, SaveAgentModelPreferenceMutationVariables>(SaveAgentModelPreferenceDocument, {
+    update(cache, response, options) {
+      const preference = response.data?.saveAgentModelPreference;
+      const agentId = options.variables?.input.agentId;
+      if (!preference || !agentId) return;
+      cache.updateQuery<AgentsSettingsRootQuery>(
+        { query: AgentsSettingsRootDocument },
+        (current) => current ? {
+          ...current,
+          agents: current.agents.map((agent) => agent.agentId === agentId
+            ? { ...agent, modelPreference: preference }
+            : agent)
+        } : current
+      );
+    }
   });
-  const agents = agentsResult.data?.agents ?? [];
-  const loading = agentsResult.loading && !agentsResult.data;
-  const error = agentsResult.error?.message ?? null;
+  const [updatePool, updatePoolResult] = useMutation<UpdateTaskModelPoolEntryMutation, UpdateTaskModelPoolEntryMutationVariables>(UpdateTaskModelPoolEntryDocument);
+  const [createAcpAgent, createAcpState] = useMutation(CreateAcpAgentDocument, {
+    update(cache, response) {
+      const created = response.data?.createAcpAgent;
+      if (!created) return;
+      cache.updateQuery<AgentsSettingsRootQuery>(
+        { query: AgentsSettingsRootDocument },
+        (current) => current ? {
+          ...current,
+          acpAgents: [...current.acpAgents.filter((agent) => agent.agentId !== created.agentId), created]
+        } : current
+      );
+    }
+  });
+  const [updateAcpAgent, updateAcpState] = useMutation(UpdateAcpAgentDocument);
+  const [testAcpAgent, testAcpState] = useMutation(TestAcpAgentDocument);
+  const [authenticateAcpAgent, authenticateAcpState] = useMutation(AuthenticateAcpAgentDocument);
+  const [deleteAcpAgent, deleteAcpState] = useMutation(DeleteAcpAgentDocument, {
+    update(cache, _response, options) {
+      const agentId = options.variables?.input.agentId;
+      if (!agentId) return;
+      cache.updateQuery<AgentsSettingsRootQuery>(
+        { query: AgentsSettingsRootDocument },
+        (current) => current ? {
+          ...current,
+          acpAgents: current.acpAgents.filter((agent) => agent.agentId !== agentId)
+        } : current
+      );
+    }
+  });
+  const agents = rootResult.data?.agents ?? [];
+  const loading = rootResult.loading && !rootResult.data;
+  const error = rootResult.error?.message ?? null;
   const saving = saveResult.loading;
   const saveError = saveResult.error?.message ?? null;
   const onSaveModelPreference = (input: SaveAgentModelPreferenceInput) => savePreference({ variables: { input } });
-  const taskModelPoolEntries = poolsResult.data?.taskModelPools ?? [];
+  const taskModelPoolEntries = rootResult.data?.taskModelPools ?? [];
   const primaryAgent = agents.find((agent) => agent.isPrimary) ?? agents[0];
   const taskModelPoolModelOptions = primaryAgent?.modelOptions ?? [];
-  const taskModelPoolLoading = poolsResult.loading && !poolsResult.data;
-  const taskModelPoolError = poolsResult.error?.message ?? null;
+  const taskModelPoolLoading = rootResult.loading && !rootResult.data;
+  const taskModelPoolError = rootResult.error?.message ?? null;
   const taskModelPoolSaving = updatePoolResult.loading;
   const taskModelPoolSaveError = updatePoolResult.error?.message ?? null;
   const onUpdateTaskModelPool = (poolEntryId: string, input: TaskModelPoolEntryInput) => updatePool({ variables: { poolEntryId, input } });
-  const acpAgents = acpAgentsResult.data?.acpAgents ?? [];
-  const acpLoading = acpAgentsResult.loading && !acpAgentsResult.data;
-  const acpError = acpAgentsResult.error?.message ?? createAcpState.error?.message ?? updateAcpState.error?.message ?? testAcpState.error?.message ?? authenticateAcpState.error?.message ?? null;
+  const acpAgents = rootResult.data?.acpAgents ?? [];
+  const acpLoading = rootResult.loading && !rootResult.data;
+  const acpError = rootResult.error?.message ?? createAcpState.error?.message ?? updateAcpState.error?.message ?? testAcpState.error?.message ?? authenticateAcpState.error?.message ?? null;
   const acpBusy = createAcpState.loading || updateAcpState.loading || testAcpState.loading || authenticateAcpState.loading || deleteAcpState.loading;
   const onCreateAcpAgent = (input: { displayName: string; command: string; arguments: string[] }) => createAcpAgent({ variables: { input } });
   const onUpdateAcpAgent = (input: { agentId: string; expectedRevision: number; displayName: string; command: string; arguments: string[]; enabled: boolean }) => updateAcpAgent({ variables: { input } });

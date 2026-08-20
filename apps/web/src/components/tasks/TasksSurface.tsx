@@ -48,13 +48,6 @@ export function TasksSurface({ search, selectedDetail, onCloseDetail }: {
     }
   });
 
-  const refresh = React.useCallback(async () => {
-    await Promise.allSettled([
-      projectsResult.refetch(),
-      client.refetchQueries({ include: "active" })
-    ]);
-  }, [client, projectsResult]);
-
   const hasNotice = Boolean(subscription.error || projectsResult.error);
 
   return (
@@ -97,7 +90,7 @@ export function TasksSurface({ search, selectedDetail, onCloseDetail }: {
             />
           ) : null}
         />
-        <CaptureTaskDialog key={`${search.project ?? "all"}:${captureOpen ? "open" : "closed"}`} open={captureOpen} projects={projects} initialProjectId={search.project} onOpenChange={setCaptureOpen} onCreated={refresh} />
+        <CaptureTaskDialog key={`${search.project ?? "all"}:${captureOpen ? "open" : "closed"}`} open={captureOpen} projects={projects} initialProjectId={search.project} onOpenChange={setCaptureOpen} />
       </section>
     </ShellPageLayout>
   );

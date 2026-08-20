@@ -32,9 +32,8 @@ export const ResolveGovernedActionDocument = gql`
   }
 `;
 
-export const PendingHumanInterventionsDocument = gql`
-  query PendingHumanInterventions($conversationId: String, $taskId: String, $projectId: String, $first: Int = 50) {
-    pendingHumanInterventions(conversationId: $conversationId, taskId: $taskId, projectId: $projectId, first: $first) {
+export const HumanInterventionFields = gql`
+  fragment HumanInterventionFields on HumanIntervention {
       __typename
       ... on TaskAttention {
         kind
@@ -220,10 +219,18 @@ export const PendingHumanInterventionsDocument = gql`
           consolidatedConnections
         }
       }
-    }
   }
   ${TasksGateFields}
   ${TasksTaskCardFields}
+`;
+
+export const PendingHumanInterventionsDocument = gql`
+  query PendingHumanInterventions($conversationId: String, $taskId: String, $projectId: String, $first: Int = 50) {
+    pendingHumanInterventions(conversationId: $conversationId, taskId: $taskId, projectId: $projectId, first: $first) {
+      ...HumanInterventionFields
+    }
+  }
+  ${HumanInterventionFields}
 `;
 
 export const StartMcpAuthenticationDocument = gql`
