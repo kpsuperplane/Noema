@@ -1,11 +1,12 @@
 //! Provider persistence port transaction and error-contract tests.
 
+use noema_capabilities::{CapabilityId, ToolName};
 use noema_providers::{
     NewProviderAccount, PersistProviderModelCatalogRequest, ProviderAccountPersistence,
     ProviderAccountStatus, ProviderAccountStatusUpdate, ProviderAuthMethod,
     ProviderCapabilityAccountReference, ProviderCapabilityAssignmentKey,
     ProviderCapabilityAssignmentPersistence, ProviderModelCatalogPersistence, ProviderModelProfile,
-    ProviderPersistenceError, UpdateProviderAccountRequest,
+    ProviderPersistenceError, ReplaceProviderCapabilityRouteRequest, UpdateProviderAccountRequest,
     UpsertProviderCapabilityAssignmentRequest,
 };
 use serde_json::json;
@@ -626,4 +627,105 @@ async fn capability_assignment_and_account_delete_never_leave_a_dangling_row() {
             .expect("assignment read")
             .is_some();
     assert!(!assignment_exists || account_exists);
+}
+
+#[tokio::test]
+async fn browser_route_replacement_is_unbounded_atomic_and_preserves_fallbacks() {
+    let store = super::tests::test_store().await;
+    let mut account_ids = vec!["provider_account:obscura:system".to_string()];
+    for index in 0..8 {
+        let account = ProviderAccountPersistence::create_provider_account(
+            &store,
+            NewProviderAccount {
+                provider_kind: "kernel".to_string(),
+                display_name: Some(format!("Kernel {index}")),
+                auth_method: ProviderAuthMethod::SecretInput,
+                status: ProviderAccountStatus::Authenticated,
+                metadata: json!({}),
+            },
+        )
+        .await
+        .expect("create Kernel account");
+        account_ids.push(account.provider_account_id);
+    }
+    let key = ProviderCapabilityAssignmentKey::new(
+        ToolName::new("web.browse").expect("browse tool"),
+        CapabilityId::WebBrowse,
+    )
+    .expect("browse route key");
+    let request = ReplaceProviderCapabilityRouteRequest::new(
+        ToolName::new("web.browse").expect("browse tool"),
+        CapabilityId::WebBrowse,
+        account_ids
+            .iter()
+            .cloned()
+            .map(ProviderCapabilityAccountReference::persisted)
+            .collect(),
+    )
+    .expect("nine-provider route");
+    let route =
+        ProviderCapabilityAssignmentPersistence::replace_provider_capability_route(&store, request)
+            .await
+            .expect("save route");
+    assert_eq!(
+        route
+            .iter()
+            .map(|assignment| assignment.provider_account_id.as_str())
+            .collect::<Vec<_>>(),
+        account_ids.iter().map(String::as_str).collect::<Vec<_>>()
+    );
+
+    let missing_request = ReplaceProviderCapabilityRouteRequest::new(
+        ToolName::new("web.browse").expect("browse tool"),
+        CapabilityId::WebBrowse,
+        vec![
+            ProviderCapabilityAccountReference::persisted(&account_ids[0]),
+            ProviderCapabilityAccountReference::persisted("provider_account:kernel:missing"),
+        ],
+    )
+    .expect("missing-account route request");
+    ProviderCapabilityAssignmentPersistence::replace_provider_capability_route(
+        &store,
+        missing_request,
+    )
+    .await
+    .expect_err("missing account rejects route");
+    assert_eq!(
+        ProviderCapabilityAssignmentPersistence::provider_capability_route(&store, &key)
+            .await
+            .expect("read preserved route")
+            .len(),
+        account_ids.len()
+    );
+
+    let preferred = account_ids[3].clone();
+    ProviderCapabilityAssignmentPersistence::upsert_provider_capability_assignment(
+        &store,
+        UpsertProviderCapabilityAssignmentRequest::new(
+            ToolName::new("web.browse").expect("browse tool"),
+            CapabilityId::WebBrowse,
+            ProviderCapabilityAccountReference::persisted(&preferred),
+        )
+        .expect("preferred provider request"),
+    )
+    .await
+    .expect("change preferred provider");
+    let reordered =
+        ProviderCapabilityAssignmentPersistence::provider_capability_route(&store, &key)
+            .await
+            .expect("read reordered route");
+    assert_eq!(reordered[0].provider_account_id, preferred);
+    assert_eq!(reordered.len(), account_ids.len());
+
+    assert!(
+        ReplaceProviderCapabilityRouteRequest::new(
+            ToolName::new("web.browse").expect("browse tool"),
+            CapabilityId::WebBrowse,
+            vec![
+                ProviderCapabilityAccountReference::persisted(&account_ids[0]),
+                ProviderCapabilityAccountReference::persisted(&account_ids[0]),
+            ],
+        )
+        .is_err()
+    );
 }

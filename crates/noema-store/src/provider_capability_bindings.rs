@@ -2,7 +2,7 @@ use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use noema_providers::{
     ProviderCapabilityAccountReference, ProviderCapabilityAssignment,
-    ProviderCapabilityAssignmentKey,
+    ProviderCapabilityAssignmentKey, ReplaceProviderCapabilityRouteRequest,
 };
 
 use super::{NoemaStore, StoreError};
@@ -19,33 +19,30 @@ impl NoemaStore {
         capability_id: &str,
         account_reference: &ProviderCapabilityAccountReference,
     ) -> Result<ProviderCapabilityAssignment, StoreError> {
-        let binding_id = binding_id(tool_name, capability_id);
         self.with_connection(|conn| {
             let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             require_persisted_account(&transaction, account_reference)?;
-            let provider_account_id = account_reference.provider_account_id();
-            transaction.execute(
-                r#"
-                INSERT INTO provider_capability_bindings
-                  (binding_id, tool_name, capability_id, provider_account_id, updated_at)
-                VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-                ON CONFLICT(tool_name, capability_id) DO UPDATE SET
-                  provider_account_id = excluded.provider_account_id,
-                  updated_at = excluded.updated_at
-                "#,
-                params![binding_id, tool_name, capability_id, provider_account_id,],
+            let mut account_ids = if tool_name == "web.browse" {
+                provider_capability_route_account_ids(&transaction, tool_name, capability_id)?
+            } else {
+                Vec::new()
+            };
+            account_ids.retain(|account_id| account_id != account_reference.provider_account_id());
+            account_ids.insert(0, account_reference.provider_account_id().to_string());
+            replace_provider_capability_route_rows(
+                &transaction,
+                tool_name,
+                capability_id,
+                &account_ids,
             )?;
-            let assignment = transaction.query_row(
-                r#"
-                SELECT binding_id, tool_name, capability_id, provider_account_id
-                FROM provider_capability_bindings
-                WHERE tool_name = ?1
-                  AND capability_id = ?2
-                LIMIT 1
-                "#,
-                params![tool_name, capability_id],
-                provider_capability_binding_from_row,
-            )?;
+            let assignment =
+                provider_capability_route_rows(&transaction, tool_name, capability_id)?
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| StoreError::InvariantViolation {
+                        message: "provider capability route replacement returned no rows"
+                            .to_string(),
+                    })?;
             transaction.commit()?;
             Ok(assignment)
         })
@@ -69,6 +66,7 @@ impl NoemaStore {
                 FROM provider_capability_bindings
                 WHERE tool_name = ?1
                   AND capability_id = ?2
+                  AND route_position = 0
                 LIMIT 1
                 "#,
                 params![tool_name, capability_id],
@@ -76,6 +74,48 @@ impl NoemaStore {
             )
             .optional()
             .map_err(StoreError::Sqlite)
+        })
+        .await
+    }
+
+    /// Read all provider capability bindings in route order.
+    pub(crate) async fn provider_capability_route(
+        &self,
+        tool_name: &str,
+        capability_id: &str,
+    ) -> Result<Vec<ProviderCapabilityAssignment>, StoreError> {
+        self.with_connection(|conn| provider_capability_route_rows(conn, tool_name, capability_id))
+            .await
+    }
+
+    /// Replace one ordered provider capability route.
+    pub(super) async fn replace_provider_capability_route(
+        &self,
+        request: &ReplaceProviderCapabilityRouteRequest,
+    ) -> Result<Vec<ProviderCapabilityAssignment>, StoreError> {
+        self.with_connection(|conn| {
+            let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            for reference in request.account_references() {
+                require_persisted_account(&transaction, reference)?;
+            }
+            let account_ids = request
+                .account_references()
+                .iter()
+                .map(|reference| reference.provider_account_id().to_string())
+                .collect::<Vec<_>>();
+            replace_provider_capability_route_rows(
+                &transaction,
+                request.key().tool_name_str(),
+                request.key().capability_id_str(),
+                &account_ids,
+            )?;
+            let route = provider_capability_route_rows(
+                &transaction,
+                request.key().tool_name_str(),
+                request.key().capability_id_str(),
+            )?;
+            transaction.commit()?;
+            Ok(route)
         })
         .await
     }
@@ -132,6 +172,74 @@ fn provider_capability_binding_from_row(
     })
 }
 
-fn binding_id(tool_name: &str, capability_id: &str) -> String {
-    format!("provider_capability_binding:{tool_name}:{capability_id}")
+fn provider_capability_route_rows(
+    connection: &rusqlite::Connection,
+    tool_name: &str,
+    capability_id: &str,
+) -> Result<Vec<ProviderCapabilityAssignment>, StoreError> {
+    let mut statement = connection.prepare(
+        r#"
+        SELECT binding_id, tool_name, capability_id, provider_account_id
+        FROM provider_capability_bindings
+        WHERE tool_name = ?1 AND capability_id = ?2
+        ORDER BY route_position ASC
+        "#,
+    )?;
+    statement
+        .query_map(
+            params![tool_name, capability_id],
+            provider_capability_binding_from_row,
+        )?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(StoreError::Sqlite)
+}
+
+fn provider_capability_route_account_ids(
+    connection: &rusqlite::Connection,
+    tool_name: &str,
+    capability_id: &str,
+) -> Result<Vec<String>, StoreError> {
+    Ok(
+        provider_capability_route_rows(connection, tool_name, capability_id)?
+            .into_iter()
+            .map(|assignment| assignment.provider_account_id)
+            .collect(),
+    )
+}
+
+fn replace_provider_capability_route_rows(
+    transaction: &Transaction<'_>,
+    tool_name: &str,
+    capability_id: &str,
+    account_ids: &[String],
+) -> Result<(), StoreError> {
+    transaction.execute(
+        "DELETE FROM provider_capability_bindings WHERE tool_name = ?1 AND capability_id = ?2",
+        params![tool_name, capability_id],
+    )?;
+    for (position, provider_account_id) in account_ids.iter().enumerate() {
+        transaction.execute(
+            r#"
+            INSERT INTO provider_capability_bindings (
+              binding_id, tool_name, capability_id, provider_account_id, route_position
+            ) VALUES (?1, ?2, ?3, ?4, ?5)
+            "#,
+            params![
+                binding_id(tool_name, capability_id, position),
+                tool_name,
+                capability_id,
+                provider_account_id,
+                position,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn binding_id(tool_name: &str, capability_id: &str, position: usize) -> String {
+    if position == 0 {
+        format!("provider_capability_binding:{tool_name}:{capability_id}")
+    } else {
+        format!("provider_capability_binding:{tool_name}:{capability_id}:{position}")
+    }
 }

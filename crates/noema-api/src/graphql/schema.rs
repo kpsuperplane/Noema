@@ -114,8 +114,8 @@ use super::{
         GraphqlRegisterWebPushSubscriptionInput, GraphqlWebPushPresenceEvent, GraphqlWebPushStatus,
     },
     web_tool_settings::{
-        self, GraphqlSaveWebToolProviderBindingInput, GraphqlWebToolBindingSettings,
-        GraphqlWebToolSettings,
+        self, GraphqlSaveBrowserProviderRouteInput, GraphqlSaveWebToolProviderBindingInput,
+        GraphqlWebToolBindingSettings, GraphqlWebToolSettings,
     },
 };
 

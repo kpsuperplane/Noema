@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 59;
+pub const STORE_SCHEMA_VERSION: usize = 60;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1206,8 +1206,35 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up_with_hook("", crate::task_file_migration::move_task_prose_to_files),
         M::up(KERNEL_PROVIDER_ACCOUNT_SQL),
         M::up(PROVIDER_CONVERSATION_ITEM_TEXT_SQL),
+        M::up(BROWSER_PROVIDER_ROUTES_SQL),
     ])
 }
+
+/// Allow one ordered provider route for interactive browsing.
+const BROWSER_PROVIDER_ROUTES_SQL: &str = r#"
+ALTER TABLE provider_capability_bindings RENAME TO provider_capability_bindings_v59;
+CREATE TABLE provider_capability_bindings (
+  binding_id TEXT PRIMARY KEY NOT NULL,
+  tool_name TEXT NOT NULL CHECK (tool_name IN ('web.search', 'web.fetch', 'web.browse')),
+  capability_id TEXT NOT NULL,
+  provider_account_id TEXT NOT NULL,
+  route_position INTEGER NOT NULL DEFAULT 0 CHECK (route_position >= 0),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK (route_position = 0 OR tool_name = 'web.browse'),
+  UNIQUE(tool_name, capability_id, route_position),
+  UNIQUE(tool_name, capability_id, provider_account_id)
+);
+INSERT INTO provider_capability_bindings (
+  binding_id, tool_name, capability_id, provider_account_id,
+  route_position, created_at, updated_at
+)
+SELECT
+  binding_id, tool_name, capability_id, provider_account_id,
+  0, created_at, updated_at
+FROM provider_capability_bindings_v59;
+DROP TABLE provider_capability_bindings_v59;
+"#;
 
 /// Keep provider and presentation text in one durable assistant item.
 const PROVIDER_CONVERSATION_ITEM_TEXT_SQL: &str = r#"

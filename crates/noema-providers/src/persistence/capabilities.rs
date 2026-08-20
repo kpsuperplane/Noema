@@ -7,6 +7,64 @@ use crate::{
     provider_capability_assignment_pair_is_supported,
 };
 
+/// Validated replacement for one ordered provider capability route.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplaceProviderCapabilityRouteRequest {
+    key: ProviderCapabilityAssignmentKey,
+    account_references: Vec<ProviderCapabilityAccountReference>,
+}
+
+impl ReplaceProviderCapabilityRouteRequest {
+    /// Build one non-empty route for a supported tool and capability.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty route, duplicate accounts, or multiple
+    /// assignments outside `web.browse`.
+    pub fn new(
+        tool_name: ToolName,
+        capability_id: CapabilityId,
+        account_references: Vec<ProviderCapabilityAccountReference>,
+    ) -> Result<Self, ProviderPersistenceError> {
+        let key = ProviderCapabilityAssignmentKey::new(tool_name, capability_id)?;
+        if account_references.is_empty() {
+            return Err(ProviderPersistenceError::InvalidRequest {
+                kind: "provider_capability_route_empty",
+            });
+        }
+        if account_references.len() > 1 && key.tool_name_str() != "web.browse" {
+            return Err(ProviderPersistenceError::InvalidRequest {
+                kind: "provider_capability_route_unsupported",
+            });
+        }
+        let mut account_ids = std::collections::HashSet::new();
+        if account_references
+            .iter()
+            .any(|reference| !account_ids.insert(reference.provider_account_id()))
+        {
+            return Err(ProviderPersistenceError::InvalidRequest {
+                kind: "provider_capability_route_duplicate",
+            });
+        }
+        Ok(Self {
+            key,
+            account_references,
+        })
+    }
+
+    /// Return the route key.
+    #[must_use]
+    pub const fn key(&self) -> &ProviderCapabilityAssignmentKey {
+        &self.key
+    }
+
+    /// Return provider accounts in route order.
+    #[must_use]
+    pub fn account_references(&self) -> &[ProviderCapabilityAccountReference] {
+        &self.account_references
+    }
+}
+
 /// Typed provider-account reference for one capability assignment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderCapabilityAccountReference {
@@ -163,11 +221,23 @@ pub trait ProviderCapabilityAssignmentPersistence: Send + Sync {
         key: &'a ProviderCapabilityAssignmentKey,
     ) -> ProviderPersistenceFuture<'a, Option<ProviderCapabilityAssignment>>;
 
+    /// Read all assignments in route order.
+    fn provider_capability_route<'a>(
+        &'a self,
+        key: &'a ProviderCapabilityAssignmentKey,
+    ) -> ProviderPersistenceFuture<'a, Vec<ProviderCapabilityAssignment>>;
+
     /// Create or replace one assignment.
     fn upsert_provider_capability_assignment(
         &self,
         request: UpsertProviderCapabilityAssignmentRequest,
     ) -> ProviderPersistenceFuture<'_, ProviderCapabilityAssignment>;
+
+    /// Replace one ordered route atomically.
+    fn replace_provider_capability_route(
+        &self,
+        request: ReplaceProviderCapabilityRouteRequest,
+    ) -> ProviderPersistenceFuture<'_, Vec<ProviderCapabilityAssignment>>;
 
     /// Remove a set of assignments atomically.
     fn clear_provider_capability_assignments<'a>(

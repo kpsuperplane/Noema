@@ -3,7 +3,7 @@
 use noema_providers::{
     ProviderCapabilityAssignment, ProviderCapabilityAssignmentKey,
     ProviderCapabilityAssignmentPersistence, ProviderPersistenceError, ProviderPersistenceFuture,
-    UpsertProviderCapabilityAssignmentRequest,
+    ReplaceProviderCapabilityRouteRequest, UpsertProviderCapabilityAssignmentRequest,
 };
 
 use super::{
@@ -26,6 +26,20 @@ impl ProviderCapabilityAssignmentPersistence for NoemaStore {
         )
     }
 
+    fn provider_capability_route<'a>(
+        &'a self,
+        key: &'a ProviderCapabilityAssignmentKey,
+    ) -> ProviderPersistenceFuture<'a, Vec<ProviderCapabilityAssignment>> {
+        provider_future(
+            NoemaStore::provider_capability_route(
+                self,
+                key.tool_name_str(),
+                key.capability_id_str(),
+            ),
+            "provider_capability_route",
+        )
+    }
+
     fn upsert_provider_capability_assignment(
         &self,
         request: UpsertProviderCapabilityAssignmentRequest,
@@ -39,6 +53,17 @@ impl ProviderCapabilityAssignmentPersistence for NoemaStore {
             )
             .await
             .map_err(capability_write_error)
+        })
+    }
+
+    fn replace_provider_capability_route(
+        &self,
+        request: ReplaceProviderCapabilityRouteRequest,
+    ) -> ProviderPersistenceFuture<'_, Vec<ProviderCapabilityAssignment>> {
+        Box::pin(async move {
+            NoemaStore::replace_provider_capability_route(self, &request)
+                .await
+                .map_err(capability_write_error)
         })
     }
 

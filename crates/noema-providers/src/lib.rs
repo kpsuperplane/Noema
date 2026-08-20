@@ -134,7 +134,8 @@ pub use persistence::{
     ProviderCapabilityAccountReference, ProviderCapabilityAssignmentKey,
     ProviderCapabilityAssignmentPersistence, ProviderModelCatalogPersistence,
     ProviderModelCatalogPersistenceHandle, ProviderPersistenceError, ProviderPersistenceFuture,
-    UpdateProviderAccountRequest, UpsertProviderCapabilityAssignmentRequest,
+    ReplaceProviderCapabilityRouteRequest, UpdateProviderAccountRequest,
+    UpsertProviderCapabilityAssignmentRequest,
 };
 pub use recommendations::{
     NOEMA_MODEL_RECOMMENDATIONS, NoemaModelRecommendation, NoemaModelRecommendationCell,
