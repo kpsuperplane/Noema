@@ -144,17 +144,16 @@ impl RuntimeActor {
         else {
             return None;
         };
-        let contexts = self
-            .browser_snapshot_contexts
-            .lock()
-            .expect("browser snapshot context lock");
-        let context = contexts
-            .get(&browse_owner_key_for_turn(turn))
+        let context = self
+            .browser_sessions
+            .snapshot(&browse_owner_key_for_turn(turn))
             .filter(|context| context.revision == request.snapshot_revision);
-        let element = context.and_then(|context| context.elements.get(&request.reference));
+        let element = context
+            .as_ref()
+            .and_then(|context| context.elements.get(&request.reference));
         Some(serde_json::json!({
             "kind": "browser_interaction",
-            "page": context.map(|context| serde_json::json!({
+            "page": context.as_ref().map(|context| serde_json::json!({
                 "url": context.url,
                 "title": context.title,
             })),
@@ -308,6 +307,17 @@ async fn observed_read_arguments(
             arguments["reason"] = serde_json::Value::String(reason);
         }
         (url, arguments)
+    } else if capability_name == noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL {
+        let Ok(request) = noema_capabilities::web::browse::parse_provider_switch(payload) else {
+            return Ok(None);
+        };
+        (
+            request.url.clone(),
+            serde_json::json!({
+                "snapshot_revision": request.snapshot_revision,
+                "url": request.url,
+            }),
+        )
     } else {
         return Ok(None);
     };
@@ -377,6 +387,9 @@ fn safe_action_summary(
             }
         }
         .to_string();
+    }
+    if capability_name == noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL {
+        return "Open a URL with the next browser provider".to_string();
     }
     let action = if behavior.read_only {
         "share data with an external tool"
@@ -485,6 +498,17 @@ mod tests {
 
         assert_eq!(arguments["url"], "https://example.com/public?q=one");
         assert_eq!(arguments["reason"], "Read the public source.");
+
+        let switch = observed_read_arguments(
+            &store,
+            noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL,
+            &serde_json::json!({"snapshot_revision": 7, "url": url}),
+        )
+        .await
+        .expect("lookup observed switch URL")
+        .expect("authorize observed switch URL");
+        assert_eq!(switch["snapshot_revision"], 7);
+        assert_eq!(switch["url"], "https://example.com/public?q=one");
     }
 
     #[tokio::test]

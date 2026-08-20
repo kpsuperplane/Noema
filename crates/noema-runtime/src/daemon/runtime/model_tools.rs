@@ -729,6 +729,7 @@ fn runtime_binding(
         canonical_name.as_str(),
         noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
             | noema_capabilities::web::browse::WEB_BROWSE_HISTORY_TOOL
+            | noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL
     );
     let (mut behavior, execution_decision, scope) = match class {
         ToolAccessClass::ReadOnly => (

@@ -9,7 +9,7 @@ use noema_capabilities::{
 use noema_conversations::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
 };
-use noema_providers::{WebBrowseBackendHandle, WebBrowseOwner};
+use noema_providers::WebBrowseOwner;
 use noema_store::{
     GovernedActionDecision, GovernedActionRecord, GovernedActionState, GovernedExecutionOutcome,
     NewCapabilityAuthenticationRequest, StoredToolBehavior, WorkCommandService,
@@ -437,7 +437,6 @@ impl RuntimeActor {
         actions: Vec<(String, u64)>,
         human_id: &str,
     ) -> Result<HashMap<String, bool>, RuntimeError> {
-        let backend = self.web_browse_runtime_provider_resolution().await.ok();
         let mut availability = HashMap::with_capacity(actions.len());
         for (action_id, revision) in actions {
             let Some(action) = self.store.get_governed_action(&action_id, revision).await? else {
@@ -446,11 +445,18 @@ impl RuntimeActor {
             if action.owner_human_id != human_id || !is_session_bound_browser_action(&action) {
                 continue;
             }
-            availability.insert(
-                action_id,
-                browser_session_available(backend.as_ref().map(|(backend, _)| backend), &action)
-                    .await,
-            );
+            let available = if let Some(owner) =
+                super::local_tools::browse_owner_key_for_action(&action)
+                && let Some(session) = self.browser_sessions.session(&owner)
+            {
+                session
+                    .backend
+                    .has_session(&WebBrowseOwner::new(owner))
+                    .await
+            } else {
+                false
+            };
+            availability.insert(action_id, available);
         }
         Ok(availability)
     }
@@ -656,20 +662,8 @@ fn is_session_bound_browser_action(action: &GovernedActionRecord) -> bool {
         action.capability_name.as_str(),
         noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
             | noema_capabilities::web::browse::WEB_BROWSE_HISTORY_TOOL
+            | noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL
     )
-}
-
-async fn browser_session_available(
-    backend: Option<&WebBrowseBackendHandle>,
-    action: &GovernedActionRecord,
-) -> bool {
-    let (Some(backend), Some(owner)) = (
-        backend,
-        super::local_tools::browse_owner_key_for_action(action),
-    ) else {
-        return false;
-    };
-    backend.has_session(&WebBrowseOwner::new(owner)).await
 }
 
 struct ApprovalRequestContext {

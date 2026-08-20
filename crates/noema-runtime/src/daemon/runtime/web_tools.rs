@@ -20,8 +20,15 @@ pub(in crate::daemon) struct ResolvedWebProvider {
     pub provider_kind: String,
     pub account_key: String,
     pub credential_revision: u64,
+    pub capability_status: ProviderCapabilityStatus,
     pub fallback_from: Option<String>,
     pub fallback_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::daemon) struct ResolvedBrowserProviderRoute {
+    pub providers: Vec<ResolvedWebProvider>,
+    pub digest: String,
 }
 
 pub(in crate::daemon) async fn resolve_web_search_provider(
@@ -36,10 +43,72 @@ pub(in crate::daemon) async fn resolve_web_fetch_provider(
     resolve_bound_provider(store, WEB_FETCH_TOOL, CapabilityId::WebFetch).await
 }
 
-pub(in crate::daemon) async fn resolve_web_browse_provider(
+pub(in crate::daemon) async fn resolve_web_browse_route(
     store: &NoemaStore,
-) -> Result<ResolvedWebProvider, ProviderPersistenceError> {
-    resolve_bound_provider(store, WEB_BROWSE_TOOL, CapabilityId::WebBrowse).await
+) -> Result<ResolvedBrowserProviderRoute, ProviderPersistenceError> {
+    let key = ProviderCapabilityAssignmentKey::new(
+        ToolName::new(WEB_BROWSE_TOOL).map_err(|_| ProviderPersistenceError::InvalidRequest {
+            kind: "web_tool_name",
+        })?,
+        CapabilityId::WebBrowse,
+    )?;
+    let assignments =
+        ProviderCapabilityAssignmentPersistence::provider_capability_route(store, &key).await?;
+    let providers = if assignments.is_empty() {
+        vec![default_provider(WEB_BROWSE_TOOL)]
+    } else {
+        let mut providers = Vec::with_capacity(assignments.len());
+        for assignment in assignments {
+            let provider_account_id = assignment.provider_account_id;
+            let account = load_provider_account(store, &provider_account_id)
+                .await?
+                .ok_or_else(|| ProviderPersistenceError::AccountNotFound {
+                    provider_account_id: provider_account_id.clone(),
+                })?;
+            let Some(capability) = account
+                .capabilities
+                .iter()
+                .find(|capability| capability.capability_id == CapabilityId::WebBrowse)
+            else {
+                return Err(ProviderPersistenceError::InvalidRequest {
+                    kind: "browser_provider_route_capability",
+                });
+            };
+            providers.push(ResolvedWebProvider {
+                credential_revision: credential_revision(&account),
+                capability_status: capability.status,
+                provider_account_id: account.provider_account_id,
+                provider_kind: account.provider_kind,
+                account_key: account.account_key,
+                fallback_from: None,
+                fallback_reason: None,
+            });
+        }
+        providers
+    };
+    let bytes = serde_json::to_vec(
+        &providers
+            .iter()
+            .map(|provider| {
+                (
+                    provider.provider_account_id.as_str(),
+                    provider.provider_kind.as_str(),
+                    provider.account_key.as_str(),
+                    provider.credential_revision,
+                    provider.capability_status.as_str(),
+                )
+            })
+            .collect::<Vec<_>>(),
+    )
+    .map_err(|_| ProviderPersistenceError::Invariant {
+        operation: "browser_provider_route_digest",
+    })?;
+    let digest = ring::digest::digest(&ring::digest::SHA256, &bytes)
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    Ok(ResolvedBrowserProviderRoute { providers, digest })
 }
 
 pub(in crate::daemon) async fn web_provider_override_exists(
@@ -69,13 +138,20 @@ pub(in crate::daemon) async fn resolve_web_destination(
     store: &NoemaStore,
     tool_name: &str,
 ) -> Result<CapabilityDestination, ProviderPersistenceError> {
+    if tool_name.starts_with("web.browse.") {
+        let route = resolve_web_browse_route(store).await?;
+        return CapabilityDestination::new(
+            WEB_BROWSE_TOOL,
+            "browser_provider_route",
+            None::<String>,
+            format!("route:{}", route.digest),
+        )
+        .map_err(destination_error);
+    }
     let resolved = match tool_name {
         WEB_SEARCH_TOOL => resolve_web_search_provider(store).await?,
         WEB_FETCH_TOOL => resolve_web_fetch_provider(store).await?,
         noema_capabilities::file::FILE_DOWNLOAD_TOOL => default_provider(WEB_FETCH_TOOL),
-        tool_name if tool_name.starts_with("web.browse.") => {
-            resolve_web_browse_provider(store).await?
-        }
         _ => {
             return Err(ProviderPersistenceError::InvalidRequest {
                 kind: "web_tool_name",
@@ -161,6 +237,7 @@ fn resolve_bound_account(
 
             ResolvedWebProvider {
                 credential_revision: credential_revision(&account),
+                capability_status: capability.status,
                 provider_account_id: account.provider_account_id,
                 provider_kind: account.provider_kind,
                 account_key: account.account_key,
@@ -193,6 +270,7 @@ fn default_provider(tool_name: &str) -> ResolvedWebProvider {
             provider_kind: noema_providers::DUCKDUCKGO_PUBLIC_PROVIDER_ID.to_string(),
             account_key: SYSTEM_ACCOUNT_KEY.to_string(),
             credential_revision: 0,
+            capability_status: ProviderCapabilityStatus::Available,
             fallback_from: None,
             fallback_reason: None,
         },
@@ -204,6 +282,7 @@ fn default_provider(tool_name: &str) -> ResolvedWebProvider {
             provider_kind: noema_providers::DIRECT_HTTP_PROVIDER_ID.to_string(),
             account_key: SYSTEM_ACCOUNT_KEY.to_string(),
             credential_revision: 0,
+            capability_status: ProviderCapabilityStatus::Available,
             fallback_from: None,
             fallback_reason: None,
         },
@@ -212,6 +291,7 @@ fn default_provider(tool_name: &str) -> ResolvedWebProvider {
             provider_kind: "obscura".to_string(),
             account_key: SYSTEM_ACCOUNT_KEY.to_string(),
             credential_revision: 0,
+            capability_status: ProviderCapabilityStatus::Available,
             fallback_from: None,
             fallback_reason: None,
         },
@@ -243,7 +323,10 @@ mod tests {
     use super::*;
     use crate::test_support::test_store;
     use noema_capabilities::CapabilityId;
-    use noema_providers::{ProviderAccountStatus, ProviderCapabilityAccountReference};
+    use noema_providers::{
+        NewProviderAccount, ProviderAccountPersistence, ProviderAccountStatus, ProviderAuthMethod,
+        ProviderCapabilityAccountReference, ReplaceProviderCapabilityRouteRequest,
+    };
 
     #[tokio::test]
     async fn resolves_system_defaults_without_bindings() {
@@ -348,6 +431,63 @@ mod tests {
         assert_eq!(
             resolved.fallback_reason.as_deref(),
             Some("bound provider capability web.search is account_dependent")
+        );
+    }
+
+    #[tokio::test]
+    async fn browser_route_digest_fences_capability_state_changes() {
+        let store = test_store().await;
+        let kernel = ProviderAccountPersistence::create_provider_account(
+            &store,
+            NewProviderAccount {
+                provider_kind: "kernel".to_string(),
+                display_name: None,
+                auth_method: ProviderAuthMethod::SecretInput,
+                status: ProviderAccountStatus::Authenticated,
+                metadata: serde_json::json!({"credentialRevision": 2}),
+            },
+        )
+        .await
+        .expect("Kernel account");
+        ProviderCapabilityAssignmentPersistence::replace_provider_capability_route(
+            &store,
+            ReplaceProviderCapabilityRouteRequest::new(
+                ToolName::new(WEB_BROWSE_TOOL).expect("browse tool"),
+                CapabilityId::WebBrowse,
+                vec![
+                    ProviderCapabilityAccountReference::persisted(
+                        "provider_account:obscura:system",
+                    ),
+                    ProviderCapabilityAccountReference::persisted(
+                        kernel.provider_account_id.clone(),
+                    ),
+                ],
+            )
+            .expect("browser route"),
+        )
+        .await
+        .expect("save browser route");
+        let available = resolve_web_browse_route(&store)
+            .await
+            .expect("available route");
+
+        store
+            .update_provider_account_status(
+                &kernel.provider_account_id,
+                ProviderAccountStatus::Unauthenticated,
+                Some("auth_failed"),
+                None,
+            )
+            .await
+            .expect("change capability state");
+        let unavailable = resolve_web_browse_route(&store)
+            .await
+            .expect("unavailable route");
+
+        assert_ne!(available.digest, unavailable.digest);
+        assert_ne!(
+            available.providers[1].capability_status,
+            unavailable.providers[1].capability_status
         );
     }
 

@@ -516,6 +516,7 @@ async fn complete_catalog_is_stable_for_native_transport() {
                 "web.browse.interact",
                 "web.browse.wait",
                 "web.browse.history",
+                "web.browse.switch_provider",
                 "web.browse.close",
                 "mcp.mcp:docs.read",
             ]

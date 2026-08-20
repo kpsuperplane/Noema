@@ -421,6 +421,12 @@ fn browser_marker(
             "Checked browser history",
             "Could not check browser history",
         ),
+        "web.browse.switch_provider" => Copy::new(
+            "Switching browser provider",
+            "Switched browser provider",
+            "Could not switch browser provider",
+        )
+        .target(page.as_deref()),
         "web.browse.close" => Copy::new(
             "Closing browser",
             "Closed browser",
