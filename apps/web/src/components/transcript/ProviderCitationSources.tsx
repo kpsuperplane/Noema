@@ -1,8 +1,11 @@
 import { Divider } from "@astryxdesign/core/Divider";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { parseMarkdown } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
+import { BookOpen } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   MarkdownContent,
@@ -33,27 +36,10 @@ type ProviderCitationMarkdownProps = Omit<
   citations: readonly ProviderCitation[];
 };
 
+const SOURCES_ACTION_URL = "noema-sources://open";
+
 const styles = stylex.create({
-  marker: {
-    display: "inline",
-    borderWidth: 0,
-    padding: 0,
-    backgroundColor: "transparent",
-    color: "var(--color-text-accent)",
-    font: "inherit",
-    fontSize: "0.72em",
-    fontWeight: 600,
-    lineHeight: 1,
-    verticalAlign: "super",
-    cursor: "pointer",
-    ":hover": { textDecoration: "underline" },
-    ":focus-visible": {
-      outlineWidth: 2,
-      outlineStyle: "solid",
-      outlineColor: "var(--ring)",
-      outlineOffset: 2
-    }
-  },
+  sourcesAction: { marginInlineStart: "var(--spacing-1)", verticalAlign: "middle" },
   sourceLink: {
     display: "block",
     padding: "var(--spacing-2)",
@@ -81,19 +67,14 @@ export function ProviderCitationMarkdown({
   ...markdownProps
 }: ProviderCitationMarkdownProps) {
   const [open, setOpen] = useState(false);
-  const content = useMemo(() => providerCitationContent(text, citations), [citations, text]);
+  const content = useMemo(() => {
+    const cited = providerCitationContent(text, citations);
+    if (cited.citations.length === 0) return cited;
+    return { ...cited, ...citationContentWithSourcesAction(cited.text, cited.sources) };
+  }, [citations, text]);
   const components = useMemo<MarkdownComponents>(
     () => ({
-      citation: ({ number }) => (
-        <button
-          type="button"
-          aria-label="Show sources for this message"
-          onClick={() => setOpen(true)}
-          {...stylex.props(styles.marker)}
-        >
-          [{number}]
-        </button>
-      )
+      citation: (props) => <CitationReference {...props} onOpenSources={() => setOpen(true)} />
     }),
     []
   );
@@ -111,6 +92,49 @@ export function ProviderCitationMarkdown({
       <ProviderCitationDialog citations={content.citations} open={open} onOpenChange={setOpen} />
     </>
   );
+}
+
+export function CitationReference({
+  source,
+  number,
+  onOpenSources
+}: {
+  source: MarkdownSource;
+  number: number;
+  variant: "label" | "number";
+  onOpenSources: () => void;
+}) {
+  if (source.url === SOURCES_ACTION_URL) {
+    return (
+      <IconButton
+        type="button"
+        size="sm"
+        variant="secondary"
+        label="Sources"
+        tooltip="Sources"
+        icon={<BookOpen aria-hidden="true" size={14} />}
+        onClick={onOpenSources}
+        xstyle={styles.sourcesAction}
+      />
+    );
+  }
+  return <sup>{number}</sup>;
+}
+
+export function citationContentWithSourcesAction(
+  text: string,
+  sources: Record<string, MarkdownSource>
+): { text: string; sources: Record<string, MarkdownSource> } {
+  const sourceId = unusedSourcesActionId(text, sources);
+  const lastBlock = parseMarkdown(text).at(-1)?.type;
+  const separator = lastBlock === "paragraph" ? " " : "\n\n";
+  return {
+    text: `${text}${separator}[${sourceId}]`,
+    sources: {
+      ...sources,
+      [sourceId]: { title: "Sources", url: SOURCES_ACTION_URL }
+    }
+  };
 }
 
 export function providerCitationsFromMetadata(metadata: unknown): ProviderCitation[] {
@@ -291,6 +315,18 @@ function unusedSourceId(
     number += 1;
   }
   return `noema-citation-${number}`;
+}
+
+function unusedSourcesActionId(text: string, sources: Record<string, MarkdownSource>): string {
+  let number = 1;
+  while (
+    sources[`noema-sources-${number}`] ||
+    text.includes(`[noema-sources-${number}]`) ||
+    text.includes(`【noema-sources-${number}】`)
+  ) {
+    number += 1;
+  }
+  return `noema-sources-${number}`;
 }
 
 function nonNegativeInteger(value: unknown): number | null {

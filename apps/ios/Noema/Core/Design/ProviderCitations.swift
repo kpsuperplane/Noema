@@ -50,25 +50,52 @@ struct ProviderCitationMarkdown: View {
   let text: String
   let citations: [ProviderCitation]
   let role: NoemaMarkdown.Role
+  let sourcesInline: Bool
   @State private var sourcesPresented = false
 
+  init(
+    text: String,
+    citations: [ProviderCitation],
+    role: NoemaMarkdown.Role,
+    sourcesInline: Bool = false
+  ) {
+    self.text = text
+    self.citations = citations
+    self.role = role
+    self.sourcesInline = sourcesInline
+  }
+
+  @ViewBuilder
   var body: some View {
     let content = ProviderCitationContent(text: text, citations: citations)
-    NoemaMarkdown(content.text, role: role)
-      .environment(\.openURL, OpenURLAction { url in
-        guard url.scheme == ProviderCitationContent.scheme else { return .systemAction }
-        sourcesPresented = true
-        return .handled
-      })
+    if content.citations.isEmpty {
+      NoemaMarkdown(content.text, role: role)
+    } else if sourcesInline {
+      HStack(alignment: .bottom, spacing: NoemaSpacing.xs) {
+        NoemaMarkdown(content.text, role: role)
+          .layoutPriority(1)
+        CitationSourcesButton {
+          sourcesPresented = true
+        }
+      }
       .noemaSheet(isPresented: $sourcesPresented) {
         ProviderCitationSheet(citations: content.citations)
       }
+    } else {
+      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+        NoemaMarkdown(content.text, role: role)
+        CitationSourcesButton {
+          sourcesPresented = true
+        }
+      }
+      .noemaSheet(isPresented: $sourcesPresented) {
+        ProviderCitationSheet(citations: content.citations)
+      }
+    }
   }
 }
 
 private struct ProviderCitationContent {
-  static let scheme = "noema-provider-citations"
-
   let text: String
   let citations: [ProviderCitation]
 
@@ -127,9 +154,7 @@ private struct ProviderCitationContent {
   }
 
   private static func markers(_ numbers: Set<Int>) -> String {
-    numbers.sorted().map { number in
-      "[\\[\(number)\\]](\(scheme)://sources)"
-    }.joined()
+    numbers.sorted().map(citationSuperscript).joined()
   }
 
   private static func validEndOffset(text: String, citation: ProviderCitation) -> Int? {
@@ -138,6 +163,42 @@ private struct ProviderCitationContent {
           citation.startIndex.map({ $0 < endIndex }) ?? true else { return nil }
     return endIndex
   }
+}
+
+struct CitationSourcesButton: View {
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      NoemaIcon(.bookOpen, size: 14)
+        .foregroundStyle(NoemaColor.contentSecondary)
+        .frame(width: NoemaSpacing.xxl, height: NoemaSpacing.xxl)
+        .background(NoemaColor.controlFill, in: NoemaSuperellipse.full)
+        .overlay { NoemaSuperellipse.full.stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+    }
+    .buttonStyle(.plain)
+    .contentShape(.interaction, NoemaSuperellipse.full.inset(by: -NoemaSpacing.md))
+    .accessibilityLabel("Sources")
+    .accessibilityHint("Shows citation sources")
+  }
+}
+
+func citationSuperscript(_ number: Int) -> String {
+  String(number).map { digit in
+    switch digit {
+    case "0": "⁰"
+    case "1": "¹"
+    case "2": "²"
+    case "3": "³"
+    case "4": "⁴"
+    case "5": "⁵"
+    case "6": "⁶"
+    case "7": "⁷"
+    case "8": "⁸"
+    case "9": "⁹"
+    default: digit
+    }
+  }.map(String.init).joined()
 }
 
 private struct ProviderCitationSheet: View {

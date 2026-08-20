@@ -177,20 +177,22 @@ The Tasks list reads recurring authorities directly. A recurrence remains in
 Scheduled when all of its Task instances are terminal. Instances provide run
 history and do not control recurrence visibility.
 
-Memory articles keep prose primary. One numeric citation represents one nearby
-claim. Its hover or focus card shows every exact evidence source with type,
+Memory articles keep prose primary. One plain superscript number represents one
+nearby claim. One Sources icon follows the article and opens the complete
+Sources view. Each citation group shows every exact evidence source with type,
 date, excerpt, and identifier.
 
 Web and iOS use one provider citation contract for Chat messages and completed
 Task results. They number unique URLs in first-use order. Each citation marker
 follows its claim when the provider supplies a valid UTF-16 end offset. A marker
-without a valid offset follows the complete message. Every marker opens one
-message-owned Sources view. Each source shows its title and host and opens the
-exact URL. The message does not show a separate Sources footer.
+without a valid offset follows the complete message. Markers use plain,
+non-interactive superscript numbers. One Sources icon follows the cited content
+and opens its Sources view. The icon remains inline for Chat messages. Each
+source shows its title and host and opens the exact URL.
 
-The backend decodes reserved source footnotes from completed Task results.
-It returns readable text and the same structured provider citation metadata
-that Chat uses. Web and iOS use the shared marker and Sources presentation.
+The backend decodes reserved source footnotes from completed Task results. It
+returns readable text and the same structured provider citation metadata that
+Chat uses. Web and iOS use the shared marker, icon, and Sources presentation.
 
 Clients do not parse `[^noema-source-N]` markers or definitions.
 
