@@ -187,19 +187,24 @@ fn special_marker(
     let marker = match name {
         "web.search" => {
             let query = text(arguments, &[&["query"]]).or_else(|| text(result, &[&["query"]]));
-            let target = query
-                .as_ref()
-                .map_or_else(|| "the web".to_string(), |value| format!("“{value}”"));
-            named(
-                "Web Search",
-                status,
-                Copy::new(
-                    format!("Searching the web for {target}"),
-                    query.unwrap_or_else(|| "Web search".into()),
-                    format!("Could not search the web for {target}"),
-                ),
-                error,
-            )
+            let copy = query.map_or_else(
+                || {
+                    Copy::new(
+                        "Searching the web",
+                        "Web search",
+                        "Could not search the web",
+                    )
+                },
+                |query| {
+                    let target = format!("“{query}”");
+                    Copy::new(
+                        format!("Searching the web for {target}"),
+                        query,
+                        format!("Could not search the web for {target}"),
+                    )
+                },
+            );
+            named("Web Search", status, copy, error)
         }
         "web.fetch" => named(
             "Fetched Web Page",
@@ -688,6 +693,13 @@ mod tests {
             "Cancelled: searching the web for “Noema tools”"
         );
         assert_eq!(marker["status"], "cancelled");
+    }
+
+    #[test]
+    fn marker_does_not_repeat_web_when_search_query_is_unavailable() {
+        let marker = tool_marker("web.search", "running", false, None, None).expect("marker");
+
+        assert_eq!(marker["summary"], "Searching the web");
     }
 
     #[test]
