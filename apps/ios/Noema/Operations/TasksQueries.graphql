@@ -42,7 +42,8 @@ query TasksTaskRecurrence($recurrenceId: String!, $first: Int = 30) {
   taskRecurrence(recurrenceId: $recurrenceId, first: $first) {
     recurrenceId
     title
-    description
+    taskDocument
+    taskDocumentDigest
     startsAt
     cronExpression
     timeZone
@@ -91,8 +92,8 @@ query TasksNeedsYou($workspaceId: String!, $projectId: String, $first: Int = 50,
   }
 }
 
-query TasksHistory($workspaceId: String!, $projectId: String, $kind: TerminalTaskKind, $text: String, $first: Int = 50, $after: String) {
-  taskHistory(workspaceId: $workspaceId, projectId: $projectId, kind: $kind, text: $text, first: $first, after: $after) {
+query TasksHistory($workspaceId: String!, $projectId: String, $kind: TerminalTaskKind, $first: Int = 50, $after: String) {
+  taskHistory(workspaceId: $workspaceId, projectId: $projectId, kind: $kind, first: $first, after: $after) {
     edges {
       cursor
       node { ...TasksTaskSummaryFields }

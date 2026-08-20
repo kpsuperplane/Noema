@@ -401,9 +401,9 @@ async fn seed_task_and_run_references(
                     r#"
                     INSERT INTO tasks (
                       task_id, workspace_id, workflow_id, stage_id, title,
-                      description_markdown, source_kind, created_by_actor_id
+                      source_kind, created_by_actor_id
                     ) VALUES (?1, 'workspace:personal', 'workflow:personal:default', ?2,
-                              'Lifecycle', 'Exercise lifecycle references', 'system',
+                              'Lifecycle', 'system',
                               'actor:system')
                     "#,
                     params![task_id, stage_id],

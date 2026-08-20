@@ -141,6 +141,7 @@ impl ObscuraBrowseBackend {
                         error,
                         WebBrowseError::BlockedTarget
                             | WebBrowseError::Unavailable
+                            | WebBrowseError::Unauthenticated
                             | WebBrowseError::OutcomeUncertain
                     )
                     || !worker.is_alive()
@@ -177,6 +178,7 @@ impl ObscuraBrowseBackend {
             result,
             Err(WebBrowseError::BlockedTarget
                 | WebBrowseError::Unavailable
+                | WebBrowseError::Unauthenticated
                 | WebBrowseError::OutcomeUncertain)
         ) || !worker.is_alive()
         {

@@ -1,7 +1,9 @@
-//! Embedded Obscura browser adapter.
+//! Interactive browser adapters.
 
+mod kernel;
 mod obscura;
 
+pub(crate) use kernel::KernelBrowseBackend;
 pub(crate) use obscura::ObscuraBrowseBackend;
 
 pub(crate) use obscura::process::run_if_requested as run_worker_if_requested;

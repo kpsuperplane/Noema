@@ -81,7 +81,6 @@ export function TasksSurface({ search, selectedDetail, onCloseDetail }: {
                 <ShellPageTrack>
                   <TasksList
                     projectId={search.project}
-                    query={search.q}
                     selectedTaskId={selectedTaskId}
                     terminal={search.terminal ?? "all"}
                   />

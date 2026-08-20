@@ -5,7 +5,7 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
-import { Ban, CalendarClock, CalendarX, CircleEllipsis, MessageSquareReply, Pencil, Play, RefreshCcw, RotateCcw, SendHorizontal } from "lucide-react";
+import { Ban, CalendarClock, CalendarX, CircleEllipsis, MessageSquareReply, Play, RefreshCcw, RotateCcw, SendHorizontal, Settings2 } from "lucide-react";
 import type { TasksProject } from "./tasksTypes";
 import { useTaskCommands, type TaskCommandSubject } from "./useTaskCommands";
 import { TaskActionDialog } from "./TaskActionDialog";
@@ -14,10 +14,29 @@ import { TasksTaskEditFieldsDocument } from "@/generated/graphql";
 import { composerDraftInlineSize, measureComposerDraftInlineSize } from "@/components/Composer";
 import { snapshotTaskSubject, taskSubjectChanged } from "./semanticCommand";
 import { TaskScheduleDialog } from "./TaskScheduleDialog";
+import { TaskSettingsDialog } from "./TaskSettingsDialog";
 
 type ActiveCommand = {
   action: string;
   subject: TaskCommandSubject;
+};
+
+type TaskEditField = "TITLE" | "DOCUMENT" | "SETTINGS";
+
+export type TaskInlineEditController = {
+  field: Exclude<TaskEditField, "SETTINGS"> | null;
+  task: TaskCommandSubject;
+  canEdit: boolean;
+  canStart: boolean;
+  busy: boolean;
+  error: string | null;
+  requiresAcknowledgement: boolean;
+  actionUnavailable: boolean;
+  start: (field: Exclude<TaskEditField, "SETTINGS">) => Promise<void>;
+  cancel: () => void;
+  saveTitle: (title: string) => Promise<void>;
+  saveDocument: (taskDocument: string) => Promise<void>;
+  acknowledge: () => Promise<void>;
 };
 
 type TaskActionsProps = {
@@ -27,7 +46,7 @@ type TaskActionsProps = {
   inlineResponse?: boolean;
   answerChoices?: readonly string[];
   onUpdated?: () => void | Promise<void>;
-  children?: (actions: React.ReactNode, controls: React.ReactNode) => React.ReactNode;
+  children?: (actions: React.ReactNode, controls: React.ReactNode, edit: TaskInlineEditController) => React.ReactNode;
 };
 
 export function TaskActions({
@@ -40,6 +59,7 @@ export function TaskActions({
   children
 }: TaskActionsProps) {
   const [activeCommand, setActiveCommand] = React.useState<ActiveCommand | null>(null);
+  const [editField, setEditField] = React.useState<TaskEditField | null>(null);
   const [scheduleAction, setScheduleAction] = React.useState<"SCHEDULE" | "RESCHEDULE" | "UNSCHEDULE" | null>(null);
   const [editLoadError, setEditLoadError] = React.useState<string | null>(null);
   const [answer, setAnswer] = React.useState("");
@@ -54,6 +74,7 @@ export function TaskActions({
   }, [onUpdated]);
   const commands = useTaskCommands({ task: commandTask, onUpdated: refresh });
   const activeAction = activeCommand?.action ?? null;
+  const canEdit = validActions.includes("EDIT");
   const canAnswer = validActions.includes("ANSWER");
   const canRetry = validActions.includes("RETRY");
   const hasInlineResponse = inlineResponse && (canAnswer || canRetry);
@@ -119,6 +140,25 @@ export function TaskActions({
     }
   }, [answer, answerPlaceholder]);
 
+  const openEdit = React.useCallback(async (field: TaskEditField) => {
+    commands.clearError();
+    setEditLoadError(null);
+    if (!canEdit || activeCommand || scheduleAction) return;
+    if (task.taskDocument !== undefined) {
+      setEditField(field);
+      setActiveCommand({ action: "EDIT", subject: snapshotTaskSubject(task) });
+      return;
+    }
+    try {
+      const result = await loadEditTask({ variables: { taskId: task.taskId } });
+      if (!result.data?.task) throw new Error("Task unavailable");
+      setEditField(field);
+      setActiveCommand({ action: "EDIT", subject: snapshotTaskSubject(result.data.task) });
+    } catch {
+      setEditLoadError("Task details could not be loaded for editing.");
+    }
+  }, [activeCommand, canEdit, commands, loadEditTask, scheduleAction, task]);
+
   const openAction = React.useCallback(async (action: string) => {
     commands.clearError();
     setEditLoadError(null);
@@ -130,18 +170,14 @@ export function TaskActions({
       await commands.run(action).catch(() => undefined);
       return;
     }
-    if (action !== "EDIT" || task.description !== undefined) {
-      setActiveCommand({ action, subject: snapshotTaskSubject(task) });
+    if (action === "EDIT") {
+      await openEdit("SETTINGS");
       return;
     }
-    try {
-      const result = await loadEditTask({ variables: { taskId: task.taskId } });
-      if (!result.data?.task) throw new Error("Task unavailable");
-      setActiveCommand({ action, subject: snapshotTaskSubject(result.data.task) });
-    } catch {
-      setEditLoadError("Task details could not be loaded for editing.");
+    if (action !== "EDIT") {
+      setActiveCommand({ action, subject: snapshotTaskSubject(task) });
     }
-  }, [commands, loadEditTask, task]);
+  }, [commands, openEdit, task]);
 
   const acknowledgeLatest = React.useCallback(async () => {
     if (!activeCommand) return;
@@ -151,6 +187,43 @@ export function TaskActions({
     setActiveCommand({ action: activeCommand.action, subject: snapshotTaskSubject(latest) });
     commands.acknowledge();
   }, [activeCommand, commands, loadEditTask, task]);
+
+  const cancelEdit = React.useCallback(() => {
+    commands.clearError();
+    setEditLoadError(null);
+    setEditField(null);
+    setActiveCommand(null);
+  }, [commands]);
+
+  const saveEdit = React.useCallback(async (draft: Parameters<typeof commands.run>[1]) => {
+    if (requiresAcknowledgement || actionUnavailable) return;
+    await commands.run("EDIT", {
+      title: commandTask.title,
+      taskDocument: commandTask.taskDocument ?? "",
+      projectId: commandTask.project?.projectId ?? null,
+      executorAgentId: commandTask.executorAgentId,
+      cwdOverride: commandTask.cwdOverride ?? null,
+      ...draft
+    });
+    setEditField(null);
+    setActiveCommand(null);
+  }, [actionUnavailable, commandTask, commands, requiresAcknowledgement]);
+
+  const editController = React.useMemo<TaskInlineEditController>(() => ({
+    field: editField === "TITLE" || editField === "DOCUMENT" ? editField : null,
+    task: commandTask,
+    canEdit,
+    canStart: canEdit && activeCommand === null && scheduleAction === null,
+    busy: commands.busy !== null || editLoad.loading,
+    error: editLoadError ?? commands.error,
+    requiresAcknowledgement,
+    actionUnavailable,
+    start: openEdit,
+    cancel: cancelEdit,
+    saveTitle: async (title) => saveEdit({ title }),
+    saveDocument: async (taskDocument) => saveEdit({ taskDocument }),
+    acknowledge: acknowledgeLatest
+  }), [acknowledgeLatest, actionUnavailable, activeCommand, canEdit, cancelEdit, commandTask, commands.busy, commands.error, editField, editLoad.loading, editLoadError, openEdit, requiresAcknowledgement, saveEdit, scheduleAction]);
 
   const controls = (
     <TaskControlsRow
@@ -282,18 +355,34 @@ export function TaskActions({
       {editLoadError ? <span role="alert" {...stylex.props(styles.loadError)}>{editLoadError}</span> : null}
     </div>
   ) : null;
+  const settingsDialog = activeAction === "EDIT" && editField === "SETTINGS" ? (
+    <TaskSettingsDialog
+      task={commandTask}
+      projects={projects}
+      busy={commands.busy !== null}
+      acknowledging={editLoad.loading}
+      requiresAcknowledgement={requiresAcknowledgement}
+      actionUnavailable={actionUnavailable}
+      error={editLoadError ?? commands.error}
+      onAcknowledge={() => acknowledgeLatest().catch(() => setEditLoadError("The latest task details could not be loaded."))}
+      onCancel={cancelEdit}
+      onSubmit={async (draft) => {
+        await saveEdit(draft);
+      }}
+    />
+  ) : null;
 
   return (
     <>
-      {children ? children(actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null, controls) : (
+      {children ? children(actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null, controls, editController) : (
         <>{controls}{actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null}</>
       )}
       <span aria-live="polite" {...stylex.props(styles.srOnly)}>{commands.notice}</span>
+      {settingsDialog}
       <TaskActionDialog
         key={activeAction ?? "closed"}
-        action={activeAction}
+        action={activeAction === "EDIT" ? null : activeAction}
         task={commandTask}
-        projects={projects}
         busy={commands.busy !== null}
         acknowledging={editLoad.loading}
         requiresAcknowledgement={requiresAcknowledgement}
@@ -352,7 +441,7 @@ function taskCommandLabel(action: string): string {
     SCHEDULE: "Schedule task",
     RESCHEDULE: "Reschedule task",
     UNSCHEDULE: "Unschedule task",
-    EDIT: "Edit task",
+    EDIT: "Edit task settings",
     ANSWER: "Answer request",
     RETRY: "Retry task",
     REOPEN: "Reopen task",
@@ -368,7 +457,7 @@ function taskCommandIcon(action: string, iconProps: { "aria-hidden": true; size:
     case "SCHEDULE":
     case "RESCHEDULE": return <CalendarClock {...iconProps} />;
     case "UNSCHEDULE": return <CalendarX {...iconProps} />;
-    case "EDIT": return <Pencil {...iconProps} />;
+    case "EDIT": return <Settings2 {...iconProps} />;
     case "ANSWER": return <MessageSquareReply {...iconProps} />;
     case "RETRY": return <RefreshCcw {...iconProps} />;
     case "REOPEN": return <RotateCcw {...iconProps} />;

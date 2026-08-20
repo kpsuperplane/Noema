@@ -10,6 +10,53 @@ use crate::{
     schema::{LEGACY_V9_SCHEMA_SQL, STORE_SCHEMA_VERSION, store_migrations},
 };
 
+#[tokio::test]
+async fn v58_upgrade_adds_optional_provider_conversation_text() {
+    let home = TempDir::new().expect("store root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    let mut connection = Connection::open(&config.path).expect("v58 database");
+    store_migrations()
+        .to_version(&mut connection, 58)
+        .expect("construct v58 schema");
+    connection
+        .execute_batch(
+            r#"
+            INSERT INTO conversations (
+              conversation_id, owner_object_type, owner_object_id, provider
+            ) VALUES ('conversation:provider-text', 'human', 'human:local', 'codex');
+            INSERT INTO conversation_items (
+              item_id, conversation_id, sequence_index, kind, status,
+              author_actor_id, content_text
+            ) VALUES (
+              'item:existing-text', 'conversation:provider-text', 1,
+              'assistant_text', 'completed', 'agent:primary', 'Existing text'
+            );
+            "#,
+        )
+        .expect("v58 data");
+    drop(connection);
+
+    drop(NoemaStore::open(&config).await.expect("upgrade store"));
+    let connection = Connection::open(&config.path).expect("upgraded database");
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT provider_content_text FROM conversation_items WHERE item_id = 'item:existing-text'",
+                [],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .expect("provider text"),
+        None
+    );
+    assert_eq!(
+        connection
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))
+            .expect("schema version"),
+        STORE_SCHEMA_VERSION
+    );
+}
+
 #[test]
 fn v50_task_file_conversion_preserves_existing_task_document_and_retries() {
     let home = TempDir::new().expect("temp store root");
@@ -91,7 +138,7 @@ fn v56_result_migration_copies_only_submitted_tasks_and_preserves_results() {
     .expect("existing result");
 
     store_migrations()
-        .to_latest(&mut connection)
+        .to_version(&mut connection, 56)
         .expect("migrate to v56");
 
     assert_eq!(
@@ -109,6 +156,94 @@ fn v56_result_migration_copies_only_submitted_tasks_and_preserves_results() {
             .query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))
             .expect("schema version"),
         56
+    );
+}
+
+#[tokio::test]
+async fn v57_moves_recurrence_prose_preserves_documents_on_retry_and_converges() {
+    let upgrade_home = TempDir::new().expect("upgrade root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database directory");
+    let mut connection = Connection::open(&upgrade_config.path).expect("open database");
+    store_migrations()
+        .to_version(&mut connection, 56)
+        .expect("migrate to v56");
+    let authorization = serde_json::json!({
+        "kind": "manual_task_body",
+        "title": "Recurring title",
+        "description_markdown": "Stored authorization"
+    })
+    .to_string();
+    connection
+        .execute(
+            "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, description_markdown, authorization_context_json, executor_agent_id, task_directory, source_kind, created_by_actor_id) VALUES ('task:v57', 'workspace:personal', 'workflow:personal:default', 'stage:personal:inbox', 'Existing Task', 'Stale database prose', ?1, 'agent:system:task-executor', 'v57-task', 'work_ui', 'actor:human:local')",
+            [&authorization],
+        )
+        .expect("insert Task");
+    connection
+        .execute(
+            "INSERT INTO task_recurrences (recurrence_id, workspace_id, title, description_markdown, authorization_context_json, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, next_run_at) VALUES ('recurrence:v57', 'workspace:personal', 'Recurring title', 'Stored template', ?1, 1, '0 8 * * *', 'UTC', 'run_once', 'skip', 'active', 1)",
+            [&authorization],
+        )
+        .expect("insert recurrence");
+    let task_path = upgrade_home.path().join("tasks/v57-task/TASK.md");
+    fs::create_dir_all(task_path.parent().expect("Task directory")).expect("Task directory");
+    fs::write(&task_path, "Exact existing Task\n").expect("Task document");
+
+    let transaction = connection.transaction().expect("migration transaction");
+    crate::task_file_migration::move_task_prose_to_files(&transaction)
+        .expect("interrupted migration");
+    transaction.rollback().expect("interrupt migration");
+    let recurrence_path = upgrade_home.path().join("recurrences/v57/TASK.md");
+    fs::write(&recurrence_path, "Interrupted template edit\n").expect("template edit");
+    drop(connection);
+
+    drop(
+        NoemaStore::open(&upgrade_config)
+            .await
+            .expect("retry migration"),
+    );
+    assert_eq!(
+        fs::read_to_string(task_path).expect("Task document"),
+        "Exact existing Task\n"
+    );
+    assert_eq!(
+        fs::read_to_string(recurrence_path).expect("recurrence document"),
+        "Interrupted template edit\n"
+    );
+    let connection = Connection::open(&upgrade_config.path).expect("upgraded database");
+    for table in ["tasks", "task_recurrences"] {
+        assert_eq!(
+            connection
+                .query_row(
+                    &format!(
+                        "SELECT count(*) FROM pragma_table_info('{table}') WHERE name = 'description_markdown'"
+                    ),
+                    [],
+                    |row| row.get::<_, usize>(0),
+                )
+                .expect("description column count"),
+            0
+        );
+    }
+    let renamed: String = connection
+        .query_row(
+            "SELECT authorization_context_json FROM task_recurrences WHERE recurrence_id = 'recurrence:v57'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("authorization context");
+    assert!(renamed.contains("task_document_markdown"));
+    assert!(!renamed.contains("description_markdown"));
+    drop(connection);
+
+    let fresh_home = TempDir::new().expect("fresh root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(NoemaStore::open(&fresh_config).await.expect("fresh schema"));
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
     );
 }
 
@@ -293,6 +428,62 @@ async fn v32_upgrade_persists_system_provider_accounts_and_matches_fresh_schema(
         )
         .expect("existing account"),
         1
+    );
+    drop(connection);
+
+    let fresh_home = TempDir::new().expect("fresh root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(NoemaStore::open(&fresh_config).await.expect("fresh schema"));
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
+    );
+}
+
+#[tokio::test]
+async fn v58_upgrade_adds_kernel_provider_and_matches_fresh_schema() {
+    let upgrade_home = TempDir::new().expect("v57 root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    let mut connection = Connection::open(&upgrade_config.path).expect("v57 database");
+    store_migrations()
+        .to_version(&mut connection, 57)
+        .expect("construct v57 schema");
+    connection
+        .execute(
+            "INSERT INTO provider_accounts (provider_account_id, provider_kind, account_key, display_name, auth_method, is_active, is_default, status) VALUES ('provider_account:exa:existing', 'exa', 'existing', 'Existing Exa', 'secret_input', 1, 0, 'authenticated')",
+            [],
+        )
+        .expect("existing account");
+    drop(connection);
+
+    drop(
+        NoemaStore::open(&upgrade_config)
+            .await
+            .expect("upgrade v57"),
+    );
+    let connection = Connection::open(&upgrade_config.path).expect("upgraded database");
+    connection
+        .execute(
+            "INSERT INTO provider_accounts (provider_account_id, provider_kind, account_key, display_name, auth_method, is_active, is_default, status) VALUES ('provider_account:kernel:existing', 'kernel', 'existing', 'Existing Kernel', 'secret_input', 1, 0, 'authenticated')",
+            [],
+        )
+        .expect("Kernel account");
+    assert_eq!(
+        count_where(
+            &connection,
+            "provider_accounts",
+            "provider_account_id IN ('provider_account:exa:existing', 'provider_account:kernel:existing')"
+        )
+        .expect("preserved accounts"),
+        2
+    );
+    assert_eq!(
+        connection
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))
+            .expect("schema version"),
+        STORE_SCHEMA_VERSION
     );
     drop(connection);
 

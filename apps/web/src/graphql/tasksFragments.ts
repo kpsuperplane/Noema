@@ -80,7 +80,7 @@ export const TasksTaskCardFields = gql`
       ...TasksProjectFields
     }
     title
-    descriptionPreview
+    taskDocumentPreview
     stage {
       ...TasksStageFields
     }
@@ -125,7 +125,7 @@ export const TasksTaskSummaryFields = gql`
       ...TasksProjectFields
     }
     title
-    descriptionPreview
+    taskDocumentPreview
     stage {
       ...TasksStageFields
     }
@@ -186,7 +186,6 @@ export const TasksCommandTaskFields = gql`
   fragment TasksCommandTaskFields on TaskDetail {
     taskId
     title
-    description
     stage {
       ...TasksStageFields
     }

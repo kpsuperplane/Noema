@@ -235,6 +235,10 @@ async fn seed_task_owner(store: &crate::NoemaStore, task_id: &str, title: &str) 
         })
         .await
         .expect("seed task owner");
+    store
+        .ensure_task_document_from(&noema_tasks::TaskId::new(task_id).expect("Task id"), "")
+        .await
+        .expect("seed Task document");
 }
 
 async fn create_task_artifact(

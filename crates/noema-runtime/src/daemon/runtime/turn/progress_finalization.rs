@@ -217,26 +217,6 @@ impl RuntimeActor {
         citation_sources.observe(provider_round_index, &response.hosted_web_searches);
         let mut assistant_response = ProviderAssistantResponse::default();
         for (offset, response_item) in response.responses.into_iter().enumerate() {
-            let response_item = match response_item {
-                noema_providers::GenerateResponseItem::Text {
-                    phase,
-                    text,
-                    citations,
-                } => {
-                    let normalized = self.normalize_provider_citation_text(
-                        citation_sources,
-                        &text,
-                        &citations,
-                        "conversation_turn",
-                        &turn.turn_id,
-                    );
-                    noema_providers::GenerateResponseItem::Text {
-                        phase,
-                        text: normalized.text,
-                        citations: normalized.citations,
-                    }
-                }
-            };
             self.persist_provider_response_item(
                 &action_turn,
                 ProviderResponsePosition {
@@ -244,6 +224,7 @@ impl RuntimeActor {
                     output_index: Some(index + offset),
                 },
                 response_item,
+                citation_sources,
                 false,
                 &mut assistant_response,
                 item_tx,
@@ -266,9 +247,14 @@ impl RuntimeActor {
             "phase": "final_answer",
             "source": "progress_audit_pause",
         });
-        let assistant_item = self
-            .store
-            .append_conversation_item(NewConversationItem {
+        let Some(assistant_item) = self
+            .persist_provider_assistant_text(
+                &CitationSourceRegistry::default(),
+                summary.to_string(),
+                &[],
+                "progress_audit",
+                &turn.turn_id,
+                NewConversationItem {
                 conversation_id: turn.conversation_id.clone(),
                 turn_id: Some(turn.turn_id.clone()),
                 parent_item_id: Some(turn.user_item_id.clone()),
@@ -276,18 +262,22 @@ impl RuntimeActor {
                 status: ConversationItemStatus::Completed,
                 author: ActorRef::new("agent:primary")
                     .expect("static primary agent id must be valid"),
-                content_text: Some(summary.to_string()),
+                content_text: None,
                 payload_json: json!({}),
                 metadata: metadata.clone(),
-            })
-            .await?;
+                },
+            )
+            .await?
+        else {
+            return Ok(());
+        };
+        let text = assistant_item.content_text.clone().unwrap_or_default();
+        let metadata = assistant_item.metadata.clone();
         send_conversation_item(
             item_tx,
             assistant_item,
             metadata,
-            TurnTranscriptItem::AssistantText {
-                text: summary.to_string(),
-            },
+            TurnTranscriptItem::AssistantText { text },
         );
         Ok(())
     }

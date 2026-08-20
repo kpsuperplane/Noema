@@ -47,8 +47,8 @@ export const TasksListDocument = gql`
 `;
 
 export const TasksRecurrencesDocument = gql`
-  query TasksRecurrences($workspaceId: String!, $projectId: String, $text: String, $first: Int = 100) {
-    taskRecurrences(workspaceId: $workspaceId, projectId: $projectId, text: $text, first: $first) {
+  query TasksRecurrences($workspaceId: String!, $projectId: String, $first: Int = 100) {
+    taskRecurrences(workspaceId: $workspaceId, projectId: $projectId, first: $first) {
       recurrenceId
       title
       cronExpression
@@ -88,8 +88,8 @@ export const TasksNeedsYouDocument = gql`
 `;
 
 export const TasksHistoryDocument = gql`
-  query TasksHistory($workspaceId: String!, $projectId: String, $kind: TerminalTaskKind, $text: String, $first: Int = 50, $after: String) {
-    taskHistory(workspaceId: $workspaceId, projectId: $projectId, kind: $kind, text: $text, first: $first, after: $after) {
+  query TasksHistory($workspaceId: String!, $projectId: String, $kind: TerminalTaskKind, $first: Int = 50, $after: String) {
+    taskHistory(workspaceId: $workspaceId, projectId: $projectId, kind: $kind, first: $first, after: $after) {
       edges {
         cursor
         node {
@@ -138,7 +138,8 @@ export const TasksTaskEditFieldsDocument = gql`
     task(taskId: $taskId) {
       taskId
       title
-      description
+      taskDocument
+      taskDocumentDigest
       revision
       generation
       executorAgentId
@@ -179,6 +180,7 @@ export const TasksTaskDetailDocument = gql`
         conversationId
       }
       taskDocument
+      taskDocumentDigest
       resultDocument
       reviewDocument
       attention {
@@ -339,7 +341,7 @@ export const TasksTaskSchedulePreviewDocument = gql`
 export const TasksTaskRecurrenceDocument = gql`
   query TasksTaskRecurrence($recurrenceId: String!, $first: Int = 30) {
     taskRecurrence(recurrenceId: $recurrenceId, first: $first) {
-      recurrenceId title description startsAt cronExpression timeZone missedRunPolicy overlapPolicy
+      recurrenceId title taskDocument taskDocumentDigest startsAt cronExpression timeZone missedRunPolicy overlapPolicy
       lifecycle revision nextRunAt pendingCoalescedAt
       occurrences { recurrenceRevision scheduledFor localSlot trigger resolution taskId createdAt }
     }

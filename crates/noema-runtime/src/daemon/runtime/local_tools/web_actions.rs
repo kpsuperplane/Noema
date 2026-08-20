@@ -55,7 +55,7 @@ impl RuntimeActor {
             Ok(BrowseCommand::History(request)) => BrowseCommand::History(request),
             _ => return Ok(()),
         };
-        let provider = self
+        let (provider, _) = self
             .web_browse_runtime_provider_resolution()
             .await
             .map_err(|_| WebBrowseError::Unavailable)?;

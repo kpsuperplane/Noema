@@ -231,9 +231,9 @@ async fn required_task_documents_cannot_be_deleted() {
         .task
         .expect("Task");
     store
-        .ensure_task_document(&task.task_id)
+        .read_task_document(&task.task_id)
         .await
-        .expect("create Task document");
+        .expect("read Task document");
     store
         .write_task_file(&task.task_id, crate::TASK_RESULT, "Current result.")
         .await
@@ -389,7 +389,7 @@ async fn task_files_carry_execution_across_continuation_and_review() {
         .await
         .expect("read Task")
         .expect("Task");
-    assert!(detail.task_document.contains("file-lifecycle"));
+    assert_eq!(detail.task_document, "Durable delegated payload");
     assert_eq!(
         detail.result_document.as_deref(),
         Some("Completed file result.\n")
@@ -478,7 +478,7 @@ fn capture(key: &str, title: &str) -> WorkCommand {
         meta: metadata(key),
         workspace_id: WorkspaceId::new("workspace:personal").expect("workspace id"),
         title: title.to_string(),
-        description_markdown: "captured description".to_string(),
+        task_document_markdown: "captured description".to_string(),
         project_id: None,
         provenance: TaskProvenance {
             source_kind: TaskSourceKind::WorkUi,
@@ -516,7 +516,8 @@ fn update(key: &str, task: &noema_tasks::TaskRecord, title: &str) -> WorkCommand
         meta: metadata(key),
         precondition: precondition(task),
         title: Some(title.to_string()),
-        description_markdown: None,
+        task_document_markdown: None,
+        expected_task_document_digest: None,
         project_id: None,
         executor_agent_id: None,
         cwd_override: None,
@@ -559,7 +560,7 @@ fn delegated(key: &str, source: &str, complexity_hint: Option<TaskComplexity>) -
         },
         workspace_id: WorkspaceId::new("workspace:personal").expect("workspace id"),
         title: format!("Delegated {source}"),
-        description_markdown: "Durable delegated payload".to_string(),
+        task_document_markdown: "Durable delegated payload".to_string(),
         project_id: None,
         executor_agent_id: None,
         cwd_override: None,
@@ -700,7 +701,9 @@ async fn assert_source_replay(kind: SourceReplayKind) {
 
     let mut divergent = command("idem:source:third");
     match &mut divergent {
-        WorkCommand::CaptureTask(command) => command.description_markdown = "divergent".to_string(),
+        WorkCommand::CaptureTask(command) => {
+            command.task_document_markdown = "divergent".to_string()
+        }
         WorkCommand::DelegateTask(command) => command.title = "Changed durable payload".to_string(),
         _ => unreachable!(),
     }
@@ -894,7 +897,7 @@ async fn receipt_replay_is_exact_and_divergent_replay_is_rejected() {
         returned_snapshot.authorization_context,
         TaskAuthorizationContext::ManualTaskBody {
             title: "first title".to_string(),
-            description_markdown: "captured description".to_string(),
+            task_document_markdown: "captured description".to_string(),
         }
     );
     let replay = service.execute(command).await.expect("idempotent replay");
@@ -923,9 +926,74 @@ async fn receipt_replay_is_exact_and_divergent_replay_is_rejected() {
         updated.authorization_context,
         TaskAuthorizationContext::ManualTaskBody {
             title: "edited title".to_string(),
-            description_markdown: "captured description".to_string(),
+            task_document_markdown: "captured description".to_string(),
         }
     );
+}
+
+#[tokio::test]
+async fn inbox_document_save_is_exact_and_a_stale_digest_changes_nothing() {
+    let (store, service) = fixture().await;
+    let captured = task!(
+        service,
+        capture("document-save:capture", "Original title"),
+        "capture"
+    );
+    let current = store
+        .read_task_document(&captured.task_id)
+        .await
+        .expect("current document");
+    let exact = "# Exact\n\n- [x] kept  \n\n```rust\nlet value = 1;\n```\n";
+    let updated = task!(
+        service,
+        WorkCommand::UpdateInboxTask(UpdateInboxTask {
+            meta: metadata("document-save:update"),
+            precondition: precondition(&captured),
+            title: Some("Updated title".to_string()),
+            task_document_markdown: Some(exact.to_string()),
+            expected_task_document_digest: Some(current.digest.clone()),
+            project_id: None,
+            executor_agent_id: None,
+            cwd_override: None,
+        }),
+        "save document"
+    );
+    assert_eq!(updated.title, "Updated title");
+    assert_eq!(
+        store
+            .read_task_document(&updated.task_id)
+            .await
+            .expect("saved document")
+            .content,
+        exact
+    );
+
+    store
+        .write_task_file(&updated.task_id, crate::TASK_DOCUMENT, "External change\n")
+        .await
+        .expect("external change");
+    work_error!(
+        service,
+        WorkCommand::UpdateInboxTask(UpdateInboxTask {
+            meta: metadata("document-save:stale"),
+            precondition: precondition(&updated),
+            title: Some("Stale title".to_string()),
+            task_document_markdown: Some("Stale draft\n".to_string()),
+            expected_task_document_digest: Some(current.digest),
+            project_id: None,
+            executor_agent_id: None,
+            cwd_override: None,
+        }),
+        StoreError::Work(WorkDomainError::StaleDocument),
+        "stale document digest"
+    );
+    let after = store
+        .get_work_task(&updated.task_id)
+        .await
+        .expect("read Task")
+        .expect("Task");
+    assert_eq!(after.task.title, "Updated title");
+    assert_eq!(after.task_document, "External change\n");
 }
 
 #[tokio::test]
@@ -955,7 +1023,8 @@ async fn agent_inbox_edit_preserves_existing_authorization_context() {
             },
             precondition: precondition(&original),
             title: Some("Agent rewrite".to_string()),
-            description_markdown: None,
+            task_document_markdown: None,
+            expected_task_document_digest: None,
             project_id: None,
             executor_agent_id: None,
             cwd_override: None,
@@ -1101,7 +1170,7 @@ async fn inbox_project_update_distinguishes_omitted_replacement_and_explicit_cle
             meta: metadata("idem:project:capture"),
             workspace_id: WorkspaceId::new("workspace:personal").expect("workspace id"),
             title: "Associated task".to_string(),
-            description_markdown: String::new(),
+            task_document_markdown: String::new(),
             project_id: Some(project.project_id.clone()),
             provenance: TaskProvenance {
                 source_kind: TaskSourceKind::WorkUi,
@@ -1121,7 +1190,8 @@ async fn inbox_project_update_distinguishes_omitted_replacement_and_explicit_cle
             meta: metadata("idem:project:preserve"),
             precondition: precondition(&captured),
             title: Some("Still associated".to_string()),
-            description_markdown: None,
+            task_document_markdown: None,
+            expected_task_document_digest: None,
             project_id: None,
             executor_agent_id: None,
             cwd_override: None,
@@ -1136,7 +1206,8 @@ async fn inbox_project_update_distinguishes_omitted_replacement_and_explicit_cle
             meta: metadata("idem:project:clear"),
             precondition: precondition(&preserved),
             title: None,
-            description_markdown: None,
+            task_document_markdown: None,
+            expected_task_document_digest: None,
             project_id: Some(None),
             executor_agent_id: None,
             cwd_override: None,
@@ -2101,56 +2172,6 @@ async fn run_now_preserves_scheduled_task_identity_and_blocks_plain_queue() {
 }
 
 #[tokio::test]
-async fn recurrence_keeps_first_task_snapshot_and_future_template_authority_separate() {
-    let (store, service) = fixture().await;
-    let captured = task!(service, capture("repeat:capture", "Original"), "capture");
-    let scheduled_for = noema_tasks::parse_utc_instant("2030-01-01T08:00:00Z", "start").unwrap();
-    let first = task!(
-        service,
-        schedule(
-            "repeat:set",
-            &captured,
-            scheduled_for,
-            Some(NewTaskRecurrence {
-                starts_at: scheduled_for,
-                cron_expression: "0 8 * * *".to_string(),
-                overlap_policy: OverlapPolicy::Skip,
-            })
-        ),
-        "enable recurrence"
-    );
-    let recurrence_id = first.recurrence_id.clone().expect("recurrence id");
-    let changed = service
-        .execute(WorkCommand::UpdateTaskRecurrence(UpdateTaskRecurrence {
-            meta: metadata("repeat:update"),
-            precondition: noema_tasks::RecurrencePrecondition {
-                recurrence_id: recurrence_id.clone(),
-                expected_revision: 1,
-            },
-            title: Some("Future title".to_string()),
-            description_markdown: None,
-            project_id: None,
-            starts_at: None,
-            cron_expression: None,
-            time_zone: None,
-            missed_run_policy: None,
-            overlap_policy: None,
-        }))
-        .await
-        .expect("update recurrence");
-    assert_eq!(changed.task.expect("first task").title, "Original");
-    assert_eq!(
-        store
-            .get_task_recurrence(&recurrence_id)
-            .await
-            .unwrap()
-            .expect("recurrence")
-            .title,
-        "Future title"
-    );
-}
-
-#[tokio::test]
 async fn recurrence_run_now_materializes_manual_history_without_advancing_schedule() {
     let (store, service) = fixture().await;
     let captured = task!(
@@ -2191,11 +2212,49 @@ async fn recurrence_run_now_materializes_manual_history_without_advancing_schedu
         }),
         "settle first occurrence"
     );
+    let recurrence_before_edit = store
+        .get_task_recurrence(&recurrence_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let template = store
+        .read_recurrence_document(&recurrence_id)
+        .await
+        .expect("recurrence template");
+    service
+        .execute(WorkCommand::UpdateTaskRecurrence(UpdateTaskRecurrence {
+            meta: metadata("repeat-now:update-template"),
+            precondition: noema_tasks::RecurrencePrecondition {
+                recurrence_id: recurrence_id.clone(),
+                expected_revision: recurrence_before_edit.revision,
+            },
+            title: Some("Future recurring title".to_string()),
+            task_document_markdown: Some("Latest exact template\n".to_string()),
+            expected_task_document_digest: Some(template.digest),
+            project_id: None,
+            starts_at: None,
+            cron_expression: None,
+            time_zone: None,
+            missed_run_policy: None,
+            overlap_policy: None,
+        }))
+        .await
+        .expect("update recurrence template");
     let recurrence_before = store
         .get_task_recurrence(&recurrence_id)
         .await
         .unwrap()
         .unwrap();
+    assert_eq!(cancelled.title, "Recurring");
+    assert_eq!(recurrence_before.title, "Future recurring title");
+    assert_eq!(
+        store
+            .read_task_document(&cancelled.task_id)
+            .await
+            .expect("existing occurrence document")
+            .content,
+        "captured description"
+    );
     let command = WorkCommand::RunTaskRecurrenceNow(RunTaskRecurrenceNow {
         meta: metadata("repeat-now:manual"),
         precondition: noema_tasks::RecurrencePrecondition {
@@ -2211,6 +2270,14 @@ async fn recurrence_run_now_materializes_manual_history_without_advancing_schedu
     assert_eq!(
         manual.stage_id.as_str(),
         noema_tasks::PERSONAL_QUEUE_STAGE_ID
+    );
+    assert_eq!(
+        store
+            .read_task_document(&manual.task_id)
+            .await
+            .expect("manual occurrence document")
+            .content,
+        "Latest exact template\n"
     );
     let recurrence_after = store
         .get_task_recurrence(&recurrence_id)
@@ -2231,13 +2298,43 @@ async fn recurrence_run_now_materializes_manual_history_without_advancing_schedu
         manual_occurrence.trigger,
         noema_tasks::RecurrenceOccurrenceTrigger::Manual
     );
+    let manual = task!(
+        service,
+        WorkCommand::CancelTask(CancelTask {
+            meta: metadata("repeat-now:cancel-manual"),
+            precondition: precondition(&manual),
+            reason: None,
+        }),
+        "settle manual occurrence"
+    );
+    let next_scheduled_at = recurrence_after.next_run_at.expect("next scheduled time");
+    let materialized = service
+        .process_due_work_schedules(next_scheduled_at, true)
+        .await
+        .expect("materialize scheduled occurrence")
+        .into_iter()
+        .find(|task_id| task_id != &manual.task_id)
+        .expect("scheduled occurrence");
+    assert_eq!(
+        store
+            .read_task_document(&materialized)
+            .await
+            .expect("scheduled occurrence document")
+            .content,
+        "Latest exact template\n"
+    );
+    let recurrence_with_scheduled_occurrence = store
+        .get_task_recurrence(&recurrence_id)
+        .await
+        .unwrap()
+        .unwrap();
     work_error!(
         service,
         WorkCommand::RunTaskRecurrenceNow(RunTaskRecurrenceNow {
             meta: metadata("repeat-now:overlap"),
             precondition: noema_tasks::RecurrencePrecondition {
                 recurrence_id,
-                expected_revision: recurrence_after.revision,
+                expected_revision: recurrence_with_scheduled_occurrence.revision,
             },
         }),
         StoreError::Work(WorkDomainError::InvalidTransition),

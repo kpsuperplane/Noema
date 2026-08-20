@@ -48,8 +48,9 @@ use crate::{WebBackendRequest, WebBackendResolverError};
 use noema_capabilities::web::browse::{BrowseCommand, parse_command};
 use noema_capabilities::web::fetch::WEB_FETCH_TOOL;
 use noema_providers::{
-    DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID, WebBrowseBackendHandle, WebBrowseError,
-    WebBrowseOwner, WebFetchBackendHandle, WebFetchContext, WebSearchBackendHandle,
+    DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID, OBSCURA_BROWSER_PROVIDER_ID,
+    WebBrowseBackendHandle, WebBrowseError, WebBrowseOwner, WebFetchBackendHandle, WebFetchContext,
+    WebSearchBackendHandle,
 };
 
 const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated";
@@ -77,7 +78,7 @@ mod web_actions;
 mod native_memory_tools;
 use native_memory_tools::execute_native_memory_tool;
 
-struct ProviderAuthFailureTarget {
+pub(super) struct ProviderAuthFailureTarget {
     provider_account_id: String,
     credential_revision: u64,
 }
@@ -836,19 +837,34 @@ impl RuntimeActor {
 
     pub(super) async fn web_browse_runtime_provider_resolution(
         &self,
-    ) -> Result<WebBrowseBackendHandle, String> {
+    ) -> Result<(WebBrowseBackendHandle, Option<ProviderAuthFailureTarget>), String> {
         let resolved = super::web_tools::resolve_web_browse_provider(&self.store)
             .await
             .map_err(|_| "web.browse provider binding could not be resolved".to_string())?;
-        self.web_backends
+        let target = ProviderAuthFailureTarget {
+            provider_account_id: resolved.provider_account_id.clone(),
+            credential_revision: resolved.credential_revision,
+        };
+        match self
+            .web_backends
             .resolve_browse(web_backend_request(&resolved))
             .await
-            .map_err(|_| {
-                format!(
-                    "web.browse provider '{}' is unavailable",
-                    resolved.provider_kind
-                )
-            })
+        {
+            Ok(provider) => Ok((provider, auth_failure_target(&resolved))),
+            Err(WebBackendResolverError::Unauthenticated) => {
+                self.mark_provider_account_unauthenticated(&target).await;
+                let provider = self
+                    .web_backends
+                    .resolve_browse(default_browse_backend_request())
+                    .await
+                    .map_err(|_| "web.browse fallback provider is unavailable".to_string())?;
+                Ok((provider, None))
+            }
+            Err(WebBackendResolverError::Unavailable) => Err(format!(
+                "web.browse provider '{}' is unavailable",
+                resolved.provider_kind
+            )),
+        }
     }
 
     async fn execute_web_browse(
@@ -858,15 +874,20 @@ impl RuntimeActor {
         payload: &Value,
     ) -> Result<Value, String> {
         let command = parse_command(name, payload).map_err(|error| error.message().to_string())?;
-        let provider = self.web_browse_runtime_provider_resolution().await?;
-        provider
+        let (provider, auth_failure_target) = self.web_browse_runtime_provider_resolution().await?;
+        let result = provider
             .execute(&owner, command)
             .await
             .and_then(|response| {
                 serde_json::to_value(response)
                     .map_err(|_| noema_providers::WebBrowseError::Unavailable)
-            })
-            .map_err(|error| error.to_string())
+            });
+        if matches!(result, Err(WebBrowseError::Unauthenticated))
+            && let Some(target) = auth_failure_target
+        {
+            self.mark_provider_account_unauthenticated(&target).await;
+        }
+        result.map_err(|error| error.to_string())
     }
 
     pub(super) async fn close_browser_session(&self, owner_key: &str) -> Result<Value, String> {
@@ -874,15 +895,20 @@ impl RuntimeActor {
             .lock()
             .expect("browser snapshot context lock")
             .remove(owner_key);
-        let provider = self.web_browse_runtime_provider_resolution().await?;
-        provider
+        let (provider, auth_failure_target) = self.web_browse_runtime_provider_resolution().await?;
+        let result = provider
             .execute(&WebBrowseOwner::new(owner_key), BrowseCommand::Close)
             .await
             .and_then(|response| {
                 serde_json::to_value(response)
                     .map_err(|_| noema_providers::WebBrowseError::Unavailable)
-            })
-            .map_err(|error| error.to_string())
+            });
+        if matches!(result, Err(WebBrowseError::Unauthenticated))
+            && let Some(target) = auth_failure_target
+        {
+            self.mark_provider_account_unauthenticated(&target).await;
+        }
+        result.map_err(|error| error.to_string())
     }
 
     pub(super) fn remember_browser_snapshot(&self, owner: &str, payload: &Value) {
@@ -986,6 +1012,14 @@ fn default_fetch_backend_request() -> WebBackendRequest {
     WebBackendRequest {
         provider_kind: provider_kind.to_string(),
         provider_account_id: format!("provider_account:{provider_kind}:system"),
+        credential_revision: 0,
+    }
+}
+
+fn default_browse_backend_request() -> WebBackendRequest {
+    WebBackendRequest {
+        provider_kind: OBSCURA_BROWSER_PROVIDER_ID.to_string(),
+        provider_account_id: format!("provider_account:{OBSCURA_BROWSER_PROVIDER_ID}:system"),
         credential_revision: 0,
     }
 }

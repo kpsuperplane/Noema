@@ -208,12 +208,18 @@ async fn action_authorization_context(
             message: "governed action has no exact task context".to_string(),
         })?;
     let task_human_messages = task_human_message_context(&context.messages);
+    let task_document = store
+        .read_task_document(&context.task.task_id)
+        .await
+        .map_err(|error| noema_store::StoreError::InvariantViolation {
+            message: error.to_string(),
+        })?;
     Ok(serde_json::json!({
         "origin": "task",
         "context": context.task.authorization_context,
         "task_context": {
             "title": context.task.title,
-            "description": context.task.description_markdown,
+            "task_document": task_document.content,
             "human_messages": task_human_messages,
         },
         "task_id": context.task.task_id,

@@ -17,7 +17,8 @@ export type TaskCommandSubject = {
   revision: number;
   generation: number;
   title: string;
-  description?: string;
+  taskDocument?: string;
+  taskDocumentDigest?: string;
   project?: { projectId: string; name?: string } | null;
   executorAgentId?: string;
   executorBackend?: string;
@@ -38,7 +39,7 @@ export type TaskCommandDraft = {
   message?: string;
   approvalDecision?: "APPROVED" | "DECLINED";
   title?: string;
-  description?: string;
+  taskDocument?: string;
   projectId?: string | null;
   executorAgentId?: string;
   cwdOverride?: string | null;
@@ -83,7 +84,8 @@ export function useTaskCommands({
                 input: {
                   ...base,
                   title: draft.title,
-                  description: draft.description,
+                  taskDocument: draft.taskDocument,
+                  expectedTaskDocumentDigest: task.taskDocumentDigest,
                   projectId: nextProjectId,
                   clearProject: nextProjectId === null,
                   executorAgentId: draft.executorAgentId,
@@ -162,16 +164,17 @@ export function useTaskCommands({
     setRequiresAcknowledgement(false);
     setError(null);
   }, []);
+  const clearError = React.useCallback(() => setError(null), []);
 
-  return {
+  return React.useMemo(() => ({
     run,
     busy,
     error,
     notice,
     requiresAcknowledgement,
     acknowledge,
-    clearError: () => setError(null)
-  };
+    clearError
+  }), [acknowledge, busy, clearError, error, notice, requiresAcknowledgement, run]);
 }
 
 function requiredGate(task: TaskCommandSubject): string {

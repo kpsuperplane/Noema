@@ -4,7 +4,7 @@ import type { TaskCommandSubject } from "./useTaskCommands";
 export function isStaleCommandError(error: unknown): boolean {
   if (!CombinedGraphQLErrors.is(error)) return false;
   return error.errors.some((item) =>
-    item.extensions?.code === "stale_revision" || item.extensions?.code === "stale_generation"
+    item.extensions?.code === "stale_revision" || item.extensions?.code === "stale_generation" || item.extensions?.code === "stale_document"
   );
 }
 

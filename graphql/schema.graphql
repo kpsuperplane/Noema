@@ -1107,9 +1107,9 @@ input CaptureTaskInput {
 	"""
 	title: String!
 	"""
-	Fuller capture description.
+	Exact initial TASK.md content.
 	"""
-	description: String! = ""
+	taskDocument: String! = ""
 	"""
 	Optional one-time or repeating execution schedule.
 	"""
@@ -3602,7 +3602,7 @@ type QueryRoot {
 	"""
 	List current recurring authorities for one Tasks list scope.
 	"""
-	taskRecurrences(workspaceId: String!, projectId: String, text: String, first: Int): [TaskRecurrenceSummary!]!
+	taskRecurrences(workspaceId: String!, projectId: String, first: Int): [TaskRecurrenceSummary!]!
 	"""
 	List owner-authorized projects in stable update order.
 	"""
@@ -3634,7 +3634,7 @@ type QueryRoot {
 	"""
 	Return Done and Cancelled task history through the terminal scope.
 	"""
-	taskHistory(workspaceId: String!, projectId: String, kind: TerminalTaskKind, text: String, first: Int, after: String): TaskConnection!
+	taskHistory(workspaceId: String!, projectId: String, kind: TerminalTaskKind, first: Int, after: String): TaskConnection!
 	"""
 	Return a newest-page, owner-authorized task-run transcript connection.
 	"""
@@ -4545,9 +4545,9 @@ type TaskCard {
 	"""
 	title: String!
 	"""
-	Bounded description preview.
+	Bounded current Task document preview.
 	"""
-	descriptionPreview: String!
+	taskDocumentPreview: String!
 	"""
 	The only task-level state.
 	"""
@@ -4677,13 +4677,13 @@ type TaskDetail {
 	"""
 	title: String!
 	"""
-	Full description Markdown.
-	"""
-	description: String!
-	"""
 	Current mutable TASK.md content.
 	"""
 	taskDocument: String!
+	"""
+	Transient SHA-256 of the current Task document.
+	"""
+	taskDocumentDigest: String!
 	"""
 	Current mutable RESULT.md content, when it exists.
 	"""
@@ -4949,10 +4949,6 @@ input TaskListInput {
 	"""
 	stageBehaviors: [WorkflowStageBehavior!]
 	"""
-	Case-insensitive title/description search.
-	"""
-	text: String
-	"""
 	Restrict results to unresolved human attention.
 	"""
 	attentionOnly: Boolean! = false
@@ -5146,9 +5142,13 @@ type TaskRecurrence {
 	"""
 	title: String!
 	"""
-	Current description for future occurrences.
+	Current template TASK.md content.
 	"""
-	description: String!
+	taskDocument: String!
+	"""
+	Transient SHA-256 of the current template.
+	"""
+	taskDocumentDigest: String!
 	"""
 	Inclusive UTC lower bound.
 	"""
@@ -5638,9 +5638,9 @@ type TaskSummary {
 	"""
 	title: String!
 	"""
-	Bounded description preview.
+	Bounded current Task document preview.
 	"""
-	descriptionPreview: String!
+	taskDocumentPreview: String!
 	"""
 	The only task-level state.
 	"""
@@ -5965,9 +5965,13 @@ input UpdateInboxTaskInput {
 	"""
 	title: String
 	"""
-	Optional replacement description.
+	Optional replacement Task document.
 	"""
-	description: String
+	taskDocument: String
+	"""
+	Required current document digest when taskDocument is present.
+	"""
+	expectedTaskDocumentDigest: String
 	"""
 	Optional project assignment. Null means omitted unless clearProject is true.
 	"""
@@ -6045,9 +6049,13 @@ input UpdateTaskRecurrenceInput {
 	"""
 	title: String
 	"""
-	Optional future description snapshot.
+	Optional replacement recurrence template.
 	"""
-	description: String
+	taskDocument: String
+	"""
+	Required current template digest when taskDocument is present.
+	"""
+	expectedTaskDocumentDigest: String
 	"""
 	Optional project assignment.
 	"""

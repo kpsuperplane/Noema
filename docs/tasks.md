@@ -90,7 +90,10 @@ Only the Executor can use `file.download`, and downloads stay in the Task direct
 Task file tools accept relative paths and UTF-8 text.
 Model-facing reads and writes have a 64 KiB limit.
 Writes replace files atomically.
-Task files have no database record, content hash, revision, or snapshot.
+Task files have no database record, persisted content hash, revision, or snapshot.
+Human saves use a transient SHA-256 digest from the latest read.
+Task document saves are available only while a Task is in Inbox.
+The save replaces the complete document and rejects a stale digest without changing other Task data.
 
 ## Workflow
 
@@ -122,6 +125,8 @@ The normal path is:
 
 The Executor can call `task.continue_execution` when more execution is useful.
 That call queues another Executor without human action.
+The next Executor starts immediately.
+The Executor does not use continuation only to wait for time or external state to change.
 The Executor calls `task.report_blocked` when a specific human response can enable progress.
 The Executor can submit a limitation report when the requested outcome is impossible for Noema.
 Physical actions that require embodiment are obvious limitations.
@@ -166,6 +171,15 @@ The Planner reads current `TASK.md`.
 The Executor reads current `TASK.md`, optional `RESULT.md`, and optional `REVIEW.md`.
 The Reviewer reads current `TASK.md`, required `RESULT.md`, and optional `REVIEW.md`.
 Role prompts must not prescribe batches, checklists, or document sections.
+For research, the Executor identifies the required evidence and likely source types before it searches.
+Queries use concrete entities and constraints. Search results supply leads, not final evidence.
+The Executor opens sources and verifies claims from their content.
+When freshness, completeness, or a collection matters, the Executor opens and inspects the best available source-owned listing before broad search.
+Hosted search locates source pages. The interactive browser does not open search-engine result pages.
+The Executor inspects current results before it issues speculative query variants.
+After two low-yield searches, it changes the retrieval route, source type, domain, or query structure.
+It does not spend further calls on near-synonym queries.
+Multi-source research keeps concise candidate evidence and rejected leads in Task files.
 Before a continuation, the Executor records completed progress, the exact next action, and needed support-file references in `TASK.md`.
 If `TASK.md` omits a needed value, the Executor reads its referenced support file and does not guess the value.
 The runtime rejects continuation when another tool action occurs after the latest successful `TASK.md` write.
@@ -174,6 +188,9 @@ Repeated arguments or failures also request a checkpoint before terminal-only fi
 
 Each role receives a fresh current run clock as system context.
 Scheduled Tasks use their schedule timezone.
+Each scheduled occurrence also receives its exact occurrence execution time.
+That time is the cutoff when the request refers to the current execution.
+Future recurrence slots do not change the current occurrence cutoff.
 Other Tasks use the source request timezone when one was captured.
 The captured request date and time remain Task data for interpreting relative terms in the original request.
 They never replace the current run clock.
@@ -198,9 +215,14 @@ Unschedule returns it to ordinary Inbox.
 Reschedule replaces only future timing.
 
 Repeat owns continuing authority after one occurrence starts.
-The recurrence stores its current template, schedule, policies, lifecycle, revision, and next due time.
+Each recurrence stores its template at `${NOEMA_HOME}/recurrences/<recurrence-id-suffix>/TASK.md`.
+SQLite stores its title, schedule, policies, lifecycle, revision, and next due time.
 Each occurrence remains an ordinary Task with its own files, runs, gates, and transcript.
 Template edits do not rewrite existing occurrences.
+Active and paused recurrences allow template edits.
+Ended recurrences keep a readable, immutable template.
+Each manual or scheduled occurrence copies the latest exact template before it enters Queue.
+Unschedule and recurrence replacement remove obsolete template directories.
 
 Clients open a recurrence as its own schedule and occurrence-history view.
 Clients open each occurrence as an ordinary Task and provide a link to its recurrence.
@@ -226,6 +248,7 @@ Public mutations use semantic Task commands.
 The API does not expose a generic `set_stage` operation.
 
 Task commands carry the expected revision and generation.
+Human document saves also carry the transient digest returned by the document read.
 Project commands carry the expected project revision.
 Command metadata carries identity, correlation, causation, and idempotency data.
 

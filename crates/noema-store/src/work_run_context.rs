@@ -71,7 +71,6 @@ pub(super) fn load_work_run_execution_context_tx(
         load_source_runtime_environment(transaction, &task.provenance)?;
     validate_run_task_fence(&run, &task)?;
     ensure_context_text(&task.title, "task.title")?;
-    ensure_context_text(&task.description_markdown, "task.description_markdown")?;
 
     let workspace_row = load_workspace(transaction, &task.workspace_id)?;
     let project_row = task

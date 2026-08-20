@@ -322,6 +322,7 @@ pub(crate) fn safe_error(code: &'static str, message: impl Into<String>) -> Erro
 pub(crate) fn safe_message(code: &str) -> &'static str {
     match code {
         "stale_revision" => "the authoritative project or task revision is stale",
+        "stale_document" => "the authoritative Task document changed",
         "stale_generation" => "the authoritative task generation is stale",
         "invalid_transition" => "the requested task action is not valid now",
         "workflow_mismatch" => "the requested workflow filter is inconsistent",

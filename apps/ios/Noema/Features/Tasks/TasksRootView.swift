@@ -60,7 +60,7 @@ private struct TasksSurface: View {
       }
     }
     .tint(NoemaColor.accent)
-    .noemaSheet(isPresented: $capturePresented) {
+    .fullScreenCover(isPresented: $capturePresented) {
       TasksCaptureSheet(model: model)
     }
     .noemaSheet(isPresented: $createProjectPresented) {

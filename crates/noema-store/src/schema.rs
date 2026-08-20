@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 56;
+pub const STORE_SCHEMA_VERSION: usize = 59;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1203,8 +1203,22 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(REPAIR_AGENT_RUN_FOREIGN_KEYS_SQL),
         M::up(REPAIR_AGENT_RUN_PROVIDER_CHECK_SQL),
         M::up_with_hook("", crate::task_file_migration::create_result_documents),
+        M::up_with_hook("", crate::task_file_migration::move_task_prose_to_files),
+        M::up(KERNEL_PROVIDER_ACCOUNT_SQL),
+        M::up(PROVIDER_CONVERSATION_ITEM_TEXT_SQL),
     ])
 }
+
+/// Keep provider and presentation text in one durable assistant item.
+const PROVIDER_CONVERSATION_ITEM_TEXT_SQL: &str = r#"
+ALTER TABLE conversation_items ADD COLUMN provider_content_text TEXT CHECK (
+  provider_content_text IS NULL OR (
+    kind = 'assistant_text'
+    AND content_text IS NOT NULL
+    AND provider_content_text <> content_text
+  )
+);
+"#;
 
 /// Repair foreign-key SQL rewritten by SQLite during the agent-runs rebuild.
 ///
@@ -1999,6 +2013,34 @@ INSERT INTO provider_accounts (
   ('provider_account:duckduckgo_public:system', 'duckduckgo_public', 'system', 'DuckDuckGo public search', 'none', 1, 1, 'authenticated', '{}'),
   ('provider_account:direct_http:system', 'direct_http', 'system', 'Direct HTTP web fetch', 'none', 1, 1, 'authenticated', '{}'),
   ('provider_account:obscura:system', 'obscura', 'system', 'Obscura interactive browser', 'none', 1, 1, 'authenticated', '{}');
+"#;
+
+/// Add the user-managed Kernel browser provider without changing prior migrations.
+const KERNEL_PROVIDER_ACCOUNT_SQL: &str = r#"
+ALTER TABLE provider_accounts RENAME TO provider_accounts_v57;
+CREATE TABLE provider_accounts (
+  provider_account_id TEXT PRIMARY KEY NOT NULL,
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN (
+    'codex', 'openai', 'foundation_local', 'local_models', 'openrouter', 'exa',
+    'duckduckgo_public', 'direct_http', 'obscura', 'kernel'
+  )),
+  account_key TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  auth_method TEXT NOT NULL CHECK (auth_method IN ('oauth_device_code', 'oauth_pkce', 'secret_input', 'external_manual', 'none')),
+  is_active INTEGER NOT NULL CHECK (is_active IN (0, 1)),
+  is_default INTEGER NOT NULL CHECK (is_default IN (0, 1)),
+  status TEXT NOT NULL CHECK (status IN ('unknown', 'checking', 'authenticated', 'unauthenticated', 'unavailable')),
+  last_checked_at TEXT,
+  last_authenticated_at TEXT,
+  last_error_code TEXT,
+  last_error_message TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(provider_kind, account_key)
+);
+INSERT INTO provider_accounts SELECT * FROM provider_accounts_v57;
+DROP TABLE provider_accounts_v57;
 "#;
 
 /// Distinguish cron slots from explicitly requested extra occurrences.

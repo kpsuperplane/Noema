@@ -1,6 +1,60 @@
 use super::test_store;
 
 #[tokio::test]
+async fn provider_assistant_text_shares_one_row_and_omits_equal_source_text() {
+    use noema_conversations::{
+        ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
+    };
+
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("conversation");
+    let new_item = |text: &str| NewConversationItem {
+        conversation_id: conversation.conversation_id.clone(),
+        turn_id: None,
+        parent_item_id: None,
+        kind: ConversationItemKind::AssistantText,
+        status: ConversationItemStatus::Completed,
+        author: ActorRef::new("agent:primary").expect("agent"),
+        content_text: Some(text.to_string()),
+        payload_json: serde_json::json!({}),
+        metadata: serde_json::json!({}),
+    };
+
+    let equal = store
+        .append_provider_conversation_item(new_item("Same text"), "Same text".to_string())
+        .await
+        .expect("equal item");
+    let projected = store
+        .append_provider_conversation_item(
+            new_item("Projected text"),
+            "Projected text \u{e200}cite\u{e202}turn0search0\u{e201}".to_string(),
+        )
+        .await
+        .expect("projected item");
+
+    assert_eq!(
+        store
+            .stored_provider_content_text(&equal.item_id)
+            .await
+            .expect("equal provider text"),
+        None
+    );
+    assert_eq!(
+        store
+            .stored_provider_content_text(&projected.item_id)
+            .await
+            .expect("projected provider text")
+            .as_deref(),
+        Some("Projected text \u{e200}cite\u{e202}turn0search0\u{e201}")
+    );
+    assert_eq!(projected.content_text.as_deref(), Some("Projected text"));
+}
+
+#[tokio::test]
 async fn conversation_working_directory_is_allocated_and_persisted() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");

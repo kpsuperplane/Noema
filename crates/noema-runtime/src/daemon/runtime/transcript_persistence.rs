@@ -4,14 +4,15 @@ use noema_conversations::{
 };
 
 use noema_providers::{
-    AssistantTextPhase, GenerateActionItem, GenerateHostedWebSearch, GenerateReasoningItem,
-    GenerateResponse, GenerateResponseItem, GenerateStreamEvent,
+    AssistantTextPhase, GenerateActionItem, GenerateCitation, GenerateHostedWebSearch,
+    GenerateReasoningItem, GenerateResponse, GenerateResponseItem, GenerateStreamEvent,
 };
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use super::{
     actor::RuntimeActor,
+    citation_markers::CitationSourceRegistry,
     tool_lifecycle::{LocalToolCall, tool_call_action_item},
     turn::{
         ProviderActionOutput, ProviderActionTurn, ProviderAssistantResponse,

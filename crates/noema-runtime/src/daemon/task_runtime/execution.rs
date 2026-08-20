@@ -30,7 +30,7 @@ pub(super) async fn execute_run(
 ) -> Result<(), RuntimeError> {
     services
         .store
-        .ensure_task_document(&run.task_id)
+        .read_task_document(&run.task_id)
         .await
         .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
     let command_service =

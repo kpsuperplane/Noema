@@ -137,6 +137,53 @@ async fn capability_setup_completions_narrate_once_per_connection_revision() {
 }
 
 #[tokio::test]
+async fn capability_setup_narration_projects_provider_citation_markers() {
+    let store = crate::test_support::test_store().await;
+    let conversation = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("primary conversation");
+    let runtime = RuntimeHandle::spawn_with_provider(
+        Arc::new(fake_provider(FakeCodexScenario::CitationMarker)),
+        store.clone(),
+    )
+    .await
+    .expect("runtime");
+
+    runtime
+        .narrate_capability_setup_completion(CapabilitySetupCompletion {
+            human_id: "human:local".to_string(),
+            integration_kind: crate::CapabilityIntegrationKind::Api,
+            integration_name: "Example".to_string(),
+            connection_id: "example-connection".to_string(),
+            connection_revision: "1".to_string(),
+            granted_scopes: Vec::new(),
+            enabled_tool_count: 1,
+        })
+        .await
+        .expect("narration");
+    runtime.shutdown().await;
+
+    let items = store
+        .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation items");
+    let narration = items
+        .iter()
+        .find(|item| {
+            item.kind == ConversationItemKind::AssistantText
+                && item.metadata.get("source").and_then(Value::as_str)
+                    == Some("capability_setup")
+        })
+        .expect("capability narration");
+    assert_eq!(narration.content_text.as_deref(), Some("Connected "));
+    assert_eq!(
+        narration.metadata["citations"][0]["url"].as_str(),
+        Some("https://example.com/source")
+    );
+}
+
+#[tokio::test]
 async fn notification_delivery_waits_for_foreground_turn_and_publishes_exact_item() {
     let store = crate::test_support::test_store().await;
     let conversation = store

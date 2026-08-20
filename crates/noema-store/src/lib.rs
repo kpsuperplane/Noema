@@ -123,7 +123,8 @@ pub use runtime_debug::{
     RuntimeDebugScope, RuntimeDebugSpanCategory, RuntimeDebugSpanRecord, RuntimeDebugSpanStatus,
 };
 pub use task_files::{
-    TASK_DOCUMENT, TASK_FILE_TEXT_LIMIT, TASK_RESULT, TASK_REVIEW, TaskFileEntry, TaskFileError,
+    TASK_DOCUMENT, TASK_FILE_TEXT_LIMIT, TASK_RESULT, TASK_REVIEW, TaskDocumentRead, TaskFileEntry,
+    TaskFileError,
 };
 pub use web_push::{
     ClaimedWebPushDelivery, NewWebPushSubscription, WebPushIdentity, WebPushPrimaryCheckpoint,

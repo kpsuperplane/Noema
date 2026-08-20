@@ -6,7 +6,7 @@ import {
   TasksTaskRuntimeEventsDocument,
   type TasksTaskDetailQuery
 } from "@/generated/graphql";
-import { TaskActions } from "@/components/tasks/TaskActions";
+import { TaskActions, type TaskInlineEditController } from "@/components/tasks/TaskActions";
 import {
   PendingHumanInterventionsResult,
   pendingHumanInterventionsAreFresh,
@@ -31,12 +31,12 @@ export function TaskDetailQueryPanel({
   taskId,
   showTasksLink = true,
   onOpenDetail,
-  onTaskTitleChange
+  onTaskHeaderChange
 }: {
   taskId: string;
   showTasksLink?: boolean;
   onOpenDetail: (target: ChatDetailTarget) => void;
-  onTaskTitleChange?: (title: string) => void;
+  onTaskHeaderChange?: (detail: Pick<TaskDetail, "title" | "schedule">, edit: TaskInlineEditController) => void;
 }) {
   const result = useQuery(TasksTaskDetailDocument, {
     variables: { taskId },
@@ -48,10 +48,6 @@ export function TaskDetailQueryPanel({
   const queriedTask = result.data?.task ?? null;
   const task = queriedTask?.taskId === taskId ? queriedTask : null;
   const [cursor, recordCursor] = useTaskEventCursor(taskId);
-  React.useEffect(() => {
-    if (task?.title) onTaskTitleChange?.(task.title);
-  }, [onTaskTitleChange, task?.title]);
-
   useSubscription(TasksTaskEventsDocument, {
     variables: { taskId, after: cursor },
     skip: task ? terminalBehavior(task.stage.behavior) : false,
@@ -72,10 +68,13 @@ export function TaskDetailQueryPanel({
   const taskControls = result.error
     ? []
     : task?.validActions.filter((action) => (
-        !interventionFresh || (action !== "ANSWER" && action !== "RETRY")
+      !interventionFresh || (action !== "ANSWER" && action !== "RETRY")
       )) ?? [];
-  const renderPanel = (_actions?: React.ReactNode, controls?: React.ReactNode) => (
+  const refetchTaskResult = result.refetch;
+  const refreshTask = React.useCallback(async () => { await refetchTaskResult(); }, [refetchTaskResult]);
+  const renderPanel = (_actions?: React.ReactNode, controls?: React.ReactNode, edit?: TaskInlineEditController) => (
     <>
+      {detail && edit && onTaskHeaderChange ? <TaskHeaderSync detail={detail} edit={edit} onChange={onTaskHeaderChange} /> : null}
       <TaskDetailPanel
         detail={detail}
         error={result.error ? "Task details could not be loaded." : null}
@@ -89,6 +88,7 @@ export function TaskDetailQueryPanel({
           />
         )}
         controls={controls}
+        edit={edit}
         showTasksLink={showTasksLink}
         taskId={taskId}
       />
@@ -101,7 +101,7 @@ export function TaskDetailQueryPanel({
         task={task}
         validActions={taskControls}
         projects={projects.projects}
-        onUpdated={async () => { await result.refetch(); }}
+        onUpdated={refreshTask}
       >
         {renderPanel}
       </TaskActions>
@@ -109,6 +109,11 @@ export function TaskDetailQueryPanel({
   }
 
   return renderPanel();
+}
+
+function TaskHeaderSync({ detail, edit, onChange }: { detail: TaskDetail; edit: TaskInlineEditController; onChange: (detail: Pick<TaskDetail, "title" | "schedule">, edit: TaskInlineEditController) => void }) {
+  React.useEffect(() => onChange({ title: detail.title, schedule: detail.schedule }, edit), [detail, edit, onChange]);
+  return null;
 }
 
 function mapTaskDetail(task: TasksDetail): TaskDetail {
@@ -131,7 +136,7 @@ function mapTaskDetail(task: TasksDetail): TaskDetail {
     schedule: task.schedule,
     status: taskStatusFromProjection(task),
     stageBehavior: task.stage.behavior,
-    capturedRequest: task.description.trim() || task.title,
+    capturedRequest: task.title,
     taskDocument: task.taskDocument,
     resultDocument: task.resultDocument,
     reviewDocument: task.reviewDocument,

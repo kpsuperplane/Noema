@@ -14,6 +14,7 @@ use crate::{
     agent_execution::ExecutionRole,
     daemon::{RuntimeEventRegistry, agent_onboarding::AgentPromptIdentity, protocol::RuntimeError},
 };
+use noema_capabilities::{CapabilityExecutionDecision, CapabilityToolBehavior};
 use noema_providers::{
     GenerateInput, GenerateMessage, GenerateMessageRole, GenerateOptions, GenerateRequest,
     GenerateResponse, NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderError,
@@ -139,6 +140,18 @@ fn checkpoint_after_result(
     } else {
         false
     }
+}
+
+fn requires_task_checkpoint_before_action(
+    role: ExecutionRole,
+    checkpoint_current: bool,
+    decision: CapabilityExecutionDecision,
+    behavior: CapabilityToolBehavior,
+) -> bool {
+    role == ExecutionRole::TaskExecutor
+        && !checkpoint_current
+        && decision.requires_review()
+        && !behavior.read_only
 }
 
 fn propagate_compaction_result(result: Result<bool, ProviderError>) -> Result<bool, RuntimeError> {
@@ -435,6 +448,23 @@ mod tests {
             true,
             &read,
             &result(&read, "ranking.md")
+        ));
+    }
+
+    #[test]
+    fn executor_checkpoints_before_a_reviewed_state_change() {
+        let behavior = CapabilityToolBehavior {
+            read_only: false,
+            idempotent: false,
+            destructive: false,
+            open_world: true,
+        };
+
+        assert!(requires_task_checkpoint_before_action(
+            ExecutionRole::TaskExecutor,
+            false,
+            CapabilityExecutionDecision::LlmReview,
+            behavior,
         ));
     }
 

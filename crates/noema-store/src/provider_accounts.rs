@@ -183,6 +183,15 @@ impl NoemaStore {
                         false,
                     )
                 }
+                "kernel" if input.auth_method == ProviderAuthMethod::SecretInput => {
+                    let account_key = generated_account_key("kernel");
+                    (
+                        account_key.clone(),
+                        format!("provider_account:kernel:{account_key}"),
+                        "Kernel",
+                        false,
+                    )
+                }
                 "codex" if input.auth_method == ProviderAuthMethod::OauthDeviceCode => (
                     "default".to_string(),
                     "provider_account:codex:default".to_string(),

@@ -278,17 +278,13 @@ impl NoemaStore {
         detail: &mut WorkTaskDetail,
     ) -> Result<(), StoreError> {
         let task_id = detail.task.task_id.clone();
-        self.ensure_task_document(&task_id).await.map_err(|error| {
+        let task_document = self.read_task_document(&task_id).await.map_err(|error| {
             StoreError::InvariantViolation {
                 message: error.to_string(),
             }
         })?;
-        detail.task_document = self
-            .read_task_file(&task_id, crate::TASK_DOCUMENT)
-            .await
-            .map_err(|error| StoreError::InvariantViolation {
-                message: error.to_string(),
-            })?;
+        detail.task_document = task_document.content;
+        detail.task_document_digest = task_document.digest;
         detail.result_document = match self.read_task_file(&task_id, crate::TASK_RESULT).await {
             Ok(content) => Some(content),
             Err(crate::TaskFileError::Io(error))

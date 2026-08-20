@@ -4,10 +4,12 @@ use noema_capabilities::web::browse::{BrowseCommand, BrowseResponse};
 use std::{fmt, sync::Arc};
 
 #[cfg(feature = "adapters")]
-use crate::adapters::web::browse::ObscuraBrowseBackend;
+use crate::adapters::web::browse::{KernelBrowseBackend, ObscuraBrowseBackend};
 
 /// Stable id for Noema's Obscura browser provider.
 pub const OBSCURA_BROWSER_PROVIDER_ID: &str = "obscura";
+/// Stable id for Kernel's hosted browser provider.
+pub const KERNEL_BROWSER_PROVIDER_ID: &str = "kernel";
 
 /// Opaque execution authority for one browser session.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -59,6 +61,9 @@ pub enum WebBrowseError {
     /// The browser worker failed before dispatch.
     #[error("browser worker unavailable")]
     Unavailable,
+    /// The browser provider account is not authenticated.
+    #[error("browser provider account unauthenticated")]
+    Unauthenticated,
     /// The worker failed after a potentially mutating operation was dispatched.
     #[error("browser action outcome is uncertain")]
     OutcomeUncertain,
@@ -77,6 +82,18 @@ impl WebBrowseBackendHandle {
             implementation: WebBrowseBackendKind::Obscura(ObscuraBrowseBackend::new(
                 max_sessions,
                 max_old_space_mb,
+            )),
+        }))
+    }
+
+    /// Construct the hosted Kernel browser backend.
+    #[cfg(feature = "adapters")]
+    #[must_use]
+    pub fn kernel(api_key: String, max_sessions: usize) -> Self {
+        Self(Arc::new(WebBrowseBackend {
+            implementation: WebBrowseBackendKind::Kernel(KernelBrowseBackend::new(
+                api_key,
+                max_sessions,
             )),
         }))
     }
@@ -102,7 +119,14 @@ impl WebBrowseBackendHandle {
     /// Stable provider id selected by this backend.
     #[must_use]
     pub fn backend_id(&self) -> &'static str {
-        OBSCURA_BROWSER_PROVIDER_ID
+        match &self.0.implementation {
+            #[cfg(feature = "adapters")]
+            WebBrowseBackendKind::Obscura(_) => OBSCURA_BROWSER_PROVIDER_ID,
+            #[cfg(feature = "adapters")]
+            WebBrowseBackendKind::Kernel(_) => KERNEL_BROWSER_PROVIDER_ID,
+            #[cfg(not(feature = "adapters"))]
+            WebBrowseBackendKind::Unavailable => OBSCURA_BROWSER_PROVIDER_ID,
+        }
     }
 }
 
@@ -123,6 +147,8 @@ pub struct WebBrowseBackend {
 enum WebBrowseBackendKind {
     #[cfg(feature = "adapters")]
     Obscura(ObscuraBrowseBackend),
+    #[cfg(feature = "adapters")]
+    Kernel(KernelBrowseBackend),
     #[cfg(not(feature = "adapters"))]
     #[allow(dead_code, reason = "transport-free builds retain the public facade")]
     Unavailable,
@@ -137,6 +163,8 @@ impl WebBrowseBackend {
         match &self.implementation {
             #[cfg(feature = "adapters")]
             WebBrowseBackendKind::Obscura(backend) => backend.execute(_owner, _command).await,
+            #[cfg(feature = "adapters")]
+            WebBrowseBackendKind::Kernel(backend) => backend.execute(_owner, _command).await,
             #[cfg(not(feature = "adapters"))]
             WebBrowseBackendKind::Unavailable => Err(WebBrowseError::Unavailable),
         }
@@ -146,6 +174,8 @@ impl WebBrowseBackend {
         match &self.implementation {
             #[cfg(feature = "adapters")]
             WebBrowseBackendKind::Obscura(backend) => backend.has_session(_owner).await,
+            #[cfg(feature = "adapters")]
+            WebBrowseBackendKind::Kernel(backend) => backend.has_session(_owner).await,
             #[cfg(not(feature = "adapters"))]
             WebBrowseBackendKind::Unavailable => false,
         }

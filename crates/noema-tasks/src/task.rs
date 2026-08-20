@@ -47,8 +47,8 @@ pub enum TaskAuthorizationContext {
     ManualTaskBody {
         /// Human-authored task title.
         title: String,
-        /// Human-authored task description.
-        description_markdown: String,
+        /// Human-authored Task document.
+        task_document_markdown: String,
     },
     /// No authenticated human authority is attached.
     #[default]
@@ -163,7 +163,6 @@ pub struct TaskRecord {
     pub workflow_id: WorkflowId,
     pub stage_id: WorkflowStageId,
     pub title: String,
-    pub description_markdown: String,
     pub executor_agent_id: String,
     pub cwd_override: Option<String>,
     pub task_directory: String,
@@ -196,7 +195,6 @@ impl TaskRecord {
     pub fn normalized(&self) -> Result<Self, WorkDomainError> {
         let mut normalized = self.clone();
         normalized.title = required(&normalized.title, "task.title")?;
-        normalized.description_markdown = normalized.description_markdown.trim().to_string();
         normalized.executor_agent_id =
             required(&normalized.executor_agent_id, "task.executor_agent_id")?;
         normalized.cwd_override = normalize_optional(normalized.cwd_override.as_deref());

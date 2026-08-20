@@ -235,12 +235,11 @@ impl QueryRoot {
         ctx: &Context<'_>,
         workspace_id: String,
         project_id: Option<String>,
-        text: Option<String>,
         first: Option<i32>,
     ) -> Result<Vec<GraphqlTaskRecurrenceSummary>> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
-        tasks::task_recurrences(state, principal, workspace_id, project_id, text, first).await
+        tasks::task_recurrences(state, principal, workspace_id, project_id, first).await
     }
 
     /// List owner-authorized projects in stable update order.
@@ -381,7 +380,6 @@ impl QueryRoot {
         workspace_id: String,
         project_id: Option<String>,
         kind: Option<GraphqlTerminalTaskKind>,
-        text: Option<String>,
         first: Option<i32>,
         after: Option<String>,
     ) -> Result<GraphqlTaskConnection> {
@@ -393,7 +391,6 @@ impl QueryRoot {
             workspace_id,
             project_id,
             kind.unwrap_or(GraphqlTerminalTaskKind::All),
-            text,
             first,
             after,
         )

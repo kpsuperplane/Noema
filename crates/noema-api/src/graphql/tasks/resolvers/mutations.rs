@@ -187,7 +187,7 @@ pub(in crate::graphql) async fn capture_task(
         meta: command_meta(principal_subject, &client_id),
         workspace_id: workspace_id.clone(),
         title: input.title,
-        description_markdown: input.description,
+        task_document_markdown: input.task_document,
         project_id,
         provenance: TaskProvenance {
             source_kind: TaskSourceKind::WorkUi,
@@ -287,7 +287,8 @@ pub(in crate::graphql) async fn update_task_recurrence(
             expected_revision: positive(input.expected_revision, "expectedRevision")?,
         },
         title: input.title,
-        description_markdown: input.description,
+        task_document_markdown: input.task_document,
+        expected_task_document_digest: input.expected_task_document_digest,
         project_id,
         starts_at: input
             .starts_at
@@ -351,7 +352,7 @@ pub(in crate::graphql) async fn update_inbox_task(
     require_owner(principal_subject)?;
     let client_id = required_client_id(&input.client_mutation_id)?;
     if input.title.is_none()
-        && input.description.is_none()
+        && input.task_document.is_none()
         && input.project_id.is_none()
         && !input.clear_project.unwrap_or(false)
         && input.executor_agent_id.is_none()
@@ -390,7 +391,8 @@ pub(in crate::graphql) async fn update_inbox_task(
         meta: command_meta(principal_subject, &client_id),
         precondition,
         title: input.title,
-        description_markdown: input.description,
+        task_document_markdown: input.task_document,
+        expected_task_document_digest: input.expected_task_document_digest,
         project_id,
         executor_agent_id: input.executor_agent_id,
         cwd_override,

@@ -83,26 +83,6 @@ impl RuntimeActor {
         .await?;
         if !initial_batch_kind.contains_delegation() {
             for (index, response_item) in turn.response.responses.iter().cloned().enumerate() {
-                let response_item = match response_item {
-                    noema_providers::GenerateResponseItem::Text {
-                        phase,
-                        text,
-                        citations,
-                    } => {
-                        let normalized = self.normalize_provider_citation_text(
-                            &citation_sources,
-                            &text,
-                            &citations,
-                            "conversation_turn",
-                            &turn.turn_id,
-                        );
-                        noema_providers::GenerateResponseItem::Text {
-                            phase,
-                            text: normalized.text,
-                            citations: normalized.citations,
-                        }
-                    }
-                };
                 self.persist_provider_response_item(
                     &action_turn,
                     ProviderResponsePosition {
@@ -110,6 +90,7 @@ impl RuntimeActor {
                         output_index: Some(index),
                     },
                     response_item,
+                    &citation_sources,
                     initial_phase_has_tools,
                     &mut initial_assistant_response,
                     item_tx,

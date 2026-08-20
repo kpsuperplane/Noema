@@ -20,6 +20,7 @@ use tokio::{
 const WEB_ASSET_WATCH_SCRIPT: &str = "dev:assets";
 const WEB_SERVER_WATCH_IGNORE_GLOBS: [&str; 2] =
     ["apps/web/**", "crates/noema-server/target/web-assets/**"];
+const WATCHER_RESTART_DELAY: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Error)]
 enum DevError {
@@ -92,45 +93,96 @@ async fn run_development() -> Result<(), DevError> {
         eprintln!("foundation bridge: cargo watch -s swift build");
     }
 
-    supervise_dev_processes(&mut web, &mut server, bridge.as_mut(), shutdown_signal()).await
+    supervise_dev_processes(
+        &repo_root,
+        &web_dir,
+        &mut web,
+        &mut server,
+        &mut bridge,
+        shutdown_signal(),
+    )
+    .await
 }
 
 async fn supervise_dev_processes<S>(
+    repo_root: &Path,
+    web_dir: &Path,
     web: &mut Child,
     server: &mut Child,
-    bridge: Option<&mut Child>,
+    bridge: &mut Option<Child>,
     shutdown_signal: S,
 ) -> Result<(), DevError>
 where
     S: Future<Output = Result<&'static str, DevError>>,
 {
-    let mut bridge = bridge;
-    let result = tokio::select! {
-        result = wait_for_child("web asset watcher", web) => result,
-        result = wait_for_child("web server watcher", server) => result,
-        result = async {
-            match bridge.as_deref_mut() {
-                Some(child) => wait_for_child("foundation bridge watcher", child).await,
-                None => std::future::pending().await,
-            }
-        } => result,
-        result = shutdown_signal => {
-            match result {
-                Ok(signal) => {
-                    eprintln!("received {signal}; stopping Noema dev supervisor");
-                    Ok(())
+    tokio::pin!(shutdown_signal);
+    loop {
+        let result = tokio::select! {
+            result = wait_for_child("web asset watcher", web) => result,
+            result = wait_for_child("web server watcher", server) => result,
+            result = async {
+                match bridge.as_mut() {
+                    Some(child) => wait_for_child("foundation bridge watcher", child).await,
+                    None => std::future::pending().await,
                 }
-                Err(error) => Err(error),
+            } => result,
+            result = &mut shutdown_signal => {
+                match result {
+                    Ok(signal) => {
+                        eprintln!("received {signal}; stopping Noema dev supervisor");
+                        Ok(())
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+        };
+
+        match result {
+            Ok(()) => {
+                stop_dev_processes(web, server, bridge).await;
+                return Ok(());
+            }
+            Err(error) => {
+                let Some(label) = watcher_exit_label(&error) else {
+                    stop_dev_processes(web, server, bridge).await;
+                    return Err(error);
+                };
+
+                eprintln!("{error}; retrying {label}");
+                tokio::time::sleep(WATCHER_RESTART_DELAY).await;
+
+                let restart = match label {
+                    "web asset watcher" => spawn_web_watcher(web_dir).map(|child| *web = child),
+                    "web server watcher" => {
+                        spawn_web_server_watcher(repo_root).map(|child| *server = child)
+                    }
+                    "foundation bridge watcher" => {
+                        spawn_bridge_watcher(repo_root).map(|child| *bridge = child)
+                    }
+                    _ => unreachable!("unknown development watcher label: {label}"),
+                };
+                if let Err(error) = restart {
+                    stop_dev_processes(web, server, bridge).await;
+                    return Err(error);
+                }
             }
         }
-    };
+    }
+}
 
+fn watcher_exit_label(error: &DevError) -> Option<&'static str> {
+    match error {
+        DevError::ProcessExited { label, .. } => Some(label),
+        _ => None,
+    }
+}
+
+async fn stop_dev_processes(web: &mut Child, server: &mut Child, bridge: &mut Option<Child>) {
     stop_child(web).await;
     stop_child(server).await;
-    if let Some(bridge) = bridge {
+    if let Some(bridge) = bridge.as_mut() {
         stop_child(bridge).await;
     }
-    result
 }
 
 #[cfg(unix)]
@@ -388,17 +440,39 @@ mod tests {
     async fn supervisor_stops_watchers_when_shutdown_signal_arrives() {
         let mut web = spawn_test_watcher();
         let mut server = spawn_test_watcher();
-        let mut bridge = spawn_test_watcher();
+        let mut bridge = Some(spawn_test_watcher());
 
-        let result = supervise_dev_processes(&mut web, &mut server, Some(&mut bridge), async {
-            Ok("SIGINT")
-        })
+        let result = supervise_dev_processes(
+            Path::new("/workspace"),
+            Path::new("/workspace/apps/web"),
+            &mut web,
+            &mut server,
+            &mut bridge,
+            async { Ok("SIGINT") },
+        )
         .await;
 
         assert!(result.is_ok());
         assert_child_exited(&mut web).await;
         assert_child_exited(&mut server).await;
-        assert_child_exited(&mut bridge).await;
+        assert_child_exited(bridge.as_mut().expect("bridge watcher")).await;
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn only_watcher_exit_requests_a_restart() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let exited = DevError::ProcessExited {
+            label: "web asset watcher",
+            status: ExitStatus::from_raw(1),
+        };
+        assert_eq!(watcher_exit_label(&exited), Some("web asset watcher"));
+
+        let unknown = DevError::UnknownMode {
+            mode: OsString::from("unknown"),
+        };
+        assert_eq!(watcher_exit_label(&unknown), None);
     }
 
     #[cfg(unix)]

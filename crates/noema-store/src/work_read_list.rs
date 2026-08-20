@@ -19,7 +19,6 @@ const TASK_COLUMNS: &str = "
     task.workflow_id,
     task.stage_id,
     task.title,
-    task.description_markdown,
     task.executor_agent_id,
     task.cwd_override,
     task.authorization_context_json,
@@ -72,11 +71,22 @@ impl NoemaStore {
         query: WorkTaskQuery,
     ) -> Result<WorkTaskConnection, StoreError> {
         let prepared = PreparedQuery::new(query)?;
-        self.with_connection(move |connection| {
-            let transaction = connection.transaction()?;
-            load_connection(&transaction, prepared)
-        })
-        .await
+        let mut connection = self
+            .with_connection(move |connection| {
+                let transaction = connection.transaction()?;
+                load_connection(&transaction, prepared)
+            })
+            .await?;
+        for edge in &mut connection.edges {
+            let document = self
+                .read_task_document(&edge.node.task.task_id)
+                .await
+                .map_err(|error| StoreError::InvariantViolation {
+                    message: error.to_string(),
+                })?;
+            edge.node.task_document_preview = document.content.chars().take(280).collect();
+        }
+        Ok(connection)
     }
 }
 
@@ -85,7 +95,6 @@ pub(crate) struct PreparedQuery {
     project_id: Option<String>,
     stage_ids_json: String,
     stage_behaviors_json: String,
-    text: Option<String>,
     attention_only: i64,
     scope: WorkTaskScope,
     first: usize,
@@ -104,10 +113,6 @@ impl PreparedQuery {
             .stage_behaviors
             .sort_by_key(|behavior| behavior.as_str());
         query.stage_behaviors.dedup();
-        query.text = query
-            .text
-            .map(|value| value.trim().to_ascii_lowercase())
-            .filter(|value| !value.is_empty());
         let query_hash = task_query_hash(&query);
         let expected_terminal_cursor = query.scope == WorkTaskScope::Terminal;
         let (cursor_hash, cursor_timestamp, cursor_task_id) = match query.after {
@@ -150,7 +155,6 @@ impl PreparedQuery {
             project_id: query.project_id.map(|id| id.into_string()),
             stage_ids_json: serde_json::to_string(&stage_ids)?,
             stage_behaviors_json: serde_json::to_string(&stage_behaviors)?,
-            text: query.text,
             attention_only: i64::from(query.attention_only),
             scope: query.scope,
             first: query.first.get(),
@@ -179,14 +183,14 @@ pub(crate) fn load_connection(
     };
     let (cursor_predicate, order_by) = if query.scope == WorkTaskScope::Terminal {
         (
-            "(?7 IS NULL OR COALESCE(task.completed_at, task.cancelled_at) < ?7
-               OR (COALESCE(task.completed_at, task.cancelled_at) = ?7 AND task.task_id < ?8))",
+            "(?6 IS NULL OR COALESCE(task.completed_at, task.cancelled_at) < ?6
+               OR (COALESCE(task.completed_at, task.cancelled_at) = ?6 AND task.task_id < ?7))",
             "COALESCE(task.completed_at, task.cancelled_at) DESC, task.task_id DESC",
         )
     } else {
         (
-            "(?7 IS NULL OR task.updated_at < ?7
-               OR (task.updated_at = ?7 AND task.task_id < ?8))",
+            "(?6 IS NULL OR task.updated_at < ?6
+               OR (task.updated_at = ?6 AND task.task_id < ?7))",
             "task.updated_at DESC, task.task_id DESC",
         )
     };
@@ -201,10 +205,7 @@ pub(crate) fn load_connection(
                 OR stage.stage_id IN (SELECT value FROM json_each(?3)))
            AND (json_array_length(?4) = 0
                 OR stage.system_behavior IN (SELECT value FROM json_each(?4)))
-           AND (?5 IS NULL
-                OR instr(lower(task.title), ?5) > 0
-                OR instr(lower(task.description_markdown), ?5) > 0)
-           AND (?6 = 0 OR (
+           AND (?5 = 0 OR (
                 (stage.system_behavior = 'human_gate' AND EXISTS (
                     SELECT 1 FROM task_gates gate
                     WHERE gate.gate_id = task.active_gate_id
@@ -216,7 +217,7 @@ pub(crate) fn load_connection(
            AND {scope_predicate}
            AND {cursor_predicate}
          ORDER BY {order_by}
-         LIMIT ?9"
+         LIMIT ?8"
     );
     let mut statement = transaction.prepare(&sql)?;
     let rows = statement.query_map(
@@ -225,7 +226,6 @@ pub(crate) fn load_connection(
             query.project_id,
             query.stage_ids_json,
             query.stage_behaviors_json,
-            query.text,
             query.attention_only,
             query.cursor_timestamp,
             query.cursor_task_id,
@@ -352,6 +352,7 @@ fn task_edge(
         cursor,
         node: WorkTaskSummary {
             task: row.task,
+            task_document_preview: String::new(),
             workspace,
             project,
             stage: row.stage,
@@ -440,12 +441,11 @@ fn task_query_hash(query: &WorkTaskQuery) -> String {
         .collect::<Vec<_>>()
         .join("\u{1f}");
     let canonical = format!(
-        "work-task-query:v1\0{}\0{}\0{}\0{}\0{}\0{}\0{}",
+        "work-task-query:v2\0{}\0{}\0{}\0{}\0{}\0{}",
         query.workspace_id.as_str(),
         query.project_id.as_ref().map_or("", |id| id.as_str()),
         stages,
         behaviors,
-        query.text.as_deref().unwrap_or(""),
         u8::from(query.attention_only),
         query.scope.as_str(),
     );

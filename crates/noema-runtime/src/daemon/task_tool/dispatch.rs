@@ -202,7 +202,7 @@ async fn execute_scoped_task_list_inner(
         "tasks": [json!({
             "task_id": task.task_id,
             "title": task.title,
-            "description": task.description_markdown,
+            "task_document_preview": detail.task_document.chars().take(1000).collect::<String>(),
             "stage_id": task.stage_id,
             "generation": task.generation,
             "revision": task.revision,
@@ -277,7 +277,7 @@ async fn execute_primary_inner(
                     meta: meta(call_id.clone()),
                     workspace_id,
                     title: input.title,
-                    description_markdown: input.description,
+                    task_document_markdown: input.task_document,
                     project_id,
                     provenance: provenance(context, TaskSourceKind::ChatCapture, call_id.clone()),
                     schedule: input.schedule.map(|value| schedule(value, context)).transpose()?,
@@ -306,7 +306,7 @@ async fn execute_primary_inner(
                     meta: meta(call_id.clone()),
                     workspace_id,
                     title: input.title,
-                    description_markdown: input.description,
+                    task_document_markdown: input.task_document,
                     project_id,
                     provenance: provenance(context, TaskSourceKind::ChatDelegate, call_id.clone()),
                     complexity_hint,
@@ -331,11 +331,16 @@ async fn execute_primary_inner(
                 } else {
                     input.cwd_override.map(Some)
                 };
+                let expected_task_document_digest = if input.task_document.is_some() {
+                    let task_id = TaskId::new(input.precondition.task_id.clone()).map_err(|error| error.to_string())?;
+                    Some(store.read_task_document(&task_id).await.map_err(|error| error.to_string())?.digest)
+                } else { None };
                 WorkCommand::UpdateInboxTask(UpdateInboxTask {
                     meta: meta(call_id.clone()),
                     precondition: task_precondition(&input.precondition)?,
                     title: input.title,
-                    description_markdown: input.description,
+                    task_document_markdown: input.task_document,
+                    expected_task_document_digest,
                     project_id,
                     executor_agent_id: input.executor_agent_id,
                     cwd_override,
@@ -373,9 +378,14 @@ async fn execute_primary_inner(
         TASK_RECURRENCE_UPDATE_TOOL => {
             execute_command!(service, args, input: RecurrenceUpdateArguments => {
                 let project_id = if input.clear_project { Some(None) } else { project_id(input.project_id)?.map(Some) };
+                let recurrence_id = TaskRecurrenceId::new(input.precondition.recurrence_id.clone()).map_err(|error| error.to_string())?;
+                let expected_task_document_digest = if input.task_document.is_some() {
+                    Some(store.read_recurrence_document(&recurrence_id).await.map_err(|error| error.to_string())?.digest)
+                } else { None };
                 WorkCommand::UpdateTaskRecurrence(UpdateTaskRecurrence {
                     meta: meta(call_id.clone()), precondition: recurrence_precondition(input.precondition)?,
-                    title: input.title, description_markdown: input.description, project_id,
+                    title: input.title, task_document_markdown: input.task_document,
+                    expected_task_document_digest, project_id,
                     starts_at: input.starts_at.map(|value| noema_tasks::parse_utc_instant(&value, "starts_at")).transpose().map_err(|error| error.to_string())?,
                     cron_expression: input.cron_expression, time_zone: input.time_zone,
                     missed_run_policy: input.missed_run_policy, overlap_policy: input.overlap_policy,
@@ -604,11 +614,11 @@ fn active_gate_payload(gate: Option<&TaskGateRecord>) -> Value {
     })
 }
 
-fn recurrence_authority_payload(recurrence: &TaskRecurrenceRecord) -> Value {
+fn recurrence_authority_payload(recurrence: &TaskRecurrenceRecord, document: &str) -> Value {
     json!({
         "recurrence_id": recurrence.recurrence_id,
         "title": recurrence.title,
-        "description": recurrence.description_markdown,
+        "task_document_preview": document.chars().take(1000).collect::<String>(),
         "project_id": recurrence.project_id,
         "starts_at": recurrence.starts_at,
         "cron_expression": recurrence.cron_expression,
@@ -629,14 +639,16 @@ async fn current_recurrence_authority(
     let Some(recurrence_id) = recurrence_id else {
         return Ok(Value::Null);
     };
-    store
+    let recurrence = store
         .get_task_recurrence(recurrence_id)
         .await
         .map_err(|error| error.to_string())?
-        .as_ref()
-        .map_or(Ok(Value::Null), |recurrence| {
-            Ok(recurrence_authority_payload(recurrence))
-        })
+        .ok_or_else(|| "recurrence is unavailable".to_string())?;
+    let document = store
+        .read_recurrence_document(recurrence_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(recurrence_authority_payload(&recurrence, &document.content))
 }
 
 async fn list_tasks(
@@ -666,7 +678,6 @@ async fn list_tasks(
         project_id,
         stage_ids: Vec::new(),
         stage_behaviors: behavior.into_iter().collect(),
-        text: None,
         attention_only: args
             .get("attention_only")
             .and_then(Value::as_bool)
@@ -687,7 +698,7 @@ async fn list_tasks(
             current_recurrence_authority(store, task.recurrence_id.as_ref()).await?;
         tasks.push(json!({
             "task_id": task.task_id, "title": task.title,
-            "description": task.description_markdown, "stage_id": task.stage_id,
+            "task_document_preview": summary.task_document_preview, "stage_id": task.stage_id,
             "generation": task.generation, "revision": task.revision,
             "project_id": task.project_id, "scheduled_for": task.scheduled_for,
             "schedule_time_zone": task.schedule_time_zone,
@@ -796,7 +807,6 @@ mod tests {
             workspace_id: WorkspaceId::new("workspace:personal".to_string()).expect("workspace id"),
             project_id: None,
             title: "Daily briefing".to_string(),
-            description_markdown: "Use the previous 24 hours.".to_string(),
             authorization_context: noema_tasks::TaskAuthorizationContext::None,
             starts_at: 1_786_456_800,
             cron_expression: "0 7 * * *".to_string(),
@@ -811,9 +821,12 @@ mod tests {
             updated_at: "2026-08-11T14:00:00Z".to_string(),
         };
 
-        let payload = recurrence_authority_payload(&recurrence);
+        let payload = recurrence_authority_payload(&recurrence, "Use the previous 24 hours.");
         assert_eq!(payload["recurrence_id"], "recurrence:current");
-        assert_eq!(payload["description"], "Use the previous 24 hours.");
+        assert_eq!(
+            payload["task_document_preview"],
+            "Use the previous 24 hours."
+        );
         assert_eq!(payload["revision"], 3);
         assert_eq!(payload["cron_expression"], "0 7 * * *");
         assert_eq!(payload["time_zone"], "America/Los_Angeles");

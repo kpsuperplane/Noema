@@ -5,7 +5,7 @@ use ts_rs::TS;
 /// Structured response returned by a model provider.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenerateResponse {
-    /// User-visible response items returned by the provider.
+    /// Provider-native response items retained for continuation and projection.
     pub responses: Vec<GenerateResponseItem>,
     /// Tool calls requested by the provider.
     pub tool_calls: Vec<GenerateToolCall>,

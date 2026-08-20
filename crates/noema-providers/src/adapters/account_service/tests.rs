@@ -450,32 +450,37 @@ async fn delete_persistence_failure_restores_quarantined_account_home() {
 
 #[tokio::test]
 async fn credential_reads_share_the_account_service_gate() {
-    let account = exa_account("team", false);
-    let fixture = ServiceFixture::with_account(account.clone());
-    crate::adapters::SecretInputStore::new(fixture.paths.provider_account_home("exa", "team"))
-        .save_api_key("exa-secret")
+    for (provider_kind, secret) in [("exa", "exa-secret"), ("kernel", "kernel-secret")] {
+        let account = secret_account(provider_kind, "team", false);
+        let fixture = ServiceFixture::with_account(account.clone());
+        crate::adapters::SecretInputStore::new(
+            fixture.paths.provider_account_home(provider_kind, "team"),
+        )
+        .save_api_key(secret)
         .expect("secret");
-    let gate = fixture
-        .service
-        .inner
-        .gates
-        .gate(&account.provider_account_id);
-    let guard = gate.lock().await;
-    let credentials = fixture.service.credentials();
-    let account_id = account.provider_account_id;
-    let reader = tokio::spawn(async move { credentials.api_key("exa", &account_id).await });
-    tokio::task::yield_now().await;
+        let gate = fixture
+            .service
+            .inner
+            .gates
+            .gate(&account.provider_account_id);
+        let guard = gate.lock().await;
+        let credentials = fixture.service.credentials();
+        let account_id = account.provider_account_id;
+        let reader =
+            tokio::spawn(async move { credentials.api_key(provider_kind, &account_id).await });
+        tokio::task::yield_now().await;
 
-    assert!(!reader.is_finished());
-    drop(guard);
-    assert_eq!(
-        reader
-            .await
-            .expect("reader task")
-            .expect("credential")
-            .expose_secret(),
-        "exa-secret"
-    );
+        assert!(!reader.is_finished());
+        drop(guard);
+        assert_eq!(
+            reader
+                .await
+                .expect("reader task")
+                .expect("credential")
+                .expose_secret(),
+            secret
+        );
+    }
 }
 
 #[tokio::test]
@@ -572,8 +577,16 @@ async fn codex_config_for_provider_account_uses_account_home() {
 }
 
 fn exa_account(account_key: &str, is_default: bool) -> ProviderAccountRecord {
+    secret_account("exa", account_key, is_default)
+}
+
+fn secret_account(
+    provider_kind: &str,
+    account_key: &str,
+    is_default: bool,
+) -> ProviderAccountRecord {
     account(
-        "exa",
+        provider_kind,
         account_key,
         ProviderAuthMethod::SecretInput,
         is_default,

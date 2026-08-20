@@ -110,7 +110,6 @@ pub struct TaskRecurrenceRecord {
     pub workspace_id: noema_workspaces::WorkspaceId,
     pub project_id: Option<noema_workspaces::ProjectId>,
     pub title: String,
-    pub description_markdown: String,
     pub authorization_context: crate::TaskAuthorizationContext,
     pub starts_at: i64,
     pub cron_expression: String,

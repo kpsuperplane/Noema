@@ -1,4 +1,36 @@
 impl RuntimeActor {
+    pub(super) async fn persist_provider_assistant_text(
+        &mut self,
+        citation_sources: &CitationSourceRegistry,
+        provider_text: String,
+        citations: &[GenerateCitation],
+        scope_kind: &'static str,
+        scope_id: &str,
+        mut item: NewConversationItem,
+    ) -> Result<Option<ConversationItemRecord>, RuntimeError> {
+        let normalized = self.normalize_provider_citation_text(
+            citation_sources,
+            &provider_text,
+            citations,
+            scope_kind,
+            scope_id,
+        );
+        if normalized.text.trim().is_empty() {
+            return Ok(None);
+        }
+        item.content_text = Some(normalized.text);
+        if !normalized.citations.is_empty()
+            && let Some(metadata) = item.metadata.as_object_mut()
+        {
+            metadata.insert("citations".to_string(), json!(normalized.citations));
+        }
+        self.store
+            .append_provider_conversation_item(item, provider_text)
+            .await
+            .map(Some)
+            .map_err(RuntimeError::from)
+    }
+
     pub(super) async fn persist_provider_reasoning_items(
         &mut self,
         conversation_id: &str,
@@ -54,6 +86,7 @@ impl RuntimeActor {
         turn: &ProviderActionTurn,
         position: ProviderResponsePosition,
         item: GenerateResponseItem,
+        citation_sources: &CitationSourceRegistry,
         provider_phase_has_tools: bool,
         assistant_response: &mut ProviderAssistantResponse,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
@@ -61,14 +94,13 @@ impl RuntimeActor {
         match item {
             GenerateResponseItem::Text {
                 phase,
-                text,
+                text: provider_text,
                 citations,
             } => {
-                assistant_response.push_text(&text);
                 let effective_phase = AssistantTextPhase::effective_for_response_item(
                     &GenerateResponseItem::Text {
                         phase,
-                        text: text.clone(),
+                        text: provider_text.clone(),
                         citations: citations.clone(),
                     },
                     provider_phase_has_tools,
@@ -95,29 +127,36 @@ impl RuntimeActor {
                         turn.usage.as_ref(),
                     ),
                 );
-                if !citations.is_empty()
-                    && let Some(metadata) = metadata.as_object_mut()
-                {
-                    metadata.insert("citations".to_string(), json!(citations));
-                }
-                let assistant_item = self
-                    .store
-                    .append_conversation_item(NewConversationItem {
-                        conversation_id: turn.conversation_id.clone(),
-                        turn_id: Some(turn.turn_id.clone()),
-                        parent_item_id: Some(turn.user_item_id.clone()),
-                        kind: ConversationItemKind::AssistantText,
-                        status: ConversationItemStatus::Completed,
-                        author: ActorRef::new("agent:primary")
-                            .expect("static primary agent id must be valid"),
-                        content_text: Some(text.clone()),
-                        payload_json: json!({}),
-                        metadata: metadata.clone(),
-                    })
-                    .await?;
+                let Some(assistant_item) = self
+                    .persist_provider_assistant_text(
+                        citation_sources,
+                        provider_text,
+                        &citations,
+                        "conversation_turn",
+                        &turn.turn_id,
+                        NewConversationItem {
+                            conversation_id: turn.conversation_id.clone(),
+                            turn_id: Some(turn.turn_id.clone()),
+                            parent_item_id: Some(turn.user_item_id.clone()),
+                            kind: ConversationItemKind::AssistantText,
+                            status: ConversationItemStatus::Completed,
+                            author: ActorRef::new("agent:primary")
+                                .expect("static primary agent id must be valid"),
+                            content_text: None,
+                            payload_json: json!({}),
+                            metadata: metadata.clone(),
+                        },
+                    )
+                    .await?
+                else {
+                    return Ok(());
+                };
+                let text = assistant_item.content_text.clone().unwrap_or_default();
+                assistant_response.push_text(&text);
                 if assistant_response.item_id.is_none() {
                     assistant_response.item_id = Some(assistant_item.item_id.clone());
                 }
+                let metadata = assistant_item.metadata.clone();
                 send_conversation_item(
                     item_tx,
                     assistant_item,

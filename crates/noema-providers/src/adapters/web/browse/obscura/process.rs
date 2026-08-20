@@ -348,6 +348,7 @@ fn encode_error(error: WebBrowseError) -> &'static str {
         WebBrowseError::HistoryUnavailable => "history_unavailable",
         WebBrowseError::NavigationFailed => "navigation_failed",
         WebBrowseError::Unavailable => "unavailable",
+        WebBrowseError::Unauthenticated => "unauthenticated",
         WebBrowseError::OutcomeUncertain => "outcome_uncertain",
     }
 }
@@ -364,6 +365,7 @@ fn decode_error(value: &str) -> Result<WebBrowseError, WebBrowseError> {
         "history_unavailable" => Ok(WebBrowseError::HistoryUnavailable),
         "navigation_failed" => Ok(WebBrowseError::NavigationFailed),
         "unavailable" => Ok(WebBrowseError::Unavailable),
+        "unauthenticated" => Ok(WebBrowseError::Unauthenticated),
         "outcome_uncertain" => Ok(WebBrowseError::OutcomeUncertain),
         _ => Err(WebBrowseError::Unavailable),
     }

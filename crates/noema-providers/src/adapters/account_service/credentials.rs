@@ -119,7 +119,7 @@ impl ProviderCredentialAccessService {
         provider_kind: &str,
         provider_account_id: &str,
     ) -> Result<ProviderCredential, ProviderError> {
-        if !matches!(provider_kind, "exa" | "openrouter") {
+        if !matches!(provider_kind, "exa" | "kernel" | "openrouter") {
             return Err(ProviderError::InvalidRequest {
                 message: "provider does not use an account API key".to_string(),
             });

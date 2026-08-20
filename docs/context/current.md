@@ -26,6 +26,8 @@ slice or a net-negative reduction.
   rebuildable. Version-two pages contain claim-level evidence groups.
 - Durable chat comes from conversation items. Live subscriptions and daemon
   state coordinate work but do not replace stored state.
+- Provider assistant text uses one conversation item. Readable text is primary.
+  The same row stores provider text only when projection changes it.
 - Current task state is transactional. Task events support audit and
   invalidation. They do not provide a second replay authority.
 - A successful command commits its state, audit event, notification, and
@@ -43,6 +45,9 @@ slice or a net-negative reduction.
 - Task state changes use a current-run check. Old generations and stale worker
   claims cannot change the current task.
 - `TASK.md` is the mutable Task request, plan, notes, progress, and questions authority.
+- SQLite stores Task and recurrence titles, but it stores no duplicate Task prose.
+- Recurrence templates use `${NOEMA_HOME}/recurrences/<recurrence-id-suffix>/TASK.md` and seed future occurrences exactly.
+- Human Task and template saves use transient SHA-256 fences. Stale saves preserve both the draft and current data.
   `RESULT.md` is the mutable submitted result authority.
   `REVIEW.md` contains current Reviewer feedback when feedback exists.
 - Planner, Executor, and Reviewer handoffs use current Task files.
@@ -115,8 +120,8 @@ slice or a net-negative reduction.
 
 ## Open loops
 
-- Apollo iOS 2.3 code generation requires macOS. Linux can validate operations
-  and parse Swift source, but it cannot regenerate native sources.
+- Apollo iOS 2.3 code generation and native builds require macOS.
+  Linux can validate the authored GraphQL operations against the shared schema.
 - Live Gmail and Calendar OAuth acceptance still needs interactive Google
   account consent after native generation.
 - Production iOS notifications need enabled entitlements, regenerated signing

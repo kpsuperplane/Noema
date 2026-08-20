@@ -19,6 +19,21 @@ export function timestampLabel(value: string): string {
     : value;
 }
 
+export function taskScheduleTimestampLabel(value: string, timeZone: string): string {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp)
+    ? new Intl.DateTimeFormat(undefined, {
+        timeZone,
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short"
+      }).format(timestamp)
+    : value;
+}
+
 export function recurrenceSummary(cron: string): string {
   const [minute, hour, day, month, weekday, ...extra] = cron.trim().split(/\s+/);
   if (extra.length || !numericTime(hour, minute) || month !== "*") return "Custom recurring schedule";

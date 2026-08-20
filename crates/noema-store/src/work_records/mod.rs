@@ -54,8 +54,6 @@ pub struct WorkTaskQuery {
     pub stage_ids: Vec<noema_tasks::WorkflowStageId>,
     /// Optional semantic stage-behavior filter.
     pub stage_behaviors: Vec<WorkflowStageBehavior>,
-    /// Optional case-insensitive title/description search.
-    pub text: Option<String>,
     /// Restrict results to human-attention cards.
     pub attention_only: bool,
     /// Active, terminal, or combined scope.
@@ -156,6 +154,8 @@ pub enum WorkTaskAttention {
 pub struct WorkTaskSummary {
     /// Canonical task projection.
     pub task: noema_tasks::TaskRecord,
+    /// Bounded preview from the current `TASK.md`.
+    pub task_document_preview: String,
     /// Authoritative owning workspace record.
     pub workspace: WorkspaceRecord,
     /// Authoritative current project record, when assigned.
@@ -186,6 +186,8 @@ pub struct WorkTaskDetail {
     pub stage: WorkflowStage,
     /// Current mutable Task document.
     pub task_document: String,
+    /// Transient SHA-256 of the current Task document.
+    pub task_document_digest: String,
     /// Current mutable submitted result, when it exists.
     pub result_document: Option<String>,
     /// Current mutable review feedback, when review has started.

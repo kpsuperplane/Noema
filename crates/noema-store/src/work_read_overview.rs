@@ -69,7 +69,6 @@ impl NoemaStore {
                     project_id: query.project_id,
                     stage_ids: Vec::new(),
                     stage_behaviors: Vec::new(),
-                    text: None,
                     attention_only: false,
                     scope: WorkTaskScope::Active,
                     first: query.first,

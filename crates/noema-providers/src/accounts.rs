@@ -179,6 +179,12 @@ pub fn provider_account_catalog() -> Vec<ProviderAccountCatalogEntry> {
             ProviderAuthMethod::SecretInput,
             vec![ProviderAuthMethod::SecretInput],
         ),
+        (
+            "kernel",
+            "Kernel",
+            ProviderAuthMethod::SecretInput,
+            vec![ProviderAuthMethod::SecretInput],
+        ),
     ]
     .into_iter()
     .map(
