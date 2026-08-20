@@ -1200,7 +1200,10 @@ mod tests {
             super::super::session::SessionSecurity::for_tests("native OAuth"),
             super::super::WebAuthMode::DisabledForDevelopment,
             false,
-            None,
+            super::super::WebFiles::new(
+                None,
+                noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths"),
+            ),
         )
         .expect("web state");
         let (_, issued) =

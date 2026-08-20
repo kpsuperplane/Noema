@@ -4,7 +4,9 @@ use super::{
     extraction::extract_readable_content,
     summarize::{SummaryDecision, raw_excerpt, summarize_markdown, summary_strategy_for_chars},
 };
-use crate::web::public_url::{CheckedUrl, validate_public_url, validate_public_url_parsed};
+use crate::web::public_url::{
+    CheckedUrl, checked_public_http_client, validate_public_url, validate_public_url_parsed,
+};
 use crate::{
     DIRECT_HTTP_PROVIDER_ID, EXTRACTION_READABILITYRS, WebFetchBackend, WebFetchBackendHandle,
     WebFetchContext, WebFetchError, WebOperationFuture,
@@ -13,12 +15,10 @@ use futures_util::StreamExt;
 use noema_capabilities::web::fetch::{
     FetchContentKind, FetchRequest, FetchResponse, FetchSummaryStrategy,
 };
-use reqwest::{Client, StatusCode, header};
+use reqwest::{StatusCode, header};
 #[cfg(test)]
 use std::net::SocketAddr;
 use std::time::Duration;
-#[cfg(not(test))]
-use url::Host;
 #[cfg(test)]
 use url::{Host, Url};
 
@@ -37,20 +37,6 @@ impl Default for DirectHttpClient {
         Self {
             request_timeout: Duration::from_secs(30),
         }
-    }
-}
-
-impl DirectHttpClient {
-    fn client_for_checked_url(&self, checked: &CheckedUrl) -> Result<Client, WebFetchError> {
-        let mut builder = Client::builder()
-            .no_proxy()
-            .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(self.request_timeout);
-        if matches!(checked.url.host(), Some(Host::Domain(_))) {
-            let host = checked.url.host_str().ok_or(WebFetchError::MalformedUrl)?;
-            builder = builder.resolve_to_addrs(host, &checked.resolved_addrs);
-        }
-        builder.build().map_err(|_| WebFetchError::Http)
     }
 }
 
@@ -117,7 +103,7 @@ async fn fetch_direct_http_checked(
     let original_url = checked.url.to_string();
 
     for redirect_count in 0..=MAX_REDIRECTS {
-        let request_client = client.client_for_checked_url(&checked)?;
+        let request_client = checked_public_http_client(&checked, client.request_timeout)?;
         let response = request_client
             .get(checked.url.clone())
             .header(header::USER_AGENT, USER_AGENT)

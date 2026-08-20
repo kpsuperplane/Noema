@@ -186,12 +186,14 @@ Web and iOS use one provider citation contract for Chat messages and completed
 Task results. They number unique URLs in first-use order. Each citation marker
 follows its claim when the provider supplies a valid UTF-16 end offset. A marker
 without a valid offset follows the complete message. Markers use plain,
-non-interactive superscript numbers. One Sources icon follows the cited content
-and opens its Sources view. The icon remains inline for Chat messages. Each
-source shows its title and host and opens the exact URL.
+non-interactive superscript numbers. One Sources control follows the cited
+content and opens its Sources view. The control remains inline for Chat
+messages. Each source shows its title, host, favicon, and exact URL.
 
-Web renders every Sources control with Astryx Citation. iOS matches its compact
-20px square footprint, transparent fill, and full corner treatment.
+Web renders every Sources control with Astryx Citation. Web and iOS show up to
+three exact-host favicons in a compact transparent pill. Extra hosts use a
+count. Loading and failed favicons show the first site-domain letter without
+changing layout. Sources without website hosts keep the generic Sources icon.
 
 The backend decodes reserved source footnotes from completed Task results. It
 returns readable text and the same structured provider citation metadata that

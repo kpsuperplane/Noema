@@ -159,7 +159,9 @@ pub use tools::{
     ProviderToolSchemaDialect, ProviderToolTransport, expose_provider_tools,
 };
 #[cfg(feature = "public-http")]
-pub use web::public_url::{CheckedUrl, validate_public_url, validate_public_url_parsed};
+pub use web::public_url::{
+    CheckedUrl, checked_public_http_client, validate_public_url, validate_public_url_parsed,
+};
 pub use web::{
     BEST_EFFORT_PUBLIC_CONTRACT, DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID,
     EXTRACTION_READABILITYRS, KERNEL_BROWSER_PROVIDER_ID, OBSCURA_BROWSER_PROVIDER_ID,

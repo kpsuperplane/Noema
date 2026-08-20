@@ -510,6 +510,7 @@ struct ChatReadyView: View {
     case let .message(message, taskIDs):
       ChatMessageView(
         client: model.client,
+        profile: model.profile,
         message: message,
         attachedTaskIDs: taskIDs,
         group: group,

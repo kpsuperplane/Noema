@@ -66,7 +66,7 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
         sessions.clone(),
         auth_mode,
         host.web_config().graphiql,
-        recovery,
+        web::WebFiles::new(recovery, host.services().noema_paths.clone()),
     )
     .map_err(WebServerError::Protocol)?;
     let local_graphql = if host.web_config().local_graphql_socket {

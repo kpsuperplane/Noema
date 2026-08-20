@@ -7,6 +7,7 @@ import { parseMarkdown } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
 import sourcesIconUrl from "lucide-static/icons/book-open.svg";
 import { useMemo, useState } from "react";
+import { FaviconImage } from "@/components/FaviconImage";
 import {
   MarkdownContent,
   type MarkdownComponents,
@@ -40,6 +41,7 @@ const SOURCES_ACTION_URL = "noema-sources://open";
 
 const styles = stylex.create({
   sourcesAction: {
+    position: "relative",
     display: "inline-flex",
     marginInlineStart: "var(--spacing-1)",
     appearance: "none",
@@ -68,6 +70,29 @@ const styles = stylex.create({
     backgroundRepeat: "no-repeat",
     backgroundSize: "var(--spacing-3)",
     ":hover": { backgroundColor: "var(--color-overlay-hover)" }
+  },
+  sourcesCitationTwo: { width: "var(--spacing-7)" },
+  sourcesCitationThree: { width: "var(--spacing-9)" },
+  sourcesCitationOverflow: { width: "var(--spacing-12)" },
+  sourceFacepile: {
+    position: "absolute",
+    inset: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    pointerEvents: "none"
+  },
+  sourceFacepileIcon: {
+    display: "inline-flex",
+    marginInlineStart: "calc(-1 * var(--spacing-1))",
+    ":first-child": { marginInlineStart: 0 }
+  },
+  sourceOverflow: {
+    marginInlineStart: "var(--spacing-0-5)",
+    color: "var(--color-text-secondary)",
+    fontSize: "var(--font-size-3xs)",
+    fontWeight: "var(--font-weight-semibold)",
+    lineHeight: 1
   },
   sourceLink: {
     display: "block",
@@ -103,9 +128,15 @@ export function ProviderCitationMarkdown({
   }, [citations, text]);
   const components = useMemo<MarkdownComponents>(
     () => ({
-      citation: (props) => <CitationReference {...props} onOpenSources={() => setOpen(true)} />
+      citation: (props) => (
+        <CitationReference
+          {...props}
+          hosts={providerCitationHosts(content.citations)}
+          onOpenSources={() => setOpen(true)}
+        />
+      )
     }),
-    []
+    [content.citations]
   );
 
   return (
@@ -126,14 +157,25 @@ export function ProviderCitationMarkdown({
 export function CitationReference({
   source,
   number,
+  hosts,
   onOpenSources
 }: {
   source: MarkdownSource;
   number: number;
   variant: "label" | "number";
+  hosts?: readonly string[];
   onOpenSources: () => void;
 }) {
   if (source.url === SOURCES_ACTION_URL) {
+    const visibleHosts = hosts?.slice(0, 3) ?? [];
+    const overflow = Math.max(0, (hosts?.length ?? 0) - visibleHosts.length);
+    const citationSize = overflow > 0
+      ? styles.sourcesCitationOverflow
+      : visibleHosts.length === 3
+        ? styles.sourcesCitationThree
+        : visibleHosts.length === 2
+          ? styles.sourcesCitationTwo
+          : undefined;
     return (
       <button
         type="button"
@@ -147,9 +189,19 @@ export function CitationReference({
           source={{ title: "" }}
           number={1}
           variant="label"
-          xstyle={styles.sourcesCitation}
-          style={{ backgroundImage: `url("${sourcesIconUrl}")` }}
+          xstyle={[styles.sourcesCitation, citationSize]}
+          style={visibleHosts.length === 0 ? { backgroundImage: `url("${sourcesIconUrl}")` } : undefined}
         />
+        {visibleHosts.length > 0 ? (
+          <span aria-hidden="true" {...stylex.props(styles.sourceFacepile)}>
+            {visibleHosts.map((hostname) => (
+              <span key={hostname} {...stylex.props(styles.sourceFacepileIcon)}>
+                <FaviconImage hostname={hostname} size="compact" />
+              </span>
+            ))}
+            {overflow > 0 ? <span {...stylex.props(styles.sourceOverflow)}>+{overflow}</span> : null}
+          </span>
+        ) : null}
       </button>
     );
   }
@@ -303,6 +355,7 @@ function ProviderCitationDialog({
                       >
                         {index + 1}
                       </Text>
+                      <FaviconImage hostname={sourceHost(citation.url)} />
                       <VStack gap={0.5} xstyle={styles.sourceText}>
                         <Text type="body" weight="semibold" xstyle={styles.sourceTitle}>
                           {citation.title}
@@ -334,6 +387,15 @@ function sourceHost(url: string): string {
   } catch {
     return url;
   }
+}
+
+function providerCitationHosts(citations: readonly ProviderCitation[]): string[] {
+  const hosts = new Set<string>();
+  for (const citation of citations) {
+    const hostname = sourceHost(citation.url);
+    if (hostname) hosts.add(hostname.toLowerCase());
+  }
+  return [...hosts];
 }
 
 function unusedSourceId(

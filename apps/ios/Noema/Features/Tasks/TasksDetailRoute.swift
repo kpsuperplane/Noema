@@ -214,7 +214,12 @@ private struct TasksDetailContent: View {
 
   private var resultView: some View {
     ScrollView {
-      TasksDocumentView(citations: detail.resultCitations, document: detail.resultDocument ?? "", fileName: "RESULT.md")
+      TasksDocumentView(
+        citations: detail.resultCitations,
+        profile: model.profile,
+        document: detail.resultDocument ?? "",
+        fileName: "RESULT.md"
+      )
     }
     .scrollDismissesKeyboard(.interactively)
   }
@@ -222,7 +227,7 @@ private struct TasksDetailContent: View {
   private var taskView: some View {
     ScrollView {
       VStack(spacing: 0) {
-        TasksDocumentView(document: detail.taskDocument, fileName: "TASK.md")
+        TasksDocumentView(profile: model.profile, document: detail.taskDocument, fileName: "TASK.md")
         TasksTaskMetadataView(detail: detail)
       }
     }

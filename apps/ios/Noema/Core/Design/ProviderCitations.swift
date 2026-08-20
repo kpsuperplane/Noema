@@ -51,18 +51,21 @@ struct ProviderCitationMarkdown: View {
   let citations: [ProviderCitation]
   let role: NoemaMarkdown.Role
   let sourcesInline: Bool
+  let profile: NoemaProfile?
   @State private var sourcesPresented = false
 
   init(
     text: String,
     citations: [ProviderCitation],
     role: NoemaMarkdown.Role,
-    sourcesInline: Bool = false
+    sourcesInline: Bool = false,
+    profile: NoemaProfile? = nil
   ) {
     self.text = text
     self.citations = citations
     self.role = role
     self.sourcesInline = sourcesInline
+    self.profile = profile
   }
 
   @ViewBuilder
@@ -74,22 +77,22 @@ struct ProviderCitationMarkdown: View {
       HStack(alignment: .bottom, spacing: NoemaSpacing.xs) {
         NoemaMarkdown(content.text, role: role)
           .layoutPriority(1)
-        CitationSourcesButton {
+        CitationSourcesButton(hostnames: citationHostnames(content.citations), profile: profile) {
           sourcesPresented = true
         }
       }
       .noemaSheet(isPresented: $sourcesPresented) {
-        ProviderCitationSheet(citations: content.citations)
+        ProviderCitationSheet(citations: content.citations, profile: profile)
       }
     } else {
       VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
         NoemaMarkdown(content.text, role: role)
-        CitationSourcesButton {
+        CitationSourcesButton(hostnames: citationHostnames(content.citations), profile: profile) {
           sourcesPresented = true
         }
       }
       .noemaSheet(isPresented: $sourcesPresented) {
-        ProviderCitationSheet(citations: content.citations)
+        ProviderCitationSheet(citations: content.citations, profile: profile)
       }
     }
   }
@@ -166,19 +169,49 @@ private struct ProviderCitationContent {
 }
 
 struct CitationSourcesButton: View {
+  let hostnames: [String]
+  let profile: NoemaProfile?
   let action: () -> Void
 
   var body: some View {
     Button(action: action) {
-      NoemaIcon(.bookOpen, size: 12)
-        .foregroundStyle(NoemaColor.content)
-        .frame(width: NoemaSpacing.xl, height: NoemaSpacing.xl)
+      if hostnames.isEmpty {
+        NoemaIcon(.bookOpen, size: NoemaSpacing.md)
+          .foregroundStyle(NoemaColor.content)
+          .frame(width: NoemaSpacing.xl, height: NoemaSpacing.xl)
+          .overlay { NoemaSuperellipse.full.stroke(NoemaColor.separator, lineWidth: 1) }
+      } else {
+        HStack(spacing: NoemaSpacing.xxs) {
+          HStack(spacing: -NoemaSpacing.xs) {
+            ForEach(Array(hostnames.prefix(3)), id: \.self) { hostname in
+              NoemaFaviconImage(hostname: hostname, profile: profile, size: .compact)
+            }
+          }
+          if hostnames.count > 3 {
+            Text("+\(hostnames.count - 3)")
+              .font(NoemaFont.metadata.weight(.semibold))
+              .foregroundStyle(NoemaColor.contentSecondary)
+          }
+        }
+        .padding(.horizontal, NoemaSpacing.xs)
+        .frame(height: NoemaSpacing.xl)
         .overlay { NoemaSuperellipse.full.stroke(NoemaColor.separator, lineWidth: 1) }
+      }
     }
     .buttonStyle(.plain)
     .contentShape(.interaction, NoemaSuperellipse.full.inset(by: -NoemaSpacing.md))
     .accessibilityLabel("Sources")
     .accessibilityHint("Shows citation sources")
+  }
+}
+
+private func citationHostnames(_ citations: [ProviderCitation]) -> [String] {
+  var seen = Set<String>()
+  return citations.compactMap { citation in
+    guard let hostname = citation.destination.host?.lowercased(), seen.insert(hostname).inserted else {
+      return nil
+    }
+    return hostname
   }
 }
 
@@ -202,6 +235,7 @@ func citationSuperscript(_ number: Int) -> String {
 
 private struct ProviderCitationSheet: View {
   let citations: [ProviderCitation]
+  let profile: NoemaProfile?
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
@@ -210,11 +244,15 @@ private struct ProviderCitationSheet: View {
         VStack(alignment: .leading, spacing: 0) {
           ForEach(Array(citations.enumerated()), id: \.element.destination) { index, citation in
             Link(destination: citation.destination) {
-              HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+              HStack(alignment: .top, spacing: NoemaSpacing.sm) {
                 Text("\(index + 1)")
                   .font(NoemaFont.metadata.weight(.semibold))
                   .foregroundStyle(NoemaColor.accent)
                   .frame(minWidth: NoemaSpacing.lg, alignment: .leading)
+                NoemaFaviconImage(
+                  hostname: citation.destination.host ?? "",
+                  profile: profile
+                )
                 VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
                   Text(citation.title)
                     .font(NoemaFont.body.weight(.semibold))

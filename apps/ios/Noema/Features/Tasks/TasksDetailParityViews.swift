@@ -207,6 +207,7 @@ struct TasksDetailTabBar: View {
 
 struct TasksDocumentView: View {
   var citations: [ProviderCitation] = []
+  var profile: NoemaProfile?
   let document: String
   let fileName: String
 
@@ -216,7 +217,8 @@ struct TasksDocumentView: View {
         ProviderCitationMarkdown(
           text: response,
           citations: citations,
-          role: .assistantMessage
+          role: .assistantMessage,
+          profile: profile
         )
           .textSelection(.enabled)
       } else {
