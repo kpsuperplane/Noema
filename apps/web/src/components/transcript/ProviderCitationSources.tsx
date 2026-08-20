@@ -45,7 +45,8 @@ const styles = stylex.create({
     appearance: "none",
     padding: 0,
     borderWidth: 0,
-    borderRadius: "var(--radius-element)",
+    borderRadius: "var(--radius-full)",
+    cornerShape: "var(--corner-shape-full)",
     backgroundColor: "transparent",
     verticalAlign: "middle",
     ":focus-visible": {
@@ -56,9 +57,16 @@ const styles = stylex.create({
     }
   },
   sourcesCitation: {
-    gap: 0,
+    width: "var(--spacing-5)",
+    minWidth: "var(--spacing-5)",
+    height: "var(--spacing-5)",
     marginInlineStart: 0,
-    paddingInline: "var(--spacing-0-5)",
+    paddingInline: 0,
+    borderRadius: "var(--radius-full)",
+    cornerShape: "var(--corner-shape-full)",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    backgroundSize: "var(--spacing-3)",
     ":hover": { backgroundColor: "var(--color-overlay-hover)" }
   },
   sourceLink: {
@@ -136,10 +144,11 @@ export function CitationReference({
       >
         <Citation
           aria-hidden="true"
-          source={{ title: "", icon: sourcesIconUrl }}
+          source={{ title: "" }}
           number={1}
           variant="label"
           xstyle={styles.sourcesCitation}
+          style={{ backgroundImage: `url("${sourcesIconUrl}")` }}
         />
       </button>
     );

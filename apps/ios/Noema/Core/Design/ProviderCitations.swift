@@ -172,11 +172,7 @@ struct CitationSourcesButton: View {
     Button(action: action) {
       NoemaIcon(.bookOpen, size: 12)
         .foregroundStyle(NoemaColor.content)
-        .frame(width: NoemaSpacing.lg, height: NoemaSpacing.lg)
-        .background(NoemaColor.surface, in: NoemaSuperellipse.full)
-        .overlay { NoemaSuperellipse.full.stroke(NoemaColor.separator, lineWidth: 1) }
-        .padding(NoemaSpacing.xxs)
-        .frame(height: NoemaSpacing.xl)
+        .frame(width: NoemaSpacing.xl, height: NoemaSpacing.xl)
         .overlay { NoemaSuperellipse.full.stroke(NoemaColor.separator, lineWidth: 1) }
     }
     .buttonStyle(.plain)

@@ -191,7 +191,7 @@ and opens its Sources view. The icon remains inline for Chat messages. Each
 source shows its title and host and opens the exact URL.
 
 Web renders every Sources control with Astryx Citation. iOS matches its compact
-size, border, and nested icon well.
+20px square footprint, transparent fill, and full corner treatment.
 
 The backend decodes reserved source footnotes from completed Task results. It
 returns readable text and the same structured provider citation metadata that
