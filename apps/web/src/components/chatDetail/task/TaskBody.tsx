@@ -470,7 +470,7 @@ const styles = stylex.create({
   workspaceStatus: { margin: "var(--spacing-0)", padding: "var(--spacing-4)", color: "var(--noema-text-secondary)", fontSize: 13 },
   taskScroller: {
     overflowX: "hidden",
-    paddingBlockStart: "var(--spacing-2)",
+    paddingBlockStart: "var(--spacing-3)",
     paddingBlockEnd: "var(--spacing-6)"
   },
   documentBar: { display: "flex", justifyContent: "flex-end", alignItems: "center", width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, minHeight: 36, marginInline: "auto", marginBlockEnd: "var(--spacing-2)" },
