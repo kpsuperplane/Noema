@@ -15,7 +15,7 @@ const ListCardAnchor = forwardRef<HTMLAnchorElement, ListCardAnchorProps>(functi
   xstyle,
   ...props
 }, ref) {
-  const cardProps = stylex.props(styles.card, selected && styles.selected, xstyle);
+  const cardProps = stylex.props(listCardSurfaceStyle, styles.card, selected && styles.selected, xstyle);
   return (
     <a
       {...props}
@@ -41,7 +41,7 @@ export const ListCardButton = forwardRef<HTMLButtonElement, ListCardButtonProps>
   xstyle,
   ...props
 }, ref) {
-  const cardProps = stylex.props(styles.card, styles.button, selected && styles.selected, xstyle);
+  const cardProps = stylex.props(listCardSurfaceStyle, styles.card, styles.button, selected && styles.selected, xstyle);
   return (
     <button
       {...props}
@@ -53,20 +53,25 @@ export const ListCardButton = forwardRef<HTMLButtonElement, ListCardButtonProps>
   );
 });
 
-const styles = stylex.create({
-  card: {
-    display: "grid",
-    minWidth: 0,
+export const listCardSurfaceStyle = stylex.create({
+  surface: {
     borderWidth: "var(--border-width)",
     borderStyle: "solid",
     borderColor: "var(--noema-border-subtle)",
     borderRadius: 10,
     backgroundColor: "var(--noema-surface-card)",
+    boxShadow: "0 1px 2px color-mix(in srgb, black 4%, transparent)"
+  }
+}).surface;
+
+const styles = stylex.create({
+  card: {
+    display: "grid",
+    minWidth: 0,
     paddingBlock: "var(--spacing-2)",
     paddingInline: "var(--spacing-3)",
     color: "var(--noema-text-secondary)",
     textDecoration: "none",
-    boxShadow: "0 1px 2px color-mix(in srgb, black 4%, transparent)",
     ":hover": {
       borderColor: "var(--noema-border-default)",
       backgroundColor: "var(--noema-surface-hover)"

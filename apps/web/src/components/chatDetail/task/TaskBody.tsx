@@ -7,6 +7,7 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { TreeList, type TreeListItemData } from "@astryxdesign/core/TreeList";
 import * as stylex from "@stylexjs/stylex";
 import { FileText, Folder, Pencil } from "lucide-react";
+import { listCardSurfaceStyle } from "@/components/ListCardLink";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { ProviderCitationMarkdown, providerCitationsFromMetadata } from "@/components/transcript/ProviderCitationSources";
@@ -157,7 +158,12 @@ function TaskWorkspace({
         <TaskWorkspaceFileViewer detail={detail} edit={edit} path={selectedPath} />
       </section>
       <aside aria-label="Task files" data-slot="task-workspace-files" {...stylex.props(styles.fileList)}>
-        <Card width="100%" padding={0.5}>
+        <Card
+          width="calc(100% - var(--spacing-2) - var(--spacing-2))"
+          padding={2}
+          variant="transparent"
+          xstyle={[listCardSurfaceStyle, styles.fileTreeCard]}
+        >
           <TreeList
             density="compact"
             items={items}
@@ -407,6 +413,7 @@ const styles = stylex.create({
     scrollbarWidth: "none"
   },
   fileTree: { minWidth: 0 },
+  fileTreeCard: { marginInlineStart: "var(--spacing-2)", paddingInline: "var(--spacing-0)" },
   fileListNotice: { margin: "var(--spacing-2) var(--spacing-1) var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: 12 },
   fileViewer: { gridColumn: "1 / -1", gridRow: "1", width: "100%", minWidth: 0, minHeight: 0, height: "100%", overflow: "hidden" },
   workspaceStatus: { margin: "var(--spacing-0)", padding: "var(--spacing-4)", color: "var(--noema-text-secondary)", fontSize: 13 },
