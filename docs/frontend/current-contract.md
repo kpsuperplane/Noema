@@ -156,8 +156,9 @@ The web app uses Astryx and StyleX. Generated GraphQL types are the client
 contract; do not add hand-maintained mirrors for generated query shapes.
 
 Task detail shows `Workspace` and `Transcript`.
-Workspace lists the current Task directory with Astryx TreeList and previews the selected UTF-8 file.
-Below 650 pixels, Workspace replaces the file tree with an Astryx Selector above the document.
+Workspace shows direct `Result` and `Task` file buttons above the selected UTF-8 preview.
+An Astryx more menu contains all other Task files.
+The file row scrolls vertically with the preview.
 A completed Task opens `RESULT.md`; another Task opens `TASK.md`.
 Completion selects `RESULT.md` once when `TASK.md` was open.
 Result previews preserve provider citations.

@@ -1,14 +1,12 @@
 import * as React from "react";
 import { useQuery } from "@apollo/client/react";
-import { Icon } from "@astryxdesign/core/Icon";
-import { Card } from "@astryxdesign/core/Card";
-import { Selector } from "@astryxdesign/core/Selector";
+import { Button } from "@astryxdesign/core/Button";
+import { HStack } from "@astryxdesign/core/HStack";
+import { MoreMenu } from "@astryxdesign/core/MoreMenu";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { IconButton } from "@astryxdesign/core/IconButton";
-import { TreeList, type TreeListItemData } from "@astryxdesign/core/TreeList";
 import * as stylex from "@stylexjs/stylex";
-import { FileText, Folder, Pencil } from "lucide-react";
-import { listCardSurfaceStyle } from "@/components/ListCardLink";
+import { Pencil } from "lucide-react";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { ProviderCitationMarkdown, providerCitationsFromMetadata } from "@/components/transcript/ProviderCitationSources";
@@ -149,56 +147,53 @@ function TaskWorkspace({
   selectedPath: string;
   onSelectPath: (path: string) => void;
 }) {
-  const items = React.useMemo(
-    () => workspaceTreeItems(detail.workspaceFiles, selectedPath, onSelectPath),
-    [detail.workspaceFiles, onSelectPath, selectedPath]
-  );
-  const fileOptions = React.useMemo(
+  const files = React.useMemo(
     () => detail.workspaceFiles
       .filter((file) => !file.isDirectory)
-      .sort((left, right) => left.path.localeCompare(right.path))
-      .map((file) => ({ value: file.path, label: workspaceFileOptionLabel(file) })),
+      .sort((left, right) => left.path.localeCompare(right.path)),
     [detail.workspaceFiles]
   );
+  const directFiles = [TASK_RESULT_PATH, TASK_DOCUMENT_PATH]
+    .flatMap((path) => files.filter((file) => file.path === path));
+  const otherFiles = files.filter((file) => file.path !== TASK_RESULT_PATH && file.path !== TASK_DOCUMENT_PATH);
   return (
     <section aria-label="Task workspace" {...stylex.props(styles.workspace)}>
       <section aria-label={selectedPath} {...stylex.props(styles.fileViewer)}>
-        <nav aria-label="Task files" {...stylex.props(styles.fileSelector)}>
-          <Selector
-            hasSearch={fileOptions.length > 8}
-            isLabelHidden
-            label="Task file"
-            onChange={onSelectPath}
-            options={fileOptions}
-            placement="below"
-            size="sm"
-            value={selectedPath}
+        <nav aria-label="Task files" {...stylex.props(styles.fileBar)}>
+          <HStack
+            gap={1}
             width="100%"
-          />
+            xstyle={styles.fileActions}
+          >
+            {directFiles.map((file) => (
+              <Button
+                key={file.path}
+                aria-pressed={file.path === selectedPath}
+                label={workspaceFileButtonLabel(file)}
+                onClick={() => onSelectPath(file.path)}
+                size="sm"
+                tooltip={file.path}
+                variant={file.path === selectedPath ? "secondary" : "ghost"}
+              />
+            ))}
+            {otherFiles.length > 0 ? (
+              <MoreMenu
+                items={otherFiles.map((file) => ({
+                  label: workspaceFileButtonLabel(file),
+                  onClick: () => onSelectPath(file.path)
+                }))}
+                label="More files"
+                size="sm"
+                variant={otherFiles.some((file) => file.path === selectedPath) ? "secondary" : "ghost"}
+              />
+            ) : null}
+          </HStack>
           {detail.workspaceFilesTruncated ? (
-            <p role="status" {...stylex.props(styles.fileSelectorNotice)}>Some files are not shown.</p>
+            <p role="status" {...stylex.props(styles.fileNotice)}>Some files are not shown.</p>
           ) : null}
         </nav>
         <TaskWorkspaceFileViewer detail={detail} edit={edit} path={selectedPath} />
       </section>
-      <aside aria-label="Task files" data-slot="task-workspace-files" {...stylex.props(styles.fileList)}>
-        <Card
-          width="calc(100% - var(--spacing-2) - var(--spacing-2))"
-          padding={2}
-          variant="transparent"
-          xstyle={[listCardSurfaceStyle, styles.fileTreeCard]}
-        >
-          <TreeList
-            density="compact"
-            items={items}
-            variant="noGuides"
-            xstyle={styles.fileTree}
-          />
-          {detail.workspaceFilesTruncated ? (
-            <p role="status" {...stylex.props(styles.fileListNotice)}>Some files are not shown.</p>
-          ) : null}
-        </Card>
-      </aside>
     </section>
   );
 }
@@ -276,33 +271,6 @@ function defaultWorkspacePath(detail: TaskDetail): string {
     : TASK_DOCUMENT_PATH;
 }
 
-function workspaceTreeItems(
-  files: readonly TaskWorkspaceFile[],
-  selectedPath: string,
-  onSelectPath: (path: string) => void
-): TreeListItemData[] {
-  const children = new Map<string, TaskWorkspaceFile[]>();
-  for (const file of files) {
-    const separator = file.path.lastIndexOf("/");
-    const parent = separator < 0 ? "" : file.path.slice(0, separator);
-    const siblings = children.get(parent) ?? [];
-    siblings.push(file);
-    children.set(parent, siblings);
-  }
-  const build = (parent: string): TreeListItemData[] => (children.get(parent) ?? [])
-    .sort((left, right) => Number(right.isDirectory) - Number(left.isDirectory) || left.path.localeCompare(right.path))
-    .map((file) => ({
-      id: file.path,
-      label: workspaceFileLabel(file),
-      startContent: <Icon icon={file.isDirectory ? Folder : FileText} color="tertiary" size="sm" />,
-      children: file.isDirectory ? build(file.path) : undefined,
-      isExpanded: file.isDirectory,
-      isSelected: !file.isDirectory && file.path === selectedPath,
-      onClick: file.isDirectory ? undefined : () => onSelectPath(file.path)
-    }));
-  return build("");
-}
-
 function workspaceFileLabel(file: TaskWorkspaceFile): string {
   const name = file.path.slice(file.path.lastIndexOf("/") + 1);
   const withoutMarkdownExtension = !file.isDirectory && name.toLowerCase().endsWith(".md")
@@ -313,7 +281,7 @@ function workspaceFileLabel(file: TaskWorkspaceFile): string {
     : withoutMarkdownExtension;
 }
 
-function workspaceFileOptionLabel(file: TaskWorkspaceFile): string {
+function workspaceFileButtonLabel(file: TaskWorkspaceFile): string {
   const separator = file.path.lastIndexOf("/");
   return separator < 0
     ? workspaceFileLabel(file)
@@ -419,71 +387,34 @@ const styles = stylex.create({
     "--task-transcript-bottom-inset": "var(--spacing-3)"
   },
   workspace: {
-    display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 760px) var(--task-workspace-tree-width) minmax(0, 1fr)",
-    gridTemplateRows: "minmax(0, 1fr)",
     minWidth: 0,
     minHeight: 0,
     height: "100%",
-    "--task-workspace-tree-width": "clamp(80px, 34cqw, 240px)",
-    "--task-workspace-content-width": "max(0px, min(760px, calc(100cqw - var(--task-workspace-tree-width) - var(--spacing-6) - var(--spacing-6))))",
-    "--task-workspace-table-left-bleed": "max(0px, calc((100cqw - var(--task-workspace-tree-width) - var(--task-workspace-content-width)) / 2))",
+    "--task-workspace-content-width": "max(0px, min(760px, calc(100cqw - var(--spacing-6) - var(--spacing-6))))",
+    "--task-workspace-table-left-bleed": "max(0px, calc((100cqw - var(--task-workspace-content-width)) / 2))",
     "--task-workspace-table-right-bleed": "calc(100cqw - var(--task-workspace-table-left-bleed) - var(--task-workspace-content-width))",
-    "@container (width < 650px)": {
-      gridTemplateColumns: "minmax(0, 1fr)",
-      "--task-workspace-tree-width": "0px"
-    }
   },
-  fileList: {
-    gridColumn: "3",
-    gridRow: "1",
-    zIndex: 1,
-    width: "100%",
-    minHeight: 0,
-    height: "100%",
+  fileBar: {
+    width: "calc(100% - var(--spacing-6) - var(--spacing-6))",
+    maxWidth: 760,
+    minWidth: 0,
+    marginInline: "auto",
     paddingBlockStart: "var(--spacing-4)",
-    paddingBlockEnd: "var(--spacing-2)",
-    overflowX: "hidden",
-    overflowY: "auto",
-    scrollbarWidth: "none",
-    "@container (width < 650px)": { display: "none" }
   },
-  fileTree: { minWidth: 0 },
-  fileTreeCard: { marginInlineStart: "var(--spacing-2)", paddingInline: "var(--spacing-0)" },
-  fileListNotice: { margin: "var(--spacing-2) var(--spacing-1) var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: 12 },
-  fileSelector: {
-    display: "none",
-    "@container (width < 650px)": {
-      display: "block",
-      width: "calc(100% - var(--spacing-6) - var(--spacing-6))",
-      maxWidth: 760,
-      marginInline: "auto",
-      paddingBlockStart: "var(--spacing-4)"
-    }
-  },
-  fileSelectorNotice: { margin: "var(--spacing-1) var(--spacing-0) var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: 12 },
+  fileActions: { minWidth: 0 },
+  fileNotice: { margin: "var(--spacing-1) var(--spacing-0) var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: 12 },
   fileViewer: {
-    display: "grid",
-    gridColumn: "1 / -1",
-    gridRow: "1",
-    gridTemplateRows: "minmax(0, 1fr)",
     width: "100%",
     minWidth: 0,
     minHeight: 0,
     height: "100%",
-    overflow: "hidden",
-    "@container (width < 650px)": { gridTemplateRows: "auto minmax(0, 1fr)" }
+    overflowX: "hidden",
+    overflowY: "auto"
   },
   workspaceStatus: { margin: "var(--spacing-0)", padding: "var(--spacing-4)", color: "var(--noema-text-secondary)", fontSize: 13 },
   taskScroller: {
-    height: "100%",
     overflowX: "hidden",
-    overflowY: "auto",
-    paddingInlineEnd: "var(--task-workspace-tree-width)",
-    paddingBlockStart: {
-      default: "var(--spacing-4)",
-      "@container (width < 650px)": "var(--spacing-2)"
-    },
+    paddingBlockStart: "var(--spacing-2)",
     paddingBlockEnd: "var(--spacing-6)"
   },
   documentBar: { display: "flex", justifyContent: "flex-end", alignItems: "center", width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, minHeight: 36, marginInline: "auto", marginBlockEnd: "var(--spacing-2)" },
