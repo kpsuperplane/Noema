@@ -455,20 +455,7 @@ pub fn sanitize_arguments_for_storage(arguments: &Value) -> Value {
 
 #[must_use]
 pub fn sanitize_output_for_storage(output: &Value) -> Value {
-    if output.get("error").is_some() {
-        return json!({"error": output.get("error")});
-    }
-    let snapshot = output.get("snapshot");
-    json!({
-        "provider": output.get("provider"),
-        "state": output.get("state"),
-        "url": snapshot.and_then(|value| value.get("url")).map(|value| crate::web::fetch::sanitized_display_url(value.as_str().unwrap_or_default())),
-        "title": snapshot.and_then(|value| value.get("title")),
-        "snapshot_revision": snapshot.and_then(|value| value.get("snapshot_revision")),
-        "element_count": snapshot.and_then(|value| value.get("elements")).and_then(Value::as_array).map(Vec::len),
-        "truncated": snapshot.and_then(|value| value.get("truncated")),
-        "screenshot": output.get("screenshot"),
-    })
+    crate::web::fetch::sanitize_payload_for_storage(output)
 }
 
 #[cfg(test)]
@@ -528,7 +515,7 @@ mod tests {
     }
 
     #[test]
-    fn persistence_views_keep_arguments_and_compact_page_outputs() {
+    fn persistence_views_keep_arguments_and_page_outputs() {
         let arguments = sanitize_arguments_for_storage(
             &json!({"snapshot_revision":1,"ref":"e1","action":"fill","value":"private"}),
         );
@@ -536,9 +523,8 @@ mod tests {
             &json!({"provider":"obscura","state":"open","snapshot":{"url":"https://example.com","title":"Example","text":"private page","snapshot_revision":2,"elements":[{"name":"secret"}],"truncated":false},"screenshot":{"media_type":"image/png","data":"cG5n","width":1280,"height":720}}),
         );
         assert_eq!(arguments["value"], "private");
-        assert!(output.get("text").is_none());
-        assert_eq!(output["element_count"], 1);
+        assert_eq!(output["snapshot"]["text"], "private page");
+        assert_eq!(output["snapshot"]["elements"][0]["name"], "secret");
         assert_eq!(output["screenshot"]["data"], "cG5n");
-        assert!(!output.to_string().contains("private"));
     }
 }

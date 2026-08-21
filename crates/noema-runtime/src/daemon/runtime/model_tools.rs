@@ -696,26 +696,13 @@ struct NativeMemoryPayloadSanitizer;
 
 impl noema_capabilities::PayloadSanitizer for NativeMemoryPayloadSanitizer {
     fn persist_arguments(&self, arguments: &serde_json::Value) -> Option<serde_json::Value> {
-        Some(
-            arguments
-                .get("arguments")
-                .cloned()
-                .unwrap_or_else(|| arguments.clone()),
-        )
+        Some(noema_capabilities::sanitize_standard_credentials(
+            arguments.get("arguments").unwrap_or(arguments),
+        ))
     }
 
     fn persist_output(&self, output: &serde_json::Value) -> Option<serde_json::Value> {
-        if let Some(page) = output.get("page") {
-            return Some(
-                serde_json::json!({"page_ref": {"id": page.get("id"), "path": page.get("path"), "hash": page.get("hash")}}),
-            );
-        }
-        if let Some(pages) = output.get("pages") {
-            return Some(
-                serde_json::json!({"pages": pages.as_array().map(|pages| pages.iter().map(|page| serde_json::json!({"id": page.get("id"), "path": page.get("path"), "hash": page.get("hash")})).collect::<Vec<_>>())}),
-            );
-        }
-        Some(serde_json::json!({"memory_result": "omitted"}))
+        Some(noema_capabilities::sanitize_standard_credentials(output))
     }
 }
 

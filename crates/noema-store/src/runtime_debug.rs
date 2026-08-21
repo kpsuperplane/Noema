@@ -87,6 +87,7 @@ pub struct RuntimeDebugMetadata {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub phase: Option<String>,
+    pub error: Option<String>,
     pub response_index: Option<u64>,
     pub round_index: Option<u64>,
     pub tool_name: Option<String>,

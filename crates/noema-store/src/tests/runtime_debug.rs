@@ -116,9 +116,12 @@ async fn provider_child_spans_keep_exact_parent_offsets() {
     store
         .finish_runtime_debug_span_with_children(
             &parent_id,
-            RuntimeDebugSpanStatus::Completed,
+            RuntimeDebugSpanStatus::Failed,
             100,
-            RuntimeDebugMetadata::default(),
+            RuntimeDebugMetadata {
+                error: Some("provider rejected previous_response_id".to_string()),
+                ..RuntimeDebugMetadata::default()
+            },
             &[RuntimeDebugChildSpan {
                 name: "Hosted web search".to_string(),
                 start_offset_milliseconds: 25,
@@ -138,6 +141,16 @@ async fn provider_child_spans_keep_exact_parent_offsets() {
         .expect("profile")
         .expect("stored profile");
     assert_eq!(profile.spans.len(), 2);
+    let parent = profile
+        .spans
+        .iter()
+        .find(|span| span.span_id == parent_id)
+        .expect("parent span");
+    assert_eq!(parent.status, RuntimeDebugSpanStatus::Failed);
+    assert_eq!(
+        parent.metadata.error.as_deref(),
+        Some("provider rejected previous_response_id")
+    );
     let child = profile
         .spans
         .iter()

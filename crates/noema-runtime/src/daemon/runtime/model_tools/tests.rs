@@ -26,7 +26,7 @@ fn runtime_binding_checks_its_published_input_rules() {
 }
 
 #[test]
-fn native_memory_payload_persistence_omits_page_bodies_and_search_snippets() {
+fn native_memory_payload_persistence_preserves_page_bodies_and_search_snippets() {
     let sanitizer = NativeMemoryPayloadSanitizer;
     assert_eq!(
         sanitizer.persist_output(&json!({
@@ -38,10 +38,11 @@ fn native_memory_payload_persistence_omits_page_bodies_and_search_snippets() {
             }
         })),
         Some(json!({
-            "page_ref": {
+            "page": {
                 "id": "memory:human:people.md",
                 "path": "people.md",
-                "hash": "abc"
+                "hash": "abc",
+                "body": "private page body"
             }
         }))
     );
@@ -58,7 +59,8 @@ fn native_memory_payload_persistence_omits_page_bodies_and_search_snippets() {
             "pages": [{
                 "id": "memory:human:people.md",
                 "path": "people.md",
-                "hash": "abc"
+                "hash": "abc",
+                "snippet": "private search excerpt"
             }]
         }))
     );

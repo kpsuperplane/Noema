@@ -206,6 +206,7 @@ impl RuntimeActor {
             let _ = event_tx.send(event);
         };
         let provider_started_at = Instant::now();
+        let requested_model = request.model.clone();
         let result = tokio::select! {
             _ = cancellation.cancelled() => Err(RuntimeError::Protocol("task execution cancelled".to_string())),
             _ = tokio::time::sleep_until(deadline) => Err(RuntimeError::Protocol("task active wall-time safety ceiling reached".to_string())),
@@ -231,11 +232,13 @@ impl RuntimeActor {
                     },
                 )
             }
-            Err(_) => (
+            Err(error) => (
                 RuntimeDebugSpanStatus::Failed,
                 RuntimeDebugMetadata {
+                    model: requested_model,
                     phase: Some(phase.to_string()),
                     round_index: u64::try_from(round_index).ok(),
+                    error: Some(error.to_string()),
                     ..RuntimeDebugMetadata::default()
                 },
             ),
@@ -674,7 +677,7 @@ mod tests {
     }
 
     #[test]
-    fn task_transcript_omits_artifact_file_contents() {
+    fn task_transcript_preserves_artifact_file_contents() {
         let spec = ToolSpec::new(
             "artifact.create_local_file",
             "Create an artifact.",
@@ -719,10 +722,9 @@ mod tests {
         assert_eq!(sanitized["arguments"]["versions"][0]["title"], "Draft");
         assert_eq!(
             sanitized["arguments"]["versions"][0]["content"],
-            serde_json::json!({"omitted": true, "character_count": 21})
+            "private artifact body"
         );
         assert_eq!(sanitized["arguments"]["api_key"], "[REDACTED]");
-        assert!(!sanitized.to_string().contains("private artifact body"));
         assert!(!sanitized.to_string().contains("private secret"));
     }
 

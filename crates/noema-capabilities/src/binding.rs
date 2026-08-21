@@ -4,7 +4,9 @@ use crate::{
     CapabilityDestination, CapabilityFuture, InvokerKey, ToolName, ToolSpec, file,
     normalize_capability_connection_label, sanitize_standard_credentials, web,
 };
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc};
 use thiserror::Error;
 
@@ -177,7 +179,7 @@ impl PayloadSanitizer for WebFetchPayloadSanitizer {
     }
 }
 
-/// Omit parsed file content while preserving safe file and URL metadata.
+/// Preserve file payloads while removing standard credential fields and URL components.
 #[derive(Debug, Default)]
 pub struct FilePayloadSanitizer;
 
@@ -189,7 +191,7 @@ impl PayloadSanitizer for FilePayloadSanitizer {
     }
 }
 
-/// Preserve reviewed browser arguments while compacting browser result content.
+/// Preserve reviewed browser payloads while removing standard credential fields.
 #[derive(Debug, Default)]
 pub struct WebBrowsePayloadSanitizer;
 
@@ -207,15 +209,13 @@ impl PayloadSanitizer for WebBrowsePayloadSanitizer {
     }
 }
 
-/// Omit artifact file content and remove standard credential fields.
+/// Preserve artifact payloads while removing standard credential fields.
 #[derive(Debug, Default)]
 pub struct ArtifactPayloadSanitizer;
 
 impl PayloadSanitizer for ArtifactPayloadSanitizer {
     fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
-        Some(sanitize_standard_credentials(&omit_artifact_content(
-            arguments,
-        )))
+        Some(sanitize_standard_credentials(arguments))
     }
 }
 
@@ -628,58 +628,6 @@ pub trait CapabilityBindingSource: Send + Sync {
 /// Clonable source handle.
 pub type CapabilityBindingSourceHandle = Arc<dyn CapabilityBindingSource>;
 
-fn omit_artifact_content(value: &Value) -> Value {
-    match value {
-        Value::Object(object) => Value::Object(
-            object
-                .iter()
-                .map(|(key, value)| {
-                    let sanitized = if key == "versions" {
-                        omit_artifact_version_contents(value)
-                    } else {
-                        omit_artifact_content(value)
-                    };
-                    (key.clone(), sanitized)
-                })
-                .collect(),
-        ),
-        Value::Array(items) => Value::Array(items.iter().map(omit_artifact_content).collect()),
-        _ => value.clone(),
-    }
-}
-
-fn omit_artifact_version_contents(value: &Value) -> Value {
-    let Value::Array(versions) = value else {
-        return omit_artifact_content(value);
-    };
-    Value::Array(
-        versions
-            .iter()
-            .map(|version| match version {
-                Value::Object(object) => Value::Object(
-                    object
-                        .iter()
-                        .map(|(key, value)| {
-                            (
-                                key.clone(),
-                                if key == "content" {
-                                    json!({
-                                        "omitted": true,
-                                        "character_count": value.as_str().map(|text| text.chars().count())
-                                    })
-                                } else {
-                                    omit_artifact_content(value)
-                                },
-                            )
-                        })
-                        .collect(),
-                ),
-                _ => omit_artifact_content(version),
-            })
-            .collect(),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -761,7 +709,7 @@ mod tests {
     }
 
     #[test]
-    fn artifact_policy_omits_content_and_redacts_secrets_on_both_paths() {
+    fn artifact_policy_preserves_content_and_redacts_secrets_on_both_paths() {
         let binding = binding(
             "artifact.create_local_file",
             Arc::new(ArtifactPayloadSanitizer),
@@ -785,17 +733,15 @@ mod tests {
         assert_json_fields!(arguments,
             "/filename" => "draft.md",
             "/versions/0/title" => "Draft",
-            "/versions/0/content" => json!({"omitted": true, "character_count": 13}),
+            "/versions/0/content" => "argument body",
             "/api_key" => "[REDACTED]",
         );
         assert_json_fields!(output,
             "/artifact_id" => "artifact:1",
             "/versions/0/title" => "Saved",
-            "/versions/0/content" => json!({"omitted": true, "character_count": 11}),
+            "/versions/0/content" => "output body",
             "/access_token" => "[REDACTED]",
         );
-        assert!(!arguments.to_string().contains("argument body"));
-        assert!(!output.to_string().contains("output body"));
 
         let nested_views = persisted_views(
             &binding,
@@ -818,20 +764,14 @@ mod tests {
         let nested_output = nested_views.output.expect("nested output view");
         assert_json_fields!(nested_arguments,
             "/arguments/filename" => "nested.md",
-            "/arguments/versions/0/content" => json!({"omitted": true, "character_count": 20}),
+            "/arguments/versions/0/content" => "nested argument body",
             "/arguments/password" => "[REDACTED]",
         );
         assert_json_fields!(nested_output,
             "/result/artifact_id" => "artifact:2",
-            "/result/versions/0/content" => json!({"omitted": true, "character_count": 18}),
+            "/result/versions/0/content" => "nested output body",
             "/result/cookie" => "[REDACTED]",
         );
-        assert!(
-            !nested_arguments
-                .to_string()
-                .contains("nested argument body")
-        );
-        assert!(!nested_output.to_string().contains("nested output body"));
     }
 
     #[test]

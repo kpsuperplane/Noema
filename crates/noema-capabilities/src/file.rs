@@ -211,12 +211,10 @@ pub fn parse_download_arguments(payload: &Value) -> Result<FileDownloadRequest, 
     })
 }
 
-/// Omit parsed content and sanitize URL credentials before persistence.
+/// Preserve file payloads and sanitize URL credentials before persistence.
 #[must_use]
 pub fn sanitize_payload_for_storage(payload: &Value) -> Value {
-    let mut sanitized = crate::web::fetch::sanitize_payload_for_storage(payload);
-    remove_content(&mut sanitized);
-    sanitized
+    crate::web::fetch::sanitize_payload_for_storage(payload)
 }
 
 fn nested_arguments(payload: &Value) -> Result<Value, String> {
@@ -230,25 +228,12 @@ fn nested_arguments(payload: &Value) -> Result<Value, String> {
     }
 }
 
-fn remove_content(value: &mut Value) {
-    match value {
-        Value::Object(object) => {
-            object.remove("content");
-            for nested in object.values_mut() {
-                remove_content(nested);
-            }
-        }
-        Value::Array(items) => items.iter_mut().for_each(remove_content),
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn parse_contract_bounds_input_and_omits_persisted_content() {
+    fn parse_contract_bounds_input_and_preserves_persisted_content() {
         let request = parse_arguments(&json!({"path":" data.csv ","max_chars":1000}))
             .expect("parse arguments");
         assert_eq!(request.path, "data.csv");
@@ -267,6 +252,13 @@ mod tests {
             "content":"private source text",
             "parse":{"content":"nested text"}
         }));
-        assert_eq!(persisted, json!({"path":"data.csv","parse":{}}));
+        assert_eq!(
+            persisted,
+            json!({
+                "path":"data.csv",
+                "content":"private source text",
+                "parse":{"content":"nested text"}
+            })
+        );
     }
 }
