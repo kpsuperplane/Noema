@@ -152,10 +152,23 @@ a[href][data-slot="shell-sidebar-control"] {
   box-shadow: var(--shadow-composer);
 }
 
+[data-slot="task-document"] [role="group"]:has(> .astryx-table-scroll-wrapper) {
+  display: flex !important;
+  width: calc(100% + var(--task-workspace-tree-width)) !important;
+  max-width: calc(100% + var(--task-workspace-tree-width)) !important;
+  overflow-x: auto !important;
+}
+
+[data-slot="task-document"] [role="group"]:has(> .astryx-table-scroll-wrapper)::after {
+  content: "";
+  flex: 0 0 var(--task-workspace-tree-width);
+}
+
 [data-slot="task-document"] .astryx-table-scroll-wrapper {
-  width: 100% !important;
-  min-width: 100% !important;
-  max-width: 100% !important;
+  flex: 0 0 auto;
+  width: max-content !important;
+  min-width: calc(100% - var(--task-workspace-tree-width)) !important;
+  max-width: none !important;
   margin-inline: 0 !important;
   overflow-x: visible !important;
 }
