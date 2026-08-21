@@ -131,7 +131,7 @@ function TaskDocument({ citations = [], detail, edit, fileName, text }: { citati
   const response = text.trim() || undefined;
 
   return (
-    <div data-slot="task-document" {...stylex.props(styles.taskScroller, !detail && styles.resultScroller)}>
+    <div data-slot="task-document" {...stylex.props(styles.taskScroller)}>
       {detail ? <TaskDocumentBar edit={edit} /> : null}
       <div {...stylex.props(styles.taskContent)}>
         {response && detail ? (
@@ -156,13 +156,12 @@ function TaskDocument({ citations = [], detail, edit, fileName, text }: { citati
 }
 
 function TaskDocumentBar({ edit }: { edit?: TaskInlineEditController }) {
+  if (!edit?.canEdit) return null;
+
   return (
     <div {...stylex.props(styles.documentBar)}>
-      <strong {...stylex.props(styles.documentLabel)}>Description</strong>
       <span {...stylex.props(styles.editControls)}>
-        {edit?.canEdit ? (
-          <IconButton type="button" size="sm" variant="ghost" label="Edit description" tooltip="Edit description" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("DOCUMENT")} />
-        ) : null}
+        <IconButton type="button" size="sm" variant="ghost" label="Edit description" tooltip="Edit description" icon={<Pencil aria-hidden="true" size={14} />} isDisabled={edit.busy || !edit.canStart} onClick={() => void edit.start("DOCUMENT")} />
       </span>
     </div>
   );
@@ -223,14 +222,13 @@ const styles = stylex.create({
     height: "100%",
     overflowX: "hidden",
     overflowY: "auto",
+    paddingBlockStart: "var(--spacing-4)",
     paddingBlockEnd: "var(--spacing-6)"
   },
-  resultScroller: { paddingBlockStart: "var(--spacing-4)" },
-  documentBar: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 64px", alignItems: "center", width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, minHeight: 36, marginInline: "auto", marginBlockEnd: "var(--spacing-2)" },
-  documentLabel: { color: "var(--noema-text-muted)", fontSize: 12, fontWeight: 650 },
+  documentBar: { display: "flex", justifyContent: "flex-end", alignItems: "center", width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, minHeight: 36, marginInline: "auto", marginBlockEnd: "var(--spacing-2)" },
   editControls: { display: "inline-flex", width: "100%", minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
   editorContent: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", borderRadius: "var(--radius-element)" },
-  taskDescription: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", paddingInline: "var(--spacing-2)" },
+  taskDescription: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto" },
   taskContent: {
     display: "grid",
     gap: "var(--spacing-4)",
