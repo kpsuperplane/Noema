@@ -157,6 +157,7 @@ contract; do not add hand-maintained mirrors for generated query shapes.
 
 Task detail shows `Workspace` and `Transcript`.
 Workspace lists the current Task directory with Astryx TreeList and previews the selected UTF-8 file.
+Below 650 pixels, Workspace replaces the file tree with an Astryx Selector above the document.
 A completed Task opens `RESULT.md`; another Task opens `TASK.md`.
 Completion selects `RESULT.md` once when `TASK.md` was open.
 Result previews preserve provider citations.
