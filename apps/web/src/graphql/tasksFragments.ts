@@ -71,11 +71,13 @@ export const TasksTaskReferenceSummaryFields = gql`
     taskId
     title
     stage {
+      stageId
       name
       behavior
     }
     completedAt
     currentRun {
+      runId
       kind
       activityLabel
     }
