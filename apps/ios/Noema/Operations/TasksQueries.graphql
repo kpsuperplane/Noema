@@ -114,6 +114,13 @@ query TasksDetailOutcome($taskId: String!) {
   task(taskId: $taskId) { ...TasksDetailOutcomeFields }
 }
 
+query TasksTaskWorkspaceFile($taskId: String!, $path: String!) {
+  taskWorkspaceFile(taskId: $taskId, path: $path) {
+    path
+    content
+  }
+}
+
 query TasksRunItems($runId: String!, $first: Int = 50, $after: String) {
   taskRunItems(runId: $runId, first: $first, after: $after) {
     edges {

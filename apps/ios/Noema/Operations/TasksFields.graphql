@@ -227,6 +227,11 @@ fragment TasksDetailOutcomeFields on TaskDetail {
   resultDocument
   resultMetadata
   reviewDocument
+  workspaceFiles {
+    path
+    isDirectory
+  }
+  workspaceFilesTruncated
 }
 
 fragment TasksEventFields on TasksEvent {

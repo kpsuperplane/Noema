@@ -6,7 +6,7 @@
 
 nonisolated public struct TasksDetailOutcomeFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksDetailOutcomeFields on TaskDetail { __typename taskId taskDocument taskDocumentDigest resultDocument resultMetadata reviewDocument }"#
+    #"fragment TasksDetailOutcomeFields on TaskDetail { __typename taskId taskDocument taskDocumentDigest resultDocument resultMetadata reviewDocument workspaceFiles { __typename path isDirectory } workspaceFilesTruncated }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -21,6 +21,8 @@ nonisolated public struct TasksDetailOutcomeFields: NoemaAPI.SelectionSet, Fragm
     .field("resultDocument", String?.self),
     .field("resultMetadata", NoemaAPI.JSON.self),
     .field("reviewDocument", String?.self),
+    .field("workspaceFiles", [WorkspaceFile].self),
+    .field("workspaceFilesTruncated", Bool.self),
   ] }
   @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
     TasksDetailOutcomeFields.self
@@ -38,4 +40,31 @@ nonisolated public struct TasksDetailOutcomeFields: NoemaAPI.SelectionSet, Fragm
   public var resultMetadata: NoemaAPI.JSON { __data["resultMetadata"] }
   /// Current mutable REVIEW.md content, when it exists.
   public var reviewDocument: String? { __data["reviewDocument"] }
+  /// Bounded recursive manifest of the current Task working directory.
+  public var workspaceFiles: [WorkspaceFile] { __data["workspaceFiles"] }
+  /// Whether the workspace manifest exceeded its safe entry limit.
+  public var workspaceFilesTruncated: Bool { __data["workspaceFilesTruncated"] }
+
+  /// WorkspaceFile
+  ///
+  /// Parent Type: `TaskWorkspaceFile`
+  nonisolated public struct WorkspaceFile: NoemaAPI.SelectionSet {
+    @_spi(Unsafe) public let __data: DataDict
+    @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+    @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TaskWorkspaceFile }
+    @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+      .field("__typename", String.self),
+      .field("path", String.self),
+      .field("isDirectory", Bool.self),
+    ] }
+    @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+      TasksDetailOutcomeFields.WorkspaceFile.self
+    ] }
+
+    /// Path relative to the Task working directory.
+    public var path: String { __data["path"] }
+    /// Whether the entry is a directory.
+    public var isDirectory: Bool { __data["isDirectory"] }
+  }
 }

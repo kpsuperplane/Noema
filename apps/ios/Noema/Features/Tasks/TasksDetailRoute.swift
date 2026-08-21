@@ -67,8 +67,7 @@ private struct TasksDetailContent: View {
   @State private var scheduleAction: TasksScheduleAction?
   @State private var cancelPresented = false
   @State private var gateResponse = ""
-  @State private var selectedTab: TaskDetailTab
-  @State private var prefersInitialResult: Bool
+  @State private var selectedTab: TaskDetailTab = .workspace
   @State private var followsTranscriptBottom = true
   @State private var initialScrollTaskID: String?
   @State private var completedInitialHydration = false
@@ -84,9 +83,6 @@ private struct TasksDetailContent: View {
     self.detail = detail
     self.compactPresentation = compactPresentation
     self.onOpenRecurrence = onOpenRecurrence
-    let hasResult = detail.resultDocument?.nilIfBlank != nil
-    _selectedTab = State(initialValue: hasResult ? .result : .task)
-    _prefersInitialResult = State(initialValue: !hasResult)
   }
 
   var body: some View {
@@ -143,17 +139,7 @@ private struct TasksDetailContent: View {
     }
     .onChange(of: detail.id) { _, _ in
       gateResponse = ""
-      let hasResult = detail.resultDocument?.nilIfBlank != nil
-      selectedTab = hasResult ? .result : .task
-      prefersInitialResult = !hasResult
-    }
-    .onChange(of: detail.resultDocument?.nilIfBlank != nil) { _, hasResult in
-      if hasResult, prefersInitialResult {
-        selectedTab = .result
-        prefersInitialResult = false
-      } else if !hasResult, selectedTab == .result {
-        selectedTab = .task
-      }
+      selectedTab = .workspace
     }
   }
 
@@ -174,9 +160,7 @@ private struct TasksDetailContent: View {
     VStack(spacing: 0) {
       TasksDetailTabBar(selection: tabSelection, tabs: availableTabs)
       TasksDetailPager(selection: tabSelection, tabs: availableTabs) {
-        resultView
-      } task: {
-        taskView
+        workspaceView
       } transcript: {
         transcriptScroller
       }
@@ -185,16 +169,8 @@ private struct TasksDetailContent: View {
 
   private var compactTabView: some View {
     TabView(selection: tabSelection) {
-      if availableTabs.contains(.result) {
-        Tab("Result", systemImage: "doc.text", value: TaskDetailTab.result) {
-          resultView
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-              compactSecondaryAccessory
-            }
-        }
-      }
-      Tab("Task", systemImage: "checklist", value: TaskDetailTab.task) {
-        taskView
+      Tab("Workspace", systemImage: "folder", value: TaskDetailTab.workspace) {
+        workspaceView
           .safeAreaInset(edge: .bottom, spacing: 0) {
             compactSecondaryAccessory
           }
@@ -212,26 +188,8 @@ private struct TasksDetailContent: View {
     }
   }
 
-  private var resultView: some View {
-    ScrollView {
-      TasksDocumentView(
-        citations: detail.resultCitations,
-        profile: model.profile,
-        document: detail.resultDocument ?? "",
-        fileName: "RESULT.md"
-      )
-    }
-    .scrollDismissesKeyboard(.interactively)
-  }
-
-  private var taskView: some View {
-    ScrollView {
-      VStack(spacing: 0) {
-        TasksDocumentView(profile: model.profile, document: detail.taskDocument, fileName: "TASK.md")
-        TasksTaskMetadataView(detail: detail)
-      }
-    }
-    .scrollDismissesKeyboard(.interactively)
+  private var workspaceView: some View {
+    TasksWorkspaceView(model: model, detail: detail)
   }
 
   private var taskContextAccessory: some View {
@@ -289,18 +247,13 @@ private struct TasksDetailContent: View {
   }
 
   private var availableTabs: [TaskDetailTab] {
-    detail.resultDocument?.nilIfBlank == nil
-      ? [.task, .transcript]
-      : [.result, .task, .transcript]
+    [.workspace, .transcript]
   }
 
   private var tabSelection: Binding<TaskDetailTab> {
     Binding(
       get: { selectedTab },
-      set: { tab in
-        selectedTab = tab
-        prefersInitialResult = false
-      }
+      set: { selectedTab = $0 }
     )
   }
 

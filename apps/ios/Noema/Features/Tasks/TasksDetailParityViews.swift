@@ -2,8 +2,7 @@ import Foundation
 import SwiftUI
 
 enum TaskDetailTab: String, Hashable, Identifiable {
-  case result
-  case task
+  case workspace
   case transcript
 
   var id: String { rawValue }

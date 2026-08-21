@@ -147,6 +147,8 @@ nonisolated public enum SchemaMetadata: ApolloAPI.SchemaMetadata {
     "TaskSource": NoemaAPI.Objects.TaskSource,
     "TaskStageColumn": NoemaAPI.Objects.TaskStageColumn,
     "TaskSummary": NoemaAPI.Objects.TaskSummary,
+    "TaskWorkspaceFile": NoemaAPI.Objects.TaskWorkspaceFile,
+    "TaskWorkspaceFileText": NoemaAPI.Objects.TaskWorkspaceFileText,
     "TasksEvent": NoemaAPI.Objects.TasksEvent,
     "TasksOverview": NoemaAPI.Objects.TasksOverview,
     "ToolBehavior": NoemaAPI.Objects.ToolBehavior,

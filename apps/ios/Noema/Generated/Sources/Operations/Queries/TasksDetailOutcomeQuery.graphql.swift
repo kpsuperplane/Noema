@@ -64,6 +64,10 @@ nonisolated public struct TasksDetailOutcomeQuery: GraphQLQuery {
       public var resultMetadata: NoemaAPI.JSON { __data["resultMetadata"] }
       /// Current mutable REVIEW.md content, when it exists.
       public var reviewDocument: String? { __data["reviewDocument"] }
+      /// Bounded recursive manifest of the current Task working directory.
+      public var workspaceFiles: [WorkspaceFile] { __data["workspaceFiles"] }
+      /// Whether the workspace manifest exceeded its safe entry limit.
+      public var workspaceFilesTruncated: Bool { __data["workspaceFilesTruncated"] }
 
       public struct Fragments: FragmentContainer {
         @_spi(Unsafe) public let __data: DataDict
@@ -71,6 +75,8 @@ nonisolated public struct TasksDetailOutcomeQuery: GraphQLQuery {
 
         public var tasksDetailOutcomeFields: TasksDetailOutcomeFields { _toFragment() }
       }
+
+      public typealias WorkspaceFile = TasksDetailOutcomeFields.WorkspaceFile
     }
   }
 }

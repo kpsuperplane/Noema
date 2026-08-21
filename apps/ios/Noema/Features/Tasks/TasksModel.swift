@@ -278,6 +278,17 @@ final class TasksModel {
     runtimeSubscription = nil
   }
 
+  func workspaceFileText(taskId: String, path: String) async throws -> String {
+    let response = try await client.fetchNetworkFirst(
+      query: TasksTaskWorkspaceFileQuery(taskId: taskId, path: path)
+    )
+    if let message = response.errors?.first?.message { throw TasksGraphQLError.server(message) }
+    guard let file = response.data?.taskWorkspaceFile, file.path == path else {
+      throw ApolloClient.Error.noResults
+    }
+    return file.content
+  }
+
   func loadRunItems(runId: String, after: String? = nil) async {
     let expectedTaskID = detailTaskID
     do {
@@ -1270,6 +1281,10 @@ final class TasksModel {
     next.resultDocument = source.resultDocument
     next.resultCitations = ProviderCitation.from(metadata: source.resultMetadata.encodedString)
     next.reviewDocument = source.reviewDocument
+    next.workspaceFiles = source.workspaceFiles.map {
+      TasksWorkspaceFileSnapshot(path: $0.path, isDirectory: $0.isDirectory)
+    }
+    next.workspaceFilesTruncated = source.workspaceFilesTruncated
     return next
   }
 
@@ -1290,6 +1305,8 @@ final class TasksModel {
       resultDocument: nil,
       resultCitations: [],
       reviewDocument: nil,
+      workspaceFiles: [],
+      workspaceFilesTruncated: false,
       currentRun: nil,
       activeGate: nil,
       messages: [],
@@ -1300,7 +1317,7 @@ final class TasksModel {
   }
 
   private func mergeCommand(_ source: TasksCommandTaskFields, into previous: TasksDetailSnapshot?) -> TasksDetailSnapshot {
-    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, project: nil, executor: TasksExecutorSnapshot.default, schedule: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, createdAt: "", sourceLabel: nil, taskDocument: source.taskDocument, taskDocumentDigest: source.taskDocumentDigest, resultDocument: nil, resultCitations: [], reviewDocument: nil, currentRun: nil, activeGate: nil, messages: [], runs: [], contributorInstanceNames: [], validActions: [])
+    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, project: nil, executor: TasksExecutorSnapshot.default, schedule: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, createdAt: "", sourceLabel: nil, taskDocument: source.taskDocument, taskDocumentDigest: source.taskDocumentDigest, resultDocument: nil, resultCitations: [], reviewDocument: nil, workspaceFiles: [], workspaceFilesTruncated: false, currentRun: nil, activeGate: nil, messages: [], runs: [], contributorInstanceNames: [], validActions: [])
     next.title = source.title
     next.taskDocument = source.taskDocument
     next.taskDocumentDigest = source.taskDocumentDigest

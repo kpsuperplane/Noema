@@ -1,24 +1,21 @@
 import SwiftUI
 import UIKit
 
-struct TasksDetailPager<ResultContent: View, TaskContent: View, TranscriptContent: View>: UIViewControllerRepresentable {
+struct TasksDetailPager<WorkspaceContent: View, TranscriptContent: View>: UIViewControllerRepresentable {
   @Binding var selection: TaskDetailTab
   let tabs: [TaskDetailTab]
-  let resultContent: ResultContent
-  let taskContent: TaskContent
+  let workspaceContent: WorkspaceContent
   let transcriptContent: TranscriptContent
 
   init(
     selection: Binding<TaskDetailTab>,
     tabs: [TaskDetailTab],
-    @ViewBuilder result: () -> ResultContent,
-    @ViewBuilder task: () -> TaskContent,
+    @ViewBuilder workspace: () -> WorkspaceContent,
     @ViewBuilder transcript: () -> TranscriptContent
   ) {
     _selection = selection
     self.tabs = tabs
-    resultContent = result()
-    taskContent = task()
+    workspaceContent = workspace()
     transcriptContent = transcript()
   }
 
@@ -41,19 +38,16 @@ struct TasksDetailPager<ResultContent: View, TaskContent: View, TranscriptConten
 
   final class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
     private var parent: TasksDetailPager
-    private let resultController: UIHostingController<ResultContent>
-    private let taskController: UIHostingController<TaskContent>
+    private let workspaceController: UIHostingController<WorkspaceContent>
     private let transcriptController: UIHostingController<TranscriptContent>
     private var isTransitioning = false
 
     init(parent: TasksDetailPager) {
       self.parent = parent
-      resultController = UIHostingController(rootView: parent.resultContent)
-      taskController = UIHostingController(rootView: parent.taskContent)
+      workspaceController = UIHostingController(rootView: parent.workspaceContent)
       transcriptController = UIHostingController(rootView: parent.transcriptContent)
       super.init()
-      resultController.view.backgroundColor = .clear
-      taskController.view.backgroundColor = .clear
+      workspaceController.view.backgroundColor = .clear
       transcriptController.view.backgroundColor = .clear
     }
 
@@ -117,16 +111,14 @@ struct TasksDetailPager<ResultContent: View, TaskContent: View, TranscriptConten
 
     private func controller(for tab: TaskDetailTab) -> UIViewController {
       switch tab {
-      case .result: resultController
-      case .task: taskController
+      case .workspace: workspaceController
       case .transcript: transcriptController
       }
     }
 
     private func currentTab(in pageController: UIPageViewController) -> TaskDetailTab? {
       guard let current = pageController.viewControllers?.first else { return nil }
-      if current === resultController { return .result }
-      if current === taskController { return .task }
+      if current === workspaceController { return .workspace }
       return .transcript
     }
 
@@ -145,15 +137,13 @@ struct TasksDetailPager<ResultContent: View, TaskContent: View, TranscriptConten
     }
 
     private func tab(for viewController: UIViewController) -> TaskDetailTab? {
-      if viewController === resultController { return .result }
-      if viewController === taskController { return .task }
+      if viewController === workspaceController { return .workspace }
       if viewController === transcriptController { return .transcript }
       return nil
     }
 
     private func updateHostedContent() {
-      resultController.rootView = parent.resultContent
-      taskController.rootView = parent.taskContent
+      workspaceController.rootView = parent.workspaceContent
       transcriptController.rootView = parent.transcriptContent
     }
   }

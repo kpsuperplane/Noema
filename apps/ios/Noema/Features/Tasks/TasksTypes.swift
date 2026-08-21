@@ -199,6 +199,13 @@ struct TasksMessageSnapshot: Identifiable, Hashable, Sendable {
   let createdAt: String
 }
 
+struct TasksWorkspaceFileSnapshot: Identifiable, Hashable, Sendable {
+  let path: String
+  let isDirectory: Bool
+
+  var id: String { path }
+}
+
 struct TasksDetailSnapshot: Identifiable, Hashable, Sendable {
   let id: String
   var title: String
@@ -217,6 +224,8 @@ struct TasksDetailSnapshot: Identifiable, Hashable, Sendable {
   var resultDocument: String?
   var resultCitations: [ProviderCitation]
   var reviewDocument: String?
+  var workspaceFiles: [TasksWorkspaceFileSnapshot]
+  var workspaceFilesTruncated: Bool
   var currentRun: TasksRunSnapshot?
   var activeGate: TasksGateSnapshot?
   var messages: [TasksMessageSnapshot]
@@ -243,6 +252,8 @@ extension TasksTaskRow {
       resultDocument: nil,
       resultCitations: [],
       reviewDocument: nil,
+      workspaceFiles: [],
+      workspaceFilesTruncated: false,
       currentRun: currentRun,
       activeGate: gate,
       messages: [],
