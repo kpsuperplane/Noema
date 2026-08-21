@@ -111,8 +111,8 @@ pub enum AdapterManagementError {
 /// Filesystem-canonical definitions and connections for management reads.
 #[derive(Debug)]
 pub struct AdapterManagementSnapshot {
-    /// Definition scan and its quarantine diagnostics.
-    pub definitions: crate::DefinitionScan,
+    /// Immutable compiled definition registry and its diagnostics.
+    pub definitions: Arc<crate::DefinitionScan>,
     /// Pending definitions hidden by a later proposal or approval.
     pub superseded_pending_digests: BTreeSet<String>,
     /// Earlier definition revisions replaced by reviewed definitions.
@@ -506,20 +506,10 @@ impl AdapterCapabilityService {
     /// Returns a safe category when canonical filesystem state is unavailable.
     pub fn management_snapshot(&self) -> Result<AdapterManagementSnapshot, AdapterManagementError> {
         let definitions = self
-            .inner
-            .definitions
-            .scan()
+            .definition_registry()
             .map_err(|_| AdapterManagementError::Unavailable)?;
-        let superseded_pending_digests = self
-            .inner
-            .definitions
-            .superseded_pending_digests(&definitions)
-            .map_err(|_| AdapterManagementError::Unavailable)?;
-        let replaced_definition_digests = self
-            .inner
-            .definitions
-            .replaced_by_reviewed_digests(&definitions)
-            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let superseded_pending_digests = definitions.superseded_pending_digests.clone();
+        let replaced_definition_digests = definitions.replaced_definition_digests.clone();
         let connections = self
             .inner
             .connections
@@ -537,15 +527,6 @@ impl AdapterCapabilityService {
             connections,
             oauth_authorities,
         })
-    }
-
-    /// Load one canonical immutable definition revision.
-    #[must_use]
-    pub fn stored_definition(
-        &self,
-        semantic_digest: &str,
-    ) -> Option<crate::StoredAdapterDefinition> {
-        self.inner.definitions.load(semantic_digest).ok()
     }
 
     pub(crate) fn plan_definition_transition(
@@ -627,13 +608,10 @@ impl AdapterCapabilityService {
     }
 
     fn definition_is_current_reviewed(&self, semantic_digest: &str) -> bool {
-        let Ok(scan) = self.inner.definitions.scan() else {
+        let Ok(scan) = self.definition_registry() else {
             return false;
         };
-        let Ok(replaced) = self.inner.definitions.replaced_by_reviewed_digests(&scan) else {
-            return false;
-        };
-        !replaced.contains(semantic_digest)
+        !scan.replaced_definition_digests.contains(semantic_digest)
             && scan.definitions.iter().any(|definition| {
                 definition.compiled.semantic_digest.as_str() == semantic_digest
                     && definition.compiled.reviewed
@@ -664,17 +642,13 @@ impl AdapterCapabilityService {
             .definition_lock
             .lock()
             .map_err(|_| AdapterManagementError::Unavailable)?;
-        let scan = self
-            .inner
-            .definitions
-            .scan()
+        let definitions = self
+            .definition_registry()
             .map_err(|_| AdapterManagementError::Unavailable)?;
-        let superseded = self
-            .inner
-            .definitions
-            .superseded_pending_digests(&scan)
-            .map_err(|_| AdapterManagementError::Unavailable)?;
-        if superseded.contains(semantic_digest) {
+        if definitions
+            .superseded_pending_digests
+            .contains(semantic_digest)
+        {
             return Err(AdapterManagementError::Conflict);
         }
         let stored = self
@@ -1029,20 +1003,16 @@ impl AdapterCapabilityService {
             .definition_lock
             .lock()
             .map_err(|_| AdapterManagementError::Unavailable)?;
-        let scan = self
-            .inner
-            .definitions
-            .scan()
+        let definitions = self
+            .definition_registry()
             .map_err(|_| AdapterManagementError::Unavailable)?;
-        let superseded = self
-            .inner
-            .definitions
-            .superseded_pending_digests(&scan)
-            .map_err(|_| AdapterManagementError::Unavailable)?;
-        if superseded.contains(semantic_digest) {
+        if definitions
+            .superseded_pending_digests
+            .contains(semantic_digest)
+        {
             return Err(AdapterManagementError::Conflict);
         }
-        let Some(target) = scan
+        let Some(target) = definitions
             .definitions
             .iter()
             .find(|definition| definition.compiled.semantic_digest.as_str() == semantic_digest)
@@ -1053,7 +1023,7 @@ impl AdapterCapabilityService {
             return Err(AdapterManagementError::Conflict);
         }
         let definition_id = &target.compiled.definition_id;
-        let mut pending = scan
+        let mut pending = definitions
             .definitions
             .iter()
             .filter(|definition| {

@@ -364,29 +364,21 @@ impl AdapterCapabilityService {
         } else if !input.operation_ids.is_empty() {
             return Err(CapabilityError::InvalidArguments);
         }
-        let scan = self
-            .inner
-            .definitions
-            .scan()
+        let registry = self
+            .definition_registry()
             .map_err(|_| CapabilityError::Unavailable)?;
-        let superseded = self
-            .inner
-            .definitions
-            .superseded_pending_digests(&scan)
-            .map_err(|_| CapabilityError::Unavailable)?;
-        let replaced_by_reviewed = self
-            .inner
-            .definitions
-            .replaced_by_reviewed_digests(&scan)
-            .map_err(|_| CapabilityError::Unavailable)?;
-        let mut definitions = scan
+        let mut definitions = registry
             .definitions
             .iter()
             .filter(|definition| {
                 if definition.compiled.reviewed {
-                    !replaced_by_reviewed.contains(definition.compiled.semantic_digest.as_str())
+                    !registry
+                        .replaced_definition_digests
+                        .contains(definition.compiled.semantic_digest.as_str())
                 } else {
-                    !superseded.contains(definition.compiled.semantic_digest.as_str())
+                    !registry
+                        .superseded_pending_digests
+                        .contains(definition.compiled.semantic_digest.as_str())
                 }
             })
             .map(|definition| {
@@ -490,17 +482,10 @@ impl AdapterCapabilityService {
             .definition_lock
             .lock()
             .map_err(|_| CapabilityError::Unavailable)?;
-        let scan = self
-            .inner
-            .definitions
-            .scan()
+        let registry = self
+            .definition_registry()
             .map_err(|_| CapabilityError::Unavailable)?;
-        let superseded = self
-            .inner
-            .definitions
-            .superseded_pending_digests(&scan)
-            .map_err(|_| CapabilityError::Unavailable)?;
-        let family = scan
+        let family = registry
             .definitions
             .iter()
             .filter(|definition| definition.compiled.definition_id == manifest.definition_id)
@@ -530,7 +515,9 @@ impl AdapterCapabilityService {
                 .iter()
                 .filter(|definition| {
                     !definition.compiled.reviewed
-                        && !superseded.contains(definition.compiled.semantic_digest.as_str())
+                        && !registry
+                            .superseded_pending_digests
+                            .contains(definition.compiled.semantic_digest.as_str())
                 })
                 .map(|definition| definition.compiled.semantic_digest.to_string())
                 .collect::<BTreeSet<_>>();
@@ -538,16 +525,12 @@ impl AdapterCapabilityService {
                 return Ok(Self::proposal_rejection("replacement_target_stale"));
             }
             if active_pending.is_empty() {
-                let replaced_by_reviewed = self
-                    .inner
-                    .definitions
-                    .replaced_by_reviewed_digests(&scan)
-                    .map_err(|_| CapabilityError::Unavailable)?;
                 let current_reviewed = family
                     .iter()
                     .filter(|definition| {
                         definition.compiled.reviewed
-                            && !replaced_by_reviewed
+                            && !registry
+                                .replaced_definition_digests
                                 .contains(definition.compiled.semantic_digest.as_str())
                     })
                     .max_by(|left, right| {
@@ -581,7 +564,7 @@ impl AdapterCapabilityService {
             replaces.extend(active_pending);
             replaces.insert(target_digest.to_string());
         }
-        if scan
+        if registry
             .definitions
             .iter()
             .any(|definition| definition.compiled.semantic_digest == proposed.semantic_digest)
@@ -1314,11 +1297,8 @@ mod tests {
         let scan = AdapterDefinitionStore::new(paths.clone())
             .scan()
             .expect("scan");
-        let superseded = AdapterDefinitionStore::new(paths.clone())
-            .superseded_pending_digests(&scan)
-            .expect("superseded drafts");
-        assert!(superseded.contains(&first_digest));
-        assert!(!superseded.contains(&second_digest));
+        assert!(scan.superseded_pending_digests.contains(&first_digest));
+        assert!(!scan.superseded_pending_digests.contains(&second_digest));
         assert!(matches!(
             service.review_definition(&first_digest),
             Err(crate::AdapterManagementError::Conflict)

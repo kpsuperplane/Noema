@@ -72,6 +72,15 @@ struct GrantFixture {
     semantic_digest: String,
 }
 
+#[test]
+fn management_snapshot_reuses_the_immutable_definition_registry() {
+    let fixture = grant_fixture(Err(AdapterOAuthTokenError::Unavailable));
+    let registry = fixture.service.definition_registry().expect("registry");
+    let snapshot = fixture.service.management_snapshot().expect("management");
+
+    assert!(Arc::ptr_eq(&registry, &snapshot.definitions));
+}
+
 #[tokio::test]
 async fn reviewed_enablement_restores_one_disabled_adapter_tool() {
     let fixture = grant_fixture(Err(AdapterOAuthTokenError::Unavailable));
@@ -303,6 +312,10 @@ async fn one_oauth_attempt_unions_scopes_for_selected_services() {
         "additional_service",
         "scope.write",
     );
+    fixture
+        .service
+        .refresh_definition_registry()
+        .expect("definition registry");
     let started = fixture
         .service
         .start_oauth_authorization(

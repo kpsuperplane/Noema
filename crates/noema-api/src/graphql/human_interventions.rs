@@ -585,7 +585,7 @@ fn adapter_service_names(
     let definitions = snapshot
         .definitions
         .definitions
-        .into_iter()
+        .iter()
         .map(|definition| {
             let name = definition
                 .compiled

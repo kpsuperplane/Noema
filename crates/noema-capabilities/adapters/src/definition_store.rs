@@ -59,6 +59,10 @@ pub struct AdapterDefinitionStore {
 pub struct DefinitionInstall {
     /// Compiled immutable operation plans.
     pub compiled: CompiledAdapterDefinition,
+    /// Parsed manifest retained by the immutable process registry.
+    pub manifest: AdapterManifest,
+    /// Parsed provenance retained by the immutable process registry.
+    pub provenance: DefinitionProvenance,
     /// Rebuildable SQLite projection row.
     pub projection: DefinitionProjection,
 }
@@ -108,6 +112,10 @@ pub struct DefinitionScan {
     pub definitions: Vec<DefinitionInstall>,
     /// Safe diagnostics for blocked content-addressed objects.
     pub diagnostics: Vec<DefinitionScanDiagnostic>,
+    /// Pending definitions hidden by a later proposal or approval.
+    pub superseded_pending_digests: BTreeSet<String>,
+    /// Earlier definition revisions replaced by a later revision.
+    pub replaced_definition_digests: BTreeSet<String>,
 }
 
 impl DefinitionScan {
@@ -338,40 +346,31 @@ impl AdapterDefinitionStore {
                 }
             }
         }
-        Ok(DefinitionScan {
-            definitions,
-            diagnostics,
-        })
-    }
-
-    /// Return pending revisions made non-actionable by a later proposal or approval.
-    ///
-    /// # Errors
-    ///
-    /// Returns a store error when any canonical definition or its lineage cannot be read.
-    pub fn superseded_pending_digests(
-        &self,
-        scan: &DefinitionScan,
-    ) -> Result<BTreeSet<String>, DefinitionStoreError> {
-        let pending = scan
-            .definitions
+        let pending = definitions
             .iter()
             .filter(|definition| !definition.compiled.reviewed)
             .map(|definition| definition.compiled.semantic_digest.to_string())
             .collect::<BTreeSet<_>>();
         let mut superseded = BTreeSet::new();
-        for definition in &scan.definitions {
-            let stored = self.load(definition.compiled.semantic_digest.as_str())?;
+        let mut replaced = BTreeSet::new();
+        for definition in &definitions {
             superseded.extend(
-                stored
+                definition
                     .provenance
                     .replaces_semantic_digests
                     .iter()
                     .filter(|&digest| pending.contains(digest))
                     .cloned(),
             );
+            replaced.extend(
+                definition
+                    .provenance
+                    .replaces_semantic_digests
+                    .iter()
+                    .cloned(),
+            );
             if definition.compiled.reviewed {
-                let mut draft = stored.manifest;
+                let mut draft = definition.manifest.clone();
                 draft.reviewed = false;
                 let digest = AdapterCompiler::compile(&draft)?
                     .semantic_digest
@@ -381,25 +380,12 @@ impl AdapterDefinitionStore {
                 }
             }
         }
-        Ok(superseded)
-    }
-
-    /// Return exact earlier revisions replaced by reviewed definitions.
-    ///
-    /// # Errors
-    ///
-    /// Returns a store error when canonical reviewed provenance cannot be read.
-    pub fn replaced_by_reviewed_digests(
-        &self,
-        scan: &DefinitionScan,
-    ) -> Result<BTreeSet<String>, DefinitionStoreError> {
-        let mut replaced = BTreeSet::new();
-        for definition in &scan.definitions {
-            let digest = definition.compiled.semantic_digest.as_str();
-            let stored = self.load(digest)?;
-            replaced.extend(stored.provenance.replaces_semantic_digests);
-        }
-        Ok(replaced)
+        Ok(DefinitionScan {
+            definitions,
+            diagnostics,
+            superseded_pending_digests: superseded,
+            replaced_definition_digests: replaced,
+        })
     }
 
     /// Find retired pre-v7 definition objects without admitting them to discovery.
@@ -554,6 +540,8 @@ impl AdapterDefinitionStore {
         Ok(DefinitionInstall {
             projection: compiled_projection(&self.paths, &compiled, &stored.provenance),
             compiled,
+            manifest: stored.manifest,
+            provenance: stored.provenance,
         })
     }
 

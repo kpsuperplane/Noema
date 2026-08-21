@@ -1,18 +1,23 @@
 //! Thin GraphQL review surface for filesystem-canonical adapter definitions.
 
-use async_graphql::{InputObject, SimpleObject};
+use async_graphql::{
+    Context, Data, InputObject, Response, SimpleObject,
+    extensions::{Extension, ExtensionContext, ExtensionFactory, NextExecute},
+};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use noema_capability_adapters::{
-    AdapterConnectionAuthenticationV1, AdapterOAuthAttemptEvent, AdapterOAuthAttemptStatus,
+    AdapterCapabilityService, AdapterConnectionAuthenticationV1, AdapterManagementError,
+    AdapterManagementSnapshot, AdapterOAuthAttemptEvent, AdapterOAuthAttemptStatus,
     AdapterOAuthAuthorizationRequest, AdapterOAuthServiceSelection, AdapterOAuthSetupError,
     AdapterOperation, AuthenticationMode, AuthenticationSchemeV4, AuthorizationGrantStatus,
-    CredentialInput, CredentialSetup, LuauTransform, Oauth2CallbackMode, OauthApplicationStatus,
-    ResponseTransform, StoredAdapterDefinition,
+    CredentialInput, CredentialSetup, DefinitionInstall, LuauTransform, Oauth2CallbackMode,
+    OauthApplicationStatus, ResponseTransform,
 };
 #[cfg(test)]
 use noema_capability_adapters::{AdapterConnectionStore, AdapterDefinitionStore};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
+use std::sync::{Arc, OnceLock};
 
 use super::GraphqlState;
 
@@ -20,6 +25,58 @@ const MAX_CREDENTIAL_DOCUMENT_BYTES: usize = 128 * 1024;
 const MAX_CREDENTIAL_DOCUMENT_BASE64_BYTES: usize = 176 * 1024;
 const MAX_CREDENTIAL_FIELDS: usize = 16;
 const MAX_CREDENTIAL_VALUE_BYTES: usize = 16 * 1024;
+
+#[derive(Default)]
+struct AdapterManagementRequestCache {
+    snapshot: OnceLock<Result<Arc<AdapterManagementSnapshot>, AdapterManagementError>>,
+}
+
+impl AdapterManagementRequestCache {
+    fn snapshot(
+        &self,
+        service: &AdapterCapabilityService,
+    ) -> Result<Arc<AdapterManagementSnapshot>, AdapterManagementError> {
+        self.snapshot
+            .get_or_init(|| service.management_snapshot().map(Arc::new))
+            .clone()
+    }
+}
+
+pub(super) struct AdapterManagementRequestCacheExtension;
+
+impl ExtensionFactory for AdapterManagementRequestCacheExtension {
+    fn create(&self) -> Arc<dyn Extension> {
+        Arc::new(AdapterManagementRequestCacheExtensionInstance)
+    }
+}
+
+struct AdapterManagementRequestCacheExtensionInstance;
+
+#[async_graphql::async_trait::async_trait]
+impl Extension for AdapterManagementRequestCacheExtensionInstance {
+    async fn execute(
+        &self,
+        ctx: &ExtensionContext<'_>,
+        operation_name: Option<&str>,
+        next: NextExecute<'_>,
+    ) -> Response {
+        let mut data = Data::default();
+        data.insert(AdapterManagementRequestCache::default());
+        next.run_with_data(ctx, operation_name, data).await
+    }
+}
+
+pub(super) fn management_snapshot_for_query(
+    ctx: &Context<'_>,
+    state: &GraphqlState,
+) -> Result<Arc<AdapterManagementSnapshot>, AdapterManagementError> {
+    ctx.data_unchecked::<AdapterManagementRequestCache>()
+        .snapshot(
+            state
+                .adapter_operations()
+                .map_err(|_| AdapterManagementError::Unavailable)?,
+        )
+}
 
 /// One exact adapter operation proposed for human review.
 #[derive(Debug, Clone, SimpleObject)]
@@ -434,6 +491,22 @@ pub(super) async fn adapter_definitions(
         .adapter_operations()?
         .management_snapshot()
         .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
+    adapter_definitions_from_snapshot(state, &snapshot)
+}
+
+pub(super) fn query_adapter_definitions(
+    ctx: &Context<'_>,
+    state: &GraphqlState,
+) -> async_graphql::Result<Vec<GraphqlAdapterDefinition>> {
+    let snapshot = management_snapshot_for_query(ctx, state)
+        .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
+    adapter_definitions_from_snapshot(state, &snapshot)
+}
+
+fn adapter_definitions_from_snapshot(
+    state: &GraphqlState,
+    snapshot: &AdapterManagementSnapshot,
+) -> async_graphql::Result<Vec<GraphqlAdapterDefinition>> {
     let grants = snapshot
         .oauth_authorities
         .grants
@@ -469,29 +542,29 @@ pub(super) async fn adapter_definitions(
         })
         .map(|definition| {
             let digest = definition.compiled.semantic_digest.as_str();
-            let stored = state
-                .adapter_operations()?
-                .stored_definition(digest)
-                .ok_or_else(|| async_graphql::Error::new("adapter definition is unavailable"))?;
             let connections: Vec<GraphqlAdapterConnection> = connections_by_digest
                 .get(digest)
                 .cloned()
                 .unwrap_or_default()
                 .iter()
-                .map(|connection| connection_view(connection, &grants, &stored.manifest))
+                .map(|connection| connection_view(connection, &grants, &definition.manifest))
                 .collect();
-            let profile = stored.manifest.authentication.oauth2().and_then(|oauth| {
-                snapshot
-                    .oauth_authorities
-                    .profiles
-                    .iter()
-                    .find(|profile| profile.profile_digest == oauth.profile_digest)
-            });
+            let profile = definition
+                .manifest
+                .authentication
+                .oauth2()
+                .and_then(|oauth| {
+                    snapshot
+                        .oauth_authorities
+                        .profiles
+                        .iter()
+                        .find(|profile| profile.profile_digest == oauth.profile_digest)
+                });
             let superseded = false;
             let next_action = definition_next_action(
                 digest,
                 &definition.compiled,
-                &stored.manifest,
+                &definition.manifest,
                 superseded,
                 &connections,
                 &snapshot.oauth_authorities,
@@ -499,23 +572,22 @@ pub(super) async fn adapter_definitions(
             let connection_actions = definition_connection_actions(
                 digest,
                 &definition.compiled,
-                &stored.manifest,
+                &definition.manifest,
                 superseded,
                 &connections,
                 &snapshot.oauth_authorities,
             );
-            let transition = stored.provenance.transition.clone().unwrap_or_default();
-            Ok(definition_view(
-                digest,
-                &stored,
+            let transition = definition.provenance.transition.clone().unwrap_or_default();
+            definition_view(
+                definition,
                 superseded,
                 connections,
                 oauth_callback,
                 profile,
                 (next_action, connection_actions, transition_view(transition)),
-            ))
+            )
         })
-        .collect::<async_graphql::Result<Vec<_>>>()?;
+        .collect::<Vec<_>>();
     definitions.sort_by(|left, right| {
         left.reviewed
             .cmp(&right.reviewed)
@@ -532,11 +604,27 @@ pub(super) async fn adapter_oauth_state(
         .adapter_operations()?
         .management_snapshot()
         .map_err(|_| async_graphql::Error::new("adapter OAuth state is unavailable"))?;
+    Ok(adapter_oauth_state_from_snapshot(state, &snapshot))
+}
+
+pub(super) fn query_adapter_oauth_state(
+    ctx: &Context<'_>,
+    state: &GraphqlState,
+) -> async_graphql::Result<GraphqlAdapterOauthState> {
+    let snapshot = management_snapshot_for_query(ctx, state)
+        .map_err(|_| async_graphql::Error::new("adapter OAuth state is unavailable"))?;
+    Ok(adapter_oauth_state_from_snapshot(state, &snapshot))
+}
+
+fn adapter_oauth_state_from_snapshot(
+    state: &GraphqlState,
+    snapshot: &AdapterManagementSnapshot,
+) -> GraphqlAdapterOauthState {
     let callback = state
         .adapter_oauth_callback_url()
         .ok()
         .and_then(|url| adapter_callback_mode(url).ok().map(|mode| (url, mode)));
-    Ok(oauth_state_view(&snapshot, callback))
+    oauth_state_view(snapshot, callback)
 }
 
 pub(super) async fn import_adapter_oauth_application(
@@ -1079,8 +1167,7 @@ pub(super) async fn approve_adapter_definition(
 }
 
 fn definition_view(
-    semantic_digest: &str,
-    stored: &StoredAdapterDefinition,
+    definition: &DefinitionInstall,
     superseded: bool,
     connections: Vec<GraphqlAdapterConnection>,
     oauth_callback: Option<(&str, Oauth2CallbackMode)>,
@@ -1091,10 +1178,10 @@ fn definition_view(
         GraphqlAdapterDefinitionTransition,
     ),
 ) -> GraphqlAdapterDefinition {
-    let manifest = &stored.manifest;
+    let manifest = &definition.manifest;
     let (next_action, connection_actions, transition) = actions;
     GraphqlAdapterDefinition {
-        semantic_digest: semantic_digest.to_string(),
+        semantic_digest: definition.compiled.semantic_digest.to_string(),
         definition_id: manifest.definition_id.clone(),
         adapter_id: manifest.adapter_id.clone(),
         display_name: manifest
@@ -1102,7 +1189,7 @@ fn definition_view(
             .clone()
             .unwrap_or_else(|| humanize_adapter_id(&manifest.adapter_id)),
         definition_revision: manifest.definition_revision.clone(),
-        source_reference: stored.provenance.source_reference.clone(),
+        source_reference: definition.provenance.source_reference.clone(),
         origin: manifest.origin.clone(),
         authentication_mode: authentication_label(manifest.authentication.mode()).to_string(),
         oauth_profile_digest: manifest
@@ -2148,6 +2235,50 @@ mod tests {
         }
         })
         .collect()
+    }
+
+    #[tokio::test]
+    async fn request_cache_reuses_one_snapshot_and_the_next_request_sees_registry_refresh() {
+        let (_environment, state, pending_digest) = fixture().await;
+        let service = state.adapter_operations().expect("adapter service");
+        let cache = AdapterManagementRequestCache::default();
+        let first = cache.snapshot(service).expect("first snapshot");
+        let repeated = cache.snapshot(service).expect("repeated snapshot");
+        assert!(Arc::ptr_eq(&first, &repeated));
+        assert!(first.connections.connections.is_empty());
+
+        let reviewed = service
+            .review_definition(&pending_digest)
+            .expect("review definition");
+        service
+            .ensure_credential_free_connection(reviewed.compiled.semantic_digest.as_str())
+            .await
+            .expect("credential-free connection");
+        let cached = cache.snapshot(service).expect("cached snapshot");
+        assert!(Arc::ptr_eq(&first, &cached));
+        assert!(cached.connections.connections.is_empty());
+
+        let next_request = AdapterManagementRequestCache::default()
+            .snapshot(service)
+            .expect("next request snapshot");
+        assert!(!Arc::ptr_eq(&first.definitions, &next_request.definitions));
+        assert!(
+            next_request
+                .definitions
+                .definitions
+                .iter()
+                .any(|definition| {
+                    definition.compiled.semantic_digest == reviewed.compiled.semantic_digest
+                })
+        );
+        assert_eq!(next_request.connections.connections.len(), 1);
+
+        let response = crate::graphql::build_schema(state)
+            .execute(async_graphql::Request::new(
+                "{ adapterDefinitions { semanticDigest } adapterOauthState { profiles { profileDigest } } capabilityIntegrations(kind: API) { definitionId } }",
+            ))
+            .await;
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
     }
 
     #[tokio::test]
