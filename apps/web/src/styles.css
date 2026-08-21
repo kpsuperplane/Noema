@@ -154,20 +154,26 @@ a[href][data-slot="shell-sidebar-control"] {
 
 [data-slot="task-document"] [role="group"]:has(> .astryx-table-scroll-wrapper) {
   display: flex !important;
-  width: calc(100% + var(--task-workspace-tree-width)) !important;
-  max-width: calc(100% + var(--task-workspace-tree-width)) !important;
+  width: 100cqw !important;
+  max-width: 100cqw !important;
+  margin-inline-start: calc(-1 * var(--task-workspace-table-left-bleed)) !important;
   overflow-x: auto !important;
+}
+
+[data-slot="task-document"] [role="group"]:has(> .astryx-table-scroll-wrapper)::before {
+  content: "";
+  flex: 0 0 var(--task-workspace-table-left-bleed);
 }
 
 [data-slot="task-document"] [role="group"]:has(> .astryx-table-scroll-wrapper)::after {
   content: "";
-  flex: 0 0 var(--task-workspace-tree-width);
+  flex: 0 0 var(--task-workspace-table-right-bleed);
 }
 
 [data-slot="task-document"] .astryx-table-scroll-wrapper {
   flex: 0 0 auto;
   width: max-content !important;
-  min-width: calc(100% - var(--task-workspace-tree-width)) !important;
+  min-width: var(--task-workspace-content-width) !important;
   max-width: none !important;
   margin-inline: 0 !important;
   overflow-x: visible !important;

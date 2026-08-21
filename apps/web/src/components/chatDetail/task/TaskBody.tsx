@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useQuery } from "@apollo/client/react";
 import { Icon } from "@astryxdesign/core/Icon";
+import { Card } from "@astryxdesign/core/Card";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { TreeList, type TreeListItemData } from "@astryxdesign/core/TreeList";
@@ -156,15 +157,17 @@ function TaskWorkspace({
         <TaskWorkspaceFileViewer detail={detail} edit={edit} path={selectedPath} />
       </section>
       <aside aria-label="Task files" data-slot="task-workspace-files" {...stylex.props(styles.fileList)}>
-        <TreeList
-          density="compact"
-          items={items}
-          variant="noGuides"
-          xstyle={styles.fileTree}
-        />
-        {detail.workspaceFilesTruncated ? (
-          <p role="status" {...stylex.props(styles.fileListNotice)}>Some files are not shown.</p>
-        ) : null}
+        <Card width="100%" padding={0.5}>
+          <TreeList
+            density="compact"
+            items={items}
+            variant="noGuides"
+            xstyle={styles.fileTree}
+          />
+          {detail.workspaceFilesTruncated ? (
+            <p role="status" {...stylex.props(styles.fileListNotice)}>Some files are not shown.</p>
+          ) : null}
+        </Card>
       </aside>
     </section>
   );
@@ -366,6 +369,7 @@ const styles = stylex.create({
     paddingInline: "var(--spacing-1)"
   },
   content: {
+    containerType: "inline-size",
     minWidth: 0,
     minHeight: 0,
     overflow: "hidden"
@@ -384,7 +388,10 @@ const styles = stylex.create({
     minWidth: 0,
     minHeight: 0,
     height: "100%",
-    "--task-workspace-tree-width": "clamp(80px, 34%, 240px)"
+    "--task-workspace-tree-width": "clamp(80px, 34cqw, 240px)",
+    "--task-workspace-content-width": "max(0px, min(760px, calc(100cqw - var(--task-workspace-tree-width) - var(--spacing-6) - var(--spacing-6))))",
+    "--task-workspace-table-left-bleed": "max(0px, calc((100cqw - var(--task-workspace-tree-width) - var(--task-workspace-content-width)) / 2))",
+    "--task-workspace-table-right-bleed": "calc(100cqw - var(--task-workspace-table-left-bleed) - var(--task-workspace-content-width))"
   },
   fileList: {
     gridColumn: "3",
