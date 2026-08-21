@@ -297,8 +297,8 @@ function TaskDocument({ citations = [], detail, edit, fileName, text }: { citati
           <MarkdownContent density="compact" className={stylex.props(styles.taskDescription).className}>{response}</MarkdownContent>
         ) : response ? (
           <ProviderCitationMarkdown
-            contentAlign="center"
-            contentWidth="min(760px, calc(100% - var(--spacing-6) - var(--spacing-6)))"
+            className={stylex.props(styles.taskDescription).className}
+            contentWidth="100%"
             density="default"
             headingLevelStart={1}
             citations={citations}
@@ -384,7 +384,7 @@ const styles = stylex.create({
     minWidth: 0,
     minHeight: 0,
     height: "100%",
-    "--task-workspace-tree-width": "clamp(120px, 34%, 240px)"
+    "--task-workspace-tree-width": "clamp(80px, 34%, 240px)"
   },
   fileList: {
     gridColumn: "3",
