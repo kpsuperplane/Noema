@@ -156,6 +156,11 @@ The web app uses Astryx and StyleX. Generated GraphQL types are the client
 contract; do not add hand-maintained mirrors for generated query shapes.
 
 Task detail shows `Workspace` and `Transcript`.
+Above 1200 pixels, Task detail shows both views side by side with a 600-pixel Transcript.
+The wide layout keeps a top boundary and a vertical divider between the views.
+The floating Task context card occupies the Transcript column in the wide layout.
+The wide context card omits its ordinary Task status line.
+At smaller widths, Task detail uses tabs and swipe navigation.
 Workspace shows direct `Result` and `Task` file buttons above the selected UTF-8 preview.
 An Astryx more menu contains all other Task files.
 The file row scrolls vertically with the preview.

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
+import { Grid } from "@astryxdesign/core/Grid";
 import { HStack } from "@astryxdesign/core/HStack";
 import { MoreMenu } from "@astryxdesign/core/MoreMenu";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
@@ -93,45 +94,60 @@ export function TaskBody({
     }
   }
 
+  function cancelSwipe() {
+    swipeOriginRef.current = null;
+  }
+
   return (
     <section aria-label="Task detail" {...stylex.props(styles.root)}>
-      <div {...stylex.props(styles.tabBar)}>
-        <TabList
-          aria-label="Task detail view"
-          hasDivider
-          onChange={(value) => selectTab(value as TaskTab)}
-          size="sm"
-          value={activeTab}
-        >
-          <Tab label="Workspace" value="workspace" />
-          <Tab label="Transcript" value="transcript" />
-        </TabList>
-      </div>
-      <div
-        {...stylex.props(styles.content)}
-        onTouchStart={startSwipe}
-        onTouchEnd={finishSwipe}
-        onTouchCancel={() => { swipeOriginRef.current = null; }}
+      <Grid
+        height="100%"
+        xstyle={styles.frame}
       >
-        {activeTab === "workspace" ? (
+        <div {...stylex.props(styles.tabBar)}>
+          <TabList
+            aria-label="Task detail view"
+            hasDivider
+            onChange={(value) => selectTab(value as TaskTab)}
+            size="sm"
+            value={activeTab}
+          >
+            <Tab label="Workspace" value="workspace" />
+            <Tab label="Transcript" value="transcript" />
+          </TabList>
+        </div>
+        <section
+          aria-label="Workspace"
+          {...stylex.props(styles.workspacePane, activeTab !== "workspace" && styles.inactivePane)}
+          onTouchStart={startSwipe}
+          onTouchEnd={finishSwipe}
+          onTouchCancel={cancelSwipe}
+        >
           <TaskWorkspace
             detail={detail}
             edit={edit}
             selectedPath={selectedPath}
             onSelectPath={selectWorkspacePath}
           />
-        ) : (
-          <div {...stylex.props(styles.transcript)}>
-            <TaskTranscript
-              detail={detail}
-              liveRunItems={liveRunItems}
-              onOpenDetail={onOpenDetail}
-              onLatestRunEntryChange={onLatestRunEntryChange}
-            />
-          </div>
-        )}
-      </div>
-      {renderContextCard(activeTab !== "transcript")}
+        </section>
+        <section
+          aria-label="Transcript"
+          {...stylex.props(styles.transcript, activeTab !== "transcript" && styles.inactivePane)}
+          onTouchStart={startSwipe}
+          onTouchEnd={finishSwipe}
+          onTouchCancel={cancelSwipe}
+        >
+          <TaskTranscript
+            detail={detail}
+            liveRunItems={liveRunItems}
+            onOpenDetail={onOpenDetail}
+            onLatestRunEntryChange={onLatestRunEntryChange}
+          />
+        </section>
+        <section aria-label="Task context" {...stylex.props(styles.contextPane)}>
+          {renderContextCard(activeTab !== "transcript")}
+        </section>
+      </Grid>
     </section>
   );
 }
@@ -364,27 +380,67 @@ function formatDate(value: string): string {
 
 const styles = stylex.create({
   root: {
-    display: "grid",
-    gridTemplateRows: "auto minmax(0, 1fr) auto",
-    minWidth: 0,
-    minHeight: 0
-  },
-  tabBar: {
-    minWidth: 0,
-    paddingInline: "var(--spacing-1)"
-  },
-  content: {
     containerType: "inline-size",
     minWidth: 0,
     minHeight: 0,
-    overflow: "hidden"
+    height: "100%"
+  },
+  tabBar: {
+    minWidth: 0,
+    paddingInline: "var(--spacing-1)",
+    "@container (width > 1200px)": { display: "none" }
+  },
+  frame: {
+    gridTemplateColumns: "minmax(0, 1fr)",
+    gridTemplateRows: "auto minmax(0, 1fr) auto",
+    minWidth: 0,
+    minHeight: 0,
+    overflow: "hidden",
+    "@container (width > 1200px)": {
+      gridTemplateColumns: "minmax(0, 1fr) 600px",
+      gridTemplateRows: "minmax(0, 1fr) auto",
+      borderTopWidth: "var(--border-width)",
+      borderTopStyle: "solid",
+      borderTopColor: "var(--noema-border-subtle)"
+    }
+  },
+  inactivePane: { display: { default: "none", "@container (width > 1200px)": "block" } },
+  workspacePane: {
+    containerType: "inline-size",
+    gridRow: "2",
+    minWidth: 0,
+    minHeight: 0,
+    height: "100%",
+    "@container (width > 1200px)": { gridColumn: "1", gridRow: "1 / -1" }
   },
   transcript: {
+    gridRow: "2",
     minWidth: 0,
     minHeight: 0,
     height: "100%",
     "--chat-transcript-top-fade": "var(--spacing-4)",
-    "--task-transcript-bottom-inset": "var(--spacing-3)"
+    "--task-transcript-bottom-inset": "var(--spacing-3)",
+    "@container (width > 1200px)": {
+      gridColumn: "2",
+      gridRow: "1",
+      borderInlineStartWidth: "var(--border-width)",
+      borderInlineStartStyle: "solid",
+      borderInlineStartColor: "var(--noema-border-subtle)"
+    }
+  },
+  contextPane: {
+    gridRow: "3",
+    minWidth: 0,
+    minHeight: 0,
+    "@container (width > 1200px)": {
+      gridColumn: "2",
+      gridRow: "2",
+      borderInlineStartWidth: "var(--border-width)",
+      borderInlineStartStyle: "solid",
+      borderInlineStartColor: "var(--noema-border-subtle)",
+      "--task-context-card-margin-block-start": "var(--spacing-0)",
+      "--task-context-status-display": "none"
+    }
   },
   workspace: {
     minWidth: 0,
