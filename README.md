@@ -231,12 +231,10 @@ use the workspace default binary:
 NOEMA_HOME=.noema-dev cargo validate run
 ```
 
-`cargo dev` sets the runtime `web.dev_no_auth` and
-`web.local_graphql_socket` options. It also binds the development server to
-`0.0.0.0`. The UI can open from another device without a passkey. Local tools
-can use `.noema-dev/run/graphql.sock` without a passkey. This server is
-unauthenticated, so use it only on a trusted network. Direct daemon runs and
-release builds keep the secure defaults.
+`cargo dev` sets the runtime `web.local_graphql_socket` option. It also binds
+the development server to `0.0.0.0`. Authentication follows `config.yaml` and
+is enabled by default. Local tools can use `.noema-dev/run/graphql.sock`
+without a passkey. Set `web.dev_no_auth: true` only on a trusted network.
 
 The supervisor uses `cargo-watch` for the Rust server and Foundation bridge.
 

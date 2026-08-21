@@ -111,20 +111,7 @@ pub(crate) async fn run_development_server() -> Result<(), WorkflowError> {
     let repo_root = crate::repo_root();
     enforce_cache_budget(&repo_root, DEV_CACHE).await?;
 
-    let mut command = Command::new(cargo_exe());
-    command
-        .args(["run", "-p", "noema-server", "--bin", "noema_web"])
-        .current_dir(&repo_root)
-        .env("CARGO_TARGET_DIR", DEV_CACHE.path(&repo_root))
-        .env("TMPDIR", DEV_CACHE.temp_path(&repo_root))
-        .env("NOEMA_WEB__HOST", "0.0.0.0")
-        .env("NOEMA_WEB__DEV_NO_AUTH", "true")
-        .env("NOEMA_WEB__LOCAL_GRAPHQL_SOCKET", "true")
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
-    strip_cargo_run_env(&mut command);
-
+    let mut command = development_server_command(&repo_root);
     let status = command
         .status()
         .await
@@ -134,6 +121,22 @@ pub(crate) async fn run_development_server() -> Result<(), WorkflowError> {
     } else {
         Err(WorkflowError::CargoExited { status })
     }
+}
+
+fn development_server_command(repo_root: &Path) -> Command {
+    let mut command = Command::new(cargo_exe());
+    command
+        .args(["run", "-p", "noema-server", "--bin", "noema_web"])
+        .current_dir(repo_root)
+        .env("CARGO_TARGET_DIR", DEV_CACHE.path(repo_root))
+        .env("TMPDIR", DEV_CACHE.temp_path(repo_root))
+        .env("NOEMA_WEB__HOST", "0.0.0.0")
+        .env("NOEMA_WEB__LOCAL_GRAPHQL_SOCKET", "true")
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+    strip_cargo_run_env(&mut command);
+    command
 }
 
 async fn enforce_cache_budget(repo_root: &Path, target: CacheTarget) -> Result<(), WorkflowError> {
@@ -309,6 +312,18 @@ mod tests {
     fn cleans_only_after_cache_exceeds_its_byte_budget() {
         assert!(!should_clean_cache(20, 20));
         assert!(should_clean_cache(21, 20));
+    }
+
+    #[test]
+    fn development_server_does_not_override_authentication() {
+        let command = development_server_command(Path::new("/workspace/noema"));
+
+        assert!(
+            command
+                .as_std()
+                .get_envs()
+                .all(|(name, _)| name != "NOEMA_WEB__DEV_NO_AUTH")
+        );
     }
 
     #[test]
