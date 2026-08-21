@@ -364,6 +364,11 @@ function ProviderCitationDialog({
       width={520}
       maxHeight="min(680px, calc(100dvh - var(--spacing-8)))"
       aria-label="Sources"
+      onWheelCapture={(event) => event.stopPropagation()}
+      onTouchStartCapture={(event) => event.stopPropagation()}
+      onTouchMoveCapture={(event) => event.stopPropagation()}
+      onTouchEndCapture={(event) => event.stopPropagation()}
+      onTouchCancelCapture={(event) => event.stopPropagation()}
     >
       <Layout
         header={<DialogHeader title="Sources" onOpenChange={onOpenChange} hasDivider />}
