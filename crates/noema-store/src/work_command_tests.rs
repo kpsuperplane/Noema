@@ -464,6 +464,31 @@ async fn fixture() -> (NoemaStore, WorkCommandService) {
     (store, service)
 }
 
+#[tokio::test]
+async fn task_summary_does_not_read_task_files() {
+    let (store, service) = fixture().await;
+    let task = task!(
+        service,
+        capture("task-summary-without-files", "Summary without files"),
+        "capture task"
+    );
+    let task_document = store
+        .default_task_cwd(&task.task_directory)
+        .join(crate::TASK_DOCUMENT);
+    tokio::fs::remove_file(task_document)
+        .await
+        .expect("remove task document");
+
+    let summary = store
+        .get_work_task_summary(&task.task_id)
+        .await
+        .expect("read task summary")
+        .expect("task summary");
+
+    assert_eq!(summary.task.title, "Summary without files");
+    assert!(summary.task_document_preview.is_empty());
+}
+
 fn metadata(key: &str) -> CommandMeta {
     CommandMeta {
         actor_id: ACTOR.to_string(),

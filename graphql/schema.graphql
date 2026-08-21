@@ -5259,6 +5259,10 @@ type TaskReference {
 	Stable task id.
 	"""
 	taskId: String!
+	"""
+	Current task summary for this reference.
+	"""
+	task: TaskSummary
 }
 
 """
@@ -5771,6 +5775,10 @@ type TasksEvent {
 	Bounded safe JSON payload.
 	"""
 	payload: JSON!
+	"""
+	Current task summary when this event has a task.
+	"""
+	task: TaskSummary
 }
 
 """

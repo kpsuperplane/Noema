@@ -28,8 +28,7 @@ import {
   TasksOverviewDocument,
   TasksProjectsDocument,
   TasksTaskDetailDocument,
-  TasksTaskEditFieldsDocument,
-  TasksTaskReferenceDocument
+  TasksTaskEditFieldsDocument
 } from "@/generated/graphql";
 import {
   isInstalledPwa,
@@ -74,8 +73,7 @@ const mutableDocuments: ReadonlyMap<string, DocumentNode> = new Map<string, Docu
   ["TasksOverview", TasksOverviewDocument],
   ["TasksProjects", TasksProjectsDocument],
   ["TasksTaskDetail", TasksTaskDetailDocument],
-  ["TasksTaskEditFields", TasksTaskEditFieldsDocument],
-  ["TasksTaskReference", TasksTaskReferenceDocument]
+  ["TasksTaskEditFields", TasksTaskEditFieldsDocument]
 ]);
 
 class PwaRuntime {

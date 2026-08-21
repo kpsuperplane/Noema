@@ -161,6 +161,26 @@ pub(in crate::graphql) async fn task_card(
     task_card_from_detail(&detail)
 }
 
+/// Resolve one owner-authorized task summary for a transcript reference.
+pub(in crate::graphql) async fn task_summary(
+    state: &GraphqlState,
+    principal_subject: &str,
+    task_id: String,
+) -> Result<Option<GraphqlTaskSummary>> {
+    require_owner(principal_subject)?;
+    let task_id = parse_task_id(&task_id)?;
+    let Some(summary) = state
+        .store()?
+        .get_work_task_summary(&task_id)
+        .await
+        .map_err(task_error)?
+    else {
+        return Ok(None);
+    };
+    require_personal_workspace(&summary.workspace.workspace_id)?;
+    summary_from_store(summary).map(Some)
+}
+
 /// Resolve a bounded project connection.
 pub(in crate::graphql) async fn projects(
     state: &GraphqlState,

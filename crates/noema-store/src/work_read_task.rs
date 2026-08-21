@@ -7,7 +7,7 @@ use super::rows::{
     derive_attention_actions, load_active_gate, load_current_run, load_project, load_stage,
     load_task, load_workflow, load_workspace, validate_current_links,
 };
-use crate::{StoreError, WorkTaskDetail};
+use crate::{StoreError, WorkTaskDetail, WorkTaskSummary};
 
 pub(crate) struct LoadedWorkTask {
     pub(crate) task: noema_tasks::TaskRecord,
@@ -74,6 +74,25 @@ pub(crate) fn load_task_facts(
 }
 
 impl LoadedWorkTask {
+    pub(crate) fn into_summary(self) -> WorkTaskSummary {
+        let (attention, valid_actions) = derive_attention_actions(
+            &self.task,
+            self.stage.system_behavior,
+            self.active_gate.as_ref(),
+        );
+        WorkTaskSummary {
+            task: self.task,
+            task_document_preview: String::new(),
+            workspace: self.workspace,
+            project: self.project,
+            stage: self.stage,
+            current_run: self.current_run,
+            active_gate: self.active_gate,
+            attention,
+            valid_actions,
+        }
+    }
+
     pub(crate) fn into_detail(
         self,
         history: WorkTaskHistory,

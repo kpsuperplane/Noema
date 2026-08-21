@@ -24,7 +24,7 @@ use rusqlite::{OptionalExtension, Row, params, types::Type};
 use crate::{
     NoemaStore, ProjectConnection, ProjectCursor, ProjectEdge, ProjectQuery, StoreError,
     WorkEventConnection, WorkEventCursor, WorkEventEdge, WorkEventQuery, WorkPageInfo,
-    WorkTaskDetail,
+    WorkTaskDetail, WorkTaskSummary,
     sqlite::conversion_failure,
     work_events::{WORK_EVENT_COLUMNS, decode_work_event_record},
 };
@@ -43,6 +43,24 @@ const PROJECT_COLUMNS: &str = "
 ";
 
 impl NoemaStore {
+    /// Load one task summary without task files or history.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when SQLite fails or persisted task links are invalid.
+    pub async fn get_work_task_summary(
+        &self,
+        task_id: &TaskId,
+    ) -> Result<Option<WorkTaskSummary>, StoreError> {
+        let task_id = task_id.clone();
+        self.with_connection(move |connection| {
+            let transaction = connection.transaction()?;
+            load_task_facts(&transaction, &task_id)
+                .map(|task| task.map(task::LoadedWorkTask::into_summary))
+        })
+        .await
+    }
+
     /// Read one project by its exact identity within a workspace.
     ///
     /// Archived projects are included because this read is used for

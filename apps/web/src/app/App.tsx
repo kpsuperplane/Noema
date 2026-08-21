@@ -25,6 +25,8 @@ import {
   SendMultipleChoiceSelectionDocument,
   SendConversationTurnDocument,
   StartProviderAuthAttemptDocument,
+  TasksEventsDocument,
+  TasksTaskReferenceSummaryFieldsFragmentDoc,
   type ConfirmOnboardingModelSelectionsInput,
   type ProviderAuthAttemptQuery,
   type StartProviderAuthAttemptMutation
@@ -69,6 +71,7 @@ import { pwaRuntime } from "@/pwa/runtime";
 import { readChatDraft, writeChatDraft } from "@/pwa/storage";
 import { useBrowserGraphqlRecovery } from "./useBrowserGraphqlRecovery";
 import { WebPushProvider } from "@/pwa/WebPushContext";
+import { PERSONAL_WORKSPACE_ID } from "@/components/tasks/tasksTypes";
 
 type ProviderAuthAttemptView =
   | StartProviderAuthAttemptMutation["startProviderAuthAttempt"]
@@ -686,6 +689,22 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
       });
     }
   }, [loadConversationTranscriptPage]);
+
+  useSubscription(TasksEventsDocument, {
+    variables: { workspaceId: PERSONAL_WORKSPACE_ID },
+    skip: !chatRoute || !conversationId,
+    onData: ({ data }) => {
+      const task = data.data?.tasksEvents.task;
+      const id = task ? apolloClient.cache.identify(task) : undefined;
+      if (!task || !id) return;
+      apolloClient.cache.writeFragment({
+        id,
+        fragment: TasksTaskReferenceSummaryFieldsFragmentDoc,
+        data: task
+      });
+    },
+    onError: reportConversationError
+  });
 
   useSubscription(ConversationEventsDocument, {
     variables: { conversationId: conversationId ?? "" },

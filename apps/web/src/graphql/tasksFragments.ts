@@ -66,6 +66,25 @@ export const TasksCurrentRunFields = gql`
   }
 `;
 
+export const TasksTaskReferenceSummaryFields = gql`
+  fragment TasksTaskReferenceSummaryFields on TaskSummary {
+    taskId
+    title
+    stage {
+      name
+      behavior
+    }
+    completedAt
+    currentRun {
+      kind
+      activityLabel
+    }
+    attention {
+      title
+    }
+  }
+`;
+
 export const TasksTaskCardFields = gql`
   fragment TasksTaskCardFields on TaskCard {
     taskId

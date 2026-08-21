@@ -5,6 +5,7 @@ import {
   TasksPageInfoFields,
   TasksProjectFields,
   TasksRunFields,
+  TasksTaskReferenceSummaryFields,
   TasksTaskSummaryFields
 } from "./tasksFragments";
 import { HumanInterventionFields } from "./governedActionOperations";
@@ -85,20 +86,6 @@ export const TasksTaskEditFieldsDocument = gql`
   }
 `;
 
-export const TasksTaskReferenceDocument = gql`
-  query TasksTaskReference($taskId: String!) {
-    task(taskId: $taskId) {
-      ...TasksCommandTaskFields
-      attention {
-        kind
-        title
-        summary
-      }
-    }
-  }
-  ${TasksCommandTaskFields}
-`;
-
 export const TasksTaskDetailDocument = gql`
   query TasksTaskDetail($taskId: String!) {
     task(taskId: $taskId) {
@@ -170,9 +157,15 @@ export const TasksTaskRunItemsDocument = gql`
 
 export const TasksEventsDocument = gql`
   subscription TasksEvents($workspaceId: String!, $after: String) {
-    tasksEvents(workspaceId: $workspaceId, after: $after) { ...TasksEventFields }
+    tasksEvents(workspaceId: $workspaceId, after: $after) {
+      ...TasksEventFields
+      task {
+        ...TasksTaskReferenceSummaryFields
+      }
+    }
   }
   ${TasksEventFields}
+  ${TasksTaskReferenceSummaryFields}
 `;
 
 export const TasksTaskEventsDocument = gql`

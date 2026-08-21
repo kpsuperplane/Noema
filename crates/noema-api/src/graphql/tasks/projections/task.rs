@@ -132,20 +132,51 @@ graphql_object! { "Full task detail projection." => pub struct GraphqlTaskDetail
     "Server-authorized actions." => valid_actions: Vec<GraphqlValidTaskAction>,
 } }
 
-graphql_object! { "Saved Tasks event." => pub struct GraphqlTaskEvent("TasksEvent") {
-    "Opaque global event cursor." => cursor: String,
-    "Event identity." => event_id: String,
-    "Closed dotted event kind." => kind: String,
-    "Event timestamp." => occurred_at: String,
-    "Workspace linkage." => workspace_id: String,
-    "Project linkage." => project_id: Option<String>,
-    "Task linkage." => task_id: Option<String>,
-    "Run linkage." => run_id: Option<String>,
-    "Safe audit actor." => actor: String,
-    "Causation identity." => causation_id: Option<String>,
-    "Correlation identity." => correlation_id: String,
-    "Bounded safe JSON payload." => payload: Json<serde_json::Value>,
-} }
+/// Saved Tasks event.
+#[derive(Clone, Debug, async_graphql::SimpleObject)]
+#[graphql(name = "TasksEvent", complex)]
+pub struct GraphqlTaskEvent {
+    /// Opaque global event cursor.
+    pub cursor: String,
+    /// Event identity.
+    pub event_id: String,
+    /// Closed dotted event kind.
+    pub kind: String,
+    /// Event timestamp.
+    pub occurred_at: String,
+    /// Workspace linkage.
+    pub workspace_id: String,
+    /// Project linkage.
+    pub project_id: Option<String>,
+    /// Task linkage.
+    pub task_id: Option<String>,
+    /// Run linkage.
+    pub run_id: Option<String>,
+    /// Safe audit actor.
+    pub actor: String,
+    /// Causation identity.
+    pub causation_id: Option<String>,
+    /// Correlation identity.
+    pub correlation_id: String,
+    /// Bounded safe JSON payload.
+    pub payload: Json<serde_json::Value>,
+}
+
+#[async_graphql::ComplexObject]
+impl GraphqlTaskEvent {
+    /// Current task summary when this event has a task.
+    async fn task(
+        &self,
+        ctx: &async_graphql::Context<'_>,
+    ) -> async_graphql::Result<Option<GraphqlTaskSummary>> {
+        let Some(task_id) = self.task_id.clone() else {
+            return Ok(None);
+        };
+        let state = ctx.data_unchecked::<crate::graphql::schema::GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        crate::graphql::tasks::task_summary(state, principal, task_id).await
+    }
+}
 
 impl TryFrom<noema_tasks::WorkEventRecord> for GraphqlTaskEvent {
     type Error = noema_store::WorkCursorError;

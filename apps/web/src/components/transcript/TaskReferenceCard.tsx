@@ -1,9 +1,4 @@
-import { useQuery, useSubscription } from "@apollo/client/react";
-import {
-  TasksTaskReferenceDocument,
-  TasksTaskEventsDocument,
-  type TasksTaskReferenceQuery
-} from "@/generated/graphql";
+import { useFragment } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { ListTodo } from "lucide-react";
@@ -11,7 +6,10 @@ import { taskDetailTarget, type ChatDetailTarget } from "@/components/chatDetail
 import { taskStatusFromProjection } from "@/components/chatDetail/task/TaskStatusBadge";
 import { TaskStatusIcon } from "@/components/chatDetail/task/TaskStatusIcon";
 import type { TaskStatus } from "@/components/chatDetail/task/taskTypes";
-import { useTaskEventCursor } from "@/components/chatDetail/task/taskEventCursor";
+import {
+  TasksTaskReferenceSummaryFieldsFragmentDoc,
+  type TasksTaskReferenceSummaryFieldsFragment
+} from "@/generated/graphql";
 
 export function TaskReferenceCard({
   taskId,
@@ -20,29 +18,15 @@ export function TaskReferenceCard({
   taskId: string;
   onOpenDetail?: (target: Extract<ChatDetailTarget, { type: "task" }>) => void;
 }) {
-  const result = useQuery(TasksTaskReferenceDocument, {
-    variables: { taskId },
-    fetchPolicy: "cache-and-network",
-    notifyOnNetworkStatusChange: true
+  const result = useFragment({
+    fragment: TasksTaskReferenceSummaryFieldsFragmentDoc,
+    from: { __typename: "TaskSummary", taskId }
   });
-  const [cursor, recordCursor] = useTaskEventCursor(taskId);
-  const queriedTask = result.data?.task ?? null;
-  const task = queriedTask?.taskId === taskId ? queriedTask : null;
-  useSubscription(TasksTaskEventsDocument, {
-    variables: { taskId, after: cursor },
-    skip: !task,
-    onData: ({ data }) => {
-      const event = data.data?.taskEvents;
-      if (!event) return;
-      recordCursor(event.cursor);
-      void result.refetch();
-    }
-  });
-
+  const task = result.complete ? result.data : null;
   const target = taskDetailTarget(taskId);
   const taskTarget = target?.type === "task" ? target : null;
   const opensDetail = Boolean(taskTarget && onOpenDetail);
-  const title = task?.title ?? (result.loading ? "Loading task…" : "Task unavailable");
+  const title = task?.title ?? "Task unavailable";
   const chipProgressLine = taskChipProgress(task);
   const open = opensDetail && taskTarget ? () => onOpenDetail?.(taskTarget) : undefined;
   const status = taskChipStatus(task);
@@ -75,7 +59,7 @@ export function TaskReferenceCard({
   );
 }
 
-type TaskReference = NonNullable<TasksTaskReferenceQuery["task"]>;
+type TaskReference = TasksTaskReferenceSummaryFieldsFragment;
 
 function taskChipProgress(task: TaskReference | null): string {
   if (!task) return "Unavailable";

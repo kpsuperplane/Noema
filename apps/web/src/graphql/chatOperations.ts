@@ -1,4 +1,5 @@
 import { gql } from "@apollo/client";
+import { TasksTaskReferenceSummaryFields } from "./tasksFragments";
 
 export const ProviderAuthAttemptDocument = gql`
   query ProviderAuthAttempt($attemptId: String!) {
@@ -63,6 +64,16 @@ export const CancelProviderAuthAttemptDocument = gql`
       errorMessage
     }
   }
+`;
+
+export const ChatTaskReferenceFields = gql`
+  fragment ChatTaskReferenceFields on TaskReference {
+    taskId
+    task {
+      ...TasksTaskReferenceSummaryFields
+    }
+  }
+  ${TasksTaskReferenceSummaryFields}
 `;
 
 export const ConversationItemFields = gql`
@@ -130,10 +141,11 @@ export const ConversationItemFields = gql`
         mediaType
       }
       ... on TaskReference {
-        taskId
+        ...ChatTaskReferenceFields
       }
     }
   }
+  ${ChatTaskReferenceFields}
 `;
 
 export const ConversationTranscriptPageFields = gql`
@@ -319,7 +331,7 @@ export const ConversationEventsDocument = gql`
             mediaType
           }
           ... on TaskReference {
-            taskId
+            ...ChatTaskReferenceFields
           }
         }
       }
@@ -340,6 +352,7 @@ export const ConversationEventsDocument = gql`
       }
     }
   }
+  ${ChatTaskReferenceFields}
 `;
 
 export const ArtifactsDocument = gql`

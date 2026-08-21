@@ -220,10 +220,23 @@ pub struct GraphqlArtifactReference {
 
 /// Durable background task reference transcript item.
 #[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "TaskReference")]
+#[graphql(name = "TaskReference", complex)]
 pub struct GraphqlTaskReference {
     /// Stable task id.
     pub task_id: String,
+}
+
+#[async_graphql::ComplexObject]
+impl GraphqlTaskReference {
+    /// Current task summary for this reference.
+    async fn task(
+        &self,
+        ctx: &async_graphql::Context<'_>,
+    ) -> Result<Option<crate::graphql::tasks::GraphqlTaskSummary>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        crate::graphql::tasks::task_summary(state, principal, self.task_id.clone()).await
+    }
 }
 
 /// Transcript item union.
