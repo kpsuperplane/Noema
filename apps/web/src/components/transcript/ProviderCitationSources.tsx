@@ -366,7 +366,6 @@ function ProviderCitationDialog({
       aria-label="Sources"
     >
       <Layout
-        height="auto"
         header={<DialogHeader title="Sources" onOpenChange={onOpenChange} hasDivider />}
         content={
           <LayoutContent>
