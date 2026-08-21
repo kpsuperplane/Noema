@@ -31,7 +31,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     acp_terminal_bridge::{AcpTerminalBridge, helper_executable},
-    daemon::task_run_context::{TaskRolePrompt, build_task_role_prompt},
+    daemon::task_run_context::TaskRolePrompt,
 };
 
 const ACP_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -124,6 +124,7 @@ pub(crate) async fn execute_acp_run(
     run: &noema_tasks::AgentRunRecord,
     fence: &WorkRunFence,
     context: &WorkRunExecutionContext,
+    prompt: TaskRolePrompt,
     cancellation: &CancellationToken,
 ) -> Result<AcpRunOutcome, crate::daemon::RuntimeError> {
     let snapshot = run.executor.acp.as_ref().ok_or_else(|| {
@@ -153,7 +154,7 @@ pub(crate) async fn execute_acp_run(
     let permission_context = context.clone();
     let approval_sent = Arc::new(AtomicBool::new(false));
     let permission_approval_sent = approval_sent.clone();
-    let prompt = render_prompt(build_task_role_prompt(context));
+    let prompt = render_prompt(prompt);
     let cwd = PathBuf::from(cwd);
     let cancellation = cancellation.clone();
     let bridge_address = bridge.address.clone();
@@ -724,7 +725,8 @@ for line in sys.stdin:
         let (store, run, fence, context) =
             acp_execution_fixture(TERMINAL_RESPONDER, vec![shell_argument]).await;
         let cancellation = CancellationToken::new();
-        let outcome = execute_acp_run(store.clone(), &run, &fence, &context, &cancellation)
+        let prompt = crate::daemon::task_run_context::build_task_role_prompt(&context);
+        let outcome = execute_acp_run(store.clone(), &run, &fence, &context, prompt, &cancellation)
             .await
             .expect("execute fake ACP run");
         let AcpRunOutcome::Terminal(terminal) = outcome else {
@@ -799,7 +801,10 @@ for line in sys.stdin:
             tokio::time::sleep(Duration::from_millis(100)).await;
             cancellation_signal.cancel();
         });
-        let Err(error) = execute_acp_run(store, &run, &fence, &context, &cancellation).await else {
+        let prompt = crate::daemon::task_run_context::build_task_role_prompt(&context);
+        let Err(error) =
+            execute_acp_run(store, &run, &fence, &context, prompt, &cancellation).await
+        else {
             panic!("cancelled ACP run must stop");
         };
         assert!(matches!(error, crate::daemon::RuntimeError::Protocol(_)));
