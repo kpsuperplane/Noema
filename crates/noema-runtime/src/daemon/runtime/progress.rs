@@ -1,6 +1,6 @@
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::local_tools::LocalToolResult;
 
@@ -66,6 +66,7 @@ pub(super) struct ContinuationProgressTracker {
     window: ProgressWindowDigest,
     whole_turn: ProgressTurnDigest,
     argument_counts: BTreeMap<String, usize>,
+    result_fingerprints: BTreeSet<String>,
     recent_events: VecDeque<ProgressEvent>,
 }
 
@@ -77,6 +78,7 @@ impl ContinuationProgressTracker {
             window: ProgressWindowDigest::default(),
             whole_turn: ProgressTurnDigest::default(),
             argument_counts: BTreeMap::new(),
+            result_fingerprints: BTreeSet::new(),
             recent_events: VecDeque::new(),
         }
     }
@@ -109,11 +111,13 @@ impl ContinuationProgressTracker {
             let fingerprint = argument_fingerprint(&result.name, &result.arguments);
             let count = self.argument_counts.entry(fingerprint).or_insert(0);
             *count += 1;
-            if *count > 1 {
+            let repeated_arguments = *count > 1;
+            let novel_result = self.result_fingerprints.insert(result_fingerprint(result));
+            if repeated_arguments && !novel_result {
                 self.window.repeated_argument_count += 1;
                 self.whole_turn.repeated_argument_count += 1;
             }
-            if result.success {
+            if novel_result {
                 self.window.novel_result_count += 1;
                 self.whole_turn.novel_result_count += 1;
             }
@@ -182,6 +186,16 @@ fn argument_fingerprint(name: &str, arguments: &Value) -> String {
     )
 }
 
+fn result_fingerprint(result: &LocalToolResult) -> String {
+    serde_json::to_string(&(
+        &result.name,
+        &result.arguments,
+        result.success,
+        &result.payload,
+    ))
+    .unwrap_or_default()
+}
+
 fn summarize_result(result: &LocalToolResult) -> String {
     let status = if result.success {
         "succeeded"
@@ -232,6 +246,23 @@ mod tests {
             tracker.deterministic_stop(),
             Some(DeterministicProgressStop::RepeatedArguments)
         );
+    }
+
+    #[test]
+    fn repeated_arguments_with_new_results_continue() {
+        let mut tracker = ContinuationProgressTracker::new("track changing prices");
+        for index in 0..5 {
+            tracker.observe_results(&[web_search_result(
+                &format!("call_{index}"),
+                true,
+                json!({ "price": index }),
+            )]);
+        }
+
+        let digest = tracker.digest(5);
+        assert_eq!(tracker.deterministic_stop(), None);
+        assert_eq!(digest.window.repeated_argument_count, 0);
+        assert_eq!(digest.window.novel_result_count, 5);
     }
 
     #[test]
