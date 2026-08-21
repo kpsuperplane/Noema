@@ -161,9 +161,9 @@ The wide layout keeps a top boundary and a vertical divider between the views.
 The floating Task context card occupies the Transcript column in the wide layout.
 The wide context card omits its ordinary Task status line.
 At smaller widths, Task detail uses tabs and swipe navigation.
-Workspace shows direct `Result` and `Task` file buttons above the selected UTF-8 preview.
-An Astryx more menu contains all other Task files.
-The file row scrolls vertically with the preview.
+Workspace shows direct file buttons above the selected UTF-8 preview.
+`Result` and `Task` appear first. Other files follow in path order.
+The file row scrolls horizontally when needed and vertically with the preview.
 A completed Task opens `RESULT.md`; another Task opens `TASK.md`.
 Completion selects `RESULT.md` once when `TASK.md` was open.
 Result previews preserve provider citations.

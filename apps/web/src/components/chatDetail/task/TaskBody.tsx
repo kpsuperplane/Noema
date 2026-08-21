@@ -3,7 +3,6 @@ import { useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack } from "@astryxdesign/core/HStack";
-import { MoreMenu } from "@astryxdesign/core/MoreMenu";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import * as stylex from "@stylexjs/stylex";
@@ -169,9 +168,10 @@ function TaskWorkspace({
       .sort((left, right) => left.path.localeCompare(right.path)),
     [detail.workspaceFiles]
   );
-  const directFiles = [TASK_RESULT_PATH, TASK_DOCUMENT_PATH]
-    .flatMap((path) => files.filter((file) => file.path === path));
-  const otherFiles = files.filter((file) => file.path !== TASK_RESULT_PATH && file.path !== TASK_DOCUMENT_PATH);
+  const orderedFiles = [
+    ...[TASK_RESULT_PATH, TASK_DOCUMENT_PATH].flatMap((path) => files.filter((file) => file.path === path)),
+    ...files.filter((file) => file.path !== TASK_RESULT_PATH && file.path !== TASK_DOCUMENT_PATH)
+  ];
   return (
     <section aria-label="Task workspace" {...stylex.props(styles.workspace)}>
       <section aria-label={selectedPath} {...stylex.props(styles.fileViewer)}>
@@ -181,7 +181,7 @@ function TaskWorkspace({
             width="100%"
             xstyle={styles.fileActions}
           >
-            {directFiles.map((file) => (
+            {orderedFiles.map((file) => (
               <Button
                 key={file.path}
                 aria-pressed={file.path === selectedPath}
@@ -190,19 +190,9 @@ function TaskWorkspace({
                 size="sm"
                 tooltip={file.path}
                 variant={file.path === selectedPath ? "secondary" : "ghost"}
+                xstyle={styles.fileAction}
               />
             ))}
-            {otherFiles.length > 0 ? (
-              <MoreMenu
-                items={otherFiles.map((file) => ({
-                  label: workspaceFileButtonLabel(file),
-                  onClick: () => onSelectPath(file.path)
-                }))}
-                label="More files"
-                size="sm"
-                variant={otherFiles.some((file) => file.path === selectedPath) ? "secondary" : "ghost"}
-              />
-            ) : null}
           </HStack>
           {detail.workspaceFilesTruncated ? (
             <p role="status" {...stylex.props(styles.fileNotice)}>Some files are not shown.</p>
@@ -457,7 +447,14 @@ const styles = stylex.create({
     marginInline: "auto",
     paddingBlockStart: "var(--spacing-4)",
   },
-  fileActions: { minWidth: 0 },
+  fileActions: {
+    minWidth: 0,
+    overflowX: "auto",
+    overflowY: "hidden",
+    overscrollBehaviorX: "contain",
+    scrollbarWidth: "thin"
+  },
+  fileAction: { flexShrink: 0 },
   fileNotice: { margin: "var(--spacing-1) var(--spacing-0) var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: 12 },
   fileViewer: {
     width: "100%",
