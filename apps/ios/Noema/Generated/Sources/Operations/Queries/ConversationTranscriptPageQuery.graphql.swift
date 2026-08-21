@@ -9,7 +9,7 @@ nonisolated public struct ConversationTranscriptPageQuery: GraphQLQuery {
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
       #"query ConversationTranscriptPage($input: ConversationTranscriptPageInput!) { conversationTranscriptPage(input: $input) { __typename ...NativeConversationPageFields } }"#,
-      fragments: [NativeConversationItemFields.self, NativeConversationPageFields.self]
+      fragments: [NativeConversationItemFields.self, NativeConversationPageFields.self, TasksTaskReferenceSummaryFields.self]
     ))
 
   public var input: ConversationTranscriptPageInput

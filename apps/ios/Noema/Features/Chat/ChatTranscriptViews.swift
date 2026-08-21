@@ -120,6 +120,7 @@ struct ChatMessageView: View {
   let profile: NoemaProfile?
   let message: ChatMessage
   let attachedTaskIDs: [String]
+  let taskReferences: [String: ChatTaskReferenceModel]
   let group: ChatBubbleGroup
   let showAvatar: Bool
   let avatarActivity: NoemaAvatarActivity
@@ -174,7 +175,7 @@ struct ChatMessageView: View {
               sourcesSpacing: 0
             )
             ForEach(attachedTaskIDs, id: \.self) { taskID in
-              TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
+              TaskReferenceChip(taskID: taskID, task: taskReferences[taskID], onOpen: onTask)
             }
           }
           .padding(.vertical, attachedTaskIDs.isEmpty ? 0 : 3)
@@ -265,7 +266,7 @@ struct ChatMessageView: View {
         avatarActivity: avatarActivity,
         avatarAnimated: avatarAnimated
       ) {
-        TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
+        TaskReferenceChip(taskID: taskID, task: taskReferences[taskID], onOpen: onTask)
       }
       }
   }

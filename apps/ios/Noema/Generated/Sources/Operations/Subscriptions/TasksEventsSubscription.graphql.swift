@@ -8,8 +8,8 @@ nonisolated public struct TasksEventsSubscription: GraphQLSubscription {
   public static let operationName: String = "TasksEvents"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"subscription TasksEvents($workspaceId: String!, $after: String) { tasksEvents(workspaceId: $workspaceId, after: $after) { __typename ...TasksEventFields } }"#,
-      fragments: [TasksEventFields.self]
+      #"subscription TasksEvents($workspaceId: String!, $after: String) { tasksEvents(workspaceId: $workspaceId, after: $after) { __typename ...TasksEventFields task { __typename ...TasksTaskReferenceSummaryFields } } }"#,
+      fragments: [TasksEventFields.self, TasksTaskReferenceSummaryFields.self]
     ))
 
   public var workspaceId: String
@@ -56,6 +56,7 @@ nonisolated public struct TasksEventsSubscription: GraphQLSubscription {
       @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TasksEvent }
       @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
         .field("__typename", String.self),
+        .field("task", Task?.self),
         .fragment(TasksEventFields.self),
       ] }
       @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
@@ -63,6 +64,8 @@ nonisolated public struct TasksEventsSubscription: GraphQLSubscription {
         TasksEventFields.self
       ] }
 
+      /// Current task summary when this event has a task.
+      public var task: Task? { __data["task"] }
       /// Opaque global event cursor.
       public var cursor: String { __data["cursor"] }
       /// Event identity.
@@ -93,6 +96,50 @@ nonisolated public struct TasksEventsSubscription: GraphQLSubscription {
         @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
 
         public var tasksEventFields: TasksEventFields { _toFragment() }
+      }
+
+      /// TasksEvents.Task
+      ///
+      /// Parent Type: `TaskSummary`
+      nonisolated public struct Task: NoemaAPI.SelectionSet {
+        @_spi(Unsafe) public let __data: DataDict
+        @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+        @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TaskSummary }
+        @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+          .field("__typename", String.self),
+          .fragment(TasksTaskReferenceSummaryFields.self),
+        ] }
+        @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+          TasksEventsSubscription.Data.TasksEvents.Task.self,
+          TasksTaskReferenceSummaryFields.self
+        ] }
+
+        /// Task identity.
+        public var taskId: String { __data["taskId"] }
+        /// Human title.
+        public var title: String { __data["title"] }
+        /// The only task-level state.
+        public var stage: Stage { __data["stage"] }
+        /// Completion timestamp, when any.
+        public var completedAt: String? { __data["completedAt"] }
+        /// Current run projection.
+        public var currentRun: CurrentRun? { __data["currentRun"] }
+        /// Derived attention.
+        public var attention: Attention? { __data["attention"] }
+
+        public struct Fragments: FragmentContainer {
+          @_spi(Unsafe) public let __data: DataDict
+          @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+          public var tasksTaskReferenceSummaryFields: TasksTaskReferenceSummaryFields { _toFragment() }
+        }
+
+        public typealias Stage = TasksTaskReferenceSummaryFields.Stage
+
+        public typealias CurrentRun = TasksTaskReferenceSummaryFields.CurrentRun
+
+        public typealias Attention = TasksTaskReferenceSummaryFields.Attention
       }
     }
   }

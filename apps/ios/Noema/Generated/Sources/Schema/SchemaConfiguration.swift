@@ -12,6 +12,12 @@ nonisolated public enum SchemaConfiguration: ApolloAPI.SchemaConfiguration {
     switch type {
     case Objects.TaskDetail:
       return try? CacheKeyInfo(jsonValue: object["taskId"])
+    case Objects.TaskSummary:
+      return try? CacheKeyInfo(jsonValue: object["taskId"])
+    case Objects.WorkflowStage:
+      return try? CacheKeyInfo(jsonValue: object["stageId"])
+    case Objects.CurrentRunSummary:
+      return try? CacheKeyInfo(jsonValue: object["runId"])
     default:
       return nil
     }

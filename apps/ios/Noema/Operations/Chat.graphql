@@ -51,7 +51,10 @@ fragment NativeConversationItemFields on ConversationItem {
       downloadUrl
       mediaType
     }
-    ... on TaskReference { taskId }
+    ... on TaskReference {
+      taskId
+      task { ...TasksTaskReferenceSummaryFields }
+    }
   }
 }
 
@@ -238,7 +241,10 @@ subscription ConversationEvents($conversationId: String!) {
           downloadUrl
           mediaType
         }
-        ... on TaskReference { taskId }
+        ... on TaskReference {
+          taskId
+          task { ...TasksTaskReferenceSummaryFields }
+        }
       }
     }
     ... on AssistantTextDeltaEvent {

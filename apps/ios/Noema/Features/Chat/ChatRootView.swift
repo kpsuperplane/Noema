@@ -513,6 +513,7 @@ struct ChatReadyView: View {
         profile: model.profile,
         message: message,
         attachedTaskIDs: taskIDs,
+        taskReferences: model.taskReferences,
         group: group,
         showAvatar: showAvatar,
         avatarActivity: avatarActivity,
@@ -547,7 +548,11 @@ struct ChatReadyView: View {
         avatarAnimated: avatarAnimated,
         compactContentInset: 0
       ) {
-        TaskReferenceChip(client: model.client, taskID: taskID, onOpen: { selectedTaskID = $0 })
+        TaskReferenceChip(
+          taskID: taskID,
+          task: model.taskReferences[taskID],
+          onOpen: { selectedTaskID = $0 }
+        )
       }
     case let .toolMarkers(_, messages):
       ChatLaneRow(

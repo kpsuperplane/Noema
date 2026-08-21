@@ -1,24 +1,19 @@
 import AVFoundation
 import Foundation
-import Apollo
-import NoemaAPI
 import SwiftUI
 import UIKit
 
 private let chatVoiceCoordinateSpace = "chat-voice-composer"
 
 struct TaskReferenceChip: View {
-  let client: ApolloClient?
   let taskID: String
+  let task: ChatTaskReferenceModel?
   let onOpen: ((String) -> Void)?
   @Environment(NoemaShellCoordinator.self) private var coordinator
-  @State private var title = "Loading task…"
-  @State private var status = "UNKNOWN"
-  @State private var progress = "Loading"
 
-  init(client: ApolloClient?, taskID: String, onOpen: ((String) -> Void)? = nil) {
-    self.client = client
+  init(taskID: String, task: ChatTaskReferenceModel?, onOpen: ((String) -> Void)? = nil) {
     self.taskID = taskID
+    self.task = task
     self.onOpen = onOpen
   }
 
@@ -50,53 +45,11 @@ struct TaskReferenceChip: View {
     .buttonStyle(.plain)
     .contentShape(.interaction, NoemaSuperellipse.full.inset(by: -NoemaSpacing.sm))
     .accessibilityLabel("Open task: \(title), \(progress)")
-    .task(id: taskID) { await observeTask() }
   }
 
-  private func observeTask() async {
-    await loadTask()
-    guard let client else { return }
-    do {
-      let stream = try client.recoveringSubscribe(
-        subscription: TasksTaskEventsSubscription(taskId: taskID, after: .none)
-      )
-      for try await response in stream {
-        guard !Task.isCancelled, response.data?.taskEvents.taskId == taskID else { continue }
-        await loadTask()
-      }
-    } catch {
-      // The shared transport reconnect path refetches chat; keep the last readable task projection.
-    }
-  }
-
-  private func loadTask() async {
-    guard let client else { return }
-    do {
-      let response = try await client.fetchNetworkFirst(query: TasksDetailCoreQuery(taskId: taskID))
-      let task = response.data?.task.fragments.tasksCommandTaskFields
-      title = task?.title ?? "Task unavailable"
-      if task == nil {
-        status = "UNAVAILABLE"
-        progress = "Unavailable"
-      } else if task?.completedAt != nil {
-        status = "DONE"
-        progress = "Completed"
-      } else if task?.activeGate != nil {
-        status = "ATTENTION"
-        progress = task?.activeGate?.prompt ?? "Waiting for you"
-      } else if task?.currentRun != nil {
-        status = "ACTIVE"
-        progress = task?.currentRun?.activityLabel ?? "Running"
-      } else {
-        status = task?.stage.behavior.rawValue ?? "UNKNOWN"
-        progress = task?.stage.name ?? "Unavailable"
-      }
-    } catch {
-      title = "Task unavailable"
-      status = "UNAVAILABLE"
-      progress = "Unavailable"
-    }
-  }
+  private var title: String { task?.title ?? "Task unavailable" }
+  private var status: String { task?.status ?? "UNAVAILABLE" }
+  private var progress: String { task?.progress ?? "Unavailable" }
 
   private var statusSymbol: String {
     switch status {

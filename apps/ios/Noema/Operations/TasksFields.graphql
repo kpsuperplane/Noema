@@ -62,6 +62,25 @@ fragment TasksCurrentRunFields on CurrentRunSummary {
   activityLabel
 }
 
+fragment TasksTaskReferenceSummaryFields on TaskSummary {
+  taskId
+  title
+  stage {
+    stageId
+    name
+    behavior
+  }
+  completedAt
+  currentRun {
+    runId
+    kind
+    activityLabel
+  }
+  attention {
+    title
+  }
+}
+
 fragment TasksTaskCardFields on TaskCard {
   taskId
   workspace { ...TasksWorkspaceFields }

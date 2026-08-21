@@ -8,7 +8,8 @@ nonisolated public struct ConversationEventsSubscription: GraphQLSubscription {
   public static let operationName: String = "ConversationEvents"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"subscription ConversationEvents($conversationId: String!) { conversationEvents(conversationId: $conversationId) { __typename ... on SubscriptionReadyEvent { conversationId } ... on HumanInterventionsChangedEvent { conversationId } ... on ConversationItemEvent { conversationId clientMessageId itemId cursor itemTurnId: turnId metadata item { __typename ... on UserText { text } ... on AssistantText { text } ... on Activity { id activityKind status title summary metadata } ... on A2UISurface { id interactionId surfaceId version revision interactionRevision lifecycle catalog snapshot hasActions } ... on MultipleChoicePrompt { prompt selectionMode options { __typename id label } } ... on MultipleChoiceSelection { promptItemId selectionMode selectedOptions { __typename id label } } ... on ErrorNotice { message recoverable } ... on ArtifactReference { artifactId artifactVersionId title artifactKind storageKind externalUrl downloadUrl mediaType } ... on TaskReference { taskId } } } ... on AssistantTextDeltaEvent { conversationId deltaTurnId: turnId streamId responseIndex delta } ... on AgentStatusEvent { conversationId status } ... on TurnCompletedEvent { conversationId clientMessageId } } }"#
+      #"subscription ConversationEvents($conversationId: String!) { conversationEvents(conversationId: $conversationId) { __typename ... on SubscriptionReadyEvent { conversationId } ... on HumanInterventionsChangedEvent { conversationId } ... on ConversationItemEvent { conversationId clientMessageId itemId cursor itemTurnId: turnId metadata item { __typename ... on UserText { text } ... on AssistantText { text } ... on Activity { id activityKind status title summary metadata } ... on A2UISurface { id interactionId surfaceId version revision interactionRevision lifecycle catalog snapshot hasActions } ... on MultipleChoicePrompt { prompt selectionMode options { __typename id label } } ... on MultipleChoiceSelection { promptItemId selectionMode selectedOptions { __typename id label } } ... on ErrorNotice { message recoverable } ... on ArtifactReference { artifactId artifactVersionId title artifactKind storageKind externalUrl downloadUrl mediaType } ... on TaskReference { taskId task { __typename ...TasksTaskReferenceSummaryFields } } } } ... on AssistantTextDeltaEvent { conversationId deltaTurnId: turnId streamId responseIndex delta } ... on AgentStatusEvent { conversationId status } ... on TurnCompletedEvent { conversationId clientMessageId } } }"#,
+      fragments: [TasksTaskReferenceSummaryFields.self]
     ))
 
   public var conversationId: String
@@ -479,6 +480,7 @@ nonisolated public struct ConversationEventsSubscription: GraphQLSubscription {
             @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TaskReference }
             @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
               .field("taskId", String.self),
+              .field("task", Task?.self),
             ] }
             @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
               ConversationEventsSubscription.Data.ConversationEvents.AsConversationItemEvent.Item.self,
@@ -487,6 +489,52 @@ nonisolated public struct ConversationEventsSubscription: GraphQLSubscription {
 
             /// Stable task id.
             public var taskId: String { __data["taskId"] }
+            /// Current task summary for this reference.
+            public var task: Task? { __data["task"] }
+
+            /// ConversationEvents.AsConversationItemEvent.Item.AsTaskReference.Task
+            ///
+            /// Parent Type: `TaskSummary`
+            nonisolated public struct Task: NoemaAPI.SelectionSet {
+              @_spi(Unsafe) public let __data: DataDict
+              @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+              @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TaskSummary }
+              @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+                .field("__typename", String.self),
+                .fragment(TasksTaskReferenceSummaryFields.self),
+              ] }
+              @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+                ConversationEventsSubscription.Data.ConversationEvents.AsConversationItemEvent.Item.AsTaskReference.Task.self,
+                TasksTaskReferenceSummaryFields.self
+              ] }
+
+              /// Task identity.
+              public var taskId: String { __data["taskId"] }
+              /// Human title.
+              public var title: String { __data["title"] }
+              /// The only task-level state.
+              public var stage: Stage { __data["stage"] }
+              /// Completion timestamp, when any.
+              public var completedAt: String? { __data["completedAt"] }
+              /// Current run projection.
+              public var currentRun: CurrentRun? { __data["currentRun"] }
+              /// Derived attention.
+              public var attention: Attention? { __data["attention"] }
+
+              public struct Fragments: FragmentContainer {
+                @_spi(Unsafe) public let __data: DataDict
+                @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+                public var tasksTaskReferenceSummaryFields: TasksTaskReferenceSummaryFields { _toFragment() }
+              }
+
+              public typealias Stage = TasksTaskReferenceSummaryFields.Stage
+
+              public typealias CurrentRun = TasksTaskReferenceSummaryFields.CurrentRun
+
+              public typealias Attention = TasksTaskReferenceSummaryFields.Attention
+            }
           }
         }
       }

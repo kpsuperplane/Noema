@@ -41,6 +41,32 @@ struct ChatTaskAttentionModel: Equatable {
   let validActions: Set<String>
 }
 
+struct ChatTaskReferenceModel: Equatable {
+  let title: String
+  let status: String
+  let progress: String
+
+  init(_ source: NoemaAPI.TasksTaskReferenceSummaryFields) {
+    title = source.title
+    if source.completedAt != nil || source.stage.behavior.rawValue == "TERMINAL_SUCCESS" {
+      status = "DONE"
+    } else if source.attention != nil || source.stage.behavior.rawValue == "HUMAN_GATE" {
+      status = "ATTENTION"
+    } else {
+      status = source.stage.behavior.rawValue
+    }
+    if let attention = source.attention?.title {
+      progress = attention
+    } else if source.completedAt != nil {
+      progress = "Completed"
+    } else if let currentRun = source.currentRun {
+      progress = currentRun.activityLabel
+    } else {
+      progress = source.stage.name
+    }
+  }
+}
+
 struct ChatMessage: Identifiable, Equatable {
   let id: String
   var cursor: String?
@@ -99,6 +125,7 @@ final class ChatModel {
   private(set) var errorMessage: String?
   private(set) var interventions: [ChatIntervention] = []
   private(set) var interventionErrors: [String: String] = [:]
+  private(set) var taskReferences: [String: ChatTaskReferenceModel] = [:]
   private(set) var dismissedAdapterSetupDigests = Set<String>()
   @ObservationIgnored private var draftGeneration = 0
   var draft = "" {
@@ -133,6 +160,7 @@ final class ChatModel {
   let connectionStatus: NoemaConnectionStatus?
   let onboarding: OnboardingModel?
   private var subscriptionTask: Task<Void, Never>?
+  private var taskSubscriptionTask: Task<Void, Never>?
   private var transcriptRefreshTask: Task<Bool, Never>?
   private var knownItemIDs = Set<String>()
   private var knownCursors = Set<String>()
@@ -210,6 +238,7 @@ final class ChatModel {
       phase = .ready
       await refreshInterventions(client: client)
       startSubscription(client: client, conversationID: primary.conversationId)
+      startTaskSubscription(client: client)
     } catch {
       NoemaDiagnosticTrace.shared.record(category: "chat", event: "start_failed", error: error)
       errorMessage = error.localizedDescription
@@ -788,6 +817,33 @@ final class ChatModel {
     }
   }
 
+  private func startTaskSubscription(client: ApolloClient) {
+    taskSubscriptionTask?.cancel()
+    taskSubscriptionTask = Task { [weak self] in
+      do {
+        let stream = try client.recoveringSubscribe(
+          subscription: NoemaAPI.TasksEventsSubscription(
+            workspaceId: TasksModel.personalWorkspaceId,
+            after: .none
+          )
+        )
+        for try await response in stream {
+          guard let source = response.data?.tasksEvents.task?.fragments.tasksTaskReferenceSummaryFields else {
+            continue
+          }
+          self?.apply(taskReference: source)
+        }
+      } catch {
+        guard !Task.isCancelled else { return }
+        NoemaDiagnosticTrace.shared.record(category: "chat", event: "task_subscription_failed", error: error)
+      }
+    }
+  }
+
+  private func apply(taskReference source: NoemaAPI.TasksTaskReferenceSummaryFields) {
+    taskReferences[source.taskId] = ChatTaskReferenceModel(source)
+  }
+
   private func apply(_ event: NoemaAPI.ConversationEventsSubscription.Data.ConversationEvents) async {
     if let item = event.asConversationItemEvent {
       NoemaDiagnosticTrace.shared.record(
@@ -1012,7 +1068,12 @@ final class ChatModel {
         mediaType: value.mediaType
       ))
     }
-    if let value = item.asTaskReference { return .task(value.taskId) }
+    if let value = item.asTaskReference {
+      if let source = value.task?.fragments.tasksTaskReferenceSummaryFields {
+        apply(taskReference: source)
+      }
+      return .task(value.taskId)
+    }
     return .error(message: "Noema returned an unsupported transcript item.", recoverable: false)
   }
 
@@ -1087,7 +1148,12 @@ final class ChatModel {
         mediaType: value.mediaType
       ))
     }
-    if let value = item.asTaskReference { return .task(value.taskId) }
+    if let value = item.asTaskReference {
+      if let source = value.task?.fragments.tasksTaskReferenceSummaryFields {
+        apply(taskReference: source)
+      }
+      return .task(value.taskId)
+    }
     return .error(message: "Noema returned an unsupported transcript item.", recoverable: false)
   }
 

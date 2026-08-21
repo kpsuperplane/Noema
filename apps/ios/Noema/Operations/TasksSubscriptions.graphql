@@ -1,6 +1,7 @@
 subscription TasksEvents($workspaceId: String!, $after: String) {
   tasksEvents(workspaceId: $workspaceId, after: $after) {
     ...TasksEventFields
+    task { ...TasksTaskReferenceSummaryFields }
   }
 }
 
