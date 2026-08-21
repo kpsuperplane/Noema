@@ -208,7 +208,7 @@ pub(crate) fn primary_task_tool_specs()
         (TASK_RECURRENCE_SKIP_NEXT_TOOL, "Skip the next exact recurring slot.", recurrence_fenced_schema()),
         (TASK_RECURRENCE_END_TOOL, "End all future recurrence without changing active work.", recurrence_fenced_schema()),
         (TASK_RUN_RECURRENCE_NOW_TOOL, "Create and start one extra occurrence now without advancing the next scheduled run. This is unavailable while another occurrence is nonterminal.", recurrence_fenced_schema()),
-        (TASK_DELEGATE_TOOL, "Atomically capture and authorize autonomous Work. Preserve the human's requested outcome, scope, and delivery depth in the title and Task document. Do not add optional deliverables. Projects are optional. Use complexity_hint only when execution_intent is omitted.", json!({"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"task_document":{"type":"string","minLength":1,"maxLength":65536},"project":{"description":"Explicit project placement. Choose none for a projectless task, or existing with an exact project_id returned by project.list.","oneOf":[{"type":"object","properties":{"kind":{"type":"string","enum":["none"]}},"required":["kind"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","enum":["existing"]},"project_id":{"type":"string","minLength":1,"maxLength":255}},"required":["kind","project_id"],"additionalProperties":false}]},"executor_agent_id":{"type":"string","minLength":1,"maxLength":255},"cwd_override":{"type":"string","minLength":1,"maxLength":4096},"complexity_hint":{"type":"string","description":"Planner selection hint. Omit when execution_intent is provided.","enum":["simple","medium","difficult"]},"execution_intent":{"type":"object","description":"Complete execution intent that skips planning. Omit complexity_hint when provided.","properties":{"request_markdown":{"type":"string","minLength":1,"maxLength":20000},"complexity":{"type":"string","enum":["simple","medium","difficult"]}},"required":["request_markdown","complexity"],"additionalProperties":false}},"required":["title","task_document","project"],"additionalProperties":false})),
+        (TASK_DELEGATE_TOOL, "Capture and authorize one autonomous Task. Preserve the human's requested outcome, scope, and delivery depth in the title and Task document. Normally structure the Task document with `## Objective`, `## Requirements`, and `## Expected result`. Omit empty or irrelevant sections. Do not add optional deliverables. Projects are optional. Use complexity_hint only when execution_intent is omitted.", json!({"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"task_document":{"type":"string","minLength":1,"maxLength":65536},"project":{"description":"Explicit project placement. Choose none for a projectless task, or existing with an exact project_id returned by project.list.","oneOf":[{"type":"object","properties":{"kind":{"type":"string","enum":["none"]}},"required":["kind"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","enum":["existing"]},"project_id":{"type":"string","minLength":1,"maxLength":255}},"required":["kind","project_id"],"additionalProperties":false}]},"executor_agent_id":{"type":"string","minLength":1,"maxLength":255},"cwd_override":{"type":"string","minLength":1,"maxLength":4096},"complexity_hint":{"type":"string","description":"Planner selection hint. Omit when execution_intent is provided.","enum":["simple","medium","difficult"]},"execution_intent":{"type":"object","description":"Complete execution intent that skips planning. Omit complexity_hint when provided.","properties":{"request_markdown":{"type":"string","minLength":1,"maxLength":20000},"complexity":{"type":"string","enum":["simple","medium","difficult"]}},"required":["request_markdown","complexity"],"additionalProperties":false}},"required":["title","task_document","project"],"additionalProperties":false})),
         (TASK_ANSWER_TOOL, "Answer the exact active_gate returned by task.list. This resolves only that occurrence and never edits future recurring authority.", json!({"type":"object","properties":{"task_id":{"type":"string"},"gate_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"answer_markdown":{"type":"string","minLength":1,"maxLength":20000},"approval_decision":{"type":"string","enum":["approved","declined"]}},"required":["task_id","gate_id","expected_revision","expected_generation","answer_markdown"],"additionalProperties":false})),
         (TASK_RETRY_TOOL, "Retry the explicitly named eligible Recovery gate.", json!({"type":"object","properties":{"task_id":{"type":"string"},"gate_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"retry_note":{"type":"string","maxLength":4000}},"required":["task_id","gate_id","expected_revision","expected_generation"],"additionalProperties":false})),
         (TASK_CANCEL_TOOL, "Cancel a nonterminal task and fence active work.", json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"reason":{"type":"string","maxLength":4000}},"required":["task_id","expected_revision","expected_generation"],"additionalProperties":false})),
@@ -365,6 +365,29 @@ pub(crate) fn task_file_delete_tool_spec() -> Result<ToolSpec, noema_capabilitie
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn delegation_hints_flexible_task_document_sections() {
+        let tools = primary_task_tool_specs().expect("primary Task tools");
+        let delegate = tools
+            .iter()
+            .find(|tool| tool.name.as_str() == TASK_DELEGATE_TOOL)
+            .expect("delegation tool");
+
+        for heading in [
+            "`## Objective`",
+            "`## Requirements`",
+            "`## Expected result`",
+        ] {
+            assert!(delegate.description.contains(heading));
+        }
+        assert!(!delegate.description.contains("`# "));
+        assert!(
+            delegate
+                .description
+                .contains("Omit empty or irrelevant sections")
+        );
+    }
 
     #[test]
     fn executor_finish_schema_contains_no_task_content() {
