@@ -177,9 +177,8 @@ The Tasks list reads recurring authorities directly. A recurrence remains in
 Scheduled when all of its Task instances are terminal. Instances provide run
 history and do not control recurrence visibility.
 
-Memory articles keep prose primary. One plain superscript number represents one
-nearby claim. One Sources icon follows the article and opens the complete
-Sources view. Each citation group shows every exact evidence source with type,
+Memory articles keep prose primary. One numeric citation represents one nearby
+claim. Its hover or focus card shows every exact evidence source with type,
 date, excerpt, and identifier.
 
 Web and iOS use one provider citation contract for Chat messages and completed

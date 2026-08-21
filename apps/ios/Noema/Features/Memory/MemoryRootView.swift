@@ -97,7 +97,7 @@ private struct MemoryArticleView: View {
   let model: MemoryModel
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @State private var sourcesPresented = false
+  @State private var selectedCitation: MemoryCitation?
 
   var body: some View {
     ScrollViewReader { proxy in
@@ -131,11 +131,16 @@ private struct MemoryArticleView: View {
         .padding(.bottom, NoemaSpacing.lg)
       }
       .tracksNoemaSurfaceTop(for: .memory)
+      .environment(\.openURL, OpenURLAction { url in
+        guard url.scheme == "noema-citation", let number = url.host else { return .systemAction }
+        selectedCitation = citation(number: number)
+        return .handled
+      })
     }
     .background(NoemaColor.surface)
     .scrollContentBackground(.hidden)
-    .noemaSheet(isPresented: $sourcesPresented) {
-      MemoryCitationSheet(citations: model.article?.citations ?? [])
+    .noemaSheet(item: $selectedCitation) { citation in
+      MemoryCitationSheet(citation: citation)
     }
   }
 
@@ -176,12 +181,6 @@ private struct MemoryArticleView: View {
         memoryBody(content: prepared.content, sections: sections)
       }
 
-      if !article.citations.isEmpty {
-        CitationSourcesButton(hostnames: [], profile: nil) {
-          sourcesPresented = true
-        }
-      }
-
       if !article.children.isEmpty {
         MemoryRelatedPages(pages: article.children) { pageID in
           Task { await model.select(pageID: pageID) }
@@ -205,6 +204,11 @@ private struct MemoryArticleView: View {
     }
   }
 
+  private func citation(number: String) -> MemoryCitation? {
+    guard let index = Int(number).map({ $0 - 1 }), index >= 0, let article = model.article else { return nil }
+    guard article.citations.indices.contains(index) else { return nil }
+    return article.citations[index]
+  }
 }
 
 /// SwiftUI has no text float primitive. This preserves the web geometry at
@@ -310,38 +314,28 @@ private struct MemoryContents: View {
 }
 
 private struct MemoryCitationSheet: View {
-  let citations: [MemoryCitation]
+  let citation: MemoryCitation
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
-    NoemaNativeSheet(title: "Sources", onDismiss: { dismiss() }) {
+    NoemaNativeSheet(title: "Why Noema remembers this", onDismiss: { dismiss() }) {
       ScrollView {
         VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-          ForEach(citations) { citation in
-            VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-              Text("Citation \(citation.id)")
-                .font(NoemaFont.metadata.weight(.semibold))
-                .foregroundStyle(NoemaColor.clay600)
-              ForEach(citation.sources) { source in
-                VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-                  Text("“\(source.excerpt ?? "This source is no longer available.")”")
-                    .font(NoemaFont.article)
-                    .foregroundStyle(NoemaColor.content)
-                    .fixedSize(horizontal: false, vertical: true)
-                  Text(sourceMetadata(source))
-                    .font(NoemaFont.caption)
-                    .foregroundStyle(NoemaColor.contentSecondary)
-                  Text(source.id)
-                    .font(NoemaFont.caption.monospaced())
-                    .foregroundStyle(NoemaColor.contentTertiary)
-                    .textSelection(.enabled)
-                }
-                if source.id != citation.sources.last?.id {
-                  Divider()
-                }
-              }
+          ForEach(citation.sources) { source in
+            VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+              Text("“\(source.excerpt ?? "This source is no longer available.")”")
+                .font(NoemaFont.article)
+                .foregroundStyle(NoemaColor.content)
+                .fixedSize(horizontal: false, vertical: true)
+              Text(sourceMetadata(source))
+                .font(NoemaFont.caption)
+                .foregroundStyle(NoemaColor.contentSecondary)
+              Text(source.id)
+                .font(NoemaFont.caption.monospaced())
+                .foregroundStyle(NoemaColor.contentTertiary)
+                .textSelection(.enabled)
             }
-            if citation.id != citations.last?.id {
+            if source.id != citation.sources.last?.id {
               Divider()
             }
           }
@@ -502,9 +496,10 @@ private enum MemoryMarkdown {
     for citation in citations {
       let token = "[^\(citation.id)]"
       if content.contains(token) {
+        let number = citation.id
         content = content.replacingOccurrences(
           of: token,
-          with: citationSuperscript(citation.id)
+          with: " [\\[\(number)\\]](noema-citation://\(number))"
         )
       }
     }

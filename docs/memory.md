@@ -35,10 +35,10 @@ Current implementation direction:
   project validation, and external research stay with their live objects,
   Tasks, projects, documents, or artifacts. Human memory stores stable human
   facts, preferences, relationships, and durable decisions.
-- Article citations render as plain superscript reference numbers. One Sources
-  icon follows the article and opens the complete Sources view. Each citation
-  group shows the evidence type, date, bounded excerpt, and exact source
-  identifier for every source. There is no separate references appendix.
+- Article citations render as superscript reference numbers. Each hover or
+  focus card shows the evidence type, date, bounded excerpt, and exact source
+  identifier for every source in that citation group. There is no separate
+  references appendix.
 - Filesystem-derived child pages appear as compact Related Articles cards using
   their lead excerpts. Each card is a real link to the filesystem-derived
   `/memory/<article-path>` route; stable ids and relative paths remain valid API
