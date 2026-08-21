@@ -153,10 +153,11 @@ a[href][data-slot="shell-sidebar-control"] {
 }
 
 [data-slot="task-document"] .astryx-table-scroll-wrapper {
-  width: fit-content;
-  min-width: min(760px, calc(100% - var(--spacing-6) - var(--spacing-6)));
-  max-width: calc(100% - var(--spacing-6) - var(--spacing-6));
-  margin-inline: auto;
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  margin-inline: 0 !important;
+  overflow-x: visible !important;
 }
 
 .astryx-markdown .astryx-table-header-cell {
@@ -165,6 +166,20 @@ a[href][data-slot="shell-sidebar-control"] {
 
 .astryx-markdown .astryx-table-cell {
   vertical-align: top !important;
+}
+
+[data-slot="task-workspace-files"] .astryx-tree-list-item {
+  cursor: default !important;
+  margin-inline-end: var(--spacing-2) !important;
+  margin-block-end: var(--spacing-1) !important;
+}
+
+[data-slot="task-workspace-files"] [data-tree-level="1"] > div > .astryx-tree-list-item {
+  margin-inline-start: var(--spacing-2) !important;
+}
+
+[data-slot="task-workspace-files"]::-webkit-scrollbar {
+  display: none;
 }
 
 .noema-markdown

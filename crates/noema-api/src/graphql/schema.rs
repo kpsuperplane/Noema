@@ -103,8 +103,9 @@ use super::{
         GraphqlTaskListInput, GraphqlTaskModelPoolEntry, GraphqlTaskModelPoolEntryInput,
         GraphqlTaskOverview, GraphqlTaskRecurrence, GraphqlTaskRecurrenceCommandInput,
         GraphqlTaskRecurrenceSummary, GraphqlTaskRunItemConnection, GraphqlTaskSchedulePreview,
-        GraphqlTaskSchedulePreviewInput, GraphqlTerminalTaskKind, GraphqlUnscheduleTaskInput,
-        GraphqlUpdateInboxTaskInput, GraphqlUpdateProjectInput, GraphqlUpdateTaskRecurrenceInput,
+        GraphqlTaskSchedulePreviewInput, GraphqlTaskWorkspaceFileText, GraphqlTerminalTaskKind,
+        GraphqlUnscheduleTaskInput, GraphqlUpdateInboxTaskInput, GraphqlUpdateProjectInput,
+        GraphqlUpdateTaskRecurrenceInput,
     },
     usage_settings::{self, GraphqlSaveToolProgressAuditPreferenceInput, GraphqlUsageSettings},
     web_fetch_settings::{

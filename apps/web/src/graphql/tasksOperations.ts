@@ -102,6 +102,12 @@ export const TasksTaskDetailDocument = gql`
       resultDocument
       resultMetadata
       reviewDocument
+      workspaceFiles {
+        path
+        isDirectory
+        sizeBytes
+      }
+      workspaceFilesTruncated
       attention {
         kind
         title
@@ -126,6 +132,15 @@ export const TasksTaskDetailDocument = gql`
   ${TasksProjectFields}
   ${TasksRunFields}
   ${HumanInterventionFields}
+`;
+
+export const TasksTaskWorkspaceFileDocument = gql`
+  query TasksTaskWorkspaceFile($taskId: String!, $path: String!) {
+    taskWorkspaceFile(taskId: $taskId, path: $path) {
+      path
+      content
+    }
+  }
 `;
 
 export const TasksTaskRunItemsDocument = gql`

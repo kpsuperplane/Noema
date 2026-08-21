@@ -134,6 +134,8 @@ function mapTaskDetail(task: TasksDetail): TaskDetail {
     resultDocument: task.resultDocument,
     resultMetadata: task.resultMetadata,
     reviewDocument: task.reviewDocument,
+    workspaceFiles: task.workspaceFiles,
+    workspaceFilesTruncated: task.workspaceFilesTruncated,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     sourceLabel: sourceLabel(task),

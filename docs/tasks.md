@@ -310,7 +310,8 @@ Completion notices read the current Task files.
 ## API and clients
 
 GraphQL exposes bounded Task reads, operational runs, transcript activity, semantic mutations, and a cursor-based event subscription.
-Task detail exposes current `TASK.md`, optional `RESULT.md`, and optional `REVIEW.md` content.
+Task detail exposes current `TASK.md`, optional `RESULT.md`, optional `REVIEW.md`, and a bounded recursive working-directory manifest.
+It reads one selected UTF-8 file through the existing Task path boundary.
 It does not expose removed content histories or snapshots.
 
 Clients use generated GraphQL types and server-owned valid actions.
@@ -318,9 +319,11 @@ They do not mirror stage transitions.
 After reconnect, clients refetch current state and use events for invalidation.
 
 The Task surface remains task-first and dense.
-Task detail shows `Result`, `Task`, and `Transcript` in that order when a result exists.
-It omits `Result` when `RESULT.md` is absent or blank.
-An initial Task opening defaults to `Result` when available and to `Task` otherwise.
+Task detail shows `Workspace` and `Transcript`.
+Workspace lists the current Task directory and previews the selected UTF-8 file.
+A completed Task defaults to `RESULT.md`.
+Another Task defaults to `TASK.md`.
+If a Task completes while `TASK.md` is selected, the client selects `RESULT.md` once.
 Human decisions remain visible until resolution.
 Internal operational data stays behind progressive disclosure.
 
@@ -350,6 +353,6 @@ The current scope excludes:
 - workspace administration;
 - collaboration and assignment;
 - dependencies and subtasks;
-- a Task file browser;
+- binary Task file previews;
 - checklist-specific state;
 - Markdown parsing into a second progress model.

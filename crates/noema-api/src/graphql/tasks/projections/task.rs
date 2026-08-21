@@ -25,6 +25,17 @@ graphql_object! { "Resolved scheduling preview." => pub struct GraphqlTaskSchedu
     "Up to five future UTC instants." => occurrences: Vec<String>,
 } }
 
+graphql_object! { "One safe entry in the current Task working directory." => pub struct GraphqlTaskWorkspaceFile("TaskWorkspaceFile") {
+    "Path relative to the Task working directory." => path: String,
+    "Whether the entry is a directory." => is_directory: bool,
+    "File size when the entry is a regular file." => size_bytes: Option<i64>,
+} }
+
+graphql_object! { "One bounded UTF-8 file from the current Task working directory." => pub struct GraphqlTaskWorkspaceFileText("TaskWorkspaceFileText") {
+    "Path relative to the Task working directory." => path: String,
+    "Exact UTF-8 text." => content: String,
+} }
+
 graphql_object! { "Immutable recurring slot history." => pub struct GraphqlRecurrenceOccurrence("RecurrenceOccurrence") {
     "Template revision used for this slot." => recurrence_revision: i64,
     "Exact UTC slot." => scheduled_for: String,
@@ -109,6 +120,8 @@ graphql_object! { "Full task detail projection." => pub struct GraphqlTaskDetail
     "Readable current RESULT.md text, when it exists." => result_document: Option<String>,
     "Provider citation metadata for the projected result." => result_metadata: Json<serde_json::Value>,
     "Current mutable REVIEW.md content, when it exists." => review_document: Option<String>,
+    "Bounded recursive manifest of the current Task working directory." => workspace_files: Vec<GraphqlTaskWorkspaceFile>,
+    "Whether the workspace manifest exceeded its safe entry limit." => workspace_files_truncated: bool,
     "The only task-level state." => stage: GraphqlWorkflowStage,
     "Optimistic revision." => revision: i64,
     "Execution generation fence." => generation: i64,

@@ -155,9 +155,11 @@ surface abstraction.
 The web app uses Astryx and StyleX. Generated GraphQL types are the client
 contract; do not add hand-maintained mirrors for generated query shapes.
 
-Task detail reads `Result` from `RESULT.md` and `Task` from `TASK.md`.
-It shows `Result`, `Task`, and `Transcript` in that order when a result exists.
-It omits blank results and never appends `REVIEW.md` to either document view.
+Task detail shows `Workspace` and `Transcript`.
+Workspace lists the current Task directory with Astryx TreeList and previews the selected UTF-8 file.
+A completed Task opens `RESULT.md`; another Task opens `TASK.md`.
+Completion selects `RESULT.md` once when `TASK.md` was open.
+Result previews preserve provider citations.
 
 Web Task creation and Inbox editing use one shared Milkdown Crepe editor.
 Inbox titles and descriptions expose adjacent pencil controls and edit in place without changing the surrounding layout.

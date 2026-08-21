@@ -33,6 +33,7 @@ fn tasks_schema_exposes_semantic_operations_without_task_status_aliases() {
         "tasksActivity",
         "taskHistory",
         "taskRunItems",
+        "taskWorkspaceFile",
         "captureTask",
         "queueTask",
         "scheduleTask",
@@ -151,6 +152,9 @@ fn tasks_schema_exposes_exact_detail_attention_and_closed_vocabularies() {
         "resultDocument: String",
         "resultMetadata: JSON!",
         "reviewDocument: String",
+        "workspaceFiles: [TaskWorkspaceFile!]!",
+        "workspaceFilesTruncated: Boolean!",
+        "taskWorkspaceFile(taskId: String!, path: String!): TaskWorkspaceFileText!",
         "messages: [TaskMessage!]!",
         "runs: [TaskRun!]!",
         "contributorInstanceNames: [String!]!",
@@ -471,6 +475,71 @@ async fn capture_task_returns_authoritative_task_projection() {
             }]
         })
     );
+}
+
+#[tokio::test]
+async fn task_workspace_lists_nested_files_and_rejects_unsafe_reads() {
+    let store = crate::test_support::test_store().await;
+    let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
+    let captured = response_json(
+        schema
+            .execute(
+                r#"mutation {
+                  captureTask(input: {
+                    workspaceId: "workspace:personal"
+                    title: "Inspect workspace"
+                    taskDocument: "Current Task"
+                    clientMutationId: "capture-workspace-files"
+                  }) { task { taskId } }
+                }"#,
+            )
+            .await,
+        "capture workspace Task",
+    );
+    let task_id = noema_tasks::TaskId::new(
+        captured["captureTask"]["task"]["taskId"]
+            .as_str()
+            .expect("Task id")
+            .to_string(),
+    )
+    .expect("valid Task id");
+    store
+        .write_task_file(&task_id, "notes/progress.md", "Nested progress")
+        .await
+        .expect("write support file");
+
+    let workspace = response_json(
+        schema
+            .execute(format!(
+                r#"query {{
+                  task(taskId: "{}") {{
+                    workspaceFiles {{ path isDirectory sizeBytes }}
+                    workspaceFilesTruncated
+                  }}
+                  taskWorkspaceFile(taskId: "{}", path: "notes/progress.md") {{ path content }}
+                }}"#,
+                task_id.as_str(),
+                task_id.as_str(),
+            ))
+            .await,
+        "Task workspace",
+    );
+    let files = workspace["task"]["workspaceFiles"]
+        .as_array()
+        .expect("workspace files");
+    assert!(files.iter().any(|file| file["path"] == "TASK.md"));
+    assert!(files.iter().any(|file| file["path"] == "notes" && file["isDirectory"] == true));
+    assert!(files.iter().any(|file| file["path"] == "notes/progress.md"));
+    assert_eq!(workspace["task"]["workspaceFilesTruncated"], false);
+    assert_eq!(workspace["taskWorkspaceFile"]["content"], "Nested progress");
+
+    let unsafe_read = schema
+        .execute(format!(
+            r#"query {{ taskWorkspaceFile(taskId: "{}", path: "../outside.md") {{ path }} }}"#,
+            task_id.as_str(),
+        ))
+        .await;
+    assert_single_graphql_error(&unsafe_read, "task is unavailable");
 }
 
 #[tokio::test]

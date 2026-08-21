@@ -1,13 +1,20 @@
+use std::{
+    collections::VecDeque,
+    path::{Component, Path},
+};
+
 use async_graphql::Result;
 use noema_store::{
-    ProjectQuery, WorkEventBeforeQuery, WorkEventCursor, WorkOverviewQuery, WorkRunItemCursor,
-    WorkRunItemOwnerScope, WorkRunItemQuery, WorkTaskCursor, WorkTaskQuery,
+    NoemaStore, ProjectQuery, WorkEventBeforeQuery, WorkEventCursor, WorkOverviewQuery,
+    WorkRunItemCursor, WorkRunItemOwnerScope, WorkRunItemQuery, WorkTaskCursor, WorkTaskQuery,
 };
-use noema_tasks::WorkflowStageId;
+use noema_tasks::{TaskId, WorkflowStageId};
 
 use super::*;
 use crate::graphql::schema::GraphqlState;
 use crate::graphql::tasks::*;
+
+const TASK_WORKSPACE_FILE_LIMIT: usize = 500;
 
 pub(in crate::graphql) async fn task_schedule_preview(
     principal_subject: &str,
@@ -140,7 +147,65 @@ pub(in crate::graphql) async fn task(
         .map_err(task_error)?
         .ok_or_else(unavailable)?;
     require_personal_workspace(&detail.workspace.workspace_id)?;
-    detail_from_store(detail)
+    let (workspace_files, workspace_files_truncated) =
+        task_workspace_files(store, &task_id).await?;
+    let mut detail = detail_from_store(detail)?;
+    detail.workspace_files = workspace_files;
+    detail.workspace_files_truncated = workspace_files_truncated;
+    Ok(detail)
+}
+
+/// Resolve one owner-authorized bounded UTF-8 Task workspace file.
+pub(in crate::graphql) async fn task_workspace_file(
+    state: &GraphqlState,
+    principal_subject: &str,
+    task_id: String,
+    path: String,
+) -> Result<GraphqlTaskWorkspaceFileText> {
+    require_owner(principal_subject)?;
+    let task_id = parse_task_id(&task_id)?;
+    if path.is_empty()
+        || Path::new(&path)
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err(unavailable());
+    }
+    require_personal_task(state.store()?, &task_id).await?;
+    let content = state
+        .store()?
+        .read_task_file(&task_id, &path)
+        .await
+        .map_err(|_| unavailable())?;
+    Ok(GraphqlTaskWorkspaceFileText { path, content })
+}
+
+async fn task_workspace_files(
+    store: &NoemaStore,
+    task_id: &TaskId,
+) -> Result<(Vec<GraphqlTaskWorkspaceFile>, bool)> {
+    let mut directories = VecDeque::from([".".to_string()]);
+    let mut files = Vec::new();
+    while let Some(directory) = directories.pop_front() {
+        for entry in store
+            .list_task_files(task_id, &directory)
+            .await
+            .map_err(|_| unavailable())?
+        {
+            if files.len() == TASK_WORKSPACE_FILE_LIMIT {
+                return Ok((files, true));
+            }
+            if entry.is_directory {
+                directories.push_back(entry.path.clone());
+            }
+            files.push(GraphqlTaskWorkspaceFile {
+                path: entry.path,
+                is_directory: entry.is_directory,
+                size_bytes: entry.size_bytes.map(exact_u64).transpose()?,
+            });
+        }
+    }
+    Ok((files, false))
 }
 
 /// Resolve one owner-authorized task card for an embedded intervention.

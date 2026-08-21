@@ -1,19 +1,28 @@
 import * as React from "react";
+import { useQuery } from "@apollo/client/react";
+import { Icon } from "@astryxdesign/core/Icon";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { IconButton } from "@astryxdesign/core/IconButton";
+import { TreeList, type TreeListItemData } from "@astryxdesign/core/TreeList";
 import * as stylex from "@stylexjs/stylex";
-import { Pencil } from "lucide-react";
+import { FileText, Folder, Pencil } from "lucide-react";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { ProviderCitationMarkdown, providerCitationsFromMetadata } from "@/components/transcript/ProviderCitationSources";
-import type { TaskDetail, TaskRunItem } from "./taskTypes";
+import { TasksTaskWorkspaceFileDocument } from "@/generated/graphql";
+import type { TaskDetail, TaskRunItem, TaskWorkspaceFile } from "./taskTypes";
 import { taskStageLabel } from "./TaskOverview";
 import type { TaskRunLatestEntryChange } from "./TaskRunTranscript";
 import { TaskTranscript } from "./TaskTranscript";
 import { TaskDocumentInlineEditor } from "@/components/tasks/TaskMarkdownEditor";
 import type { TaskInlineEditController } from "@/components/tasks/TaskActions";
 
-type TaskTab = "result" | "task" | "transcript";
+const TASK_DOCUMENT_PATH = "TASK.md";
+const TASK_RESULT_PATH = "RESULT.md";
+const TASK_REVIEW_PATH = "REVIEW.md";
+const TASK_TABS = ["workspace", "transcript"] as const;
+type TaskTab = (typeof TASK_TABS)[number];
+
 export function TaskBody({
   detail,
   edit,
@@ -29,26 +38,29 @@ export function TaskBody({
   onLatestRunEntryChange?: TaskRunLatestEntryChange;
   renderContextCard: (showStatus: boolean) => React.ReactNode;
 }) {
-  const hasResult = Boolean(detail.resultDocument?.trim());
-  const tabs = React.useMemo<readonly TaskTab[]>(
-    () => hasResult ? ["result", "task", "transcript"] : ["task", "transcript"],
-    [hasResult]
-  );
   const [tabState, setTabState] = React.useState(() => ({
     taskId: detail.taskId,
-    hasResult,
-    activeTab: (hasResult ? "result" : "task") as TaskTab
+    activeTab: "workspace" as TaskTab
   }));
+  const [workspaceState, setWorkspaceState] = React.useState(() => initialWorkspaceState(detail));
   let activeTab = tabState.activeTab;
+  let selectedPath = workspaceState.selectedPath;
   const swipeOriginRef = React.useRef<{ x: number; y: number } | null>(null);
+  const selectWorkspacePath = React.useCallback((path: string) => {
+    setWorkspaceState((current) => ({ ...current, selectedPath: path }));
+  }, []);
 
-  if (tabState.taskId !== detail.taskId || tabState.hasResult !== hasResult) {
-    activeTab = tabState.taskId !== detail.taskId
-      ? hasResult ? "result" : "task"
-      : activeTab === "result" && !hasResult ? "task" : activeTab;
-    setTabState({ taskId: detail.taskId, hasResult, activeTab });
+  if (tabState.taskId !== detail.taskId) {
+    activeTab = "workspace";
+    setTabState({ taskId: detail.taskId, activeTab });
   }
-  if (edit?.field === "DOCUMENT") activeTab = "task";
+  if (edit?.field === "DOCUMENT") activeTab = "workspace";
+
+  const nextWorkspaceState = reconcileWorkspaceState(workspaceState, detail, edit?.field === "DOCUMENT");
+  if (nextWorkspaceState !== workspaceState) {
+    selectedPath = nextWorkspaceState.selectedPath;
+    setWorkspaceState(nextWorkspaceState);
+  }
 
   function selectTab(tab: TaskTab) {
     setTabState((current) => ({ ...current, activeTab: tab }));
@@ -72,9 +84,9 @@ export function TaskBody({
       return;
     }
 
-    const currentIndex = tabs.indexOf(activeTab);
+    const currentIndex = TASK_TABS.indexOf(activeTab);
     const nextIndex = horizontalDistance < 0 ? currentIndex + 1 : currentIndex - 1;
-    const nextTab = tabs[nextIndex];
+    const nextTab = TASK_TABS[nextIndex];
     if (nextTab) {
       selectTab(nextTab);
     }
@@ -90,8 +102,7 @@ export function TaskBody({
           size="sm"
           value={activeTab}
         >
-          {hasResult ? <Tab label="Result" value="result" /> : null}
-          <Tab label="Task" value="task" />
+          <Tab label="Workspace" value="workspace" />
           <Tab label="Transcript" value="transcript" />
         </TabList>
       </div>
@@ -101,10 +112,13 @@ export function TaskBody({
         onTouchEnd={finishSwipe}
         onTouchCancel={() => { swipeOriginRef.current = null; }}
       >
-        {activeTab === "result" ? (
-          <TaskDocument citations={providerCitationsFromMetadata(detail.resultMetadata)} fileName="RESULT.md" text={detail.resultDocument ?? ""} />
-        ) : activeTab === "task" ? (
-          <TaskDocument detail={detail} edit={edit} fileName="TASK.md" text={detail.taskDocument} />
+        {activeTab === "workspace" ? (
+          <TaskWorkspace
+            detail={detail}
+            edit={edit}
+            selectedPath={selectedPath}
+            onSelectPath={selectWorkspacePath}
+          />
         ) : (
           <div {...stylex.props(styles.transcript)}>
             <TaskTranscript
@@ -119,6 +133,151 @@ export function TaskBody({
       {renderContextCard(activeTab !== "transcript")}
     </section>
   );
+}
+
+function TaskWorkspace({
+  detail,
+  edit,
+  selectedPath,
+  onSelectPath
+}: {
+  detail: TaskDetail;
+  edit?: TaskInlineEditController;
+  selectedPath: string;
+  onSelectPath: (path: string) => void;
+}) {
+  const items = React.useMemo(
+    () => workspaceTreeItems(detail.workspaceFiles, selectedPath, onSelectPath),
+    [detail.workspaceFiles, onSelectPath, selectedPath]
+  );
+  return (
+    <section aria-label="Task workspace" {...stylex.props(styles.workspace)}>
+      <section aria-label={selectedPath} {...stylex.props(styles.fileViewer)}>
+        <TaskWorkspaceFileViewer detail={detail} edit={edit} path={selectedPath} />
+      </section>
+      <aside aria-label="Task files" data-slot="task-workspace-files" {...stylex.props(styles.fileList)}>
+        <TreeList
+          density="compact"
+          items={items}
+          variant="noGuides"
+          xstyle={styles.fileTree}
+        />
+        {detail.workspaceFilesTruncated ? (
+          <p role="status" {...stylex.props(styles.fileListNotice)}>Some files are not shown.</p>
+        ) : null}
+      </aside>
+    </section>
+  );
+}
+
+function TaskWorkspaceFileViewer({ detail, edit, path }: { detail: TaskDetail; edit?: TaskInlineEditController; path: string }) {
+  if (path === TASK_DOCUMENT_PATH) {
+    return <TaskDocument detail={detail} edit={edit} fileName={path} text={detail.taskDocument} />;
+  }
+  if (path === TASK_RESULT_PATH) {
+    return <TaskDocument citations={providerCitationsFromMetadata(detail.resultMetadata)} fileName={path} text={detail.resultDocument ?? ""} />;
+  }
+  if (path === TASK_REVIEW_PATH && detail.reviewDocument != null) {
+    return <WorkspaceTextFile fileName={path} text={detail.reviewDocument} />;
+  }
+  return <TaskWorkspaceSupportFile path={path} taskId={detail.taskId} />;
+}
+
+function TaskWorkspaceSupportFile({ path, taskId }: { path: string; taskId: string }) {
+  const result = useQuery(TasksTaskWorkspaceFileDocument, {
+    variables: { taskId, path },
+    fetchPolicy: "cache-and-network"
+  });
+  const file = result.data?.taskWorkspaceFile;
+  if (!file || file.path !== path) {
+    return <p role="status" {...stylex.props(styles.workspaceStatus)}>{result.error ? "This file cannot be previewed." : "Loading file..."}</p>;
+  }
+  return <WorkspaceTextFile fileName={path} markdown={path.toLowerCase().endsWith(".md")} text={file.content} />;
+}
+
+function WorkspaceTextFile({ fileName, markdown = true, text }: { fileName: string; markdown?: boolean; text: string }) {
+  const content = text.trim() || undefined;
+  return (
+    <div data-slot="task-document" {...stylex.props(styles.taskScroller)}>
+      {content ? markdown ? (
+        <MarkdownContent density="compact" className={stylex.props(styles.taskDescription).className}>{content}</MarkdownContent>
+      ) : (
+        <pre {...stylex.props(styles.plainText)}>{text}</pre>
+      ) : (
+        <p {...stylex.props(styles.empty)}>{fileName} has no text content.</p>
+      )}
+    </div>
+  );
+}
+
+function initialWorkspaceState(detail: TaskDetail) {
+  return {
+    taskId: detail.taskId,
+    resultAvailable: detail.status === "done" && Boolean(detail.resultDocument?.trim()),
+    selectedPath: defaultWorkspacePath(detail)
+  };
+}
+
+function reconcileWorkspaceState(
+  current: ReturnType<typeof initialWorkspaceState>,
+  detail: TaskDetail,
+  editingTaskDocument: boolean
+) {
+  if (current.taskId !== detail.taskId) return initialWorkspaceState(detail);
+  const resultAvailable = detail.status === "done" && Boolean(detail.resultDocument?.trim());
+  const resultArrived = resultAvailable && !current.resultAvailable;
+  const selectedPath = editingTaskDocument
+    ? TASK_DOCUMENT_PATH
+    : resultArrived && current.selectedPath === TASK_DOCUMENT_PATH
+      ? TASK_RESULT_PATH
+      : detail.workspaceFiles.some((file) => !file.isDirectory && file.path === current.selectedPath)
+        ? current.selectedPath
+        : defaultWorkspacePath(detail);
+  if (current.resultAvailable === resultAvailable && current.selectedPath === selectedPath) return current;
+  return { ...current, resultAvailable, selectedPath };
+}
+
+function defaultWorkspacePath(detail: TaskDetail): string {
+  return detail.status === "done" && detail.resultDocument?.trim()
+    ? TASK_RESULT_PATH
+    : TASK_DOCUMENT_PATH;
+}
+
+function workspaceTreeItems(
+  files: readonly TaskWorkspaceFile[],
+  selectedPath: string,
+  onSelectPath: (path: string) => void
+): TreeListItemData[] {
+  const children = new Map<string, TaskWorkspaceFile[]>();
+  for (const file of files) {
+    const separator = file.path.lastIndexOf("/");
+    const parent = separator < 0 ? "" : file.path.slice(0, separator);
+    const siblings = children.get(parent) ?? [];
+    siblings.push(file);
+    children.set(parent, siblings);
+  }
+  const build = (parent: string): TreeListItemData[] => (children.get(parent) ?? [])
+    .sort((left, right) => Number(right.isDirectory) - Number(left.isDirectory) || left.path.localeCompare(right.path))
+    .map((file) => ({
+      id: file.path,
+      label: workspaceFileLabel(file),
+      startContent: <Icon icon={file.isDirectory ? Folder : FileText} color="tertiary" size="sm" />,
+      children: file.isDirectory ? build(file.path) : undefined,
+      isExpanded: file.isDirectory,
+      isSelected: !file.isDirectory && file.path === selectedPath,
+      onClick: file.isDirectory ? undefined : () => onSelectPath(file.path)
+    }));
+  return build("");
+}
+
+function workspaceFileLabel(file: TaskWorkspaceFile): string {
+  const name = file.path.slice(file.path.lastIndexOf("/") + 1);
+  const withoutMarkdownExtension = !file.isDirectory && name.toLowerCase().endsWith(".md")
+    ? name.slice(0, -3)
+    : name;
+  return withoutMarkdownExtension === withoutMarkdownExtension.toUpperCase()
+    ? `${withoutMarkdownExtension.slice(0, 1).toUpperCase()}${withoutMarkdownExtension.slice(1).toLowerCase()}`
+    : withoutMarkdownExtension;
 }
 
 function TaskDocument({ citations = [], detail, edit, fileName, text }: { citations?: Parameters<typeof ProviderCitationMarkdown>[0]["citations"]; detail?: TaskDetail; edit?: TaskInlineEditController; fileName: string; text: string }) {
@@ -218,10 +377,37 @@ const styles = stylex.create({
     "--chat-transcript-top-fade": "var(--spacing-4)",
     "--task-transcript-bottom-inset": "var(--spacing-3)"
   },
+  workspace: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 760px) var(--task-workspace-tree-width) minmax(0, 1fr)",
+    gridTemplateRows: "minmax(0, 1fr)",
+    minWidth: 0,
+    minHeight: 0,
+    height: "100%",
+    "--task-workspace-tree-width": "clamp(120px, 34%, 240px)"
+  },
+  fileList: {
+    gridColumn: "3",
+    gridRow: "1",
+    zIndex: 1,
+    width: "100%",
+    minHeight: 0,
+    height: "100%",
+    paddingBlockStart: "var(--spacing-4)",
+    paddingBlockEnd: "var(--spacing-2)",
+    overflowX: "hidden",
+    overflowY: "auto",
+    scrollbarWidth: "none"
+  },
+  fileTree: { minWidth: 0 },
+  fileListNotice: { margin: "var(--spacing-2) var(--spacing-1) var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: 12 },
+  fileViewer: { gridColumn: "1 / -1", gridRow: "1", width: "100%", minWidth: 0, minHeight: 0, height: "100%", overflow: "hidden" },
+  workspaceStatus: { margin: "var(--spacing-0)", padding: "var(--spacing-4)", color: "var(--noema-text-secondary)", fontSize: 13 },
   taskScroller: {
     height: "100%",
     overflowX: "hidden",
     overflowY: "auto",
+    paddingInlineEnd: "var(--task-workspace-tree-width)",
     paddingBlockStart: "var(--spacing-4)",
     paddingBlockEnd: "var(--spacing-6)"
   },
@@ -229,6 +415,7 @@ const styles = stylex.create({
   editControls: { display: "inline-flex", width: "100%", minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
   editorContent: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto", borderRadius: "var(--radius-element)" },
   taskDescription: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, marginInline: "auto" },
+  plainText: { width: "calc(100% - var(--spacing-6) - var(--spacing-6))", maxWidth: 760, margin: "var(--spacing-0) auto", color: "var(--noema-text-primary)", fontFamily: "var(--noema-font-mono)", fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", overflowWrap: "anywhere" },
   taskContent: {
     display: "grid",
     gap: "var(--spacing-4)",

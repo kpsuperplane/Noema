@@ -107,6 +107,12 @@ export type TaskRevision = {
   latestRunId?: string | null;
 };
 
+export type TaskWorkspaceFile = {
+  path: string;
+  isDirectory: boolean;
+  sizeBytes?: number | null;
+};
+
 export type TaskDetail = {
   taskId: string;
   title: string;
@@ -125,6 +131,8 @@ export type TaskDetail = {
   resultDocument?: string | null;
   resultMetadata?: unknown;
   reviewDocument?: string | null;
+  workspaceFiles: readonly TaskWorkspaceFile[];
+  workspaceFilesTruncated: boolean;
   createdAt?: string | null;
   updatedAt?: string | null;
   createdBy?: string | null;

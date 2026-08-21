@@ -207,6 +207,18 @@ impl QueryRoot {
         tasks::task(state, principal, task_id).await
     }
 
+    /// Return one bounded UTF-8 file from an owner-authorized Task workspace.
+    async fn task_workspace_file(
+        &self,
+        ctx: &Context<'_>,
+        task_id: String,
+        path: String,
+    ) -> Result<GraphqlTaskWorkspaceFileText> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::task_workspace_file(state, principal, task_id, path).await
+    }
+
     /// Preview resolved future schedule instants.
     async fn task_schedule_preview(
         &self,

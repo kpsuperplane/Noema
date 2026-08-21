@@ -134,6 +134,8 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         result_document,
         result_metadata: async_graphql::Json(result_metadata),
         review_document: value.review_document,
+        workspace_files: Vec::new(),
+        workspace_files_truncated: false,
         stage: value.stage.into(),
         revision: exact_u64(value.task.revision)?,
         generation: exact_u64(value.task.generation)?,

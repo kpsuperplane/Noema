@@ -3596,6 +3596,10 @@ type QueryRoot {
 	"""
 	task(taskId: String!): TaskDetail!
 	"""
+	Return one bounded UTF-8 file from an owner-authorized Task workspace.
+	"""
+	taskWorkspaceFile(taskId: String!, path: String!): TaskWorkspaceFileText!
+	"""
 	Preview resolved future schedule instants.
 	"""
 	taskSchedulePreview(input: TaskSchedulePreviewInput!): TaskSchedulePreview!
@@ -4705,6 +4709,14 @@ type TaskDetail {
 	"""
 	reviewDocument: String
 	"""
+	Bounded recursive manifest of the current Task working directory.
+	"""
+	workspaceFiles: [TaskWorkspaceFile!]!
+	"""
+	Whether the workspace manifest exceeded its safe entry limit.
+	"""
+	workspaceFilesTruncated: Boolean!
+	"""
 	The only task-level state.
 	"""
 	stage: WorkflowStage!
@@ -5721,6 +5733,38 @@ type TaskSummary {
 	Derived attention.
 	"""
 	attention: TaskAttention
+}
+
+"""
+One safe entry in the current Task working directory.
+"""
+type TaskWorkspaceFile {
+	"""
+	Path relative to the Task working directory.
+	"""
+	path: String!
+	"""
+	Whether the entry is a directory.
+	"""
+	isDirectory: Boolean!
+	"""
+	File size when the entry is a regular file.
+	"""
+	sizeBytes: Int
+}
+
+"""
+One bounded UTF-8 file from the current Task working directory.
+"""
+type TaskWorkspaceFileText {
+	"""
+	Path relative to the Task working directory.
+	"""
+	path: String!
+	"""
+	Exact UTF-8 text.
+	"""
+	content: String!
 }
 
 """
