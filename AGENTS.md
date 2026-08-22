@@ -12,6 +12,7 @@
 - Use the current issue of ASD-STE100 Simplified Technical English for all user communication and all prose that you write.
 - Use short sentences, active voice, and one topic in each sentence. Use no more than 20 words in an instruction and 25 words in a descriptive sentence.
 - Use one word for one meaning. Use approved words when possible. Use Noema and software terms as technical nouns or technical verbs when necessary.
+- Do not use `idempotency` or `projection` in new prose or changed identifiers.
 - Put a condition before the action that depends on it. Give one instruction in each sentence unless the actions occur at the same time.
 - Do not change quoted text, user text, code, commands, identifiers, protocol fields, or required external terms to make them comply with ASD-STE100.
 
