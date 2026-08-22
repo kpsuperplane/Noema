@@ -35,6 +35,10 @@ const MAX_SCREENSHOT_BYTES: usize = 900_000;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 #[cfg(test)]
 const COMMAND_TIMEOUT: Duration = Duration::from_millis(250);
+#[cfg(not(test))]
+const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(25);
+#[cfg(test)]
+const NAVIGATION_TIMEOUT: Duration = Duration::from_millis(150);
 
 pub(crate) struct ObscuraBrowseBackend {
     inner: Arc<BackendInner>,
@@ -274,6 +278,14 @@ async fn dispatch(
     command: BrowseCommand,
     outcome_uncertain: bool,
 ) -> Result<BrowseResponse, WebBrowseError> {
+    let stage = match &command {
+        BrowseCommand::Open(_) => "open_worker_response",
+        BrowseCommand::Snapshot { .. } => "snapshot_worker_response",
+        BrowseCommand::Interact(_) => "interact_worker_response",
+        BrowseCommand::Wait(_) => "wait_worker_response",
+        BrowseCommand::History(_) => "history_worker_response",
+        BrowseCommand::Close => "close_worker_response",
+    };
     let (response, receiver) = oneshot::channel();
     worker
         .sender()
@@ -284,7 +296,11 @@ async fn dispatch(
         .await
         .map_err(|_| {
             worker.cancel();
-            WebBrowseError::Timeout
+            WebBrowseError::Timeout.with_provider_detail(
+                crate::OBSCURA_BROWSER_PROVIDER_ID,
+                stage,
+                format!("worker response exceeded {}ms", COMMAND_TIMEOUT.as_millis()),
+            )
         })?
         .unwrap_or(Err(if outcome_uncertain {
             WebBrowseError::OutcomeUncertain
@@ -308,10 +324,9 @@ impl WorkerState {
             None,
             false,
         ));
-        Self {
-            page: Page::new(format!("page-{generation}"), context),
-            revision: 0,
-        }
+        let mut page = Page::new(format!("page-{generation}"), context);
+        page.set_navigation_timeout(NAVIGATION_TIMEOUT);
+        Self { page, revision: 0 }
     }
 
     async fn execute(&mut self, command: BrowseCommand) -> Result<BrowseResponse, WebBrowseError> {
@@ -366,7 +381,13 @@ impl WorkerState {
         self.page
             .navigate_with_wait(checked.url.as_str(), map_wait(wait))
             .await
-            .map_err(|_| WebBrowseError::NavigationFailed)?;
+            .map_err(|error| {
+                WebBrowseError::NavigationFailed.with_provider_detail(
+                    crate::OBSCURA_BROWSER_PROVIDER_ID,
+                    "navigation",
+                    error.to_string(),
+                )
+            })?;
         self.page.settle(POST_NAVIGATION_SETTLE_MS).await;
         self.validate_resulting_url().await
     }
@@ -1019,18 +1040,20 @@ mod tests {
         );
         let owner = WebBrowseOwner::new("turn:timeout");
 
+        let error = backend
+            .execute(
+                &owner,
+                BrowseCommand::Open(BrowseNavigationRequest {
+                    url: "https://example.com".to_string(),
+                    reason: None,
+                    wait_until: BrowseWaitUntil::Load,
+                }),
+            )
+            .await
+            .expect_err("worker timeout");
         assert_eq!(
-            backend
-                .execute(
-                    &owner,
-                    BrowseCommand::Open(BrowseNavigationRequest {
-                        url: "https://example.com".to_string(),
-                        reason: None,
-                        wait_until: BrowseWaitUntil::Load,
-                    }),
-                )
-                .await,
-            Err(WebBrowseError::Timeout)
+            error.to_string(),
+            "browser operation timed out; provider=obscura; stage=open_worker_response; detail=worker response exceeded 250ms"
         );
         assert!(!backend.has_session(&owner).await);
     }

@@ -85,6 +85,10 @@ struct ExecutePlaywrightResponse {
     success: bool,
     #[serde(default)]
     result: Option<Value>,
+    #[serde(default)]
+    error: Option<Value>,
+    #[serde(default)]
+    stderr: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -455,12 +459,22 @@ impl KernelBrowseBackend {
             .await
             .map_err(map_request_error)?;
         let value = response_json(response, WebBrowseError::SessionNotFound).await?;
-        let execution: ExecutePlaywrightResponse =
-            serde_json::from_value(value).map_err(|_| failure.clone())?;
+        let execution: ExecutePlaywrightResponse = serde_json::from_value(value.clone())
+            .map_err(|_| provider_execution_failure(failure.clone(), "invalid_response", value))?;
         if !execution.success {
-            return Err(failure);
+            return Err(provider_execution_failure(
+                failure,
+                "playwright_execute",
+                json!({"error": execution.error, "stderr": execution.stderr}),
+            ));
         }
-        execution.result.ok_or(failure)
+        execution.result.ok_or_else(|| {
+            provider_execution_failure(
+                failure,
+                "playwright_execute",
+                json!({"error": "successful response omitted result"}),
+            )
+        })
     }
 
     async fn session(&self, owner: &str) -> Result<Arc<Session>, WebBrowseError> {
@@ -705,6 +719,9 @@ fn map_status(status: StatusCode, not_found: WebBrowseError) -> WebBrowseError {
 }
 
 fn should_remove(error: &WebBrowseError) -> bool {
+    if let WebBrowseError::ProviderFailure { kind, .. } = error {
+        return should_remove(kind);
+    }
     matches!(
         error,
         WebBrowseError::BlockedTarget
@@ -712,6 +729,25 @@ fn should_remove(error: &WebBrowseError) -> bool {
             | WebBrowseError::Unavailable
             | WebBrowseError::Unauthenticated
             | WebBrowseError::OutcomeUncertain
+    )
+}
+
+fn provider_execution_failure(
+    failure: WebBrowseError,
+    stage: &str,
+    detail: Value,
+) -> WebBrowseError {
+    if failure == WebBrowseError::OutcomeUncertain {
+        return failure;
+    }
+    let detail = noema_capabilities::sanitize_standard_credentials(&detail);
+    let detail = serde_json::to_string(&detail)
+        .unwrap_or_else(|_| "provider error detail was not serializable".to_string());
+    WebBrowseError::with_provider_detail(
+        failure,
+        KERNEL_BROWSER_PROVIDER_ID,
+        stage,
+        truncate_chars(detail, 8_192).0,
     )
 }
 
@@ -889,19 +925,29 @@ await context.route('**/*', async route => {
 
 const SNAPSHOT_SCRIPT: &str = r#"
 const collectSnapshot = async () => {
-  const snapshot = await page.evaluate(() => {
-    const body = document.body ? document.body.cloneNode(true) : null;
-    if (body) body.querySelectorAll('noscript,script,style,template').forEach(element => element.remove());
-    const selectors = 'a[href],button,input,textarea,select,[role="button"],[tabindex]';
-    const nodes = Array.from(document.querySelectorAll(selectors));
-    const elements = nodes.map((element, index) => {
-      const ref = `e${index + 1}`;
-      element.dataset.noemaRef = ref;
-      const name = element.getAttribute('aria-label') || element.innerText || element.value || element.getAttribute('placeholder') || '';
-      return {ref, role: element.getAttribute('role') || element.tagName.toLowerCase(), name: String(name).trim(), href: element.href || null, disabled: Boolean(element.disabled || element.getAttribute('aria-disabled') === 'true')};
-    });
-    return {url: window.location.href, title: String(document.title), text: String(body ? body.innerText : ''), elements, width: Number(window.innerWidth) || 0, height: Number(window.innerHeight) || 0};
-  });
+  let snapshot = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      snapshot = await page.evaluate(() => {
+        const body = document.body ? document.body.cloneNode(true) : null;
+        if (body) body.querySelectorAll('noscript,script,style,template').forEach(element => element.remove());
+        const selectors = 'a[href],button,input,textarea,select,[role="button"],[tabindex]';
+        const nodes = Array.from(document.querySelectorAll(selectors));
+        const elements = nodes.map((element, index) => {
+          const ref = `e${index + 1}`;
+          element.dataset.noemaRef = ref;
+          const name = element.getAttribute('aria-label') || element.innerText || element.value || element.getAttribute('placeholder') || '';
+          return {ref, role: element.getAttribute('role') || element.tagName.toLowerCase(), name: String(name).trim(), href: element.href || null, disabled: Boolean(element.disabled || element.getAttribute('aria-disabled') === 'true')};
+        });
+        return {url: window.location.href, title: String(document.title), text: String(body ? body.innerText : ''), elements, width: Number(window.innerWidth) || 0, height: Number(window.innerHeight) || 0};
+      });
+      break;
+    } catch (error) {
+      if (attempt === 2) throw error;
+      await page.waitForLoadState('domcontentloaded', {timeout:5000}).catch(() => {});
+      await page.waitForTimeout(250);
+    }
+  }
   let screenshot = null;
   try { screenshot = (await page.screenshot({type:'png'})).toString('base64'); } catch (_) {}
   return {...snapshot, screenshot};
@@ -1003,6 +1049,7 @@ mod tests {
         assert_eq!(requests[1].path, "/browsers/browser-123/playwright/execute");
         assert!(requests[1].body.contains("page.goto"));
         assert!(requests[1].body.contains("page.evaluate"));
+        assert!(requests[1].body.contains("attempt < 3"));
         assert_eq!(requests[2].method, "DELETE");
         assert_eq!(requests[2].path, "/browsers/browser-123");
 
@@ -1021,5 +1068,48 @@ mod tests {
                 .await,
             Err(WebBrowseError::Unauthenticated)
         );
+    }
+
+    #[tokio::test]
+    async fn kernel_playwright_failure_preserves_safe_provider_details() {
+        let (base_url, _requests) = spawn_scripted_server([
+            (200, json!({"session_id": "browser-456"}).to_string()),
+            (
+                200,
+                json!({
+                    "success": false,
+                    "error": {
+                        "message": "page.goto rejected the navigation",
+                        "request_id": "request-visible",
+                        "api_key": "remove-me"
+                    },
+                    "stderr": "playwright line 19"
+                })
+                .to_string(),
+            ),
+            (204, String::new()),
+        ])
+        .await;
+        let backend = KernelBrowseBackend::with_base_url("kernel-secret".to_string(), 1, base_url);
+        let error = backend
+            .execute(
+                &WebBrowseOwner::new("conversation:failure"),
+                BrowseCommand::Open(BrowseNavigationRequest {
+                    url: "https://example.com".to_string(),
+                    reason: None,
+                    wait_until: BrowseWaitUntil::Load,
+                }),
+            )
+            .await
+            .expect_err("provider failure");
+        let message = error.to_string();
+
+        assert!(message.contains("provider=kernel"));
+        assert!(message.contains("page.goto rejected the navigation"));
+        assert!(message.contains("request-visible"));
+        assert!(message.contains("playwright line 19"));
+        assert!(message.contains("[REDACTED]"));
+        assert!(!message.contains("remove-me"));
+        assert!(!message.contains("kernel-secret"));
     }
 }

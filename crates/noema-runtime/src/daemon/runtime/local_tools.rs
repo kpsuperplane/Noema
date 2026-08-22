@@ -1,7 +1,8 @@
 use crate::agent_execution::{ExecutionRole, ToolPolicy};
 use noema_capabilities::{
     CapabilityDispatchFailure, CapabilityError, CapabilityFuture, CapabilityInvocation,
-    CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter, InvokerKey,
+    CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter, InvokerKey, PayloadSanitizer,
+    WebBrowsePayloadSanitizer,
 };
 use noema_providers::ProviderRouteLease;
 use noema_store::{GovernedExecutionOutcome, NewCapabilityAuthenticationRequest};
@@ -113,6 +114,9 @@ impl RuntimeActor {
     ) -> LocalToolResult {
         let snapshot = &turn.initial_model_tools.bindings;
         let Some(binding) = snapshot.resolve(&call.name).cloned() else {
+            if is_builtin_browser_tool(&call.name) {
+                return unadvertised_browser_failure_result(call);
+            }
             let failure = CapabilityDispatchFailure::from_snapshot(
                 snapshot,
                 &call.name,
@@ -921,7 +925,6 @@ impl RuntimeActor {
                 BrowserSessionState {
                     route,
                     active_position: 0,
-                    attempted_positions: [0].into_iter().collect(),
                     backend,
                     public_revision: 0,
                     backend_revision: 0,
@@ -1015,7 +1018,6 @@ impl RuntimeActor {
             .map_err(browser_url_policy_error)?;
         let target_position = next_browser_route_position(&source)
             .ok_or_else(|| "no later browser provider is configured".to_string())?;
-        source.attempted_positions.insert(target_position);
         let resolved = &source.route.providers[target_position];
         let target = match self.resolve_browser_backend(resolved).await {
             Ok(target) => target,
@@ -1101,8 +1103,23 @@ fn translate_browser_revision(
 }
 
 fn next_browser_route_position(state: &BrowserSessionState) -> Option<usize> {
-    ((state.active_position + 1)..state.route.providers.len())
-        .find(|position| !state.attempted_positions.contains(position))
+    let position = state.active_position + 1;
+    (position < state.route.providers.len()).then_some(position)
+}
+
+fn is_builtin_browser_tool(name: &str) -> bool {
+    noema_capabilities::web::browse::tool_specs()
+        .is_ok_and(|specs| specs.iter().any(|spec| spec.name.as_str() == name))
+}
+
+fn unadvertised_browser_failure_result(call: &LocalToolCall) -> LocalToolResult {
+    let payload = CapabilityError::UnknownOperation.model_payload();
+    let sanitizer = WebBrowsePayloadSanitizer;
+    LocalToolResult::from_call(call, LocalToolKind::WebBrowse, false, payload.clone(), true)
+        .with_persisted(noema_capabilities::PersistedCapabilityPayload {
+            arguments: sanitizer.persist_arguments(&call.payload),
+            output: sanitizer.persist_output(&payload),
+        })
 }
 
 fn browser_url_policy_error(error: WebFetchError) -> String {

@@ -67,6 +67,35 @@ pub enum WebBrowseError {
     /// The worker failed after a potentially mutating operation was dispatched.
     #[error("browser action outcome is uncertain")]
     OutcomeUncertain,
+    /// A backend supplied a safe, bounded cause for a provider-neutral failure.
+    #[error("{kind}; provider={provider}; stage={stage}; detail={detail}")]
+    ProviderFailure {
+        /// Provider-neutral failure category.
+        kind: Box<WebBrowseError>,
+        /// Stable backend identifier.
+        provider: String,
+        /// Stable operation stage.
+        stage: String,
+        /// Safe bounded provider detail.
+        detail: String,
+    },
+}
+
+impl WebBrowseError {
+    #[cfg(feature = "adapters")]
+    pub(crate) fn with_provider_detail(
+        self,
+        provider: &str,
+        stage: &str,
+        detail: impl Into<String>,
+    ) -> Self {
+        Self::ProviderFailure {
+            kind: Box::new(self),
+            provider: provider.to_string(),
+            stage: stage.to_string(),
+            detail: detail.into(),
+        }
+    }
 }
 
 /// Clonable provider-neutral browser backend.

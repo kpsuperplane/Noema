@@ -145,13 +145,30 @@ fn checkpoint_after_result(
 fn requires_task_checkpoint_before_action(
     role: ExecutionRole,
     checkpoint_current: bool,
+    operation: &str,
     decision: CapabilityExecutionDecision,
     behavior: CapabilityToolBehavior,
 ) -> bool {
     role == ExecutionRole::TaskExecutor
         && !checkpoint_current
+        && operation != noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL
         && decision.requires_review()
         && !behavior.read_only
+}
+
+fn checkpoint_required_result(
+    call: &super::tool_lifecycle::LocalToolCall,
+    binding: &noema_capabilities::CapabilityBinding,
+) -> LocalToolResult {
+    let payload = serde_json::json!({
+        "code": "task_checkpoint_required",
+        "message": "Save completed progress and the exact planned action in TASK.md before this reviewed state change. Reconsider the action if it is not required.",
+    });
+    LocalToolResult::from_call(call, LocalToolKind::Gateway, false, payload.clone(), true)
+        .with_persisted(noema_capabilities::PersistedCapabilityPayload {
+            arguments: binding.persist_arguments(&call.payload),
+            output: binding.persist_output(&payload),
+        })
 }
 
 fn propagate_compaction_result(result: Result<bool, ProviderError>) -> Result<bool, RuntimeError> {
@@ -451,8 +468,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn executor_checkpoints_before_a_reviewed_state_change() {
+    #[tokio::test]
+    async fn executor_checkpoints_before_a_reviewed_state_change() {
         let behavior = CapabilityToolBehavior {
             read_only: false,
             idempotent: false,
@@ -463,9 +480,54 @@ mod tests {
         assert!(requires_task_checkpoint_before_action(
             ExecutionRole::TaskExecutor,
             false,
+            noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
             CapabilityExecutionDecision::LlmReview,
             behavior,
         ));
+        assert!(!requires_task_checkpoint_before_action(
+            ExecutionRole::TaskExecutor,
+            false,
+            noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL,
+            CapabilityExecutionDecision::LlmReview,
+            behavior,
+        ));
+
+        let store = crate::test_support::test_store().await;
+        let binding = super::super::model_tools::native_web_binding(
+            &store,
+            noema_capabilities::web::browse::tool_specs()
+                .expect("browser tools")
+                .into_iter()
+                .find(|spec| {
+                    spec.name.as_str() == noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
+                })
+                .expect("interact tool"),
+        )
+        .await
+        .expect("browser binding");
+        let call = super::super::tool_lifecycle::LocalToolCall {
+            output_index: 0,
+            call_id: None,
+            provider_call_id: None,
+            provider_name: None,
+            name: noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL.to_string(),
+            payload: serde_json::json!({
+                "snapshot_revision": 3,
+                "ref": "e2",
+                "action": "click",
+                "api_key": "remove-me"
+            }),
+        };
+        let result = checkpoint_required_result(&call, &binding);
+        assert_eq!(result.persisted.arguments.as_ref().unwrap()["ref"], "e2");
+        assert_eq!(
+            result.persisted.arguments.as_ref().unwrap()["api_key"],
+            "[REDACTED]"
+        );
+        assert_eq!(
+            result.persisted.output.as_ref().unwrap()["code"],
+            "task_checkpoint_required"
+        );
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, atomic::AtomicBool};
 
 use noema_capabilities::{CapabilityBindingSourceHandle, CapabilityInvokerRegistration};
@@ -56,7 +56,6 @@ pub(super) struct BrowserSnapshotContext {
 pub(super) struct BrowserSessionState {
     pub(super) route: super::web_tools::ResolvedBrowserProviderRoute,
     pub(super) active_position: usize,
-    pub(super) attempted_positions: HashSet<usize>,
     pub(super) backend: noema_providers::WebBrowseBackendHandle,
     pub(super) public_revision: u64,
     pub(super) backend_revision: u64,

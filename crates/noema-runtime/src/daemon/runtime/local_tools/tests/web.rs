@@ -40,7 +40,6 @@ async fn set_browser_snapshot_for_test(
         crate::daemon::runtime::actor::BrowserSessionState {
             route,
             active_position: 0,
-            attempted_positions: [0].into_iter().collect(),
             backend,
             public_revision: revision,
             backend_revision: revision,
@@ -63,7 +62,7 @@ fn browser_public_revisions_do_not_repeat_after_session_removal() {
 }
 
 #[tokio::test]
-async fn browser_switch_skips_failed_route_positions() {
+async fn browser_switch_retries_the_next_route_after_a_failed_open() {
     let actor = test_actor().await;
     let mut route = crate::daemon::runtime::web_tools::resolve_web_browse_route(&actor.store)
         .await
@@ -73,14 +72,13 @@ async fn browser_switch_skips_failed_route_positions() {
     let state = crate::daemon::runtime::actor::BrowserSessionState {
         route,
         active_position: 0,
-        attempted_positions: [0, 1].into_iter().collect(),
         backend: noema_providers::WebBrowseBackendHandle::obscura(1, 64),
         public_revision: 1,
         backend_revision: 1,
         snapshot: None,
     };
 
-    assert_eq!(super::next_browser_route_position(&state), Some(2));
+    assert_eq!(super::next_browser_route_position(&state), Some(1));
 }
 
 #[tokio::test]

@@ -265,6 +265,16 @@ struct ResponseFrame {
     response: Option<BrowseResponse>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    diagnostic: Option<ProviderDiagnostic>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProviderDiagnostic {
+    provider: String,
+    stage: String,
+    detail: String,
 }
 
 impl ResponseFrame {
@@ -274,7 +284,17 @@ impl ResponseFrame {
         }
         match (self.response, self.error) {
             (Some(response), None) => Ok(Ok(response)),
-            (None, Some(error)) => Ok(Err(decode_error(&error)?)),
+            (None, Some(error)) => {
+                let error = decode_error(&error)?;
+                match self.diagnostic {
+                    Some(diagnostic) => Ok(Err(error.with_provider_detail(
+                        &diagnostic.provider,
+                        &diagnostic.stage,
+                        diagnostic.detail,
+                    ))),
+                    None => Ok(Err(error)),
+                }
+            }
             _ => Err(WebBrowseError::Unavailable),
         }
     }
@@ -285,11 +305,28 @@ impl ResponseFrame {
                 version: PROTOCOL_VERSION,
                 response: Some(response),
                 error: None,
+                diagnostic: None,
+            },
+            Err(WebBrowseError::ProviderFailure {
+                kind,
+                provider,
+                stage,
+                detail,
+            }) => Self {
+                version: PROTOCOL_VERSION,
+                response: None,
+                error: Some(encode_error(*kind).to_string()),
+                diagnostic: Some(ProviderDiagnostic {
+                    provider,
+                    stage,
+                    detail,
+                }),
             },
             Err(error) => Self {
                 version: PROTOCOL_VERSION,
                 response: None,
                 error: Some(encode_error(error).to_string()),
+                diagnostic: None,
             },
         }
     }
@@ -350,6 +387,7 @@ fn encode_error(error: WebBrowseError) -> &'static str {
         WebBrowseError::Unavailable => "unavailable",
         WebBrowseError::Unauthenticated => "unauthenticated",
         WebBrowseError::OutcomeUncertain => "outcome_uncertain",
+        WebBrowseError::ProviderFailure { .. } => "unavailable",
     }
 }
 
@@ -472,11 +510,23 @@ mod tests {
                 screenshot: None,
             }),
             error: Some("unavailable".to_string()),
+            diagnostic: None,
         };
         assert_eq!(ambiguous.into_result(), Err(WebBrowseError::Unavailable));
         assert_eq!(
             decode_error(encode_error(WebBrowseError::NavigationFailed)),
             Ok(WebBrowseError::NavigationFailed)
+        );
+        let detailed = WebBrowseError::NavigationFailed.with_provider_detail(
+            "obscura",
+            "navigation",
+            "navigation exceeded 25000ms deadline",
+        );
+        assert_eq!(
+            ResponseFrame::from_result(Err(detailed.clone()))
+                .into_result()
+                .expect("valid frame"),
+            Err(detailed)
         );
     }
 }

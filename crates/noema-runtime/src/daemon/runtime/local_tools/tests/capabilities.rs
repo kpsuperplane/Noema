@@ -942,6 +942,43 @@ async fn forged_background_call_is_unknown_and_omits_persistence() {
 }
 
 #[tokio::test]
+async fn unadvertised_builtin_browser_call_preserves_safe_failure_details() {
+    let actor = test_actor().await;
+    let result = actor
+        .execute_local_tool(
+            &test_turn(),
+            &AgentPromptIdentity {
+                agent_id: "agent:primary".to_string(),
+                display_name: None,
+            },
+            &test_tool_call(
+                noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL,
+                json!({
+                    "snapshot_revision": 7,
+                    "url": "https://example.com/hotel?access_token=remove-me&room=deluxe",
+                    "api_key": "remove-me",
+                    "request_id": "request-visible"
+                }),
+            ),
+        )
+        .await;
+
+    assert!(!result.success);
+    assert_eq!(result.payload["error"], "unknown_operation");
+    assert_eq!(
+        result.persisted.arguments,
+        Some(json!({
+            "snapshot_revision": 7,
+            "url": "https://example.com/hotel?room=deluxe",
+            "api_key": "[REDACTED]",
+            "request_id": "request-visible",
+            "__noema_rejected_sensitive_url": true
+        }))
+    );
+    assert_eq!(result.persisted.output, Some(result.payload));
+}
+
+#[tokio::test]
 async fn known_background_call_denied_by_role_policy_uses_binding_persistence() {
     let actor = test_actor().await;
     let policy = crate::agent_execution::ToolPolicy::for_role(

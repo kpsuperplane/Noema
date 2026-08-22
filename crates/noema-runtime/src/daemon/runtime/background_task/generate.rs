@@ -285,27 +285,20 @@ impl RuntimeActor {
                     },
                 )
                 .await;
-                let checkpoint_required_for_action = model_tools
-                    .bindings
-                    .resolve(&call.name)
-                    .is_some_and(|binding| {
+                let checkpoint_binding = model_tools.bindings.resolve(&call.name);
+                let checkpoint_required_for_action = checkpoint_binding.is_some_and(|binding| {
                         requires_task_checkpoint_before_action(
                             request.role,
                             checkpoint_current,
+                            &call.name,
                             binding.execution_decision(),
                             binding.behavior(),
                         )
                     });
                 let result = if checkpoint_required_for_action {
-                    LocalToolResult::from_call(
+                    checkpoint_required_result(
                         call,
-                        LocalToolKind::Gateway,
-                        false,
-                        serde_json::json!({
-                            "code": "task_checkpoint_required",
-                            "message": "Save completed progress and the exact planned action in TASK.md before this reviewed state change. Reconsider the action if it is not required.",
-                        }),
-                        true,
+                        checkpoint_binding.expect("checkpoint requirement has a binding"),
                     )
                 } else if is_task_continue_execution_tool(&call.name) && !checkpoint_current {
                     LocalToolResult::from_call(
