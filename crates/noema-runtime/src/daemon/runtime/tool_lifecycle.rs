@@ -113,11 +113,13 @@ mod tests {
     fn tool_description_requires_one_unambiguous_call() {
         let responses = vec![
             GenerateResponseItem::Text {
+                id: None,
                 phase: Some(AssistantTextPhase::Commentary),
                 text: "  Searching memory\nfor the launch date.  ".to_string(),
                 citations: Vec::new(),
             },
             GenerateResponseItem::Text {
+                id: None,
                 phase: Some(AssistantTextPhase::FinalAnswer),
                 text: "This must not label a pending call.".to_string(),
                 citations: Vec::new(),

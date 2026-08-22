@@ -405,6 +405,7 @@ impl ModelProvider for LocalModelsProvider {
             Vec::new()
         } else {
             vec![GenerateResponseItem::Text {
+                id: None,
                 phase: None,
                 text: stream.text,
                 citations: Vec::new(),

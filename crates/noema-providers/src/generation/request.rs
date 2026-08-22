@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{NoemaToolChoice, ProviderTool, ProviderToolTransport};
+use crate::{AssistantTextPhase, NoemaToolChoice, ProviderTool, ProviderToolTransport};
 
 /// Scheduling priority for generation on providers with constrained local capacity.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -123,6 +123,8 @@ impl GenerateInput {
 pub enum GenerateInputItem {
     /// Role-tagged text message.
     Message(GenerateMessage),
+    /// Provider assistant text with its original replay phase.
+    AssistantText(GenerateAssistantTextInput),
     /// Provider-encrypted reasoning context for stateless replay.
     Reasoning(GenerateReasoningInput),
     /// Historical provider/model tool call.
@@ -137,6 +139,7 @@ impl GenerateInputItem {
     pub fn is_empty(&self) -> bool {
         match self {
             Self::Message(message) => message.content.trim().is_empty(),
+            Self::AssistantText(message) => message.content.trim().is_empty(),
             Self::Reasoning(reasoning) => {
                 reasoning.encrypted_content.trim().is_empty()
                     && reasoning
@@ -156,6 +159,9 @@ impl GenerateInputItem {
     pub fn render_for_token_count(&self) -> String {
         match self {
             Self::Message(message) => format!("{}: {}", message.role.as_str(), message.content),
+            Self::AssistantText(message) => {
+                format!("assistant: {}", message.content)
+            }
             Self::Reasoning(reasoning) => {
                 let mut value = serde_json::json!({
                     "type": "reasoning",
@@ -191,6 +197,18 @@ impl GenerateInputItem {
             .to_string(),
         }
     }
+}
+
+/// Provider-neutral assistant text retained for same-provider replay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GenerateAssistantTextInput {
+    /// Provider output item id, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Effective provider phase. Old stored items default to final text.
+    pub phase: AssistantTextPhase,
+    /// Exact provider text.
+    pub content: String,
 }
 
 /// Provider-neutral encrypted reasoning item for stateless replay.

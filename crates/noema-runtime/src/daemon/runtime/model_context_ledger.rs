@@ -150,6 +150,7 @@ mod tests {
             kind: ConversationItemKind::ModelContextUpdate,
             status: ConversationItemStatus::Completed,
             content_text: Some(update.model_visible_content()),
+            provider_content_text: None,
             payload_json: json!({ UPDATE_PAYLOAD_KEY: update }),
             metadata: json!({}),
             created_at: String::new(),

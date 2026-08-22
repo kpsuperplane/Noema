@@ -88,14 +88,15 @@ pub fn run_browser_worker_if_requested() -> Option<i32> {
     adapters::run_worker_if_requested()
 }
 pub use generation::{
-    AssistantTextPhase, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateCitation,
-    GenerateHostedWebSearch, GenerateInput, GenerateInputItem, GenerateMessage,
-    GenerateMessageRole, GenerateOptions, GenerateReasoningInput, GenerateReasoningItem,
-    GenerateRequest, GenerateResponse, GenerateResponseItem, GenerateStreamEvent, GenerateToolCall,
-    GenerateToolCallInput, GenerateToolResultInput, GenerateWebSource, GenerationPriority,
-    ModelProvider, MultipleChoiceOption, MultipleChoiceSelectionMode, PromptCacheMode,
-    PromptCacheOptions, PromptCacheRetention, PromptCacheTtl, ProviderContextMetadata,
-    ProviderError, ProviderResponseContinuation, ProviderTimingMilestone, ProviderTransportContext,
+    AssistantResponseText, AssistantTextPhase, DEFAULT_TOOL_CLASSIFICATION_MODEL,
+    GenerateActionItem, GenerateAssistantTextInput, GenerateCitation, GenerateHostedWebSearch,
+    GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
+    GenerateReasoningInput, GenerateReasoningItem, GenerateRequest, GenerateResponse,
+    GenerateResponseItem, GenerateStreamEvent, GenerateToolCall, GenerateToolCallInput,
+    GenerateToolResultInput, GenerateWebSource, GenerationPriority, ModelProvider,
+    MultipleChoiceOption, MultipleChoiceSelectionMode, PromptCacheMode, PromptCacheOptions,
+    PromptCacheRetention, PromptCacheTtl, ProviderContextMetadata, ProviderError,
+    ProviderResponseContinuation, ProviderTimingMilestone, ProviderTransportContext,
     ProviderTransportKind, ReasoningEffort, TokenUsage,
 };
 pub use local_model::{

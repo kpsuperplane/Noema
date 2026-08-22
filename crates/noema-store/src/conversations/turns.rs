@@ -1,4 +1,4 @@
-use noema_conversations::{ConversationTurnRecord, NewConversationTurn};
+use noema_conversations::{ConversationTurnRecord, ConversationTurnStatus, NewConversationTurn};
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::Value;
 
@@ -74,6 +74,8 @@ impl NoemaStore {
         Ok(ConversationTurnRecord {
             turn_id,
             conversation_id: turn.conversation_id,
+            status: ConversationTurnStatus::InputReceived,
+            metadata: turn.metadata,
         })
     }
 
@@ -103,13 +105,13 @@ impl NoemaStore {
                 .await?;
         }
         let metadata_json = serialize_json(&turn.metadata)?;
-        let (conversation_id, inserted) = self
+        let (conversation_id, status, metadata, inserted) = self
             .with_connection(|conn| {
-                if let Some(existing_conversation_id) = conn
+                if let Some((existing_conversation_id, status, metadata_json)) = conn
                     .query_row(
-                        "SELECT conversation_id FROM conversation_turns WHERE turn_id = ?1 LIMIT 1",
+                        "SELECT conversation_id, status, metadata_json FROM conversation_turns WHERE turn_id = ?1 LIMIT 1",
                         [&turn_id],
-                        |row| row.get::<_, String>(0),
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
                     )
                     .optional()?
                 {
@@ -120,7 +122,12 @@ impl NoemaStore {
                             ),
                         });
                     }
-                    return Ok((existing_conversation_id, false));
+                    return Ok((
+                        existing_conversation_id,
+                        ConversationTurnStatus::parse(&status)?,
+                        deserialize_json(metadata_json)?,
+                        false,
+                    ));
                 }
                 conn.execute(
                     r#"
@@ -132,13 +139,20 @@ impl NoemaStore {
                     "#,
                     params![turn_id, turn.conversation_id, turn.trigger_item_id, metadata_json],
                 )?;
-                Ok((turn.conversation_id.clone(), true))
+                Ok((
+                    turn.conversation_id.clone(),
+                    ConversationTurnStatus::InputReceived,
+                    turn.metadata.clone(),
+                    true,
+                ))
             })
             .await?;
         Ok((
             ConversationTurnRecord {
                 turn_id,
                 conversation_id,
+                status,
+                metadata,
             },
             inserted,
         ))

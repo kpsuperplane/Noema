@@ -19,6 +19,7 @@ fn replay_record(
         kind,
         status: ConversationItemStatus::Completed,
         content_text: content_text.map(str::to_string),
+        provider_content_text: None,
         payload_json,
         metadata: json!({"boundary": "preserved"}),
         created_at: String::new(),

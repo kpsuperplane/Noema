@@ -25,6 +25,7 @@ async fn generate_returns_plain_bridge_text() {
     assert_eq!(
         response.responses,
         vec![GenerateResponseItem::Text {
+            id: None,
             phase: None,
             text: "bridge answer".to_string(),
             citations: Vec::new(),

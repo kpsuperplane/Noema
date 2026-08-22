@@ -26,6 +26,7 @@ fn assistant_with_tools(
 ) -> (Vec<GenerateResponseItem>, Vec<GenerateToolCall>) {
     (
         vec![GenerateResponseItem::Text {
+            id: None,
             phase,
             text: text.to_string(),
             citations: Vec::new(),

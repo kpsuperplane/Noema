@@ -258,6 +258,7 @@ mod tests {
                     .push(request.clone());
                 Ok(GenerateResponse {
                     responses: vec![GenerateResponseItem::Text {
+                        id: None,
                         phase: None,
                         text: "captured summary".to_string(),
                         citations: Vec::new(),

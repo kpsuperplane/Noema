@@ -28,7 +28,8 @@ fn input_messages(input: &GenerateInput) -> Vec<&noema_providers::GenerateMessag
             .iter()
             .filter_map(|item| match item {
                 GenerateInputItem::Message(message) => Some(message),
-                GenerateInputItem::Reasoning(_)
+                GenerateInputItem::AssistantText(_)
+                | GenerateInputItem::Reasoning(_)
                 | GenerateInputItem::ToolCall(_)
                 | GenerateInputItem::ToolResult(_) => None,
             })
@@ -84,6 +85,7 @@ fn input_message_texts(input: &GenerateInput) -> Vec<String> {
                     Some(message.content.clone())
                 }
                 GenerateInputItem::Message(_) => None,
+                GenerateInputItem::AssistantText(message) => Some(message.content.clone()),
                 GenerateInputItem::Reasoning(_)
                 | GenerateInputItem::ToolCall(_)
                 | GenerateInputItem::ToolResult(_) => None,
@@ -125,6 +127,7 @@ fn input_tool_results(input: &GenerateInput) -> Vec<&noema_providers::GenerateTo
             .filter_map(|item| match item {
                 GenerateInputItem::ToolResult(result) => Some(result),
                 GenerateInputItem::Message(_)
+                | GenerateInputItem::AssistantText(_)
                 | GenerateInputItem::Reasoning(_)
                 | GenerateInputItem::ToolCall(_) => None,
             })

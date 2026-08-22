@@ -2,8 +2,8 @@
 
 use super::tools::provider_safe_tool_name;
 use crate::{
-    GenerateInput, GenerateInputItem, GenerateReasoningInput, GenerateToolCallInput,
-    GenerateToolResultInput, ProviderError,
+    GenerateAssistantTextInput, GenerateInput, GenerateInputItem, GenerateReasoningInput,
+    GenerateToolCallInput, GenerateToolResultInput, ProviderError,
 };
 use serde::Serialize;
 
@@ -42,8 +42,10 @@ impl ResponsesInput {
     ) -> Result<Self, ProviderError> {
         if let (GenerateInput::Text(text), ResponsesInputShape::MessageArray) = (value, shape) {
             let mut input = Self::Items(vec![ResponsesInputItem::Message(ResponsesInputMessage {
+                id: None,
                 role: "user",
                 content: text.clone().into(),
+                phase: None,
             })]);
             input.apply_prompt_cache_breakpoints(prompt_cache_breakpoints)?;
             return Ok(input);
@@ -91,8 +93,10 @@ impl ResponsesInput {
                     ));
                 }
                 let mut message = ResponsesInputMessage {
+                    id: None,
                     role: "user",
                     content: std::mem::take(text).into(),
+                    phase: None,
                 };
                 message.add_prompt_cache_breakpoint();
                 *self = Self::Items(vec![ResponsesInputItem::Message(message)]);
@@ -138,8 +142,10 @@ impl From<&GenerateInput> for ResponsesInput {
                     .filter(|message| !message.content.trim().is_empty())
                     .map(|message| {
                         ResponsesInputItem::Message(ResponsesInputMessage {
+                            id: None,
                             role: message.role.as_str(),
                             content: message.content.clone().into(),
+                            phase: None,
                         })
                     })
                     .collect(),
@@ -197,9 +203,14 @@ impl From<&GenerateInputItem> for ResponsesInputItem {
     fn from(value: &GenerateInputItem) -> Self {
         match value {
             GenerateInputItem::Message(message) => Self::Message(ResponsesInputMessage {
+                id: None,
                 role: message.role.as_str(),
                 content: message.content.clone().into(),
+                phase: None,
             }),
+            GenerateInputItem::AssistantText(message) => {
+                Self::Message(ResponsesInputMessage::from(message))
+            }
             GenerateInputItem::Reasoning(reasoning) => {
                 Self::Reasoning(ResponsesReasoningItem::from(reasoning))
             }
@@ -238,10 +249,27 @@ impl From<&GenerateReasoningInput> for ResponsesReasoningItem {
 /// One Responses API input message.
 #[derive(Debug, Clone, Serialize)]
 pub struct ResponsesInputMessage {
+    /// Provider output item id retained for same-provider replay.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     /// Provider role.
     pub role: &'static str,
     /// Message text or content blocks carrying provider controls.
     pub content: ResponsesInputMessageContent,
+    /// Original provider assistant phase.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<&'static str>,
+}
+
+impl From<&GenerateAssistantTextInput> for ResponsesInputMessage {
+    fn from(message: &GenerateAssistantTextInput) -> Self {
+        Self {
+            id: message.id.clone(),
+            role: "assistant",
+            content: message.content.clone().into(),
+            phase: Some(message.phase.as_str()),
+        }
+    }
 }
 
 impl ResponsesInputMessage {

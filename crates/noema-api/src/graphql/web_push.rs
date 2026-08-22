@@ -2433,6 +2433,7 @@ mod tests {
             kind: ConversationItemKind::AssistantText,
             status: ConversationItemStatus::Completed,
             content_text: Some("  Ready   for you.  ".to_string()),
+            provider_content_text: None,
             payload_json: json!({}),
             metadata: json!({"phase": phase}),
             created_at: String::new(),

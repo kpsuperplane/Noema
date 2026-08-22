@@ -306,6 +306,10 @@ fn append_generate_input(messages: &mut Vec<ChatMessage>, input: &GenerateInput)
                             &message.content,
                         );
                     }
+                    GenerateInputItem::AssistantText(message) => {
+                        flush_tool_calls(messages, &mut pending_tool_calls);
+                        push_chat_message(messages, "assistant", &message.content);
+                    }
                     GenerateInputItem::Reasoning(_) => {
                         flush_tool_calls(messages, &mut pending_tool_calls);
                         push_chat_message(messages, "assistant", item.render_for_token_count());

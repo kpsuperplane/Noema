@@ -4,8 +4,8 @@ use noema_conversations::{
 };
 
 use noema_providers::{
-    AssistantTextPhase, GenerateActionItem, GenerateCitation, GenerateHostedWebSearch,
-    GenerateReasoningItem, GenerateResponse, GenerateResponseItem, GenerateStreamEvent,
+    GenerateActionItem, GenerateCitation, GenerateHostedWebSearch, GenerateReasoningItem,
+    GenerateResponse, GenerateStreamEvent,
 };
 use serde_json::{Value, json};
 use tokio::sync::mpsc;

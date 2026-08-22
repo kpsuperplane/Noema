@@ -79,6 +79,10 @@ pub struct ConversationTurnRecord {
     pub turn_id: String,
     /// Conversation that owns the turn.
     pub conversation_id: String,
+    /// Durable lifecycle state.
+    pub status: ConversationTurnStatus,
+    /// Stored turn metadata.
+    pub metadata: Value,
 }
 
 /// Latest durable turn and live-agent state for one conversation.
@@ -132,6 +136,8 @@ pub struct ConversationItemRecord {
     pub status: ConversationItemStatus,
     /// Readable item text, when any.
     pub content_text: Option<String>,
+    /// Exact provider text retained for same-provider replay, when different.
+    pub provider_content_text: Option<String>,
     /// Structured item payload.
     pub payload_json: Value,
     /// Additional structured metadata.

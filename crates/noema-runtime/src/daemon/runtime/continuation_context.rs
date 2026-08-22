@@ -2,11 +2,13 @@
 
 use std::collections::VecDeque;
 
+#[cfg(test)]
+use noema_providers::GenerateResponseItem;
 use noema_providers::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
-    GenerateReasoningInput, GenerateRequest, GenerateResponse, GenerateResponseItem,
-    GenerateStreamEvent, GenerateToolCallInput, GenerateToolResultInput, GenerationPriority,
-    ProviderError, ProviderOperations, ProviderResponseContinuation, ProviderTool, ReasoningEffort,
+    GenerateReasoningInput, GenerateRequest, GenerateResponse, GenerateStreamEvent,
+    GenerateToolCallInput, GenerateToolResultInput, GenerationPriority, ProviderError,
+    ProviderOperations, ProviderResponseContinuation, ProviderTool, ReasoningEffort,
 };
 
 use super::{
@@ -105,7 +107,13 @@ impl ContinuationContext {
                 })
             }));
         self.items
-            .extend(response.responses.iter().filter_map(response_message));
+            .extend(response.assistant_response_texts().map(|item| {
+                GenerateInputItem::AssistantText(noema_providers::GenerateAssistantTextInput {
+                    id: item.provider_item_id.map(ToString::to_string),
+                    phase: item.phase,
+                    content: item.text.to_string(),
+                })
+            }));
         for call in &response.tool_calls {
             let call_id = call
                 .provider_call_id
@@ -208,6 +216,7 @@ impl ContinuationContext {
                 .filter_map(|item| match item {
                     GenerateInputItem::ToolResult(result) => Some(result.clone()),
                     GenerateInputItem::Message(_)
+                    | GenerateInputItem::AssistantText(_)
                     | GenerateInputItem::Reasoning(_)
                     | GenerateInputItem::ToolCall(_) => None,
                 })
@@ -473,16 +482,6 @@ fn bounded_tool_result(payload: &serde_json::Value) -> serde_json::Value {
     })
 }
 
-fn response_message(response: &GenerateResponseItem) -> Option<GenerateInputItem> {
-    let content = match response {
-        GenerateResponseItem::Text { text, .. } => text.clone(),
-    };
-    (!content.trim().is_empty()).then_some(GenerateInputItem::Message(GenerateMessage {
-        role: GenerateMessageRole::Assistant,
-        content,
-    }))
-}
-
 fn render_compaction_input(
     previous_checkpoint: Option<&str>,
     items: &[GenerateInputItem],
@@ -518,6 +517,10 @@ fn messages_for_non_native_history(items: &[GenerateInputItem]) -> Vec<GenerateM
         .iter()
         .filter_map(|item| match item {
             GenerateInputItem::Message(message) => Some(message.clone()),
+            GenerateInputItem::AssistantText(message) => Some(GenerateMessage {
+                role: GenerateMessageRole::Assistant,
+                content: message.content.clone(),
+            }),
             GenerateInputItem::Reasoning(_) => None,
             GenerateInputItem::ToolCall(call) => Some(GenerateMessage {
                 role: GenerateMessageRole::Assistant,
@@ -594,6 +597,7 @@ mod tests {
         let mut context = ContinuationContext::new("Research bears");
         let response = GenerateResponse {
             responses: vec![GenerateResponseItem::Text {
+                id: None,
                 phase: None,
                 text: "I will inspect the official source.".to_string(),
                 citations: Vec::new(),
@@ -638,8 +642,8 @@ mod tests {
         assert!(matches!(items[1], GenerateInputItem::Reasoning(_)));
         assert!(matches!(
             items[2],
-            GenerateInputItem::Message(GenerateMessage {
-                role: GenerateMessageRole::Assistant,
+            GenerateInputItem::AssistantText(noema_providers::GenerateAssistantTextInput {
+                phase: noema_providers::AssistantTextPhase::Commentary,
                 ..
             })
         ));

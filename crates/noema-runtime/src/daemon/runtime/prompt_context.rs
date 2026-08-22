@@ -6,8 +6,9 @@ use noema_store::NoemaStore;
 
 use crate::daemon::{prompts::build_structured_turn_system_prompt, protocol::RuntimeError};
 use noema_providers::{
-    GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateReasoningInput,
-    GenerateToolCallInput, GenerateToolResultInput, ProviderOperations,
+    AssistantTextPhase, GenerateAssistantTextInput, GenerateInput, GenerateInputItem,
+    GenerateMessage, GenerateMessageRole, GenerateReasoningInput, GenerateToolCallInput,
+    GenerateToolResultInput, ProviderOperations,
 };
 use serde_json::Value;
 use std::collections::HashSet;
@@ -200,6 +201,10 @@ fn build_turn_input(
                 .into_iter()
                 .filter_map(|item| match item {
                     GenerateInputItem::Message(message) => Some(message),
+                    GenerateInputItem::AssistantText(message) => Some(GenerateMessage {
+                        role: GenerateMessageRole::Assistant,
+                        content: message.content,
+                    }),
                     GenerateInputItem::Reasoning(_)
                     | GenerateInputItem::ToolCall(_)
                     | GenerateInputItem::ToolResult(_) => None,
@@ -288,7 +293,13 @@ pub(super) fn transcript_input_items(
         {
             continue;
         }
-        let Some(mut input) = input_item_from_transcript_item(item) else {
+        let Some(mut input) = (if item.kind == ConversationItemKind::AssistantText
+            && item_provider_matches(item, provider_kind)
+        {
+            provider_assistant_text_input_item(item)
+        } else {
+            input_item_from_transcript_item(item)
+        }) else {
             continue;
         };
         if let GenerateInputItem::ToolCall(call) = &input {
@@ -324,6 +335,7 @@ pub(super) fn transcript_input_items(
                 }))
             }
             GenerateInputItem::Message(_)
+            | GenerateInputItem::AssistantText(_)
             | GenerateInputItem::Reasoning(_)
             | GenerateInputItem::ToolCall(_)
             | GenerateInputItem::ToolResult(_) => None,
@@ -332,6 +344,28 @@ pub(super) fn transcript_input_items(
         inputs.extend(interrupted_result);
     }
     inputs
+}
+
+fn provider_assistant_text_input_item(item: &ConversationItemRecord) -> Option<GenerateInputItem> {
+    let content = item
+        .provider_content_text
+        .as_deref()
+        .or(item.content_text.as_deref())?
+        .trim();
+    if content.is_empty() {
+        return None;
+    }
+    let phase = match item.metadata.get("phase").and_then(Value::as_str) {
+        Some("commentary") => AssistantTextPhase::Commentary,
+        _ => AssistantTextPhase::FinalAnswer,
+    };
+    Some(GenerateInputItem::AssistantText(
+        GenerateAssistantTextInput {
+            id: action_string(&item.metadata, "provider_item_id"),
+            phase,
+            content: content.to_string(),
+        },
+    ))
 }
 
 fn item_provider_matches(item: &ConversationItemRecord, provider_kind: &str) -> bool {
@@ -581,6 +615,7 @@ mod tests {
             kind,
             status,
             content_text: None,
+            provider_content_text: None,
             payload_json: serde_json::json!({"metadata": {"action": action}}),
             metadata: serde_json::json!({"provider": "codex"}),
             created_at: String::new(),
@@ -717,6 +752,7 @@ mod tests {
                 kind: ConversationItemKind::Reasoning,
                 status: ConversationItemStatus::Completed,
                 content_text: None,
+                provider_content_text: None,
                 payload_json: serde_json::json!({
                     "provider_reasoning": {
                         "encrypted_content": "opaque",
@@ -735,6 +771,7 @@ mod tests {
                 kind: ConversationItemKind::AssistantText,
                 status: ConversationItemStatus::Completed,
                 content_text: Some("Checking the service.".to_string()),
+                provider_content_text: None,
                 payload_json: serde_json::json!({}),
                 metadata: serde_json::json!({}),
                 created_at: String::new(),
@@ -802,6 +839,42 @@ mod tests {
     }
 
     #[test]
+    fn assistant_history_replays_provider_text_and_phase_only_for_same_provider() {
+        let item = ConversationItemRecord {
+            item_id: "assistant".to_string(),
+            conversation_id: "conversation:1".to_string(),
+            turn_id: Some("turn:1".to_string()),
+            sequence_index: 1,
+            cursor: "conversation_item:1".to_string(),
+            kind: ConversationItemKind::AssistantText,
+            status: ConversationItemStatus::Completed,
+            content_text: Some("Readable text".to_string()),
+            provider_content_text: Some("Exact provider text".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({
+                "provider": "codex",
+                "phase": "commentary",
+                "provider_item_id": "msg_1",
+            }),
+            created_at: String::new(),
+        };
+
+        let same_provider = transcript_input_items(std::slice::from_ref(&item), "codex");
+        let GenerateInputItem::AssistantText(same_provider) = &same_provider[0] else {
+            panic!("expected phase-aware assistant input");
+        };
+        assert_eq!(same_provider.id.as_deref(), Some("msg_1"));
+        assert_eq!(same_provider.phase, AssistantTextPhase::Commentary);
+        assert_eq!(same_provider.content, "Exact provider text");
+
+        let switched = transcript_input_items(&[item], "openai");
+        let GenerateInputItem::Message(switched) = &switched[0] else {
+            panic!("expected readable assistant message");
+        };
+        assert_eq!(switched.content, "Readable text");
+    }
+
+    #[test]
     fn persisted_local_tool_call_id_is_not_replayed_as_provider_item_id() {
         let item = ConversationItemRecord {
             item_id: "item:1".to_string(),
@@ -812,6 +885,7 @@ mod tests {
             kind: ConversationItemKind::ToolCall,
             status: ConversationItemStatus::Completed,
             content_text: Some("Tool call: update_own_name".to_string()),
+            provider_content_text: None,
             payload_json: serde_json::json!({
                 "metadata": {
                     "action": {
@@ -846,6 +920,7 @@ mod tests {
             kind: ConversationItemKind::TaskReference,
             status: ConversationItemStatus::Completed,
             content_text: None,
+            provider_content_text: None,
             payload_json: serde_json::json!({
                 "task_id": "task:1"
             }),
@@ -882,6 +957,7 @@ mod tests {
             kind: ConversationItemKind::TaskReference,
             status: ConversationItemStatus::Completed,
             content_text: None,
+            provider_content_text: None,
             payload_json: serde_json::json!({
                 "task_id": "task:1"
             }),
@@ -903,6 +979,7 @@ mod tests {
             kind: ConversationItemKind::ModelContextUpdate,
             status: ConversationItemStatus::Completed,
             content_text: Some("NOEMA_MODEL_CONTEXT_UPDATE".to_string()),
+            provider_content_text: None,
             payload_json: serde_json::json!({
                 "model_context_update": {"section_id": "runtime.environment"}
             }),

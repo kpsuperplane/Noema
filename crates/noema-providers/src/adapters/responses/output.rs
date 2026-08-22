@@ -111,7 +111,7 @@ impl ResponsesResponse {
         let mut refusals = Vec::new();
 
         for item in &self.output {
-            let ResponsesOutputItem::Message { phase, content } = item else {
+            let ResponsesOutputItem::Message { id, phase, content } = item else {
                 continue;
             };
 
@@ -143,6 +143,7 @@ impl ResponsesResponse {
                     _ => None,
                 };
                 messages.push(GenerateResponseItem::Text {
+                    id: id.clone(),
                     phase,
                     text,
                     citations,
@@ -460,6 +461,8 @@ fn web_source(url: &str, title: Option<&str>) -> Option<GenerateWebSource> {
 enum ResponsesOutputItem {
     #[serde(rename = "message")]
     Message {
+        #[serde(default)]
+        id: Option<String>,
         #[serde(default)]
         phase: Option<String>,
         content: Vec<ResponsesContent>,

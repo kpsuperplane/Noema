@@ -216,7 +216,8 @@ impl RuntimeActor {
         .await?;
         citation_sources.observe(provider_round_index, &response.hosted_web_searches);
         let mut assistant_response = ProviderAssistantResponse::default();
-        for (offset, response_item) in response.responses.into_iter().enumerate() {
+        for response_item in response.assistant_response_texts() {
+            let offset = response_item.response_index;
             self.persist_provider_response_item(
                 &action_turn,
                 ProviderResponsePosition {
@@ -225,7 +226,6 @@ impl RuntimeActor {
                 },
                 response_item,
                 citation_sources,
-                false,
                 &mut assistant_response,
                 item_tx,
             )
@@ -247,8 +247,9 @@ impl RuntimeActor {
             "phase": "final_answer",
             "source": "progress_audit_pause",
         });
-        let Some(assistant_item) = self
+        let Some((assistant_item, _)) = self
             .persist_provider_assistant_text(
+                None,
                 &CitationSourceRegistry::default(),
                 summary.to_string(),
                 &[],

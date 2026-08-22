@@ -109,23 +109,26 @@ impl RuntimeActor {
     ) -> Result<usize, RuntimeError> {
         let mut persisted_count = 0usize;
         let citation_sources = CitationSourceRegistry::default();
-        for (index, output) in response.responses.into_iter().enumerate() {
-            let GenerateResponseItem::Text {
-                text,
-                citations,
-                ..
-            } = output;
+        for output in response.assistant_response_texts() {
+            let index = output.response_index;
             let metadata = json!({
                 "turn_index": turn_index,
                 "response_index": index,
                 "provider": response.provider.clone(),
+                "model": response.model.clone(),
+                "phase": output.phase.as_str(),
+                "provider_item_id": output.provider_item_id,
                 "source": "agent_onboarding",
             });
             if self
                 .persist_provider_assistant_text(
+                    Some(format!(
+                        "item:assistant:{}:{index}",
+                        turn_id.strip_prefix("turn:").unwrap_or(turn_id)
+                    )),
                     &citation_sources,
-                    text,
-                    &citations,
+                    output.text.to_string(),
+                    output.citations,
                     "agent_onboarding",
                     turn_id,
                     NewConversationItem {

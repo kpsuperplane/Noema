@@ -150,7 +150,8 @@ fn prompt_cache_breakpoints_for(
             .iter()
             .filter_map(|item| match item {
                 noema_providers::GenerateInputItem::Message(message) => Some(message),
-                noema_providers::GenerateInputItem::Reasoning(_)
+                noema_providers::GenerateInputItem::AssistantText(_)
+                | noema_providers::GenerateInputItem::Reasoning(_)
                 | noema_providers::GenerateInputItem::ToolCall(_)
                 | noema_providers::GenerateInputItem::ToolResult(_) => None,
             })

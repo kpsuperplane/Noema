@@ -204,6 +204,33 @@ impl NoemaStore {
             .await
     }
 
+    /// Append provider assistant text once with a caller-derived id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the item is invalid or an existing item has
+    /// different text, phase metadata, or ownership.
+    pub async fn append_provider_conversation_item_with_id_if_absent(
+        &self,
+        item_id: String,
+        item: NewConversationItem,
+        provider_text: String,
+    ) -> Result<(ConversationItemRecord, bool), StoreError> {
+        if item.kind != ConversationItemKind::AssistantText || item.content_text.is_none() {
+            return Err(invariant(
+                "provider conversation item must contain assistant text",
+            ));
+        }
+        let provider_text =
+            (item.content_text.as_deref() != Some(provider_text.as_str())).then_some(provider_text);
+        self.append_conversation_item_with_id_and_provider_text_if_absent(
+            item_id,
+            item,
+            provider_text,
+        )
+        .await
+    }
+
     /// Idempotently append a durable item with a caller-derived stable id.
     /// This is reserved for exactly-once projections of another durable event.
     ///
@@ -273,7 +300,7 @@ impl NoemaStore {
         let _append_guard = self.append_item_lock.lock().await;
         let (sequence_index, inserted) = self
             .with_connection(|conn| {
-                if let Some(existing) = collect_conversation_item_rows(
+                if let Some(existing_row) = collect_conversation_item_rows(
                     conn,
                     "WHERE item_id = ?1 LIMIT 1",
                     params![item_id],
@@ -281,13 +308,26 @@ impl NoemaStore {
                 .into_iter()
                 .next()
                 {
-                    let existing = conversation_item_from_row(existing)?;
+                    let existing = conversation_item_from_row(existing_row)?;
+                    let stored_owner = conn.query_row(
+                        "SELECT parent_item_id, author_actor_id FROM conversation_items WHERE item_id = ?1",
+                        [&item_id],
+                        |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+                    )?;
                     if existing.conversation_id != item.conversation_id
+                        || existing.turn_id != item.turn_id
                         || existing.kind != item.kind
+                        || existing.status != item.status
+                        || existing.content_text != item.content_text
+                        || existing.provider_content_text != provider_content_text
+                        || existing.payload_json != item.payload_json
+                        || existing.metadata != item.metadata
+                        || stored_owner.0 != item.parent_item_id
+                        || stored_owner.1 != item.author.actor_id
                     {
                         return Err(StoreError::InvariantViolation {
                             message: format!(
-                                "idempotent conversation item id belongs to another projection: {item_id}"
+                                "saved conversation item differs: {item_id}"
                             ),
                         });
                     }
@@ -619,7 +659,7 @@ where
         format!(
             r#"
             SELECT item_id, conversation_id, turn_id, kind, status, content_text,
-              payload_json, metadata_json, sequence_index, created_at
+              provider_content_text, payload_json, metadata_json, sequence_index, created_at
             FROM conversation_items
             {clause}
             "#
@@ -675,6 +715,7 @@ struct ConversationItemRow {
     kind: String,
     status: String,
     content_text: Option<String>,
+    provider_content_text: Option<String>,
     payload_json: String,
     metadata_json: String,
     created_at: String,
@@ -688,10 +729,11 @@ fn conversation_item_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Conversati
         kind: row.get(3)?,
         status: row.get(4)?,
         content_text: row.get(5)?,
-        payload_json: row.get(6)?,
-        metadata_json: row.get(7)?,
-        sequence_index: row.get(8)?,
-        created_at: row.get(9)?,
+        provider_content_text: row.get(6)?,
+        payload_json: row.get(7)?,
+        metadata_json: row.get(8)?,
+        sequence_index: row.get(9)?,
+        created_at: row.get(10)?,
     })
 }
 
@@ -731,6 +773,7 @@ fn conversation_item_from_row(
         kind: ConversationItemKind::parse(&row.kind).map_err(StoreError::from)?,
         status: ConversationItemStatus::parse(&row.status).map_err(StoreError::from)?,
         content_text: row.content_text,
+        provider_content_text: row.provider_content_text,
         payload_json: deserialize_json(row.payload_json)?,
         metadata: deserialize_json(row.metadata_json)?,
         created_at: row.created_at,

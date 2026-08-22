@@ -741,6 +741,7 @@ mod memory_change_set_tests {
                 kind,
                 status: noema_conversations::ConversationItemStatus::Completed,
                 content_text: Some(text.to_string()),
+                provider_content_text: None,
                 payload_json: payload,
                 metadata: serde_json::json!({}),
                 created_at: String::new(),

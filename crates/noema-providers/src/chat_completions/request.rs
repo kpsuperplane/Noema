@@ -291,6 +291,15 @@ fn append_items(messages: &mut Vec<ChatMessage>, items: &[GenerateInputItem]) {
                     messages.push(chat_message);
                 }
             }
+            GenerateInputItem::AssistantText(message) => {
+                if !pending_reasoning.is_empty() {
+                    push_reasoning_message(messages, &mut pending_reasoning);
+                }
+                messages.push(ChatMessage::text(
+                    GenerateMessageRole::Assistant,
+                    message.content.clone(),
+                ));
+            }
             GenerateInputItem::ToolCall(call) => {
                 if !pending_reasoning.is_empty() {
                     push_reasoning_message(messages, &mut pending_reasoning);

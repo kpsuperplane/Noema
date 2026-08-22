@@ -2,10 +2,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
     time::{Duration, Instant},
 };
 
@@ -75,8 +71,6 @@ impl RuntimeActor {
         };
         let fence_for_writer = fence.clone();
         let subscriptions_for_writer = subscriptions.clone();
-        let saw_assistant_delta = Arc::new(AtomicBool::new(false));
-        let saw_assistant_delta_for_emit = Arc::clone(&saw_assistant_delta);
         let writer = tokio::spawn(async move {
             let mut assistant_text = BTreeMap::<usize, String>::new();
             let mut dirty = BTreeSet::<usize>::new();
@@ -164,6 +158,7 @@ impl RuntimeActor {
                                 response_index,
                                 text.clone(),
                                 noema_tasks::AgentRunItemStatus::Running,
+                                None,
                             );
                             if store
                                 .upsert_agent_run_item(item, &fence_for_writer)
@@ -186,6 +181,7 @@ impl RuntimeActor {
                     response_index,
                     text,
                     noema_tasks::AgentRunItemStatus::Completed,
+                    None,
                 );
                 if store
                     .upsert_agent_run_item(item, &fence_for_writer)
@@ -200,9 +196,6 @@ impl RuntimeActor {
             }
         });
         let mut emit = |event| {
-            if matches!(&event, GenerateStreamEvent::AssistantTextDelta { .. }) {
-                saw_assistant_delta_for_emit.store(true, Ordering::Relaxed);
-            }
             let _ = event_tx.send(event);
         };
         let provider_started_at = Instant::now();
@@ -336,27 +329,26 @@ impl RuntimeActor {
                 task_id: task_id.to_string(),
                 run_id: Some(run_id.to_string()),
             });
-            if !saw_assistant_delta.load(Ordering::Relaxed) {
-                let assistant_text = response.assistant_text();
-                if !assistant_text.is_empty() {
-                    self.persist_task_run_item(
-                        task_id,
-                        subscriptions,
-                        NewAgentRunItem {
-                            item_id: None,
-                            run_id: run_id.to_string(),
-                            round_index,
-                            kind: noema_tasks::AgentRunItemKind::AssistantOutput,
-                            status: noema_tasks::AgentRunItemStatus::Completed,
-                            correlation_id: Some(format!("assistant:{round_index}")),
-                            parent_item_id: None,
-                            content_text: Some(assistant_text),
-                            payload: serde_json::json!({"source": "response"}),
-                        },
-                        &fence,
-                    )
-                    .await;
-                }
+            for output in response.assistant_response_texts() {
+                self.persist_task_run_item(
+                    task_id,
+                    subscriptions,
+                    assistant_run_item(
+                        run_id,
+                        round_index,
+                        output.response_index,
+                        output.text.to_string(),
+                        noema_tasks::AgentRunItemStatus::Completed,
+                        Some(serde_json::json!({
+                            "phase": output.phase.as_str(),
+                            "provider": response.provider,
+                            "model": response.model,
+                            "provider_item_id": output.provider_item_id,
+                        })),
+                    ),
+                    &fence,
+                )
+                .await;
             }
             for search in &response.hosted_web_searches {
                 let (call_item, result_item) =
@@ -538,7 +530,14 @@ fn assistant_run_item(
     response_index: usize,
     text: String,
     status: noema_tasks::AgentRunItemStatus,
+    metadata: Option<serde_json::Value>,
 ) -> NewAgentRunItem {
+    let mut payload = serde_json::json!({"response_index": response_index});
+    if let (Some(payload), Some(metadata)) = (payload.as_object_mut(), metadata) {
+        if let Some(metadata) = metadata.as_object() {
+            payload.extend(metadata.clone());
+        }
+    }
     NewAgentRunItem {
         item_id: Some(format!(
             "run_item:assistant:{run_id}:{round_index}:{response_index}"
@@ -550,7 +549,7 @@ fn assistant_run_item(
         correlation_id: Some(format!("assistant:{round_index}:{response_index}")),
         parent_item_id: None,
         content_text: Some(text),
-        payload: serde_json::json!({"response_index": response_index}),
+        payload,
     }
 }
 

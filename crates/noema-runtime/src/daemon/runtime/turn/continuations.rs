@@ -538,7 +538,6 @@ impl RuntimeActor {
                     );
                 }
             }
-            let continuation_phase_has_tools = !continuation_tool_calls.is_empty();
             let continuation_tool_description = single_tool_display_description(
                 &continuation_response.responses,
                 &continuation_response.reasoning_items,
@@ -552,9 +551,8 @@ impl RuntimeActor {
             )
             .await?;
             if !continuation_batch_kind.contains_delegation() {
-                for (offset, response_item) in
-                    continuation_response.responses.iter().cloned().enumerate()
-                {
+                for response_item in continuation_response.assistant_response_texts() {
+                    let offset = response_item.response_index;
                     self.persist_provider_response_item(
                         &continuation_action_turn,
                         ProviderResponsePosition {
@@ -563,7 +561,6 @@ impl RuntimeActor {
                         },
                         response_item,
                         &citation_sources,
-                        continuation_phase_has_tools,
                         &mut continuation_assistant_response,
                         item_tx,
                     )

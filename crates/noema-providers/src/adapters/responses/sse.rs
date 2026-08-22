@@ -547,11 +547,13 @@ mod tests {
             generated.responses,
             vec![
                 crate::GenerateResponseItem::Text {
+                    id: None,
                     phase: Some(crate::AssistantTextPhase::Commentary),
                     text: "Got it".to_string(),
                     citations: Vec::new(),
                 },
                 crate::GenerateResponseItem::Text {
+                    id: None,
                     phase: Some(crate::AssistantTextPhase::FinalAnswer),
                     text: "What time works?".to_string(),
                     citations: Vec::new(),

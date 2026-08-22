@@ -10,17 +10,17 @@ use std::future::Future;
 pub use error::{ProviderError, ProviderTransportContext, ProviderTransportKind};
 pub(crate) use message_splitter::{MarkdownMessageDeltaSplitter, split_markdown_message_segments};
 pub use request::{
-    GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
-    GenerateReasoningInput, GenerateRequest, GenerateToolCallInput, GenerateToolResultInput,
-    GenerationPriority, PromptCacheMode, PromptCacheOptions, PromptCacheRetention, PromptCacheTtl,
-    ReasoningEffort,
+    GenerateAssistantTextInput, GenerateInput, GenerateInputItem, GenerateMessage,
+    GenerateMessageRole, GenerateOptions, GenerateReasoningInput, GenerateRequest,
+    GenerateToolCallInput, GenerateToolResultInput, GenerationPriority, PromptCacheMode,
+    PromptCacheOptions, PromptCacheRetention, PromptCacheTtl, ReasoningEffort,
 };
 pub(crate) use response::split_markdown_response_item;
 pub use response::{
-    AssistantTextPhase, GenerateActionItem, GenerateCitation, GenerateHostedWebSearch,
-    GenerateReasoningItem, GenerateResponse, GenerateResponseItem, GenerateStreamEvent,
-    GenerateToolCall, GenerateWebSource, MultipleChoiceOption, MultipleChoiceSelectionMode,
-    ProviderTimingMilestone, TokenUsage,
+    AssistantResponseText, AssistantTextPhase, GenerateActionItem, GenerateCitation,
+    GenerateHostedWebSearch, GenerateReasoningItem, GenerateResponse, GenerateResponseItem,
+    GenerateStreamEvent, GenerateToolCall, GenerateWebSource, MultipleChoiceOption,
+    MultipleChoiceSelectionMode, ProviderTimingMilestone, TokenUsage,
 };
 
 use crate::{ProviderSchemaRequestCapabilities, ProviderToolCapabilities};

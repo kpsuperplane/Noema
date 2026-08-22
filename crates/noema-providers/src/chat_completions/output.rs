@@ -83,6 +83,7 @@ impl ChatCompletionResponse {
 
         let responses = (!text.is_empty())
             .then_some(GenerateResponseItem::Text {
+                id: None,
                 phase: None,
                 text,
                 citations: self.citations(),

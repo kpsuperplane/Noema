@@ -73,7 +73,6 @@ impl RuntimeActor {
             initial_tool_calls.len(),
         );
         let initial_batch_kind = ForegroundToolBatchKind::for_calls(&initial_tool_calls);
-        let initial_phase_has_tools = !initial_tool_calls.is_empty();
         self.persist_hosted_web_searches(
             &action_turn,
             0,
@@ -82,7 +81,8 @@ impl RuntimeActor {
         )
         .await?;
         if !initial_batch_kind.contains_delegation() {
-            for (index, response_item) in turn.response.responses.iter().cloned().enumerate() {
+            for response_item in turn.response.assistant_response_texts() {
+                let index = response_item.response_index;
                 self.persist_provider_response_item(
                     &action_turn,
                     ProviderResponsePosition {
@@ -91,7 +91,6 @@ impl RuntimeActor {
                     },
                     response_item,
                     &citation_sources,
-                    initial_phase_has_tools,
                     &mut initial_assistant_response,
                     item_tx,
                 )

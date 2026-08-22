@@ -1,10 +1,9 @@
 use noema_conversations::{
-    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
-    NewConversationTurn, ReplayMode,
+    ActorRef, ConversationItemKind, ConversationItemStatus, ConversationTurnStatus,
+    NewConversationItem, NewConversationTurn,
 };
 use noema_providers::{
-    AssistantTextPhase, GenerateMessageRole, GenerateOptions, GenerateRequest,
-    GenerateResponseItem, NoemaToolChoice, ProviderToolTransport,
+    GenerateMessageRole, GenerateOptions, GenerateRequest, NoemaToolChoice, ProviderToolTransport,
 };
 use serde_json::{Map, Value, json};
 
@@ -123,7 +122,7 @@ impl RuntimeActor {
         conversation_id: &str,
         notification: PrimaryNotification,
     ) -> Result<Option<PrimaryNotificationTurn>, RuntimeError> {
-        let turn_index = self
+        let proposed_turn_index = self
             .store
             .next_conversation_turn_index(conversation_id)
             .await?;
@@ -136,29 +135,23 @@ impl RuntimeActor {
                     conversation_id: conversation_id.to_string(),
                     trigger_item_id: None,
                     metadata: json!({
-                        "turn_index": turn_index,
+                        "turn_index": proposed_turn_index,
                         "source": notification.source,
                         "notification_id": notification.id,
                     }),
                 },
             )
             .await?;
-        if !inserted {
-            let existing = self
-                .store
-                .list_conversation_items(conversation_id, ReplayMode::Visible)
-                .await?;
-            if existing.iter().any(|item| {
-                item.turn_id.as_deref() == Some(turn_id.as_str())
-                    && item.kind == ConversationItemKind::AssistantText
-                    && item.metadata.get("source").and_then(Value::as_str)
-                        == Some(notification.source)
-            }) {
-                self.store.complete_conversation_turn(&turn.turn_id).await?;
-                return Ok(None);
-            }
+        if !inserted && turn.status == ConversationTurnStatus::Completed {
+            return Ok(None);
         }
-
+        let turn_index = turn
+            .metadata
+            .get("turn_index")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| {
+                RuntimeError::Protocol("primary notification turn index is missing".to_string())
+            })?;
         let route = self.resolve_primary_provider().await?;
         let selection = route.selection().clone();
         let provider = route.operations();
@@ -218,26 +211,31 @@ impl RuntimeActor {
 
         let mut text_count = 0;
         let citation_sources = CitationSourceRegistry::default();
-        for (response_index, output) in response.responses.iter().enumerate() {
-            let GenerateResponseItem::Text {
-                text, citations, ..
-            } = output;
-            let effective_phase = AssistantTextPhase::effective_for_response_item(output, false);
+        for output in response.assistant_response_texts() {
+            let response_index = output.response_index;
             let mut metadata = notification.metadata.clone();
             metadata.extend(Map::from_iter([
                 ("turn_index".to_string(), json!(turn_index)),
                 ("response_index".to_string(), json!(response_index)),
-                ("phase".to_string(), json!(effective_phase.as_str())),
+                ("phase".to_string(), json!(output.phase.as_str())),
+                (
+                    "provider_item_id".to_string(),
+                    json!(output.provider_item_id),
+                ),
                 ("source".to_string(), json!(notification.source)),
                 ("notification_id".to_string(), json!(notification.id)),
                 ("provider".to_string(), json!(response.provider)),
                 ("model".to_string(), json!(response.model)),
             ]));
-            let Some(record) = self
+            let Some((record, inserted)) = self
                 .persist_provider_assistant_text(
+                    Some(format!(
+                        "item:assistant:{}:{response_index}",
+                        turn.turn_id.strip_prefix("turn:").unwrap_or(&turn.turn_id)
+                    )),
                     &citation_sources,
-                    text.clone(),
-                    citations,
+                    output.text.to_string(),
+                    output.citations,
                     notification.source,
                     &turn.turn_id,
                     NewConversationItem {
@@ -257,6 +255,10 @@ impl RuntimeActor {
             else {
                 continue;
             };
+            text_count += 1;
+            if !inserted {
+                continue;
+            }
             let text = record.content_text.clone().unwrap_or_default();
             let metadata = record.metadata.clone();
             self.runtime_events
@@ -271,7 +273,6 @@ impl RuntimeActor {
                         item: Box::new(TurnTranscriptItem::AssistantText { text }),
                     }),
                 });
-            text_count += 1;
         }
         if text_count == 0 {
             self.store.fail_conversation_turn(&turn.turn_id).await?;

@@ -247,6 +247,7 @@ impl FakeCodexProvider {
                         ]
                         .into_iter()
                         .map(|text| GenerateResponseItem::Text {
+                            id: None,
                             phase: None,
                             text: text.to_string(),
                             citations: Vec::new(),
@@ -269,11 +270,13 @@ impl FakeCodexProvider {
             FakeCodexScenario::MultipleTaskDelegation => (
                 vec![
                     GenerateResponseItem::Text {
+                        id: None,
                         phase: Some(AssistantTextPhase::FinalAnswer),
                         text: "I started all three background tasks.".to_string(),
                         citations: Vec::new(),
                     },
                     GenerateResponseItem::Text {
+                        id: None,
                         phase: Some(AssistantTextPhase::FinalAnswer),
                         text: "They are underway.".to_string(),
                         citations: Vec::new(),

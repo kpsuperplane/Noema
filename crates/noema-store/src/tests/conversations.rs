@@ -55,6 +55,85 @@ async fn provider_assistant_text_shares_one_row_and_omits_equal_source_text() {
 }
 
 #[tokio::test]
+async fn primary_notification_writes_resume_after_a_partial_save() {
+    use noema_conversations::{
+        ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
+        NewConversationTurn, ReplayMode,
+    };
+
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("conversation");
+    let turn_id = "turn:notification:test".to_string();
+    store
+        .create_conversation_turn_with_id_if_absent(
+            turn_id.clone(),
+            NewConversationTurn {
+                conversation_id: conversation.conversation_id.clone(),
+                trigger_item_id: None,
+                metadata: serde_json::json!({"turn_index": 1, "notification_id": "test"}),
+            },
+        )
+        .await
+        .expect("turn");
+    let item = |index, text: &str, phase: &str| NewConversationItem {
+        conversation_id: conversation.conversation_id.clone(),
+        turn_id: Some(turn_id.clone()),
+        parent_item_id: None,
+        kind: ConversationItemKind::AssistantText,
+        status: ConversationItemStatus::Completed,
+        author: ActorRef::new("agent:primary").expect("agent"),
+        content_text: Some(text.to_string()),
+        payload_json: serde_json::json!({}),
+        metadata: serde_json::json!({
+            "source": "task_notification",
+            "notification_id": "test",
+            "response_index": index,
+            "phase": phase,
+        }),
+    };
+
+    let (_, first_inserted) = store
+        .append_provider_conversation_item_with_id_if_absent(
+            "item:assistant:notification:test:0".to_string(),
+            item(0, "Progress", "commentary"),
+            "Progress".to_string(),
+        )
+        .await
+        .expect("first item");
+    let (_, repeated_inserted) = store
+        .append_provider_conversation_item_with_id_if_absent(
+            "item:assistant:notification:test:0".to_string(),
+            item(0, "Progress", "commentary"),
+            "Progress".to_string(),
+        )
+        .await
+        .expect("repeated first item");
+    let (_, second_inserted) = store
+        .append_provider_conversation_item_with_id_if_absent(
+            "item:assistant:notification:test:1".to_string(),
+            item(1, "Done", "final_answer"),
+            "Done".to_string(),
+        )
+        .await
+        .expect("second item");
+
+    assert!(first_inserted);
+    assert!(!repeated_inserted);
+    assert!(second_inserted);
+    let items = store
+        .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)
+        .await
+        .expect("items");
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0].metadata["phase"], "commentary");
+    assert_eq!(items[1].metadata["phase"], "final_answer");
+}
+
+#[tokio::test]
 async fn conversation_working_directory_is_allocated_and_persisted() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");

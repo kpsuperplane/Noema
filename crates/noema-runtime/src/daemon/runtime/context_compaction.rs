@@ -532,6 +532,9 @@ fn render_compaction_transcript(items: &[ConversationItemRecord]) -> String {
                     };
                     (role, message.content)
                 }
+                noema_providers::GenerateInputItem::AssistantText(message) => {
+                    ("Noema", message.content)
+                }
                 noema_providers::GenerateInputItem::Reasoning(_) => return None,
                 noema_providers::GenerateInputItem::ToolCall(call) => (
                     "Noema tool call",
@@ -739,6 +742,7 @@ mod tests {
             kind,
             status: ConversationItemStatus::Completed,
             content_text: Some(text.to_string()),
+            provider_content_text: None,
             payload_json,
             metadata: serde_json::json!({}),
             created_at: String::new(),

@@ -396,6 +396,7 @@ mod tests {
             let mut response =
                 GenerateResponse::final_text("first\n---\nthird", "interleaved", "model");
             response.responses.push(GenerateResponseItem::Text {
+                id: None,
                 phase: None,
                 text: "second".to_string(),
                 citations: Vec::new(),

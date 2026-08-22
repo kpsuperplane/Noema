@@ -149,6 +149,7 @@ impl GenerateResponse {
     ) -> Self {
         Self {
             responses: vec![GenerateResponseItem::Text {
+                id: None,
                 phase: None,
                 text: text.into(),
                 citations: Vec::new(),
@@ -179,6 +180,44 @@ impl GenerateResponse {
     pub fn has_tool_calls(&self) -> bool {
         !self.tool_calls.is_empty()
     }
+
+    /// Return every non-empty assistant item in provider order.
+    pub fn assistant_response_texts(&self) -> impl Iterator<Item = AssistantResponseText<'_>> + '_ {
+        let has_tools = self.has_tool_calls();
+        self.responses
+            .iter()
+            .enumerate()
+            .filter_map(move |(response_index, item)| {
+                let GenerateResponseItem::Text {
+                    id,
+                    text,
+                    citations,
+                    ..
+                } = item;
+                (!text.trim().is_empty()).then(|| AssistantResponseText {
+                    response_index,
+                    provider_item_id: id.as_deref(),
+                    phase: AssistantTextPhase::effective_for_response_item(item, has_tools),
+                    text,
+                    citations,
+                })
+            })
+    }
+}
+
+/// One phase-aware assistant item selected for durable storage.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AssistantResponseText<'a> {
+    /// Position inside the provider response text collection.
+    pub response_index: usize,
+    /// Provider output item id, when available.
+    pub provider_item_id: Option<&'a str>,
+    /// Effective visible phase.
+    pub phase: AssistantTextPhase,
+    /// Exact provider text.
+    pub text: &'a str,
+    /// Citations attached to this exact item.
+    pub citations: &'a [GenerateCitation],
 }
 
 /// User-visible phase for assistant text within one provider turn.
@@ -245,6 +284,9 @@ pub struct MultipleChoiceOption {
 pub enum GenerateResponseItem {
     /// Human-visible assistant text.
     Text {
+        /// Provider output item id, when available.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
         /// Whether the text is mid-turn commentary or the final answer.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         phase: Option<AssistantTextPhase>,
@@ -260,6 +302,7 @@ pub(crate) fn split_markdown_response_item(
     item: GenerateResponseItem,
 ) -> Vec<GenerateResponseItem> {
     let GenerateResponseItem::Text {
+        id,
         phase,
         text,
         citations,
@@ -302,6 +345,7 @@ pub(crate) fn split_markdown_response_item(
         .into_iter()
         .zip(grouped)
         .map(|(segment, citations)| GenerateResponseItem::Text {
+            id: id.clone(),
             phase,
             text: segment.text,
             citations,
@@ -336,6 +380,7 @@ mod citation_split_tests {
     fn citations_follow_utf16_bubble_ranges_and_missing_offset_fallback() {
         let mut response = GenerateResponse {
             responses: vec![GenerateResponseItem::Text {
+                id: None,
                 phase: None,
                 text: "😀 first\n\nsecond".to_string(),
                 citations: vec![
@@ -373,6 +418,52 @@ mod citation_split_tests {
         );
         assert_eq!(citations[0].end_index, Some(6));
         assert_eq!(citations[1].end_index, None);
+    }
+
+    #[test]
+    fn assistant_response_texts_preserve_order_late_commentary_and_exact_duplicates() {
+        let response = GenerateResponse {
+            responses: vec![
+                text_item(None, "progress"),
+                text_item(Some(AssistantTextPhase::FinalAnswer), "same"),
+                text_item(Some(AssistantTextPhase::Commentary), "same"),
+            ],
+            tool_calls: vec![GenerateToolCall {
+                id: None,
+                provider_call_id: Some("call_1".to_string()),
+                provider_name: None,
+                name: "read".to_string(),
+                payload: Value::Null,
+            }],
+            reasoning_items: Vec::new(),
+            hosted_web_searches: Vec::new(),
+            provider: "test".to_string(),
+            model: "test".to_string(),
+            response_id: None,
+            usage: None,
+        };
+
+        let response_texts = response.assistant_response_texts().collect::<Vec<_>>();
+        assert_eq!(
+            response_texts
+                .iter()
+                .map(|item| (item.text, item.phase))
+                .collect::<Vec<_>>(),
+            [
+                ("progress", AssistantTextPhase::Commentary),
+                ("same", AssistantTextPhase::FinalAnswer),
+                ("same", AssistantTextPhase::Commentary),
+            ]
+        );
+    }
+
+    fn text_item(phase: Option<AssistantTextPhase>, text: &str) -> GenerateResponseItem {
+        GenerateResponseItem::Text {
+            id: None,
+            phase,
+            text: text.to_string(),
+            citations: Vec::new(),
+        }
     }
 
     fn citation(title: &str, end_index: Option<usize>) -> GenerateCitation {

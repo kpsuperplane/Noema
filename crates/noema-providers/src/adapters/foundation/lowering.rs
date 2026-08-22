@@ -63,7 +63,8 @@ pub(super) fn foundation_prompt_parts(input: &GenerateInput) -> FoundationPrompt
             };
             let generate_input = match &items[last_user_index] {
                 GenerateInputItem::Message(message) => message.content.clone(),
-                GenerateInputItem::Reasoning(_)
+                GenerateInputItem::AssistantText(_)
+                | GenerateInputItem::Reasoning(_)
                 | GenerateInputItem::ToolCall(_)
                 | GenerateInputItem::ToolResult(_) => String::new(),
             };
@@ -98,6 +99,12 @@ fn bridge_replay_input_items(items: &[GenerateInputItem]) -> Vec<BridgeReplayTur
         .flat_map(|item| match item {
             GenerateInputItem::Message(message) => vec![BridgeReplayTurn {
                 role: bridge_role(message.role),
+                text: message.content.clone(),
+                tool_call: None,
+                tool_result: None,
+            }],
+            GenerateInputItem::AssistantText(message) => vec![BridgeReplayTurn {
+                role: BridgeRole::Assistant,
                 text: message.content.clone(),
                 tool_call: None,
                 tool_result: None,

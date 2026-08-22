@@ -488,6 +488,7 @@ fn foundation_response(
         .collect::<Result<Vec<_>, ProviderError>>()?;
     let responses = (!generation.text.trim().is_empty())
         .then_some(GenerateResponseItem::Text {
+            id: None,
             phase: None,
             text: generation.text,
             citations: Vec::new(),
