@@ -130,7 +130,7 @@ fn development_server_command(repo_root: &Path) -> Command {
         .current_dir(repo_root)
         .env("CARGO_TARGET_DIR", DEV_CACHE.path(repo_root))
         .env("TMPDIR", DEV_CACHE.temp_path(repo_root))
-        .env("NOEMA_WEB__HOST", "0.0.0.0")
+        .env("NOEMA_WEB__HOST", "127.0.0.1")
         .env("NOEMA_WEB__LOCAL_GRAPHQL_SOCKET", "true")
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
@@ -324,6 +324,18 @@ mod tests {
                 .get_envs()
                 .all(|(name, _)| name != "NOEMA_WEB__DEV_NO_AUTH")
         );
+    }
+
+    #[test]
+    fn development_server_binds_only_to_loopback() {
+        let command = development_server_command(Path::new("/workspace/noema"));
+        let host = command.as_std().get_envs().find_map(|(name, value)| {
+            (name == "NOEMA_WEB__HOST")
+                .then(|| value.map(|value| value.to_string_lossy().into_owned()))
+                .flatten()
+        });
+
+        assert_eq!(host.as_deref(), Some("127.0.0.1"));
     }
 
     #[test]
