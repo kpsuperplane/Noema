@@ -111,22 +111,26 @@ pub(crate) async fn run_development_server() -> Result<(), WorkflowError> {
     let repo_root = crate::repo_root();
     enforce_cache_budget(&repo_root, DEV_CACHE).await?;
 
-    let mut command = development_server_command(&repo_root);
+    let mut command = development_server_command(&repo_root, crate::running_as_root());
     let status = command
         .status()
         .await
         .map_err(|source| WorkflowError::SpawnCargo { source })?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(WorkflowError::CargoExited { status })
+    if !status.success() {
+        return Err(WorkflowError::CargoExited { status });
     }
+    Ok(())
 }
 
-fn development_server_command(repo_root: &Path) -> Command {
-    let mut command = Command::new(cargo_exe());
+fn development_server_command(repo_root: &Path, drop_root: bool) -> Command {
+    let mut command = if drop_root {
+        Command::new(repo_root.join("scripts/run-noema-dev-server"))
+    } else {
+        let mut command = Command::new(cargo_exe());
+        command.args(["run", "-p", "noema-server", "--bin", "noema_web"]);
+        command
+    };
     command
-        .args(["run", "-p", "noema-server", "--bin", "noema_web"])
         .current_dir(repo_root)
         .env("CARGO_TARGET_DIR", DEV_CACHE.path(repo_root))
         .env("TMPDIR", DEV_CACHE.temp_path(repo_root))
@@ -316,7 +320,7 @@ mod tests {
 
     #[test]
     fn development_server_does_not_override_authentication() {
-        let command = development_server_command(Path::new("/workspace/noema"));
+        let command = development_server_command(Path::new("/workspace/noema"), true);
 
         assert!(
             command
@@ -328,7 +332,7 @@ mod tests {
 
     #[test]
     fn development_server_binds_only_to_loopback() {
-        let command = development_server_command(Path::new("/workspace/noema"));
+        let command = development_server_command(Path::new("/workspace/noema"), true);
         let host = command.as_std().get_envs().find_map(|(name, value)| {
             (name == "NOEMA_WEB__HOST")
                 .then(|| value.map(|value| value.to_string_lossy().into_owned()))
@@ -336,6 +340,21 @@ mod tests {
         });
 
         assert_eq!(host.as_deref(), Some("127.0.0.1"));
+    }
+
+    #[test]
+    fn root_development_server_drops_identity_and_uses_the_instance_home() {
+        let command = development_server_command(Path::new("/workspace/noema"), true);
+        let command = command.as_std();
+
+        assert_eq!(
+            command.get_program(),
+            "/workspace/noema/scripts/run-noema-dev-server"
+        );
+        assert_eq!(
+            command.get_current_dir(),
+            Some(Path::new("/workspace/noema"))
+        );
     }
 
     #[test]

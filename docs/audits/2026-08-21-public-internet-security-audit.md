@@ -16,6 +16,16 @@ The Caddy binary also contains directly reachable TLS denial-of-service defects.
 
 No critical finding was confirmed. The review found three high, three medium, and five low findings.
 
+## Post-audit remediation
+
+The audit evidence below describes the original runtime.
+
+- H-01 is partly remediated for the chosen live development process. Noema now listens on loopback as `noema-dev`.
+- The process has no Linux capabilities and uses `NoNewPrivileges`. It remains a debug build.
+- The instance home moved from the repository to `/var/lib/noema-dev` with mode `0700`.
+- H-02 is remediated. Caddy 2.11.4 now uses Go 1.27.0 without the two listed TLS findings.
+- H-03 remains open until the public Cloudflare route has explicit request limits.
+
 ## Severity model
 
 | Severity | Meaning |

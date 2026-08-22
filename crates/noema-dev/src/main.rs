@@ -18,6 +18,8 @@ use tokio::{
 };
 
 const WEB_ASSET_WATCH_SCRIPT: &str = "dev:assets";
+const DEV_ASSET_DIR_ENV: &str = "NOEMA_DEV_ASSET_DIR";
+const ROOT_DEV_ASSET_DIR: &str = "/run/noema-dev/web-assets";
 const WEB_SERVER_WATCH_IGNORE_GLOBS: [&str; 2] =
     ["apps/web/**", "crates/noema-server/target/web-assets/**"];
 const WATCHER_RESTART_DELAY: Duration = Duration::from_millis(250);
@@ -214,6 +216,9 @@ async fn shutdown_signal() -> Result<&'static str, DevError> {
 fn spawn_web_watcher(web_dir: &Path) -> Result<Child, DevError> {
     let mut command = Command::new("bun");
     command.arg("run").arg(WEB_ASSET_WATCH_SCRIPT);
+    if running_as_root() {
+        command.env(DEV_ASSET_DIR_ENV, ROOT_DEV_ASSET_DIR);
+    }
 
     spawn_dev_process("web asset watcher", &mut command, web_dir)
 }
@@ -373,6 +378,18 @@ fn repo_root() -> PathBuf {
 
 fn cargo_exe() -> String {
     env::var("CARGO").unwrap_or_else(|_| "cargo".to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn running_as_root() -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    std::fs::metadata("/proc/self").is_ok_and(|metadata| metadata.uid() == 0)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn running_as_root() -> bool {
+    false
 }
 
 #[cfg(test)]

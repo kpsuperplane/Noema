@@ -21,6 +21,7 @@ const stylexPlugin = [
 ];
 
 const pwaReleaseId = process.env.NOEMA_PWA_RELEASE ?? randomUUID();
+const assetOutDir = process.env.NOEMA_DEV_ASSET_DIR ?? "../../crates/noema-server/target/web-assets";
 
 export default defineConfig({
   plugins: [
@@ -92,7 +93,7 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: "../../crates/noema-server/target/web-assets",
+    outDir: assetOutDir,
     manifest: true,
     emptyOutDir: true,
     cssCodeSplit: false,

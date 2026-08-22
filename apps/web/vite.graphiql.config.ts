@@ -2,11 +2,13 @@ import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+const assetOutDir = process.env.NOEMA_DEV_ASSET_DIR ?? "../../crates/noema-server/target/web-assets";
+
 export default defineConfig({
   plugins: [react()],
   base: "/assets/",
   build: {
-    outDir: "../../crates/noema-server/target/web-assets",
+    outDir: assetOutDir,
     emptyOutDir: false,
     cssCodeSplit: false,
     rollupOptions: {

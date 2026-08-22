@@ -111,7 +111,11 @@ include!(concat!(env!("OUT_DIR"), "/web_assets.rs"));
 /// running `vite build --watch`) without forcing a recompile of this crate.
 #[cfg(debug_assertions)]
 pub(super) fn asset_body(name: &str) -> Option<Cow<'static, [u8]>> {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/web-assets");
+    let dir = std::env::var_os("NOEMA_DEV_ASSET_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/web-assets")
+        });
     std::fs::read(dir.join(name)).ok().map(Cow::Owned)
 }
 

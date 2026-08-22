@@ -4,6 +4,12 @@ set -euo pipefail
 session_name="${NOEMA_TMUX_SESSION:-noema-dev}"
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
+if (( EUID == 0 )); then
+  noema_home="${NOEMA_HOME:-/var/lib/noema-dev}"
+else
+  noema_home="${NOEMA_HOME:-.noema-dev}"
+fi
+
 if ! command -v tmux >/dev/null 2>&1; then
   echo "attach: tmux is required but was not found in PATH" >&2
   exit 1
@@ -11,7 +17,7 @@ fi
 
 if ! tmux has-session -t "=${session_name}" 2>/dev/null; then
   tmux new-session -d -s "${session_name}" -c "${repo_dir}" \
-    'export NOEMA_HOME="${NOEMA_HOME:-.noema-dev}"; exec cargo dev'
+    -e "NOEMA_HOME=${noema_home}" 'exec cargo dev'
 fi
 
 if [[ -n "${TMUX:-}" ]]; then

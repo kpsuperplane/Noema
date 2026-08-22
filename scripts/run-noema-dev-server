@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly run_user="noema-dev"
+readonly noema_home="${NOEMA_HOME:-/var/lib/noema-dev}"
+readonly runtime_dir="/run/noema-dev"
+readonly asset_dir="${runtime_dir}/web-assets"
+readonly schema_source="graphql/schema.graphql"
+readonly target_dir="${CARGO_TARGET_DIR:?CARGO_TARGET_DIR is required}"
+
+if (( EUID != 0 )); then
+  echo "Noema development privilege drop requires root" >&2
+  exit 1
+fi
+install -d -o root -g root -m 0755 -- "${runtime_dir}" "${asset_dir}"
+if [[ "$(stat -c '%u:%a' -- "${runtime_dir}")" != "0:755" ]]; then
+  echo "${runtime_dir} must be root-owned with mode 0755" >&2
+  exit 1
+fi
+if [[ "$(stat -c '%U:%G:%a' -- "${noema_home}")" != "${run_user}:${run_user}:700" ]]; then
+  echo "${noema_home} must be owned by ${run_user} with mode 0700" >&2
+  exit 1
+fi
+
+cargo build -p noema-server --bin noema_web
+cargo run -p noema-api --bin export_frontend_types -- --output "${schema_source}"
+install -o root -g root -m 0555 -- "${target_dir}/debug/noema_web" "${runtime_dir}/noema_web"
+install -o root -g root -m 0444 -- "${schema_source}" "${runtime_dir}/schema.graphql"
+
+export HOME="${noema_home}"
+export USER="${run_user}"
+export LOGNAME="${run_user}"
+export NOEMA_HOME="${noema_home}"
+export NOEMA_DEV_ASSET_DIR="${asset_dir}"
+export NOEMA_DEV_SCHEMA_PATH="${runtime_dir}/schema.graphql"
+export NOEMA_DEV_LOCAL_MODEL_RUNTIME_ROOT="${noema_home}/models/runtime"
+export TMPDIR="${noema_home}/system/tmp"
+cd -- "${noema_home}"
+
+exec /usr/bin/setpriv \
+  --reuid "${run_user}" \
+  --regid "${run_user}" \
+  --clear-groups \
+  --inh-caps=-all \
+  --ambient-caps=-all \
+  --bounding-set=-all \
+  --no-new-privs \
+  /bin/sh -c 'umask 077; mkdir -p -- "$TMPDIR"; exec "$@"' \
+  noema-dev-server "${runtime_dir}/noema_web"

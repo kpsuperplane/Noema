@@ -233,8 +233,12 @@ NOEMA_HOME=.noema-dev cargo validate run
 
 `cargo dev` sets the runtime `web.local_graphql_socket` option. It also binds
 the development server to `127.0.0.1`. Authentication follows `config.yaml` and
-is enabled by default. Local tools can use `.noema-dev/run/graphql.sock`
+is enabled by default. Local tools can use `${NOEMA_HOME}/run/graphql.sock`
 without a passkey. Set `web.dev_no_auth: true` only on a trusted network.
+
+When root starts `./attach`, Cargo keeps root ownership of the build process.
+The launcher stages generated files under `/run/noema-dev` and runs only the
+Noema server as `noema-dev`. Its home is `/var/lib/noema-dev`.
 
 The supervisor uses `cargo-watch` for the Rust server and Foundation bridge.
 

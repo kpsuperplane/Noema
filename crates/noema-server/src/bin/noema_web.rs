@@ -70,7 +70,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(debug_assertions)]
 fn generate_graphql_schema() -> Result<(), std::io::Error> {
-    let output_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../graphql/schema.graphql");
+    let output_path = std::env::var_os("NOEMA_DEV_SCHEMA_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../graphql/schema.graphql")
+        });
     let schema = noema_api::graphql::schema_sdl();
     if write_if_changed(&output_path, schema.as_bytes())? {
         eprintln!("wrote {}", output_path.display());
@@ -89,7 +93,13 @@ fn write_if_changed(path: &Path, contents: &[u8]) -> Result<bool, std::io::Error
 
 fn local_model_runtime_root() -> Option<PathBuf> {
     if cfg!(debug_assertions) {
-        Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("../noema-desktop/binaries/runtime"))
+        Some(
+            std::env::var_os("NOEMA_DEV_LOCAL_MODEL_RUNTIME_ROOT")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| {
+                    Path::new(env!("CARGO_MANIFEST_DIR")).join("../noema-desktop/binaries/runtime")
+                }),
+        )
     } else {
         None
     }
