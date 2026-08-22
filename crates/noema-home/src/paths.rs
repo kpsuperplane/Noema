@@ -169,6 +169,18 @@ impl NoemaPaths {
         self.root.join("run/graphql.sock")
     }
 
+    /// Private key that protects durable browser session cookies.
+    #[must_use]
+    pub fn browser_session_key_path(&self) -> PathBuf {
+        self.root.join("run/browser-session.key")
+    }
+
+    /// Protected short-lived native OAuth refresh responses.
+    #[must_use]
+    pub fn native_oauth_retry_path(&self) -> PathBuf {
+        self.root.join("run/native-oauth-retries.json")
+    }
+
     /// Root directory for filesystem-canonical adapter state.
     #[must_use]
     pub fn adapters_dir(&self) -> PathBuf {

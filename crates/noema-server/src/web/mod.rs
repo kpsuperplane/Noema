@@ -66,6 +66,7 @@ pub(crate) struct WebState {
     auth_mode: WebAuthMode,
     store: noema_store::NoemaStore,
     passkeys: passkey::PasskeySecurity,
+    native_oauth_retries: native_oauth::NativeOAuthRetryStore,
     graphiql_enabled: bool,
     recovery: Option<noema_host::RecoveryCodeStore>,
     favicons: favicons::FaviconService,
@@ -84,6 +85,8 @@ impl WebState {
     ) -> Result<Self, String> {
         let graphql_schema = noema_api::graphql::build_schema(graphql_state.clone());
         let passkeys = passkey::PasskeySecurity::new(&authority)?;
+        let native_oauth_retries =
+            native_oauth::NativeOAuthRetryStore::new(files.noema_paths.native_oauth_retry_path());
         Ok(Self {
             graphql_state,
             graphql_schema,
@@ -92,6 +95,7 @@ impl WebState {
             auth_mode,
             store,
             passkeys,
+            native_oauth_retries,
             graphiql_enabled,
             recovery: files.recovery,
             favicons: favicons::FaviconService::new(files.noema_paths.favicon_cache_dir()),
@@ -118,16 +122,17 @@ mod tests {
     #[tokio::test]
     async fn websocket_capacity_rejects_excess_work() {
         let root = tempfile::tempdir().expect("store root");
+        let store = noema_store::NoemaStore::open(&noema_store::StoreConfig::new(
+            root.path().join("noema.sqlite3"),
+        ))
+        .await
+        .expect("store");
         let state = WebState::new(
             noema_api::graphql::GraphqlState::for_tests(),
-            noema_store::NoemaStore::open(&noema_store::StoreConfig::new(
-                root.path().join("noema.sqlite3"),
-            ))
-            .await
-            .expect("store"),
+            store.clone(),
             authority::CanonicalAuthority::from_public_origin("http://localhost:3737", "localhost")
                 .expect("authority"),
-            session::SessionSecurity::for_tests("WebSocket capacity"),
+            session::SessionSecurity::for_tests(store),
             WebAuthMode::DisabledForDevelopment,
             false,
             WebFiles::new(

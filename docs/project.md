@@ -50,6 +50,8 @@ Noema directory is `~/.noema`. `NOEMA_HOME` can select another directory.
 
   run/
     capability-auth/      # protected exact arguments for active auth pauses
+    browser-session.key   # protected browser cookie key
+    native-oauth-retries.json # protected short-lived refresh responses
     graphql.sock          # process-local GraphQL socket when enabled
 
   notifications/
@@ -122,7 +124,7 @@ tables.
 
 | Data | Source of truth |
 | --- | --- |
-| Structured state: humans, human passkeys, agents, tools, conversations, transcript items, provider accounts, local-model installations, MCP setup, tasks, permissions, approvals, and audit events | SQLite |
+| Structured state: humans, human passkeys, browser sessions, agents, tools, conversations, transcript items, provider accounts, local-model installations, MCP setup, tasks, permissions, approvals, and audit events | SQLite |
 | Active capability-authentication metadata and exact private replay arguments | SQLite metadata plus `${NOEMA_HOME}/run/capability-auth/` protected files; in-flight state is not database-rebuildable |
 | APNs provider authority, metadata, revision, and removal tombstone | `${NOEMA_HOME}/notifications/apns-provider.json` protected file; the private key never enters SQLite |
 | Client notification registrations, Tasks Live Activity projections, and durable delivery queues | SQLite; every native registration is bound to its authenticated OAuth client |

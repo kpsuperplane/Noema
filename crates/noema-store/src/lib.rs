@@ -8,6 +8,7 @@ mod artifact_writes;
 mod artifacts;
 mod authorization_context;
 mod auxiliary_model_preferences;
+mod browser_sessions;
 mod clients;
 mod context_summaries;
 mod conversation_interactions;
@@ -88,6 +89,7 @@ pub use agents::{
 pub use auxiliary_model_preferences::{
     AuxiliaryModelPreferenceRecord, AuxiliaryModelTask, NewAuxiliaryModelPreference,
 };
+pub use browser_sessions::{BrowserSessionInsert, BrowserSessionRecord};
 pub use clients::ClientRecord;
 pub use conversation_interactions::{
     ConversationInteractionKind, ConversationInteractionRecord, ConversationInteractionStatus,
@@ -111,7 +113,8 @@ pub use mcp_auth_requests::{
     NewCapabilityAuthenticationRequest,
 };
 pub use native_oauth::{
-    NativeOAuthGrant, NativeOAuthRefreshGrant, NativeOAuthRefreshLookup, NativeOAuthRotation,
+    NATIVE_OAUTH_RETRY_SECONDS, NativeOAuthGrant, NativeOAuthRefreshGrant,
+    NativeOAuthRefreshLookup, NativeOAuthRetryProof, NativeOAuthRotation,
     NativeOAuthRotationOutcome, NewNativeOAuthCode, NewNativeOAuthFamily,
 };
 pub use notifications::{ApnsEnvironment, ClaimedApnsDelivery, ClientNotificationRecord};

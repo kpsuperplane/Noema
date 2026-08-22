@@ -298,7 +298,8 @@ async fn graphql_ws(
         .auth_mode
         .requires_session()
         .then(|| session.id())
-        .flatten();
+        .flatten()
+        .map(session::session_id_hash);
     let browser_session = if principal.client_id().is_none() {
         session::ensure_session_hash(&session)
             .await

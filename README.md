@@ -132,7 +132,7 @@ passkey enrollment. Other application routes remain blocked until enrollment.
 Later browsers authenticate with a passkey. Noema supports multiple passkeys.
 It does not permit removal of the final passkey. Browser sessions use private
 `HttpOnly` and `SameSite=Strict` cookies. HTTPS origins also use `Secure`
-cookies. Sessions are process-local. A server restart requires authentication.
+cookies. Browser sessions and their private cookie key survive server restarts.
 
 Treat `web.rp_id` as durable identity configuration. A change invalidates
 credentials registered under the old identifier.

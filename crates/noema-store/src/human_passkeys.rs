@@ -16,10 +16,13 @@ pub struct HumanPasskeyRecord {
 }
 
 /// Result of an attempted local-human passkey removal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HumanPasskeyRemoval {
     /// The selected passkey was removed.
-    Removed,
+    Removed {
+        /// Browser sessions authenticated with the removed passkey.
+        browser_sessions: Vec<[u8; 32]>,
+    },
     /// The selected passkey does not exist.
     NotFound,
     /// The selected passkey is the final registered passkey.
@@ -188,8 +191,13 @@ impl NoemaStore {
                 "DELETE FROM human_passkeys WHERE human_id = ?1 AND credential_id = ?2",
                 params![LOCAL_HUMAN_ID, credential_id],
             )?;
+            let browser_sessions =
+                super::browser_sessions::delete_browser_sessions_for_passkey_in(
+                    &transaction,
+                    credential_id,
+                )?;
             transaction.commit()?;
-            Ok(HumanPasskeyRemoval::Removed)
+            Ok(HumanPasskeyRemoval::Removed { browser_sessions })
         })
         .await
     }
@@ -245,7 +253,12 @@ mod tests {
 
         for (credential_id, expected) in [
             ("missing", HumanPasskeyRemoval::NotFound),
-            ("credential-one", HumanPasskeyRemoval::Removed),
+            (
+                "credential-one",
+                HumanPasskeyRemoval::Removed {
+                    browser_sessions: Vec::new(),
+                },
+            ),
             ("credential-two", HumanPasskeyRemoval::FinalPasskey),
         ] {
             assert_eq!(

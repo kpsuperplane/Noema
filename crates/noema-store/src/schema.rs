@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 60;
+pub const STORE_SCHEMA_VERSION: usize = 61;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1207,8 +1207,23 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(KERNEL_PROVIDER_ACCOUNT_SQL),
         M::up(PROVIDER_CONVERSATION_ITEM_TEXT_SQL),
         M::up(BROWSER_PROVIDER_ROUTES_SQL),
+        M::up(BROWSER_SESSIONS_SQL),
     ])
 }
+
+/// Persist browser sessions without storing the private cookie value.
+const BROWSER_SESSIONS_SQL: &str = r#"
+CREATE TABLE browser_sessions (
+  session_hash BLOB PRIMARY KEY NOT NULL CHECK (length(session_hash) = 32),
+  data_json TEXT NOT NULL CHECK (
+    json_valid(data_json) AND json_type(data_json) = 'object'
+  ),
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  CHECK (expires_at > created_at)
+);
+CREATE INDEX browser_sessions_expiry ON browser_sessions(expires_at);
+"#;
 
 /// Allow one ordered provider route for interactive browsing.
 const BROWSER_PROVIDER_ROUTES_SQL: &str = r#"

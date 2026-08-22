@@ -1,4 +1,4 @@
-//! Private in-memory browser sessions and bounded recovery setup grants.
+//! Private browser sessions and bounded recovery setup grants.
 
 use std::{
     collections::HashMap,
@@ -24,7 +24,7 @@ const RECENT_PASSKEY_TTL: Duration = Duration::from_secs(5 * 60);
 const SETUP_TTL: Duration = Duration::from_secs(5 * 60);
 const SETUP_REGISTRATION_STARTS: u8 = 8;
 
-/// Process-local browser session security state.
+/// Browser session security state.
 #[derive(Clone)]
 pub(crate) struct SessionSecurity {
     key: Key,
@@ -38,21 +38,23 @@ struct SetupGrant {
 }
 
 impl SessionSecurity {
-    pub(crate) fn generate() -> Result<Self, ring::error::Unspecified> {
-        let mut bytes = [0_u8; 32];
-        SystemRandom::new().fill(&mut bytes)?;
+    pub(crate) fn open(
+        store: noema_store::NoemaStore,
+        paths: &noema_home::NoemaPaths,
+    ) -> Result<Self, String> {
+        let key = load_or_create_key(&paths.browser_session_key_path())?;
         Ok(Self {
-            key: Key::generate(),
-            store: BoundedSessionStore::default(),
+            key,
+            store: BoundedSessionStore::persistent(store),
             setup_grants: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
     #[cfg(test)]
-    pub(super) fn for_tests(_unused: &str) -> Self {
+    pub(super) fn for_tests(store: noema_store::NoemaStore) -> Self {
         Self {
             key: Key::generate(),
-            store: BoundedSessionStore::default(),
+            store: BoundedSessionStore::persistent(store),
             setup_grants: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -65,9 +67,7 @@ impl SessionSecurity {
         self.store.clone()
     }
 
-    pub(crate) fn subscribe_revocations(
-        &self,
-    ) -> tokio::sync::broadcast::Receiver<tower_sessions::session::Id> {
+    pub(crate) fn subscribe_revocations(&self) -> tokio::sync::broadcast::Receiver<[u8; 32]> {
         self.store.subscribe_revocations()
     }
 
@@ -75,16 +75,18 @@ impl SessionSecurity {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
-            self.store.delete_expired();
+            if let Err(error) = self.store.delete_expired().await {
+                eprintln!("Browser session expiry cleanup failed: {error}");
+            }
         }
     }
 
-    pub(super) fn revoke_all(&self) {
-        self.store.revoke_all();
+    pub(super) async fn revoke_all(&self) -> Result<(), tower_sessions::session_store::Error> {
+        self.store.revoke_all().await
     }
 
-    pub(super) fn revoke_passkey(&self, credential_id: &str) {
-        self.store.revoke_matching(PASSKEY_ID_KEY, credential_id);
+    pub(super) fn announce_passkey_revocations(&self, persisted: Vec<[u8; 32]>) {
+        self.store.announce_passkey_revocations(persisted);
     }
 
     pub(super) async fn authorize_setup(&self, session: &Session) -> Result<(), ()> {
@@ -141,6 +143,29 @@ impl SessionSecurity {
         if let Ok(mut grants) = self.setup_grants.lock() {
             grants.remove(&binding);
         }
+    }
+}
+
+fn load_or_create_key(path: &std::path::Path) -> Result<Key, String> {
+    match noema_home::ensure_private_file(path) {
+        Ok(()) => {
+            let bytes = std::fs::read(path)
+                .map_err(|error| format!("browser session key read failed: {error}"))?;
+            if bytes.len() != 64 {
+                return Err("browser session key has an invalid length".to_string());
+            }
+            Ok(Key::from(&bytes))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let mut bytes = [0_u8; 64];
+            SystemRandom::new()
+                .fill(&mut bytes)
+                .map_err(|_| "browser session key generation failed".to_string())?;
+            noema_home::atomic_write_private(path, &bytes)
+                .map_err(|error| format!("browser session key storage failed: {error}"))?;
+            Ok(Key::from(&bytes))
+        }
+        Err(error) => Err(format!("browser session key protection failed: {error}")),
     }
 }
 
@@ -235,4 +260,31 @@ fn unix_timestamp() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn browser_cookie_key_survives_session_security_reconstruction() {
+        let home = tempfile::tempdir().expect("session home");
+        let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let database = paths.sqlite_db_path();
+        let first_store = noema_store::NoemaStore::open(&noema_store::StoreConfig::new(&database))
+            .await
+            .expect("first store");
+        let first = SessionSecurity::open(first_store, &paths).expect("first session security");
+        let expected = first.key().master().to_vec();
+        drop(first);
+
+        let restarted_store =
+            noema_store::NoemaStore::open(&noema_store::StoreConfig::new(&database))
+                .await
+                .expect("restarted store");
+        let restarted =
+            SessionSecurity::open(restarted_store, &paths).expect("restarted session security");
+
+        assert_eq!(restarted.key().master(), expected);
+    }
 }

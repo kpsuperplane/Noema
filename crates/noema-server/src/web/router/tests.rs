@@ -27,15 +27,12 @@ async fn test_store() -> noema_store::NoemaStore {
         .expect("test store")
 }
 
-async fn web_state(sessions: session::SessionSecurity, auth_mode: WebAuthMode) -> WebState {
-    web_state_with_store(test_store().await, sessions, auth_mode)
+async fn web_state(auth_mode: WebAuthMode) -> WebState {
+    web_state_with_store(test_store().await, auth_mode)
 }
 
-fn web_state_with_store(
-    store: noema_store::NoemaStore,
-    sessions: session::SessionSecurity,
-    auth_mode: WebAuthMode,
-) -> WebState {
+fn web_state_with_store(store: noema_store::NoemaStore, auth_mode: WebAuthMode) -> WebState {
+    let sessions = session::SessionSecurity::for_tests(store.clone());
     WebState::new(
         noema_api::graphql::GraphqlState::for_tests(),
         store,
@@ -66,42 +63,20 @@ fn test_paths() -> noema_home::NoemaPaths {
 }
 
 async fn test_router() -> Router {
-    build_router(
-        web_state(
-            session::SessionSecurity::for_tests("test-capability"),
-            WebAuthMode::Required,
-        )
-        .await,
-    )
+    build_router(web_state(WebAuthMode::Required).await)
 }
 
 async fn test_router_without_auth() -> Router {
-    build_router(
-        web_state(
-            session::SessionSecurity::for_tests("test-capability"),
-            WebAuthMode::DisabledForDevelopment,
-        )
-        .await,
-    )
+    build_router(web_state(WebAuthMode::DisabledForDevelopment).await)
 }
 
 async fn test_setup_router() -> Router {
-    build_router(
-        web_state(
-            session::SessionSecurity::for_tests("setup"),
-            WebAuthMode::Required,
-        )
-        .await,
-    )
+    build_router(web_state(WebAuthMode::Required).await)
 }
 
 #[tokio::test]
 async fn favicon_route_requires_authentication_and_serves_cached_images() {
-    let state = web_state(
-        session::SessionSecurity::for_tests("favicon-route"),
-        WebAuthMode::Required,
-    )
-    .await;
+    let state = web_state(WebAuthMode::Required).await;
     state.favicons.seed_test_icon("example.com", b"png");
     let router = build_router(state);
     let cookie = authenticate(router.clone()).await;
@@ -305,12 +280,13 @@ async fn authority_session_and_removed_bootstrap_boundary() {
     let set_cookie = cookie.as_str();
     assert!(set_cookie.starts_with("noema.sid="));
 
+    let secure_store = test_store().await;
     let secure_state = WebState::new(
         noema_api::graphql::GraphqlState::for_tests(),
-        test_store().await,
+        secure_store.clone(),
         authority::CanonicalAuthority::from_public_origin("https://noema.example", "noema.example")
             .expect("secure authority"),
-        session::SessionSecurity::for_tests("secure-cookie"),
+        session::SessionSecurity::for_tests(secure_store),
         WebAuthMode::Required,
         false,
         WebFiles::new(Some(test_recovery()), test_paths()),
@@ -447,11 +423,7 @@ async fn browser_authentication_precedes_graphql_parsing() {
         .insert_local_human_passkey("test-passkey", r#"{"test":true}"#)
         .await
         .expect("insert passkey");
-    let router = build_router(web_state_with_store(
-        store,
-        session::SessionSecurity::for_tests("parse-order"),
-        WebAuthMode::Required,
-    ));
+    let router = build_router(web_state_with_store(store, WebAuthMode::Required));
     let malformed_request = Request::builder()
         .method(Method::POST)
         .uri("/graphql")
@@ -614,11 +586,7 @@ async fn passkey_management_requires_auth_and_revokes_affected_sessions() {
         .insert_local_human_passkey("second-passkey", r#"{"test":true}"#)
         .await
         .expect("second passkey");
-    let router = build_router(web_state_with_store(
-        store,
-        session::SessionSecurity::for_tests("passkey-management"),
-        WebAuthMode::Required,
-    ));
+    let router = build_router(web_state_with_store(store, WebAuthMode::Required));
     assert_eq!(
         passkey_remove_status(router.clone(), None, "second-passkey").await,
         StatusCode::FORBIDDEN
@@ -674,11 +642,7 @@ async fn router_serves_schema_graphiql_and_spa_fallback() {
     .await;
     assert_eq!(disabled_status, StatusCode::NOT_FOUND);
 
-    let mut graphiql_state = web_state(
-        session::SessionSecurity::for_tests("test-capability"),
-        WebAuthMode::DisabledForDevelopment,
-    )
-    .await;
+    let mut graphiql_state = web_state(WebAuthMode::DisabledForDevelopment).await;
     graphiql_state.graphiql_enabled = true;
     let graphiql_router = build_router(graphiql_state);
     let (graphiql_status, graphiql_headers, graphiql_body) = request(
@@ -827,11 +791,12 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
         "localhost",
     )
     .expect("authority");
+    let store = test_store().await;
     let state = WebState::new(
         noema_api::graphql::GraphqlState::for_tests(),
-        test_store().await,
+        store.clone(),
         authority,
-        session::SessionSecurity::for_tests("ws-test-capability"),
+        session::SessionSecurity::for_tests(store),
         WebAuthMode::Required,
         false,
         WebFiles::new(Some(test_recovery()), test_paths()),
@@ -1022,7 +987,7 @@ async fn client_bearer_authorizes_http_and_ws_without_browser_origin_and_revocat
         noema_api::graphql::GraphqlState::for_tests(),
         store.clone(),
         authority,
-        session::SessionSecurity::for_tests("client-test-capability"),
+        session::SessionSecurity::for_tests(store.clone()),
         WebAuthMode::Required,
         false,
         WebFiles::new(Some(test_recovery()), test_paths()),

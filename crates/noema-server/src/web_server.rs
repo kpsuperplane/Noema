@@ -35,9 +35,11 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
         listener_address.port(),
     )
     .map_err(WebServerError::Protocol)?;
-    let sessions = web::session::SessionSecurity::generate().map_err(|_| {
-        WebServerError::Protocol("failed to generate browser session security".to_string())
-    })?;
+    let sessions = web::session::SessionSecurity::open(
+        host.services().store.clone(),
+        &host.services().noema_paths,
+    )
+    .map_err(WebServerError::Protocol)?;
     let mut graphql_state = noema_api::graphql::GraphqlState::from_host_services(host.services())
         .with_mcp_oauth_callback_url(format!("{}/mcp/oauth/callback", authority.origin()))
         .with_provider_oauth_callback_url(format!("{}/provider/oauth/callback", authority.origin()))
@@ -156,14 +158,12 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
 
 async fn run_browser_push_cleanup(
     store: noema_store::NoemaStore,
-    mut revocations: tokio::sync::broadcast::Receiver<tower_sessions::session::Id>,
+    mut revocations: tokio::sync::broadcast::Receiver<[u8; 32]>,
 ) {
     loop {
         match revocations.recv().await {
             Ok(session_id) => {
-                let _ = store
-                    .remove_web_push_for_session(web::session::session_id_hash(session_id))
-                    .await;
+                let _ = store.remove_web_push_for_session(session_id).await;
             }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                 let _ = store.remove_all_web_push_subscriptions().await;

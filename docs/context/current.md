@@ -97,6 +97,10 @@ slice or a net-negative reduction.
 - iOS and desktop use browser OAuth with S256 PKCE, passkey approval, short
   access tokens, and rotating refresh credentials. Legacy pairing routes and
   stored bearer credentials are disabled.
+- Browser sessions survive server restarts. A protected cookie key and stored
+  session digests preserve authority without placing cookie values in SQLite.
+- Native refresh rotation permits one identical response retry for 60 seconds
+  when a restart interrupts delivery. Later reuse still revokes the family.
 - The Tauri app defaults to its embedded host and can connect to one remote
   HTTPS server. Rust owns OAuth, credentials, transport, and local return.
 - Interactive browser sessions belong to one conversation or task generation.

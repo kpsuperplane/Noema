@@ -521,7 +521,9 @@ pub(super) async fn logout_all(State(state): State<WebState>, browser: Session) 
     {
         return auth_error(StatusCode::INTERNAL_SERVER_ERROR, "session_unavailable");
     }
-    state.sessions.revoke_all();
+    if state.sessions.revoke_all().await.is_err() {
+        return auth_error(StatusCode::INTERNAL_SERVER_ERROR, "session_unavailable");
+    }
     match session::logout(&browser).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(_) => auth_error(StatusCode::INTERNAL_SERVER_ERROR, "session_unavailable"),
@@ -567,9 +569,11 @@ pub(super) async fn remove_passkey(
         .remove_local_human_passkey(&input.credential_id)
         .await
     {
-        Ok(noema_store::HumanPasskeyRemoval::Removed) => {
+        Ok(noema_store::HumanPasskeyRemoval::Removed { browser_sessions }) => {
             state.passkeys.clear();
-            state.sessions.revoke_passkey(&input.credential_id);
+            state
+                .sessions
+                .announce_passkey_revocations(browser_sessions);
             StatusCode::NO_CONTENT.into_response()
         }
         Ok(noema_store::HumanPasskeyRemoval::NotFound) => {

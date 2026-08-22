@@ -1,6 +1,11 @@
 //! First-party native OAuth endpoints and protocol adapters.
 
-use std::{collections::HashMap, time::SystemTime};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::SystemTime,
+};
 
 use axum::{
     body::{Body as AxumBody, Bytes},
@@ -631,12 +636,32 @@ async fn refresh(state: &WebState, parameters: HashMap<String, String>) -> Respo
     let Some(raw_refresh) = parameters.get("refresh_token").cloned() else {
         return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
     };
+    let refresh_hash = sha256(&raw_refresh);
+    let issued_at = now();
+    let cached = state
+        .native_oauth_retries
+        .load(refresh_hash, issued_at)
+        .ok()
+        .flatten();
     let lookup = state
         .store
-        .native_oauth_refresh_grant(sha256(&raw_refresh), now())
+        .native_oauth_refresh_grant(
+            refresh_hash,
+            cached.as_ref().map(NativeOAuthRetryResponse::proof),
+            issued_at,
+        )
         .await;
-    let Ok(noema_store::NativeOAuthRefreshLookup::Active(stored)) = lookup else {
-        return oauth_error(StatusCode::BAD_REQUEST, "invalid_grant");
+    let stored = match lookup {
+        Ok(noema_store::NativeOAuthRefreshLookup::Active(stored)) => stored,
+        Ok(noema_store::NativeOAuthRefreshLookup::Retryable { access_expires_at }) => {
+            let Some(cached) = cached else {
+                return oauth_error(StatusCode::BAD_REQUEST, "invalid_grant");
+            };
+            return cached.into_response(access_expires_at, issued_at);
+        }
+        Ok(noema_store::NativeOAuthRefreshLookup::Invalid)
+        | Ok(noema_store::NativeOAuthRefreshLookup::ReplayRevoked)
+        | Err(_) => return oauth_error(StatusCode::BAD_REQUEST, "invalid_grant"),
     };
     let Some(grant) = refresh_grant(&stored) else {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -673,10 +698,22 @@ async fn refresh(state: &WebState, parameters: HashMap<String, String>) -> Respo
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         };
         let issued_at = now();
+        let retry_response = NativeOAuthRetryResponse {
+            issued_at,
+            access_token: tokens.access.clone(),
+            refresh_token: tokens.refresh.clone(),
+        };
+        if state
+            .native_oauth_retries
+            .save(refresh_hash, retry_response, issued_at)
+            .is_err()
+        {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
         let outcome = state
             .store
             .rotate_native_oauth_refresh(
-                sha256(&raw_refresh),
+                refresh_hash,
                 noema_store::NativeOAuthRotation {
                     access_hash: sha256(&tokens.access),
                     refresh_hash: sha256(&tokens.refresh),
@@ -695,6 +732,102 @@ async fn refresh(state: &WebState, parameters: HashMap<String, String>) -> Respo
         }
     }
     adapt_response(response)
+}
+
+#[derive(Clone)]
+pub(super) struct NativeOAuthRetryStore {
+    path: PathBuf,
+    lock: Arc<Mutex<()>>,
+}
+
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+struct NativeOAuthRetryResponse {
+    issued_at: i64,
+    access_token: String,
+    refresh_token: String,
+}
+
+impl NativeOAuthRetryStore {
+    pub(super) fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            lock: Arc::new(Mutex::new(())),
+        }
+    }
+
+    fn load(
+        &self,
+        refresh_hash: [u8; 32],
+        now: i64,
+    ) -> Result<Option<NativeOAuthRetryResponse>, ()> {
+        let _guard = self.lock.lock().map_err(|_| ())?;
+        let entries = self.read_entries()?;
+        Ok(entries
+            .get(&hex_hash(refresh_hash))
+            .filter(|entry| {
+                now >= entry.issued_at
+                    && now - entry.issued_at <= noema_store::NATIVE_OAUTH_RETRY_SECONDS
+            })
+            .cloned())
+    }
+
+    fn save(
+        &self,
+        refresh_hash: [u8; 32],
+        response: NativeOAuthRetryResponse,
+        now: i64,
+    ) -> Result<(), ()> {
+        let _guard = self.lock.lock().map_err(|_| ())?;
+        let mut entries = self.read_entries()?;
+        entries.retain(|_, entry| {
+            now >= entry.issued_at
+                && now - entry.issued_at <= noema_store::NATIVE_OAUTH_RETRY_SECONDS
+        });
+        entries.insert(hex_hash(refresh_hash), response);
+        let bytes = serde_json::to_vec(&entries).map_err(|_| ())?;
+        noema_home::atomic_write_private(&self.path, &bytes).map_err(|_| ())
+    }
+
+    fn read_entries(&self) -> Result<HashMap<String, NativeOAuthRetryResponse>, ()> {
+        match noema_home::ensure_private_file(&self.path) {
+            Ok(()) => std::fs::read(&self.path)
+                .map_err(|_| ())
+                .and_then(|bytes| serde_json::from_slice(&bytes).map_err(|_| ())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(HashMap::new()),
+            Err(_) => Err(()),
+        }
+    }
+}
+
+impl NativeOAuthRetryResponse {
+    fn proof(&self) -> noema_store::NativeOAuthRetryProof {
+        noema_store::NativeOAuthRetryProof {
+            access_hash: sha256(&self.access_token),
+            refresh_hash: sha256(&self.refresh_token),
+            issued_at: self.issued_at,
+        }
+    }
+
+    fn into_response(self, access_expires_at: i64, now: i64) -> Response {
+        let body = serde_json::json!({
+            "access_token": self.access_token,
+            "refresh_token": self.refresh_token,
+            "token_type": "bearer",
+            "expires_in": access_expires_at.saturating_sub(now),
+            "scope": SCOPE,
+        })
+        .to_string();
+        (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/json")],
+            body,
+        )
+            .into_response()
+    }
+}
+
+fn hex_hash(hash: [u8; 32]) -> String {
+    hash.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[derive(Clone, Copy)]
@@ -1189,15 +1322,15 @@ mod tests {
         ))
         .await
         .expect("store");
-        let state = WebState::new(
+        let mut state = WebState::new(
             noema_api::graphql::GraphqlState::for_tests(),
-            store,
+            store.clone(),
             super::super::authority::CanonicalAuthority::from_public_origin(
                 "http://localhost:3737",
                 "localhost",
             )
             .expect("authority"),
-            super::super::session::SessionSecurity::for_tests("native OAuth"),
+            super::super::session::SessionSecurity::for_tests(store),
             super::super::WebAuthMode::DisabledForDevelopment,
             false,
             super::super::WebFiles::new(
@@ -1252,6 +1385,43 @@ mod tests {
             HashMap::from([
                 ("grant_type".to_string(), "refresh_token".to_string()),
                 ("refresh_token".to_string(), old_refresh.to_string()),
+            ]),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 8 * 1024)
+            .await
+            .expect("refresh body");
+        let rotated: serde_json::Value = serde_json::from_slice(&body).expect("refresh JSON");
+        let rotated_refresh = rotated["refresh_token"]
+            .as_str()
+            .expect("rotated refresh")
+            .to_string();
+        state.native_oauth_retries = NativeOAuthRetryStore::new(
+            noema_home::NoemaPaths::from_noema_home(home.path())
+                .expect("paths")
+                .native_oauth_retry_path(),
+        );
+        let replay = refresh(
+            &state,
+            HashMap::from([
+                ("grant_type".to_string(), "refresh_token".to_string()),
+                ("refresh_token".to_string(), old_refresh.to_string()),
+            ]),
+        )
+        .await;
+        assert_eq!(replay.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(replay.into_body(), 8 * 1024)
+            .await
+            .expect("retry body");
+        let retried: serde_json::Value = serde_json::from_slice(&body).expect("retry JSON");
+        assert_eq!(retried["refresh_token"], rotated["refresh_token"]);
+
+        let response = refresh(
+            &state,
+            HashMap::from([
+                ("grant_type".to_string(), "refresh_token".to_string()),
+                ("refresh_token".to_string(), rotated_refresh),
             ]),
         )
         .await;

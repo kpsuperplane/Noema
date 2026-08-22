@@ -323,6 +323,8 @@ Recovery-code entry is unavailable while `web.dev_no_auth` is enabled.
 
 Browser sessions use private `HttpOnly` cookies with `SameSite=Strict`.
 HTTPS deployments also use `Secure` and a `__Host-` cookie name.
+SQLite stores session digests and private session data. A protected file stores
+the cookie key. Both authorities survive an ordinary server restart.
 
 Every request requires the exact canonical Host. Cookie-backed mutations and
 browser WebSocket upgrades require the exact configured Origin. A missing
@@ -413,8 +415,10 @@ Access and refresh credentials use these rules:
 - Families have inactivity and absolute expiry.
 - Refresh cannot change the human, client, or audience.
 
-Each client serializes refresh work. A lost refresh response requires new
-browser authorization because retry can trigger family replay revocation.
+Each client serializes refresh work. The server retains one refresh response in
+a protected transient-auth file for 60 seconds. A retry of the previous token
+returns that same response while its direct successor remains active. Any later
+reuse revokes the family.
 
 Token responses use `Cache-Control: no-store`. Token and revocation endpoints
 must not accept browser cookies as native-client authority.

@@ -11,6 +11,37 @@ use crate::{
 };
 
 #[tokio::test]
+async fn v61_upgrade_adds_browser_sessions_and_matches_fresh_schema() {
+    let home = TempDir::new().expect("store root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    let mut connection = Connection::open(&config.path).expect("v60 database");
+    store_migrations()
+        .to_version(&mut connection, 60)
+        .expect("construct v60 schema");
+    drop(connection);
+
+    drop(NoemaStore::open(&config).await.expect("upgrade store"));
+    let connection = Connection::open(&config.path).expect("upgraded database");
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM pragma_table_info('browser_sessions')",
+                [],
+                |row| row.get::<_, usize>(0),
+            )
+            .expect("browser session columns"),
+        4
+    );
+    assert_eq!(
+        connection
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))
+            .expect("schema version"),
+        STORE_SCHEMA_VERSION
+    );
+}
+
+#[tokio::test]
 async fn v58_upgrade_adds_optional_provider_conversation_text() {
     let home = TempDir::new().expect("store root");
     let config = store_config(home.path());

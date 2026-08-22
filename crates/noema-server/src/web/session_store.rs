@@ -1,10 +1,6 @@
-//! Bounded process-local storage for private browser sessions.
+//! Bounded storage for private browser sessions.
 
-use std::{
-    collections::HashMap,
-    fmt,
-    sync::{Arc, Mutex},
-};
+use std::fmt;
 
 use time::{Duration, OffsetDateTime};
 use tokio::sync::broadcast;
@@ -20,15 +16,9 @@ const DEFAULT_MAX_SESSIONS: usize = 1_024;
 
 #[derive(Clone)]
 pub(super) struct BoundedSessionStore {
-    inner: Arc<Mutex<HashMap<Id, StoredSession>>>,
+    store: noema_store::NoemaStore,
     max_sessions: usize,
-    revocations: broadcast::Sender<Id>,
-}
-
-#[derive(Clone)]
-struct StoredSession {
-    record: Record,
-    created_at: OffsetDateTime,
+    revocations: broadcast::Sender<[u8; 32]>,
 }
 
 impl fmt::Debug for BoundedSessionStore {
@@ -40,70 +30,55 @@ impl fmt::Debug for BoundedSessionStore {
     }
 }
 
-impl Default for BoundedSessionStore {
-    fn default() -> Self {
-        Self::new(DEFAULT_MAX_SESSIONS)
-    }
-}
-
 impl BoundedSessionStore {
-    fn new(max_sessions: usize) -> Self {
+    pub(super) fn persistent(store: noema_store::NoemaStore) -> Self {
+        Self::new(store, DEFAULT_MAX_SESSIONS)
+    }
+
+    fn new(store: noema_store::NoemaStore, max_sessions: usize) -> Self {
         let (revocations, _) = broadcast::channel(max_sessions.max(1));
         Self {
-            inner: Arc::new(Mutex::new(HashMap::new())),
+            store,
             max_sessions,
             revocations,
         }
     }
 
-    pub(super) fn subscribe_revocations(&self) -> broadcast::Receiver<Id> {
+    pub(super) fn subscribe_revocations(&self) -> broadcast::Receiver<[u8; 32]> {
         self.revocations.subscribe()
     }
 
-    pub(super) fn delete_expired(&self) {
-        let revoked =
-            self.with_entries(|entries| remove_expired(entries, OffsetDateTime::now_utc()));
+    pub(super) async fn delete_expired(&self) -> session_store::Result<()> {
+        self.delete_expired_at(OffsetDateTime::now_utc()).await
+    }
+
+    async fn delete_expired_at(&self, now: OffsetDateTime) -> session_store::Result<()> {
+        let revoked = self
+            .store
+            .delete_expired_browser_sessions(now.unix_timestamp())
+            .await
+            .map_err(store_error)?;
+        self.announce(revoked);
+        Ok(())
+    }
+
+    pub(super) async fn revoke_all(&self) -> session_store::Result<()> {
+        let revoked = self
+            .store
+            .delete_all_browser_sessions()
+            .await
+            .map_err(store_error)?;
+        self.announce(revoked);
+        Ok(())
+    }
+
+    pub(super) fn announce_passkey_revocations(&self, revoked: Vec<[u8; 32]>) {
         self.announce(revoked);
     }
 
-    pub(super) fn revoke_all(&self) {
-        let revoked = self.with_entries(|entries| entries.drain().map(|(id, _)| id).collect());
-        self.announce(revoked);
-    }
-
-    pub(super) fn revoke_matching(&self, key: &str, value: &str) {
-        let revoked = self.with_entries(|entries| {
-            let ids = entries
-                .iter()
-                .filter_map(|(id, stored)| {
-                    (stored
-                        .record
-                        .data
-                        .get(key)
-                        .and_then(serde_json::Value::as_str)
-                        == Some(value))
-                    .then_some(*id)
-                })
-                .collect::<Vec<_>>();
-            for id in &ids {
-                entries.remove(id);
-            }
-            ids
-        });
-        self.announce(revoked);
-    }
-
-    fn with_entries<T>(&self, action: impl FnOnce(&mut HashMap<Id, StoredSession>) -> T) -> T {
-        let mut entries = self
-            .inner
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        action(&mut entries)
-    }
-
-    fn announce(&self, revoked: Vec<Id>) {
-        for id in revoked {
-            let _ = self.revocations.send(id);
+    fn announce(&self, revoked: Vec<[u8; 32]>) {
+        for hash in revoked {
+            let _ = self.revocations.send(hash);
         }
     }
 }
@@ -112,62 +87,78 @@ impl BoundedSessionStore {
 impl SessionStore for BoundedSessionStore {
     async fn create(&self, record: &mut Record) -> session_store::Result<()> {
         let now = OffsetDateTime::now_utc();
-        let (result, revoked) = self.with_entries(|entries| {
-            let revoked = remove_expired(entries, now);
-            if entries.len() >= self.max_sessions {
-                return (Err(capacity_error()), revoked);
+        loop {
+            let capped = capped_record(record, now);
+            let stored = noema_store::BrowserSessionRecord {
+                data_json: serde_json::to_string(&capped.data).map_err(store_error)?,
+                created_at: now.unix_timestamp(),
+                expires_at: capped.expiry_date.unix_timestamp(),
+            };
+            let hash = super::session::session_id_hash(record.id);
+            match self
+                .store
+                .insert_browser_session(hash, &stored, self.max_sessions, now.unix_timestamp())
+                .await
+                .map_err(store_error)?
+            {
+                noema_store::BrowserSessionInsert::Inserted(expired) => {
+                    self.announce(expired);
+                    return Ok(());
+                }
+                noema_store::BrowserSessionInsert::Collision(expired) => {
+                    self.announce(expired);
+                    record.id = Id::default();
+                }
+                noema_store::BrowserSessionInsert::Full(expired) => {
+                    self.announce(expired);
+                    return Err(capacity_error());
+                }
             }
-            while entries.contains_key(&record.id) {
-                record.id = Id::default();
-            }
-            entries.insert(
-                record.id,
-                StoredSession {
-                    record: capped_record(record, now),
-                    created_at: now,
-                },
-            );
-            (Ok(()), revoked)
-        });
-        self.announce(revoked);
-        result
+        }
     }
 
     async fn save(&self, record: &Record) -> session_store::Result<()> {
-        let now = OffsetDateTime::now_utc();
-        let (result, revoked) = self.with_entries(|entries| {
-            let revoked = remove_expired(entries, now);
-            let result = match entries.get_mut(&record.id) {
-                Some(stored) => {
-                    stored.record = capped_record(record, stored.created_at);
-                    Ok(())
-                }
-                None => Err(session_store::Error::Backend(
-                    "browser session is unavailable".to_string(),
-                )),
-            };
-            (result, revoked)
-        });
-        self.announce(revoked);
-        result
+        let data = serde_json::to_string(&record.data).map_err(store_error)?;
+        self.store
+            .save_browser_session(
+                super::session::session_id_hash(record.id),
+                &data,
+                record.expiry_date.unix_timestamp(),
+            )
+            .await
+            .map_err(store_error)?
+            .then_some(())
+            .ok_or_else(unavailable_error)
     }
 
     async fn load(&self, session_id: &Id) -> session_store::Result<Option<Record>> {
-        let (record, revoked) = self.with_entries(|entries| {
-            let revoked = remove_expired(entries, OffsetDateTime::now_utc());
-            (
-                entries.get(session_id).map(|stored| stored.record.clone()),
-                revoked,
+        self.store
+            .load_browser_session(
+                super::session::session_id_hash(*session_id),
+                OffsetDateTime::now_utc().unix_timestamp(),
             )
-        });
-        self.announce(revoked);
-        Ok(record)
+            .await
+            .map_err(store_error)?
+            .map(|stored| {
+                Ok(Record {
+                    id: *session_id,
+                    data: serde_json::from_str(&stored.data_json).map_err(store_error)?,
+                    expiry_date: OffsetDateTime::from_unix_timestamp(stored.expires_at)
+                        .map_err(store_error)?,
+                })
+            })
+            .transpose()
     }
 
     async fn delete(&self, session_id: &Id) -> session_store::Result<()> {
-        let removed = self.with_entries(|entries| entries.remove(session_id).is_some());
-        if removed {
-            let _ = self.revocations.send(*session_id);
+        let hash = super::session::session_id_hash(*session_id);
+        if self
+            .store
+            .delete_browser_session(hash)
+            .await
+            .map_err(store_error)?
+        {
+            let _ = self.revocations.send(hash);
         }
         Ok(())
     }
@@ -179,22 +170,16 @@ fn capped_record(record: &Record, created_at: OffsetDateTime) -> Record {
     record
 }
 
-fn remove_expired(entries: &mut HashMap<Id, StoredSession>, now: OffsetDateTime) -> Vec<Id> {
-    let expired = entries
-        .iter()
-        .filter_map(|(id, stored)| {
-            (stored.record.expiry_date <= now || stored.created_at + ABSOLUTE_EXPIRY <= now)
-                .then_some(*id)
-        })
-        .collect::<Vec<_>>();
-    for id in &expired {
-        entries.remove(id);
-    }
-    expired
-}
-
 fn capacity_error() -> session_store::Error {
     session_store::Error::Backend("browser session capacity reached".to_string())
+}
+
+fn unavailable_error() -> session_store::Error {
+    session_store::Error::Backend("browser session is unavailable".to_string())
+}
+
+fn store_error(error: impl std::fmt::Display) -> session_store::Error {
+    session_store::Error::Backend(format!("browser session storage failed: {error}"))
 }
 
 #[cfg(test)]
