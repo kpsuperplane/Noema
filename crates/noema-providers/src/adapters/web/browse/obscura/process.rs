@@ -355,10 +355,17 @@ fn command_parts(command: BrowseCommand) -> (&'static str, Value) {
             WEB_BROWSE_INTERACT_TOOL,
             json!({"snapshot_revision": request.snapshot_revision, "ref": request.reference, "action": request.action, "value": request.value}),
         ),
-        BrowseCommand::Wait(request) => (
-            WEB_BROWSE_WAIT_TOOL,
-            json!({"text": request.text, "ref": request.reference, "timeout_ms": request.timeout_ms}),
-        ),
+        BrowseCommand::Wait(request) => {
+            let condition = match (request.text, request.reference) {
+                (Some(text), None) => json!({"text":text}),
+                (None, Some(reference)) => json!({"ref":reference}),
+                _ => json!({}),
+            };
+            (
+                WEB_BROWSE_WAIT_TOOL,
+                json!({"condition":condition, "timeout_ms":request.timeout_ms}),
+            )
+        }
         BrowseCommand::History(request) => (
             WEB_BROWSE_HISTORY_TOOL,
             json!({"snapshot_revision": request.snapshot_revision, "action": request.action}),
@@ -530,6 +537,17 @@ mod tests {
                 .into_result()
                 .expect("valid frame"),
             Err(detailed)
+        );
+
+        let expected = noema_capabilities::web::browse::BrowseWaitRequest {
+            text: Some("ready".to_string()),
+            reference: None,
+            timeout_ms: 3_000,
+        };
+        let (tool, arguments) = command_parts(BrowseCommand::Wait(expected.clone()));
+        assert_eq!(
+            parse_command(tool, &arguments),
+            Ok(BrowseCommand::Wait(expected))
         );
     }
 }

@@ -36,10 +36,10 @@ fn runtime_binding_checks_its_published_input_rules() {
         BindingPersistence::WebBrowse,
     )
     .expect("wait binding");
-    assert!(wait.accepts_arguments(&json!({"text":"ready","timeout_ms":5000})));
-    assert!(wait.accepts_arguments(&json!({"ref":"e1"})));
+    assert!(wait.accepts_arguments(&json!({"condition":{"text":"ready"},"timeout_ms":5000})));
+    assert!(wait.accepts_arguments(&json!({"condition":{"ref":"e1"}})));
     assert!(!wait.accepts_arguments(&json!({"timeout_ms":5000})));
-    assert!(!wait.accepts_arguments(&json!({"text":"ready","ref":"e1"})));
+    assert!(!wait.accepts_arguments(&json!({"condition":{"text":"ready","ref":"e1"}})));
 }
 
 #[test]

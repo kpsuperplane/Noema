@@ -178,12 +178,29 @@ struct InteractionArguments {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WaitArguments {
-    #[serde(default)]
-    text: Option<String>,
-    #[serde(default, rename = "ref")]
-    reference: Option<String>,
+    condition: WaitConditionArguments,
     #[serde(default)]
     timeout_ms: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum WaitConditionArguments {
+    Text(WaitTextCondition),
+    Reference(WaitReferenceCondition),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WaitTextCondition {
+    text: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WaitReferenceCondition {
+    #[serde(rename = "ref")]
+    reference: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -239,11 +256,23 @@ pub fn tool_specs() -> Result<Vec<ToolSpec>, ToolContractError> {
             "Wait briefly for text or an element from the current browser page, then return a fresh snapshot.",
             json!({
                 "type":"object", "properties": {
-                    "text":{"type":"string","minLength":1,"maxLength":500},
-                    "ref":{"type":"string","minLength":1,"maxLength":32},
+                    "condition":{"oneOf":[
+                        {
+                            "type":"object",
+                            "properties":{"text":{"type":"string","minLength":1,"maxLength":500}},
+                            "required":["text"],
+                            "additionalProperties":false
+                        },
+                        {
+                            "type":"object",
+                            "properties":{"ref":{"type":"string","minLength":1,"maxLength":32}},
+                            "required":["ref"],
+                            "additionalProperties":false
+                        }
+                    ]},
                     "timeout_ms":{"type":"integer","minimum":1,"maximum":MAX_WAIT_MS}
                 },
-                "oneOf":[{"required":["text"]},{"required":["ref"]}],
+                "required":["condition"],
                 "additionalProperties":false
             }),
         )?,
@@ -409,16 +438,14 @@ fn parse_interaction(arguments: Value) -> Result<BrowseInteractionRequest, Brows
 
 fn parse_wait(arguments: Value) -> Result<BrowseWaitRequest, BrowseArgumentError> {
     let value: WaitArguments = decode(arguments)?;
-    let text = value
-        .text
-        .map(|item| item.trim().to_string())
-        .filter(|item| !item.is_empty());
-    let reference = value
-        .reference
-        .map(|item| item.trim().to_string())
-        .filter(|item| !item.is_empty());
-    if text.is_some() == reference.is_some() {
-        return Err(argument_error("provide exactly one of text or ref"));
+    let (text, reference) = match value.condition {
+        WaitConditionArguments::Text(condition) => (Some(condition.text.trim().to_string()), None),
+        WaitConditionArguments::Reference(condition) => {
+            (None, Some(condition.reference.trim().to_string()))
+        }
+    };
+    if text.as_deref() == Some("") || reference.as_deref() == Some("") {
+        return Err(argument_error("wait condition cannot be blank"));
     }
     if text
         .as_deref()
@@ -484,21 +511,27 @@ mod tests {
             "value is required for this interaction"
         );
         assert_eq!(
-            parse_command(WEB_BROWSE_WAIT_TOOL, &json!({"text":"ready","ref":"e1"}))
-                .unwrap_err()
-                .message(),
-            "provide exactly one of text or ref"
+            parse_command(
+                WEB_BROWSE_WAIT_TOOL,
+                &json!({"condition":{"text":"ready","ref":"e1"}})
+            )
+            .unwrap_err()
+            .message(),
+            "arguments do not match the web browse schema"
         );
         assert_eq!(
             parse_command(WEB_BROWSE_WAIT_TOOL, &json!({"timeout_ms":5000}))
                 .unwrap_err()
                 .message(),
-            "provide exactly one of text or ref"
+            "arguments do not match the web browse schema"
         );
         assert_eq!(
-            parse_command(WEB_BROWSE_WAIT_TOOL, &json!({"text":"x".repeat(501)}))
-                .unwrap_err()
-                .message(),
+            parse_command(
+                WEB_BROWSE_WAIT_TOOL,
+                &json!({"condition":{"text":"x".repeat(501)}})
+            )
+            .unwrap_err()
+            .message(),
             "wait text is too long"
         );
         assert_eq!(

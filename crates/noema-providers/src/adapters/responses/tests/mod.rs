@@ -724,6 +724,55 @@ fn full_provider_conversion_closes_optional_fields_and_marks_them_nullable() {
 }
 
 #[test]
+fn browser_wait_union_remains_exact_after_strict_provider_conversion() {
+    let wait = noema_capabilities::web::browse::tool_specs()
+        .expect("browser specs")
+        .into_iter()
+        .find(|spec| spec.name.as_str() == noema_capabilities::web::browse::WEB_BROWSE_WAIT_TOOL)
+        .expect("wait spec");
+    let tools = crate::expose_provider_tools(
+        vec![wait],
+        ProviderToolTransport::Native,
+        crate::ProviderToolSchemaDialect::OpenAiResponses,
+    );
+    let names = ResponsesToolNameMap::from_tools_with_request(
+        &tools,
+        ProviderSchemaRequest::RequestStrictWhenPossible,
+    )
+    .expect("strict wait conversion");
+    let wire = serde_json::to_value(&names.tools[0]).expect("wait wire");
+    let variants = wire["parameters"]["properties"]["condition"]["anyOf"]
+        .as_array()
+        .expect("wait variants");
+
+    assert_eq!(wire["strict"], true);
+    assert_eq!(wire["parameters"]["type"], "object");
+    assert_eq!(wire["parameters"]["additionalProperties"], false);
+    assert_eq!(
+        wire["parameters"]["required"],
+        json!(["condition", "timeout_ms"])
+    );
+    assert!(wire["parameters"].get("anyOf").is_none());
+    assert_eq!(variants.len(), 2);
+    assert!(
+        variants
+            .iter()
+            .all(|variant| variant["additionalProperties"] == false)
+    );
+    assert_eq!(variants[0]["required"], json!(["text"]));
+    assert_eq!(variants[0]["properties"]["text"]["type"], "string");
+    assert_eq!(variants[1]["required"], json!(["ref"]));
+    assert_eq!(variants[1]["properties"]["ref"]["type"], "string");
+
+    let provider_name = names.tools[0].name.as_deref().expect("wait provider name");
+    let restored = names.source_form_arguments(
+        provider_name,
+        json!({"condition":{"text":"ready"},"timeout_ms":null}),
+    );
+    assert_eq!(restored, json!({"condition":{"text":"ready"}}));
+}
+
+#[test]
 fn full_provider_conversion_uses_reduced_copy_for_unsupported_unique_items() {
     let tool = noema_capabilities::ToolSpec::new(
         "mcp.docs.read",
