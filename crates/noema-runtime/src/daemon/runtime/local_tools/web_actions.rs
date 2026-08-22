@@ -201,12 +201,16 @@ impl RuntimeActor {
                 browser_capability_output(payload)
             }
             Err(error) => {
-                let can_switch_provider = self
-                    .browser_sessions
-                    .session(&owner_key)
-                    .and_then(|state| super::next_browser_route_position(&state))
+                let session = self.browser_sessions.session(&owner_key);
+                let can_switch_provider = session
+                    .as_ref()
+                    .and_then(super::next_browser_route_position)
                     .is_some();
-                browser_failure_output(error, can_switch_provider)
+                let snapshot_revision = session
+                    .as_ref()
+                    .and_then(|state| state.snapshot.as_ref())
+                    .map(|snapshot| snapshot.revision);
+                browser_failure_output(error, can_switch_provider, snapshot_revision)
             }
         }
     }
@@ -357,6 +361,7 @@ fn browser_capability_output(payload: Value) -> CapabilityOutput {
 pub(super) fn browser_failure_output(
     error: WebBrowseError,
     can_switch_provider: bool,
+    snapshot_revision: Option<u64>,
 ) -> CapabilityOutput {
     let message = error.to_string();
     let mut base = &error;
@@ -473,6 +478,12 @@ pub(super) fn browser_failure_output(
         payload.insert("stage".to_string(), Value::String(stage.clone()));
         payload.insert("detail".to_string(), Value::String(detail.clone()));
     }
+    if recovery == CapabilityRecovery::SwitchProvider
+        && let Some(snapshot_revision) = snapshot_revision
+        && let Some(payload) = payload.as_object_mut()
+    {
+        payload.insert("snapshot_revision".to_string(), snapshot_revision.into());
+    }
     CapabilityOutput::failed_with_recovery(payload, CapabilityFailure { kind, recovery })
 }
 
@@ -516,6 +527,7 @@ mod hosted_search_tests {
                 "worker response exceeded 30000ms",
             ),
             true,
+            Some(9),
         );
         assert_eq!(detailed.payload["error"], "timeout");
         assert_eq!(detailed.payload["provider"], "obscura");
@@ -524,6 +536,7 @@ mod hosted_search_tests {
             detailed.payload["detail"],
             "worker response exceeded 30000ms"
         );
+        assert_eq!(detailed.payload["snapshot_revision"], 9);
         assert_eq!(
             detailed.failure,
             Some(CapabilityFailure {
@@ -532,7 +545,7 @@ mod hosted_search_tests {
             })
         );
 
-        let uncertain = browser_failure_output(WebBrowseError::OutcomeUncertain, true);
+        let uncertain = browser_failure_output(WebBrowseError::OutcomeUncertain, true, Some(9));
         assert_eq!(uncertain.payload["error"], "outcome_uncertain");
         assert_eq!(
             uncertain.failure.unwrap().kind,

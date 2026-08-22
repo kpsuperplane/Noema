@@ -66,6 +66,8 @@ slice or a net-negative reduction.
   Complete local replay preserves ordered provider output and owns correctness.
 - A healthy provider continuation can exceed the local replay admission limit.
   Provider-hosted web state fails closed if the provider continuation expires.
+- Finalization keeps an active provider session's request contract. It sends
+  stop guidance as incremental input instead of changing tools or instructions.
 - Responses WebSocket requests use the provider timeout. Request changes report
   the changed field names without exposing field values.
 - A full provider conversion preserves every source rule. Optional null
@@ -114,6 +116,7 @@ slice or a net-negative reduction.
 - The agent changes providers only through `web.browse.switch_provider`.
   A switch starts fresh and never transfers browser state.
 - A failed initial browser open keeps route state. The agent can switch providers without a snapshot revision.
+- Switch recovery includes the current snapshot revision when one exists.
 - Browser failures retain typed recovery and safe provider diagnostics through
   model results, persistence, governed actions, and diagnostics.
 - Each capability binding owns its Task checkpoint policy.

@@ -52,22 +52,40 @@ impl RuntimeActor {
         timing: &TurnTiming,
     ) -> Result<(), RuntimeError> {
         let provider = turn.provider_route.operations();
-        let instructions = build_no_tools_finalization_prompt(reason);
-        context
-            .compact_to_fit(
-                provider,
-                turn.model.as_deref(),
-                turn.tool_capabilities.native_tool_results,
-                &instructions,
-                &[],
-                false,
-                None,
-                turn.reasoning_effort,
-                noema_providers::GenerationPriority::Foreground,
-                &turn.user_input,
-            )
-            .await
-            .map_err(RuntimeError::Provider)?;
+        let instructions = build_local_tool_result_continuation_system_prompt(false);
+        let tools = turn.initial_model_tools.provider_tools();
+        let hosted_web_search = turn.initial_model_tools.hosted_web_search();
+        let tool_choice = if turn.tool_capabilities.allowed_tools
+            && turn.initial_model_tools.transport == ProviderToolTransport::Native
+            && !hosted_web_search
+        {
+            turn.initial_model_tools
+                .allowed_tool_choice(NoemaAllowedToolsMode::Auto)
+        } else {
+            NoemaToolChoice::Auto
+        };
+        let parallel_tool_calls = turn.initial_model_tools.transport
+            == ProviderToolTransport::Native
+            && turn.initial_model_tools.has_callable_tools()
+            && turn.tool_capabilities.parallel_tool_calls;
+        if !provider_session.has_active_continuation() {
+            context
+                .compact_to_fit(
+                    provider,
+                    turn.model.as_deref(),
+                    turn.tool_capabilities.native_tool_results,
+                    &instructions,
+                    &tools,
+                    hosted_web_search,
+                    None,
+                    turn.reasoning_effort,
+                    noema_providers::GenerationPriority::Foreground,
+                    &turn.user_input,
+                )
+                .await
+                .map_err(RuntimeError::Provider)?;
+        }
+        context.append_developer_message(build_no_tools_finalization_prompt(reason));
         let continuation_input =
             context.next_provider_input(turn.tool_capabilities.native_tool_results);
         let mut ignore_event = |_| {};
@@ -99,15 +117,19 @@ impl RuntimeActor {
                     input: continuation_input.replay.clone(),
                     instructions: Some(instructions.clone()),
                     options: GenerateOptions {
+                        hosted_web_search,
+                        max_output_tokens: turn.max_output_tokens,
                         prompt_cache_retention: prompt_cache_retention_for(turn.tool_capabilities),
+                        prompt_cache_options: prompt_cache_options_for(turn.tool_capabilities),
+                        prompt_cache_breakpoints: turn.prompt_cache_breakpoints.clone(),
                         reasoning_effort: turn.reasoning_effort,
                         fast_mode: turn.fast_mode,
                         ..GenerateOptions::default()
                     },
-                    tools: Vec::new(),
-                    tool_transport: turn.tool_capabilities.tool_transport,
-                    tool_choice: Default::default(),
-                    parallel_tool_calls: false,
+                    tools,
+                    tool_transport: turn.initial_model_tools.transport,
+                    tool_choice,
+                    parallel_tool_calls,
                 },
                 continuation_input,
                 &mut ignore_event,

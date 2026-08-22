@@ -1235,7 +1235,7 @@ fn browser_validation_failure_result(
     binding: &noema_capabilities::CapabilityBinding,
     error: WebBrowseError,
 ) -> LocalToolResult {
-    let output = web_actions::browser_failure_output(error, false);
+    let output = web_actions::browser_failure_output(error, false, None);
     LocalToolResult::from_call(
         call,
         LocalToolKind::WebBrowse,

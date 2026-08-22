@@ -18,6 +18,8 @@ WebSocket requests use the provider's configured request timeout. A timeout afte
 
 Incremental input requires unchanged request settings and an earlier response identifier. Changed settings use complete replay. A healthy active continuation does not compact its complete replay copy.
 
+Progress finalization keeps the active session's instructions and tool contract. Finalization guidance enters as incremental developer input.
+
 Complete Responses replay keeps ordered reasoning, hosted web actions, assistant phases, citation annotations, and tool calls.
 
 Codex requests use `store:false`. OpenAI requests keep the provider account storage policy.
