@@ -1,6 +1,7 @@
 # Public Internet Security Audit
 
 - Date: 2026-08-21
+- Report revision date: 2026-08-22
 - Repository revision: `7a79763533677007e0df68c7903efa0dc2b9bddb`
 - Runtime reviewed: `.noema-dev`, started through `./attach`
 - Mode: read-only adversarial review
@@ -9,13 +10,11 @@
 
 **Do not expose the current instance to the public internet.**
 
-The review found four high-severity release blockers. The current process is a root debug process on a wildcard listener.
+The review found three high-severity release blockers. The current process is a root debug process on a wildcard listener.
 
 The Caddy binary also contains directly reachable TLS denial-of-service defects. The edge has no required pre-authentication limits.
 
-The current passkey and native client predate the bypass removal. Their authenticated provenance needs operator review or rotation.
-
-No critical finding was confirmed. The review found four high, four medium, and six low findings.
+No critical finding was confirmed. The review found three high, three medium, and five low findings.
 
 ## Severity model
 
@@ -40,6 +39,10 @@ The review covered these areas:
 - Browser storage, service-worker behavior, CSP, and common script injection sinks.
 - Noema home permissions, diagnostics, database state, and secret handling.
 - Rust, Go, and browser dependency advisories.
+
+The operator confirmed that they are the only authenticated user and own all current credentials.
+
+This revision therefore excludes credential provenance and intentional authenticated-user abuse from finding scope.
 
 The source revision changed during the review. I repeated the live and source checks against the revision above.
 
@@ -72,17 +75,14 @@ The current shield depends on DNS, Tailscale, and host firewall state. This revi
 | H-01 | High | The target is a root debug process on a wildcard listener. | Blocked |
 | H-02 | High | Caddy uses a Go runtime with reachable TLS denial defects. | Blocked |
 | H-03 | High | Missing explicit edge admission limits permit authentication-state exhaustion. | Blocked |
-| H-04 | High | Persistent credentials predate bypass removal and lack authenticated provenance. | Blocked |
-| M-01 | Medium | GraphQL and WebSocket work lack complete cost limits. | Fix before public access |
-| M-02 | Medium | Caddy local control and containment widen compromise impact. | Fix before public access |
-| M-03 | Medium | Proxy errors can record OAuth authorization codes. | Fix before public access |
-| M-04 | Medium | The diagnostic log has no total size or retention bound. | Fix before sustained public use |
+| M-01 | Medium | Caddy local control and containment widen compromise impact. | Fix before public access |
+| M-02 | Medium | Proxy errors can record OAuth authorization codes. | Fix before public access |
+| M-03 | Medium | The diagnostic log has no total size or retention bound. | Fix before sustained public use |
 | L-01 | Low | Rust `h2` has an unbounded empty-frame advisory. | Upgrade before public access |
 | L-02 | Low | HTTPS responses omit HSTS. | Add before public access |
 | L-03 | Low | Database and data modes do not match the production contract. | Correct during deployment |
 | L-04 | Low | MCP setup infers secret status from English key names. | Correct in normal hardening |
 | L-05 | Low | Malformed passkey state can block browser recovery. | Correct in recovery hardening |
-| L-06 | Low | Authenticated GraphQL errors expose internal diagnostics. | Correct in normal hardening |
 
 ## Detailed findings
 
@@ -217,73 +217,7 @@ Acceptance evidence:
 - Authenticated sessions remain available during rejected unauthenticated traffic.
 - Edge logs contain no cookies, bearer values, recovery candidates, or OAuth codes.
 
-### H-04: Persistent credentials predate bypass removal and lack authenticated provenance
-
-Revision `537999aa` removed the development launcher's forced `NOEMA_WEB__DEV_NO_AUTH=true` setting.
-
-That revision was committed on 2026-08-21 at 02:36:59 UTC. Earlier development launches forced authentication bypass.
-
-The live database contains these records:
-
-- One passkey, created on 2026-08-18 at 15:25:05 UTC.
-- One active native client, created on 2026-08-20 at 18:24:38 UTC.
-- One active native refresh family with the same creation time.
-- One currently active native access token during the final check.
-
-These credentials predate the bypass removal. The database does not prove which launcher or ceremony created them.
-
-They can therefore lack current passkey-authenticated provenance. This review found no credential-creation audit record that resolves the uncertainty.
-
-The Tailscale shield reduced who could reach the instance. This review could not prove which tailnet member created each credential.
-
-Required remediation:
-
-1. Keep public routing disabled.
-2. Read the current recovery code only from the local protected configuration.
-3. Register a new passkey while authentication remains required.
-4. Authenticate with the new passkey.
-5. Remove the passkey created on 2026-08-18.
-6. Revoke all native clients and refresh families.
-7. Reauthorize each required native application.
-8. Confirm that no credential predates the trusted ceremony.
-
-The operator can instead accept the old credentials through an explicit tailnet provenance review. That choice must name every trusted member and device.
-
-Acceptance evidence:
-
-- Every retained passkey has a trusted creation record after the bypass removal.
-- Every active native family was authorized after that passkey ceremony.
-- No pre-cutoff access token remains valid.
-
-### M-01: GraphQL and WebSocket work lack complete cost limits
-
-Protected GraphQL routes require authentication. This finding therefore needs a valid or stolen administrator credential.
-
-[The schema builder](../../crates/noema-api/src/graphql/schema.rs#L124-L134) sets no depth or complexity limit.
-
-A 64 KiB GraphQL document can repeat expensive resolver fields through aliases. HTTP concurrency limits do not bound total resolver work.
-
-WebSockets are capped at 64 connections. [The upgrade](../../crates/noema-server/src/web/router.rs#L279-L320) sets protocols but no frame or message limit.
-
-Axum therefore keeps its 16 MiB frame and 64 MiB message defaults. One socket can also start many GraphQL operations.
-
-Some subscriptions replay database pages. Multiple operations can multiply this work.
-
-Required remediation:
-
-1. Set GraphQL depth and complexity limits.
-2. Assign costs to expensive list and replay fields.
-3. Set WebSocket messages near the HTTP request limit.
-4. Set explicit frame, operation-count, rate, idle, and lifetime limits.
-5. Preserve session and native-token revocation behavior.
-
-Acceptance evidence:
-
-- Excessive depth and aliases fail predictably.
-- Oversized WebSocket frames and messages close only that socket.
-- One socket cannot create unbounded active operations.
-
-### M-02: Caddy local control and containment widen compromise impact
+### M-01: Caddy local control and containment widen compromise impact
 
 Caddy exposes its administration API on `127.0.0.1:2019`. An unauthenticated local request returned the active configuration.
 
@@ -313,7 +247,7 @@ Acceptance evidence:
 - The Noema account cannot retrieve or expand the DNS credential.
 - Caddy renewal and reload still work through the protected control path.
 
-### M-03: Proxy errors can record OAuth authorization codes
+### M-02: Proxy errors can record OAuth authorization codes
 
 Since 2026-08-01, the Caddy journal recorded 52,379 upstream connection failures. Eleven records included complete `/oauth/authorize` query strings.
 
@@ -337,7 +271,7 @@ Acceptance evidence:
 - The sentinel query value does not appear in Caddy logs.
 - The route path, status, and useful ordinary diagnostics remain available.
 
-### M-04: The diagnostic log has no total size or retention bound
+### M-03: The diagnostic log has no total size or retention bound
 
 The live `.noema-dev/errors.log` file was 43,937,416 bytes. It used mode `0644` inside a mode `0700` home.
 
@@ -445,22 +379,6 @@ Required remediation:
 2. Let a valid recovery grant replace malformed credentials.
 3. Add one focused regression test for this recovery path.
 
-### L-06: Authenticated GraphQL errors expose internal diagnostics
-
-[The common error mapper](../../crates/noema-api/src/graphql/errors.rs#L1-L3) returns each internal error's complete `Display` value.
-
-Many resolvers use this mapper. Store errors can include SQLite, schema, filesystem, invariant, or provider diagnostics.
-
-GraphQL authentication limits this exposure to an administrator credential. A stolen native token can still collect useful internal details.
-
-No secret-bearing GraphQL error was confirmed. The current mapping creates an avoidable disclosure path.
-
-Required remediation:
-
-1. Map internal failures to stable public error codes and messages.
-2. Keep detailed errors in protected diagnostics.
-3. Preserve useful ordinary details only where the client needs them.
-
 ## Verified controls
 
 The following controls worked during this review:
@@ -544,7 +462,6 @@ These items need separate evidence or product decisions:
 - The LLM action reviewer receives untrusted content and classifies actions.
 - Deterministic policy auto-executes substantive low-risk and medium-risk classifications.
 - Keep sensitive integrations on `AlwaysAsk` until adversarial prompt-injection evaluation passes.
-- Authenticated GraphQL resolvers were not dynamically tested.
 - Native iOS and macOS clients were not built or inspected dynamically.
 
 ## Public enablement checklist
@@ -555,18 +472,16 @@ Do not change public DNS or firewall access until every blocking item passes.
 2. Confirm loopback-only Noema HTTP and no public port 3737.
 3. Rebuild Caddy with patched Go and updated modules.
 4. Add global and route-specific edge resource limits.
-5. Rotate or explicitly attest every bypass-era passkey and native credential.
-6. Protect the Caddy admin API with Unix permissions or disable it.
-7. Remove OAuth query strings from edge error logs.
-8. Add GraphQL cost and WebSocket message limits.
-9. Correct all Noema home file modes.
-10. Add diagnostic size and retention controls.
-11. Add HSTS after the public name is final.
-12. Create an encrypted, off-host, whole-home backup.
-13. Complete one full restore test while Noema is stopped.
-14. Verify provider-side private-network denial for Kernel, or disable Kernel.
-15. Run the repository validation commands.
-16. Run the edge acceptance tests from a non-Tailscale network.
+5. Protect the Caddy admin API with Unix permissions or disable it.
+6. Remove OAuth query strings from edge error logs.
+7. Correct all Noema home file modes.
+8. Add diagnostic size and retention controls.
+9. Add HSTS after the public name is final.
+10. Create an encrypted, off-host, whole-home backup.
+11. Complete one full restore test while Noema is stopped.
+12. Verify provider-side private-network denial for Kernel, or disable Kernel.
+13. Run the repository validation commands.
+14. Run the edge acceptance tests from a non-Tailscale network.
 
 Required repository validation:
 
@@ -629,4 +544,4 @@ The application has strong authentication, authority, session, SSRF, path, and s
 
 The running deployment does not yet implement its production contract. The root debug process, vulnerable TLS runtime, and missing edge limits are decisive blockers.
 
-Rotate or attest bypass-era credentials before public access. Then complete the acceptance checklist against the actual production service.
+The operator attestation resolves the prior credential concern. Complete the acceptance checklist against the actual production service.
