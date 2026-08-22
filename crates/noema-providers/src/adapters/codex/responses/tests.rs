@@ -327,6 +327,7 @@ async fn websocket_session_uses_complete_then_incremental_requests_and_replays_c
         .expect("compacted response");
 
     let requests = requests_rx.await.expect("WebSocket requests");
+    assert!(rustls::crypto::CryptoProvider::get_default().is_some());
     assert_eq!(requests.len(), 4);
     assert_eq!(requests[0]["type"], "response.create");
     assert_eq!(requests[0]["store"], false);

@@ -5054,6 +5054,7 @@ dependencies = [
  "readabilityrs",
  "reqwest 0.13.4",
  "ring",
+ "rustls",
  "scraper",
  "serde",
  "serde_json",

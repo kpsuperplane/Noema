@@ -264,7 +264,7 @@ async fn append_current_task_files(
         )
         .await?;
     }
-    if run.run_kind != RunKind::Planner {
+    if run.run_kind == RunKind::Executor {
         append_optional_task_file(
             store,
             run,
@@ -437,7 +437,15 @@ mod tests {
     #[tokio::test]
     async fn initial_task_prompt_supplies_files_and_an_empty_support_manifest() {
         let store = crate::test_support::test_store().await;
-        let (_task, run) = crate::test_support::seed_task(&store, "Injected Task files").await;
+        let (task, mut run) = crate::test_support::seed_task(&store, "Injected Task files").await;
+        store
+            .write_task_file(&task.task_id, noema_store::TASK_REVIEW, "Prior review")
+            .await
+            .expect("write prior review");
+        store
+            .write_task_file(&task.task_id, noema_store::TASK_RESULT, "Current result")
+            .await
+            .expect("write current result");
         let mut prompt = TaskRolePrompt {
             role: crate::agent_execution::ExecutionRole::TaskExecutor,
             input: String::new(),
@@ -459,6 +467,19 @@ mod tests {
                 .input
                 .contains("<SUPPORT_FILE_MANIFEST>\n(none)\n</SUPPORT_FILE_MANIFEST>")
         );
+        assert!(prompt.input.contains("Prior review"));
+
+        run.run_kind = RunKind::Reviewer;
+        let mut reviewer_prompt = TaskRolePrompt {
+            role: crate::agent_execution::ExecutionRole::TaskReviewer,
+            input: String::new(),
+            instructions: "test",
+        };
+        append_current_task_files(&store, &run, &mut reviewer_prompt)
+            .await
+            .expect("append current Reviewer files");
+        assert!(reviewer_prompt.input.contains("Current result"));
+        assert!(!reviewer_prompt.input.contains("Prior review"));
     }
 
     #[tokio::test]

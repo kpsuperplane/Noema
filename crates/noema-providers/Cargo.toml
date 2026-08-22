@@ -20,6 +20,7 @@ adapters = [
     "dep:reqwest",
     "dep:readabilityrs",
     "dep:ring",
+    "dep:rustls",
     "dep:scraper",
     "public-http",
     "dep:tokio-util",
@@ -48,6 +49,7 @@ obscura-js = { workspace = true, optional = true }
 reqwest = { workspace = true, features = ["stream"], optional = true }
 readabilityrs = { workspace = true, optional = true }
 ring = { workspace = true, optional = true }
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "std"], optional = true }
 scraper = { workspace = true, optional = true }
 serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
