@@ -5,7 +5,7 @@ use noema_conversations::{
 
 use noema_providers::{
     GenerateActionItem, GenerateCitation, GenerateHostedWebSearch, GenerateReasoningItem,
-    GenerateResponse, GenerateStreamEvent,
+    GenerateResponse, GenerateStreamEvent, ProviderTimingMilestone,
 };
 use serde_json::{Value, json};
 use tokio::sync::mpsc;

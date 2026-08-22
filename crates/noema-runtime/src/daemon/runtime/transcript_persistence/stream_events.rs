@@ -80,9 +80,9 @@ pub(super) fn handle_provider_stream_event(
                 Some(&provider_call_id),
             );
         }
-        GenerateStreamEvent::HostedWebSearchStarted { output_index, id } => {
+        GenerateStreamEvent::HostedWebSearchStarted { output_index, .. } => {
             let output_index = output_index_base + output_index;
-            let correlation_id = hosted_web_search_correlation_id(context, output_index, id.as_deref());
+            let correlation_id = hosted_web_search_correlation_id(context, output_index);
             send_tool_call_started_transient(
                 context,
                 item_tx,
@@ -91,6 +91,14 @@ pub(super) fn handle_provider_stream_event(
                 Some(&correlation_id),
             );
         }
+        GenerateStreamEvent::ProviderTiming {
+            milestone: ProviderTimingMilestone::HostedWebSearchCompleted,
+            output_index: Some(output_index),
+        } => send_hosted_web_search_completed_transient(
+            context,
+            item_tx,
+            output_index_base + output_index,
+        ),
         GenerateStreamEvent::ProviderTiming { .. } => {}
     }
 }
@@ -98,11 +106,10 @@ pub(super) fn handle_provider_stream_event(
 fn hosted_web_search_correlation_id(
     context: &ConversationMemoryContext,
     output_index: usize,
-    provider_id: Option<&str>,
 ) -> String {
-    provider_id.map_or_else(
-        || format!("hosted_web_search:{}:{}:{}", context.conversation_id, context.turn_index, output_index),
-        ToString::to_string,
+    format!(
+        "hosted_web_search:{}:{}:{}",
+        context.conversation_id, context.turn_index, output_index
     )
 }
 
@@ -140,6 +147,38 @@ fn send_tool_call_started_transient(
                 "id": correlation_id,
                 "name": name,
             },
+            "display": display,
+        }),
+    };
+    send_transient_turn_item(context, activity, item_tx);
+}
+
+fn send_hosted_web_search_completed_transient(
+    context: &ConversationMemoryContext,
+    item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    output_index: usize,
+) {
+    let correlation_id = hosted_web_search_correlation_id(context, output_index);
+    let action = json!({"call_id": correlation_id, "name": "web.search"});
+    let mut display = tool_result_display(Some("web.search"), None, &json!({}));
+    if let Some(marker) = crate::tool_marker_for_action("tool_result", "completed", &action) {
+        display["marker"] = marker;
+    }
+    let activity = TurnTranscriptItem::Activity {
+        id: format!(
+            "tool_result:{}:{}:{}",
+            context.conversation_id, context.turn_index, output_index
+        ),
+        activity_kind: "tool_result".to_string(),
+        status: TurnActivityStatus::Completed,
+        title: "Tool result: web.search".to_string(),
+        summary: Some("Search finished".to_string()),
+        metadata: json!({
+            "turn_index": context.turn_index,
+            "output_index": output_index,
+            "source": "provider_stream",
+            "provider": "provider_stream",
+            "action": action,
             "display": display,
         }),
     };

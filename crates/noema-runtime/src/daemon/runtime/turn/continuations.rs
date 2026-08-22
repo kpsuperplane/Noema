@@ -270,7 +270,8 @@ impl RuntimeActor {
                         continuation_tool_start_events.push(event);
                     }
                     GenerateStreamEvent::AssistantTextDelta { .. }
-                    | GenerateStreamEvent::HostedWebSearchStarted { .. } => {
+                    | GenerateStreamEvent::HostedWebSearchStarted { .. }
+                    | GenerateStreamEvent::ProviderTiming { .. } => {
                         handle_provider_stream_event(
                             event,
                             item_tx,
@@ -279,7 +280,6 @@ impl RuntimeActor {
                             continuation_output_base,
                         );
                     }
-                    GenerateStreamEvent::ProviderTiming { .. } => {}
                 }
             };
             timing.mark(

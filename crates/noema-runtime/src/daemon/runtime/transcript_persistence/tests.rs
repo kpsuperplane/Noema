@@ -38,7 +38,7 @@ fn assistant_delta_stream_id_includes_prior_output_offset() {
 }
 
 #[test]
-fn hosted_web_search_stream_event_emits_canonical_tool_call() {
+fn hosted_web_search_stream_events_update_one_tool_lifecycle() {
     let (item_tx, mut item_rx) = mpsc::unbounded_channel();
     let context = ConversationMemoryContext {
         turn_index: 4,
@@ -58,33 +58,60 @@ fn hosted_web_search_stream_event_emits_canonical_tool_call() {
         "assistant_stream:turn:1:initial",
         3,
     );
+    handle_provider_stream_event(
+        GenerateStreamEvent::ProviderTiming {
+            milestone: ProviderTimingMilestone::HostedWebSearchCompleted,
+            output_index: Some(2),
+        },
+        &item_tx,
+        &context,
+        "assistant_stream:turn:1:initial",
+        3,
+    );
 
-    let event = item_rx.try_recv().expect("hosted search activity");
-    let TurnStreamEvent::ConversationItem {
-        item_id,
-        cursor,
-        item,
-        ..
-    } = event
-    else {
-        panic!("expected conversation item");
-    };
-    assert_eq!(item_id, "transient:tool_call:conversation:1:4:5");
-    assert_eq!(cursor, None);
-    let TurnTranscriptItem::Activity {
-        id,
-        activity_kind,
-        status,
-        title,
-        ..
-    } = *item
-    else {
-        panic!("expected activity");
-    };
-    assert_eq!(id, "tool_call:conversation:1:4:5");
-    assert_eq!(activity_kind, "tool_call");
-    assert_eq!(status, TurnActivityStatus::Started);
-    assert_eq!(title, "Tool call: web.search");
+    let activities = std::iter::from_fn(|| item_rx.try_recv().ok())
+        .map(|event| {
+            let TurnStreamEvent::ConversationItem {
+                item_id,
+                cursor,
+                item,
+                ..
+            } = event
+            else {
+                panic!("expected conversation item");
+            };
+            assert!(item_id.starts_with("transient:tool_"));
+            assert_eq!(cursor, None);
+            let TurnTranscriptItem::Activity {
+                id,
+                activity_kind,
+                status,
+                title,
+                summary,
+                ..
+            } = *item
+            else {
+                panic!("expected activity");
+            };
+            assert_eq!(id, format!("{activity_kind}:conversation:1:4:5"));
+            let activity_name = activity_kind
+                .strip_prefix("tool_")
+                .expect("tool activity kind");
+            assert_eq!(title, format!("Tool {activity_name}: web.search"));
+            (activity_kind, status, summary)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        activities,
+        vec![
+            ("tool_call".to_string(), TurnActivityStatus::Started, None),
+            (
+                "tool_result".to_string(),
+                TurnActivityStatus::Completed,
+                Some("Search finished".to_string())
+            ),
+        ]
+    );
 }
 
 #[test]
