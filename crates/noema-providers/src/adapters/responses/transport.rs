@@ -1,6 +1,6 @@
 //! HTTP transport for Responses-compatible endpoints.
 
-use std::fmt;
+use std::{fmt, time::Duration};
 
 use futures_util::{SinkExt, StreamExt};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
@@ -21,6 +21,7 @@ use crate::{GenerateStreamEvent, ProviderError, ProviderTimingMilestone, reqwest
 pub struct ResponsesTransport {
     client: reqwest::Client,
     responses_url: String,
+    request_timeout: Duration,
 }
 
 impl fmt::Debug for ResponsesTransport {
@@ -29,6 +30,7 @@ impl fmt::Debug for ResponsesTransport {
             .debug_struct("ResponsesTransport")
             .field("client", &"[CONFIGURED]")
             .field("responses_url", &self.responses_url)
+            .field("request_timeout", &self.request_timeout)
             .finish()
     }
 }
@@ -45,11 +47,13 @@ impl ResponsesTransport {
     pub fn new(
         client: reqwest::Client,
         base_url: impl Into<String>,
+        request_timeout: Duration,
     ) -> Result<Self, ProviderError> {
         let base_url = normalize_base_url(base_url.into(), "responses base URL")?;
         Ok(Self {
             client,
             responses_url: format!("{base_url}/responses"),
+            request_timeout,
         })
     }
 
@@ -188,6 +192,7 @@ impl ResponsesTransport {
                 .responses_url
                 .replacen("https://", "wss://", 1)
                 .replacen("http://", "ws://", 1),
+            request_timeout: self.request_timeout,
             socket: None,
             unsupported: false,
             previous_response_id: None,
@@ -224,6 +229,7 @@ type ResponsesSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 /// One lazy Responses WebSocket connection.
 pub(crate) struct ResponsesWebSocketSession {
     websocket_url: String,
+    request_timeout: Duration,
     socket: Option<ResponsesSocket>,
     unsupported: bool,
     previous_response_id: Option<String>,
@@ -383,6 +389,39 @@ impl ResponsesWebSocketSession {
         diagnostics: ResponsesDiagnosticContext,
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<ResponsesResponse, ResponsesWebSocketError> {
+        let provider = diagnostics.provider_kind.clone();
+        let seconds = self.request_timeout.as_secs();
+        let mut saw_output = false;
+        let result = tokio::time::timeout(
+            self.request_timeout,
+            self.send_with_no_timeout(
+                bearer_token,
+                body,
+                extra_headers,
+                diagnostics,
+                on_event,
+                &mut saw_output,
+            ),
+        )
+        .await;
+        match result {
+            Ok(result) => result,
+            Err(_) => {
+                self.socket = None;
+                Err(websocket_timeout(&provider, seconds, saw_output))
+            }
+        }
+    }
+
+    async fn send_with_no_timeout(
+        &mut self,
+        bearer_token: &str,
+        body: &impl Serialize,
+        extra_headers: &HeaderMap,
+        diagnostics: ResponsesDiagnosticContext,
+        on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
+        saw_output: &mut bool,
+    ) -> Result<ResponsesResponse, ResponsesWebSocketError> {
         if self.unsupported {
             return Err(ResponsesWebSocketError::Unsupported(websocket_failure(
                 &diagnostics.provider_kind,
@@ -428,20 +467,19 @@ impl ResponsesWebSocketSession {
             })?;
 
         let mut accumulator = ResponsesAccumulator::new(diagnostics.clone());
-        let mut saw_output = false;
         loop {
             let message = socket.next().await.ok_or_else(|| {
-                websocket_read_error(&diagnostics.provider_kind, saw_output, "connection closed")
+                websocket_read_error(&diagnostics.provider_kind, *saw_output, "connection closed")
             })?;
             let message = message.map_err(|_| {
-                websocket_read_error(&diagnostics.provider_kind, saw_output, "read failed")
+                websocket_read_error(&diagnostics.provider_kind, *saw_output, "read failed")
             })?;
             let text = match message {
                 Message::Text(text) => text.to_string(),
                 Message::Binary(bytes) => String::from_utf8(bytes.to_vec()).map_err(|_| {
                     websocket_read_error(
                         &diagnostics.provider_kind,
-                        saw_output,
+                        *saw_output,
                         "received non-UTF-8 data",
                     )
                 })?,
@@ -449,7 +487,7 @@ impl ResponsesWebSocketSession {
                     socket.send(Message::Pong(payload)).await.map_err(|_| {
                         websocket_read_error(
                             &diagnostics.provider_kind,
-                            saw_output,
+                            *saw_output,
                             "failed to answer a ping",
                         )
                     })?;
@@ -460,7 +498,7 @@ impl ResponsesWebSocketSession {
                     self.socket = None;
                     return Err(websocket_read_error(
                         &diagnostics.provider_kind,
-                        saw_output,
+                        *saw_output,
                         "connection closed",
                     ));
                 }
@@ -468,7 +506,7 @@ impl ResponsesWebSocketSession {
             let value = serde_json::from_str::<Value>(&text).map_err(|_| {
                 websocket_read_error(
                     &diagnostics.provider_kind,
-                    saw_output,
+                    *saw_output,
                     "received malformed JSON",
                 )
             })?;
@@ -477,10 +515,10 @@ impl ResponsesWebSocketSession {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
-            saw_output |= websocket_event_has_output(&event_type);
+            *saw_output |= websocket_event_has_output(&event_type);
             if response_error_code(&value) == Some("previous_response_not_found") {
                 self.socket = Some(socket);
-                return if saw_output {
+                return if *saw_output {
                     Err(ResponsesWebSocketError::AfterOutput(
                         ProviderError::ProtocolError {
                             provider: diagnostics.provider_kind.clone(),
@@ -494,14 +532,14 @@ impl ResponsesWebSocketSession {
             }
             accumulator
                 .push_value(value, None, on_event)
-                .map_err(|error| websocket_provider_error(error, saw_output))?;
+                .map_err(|error| websocket_provider_error(error, *saw_output))?;
             if matches!(
                 event_type.as_str(),
                 "response.completed" | "response.incomplete" | "response.failed" | "error"
             ) {
                 let result = accumulator
                     .finish(on_event)
-                    .map_err(|error| websocket_provider_error(error, saw_output));
+                    .map_err(|error| websocket_provider_error(error, *saw_output));
                 self.socket = Some(socket);
                 return result;
             }
@@ -601,6 +639,19 @@ fn websocket_event_has_output(event_type: &str) -> bool {
             | "response.web_search_call.searching"
             | "response.web_search_call.completed"
     )
+}
+
+fn websocket_timeout(provider: &str, seconds: u64, saw_output: bool) -> ResponsesWebSocketError {
+    let error = ProviderError::Timeout {
+        provider: provider.to_string(),
+        operation: "responses_websocket".to_string(),
+        seconds,
+    };
+    if saw_output {
+        ResponsesWebSocketError::AfterOutput(error)
+    } else {
+        ResponsesWebSocketError::Fatal(error)
+    }
 }
 
 fn websocket_provider_error(error: ProviderError, saw_output: bool) -> ResponsesWebSocketError {

@@ -315,7 +315,7 @@ fn strip_links(text: &str, citations: &[GenerateCitation]) -> (String, Vec<Gener
 
     let citation_start = |start| {
         (start > 0 && utf16_slice(text, start - 1, start) == Some(" "))
-            .then_some(start - 1)
+            .then(|| start - 1)
             .unwrap_or(start)
     };
     let mut removals = annotated_ranges
@@ -535,6 +535,12 @@ mod tests {
         assert_eq!(stripped.text, prefix);
         assert_eq!(stripped.citations[0].start_index, None);
         assert_eq!(stripped.citations[0].end_index, Some(9));
+
+        let leading = format!("([one.example]({url}))");
+        let stripped = CitationSourceRegistry
+            .normalize(&leading, &[citation(0, leading.encode_utf16().count())]);
+        assert_eq!(stripped.text, "");
+        assert_eq!(stripped.citations[0].end_index, Some(0));
 
         let preserved = CitationSourceRegistry.normalize(
             &requested,

@@ -66,6 +66,8 @@ slice or a net-negative reduction.
   Complete local replay preserves ordered provider output and owns correctness.
 - A healthy provider continuation can exceed the local replay admission limit.
   Provider-hosted web state fails closed if the provider continuation expires.
+- Responses WebSocket requests use the provider timeout. Request changes report
+  the changed field names without exposing field values.
 - A full provider conversion preserves every source rule. Optional null
   placeholders are restored before policy, review, or storage.
 

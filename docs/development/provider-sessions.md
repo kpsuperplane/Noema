@@ -14,6 +14,8 @@ Codex and OpenAI Responses share one WebSocket transport and one response accumu
 
 The session opens its WebSocket connection when the first request starts. The session closes the connection when its handle is dropped.
 
+WebSocket requests use the provider's configured request timeout. A timeout after output does not replay the request.
+
 Incremental input requires unchanged request settings and an earlier response identifier. Changed settings use complete replay. A healthy active continuation does not compact its complete replay copy.
 
 Complete Responses replay keeps ordered reasoning, hosted web actions, assistant phases, citation annotations, and tool calls.

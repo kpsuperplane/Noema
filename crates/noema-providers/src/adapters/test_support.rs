@@ -149,6 +149,24 @@ pub(crate) async fn spawn_websocket_server(
     (format!("http://{addr}"), requests_rx)
 }
 
+pub(crate) async fn spawn_blocking_websocket_server() -> (String, oneshot::Receiver<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("local addr");
+    let (request_tx, request_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.expect("accept");
+        let mut socket = accept_async(socket).await.expect("WebSocket handshake");
+        socket
+            .next()
+            .await
+            .expect("request message")
+            .expect("valid request message");
+        request_tx.send(()).expect("signal request");
+        std::future::pending::<()>().await;
+    });
+    (format!("http://{addr}"), request_rx)
+}
+
 /// Spawn a scripted server whose final response waits for an explicit release.
 pub(crate) async fn spawn_blocking_server(
     leading_responses: Vec<(u16, String)>,

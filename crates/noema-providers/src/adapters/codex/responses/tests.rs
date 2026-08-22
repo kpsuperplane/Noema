@@ -2,7 +2,8 @@ use super::*;
 use crate::adapters::{
     codex::oauth::CodexTokenStore,
     test_support::{
-        spawn_scripted_server, spawn_server, spawn_websocket_server, static_codex_credentials,
+        spawn_blocking_websocket_server, spawn_scripted_server, spawn_server,
+        spawn_websocket_server, static_codex_credentials,
     },
 };
 use crate::{CodexOAuthTokens, GenerateInput, ProviderSessionInput, ProviderToolTransport};
@@ -451,6 +452,36 @@ async fn hosted_web_state_reports_changed_request_fields() {
             if message.ends_with("request settings changed: instructions")
     ));
     assert_eq!(requests_rx.await.expect("WebSocket requests").len(), 1);
+}
+
+#[tokio::test]
+async fn websocket_generation_honors_provider_timeout() {
+    let (base_url, request_rx) = spawn_blocking_websocket_server().await;
+    let provider = provider_from_config(CodexProviderConfig {
+        base_url,
+        timeout_seconds: 1,
+        ..CodexProviderConfig::default()
+    })
+    .expect("provider");
+    let mut session = provider.open_generation_session();
+    let error = session
+        .generate(
+            GenerateRequest::text("wait"),
+            ProviderSessionInput::initial(GenerateInput::Text("wait".to_string())),
+            &mut |_| {},
+        )
+        .await
+        .expect_err("request must time out");
+
+    request_rx.await.expect("WebSocket request");
+    assert!(matches!(
+        error,
+        ProviderError::Timeout {
+            operation,
+            seconds: 1,
+            ..
+        } if operation == "responses_websocket"
+    ));
 }
 
 #[tokio::test]

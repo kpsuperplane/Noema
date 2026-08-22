@@ -54,7 +54,11 @@ impl OpenAiProvider {
         config: OpenAiProviderConfig,
     ) -> Result<Self, ProviderError> {
         let config = normalize_config(config)?;
-        let transport = ResponsesTransport::new(client, config.base_url.clone())?;
+        let transport = ResponsesTransport::new(
+            client,
+            config.base_url.clone(),
+            Duration::from_secs(config.timeout_seconds),
+        )?;
         Ok(Self {
             transport,
             system_errors: config.system_errors.clone(),

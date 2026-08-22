@@ -115,7 +115,11 @@ impl CodexResponsesProvider {
                 message: "codex provider account id is required".to_string(),
             });
         }
-        let transport = ResponsesTransport::new(client.clone(), config.base_url.clone())?;
+        let transport = ResponsesTransport::new(
+            client.clone(),
+            config.base_url.clone(),
+            Duration::from_secs(config.timeout_seconds),
+        )?;
         Ok(Self {
             transport,
             version_client: client,

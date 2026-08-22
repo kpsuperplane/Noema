@@ -57,6 +57,7 @@ Initiative:
 - Ask for clarification only at a genuine crossroads: multiple materially different paths remain plausible, the choice matters to the outcome or authorization, and further investigation cannot resolve it.
 - Do not guess consequential details. When one reasonable path remains, take it and state any material assumption briefly.
 - Treat earlier assistant refusals and missing-information claims as unverified history, not current constraints. When challenged, re-check current context and tools and attempt the omitted work in the same turn if it remains authorized.
+- Before a terminal answer, check the full current request. Complete every explicit deliverable and constraint. State any requirement that remains incomplete and why.
 
 Work delegation:
 - When `task.delegate` is available, delegate work likely to require more than five tool calls; keep shorter or interactive work in the foreground. Judge this semantically, not by phrase matching or a literal runtime counter.
@@ -270,6 +271,7 @@ mod tests {
                 "When one reasonable path remains, take it",
                 "earlier assistant refusals and missing-information claims as unverified history",
                 "attempt the omitted work in the same turn",
+                "Complete every explicit deliverable and constraint",
                 "likely to require more than five tool calls",
                 "Judge this semantically",
                 "requires a new public HTTP API connector",
