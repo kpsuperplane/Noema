@@ -908,6 +908,10 @@ impl RuntimeActor {
             parse_command(name, payload).map_err(|error| WebBrowseError::InvalidArguments {
                 detail: error.message().to_string(),
             })?;
+        let navigation_url = match &command {
+            BrowseCommand::Open(request) => Some(request.url.clone()),
+            _ => None,
+        };
         let gate = self.browser_sessions.gate(owner_key);
         let _guard = gate.lock().await;
         let route = match super::web_tools::resolve_web_browse_route(&self.store).await {
@@ -952,6 +956,7 @@ impl RuntimeActor {
                     route,
                     active_position: 0,
                     backend,
+                    last_navigation_url: None,
                     public_revision: 0,
                     backend_revision: 0,
                     snapshot: None,
@@ -959,6 +964,9 @@ impl RuntimeActor {
             }
             None => return Err(WebBrowseError::SessionNotFound),
         };
+        if navigation_url.is_some() {
+            state.last_navigation_url = navigation_url;
+        }
         let result = state.backend.execute(&owner, command).await;
         if matches!(result, Err(WebBrowseError::Unauthenticated)) {
             let resolved = &state.route.providers[state.active_position];
@@ -1049,6 +1057,7 @@ impl RuntimeActor {
             .map_err(browser_url_policy_error)?;
         let target_position =
             next_browser_route_position(&source).ok_or(WebBrowseError::NoLaterProvider)?;
+        source.last_navigation_url = Some(request.url.clone());
         let resolved = &source.route.providers[target_position];
         let target = match self.resolve_browser_backend(resolved).await {
             Ok(target) => target,

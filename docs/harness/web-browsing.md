@@ -105,6 +105,8 @@ contains failures, but it is not a sandbox for hostile native code.
 
 `open`, `switch_provider`, and `file.download` follow external-read execution policy. An observed
 URL can use the existing narrow admission. Other URLs use normal action review.
+A switch to the exact last attempted URL reuses that live session's navigation
+authorization. A different switch URL uses observed admission or normal review.
 `interact` and `history` are non-idempotent open-world actions and use LLM/human review.
 `snapshot`, `wait`, and `close` execute immediately after ownership checks.
 Each capability binding owns its Task checkpoint policy. Reviewed state changes

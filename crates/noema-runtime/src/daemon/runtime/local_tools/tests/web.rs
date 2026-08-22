@@ -41,6 +41,7 @@ async fn set_browser_snapshot_for_test(
             route,
             active_position: 0,
             backend,
+            last_navigation_url: Some("https://example.com/form".to_string()),
             public_revision: revision,
             backend_revision: revision,
             snapshot: Some(crate::daemon::runtime::actor::BrowserSnapshotContext {
@@ -73,6 +74,7 @@ async fn browser_switch_retries_the_next_route_after_a_failed_open() {
         route,
         active_position: 0,
         backend: noema_providers::WebBrowseBackendHandle::obscura(1, 64),
+        last_navigation_url: Some("https://example.com/failed".to_string()),
         public_revision: 1,
         backend_revision: 1,
         snapshot: None,

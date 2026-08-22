@@ -57,6 +57,7 @@ pub(super) struct BrowserSessionState {
     pub(super) route: super::web_tools::ResolvedBrowserProviderRoute,
     pub(super) active_position: usize,
     pub(super) backend: noema_providers::WebBrowseBackendHandle,
+    pub(super) last_navigation_url: Option<String>,
     pub(super) public_revision: u64,
     pub(super) backend_revision: u64,
     pub(super) snapshot: Option<BrowserSnapshotContext>,

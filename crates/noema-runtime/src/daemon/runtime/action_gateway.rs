@@ -39,8 +39,21 @@ impl RuntimeActor {
         if !binding.execution_decision().requires_review() {
             return Ok(ReviewedActionPreparation::NotRequired);
         }
-        if let Some(arguments) =
-            observed_read_arguments(&self.store, &call.name, &call.payload).await?
+        let recovery_url = (call.name
+            == noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL)
+            .then(|| {
+                self.browser_sessions
+                    .session(&browse_owner_key_for_turn(turn))
+                    .and_then(|session| session.last_navigation_url)
+            })
+            .flatten();
+        if let Some(arguments) = observed_read_arguments(
+            &self.store,
+            &call.name,
+            &call.payload,
+            recovery_url.as_deref(),
+        )
+        .await?
         {
             return Ok(ReviewedActionPreparation::Authorized {
                 action: None,
@@ -260,6 +273,7 @@ async fn observed_read_arguments(
     store: &noema_store::NoemaStore,
     capability_name: &str,
     payload: &serde_json::Value,
+    recovery_url: Option<&str>,
 ) -> Result<Option<serde_json::Value>, noema_store::StoreError> {
     let (url, mut arguments) = if capability_name == noema_capabilities::file::FILE_DOWNLOAD_TOOL {
         let Ok(request) = noema_capabilities::file::parse_download_arguments(payload) else {
@@ -323,7 +337,10 @@ async fn observed_read_arguments(
     let Ok(normalized) = noema_capabilities::web::url_policy::normalize_observed_url(&url) else {
         return Ok(None);
     };
-    if !store.has_observed_url(&normalized).await? {
+    let matches_recovery = recovery_url
+        .and_then(|url| noema_capabilities::web::url_policy::normalize_observed_url(url).ok())
+        .is_some_and(|url| url == normalized);
+    if !matches_recovery && !store.has_observed_url(&normalized).await? {
         return Ok(None);
     }
     arguments["url"] = serde_json::Value::String(normalized);
@@ -520,6 +537,7 @@ mod tests {
                 "wait_until": "domcontentloaded",
                 "reason": "Read the public source."
             }),
+            None,
         )
         .await
         .expect("lookup observed URL")
@@ -532,6 +550,7 @@ mod tests {
             &store,
             noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL,
             &serde_json::json!({"snapshot_revision": 7, "url": url}),
+            None,
         )
         .await
         .expect("lookup observed switch URL")
@@ -543,12 +562,24 @@ mod tests {
             &store,
             noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL,
             &serde_json::json!({"url": url}),
+            None,
         )
         .await
         .expect("lookup observed initial switch URL")
         .expect("authorize observed initial switch URL");
         assert!(initial_switch.get("snapshot_revision").is_none());
         assert_eq!(initial_switch["url"], "https://example.com/public?q=one");
+
+        let recovery_url = "https://recovery.example.com/failed";
+        let recovery = observed_read_arguments(
+            &store,
+            noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL,
+            &serde_json::json!({"url": recovery_url}),
+            Some(recovery_url),
+        )
+        .await
+        .expect("lookup recovery URL");
+        assert_eq!(recovery.expect("authorize recovery")["url"], recovery_url);
     }
 
     #[tokio::test]
@@ -567,6 +598,7 @@ mod tests {
             &store,
             noema_capabilities::file::FILE_DOWNLOAD_TOOL,
             &serde_json::json!({"url":"https://example.com/report.csv","path":"data/report.csv"}),
+            None,
         )
         .await
         .expect("lookup observed URL")

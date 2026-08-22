@@ -120,6 +120,8 @@ slice or a net-negative reduction.
 - The agent changes providers only through `web.browse.switch_provider`.
   A switch starts fresh and never transfers browser state.
 - A failed initial browser open keeps route state. The agent can switch providers without a snapshot revision.
+- A switch to the exact failed navigation URL reuses that live session's URL
+  authorization. A different URL follows normal review.
 - Switch recovery includes the current snapshot revision when one exists.
 - Browser failures retain typed recovery and safe provider diagnostics through
   model results, persistence, governed actions, and diagnostics.
