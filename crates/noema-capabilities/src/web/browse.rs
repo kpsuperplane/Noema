@@ -242,7 +242,9 @@ pub fn tool_specs() -> Result<Vec<ToolSpec>, ToolContractError> {
                     "text":{"type":"string","minLength":1,"maxLength":500},
                     "ref":{"type":"string","minLength":1,"maxLength":32},
                     "timeout_ms":{"type":"integer","minimum":1,"maximum":MAX_WAIT_MS}
-                }, "additionalProperties":false
+                },
+                "oneOf":[{"required":["text"]},{"required":["ref"]}],
+                "additionalProperties":false
             }),
         )?,
         ToolSpec::new(
@@ -483,6 +485,12 @@ mod tests {
         );
         assert_eq!(
             parse_command(WEB_BROWSE_WAIT_TOOL, &json!({"text":"ready","ref":"e1"}))
+                .unwrap_err()
+                .message(),
+            "provide exactly one of text or ref"
+        );
+        assert_eq!(
+            parse_command(WEB_BROWSE_WAIT_TOOL, &json!({"timeout_ms":5000}))
                 .unwrap_err()
                 .message(),
             "provide exactly one of text or ref"

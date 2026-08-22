@@ -23,6 +23,23 @@ fn runtime_binding_checks_its_published_input_rules() {
     assert!(binding.accepts_arguments(&json!({"query":"reliability"})));
     assert!(!binding.accepts_arguments(&json!({"query":7})));
     assert!(!binding.accepts_arguments(&json!({"query":"reliability","unknown":true})));
+
+    let wait = runtime_binding(
+        noema_capabilities::web::browse::tool_specs()
+            .expect("browser specs")
+            .into_iter()
+            .find(|spec| {
+                spec.name.as_str() == noema_capabilities::web::browse::WEB_BROWSE_WAIT_TOOL
+            })
+            .expect("wait spec"),
+        ToolAccessClass::ReadOnly,
+        BindingPersistence::WebBrowse,
+    )
+    .expect("wait binding");
+    assert!(wait.accepts_arguments(&json!({"text":"ready","timeout_ms":5000})));
+    assert!(wait.accepts_arguments(&json!({"ref":"e1"})));
+    assert!(!wait.accepts_arguments(&json!({"timeout_ms":5000})));
+    assert!(!wait.accepts_arguments(&json!({"text":"ready","ref":"e1"})));
 }
 
 #[test]

@@ -102,8 +102,9 @@ async fn browser_interactions_without_a_live_backend_fail_before_action_review()
 
     assert!(!result.success);
     assert!(result.blocked_action_request.is_none());
+    assert_eq!(result.payload["error"], "session_not_found");
     assert_eq!(
-        result.payload["error"],
+        result.payload["message"],
         "this conversation or task has no active browser session"
     );
     assert!(

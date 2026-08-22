@@ -107,6 +107,10 @@ slice or a net-negative reduction.
   The human configures an ordered provider route. Obscura remains the default.
 - The agent changes providers only through `web.browse.switch_provider`.
   A switch starts fresh and never transfers browser state.
+- Browser failures retain typed recovery and safe provider diagnostics through
+  model results, persistence, governed actions, and diagnostics.
+- Each capability binding owns its Task checkpoint policy.
+  Browser provider switches do not require a Task checkpoint.
 - One coordinator owns the active backend and public snapshot revisions.
   Every navigation reruns network and SSRF checks.
 - Browser worker commands have a 30-second deadline. A timed-out worker is discarded.

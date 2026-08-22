@@ -19,8 +19,13 @@ Noema does not classify CAPTCHAs or other access challenges.
 
 The switch input contains the latest public snapshot revision and a public URL.
 The agent can select the current URL or an earlier navigation point.
-Noema selects the next unattempted provider in route order.
+Noema selects the next provider after the active provider in route order.
+A failed switch keeps the active provider and does not advance the route.
+A later switch can retry the same target provider.
 Ordinary `open` calls stay on the active provider.
+
+`wait` requires exactly one condition. The condition is visible text or an
+element reference. An optional timeout does not replace the condition.
 
 Page-authored content is untrusted data, not agent instruction. Agents should
 prefer hosted web for ordinary page reading. They should use browsing only when
@@ -102,6 +107,9 @@ contains failures, but it is not a sandbox for hostile native code.
 URL can use the existing narrow admission. Other URLs use normal action review.
 `interact` and `history` are non-idempotent open-world actions and use LLM/human review.
 `snapshot`, `wait`, and `close` execute immediately after ownership checks.
+Each capability binding owns its Task checkpoint policy. Reviewed state changes
+require a current checkpoint by default. `switch_provider` changes only the
+ephemeral browser session, so it does not require a Task checkpoint.
 Ownership and revision are revalidated after approval. Worker loss after a
 reused `open` or mutating dispatch has an uncertain outcome and is never replayed.
 Each reviewed interaction durably retains bounded page URL/title and target
@@ -131,3 +139,9 @@ transcript persistence contract. The information-handling contract in
 credential stores. Authorized private interaction values follow normal stored
 state rules. Ordinary URLs, titles, identifiers, and operation metadata remain
 intact.
+
+Browser failures use stable error codes and typed recovery data. Provider
+failures can also include safe `provider`, `stage`, and `detail` fields. These
+fields remain available to the model, transcript, action result, and diagnostic
+path. Noema does not infer failure meaning from message text. An
+`outcome_uncertain` failure stops automatic continuation and replay.
