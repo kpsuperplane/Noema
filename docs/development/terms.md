@@ -6,6 +6,15 @@ Use one approved term for one meaning.
 Do not make a global text replacement. Keep an external protocol term when
 Noema implements that protocol.
 
+## Words to avoid
+
+Do not use these words in new prose or changed identifiers:
+
+- `idempotency`
+- `projection`
+
+Use a direct term that describes the specific behavior or data.
+
 ## Approved terms
 
 ### Tasks
@@ -83,4 +92,4 @@ Use the term that states the direct meaning.
 | Ordinary English work | Keep this word when it does not name the Tasks product |
 
 Standard technical terms can remain when they give a necessary distinction.
-Examples include `payload`, `principal`, `idempotency`, and `adapter`.
+Examples include `payload`, `principal`, and `adapter`.
