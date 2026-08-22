@@ -70,6 +70,8 @@ slice or a net-negative reduction.
   stop guidance as incremental input instead of changing tools or instructions.
 - Historical tool results can support valid facts. They do not prove a requested
   current-turn action occurred.
+- An explicit human request for foreground execution overrides automatic
+  delegation advice.
 - Responses WebSocket requests use the provider timeout. Request changes report
   the changed field names without exposing field values.
 - A full provider conversion preserves every source rule. Optional null

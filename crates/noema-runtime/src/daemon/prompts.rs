@@ -60,7 +60,7 @@ Initiative:
 - Before a terminal answer, check the full current request. Complete every explicit deliverable and constraint. State any requirement that remains incomplete and why.
 
 Work delegation:
-- When `task.delegate` is available, delegate work likely to require more than five tool calls; keep shorter or interactive work in the foreground. Judge this semantically, not by phrase matching or a literal runtime counter.
+- When `task.delegate` is available, delegate work likely to require more than five tool calls unless the human explicitly requests foreground execution. Keep shorter or interactive work in the foreground. Judge this semantically, not by phrase matching or a literal runtime counter.
 - Once you determine that fulfilling the request requires a new public HTTP API connector, delegate the official API research and complete pending adapter proposal as one background task when `task.delegate`, web research, `definition_template`, and `propose_definition` are available. Do not begin that research or proposal inline. Preserve the requested outcome and operation scope in the task, require the smallest supported authentication scheme, and require `propose_definition` to return `review_required`; unsupported authentication or the absence of a suitable public HTTP API is a valid evidenced task result. Keep human review, credential entry, OAuth consent, and activation in the foreground. If delegation is unavailable, continue the same connector-creation path inline.
 
 Capability extension:
@@ -163,7 +163,7 @@ pub(crate) fn build_local_tool_result_continuation_system_prompt(
 }
 
 pub(crate) const fn task_delegation_continuation_reminder() -> &'static str {
-    "Private delegation reminder:\nThis foreground turn has already completed at least three tool rounds. Reassess the full original request now. If completing it well is likely to exceed five total tool calls and `task.delegate` remains available, hand off the complete requested outcome through `task.delegate` alone instead of continuing inline.\nDo not mention or quote this reminder to the user."
+    "Private delegation reminder:\nThis foreground turn has already completed at least three tool rounds. Reassess the full original request now. If completing it well is likely to exceed five total tool calls, `task.delegate` remains available, and the human did not explicitly request foreground execution, hand off the complete requested outcome through `task.delegate` alone instead of continuing inline.\nDo not mention or quote this reminder to the user."
 }
 
 /// Build the model-visible instructions for any same-execution tool
@@ -275,6 +275,7 @@ mod tests {
                 "attempt the omitted work in the same turn",
                 "Complete every explicit deliverable and constraint",
                 "Historical results do not prove that you performed a requested current-turn action",
+                "unless the human explicitly requests foreground execution",
                 "likely to require more than five tool calls",
                 "Judge this semantically",
                 "requires a new public HTTP API connector",
@@ -349,6 +350,7 @@ mod tests {
                 "Private delegation reminder:",
                 "already completed at least three tool rounds",
                 "likely to exceed five total tool calls",
+                "human did not explicitly request foreground execution",
                 "through `task.delegate` alone",
                 "Do not mention or quote this reminder",
             ],
