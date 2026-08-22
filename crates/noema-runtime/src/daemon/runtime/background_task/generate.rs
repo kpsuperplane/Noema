@@ -290,9 +290,7 @@ impl RuntimeActor {
                         requires_task_checkpoint_before_action(
                             request.role,
                             checkpoint_current,
-                            &call.name,
-                            binding.execution_decision(),
-                            binding.behavior(),
+                            binding,
                         )
                     });
                 let result = if checkpoint_required_for_action {

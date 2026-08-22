@@ -485,10 +485,7 @@ fn rejected_mixed_delegation_result(
     });
     let persisted = bindings
         .resolve(&call.name)
-        .map(|binding| noema_capabilities::PersistedCapabilityPayload {
-            arguments: binding.persist_arguments(&call.payload),
-            output: binding.persist_output(&payload),
-        })
+        .map(|binding| binding.persisted_payload(&call.payload, &payload))
         .unwrap_or_else(noema_capabilities::PersistedCapabilityPayload::omitted);
     LocalToolResult::from_call(call, LocalToolKind::Gateway, false, payload, true)
         .with_persisted(persisted)

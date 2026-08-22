@@ -1,8 +1,8 @@
 use crate::agent_execution::{ExecutionRole, ToolPolicy};
 use noema_capabilities::{
-    CapabilityDispatchFailure, CapabilityError, CapabilityFuture, CapabilityInvocation,
-    CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter, InvokerKey, PayloadSanitizer,
-    WebBrowsePayloadSanitizer,
+    CapabilityDispatchFailure, CapabilityError, CapabilityFailureKind, CapabilityFuture,
+    CapabilityInvocation, CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter,
+    InvokerKey, PayloadSanitizer, WebBrowsePayloadSanitizer,
 };
 use noema_providers::ProviderRouteLease;
 use noema_store::{GovernedExecutionOutcome, NewCapabilityAuthenticationRequest};
@@ -16,7 +16,7 @@ use super::presentation_tools::{
 use super::{
     action_gateway::{
         ReviewedActionPreparation, action_store_failure_result, awaiting_approval_result,
-        capability_failure_code,
+        capability_execution_outcome, capability_failure_code,
     },
     actor::{BrowserSessionState, BrowserSnapshotContext, RuntimeActor},
     tool_lifecycle::LocalToolCall,
@@ -201,12 +201,12 @@ impl RuntimeActor {
         };
         match dispatch {
             Ok(dispatch) => {
+                let outcome_uncertain = dispatch
+                    .output
+                    .failure
+                    .is_some_and(|failure| failure.kind == CapabilityFailureKind::OutcomeUncertain);
                 if let Some((Some(action), _, _)) = &reviewed {
-                    let outcome = if dispatch.output.success {
-                        GovernedExecutionOutcome::Succeeded
-                    } else {
-                        GovernedExecutionOutcome::Failed
-                    };
+                    let outcome = capability_execution_outcome(&dispatch.output);
                     if self
                         .store
                         .finish_governed_action_execution(
@@ -214,7 +214,11 @@ impl RuntimeActor {
                             action.revision,
                             outcome,
                             dispatch.persisted.output.as_ref(),
-                            (!dispatch.output.success).then_some("tool_declared_failure"),
+                            if outcome_uncertain {
+                                Some("outcome_uncertain")
+                            } else {
+                                (!dispatch.output.success).then_some("tool_declared_failure")
+                            },
                         )
                         .await
                         .is_err()
@@ -223,14 +227,20 @@ impl RuntimeActor {
                     }
                 }
                 let runtime_result = runtime_invoker.take_result();
-                LocalToolResult::from_call(
+                let result = LocalToolResult::from_call(
                     call,
                     runtime_result.map_or(LocalToolKind::Gateway, |result| result.kind),
                     dispatch.output.success,
                     dispatch.output.payload,
                     runtime_result.is_none_or(|result| result.requires_provider_continuation),
                 )
-                .with_persisted(dispatch.persisted)
+                .with_failure(dispatch.output.failure)
+                .with_persisted(dispatch.persisted);
+                if outcome_uncertain {
+                    result.with_blocked_outcome_uncertain()
+                } else {
+                    result
+                }
             }
             Err(failure) => {
                 if failure.error == CapabilityError::InvalidArguments
@@ -685,14 +695,23 @@ impl RuntimeActor {
                 .execute_web_browse_action(owner_key, &call.name, &call.payload, source)
                 .await;
             let persisted_output_source = output.persisted_output_source().clone();
-            LocalToolResult::from_call(
+            let outcome_uncertain = output
+                .failure
+                .is_some_and(|failure| failure.kind == CapabilityFailureKind::OutcomeUncertain);
+            let result = LocalToolResult::from_call(
                 call,
                 LocalToolKind::WebBrowse,
                 output.success,
                 output.payload,
-                true,
+                !outcome_uncertain,
             )
-            .with_persisted_output_source(persisted_output_source)
+            .with_failure(output.failure)
+            .with_persisted_output_source(persisted_output_source);
+            if outcome_uncertain {
+                result.with_blocked_outcome_uncertain()
+            } else {
+                result
+            }
         } else {
             return Err(CapabilityError::UnknownOperation);
         };
@@ -845,12 +864,15 @@ impl RuntimeActor {
     async fn resolve_browser_backend(
         &self,
         resolved: &super::web_tools::ResolvedWebProvider,
-    ) -> Result<WebBrowseBackendHandle, String> {
+    ) -> Result<WebBrowseBackendHandle, WebBrowseError> {
         if resolved.capability_status != noema_providers::ProviderCapabilityStatus::Available {
-            return Err(format!(
-                "web.browse provider '{}' is {}",
-                resolved.provider_kind,
-                resolved.capability_status.as_str()
+            return Err(WebBrowseError::Unavailable.with_provider_detail(
+                &resolved.provider_kind,
+                "resolve_backend",
+                format!(
+                    "capability status is {}",
+                    resolved.capability_status.as_str()
+                ),
             ));
         }
         let target = ProviderAuthFailureTarget {
@@ -865,12 +887,14 @@ impl RuntimeActor {
             Ok(provider) => Ok(provider),
             Err(WebBackendResolverError::Unauthenticated) => {
                 self.mark_provider_account_unauthenticated(&target).await;
-                Err(WebBrowseError::Unauthenticated.to_string())
+                Err(WebBrowseError::Unauthenticated)
             }
-            Err(WebBackendResolverError::Unavailable) => Err(format!(
-                "web.browse provider '{}' is unavailable",
-                resolved.provider_kind
-            )),
+            Err(WebBackendResolverError::Unavailable) => Err(WebBrowseError::Unavailable
+                .with_provider_detail(
+                    &resolved.provider_kind,
+                    "resolve_backend",
+                    "provider backend is unavailable",
+                )),
         }
     }
 
@@ -879,9 +903,11 @@ impl RuntimeActor {
         owner_key: &str,
         name: &str,
         payload: &Value,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, WebBrowseError> {
         let mut command =
-            parse_command(name, payload).map_err(|error| error.message().to_string())?;
+            parse_command(name, payload).map_err(|error| WebBrowseError::InvalidArguments {
+                detail: error.message().to_string(),
+            })?;
         let gate = self.browser_sessions.gate(owner_key);
         let _guard = gate.lock().await;
         let route = match super::web_tools::resolve_web_browse_route(&self.store).await {
@@ -893,7 +919,7 @@ impl RuntimeActor {
                         .execute(&WebBrowseOwner::new(owner_key), BrowseCommand::Close)
                         .await;
                 }
-                return Err("web.browse provider route could not be resolved".to_string());
+                return Err(WebBrowseError::RouteUnavailable);
             }
         };
         let mut session = self.browser_sessions.session(owner_key);
@@ -920,7 +946,7 @@ impl RuntimeActor {
                     .providers
                     .first()
                     .cloned()
-                    .ok_or_else(|| "web.browse provider route is empty".to_string())?;
+                    .ok_or(WebBrowseError::RouteUnavailable)?;
                 let backend = self.resolve_browser_backend(&resolved).await?;
                 BrowserSessionState {
                     route,
@@ -931,7 +957,7 @@ impl RuntimeActor {
                     snapshot: None,
                 }
             }
-            None => return Err(WebBrowseError::SessionNotFound.to_string()),
+            None => return Err(WebBrowseError::SessionNotFound),
         };
         let result = state.backend.execute(&owner, command).await;
         if matches!(result, Err(WebBrowseError::Unauthenticated)) {
@@ -940,7 +966,7 @@ impl RuntimeActor {
                 self.mark_provider_account_unauthenticated(&target).await;
             }
         }
-        let mut response = result.map_err(|error| error.to_string())?;
+        let mut response = result?;
         let public_revision = response
             .snapshot
             .as_ref()
@@ -949,10 +975,13 @@ impl RuntimeActor {
         update_browser_snapshot_authority(&mut state, &mut response, public_revision);
         self.browser_sessions
             .set_session(owner_key.to_string(), state);
-        serde_json::to_value(response).map_err(|_| WebBrowseError::Unavailable.to_string())
+        serde_json::to_value(response).map_err(|_| WebBrowseError::Unavailable)
     }
 
-    pub(super) async fn close_browser_session(&self, owner_key: &str) -> Result<Value, String> {
+    pub(super) async fn close_browser_session(
+        &self,
+        owner_key: &str,
+    ) -> Result<Value, WebBrowseError> {
         let gate = self.browser_sessions.gate(owner_key);
         let _guard = gate.lock().await;
         let Some(session) = self.browser_sessions.remove(owner_key) else {
@@ -962,7 +991,7 @@ impl RuntimeActor {
                 snapshot: None,
                 screenshot: None,
             })
-            .map_err(|_| WebBrowseError::Unavailable.to_string());
+            .map_err(|_| WebBrowseError::Unavailable);
         };
         session
             .backend
@@ -971,22 +1000,23 @@ impl RuntimeActor {
             .and_then(|response| {
                 serde_json::to_value(response).map_err(|_| WebBrowseError::Unavailable)
             })
-            .map_err(|error| error.to_string())
     }
 
     async fn switch_browser_provider(
         &self,
         owner_key: &str,
         payload: &Value,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, WebBrowseError> {
         let request =
-            parse_provider_switch(payload).map_err(|error| error.message().to_string())?;
+            parse_provider_switch(payload).map_err(|error| WebBrowseError::InvalidArguments {
+                detail: error.message().to_string(),
+            })?;
         let gate = self.browser_sessions.gate(owner_key);
         let _guard = gate.lock().await;
         let mut source = self
             .browser_sessions
             .session(owner_key)
-            .ok_or_else(|| WebBrowseError::SessionNotFound.to_string())?;
+            .ok_or(WebBrowseError::SessionNotFound)?;
         let route = match super::web_tools::resolve_web_browse_route(&self.store).await {
             Ok(route) => route,
             Err(_) => {
@@ -995,7 +1025,7 @@ impl RuntimeActor {
                     .backend
                     .execute(&WebBrowseOwner::new(owner_key), BrowseCommand::Close)
                     .await;
-                return Err("web.browse provider route could not be resolved".to_string());
+                return Err(WebBrowseError::RouteUnavailable);
             }
         };
         if source.route.digest != route.digest {
@@ -1004,20 +1034,20 @@ impl RuntimeActor {
                 .backend
                 .execute(&WebBrowseOwner::new(owner_key), BrowseCommand::Close)
                 .await;
-            return Err(WebBrowseError::SessionNotFound.to_string());
+            return Err(WebBrowseError::SessionNotFound);
         }
         let snapshot = source
             .snapshot
             .as_ref()
-            .ok_or_else(|| WebBrowseError::SessionNotFound.to_string())?;
+            .ok_or(WebBrowseError::SessionNotFound)?;
         if request.snapshot_revision != snapshot.revision {
-            return Err(WebBrowseError::StaleSnapshot.to_string());
+            return Err(WebBrowseError::StaleSnapshot);
         }
         noema_providers::validate_public_url(&request.url)
             .await
             .map_err(browser_url_policy_error)?;
-        let target_position = next_browser_route_position(&source)
-            .ok_or_else(|| "no later browser provider is configured".to_string())?;
+        let target_position =
+            next_browser_route_position(&source).ok_or(WebBrowseError::NoLaterProvider)?;
         let resolved = &source.route.providers[target_position];
         let target = match self.resolve_browser_backend(resolved).await {
             Ok(target) => target,
@@ -1044,7 +1074,7 @@ impl RuntimeActor {
                 let _ = target.execute(&owner, BrowseCommand::Close).await;
                 self.browser_sessions
                     .set_session(owner_key.to_string(), source);
-                return Err(WebBrowseError::NavigationFailed.to_string());
+                return Err(WebBrowseError::NavigationFailed);
             }
             Err(error) => {
                 if error == WebBrowseError::Unauthenticated
@@ -1055,7 +1085,7 @@ impl RuntimeActor {
                 let _ = target.execute(&owner, BrowseCommand::Close).await;
                 self.browser_sessions
                     .set_session(owner_key.to_string(), source);
-                return Err(error.to_string());
+                return Err(error);
             }
         };
         let _ = source.backend.execute(&owner, BrowseCommand::Close).await;
@@ -1065,25 +1095,25 @@ impl RuntimeActor {
         update_browser_snapshot_authority(&mut source, &mut response, public_revision);
         self.browser_sessions
             .set_session(owner_key.to_string(), source);
-        serde_json::to_value(response).map_err(|_| WebBrowseError::Unavailable.to_string())
+        serde_json::to_value(response).map_err(|_| WebBrowseError::Unavailable)
     }
 }
 
 fn translate_browser_revision(
     state: &BrowserSessionState,
     command: &mut BrowseCommand,
-) -> Result<(), String> {
+) -> Result<(), WebBrowseError> {
     match command {
         BrowseCommand::Interact(request) => {
             let snapshot = state
                 .snapshot
                 .as_ref()
-                .ok_or_else(|| WebBrowseError::SessionNotFound.to_string())?;
+                .ok_or(WebBrowseError::SessionNotFound)?;
             if request.snapshot_revision != snapshot.revision {
-                return Err(WebBrowseError::StaleSnapshot.to_string());
+                return Err(WebBrowseError::StaleSnapshot);
             }
             if !snapshot.elements.contains_key(&request.reference) {
-                return Err(WebBrowseError::ElementNotFound.to_string());
+                return Err(WebBrowseError::ElementNotFound);
             }
             request.snapshot_revision = state.backend_revision;
         }
@@ -1091,9 +1121,9 @@ fn translate_browser_revision(
             let snapshot = state
                 .snapshot
                 .as_ref()
-                .ok_or_else(|| WebBrowseError::SessionNotFound.to_string())?;
+                .ok_or(WebBrowseError::SessionNotFound)?;
             if request.snapshot_revision != snapshot.revision {
-                return Err(WebBrowseError::StaleSnapshot.to_string());
+                return Err(WebBrowseError::StaleSnapshot);
             }
             request.snapshot_revision = state.backend_revision;
         }
@@ -1122,7 +1152,7 @@ fn unadvertised_browser_failure_result(call: &LocalToolCall) -> LocalToolResult 
         })
 }
 
-fn browser_url_policy_error(error: WebFetchError) -> String {
+fn browser_url_policy_error(error: WebFetchError) -> WebBrowseError {
     match error {
         WebFetchError::UnsupportedScheme | WebFetchError::MalformedUrl => {
             WebBrowseError::InvalidUrl
@@ -1133,7 +1163,6 @@ fn browser_url_policy_error(error: WebFetchError) -> String {
         WebFetchError::Timeout => WebBrowseError::Timeout,
         _ => WebBrowseError::NavigationFailed,
     }
-    .to_string()
 }
 
 fn update_browser_snapshot_authority(
@@ -1194,12 +1223,16 @@ fn browser_validation_failure_result(
     binding: &noema_capabilities::CapabilityBinding,
     error: WebBrowseError,
 ) -> LocalToolResult {
-    let payload = json!({"error": error.to_string()});
-    LocalToolResult::from_call(call, LocalToolKind::WebBrowse, false, payload.clone(), true)
-        .with_persisted(noema_capabilities::PersistedCapabilityPayload {
-            arguments: binding.persist_arguments(&call.payload),
-            output: binding.persist_output(&payload),
-        })
+    let output = web_actions::browser_failure_output(error);
+    LocalToolResult::from_call(
+        call,
+        LocalToolKind::WebBrowse,
+        false,
+        output.payload.clone(),
+        true,
+    )
+    .with_failure(output.failure)
+    .with_persisted(binding.persisted_payload(&call.payload, output.persisted_output_source()))
 }
 
 fn web_backend_request(resolved: &super::web_tools::ResolvedWebProvider) -> WebBackendRequest {
@@ -1306,6 +1339,8 @@ impl CapabilityInvoker for RuntimeExecutionInvoker<'_> {
 fn runtime_capability_output(result: &LocalToolResult) -> CapabilityOutput {
     let output = if result.success {
         CapabilityOutput::success(result.payload.clone())
+    } else if let Some(failure) = result.failure {
+        CapabilityOutput::failed_with_recovery(result.payload.clone(), failure)
     } else {
         CapabilityOutput::failed(result.payload.clone())
     };

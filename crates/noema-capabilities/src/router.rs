@@ -93,6 +93,8 @@ pub enum CapabilityFailureKind {
     RemoteUnavailable,
     /// The provider rejected the request without a more specific category.
     RemoteRejected,
+    /// The remote action started, but its externally visible outcome is unknown.
+    OutcomeUncertain,
 }
 
 impl CapabilityFailureKind {
@@ -105,6 +107,7 @@ impl CapabilityFailureKind {
             Self::RateLimited => "rate_limited",
             Self::RemoteUnavailable => "remote_unavailable",
             Self::RemoteRejected => "remote_rejected",
+            Self::OutcomeUncertain => "outcome_uncertain",
         }
     }
 }
@@ -179,10 +182,7 @@ impl CapabilityDispatchFailure {
             };
         };
         Self {
-            persisted: PersistedCapabilityPayload {
-                arguments: binding.persist_arguments(arguments),
-                output: binding.persist_output(&error.model_payload()),
-            },
+            persisted: binding.persisted_payload(arguments, &error.model_payload()),
             error,
         }
     }

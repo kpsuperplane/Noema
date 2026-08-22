@@ -375,6 +375,9 @@ fn navigation_arguments(
 
 fn encode_error(error: WebBrowseError) -> &'static str {
     match error {
+        WebBrowseError::InvalidArguments { .. }
+        | WebBrowseError::RouteUnavailable
+        | WebBrowseError::NoLaterProvider => "unavailable",
         WebBrowseError::InvalidUrl => "invalid_url",
         WebBrowseError::BlockedTarget => "blocked_target",
         WebBrowseError::SessionNotFound => "session_not_found",

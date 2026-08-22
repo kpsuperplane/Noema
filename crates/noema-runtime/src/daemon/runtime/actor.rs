@@ -506,7 +506,7 @@ impl RuntimeActor {
                         .close_browser_session(&owner)
                         .await
                         .map(|_| ())
-                        .map_err(RuntimeError::Protocol);
+                        .map_err(|error| RuntimeError::Protocol(error.to_string()));
                     let _ = reply.send(result);
                 }
                 RuntimeCommand::DeliverWorkNotification {

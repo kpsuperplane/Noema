@@ -1,12 +1,12 @@
 //! Runtime composition for durable governed actions.
 
 use noema_capabilities::{
-    CapabilityBinding, CapabilityError, CapabilityExecutionDecision, CapabilityToolBehavior,
-    ReviewedCapabilityAuthorization,
+    CapabilityBinding, CapabilityError, CapabilityExecutionDecision, CapabilityFailureKind,
+    CapabilityOutput, CapabilityToolBehavior, ReviewedCapabilityAuthorization,
 };
 use noema_store::{
     ExecutionReviewRoute, GovernedActionRecord, GovernedActionState, GovernedAssessmentStatus,
-    NewGovernedAction, NewGovernedActionAssessment, StoredToolBehavior,
+    GovernedExecutionOutcome, NewGovernedAction, NewGovernedActionAssessment, StoredToolBehavior,
 };
 
 use super::{
@@ -446,12 +446,42 @@ pub(super) fn capability_failure_code(error: &CapabilityError) -> &'static str {
     }
 }
 
+pub(super) fn capability_execution_outcome(output: &CapabilityOutput) -> GovernedExecutionOutcome {
+    if output
+        .failure
+        .is_some_and(|failure| failure.kind == CapabilityFailureKind::OutcomeUncertain)
+    {
+        GovernedExecutionOutcome::OutcomeUncertain
+    } else if output.success {
+        GovernedExecutionOutcome::Succeeded
+    } else {
+        GovernedExecutionOutcome::Failed
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use noema_capabilities::{CapabilityFailure, CapabilityRecovery};
     use noema_store::ObservedUrlSource;
     use noema_tasks::{TaskId, TaskMessageId, TaskMessageKind, TaskMessageRecord};
 
     use super::*;
+
+    #[test]
+    fn typed_capability_failure_owns_uncertain_action_outcome() {
+        let output = CapabilityOutput::failed_with_recovery(
+            serde_json::json!({"error":"outcome_uncertain"}),
+            CapabilityFailure {
+                kind: CapabilityFailureKind::OutcomeUncertain,
+                recovery: CapabilityRecovery::Stop,
+            },
+        );
+
+        assert_eq!(
+            capability_execution_outcome(&output),
+            GovernedExecutionOutcome::OutcomeUncertain
+        );
+    }
 
     #[test]
     fn action_storage_failure_returns_to_the_provider() {

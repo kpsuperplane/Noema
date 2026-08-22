@@ -236,6 +236,7 @@ pub struct CapabilityBinding {
     target: CapabilityTarget,
     behavior: CapabilityToolBehavior,
     execution_decision: CapabilityExecutionDecision,
+    task_checkpoint_required: bool,
     scope: CapabilityScope,
     destination: Option<CapabilityDestination>,
     service_context: Option<CapabilityServiceContext>,
@@ -354,6 +355,7 @@ impl std::fmt::Debug for CapabilityBinding {
             .field("target", &self.target)
             .field("behavior", &self.behavior)
             .field("execution_decision", &self.execution_decision)
+            .field("task_checkpoint_required", &self.task_checkpoint_required)
             .field("scope", &self.scope)
             .field("destination", &self.destination)
             .field("service_context", &self.service_context)
@@ -373,17 +375,26 @@ impl CapabilityBinding {
         input_check: Arc<dyn ToolInputCheck>,
         sanitizer: Arc<dyn PayloadSanitizer>,
     ) -> Self {
+        let task_checkpoint_required = execution_decision.requires_review() && !behavior.read_only;
         Self {
             spec,
             target,
             behavior,
             execution_decision,
+            task_checkpoint_required,
             scope,
             destination: None,
             service_context: None,
             input_check,
             sanitizer,
         }
+    }
+
+    /// Override whether a Task Executor must save current progress before invocation.
+    #[must_use]
+    pub fn with_task_checkpoint_required(mut self, required: bool) -> Self {
+        self.task_checkpoint_required = required;
+        self
     }
 
     /// Pin the exact non-secret destination used by this binding.
@@ -424,6 +435,12 @@ impl CapabilityBinding {
         self.execution_decision
     }
 
+    /// Return whether a Task Executor needs a current progress checkpoint.
+    #[must_use]
+    pub const fn requires_task_checkpoint(&self) -> bool {
+        self.task_checkpoint_required
+    }
+
     /// Return the ownership scope used only for role access.
     #[must_use]
     pub const fn scope(&self) -> CapabilityScope {
@@ -459,6 +476,19 @@ impl CapabilityBinding {
     #[must_use]
     pub fn persist_output(&self, output: &Value) -> Option<Value> {
         self.sanitizer.persist_output(output)
+    }
+
+    /// Produce both binding-owned saved views for one invocation result.
+    #[must_use]
+    pub fn persisted_payload(
+        &self,
+        arguments: &Value,
+        output: &Value,
+    ) -> PersistedCapabilityPayload {
+        PersistedCapabilityPayload {
+            arguments: self.persist_arguments(arguments),
+            output: self.persist_output(output),
+        }
     }
 }
 

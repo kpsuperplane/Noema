@@ -718,6 +718,8 @@ fn runtime_binding(
             | noema_capabilities::web::browse::WEB_BROWSE_HISTORY_TOOL
             | noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL
     );
+    let is_browser_provider_switch =
+        canonical_name == noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL;
     let (mut behavior, execution_decision, scope) = match class {
         ToolAccessClass::ReadOnly => (
             CapabilityToolBehavior {
@@ -796,7 +798,7 @@ fn runtime_binding(
         .map_err(|error| ToolContractError::InvalidSchema(error.to_string()))?;
     let input_check: Arc<dyn noema_capabilities::ToolInputCheck> =
         Arc::new(move |arguments: &serde_json::Value| validator.is_valid(arguments));
-    Ok(CapabilityBinding::new(
+    let binding = CapabilityBinding::new(
         spec,
         CapabilityTarget::new(
             InvokerKey::new("runtime-execution"),
@@ -807,7 +809,12 @@ fn runtime_binding(
         scope,
         input_check,
         sanitizer,
-    ))
+    );
+    Ok(if is_browser_provider_switch {
+        binding.with_task_checkpoint_required(false)
+    } else {
+        binding
+    })
 }
 
 pub(super) async fn native_web_binding(

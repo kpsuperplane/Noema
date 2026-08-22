@@ -1,6 +1,7 @@
 //! Local capability result representation and transcript projections.
 
 use crate::daemon::{agent_onboarding::AgentPromptIdentity, protocol::TurnTranscriptItem};
+use noema_capabilities::CapabilityFailure;
 use noema_providers::GenerateActionItem;
 use serde_json::{Value, json};
 
@@ -34,6 +35,7 @@ pub(super) struct LocalToolResult {
     /// Optional richer source for persistence. This value never enters model context.
     pub(super) persisted_output_source: Option<Value>,
     pub(super) success: bool,
+    pub(super) failure: Option<CapabilityFailure>,
     pub(super) side_effect: bool,
     /// Canonical structured result delivered to the model.
     pub(super) payload: Value,
@@ -62,6 +64,7 @@ impl LocalToolResult {
             persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
             persisted_output_source: None,
             success,
+            failure: None,
             side_effect: false,
             payload,
             requires_provider_continuation,
@@ -83,6 +86,11 @@ impl LocalToolResult {
 
     pub(super) fn with_side_effect(mut self, side_effect: bool) -> Self {
         self.side_effect = side_effect;
+        self
+    }
+
+    pub(super) fn with_failure(mut self, failure: Option<CapabilityFailure>) -> Self {
+        self.failure = failure;
         self
     }
 

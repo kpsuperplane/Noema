@@ -6,6 +6,7 @@ use crate::{
     search::tool::{WebSearchToolResult, execute_web_search},
     web_fetch::tool::{WebFetchToolResult, execute_web_fetch},
 };
+use noema_capabilities::{CapabilityFailure, CapabilityFailureKind, CapabilityRecovery};
 use noema_store::ObservedUrlSource;
 
 pub(super) fn insert_web_tool_fallback_metadata(
@@ -210,7 +211,7 @@ impl RuntimeActor {
                 self.record_browser_urls(source, &payload).await;
                 browser_capability_output(payload)
             }
-            Err(message) => CapabilityOutput::failed(json!({"error": message})),
+            Err(error) => browser_failure_output(error),
         }
     }
 
@@ -357,6 +358,109 @@ fn browser_capability_output(payload: Value) -> CapabilityOutput {
         .with_persisted_output_source(payload)
 }
 
+pub(super) fn browser_failure_output(error: WebBrowseError) -> CapabilityOutput {
+    let message = error.to_string();
+    let mut base = &error;
+    let mut diagnostic = None;
+    while let WebBrowseError::ProviderFailure {
+        kind,
+        provider,
+        stage,
+        detail,
+    } = base
+    {
+        diagnostic.get_or_insert((provider, stage, detail));
+        base = kind;
+    }
+    let (code, kind, recovery) = match base {
+        WebBrowseError::InvalidArguments { .. } => (
+            "invalid_arguments",
+            CapabilityFailureKind::InvalidRequest,
+            CapabilityRecovery::CorrectArguments,
+        ),
+        WebBrowseError::InvalidUrl => (
+            "invalid_url",
+            CapabilityFailureKind::InvalidRequest,
+            CapabilityRecovery::CorrectArguments,
+        ),
+        WebBrowseError::BlockedTarget => (
+            "blocked_target",
+            CapabilityFailureKind::InvalidRequest,
+            CapabilityRecovery::CorrectArguments,
+        ),
+        WebBrowseError::SessionNotFound => (
+            "session_not_found",
+            CapabilityFailureKind::ResourceNotFound,
+            CapabilityRecovery::ResolveResource,
+        ),
+        WebBrowseError::StaleSnapshot => (
+            "stale_snapshot",
+            CapabilityFailureKind::Conflict,
+            CapabilityRecovery::ResolveResource,
+        ),
+        WebBrowseError::ElementNotFound => (
+            "element_not_found",
+            CapabilityFailureKind::ResourceNotFound,
+            CapabilityRecovery::ResolveResource,
+        ),
+        WebBrowseError::HistoryUnavailable => (
+            "history_unavailable",
+            CapabilityFailureKind::ResourceNotFound,
+            CapabilityRecovery::ResolveResource,
+        ),
+        WebBrowseError::NoLaterProvider => (
+            "no_later_provider",
+            CapabilityFailureKind::ResourceNotFound,
+            CapabilityRecovery::Stop,
+        ),
+        WebBrowseError::Unauthenticated => (
+            "unauthenticated",
+            CapabilityFailureKind::PermissionDenied,
+            CapabilityRecovery::Stop,
+        ),
+        WebBrowseError::OutcomeUncertain => (
+            "outcome_uncertain",
+            CapabilityFailureKind::OutcomeUncertain,
+            CapabilityRecovery::Stop,
+        ),
+        WebBrowseError::Capacity => (
+            "capacity_reached",
+            CapabilityFailureKind::RemoteUnavailable,
+            CapabilityRecovery::RetryLater,
+        ),
+        WebBrowseError::Timeout => (
+            "timeout",
+            CapabilityFailureKind::RemoteUnavailable,
+            CapabilityRecovery::RetryLater,
+        ),
+        WebBrowseError::NavigationFailed => (
+            "navigation_failed",
+            CapabilityFailureKind::RemoteUnavailable,
+            CapabilityRecovery::RetryLater,
+        ),
+        WebBrowseError::Unavailable => (
+            "unavailable",
+            CapabilityFailureKind::RemoteUnavailable,
+            CapabilityRecovery::RetryLater,
+        ),
+        WebBrowseError::RouteUnavailable => (
+            "route_unavailable",
+            CapabilityFailureKind::RemoteUnavailable,
+            CapabilityRecovery::RetryLater,
+        ),
+        WebBrowseError::ProviderFailure { .. } => unreachable!("provider failures are unwrapped"),
+    };
+    let mut payload = json!({"error": code, "message": message});
+    if let Some((provider, stage, detail)) = diagnostic
+        && let Some(payload) = payload.as_object_mut()
+    {
+        payload.insert("provider".to_string(), Value::String(provider.clone()));
+        payload.insert("stage".to_string(), Value::String(stage.clone()));
+        payload.insert("detail".to_string(), Value::String(detail.clone()));
+    }
+    CapabilityOutput::failed_with_recovery(payload, CapabilityFailure { kind, recovery })
+}
+
 fn hosted_web_search_urls(searches: &[noema_providers::GenerateHostedWebSearch]) -> Vec<String> {
     searches
         .iter()
@@ -385,6 +489,36 @@ mod hosted_search_tests {
         assert_eq!(
             output.persisted_output_source()["screenshot"]["data"],
             "cG5n"
+        );
+    }
+
+    #[test]
+    fn browser_failures_keep_structured_diagnostics_and_uncertain_semantics() {
+        let detailed = browser_failure_output(WebBrowseError::Timeout.with_provider_detail(
+            "obscura",
+            "open_worker_response",
+            "worker response exceeded 30000ms",
+        ));
+        assert_eq!(detailed.payload["error"], "timeout");
+        assert_eq!(detailed.payload["provider"], "obscura");
+        assert_eq!(detailed.payload["stage"], "open_worker_response");
+        assert_eq!(
+            detailed.payload["detail"],
+            "worker response exceeded 30000ms"
+        );
+        assert_eq!(
+            detailed.failure,
+            Some(CapabilityFailure {
+                kind: CapabilityFailureKind::RemoteUnavailable,
+                recovery: CapabilityRecovery::RetryLater,
+            })
+        );
+
+        let uncertain = browser_failure_output(WebBrowseError::OutcomeUncertain);
+        assert_eq!(uncertain.payload["error"], "outcome_uncertain");
+        assert_eq!(
+            uncertain.failure.unwrap().kind,
+            CapabilityFailureKind::OutcomeUncertain
         );
     }
 

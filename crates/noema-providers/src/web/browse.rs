@@ -31,6 +31,12 @@ impl WebBrowseOwner {
 /// Safe failures returned by the interactive browser backend.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum WebBrowseError {
+    /// Browser arguments violate the source contract.
+    #[error("invalid browser arguments: {detail}")]
+    InvalidArguments {
+        /// Safe bounded parser detail.
+        detail: String,
+    },
     /// The URL is malformed or uses an unsupported scheme.
     #[error("invalid public web URL")]
     InvalidUrl,
@@ -64,6 +70,12 @@ pub enum WebBrowseError {
     /// The browser provider account is not authenticated.
     #[error("browser provider account unauthenticated")]
     Unauthenticated,
+    /// The configured browser provider route cannot be resolved.
+    #[error("browser provider route unavailable")]
+    RouteUnavailable,
+    /// The current provider is the final provider in the configured route.
+    #[error("no later browser provider is configured")]
+    NoLaterProvider,
     /// The worker failed after a potentially mutating operation was dispatched.
     #[error("browser action outcome is uncertain")]
     OutcomeUncertain,
@@ -82,8 +94,9 @@ pub enum WebBrowseError {
 }
 
 impl WebBrowseError {
-    #[cfg(feature = "adapters")]
-    pub(crate) fn with_provider_detail(
+    /// Attach safe, bounded provider detail to this provider-neutral failure.
+    #[must_use]
+    pub fn with_provider_detail(
         self,
         provider: &str,
         stage: &str,
