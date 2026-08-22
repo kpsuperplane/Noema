@@ -6,7 +6,7 @@ use crate::{GenerateStreamEvent, ProviderError, ProviderTimingMilestone};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 
-pub(crate) struct SseAccumulator {
+pub(crate) struct ResponsesAccumulator {
     diagnostics: ResponsesDiagnosticContext,
     pending: Vec<u8>,
     output_values: BTreeMap<usize, Value>,
@@ -21,7 +21,7 @@ pub(crate) struct SseAccumulator {
     completed_hosted_web_searches: HashSet<usize>,
 }
 
-impl SseAccumulator {
+impl ResponsesAccumulator {
     pub(crate) fn new(diagnostics: ResponsesDiagnosticContext) -> Self {
         Self {
             diagnostics,
@@ -57,7 +57,7 @@ impl SseAccumulator {
                     }),
                 );
             })?;
-            self.handle_event(event, on_event)?;
+            self.push_event(event, on_event)?;
         }
 
         Ok(())
@@ -78,7 +78,7 @@ impl SseAccumulator {
                 );
             })?;
             self.pending.clear();
-            self.handle_event(event, on_event)?;
+            self.push_event(event, on_event)?;
         }
 
         if let Some(error) = self.terminal_error {
@@ -164,7 +164,7 @@ impl SseAccumulator {
         self.push_bytes(chunk.as_bytes(), on_event)
     }
 
-    fn handle_event(
+    fn push_event(
         &mut self,
         event: SseEvent,
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
@@ -187,10 +187,19 @@ impl SseAccumulator {
             );
             ProviderError::MalformedResponse { message }
         })?;
+        self.push_value(value, event.event.as_deref(), on_event)
+    }
+
+    pub(crate) fn push_value(
+        &mut self,
+        value: Value,
+        framing_event_type: Option<&str>,
+        on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Result<(), ProviderError> {
         let event_type = value
             .get("type")
             .and_then(Value::as_str)
-            .or(event.event.as_deref())
+            .or(framing_event_type)
             .unwrap_or_default();
 
         match event_type {
@@ -420,7 +429,7 @@ mod tests {
     #[test]
     fn incremental_sse_parser_emits_deltas_before_terminal_response() {
         let mut events = Vec::new();
-        let mut accumulator = SseAccumulator::new(test_diagnostics());
+        let mut accumulator = ResponsesAccumulator::new(test_diagnostics());
         accumulator
             .push_chunk(
                 "event: response.output_text.delta\n\
@@ -500,7 +509,7 @@ mod tests {
     #[test]
     fn streamed_messages_keep_boundaries_without_repeating_done_text() {
         let mut events = Vec::new();
-        let mut accumulator = SseAccumulator::new(test_diagnostics());
+        let mut accumulator = ResponsesAccumulator::new(test_diagnostics());
         accumulator
             .push_chunk(
                 "event: response.output_text.delta\n\
@@ -565,7 +574,7 @@ mod tests {
     #[test]
     fn response_from_sse_preserves_function_call_items_with_streamed_text() {
         let mut events = Vec::new();
-        let mut accumulator = SseAccumulator::new(test_diagnostics());
+        let mut accumulator = ResponsesAccumulator::new(test_diagnostics());
         accumulator
             .push_chunk(
             "event: response.output_text.delta\n\
@@ -666,7 +675,7 @@ mod tests {
     #[test]
     fn hosted_search_lifecycle_is_normalized_and_deduplicated() {
         let mut events = Vec::new();
-        let mut accumulator = SseAccumulator::new(test_diagnostics());
+        let mut accumulator = ResponsesAccumulator::new(test_diagnostics());
         accumulator
             .push_chunk(
                 "event: response.output_item.added\n\
@@ -735,7 +744,7 @@ mod tests {
 
     fn assert_split_payload(payload: &[u8], split_at: usize, expected: &str) {
         let mut events = Vec::new();
-        let mut accumulator = SseAccumulator::new(test_diagnostics());
+        let mut accumulator = ResponsesAccumulator::new(test_diagnostics());
 
         accumulator
             .push_bytes(&payload[..split_at], &mut |event| events.push(event))
@@ -757,7 +766,7 @@ mod tests {
     }
 
     fn response_from_sse(text: &str) -> Result<ResponsesResponse, ProviderError> {
-        let mut accumulator = SseAccumulator::new(test_diagnostics());
+        let mut accumulator = ResponsesAccumulator::new(test_diagnostics());
         accumulator.push_chunk(text, &mut |_| {})?;
         accumulator.finish(&mut |_| {})
     }

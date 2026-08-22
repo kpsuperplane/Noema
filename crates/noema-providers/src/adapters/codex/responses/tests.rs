@@ -1,9 +1,11 @@
 use super::*;
 use crate::adapters::{
     codex::oauth::CodexTokenStore,
-    test_support::{spawn_server, static_codex_credentials},
+    test_support::{
+        spawn_scripted_server, spawn_server, spawn_websocket_server, static_codex_credentials,
+    },
 };
-use crate::{CodexOAuthTokens, ProviderToolTransport};
+use crate::{CodexOAuthTokens, GenerateInput, ProviderSessionInput, ProviderToolTransport};
 use noema_capabilities::ToolSpec;
 use serde_json::Value;
 use tempfile::TempDir;
@@ -268,6 +270,176 @@ async fn generate_streaming_plain_text_preserves_provider_activity() {
     );
 }
 
+#[tokio::test]
+async fn websocket_session_uses_complete_then_incremental_requests_and_replays_changes() {
+    let (base_url, requests_rx) = spawn_websocket_server(vec![
+        vec![websocket_completed("resp_1", "one")],
+        vec![websocket_completed("resp_2", "two")],
+        vec![websocket_completed("resp_3", "three")],
+        vec![websocket_completed("resp_4", "four")],
+    ])
+    .await;
+    let provider = provider_with_token(base_url);
+    let mut session = provider.open_generation_session();
+    let mut request = GenerateRequest::text("complete one");
+    session
+        .generate(
+            request.clone(),
+            ProviderSessionInput::initial(request.input.clone()),
+            &mut |_| {},
+        )
+        .await
+        .expect("initial response");
+    request.input = GenerateInput::Text("ignored by session input".to_string());
+    session
+        .generate(
+            request.clone(),
+            ProviderSessionInput {
+                replay: GenerateInput::Text("complete two".to_string()),
+                incremental: Some(GenerateInput::Text("incremental two".to_string())),
+            },
+            &mut |_| {},
+        )
+        .await
+        .expect("incremental response");
+    request.instructions = Some("changed rules".to_string());
+    session
+        .generate(
+            request.clone(),
+            ProviderSessionInput {
+                replay: GenerateInput::Text("complete three".to_string()),
+                incremental: Some(GenerateInput::Text("unsafe incremental".to_string())),
+            },
+            &mut |_| {},
+        )
+        .await
+        .expect("changed request response");
+    session
+        .generate(
+            request,
+            ProviderSessionInput {
+                replay: GenerateInput::Text("compacted complete four".to_string()),
+                incremental: None,
+            },
+            &mut |_| {},
+        )
+        .await
+        .expect("compacted response");
+
+    let requests = requests_rx.await.expect("WebSocket requests");
+    assert_eq!(requests.len(), 4);
+    assert_eq!(requests[0]["type"], "response.create");
+    assert_eq!(requests[0]["store"], false);
+    assert!(requests[0].get("previous_response_id").is_none());
+    assert_eq!(codex_request_text(&requests[0]), "complete one");
+    assert_eq!(requests[1]["previous_response_id"], "resp_1");
+    assert_eq!(codex_request_text(&requests[1]), "incremental two");
+    assert!(requests[2].get("previous_response_id").is_none());
+    assert_eq!(codex_request_text(&requests[2]), "complete three");
+    assert!(requests[3].get("previous_response_id").is_none());
+    assert_eq!(codex_request_text(&requests[3]), "compacted complete four");
+}
+
+#[tokio::test]
+async fn missing_previous_response_replays_complete_input_once() {
+    let (base_url, requests_rx) = spawn_websocket_server(vec![
+        vec![websocket_completed("resp_1", "one")],
+        vec![serde_json::json!({
+            "type": "error",
+            "error": {"code": "previous_response_not_found", "message": "gone"}
+        })],
+        vec![websocket_completed("resp_2", "two")],
+    ])
+    .await;
+    let provider = provider_with_token(base_url);
+    let mut session = provider.open_generation_session();
+    session
+        .generate(
+            GenerateRequest::text("one"),
+            ProviderSessionInput::initial(GenerateInput::Text("one".to_string())),
+            &mut |_| {},
+        )
+        .await
+        .expect("initial response");
+    session
+        .generate(
+            GenerateRequest::text("two"),
+            ProviderSessionInput {
+                replay: GenerateInput::Text("complete two".to_string()),
+                incremental: Some(GenerateInput::Text("incremental two".to_string())),
+            },
+            &mut |_| {},
+        )
+        .await
+        .expect("replayed response");
+
+    let requests = requests_rx.await.expect("WebSocket requests");
+    assert_eq!(requests[1]["previous_response_id"], "resp_1");
+    assert_eq!(codex_request_text(&requests[1]), "incremental two");
+    assert!(requests[2].get("previous_response_id").is_none());
+    assert_eq!(codex_request_text(&requests[2]), "complete two");
+}
+
+#[tokio::test]
+async fn websocket_failure_after_output_does_not_replay() {
+    let (base_url, requests_rx) = spawn_websocket_server(vec![
+        vec![websocket_completed("resp_1", "one")],
+        vec![serde_json::json!({
+            "type": "response.output_text.delta",
+            "output_index": 0,
+            "delta": "started"
+        })],
+    ])
+    .await;
+    let provider = provider_with_token(base_url);
+    let mut session = provider.open_generation_session();
+    session
+        .generate(
+            GenerateRequest::text("one"),
+            ProviderSessionInput::initial(GenerateInput::Text("one".to_string())),
+            &mut |_| {},
+        )
+        .await
+        .expect("initial response");
+    let error = session
+        .generate(
+            GenerateRequest::text("two"),
+            ProviderSessionInput {
+                replay: GenerateInput::Text("complete two".to_string()),
+                incremental: Some(GenerateInput::Text("incremental two".to_string())),
+            },
+            &mut |_| {},
+        )
+        .await
+        .expect_err("interrupted response");
+    assert!(matches!(error, ProviderError::TransportFailure { .. }));
+    assert_eq!(requests_rx.await.expect("WebSocket requests").len(), 2);
+}
+
+#[tokio::test]
+async fn unsupported_websocket_uses_stateless_sse() {
+    let (base_url, requests_rx) = spawn_scripted_server(vec![
+        (404, "{}".to_string()),
+        (200, sse_delta("fallback") + &sse_completed()),
+    ])
+    .await;
+    let provider = provider_with_token(base_url);
+    let mut session = provider.open_generation_session();
+    session
+        .generate(
+            GenerateRequest::text("fallback"),
+            ProviderSessionInput::initial(GenerateInput::Text("fallback".to_string())),
+            &mut |_| {},
+        )
+        .await
+        .expect("SSE response");
+    let requests = requests_rx.await.expect("requests");
+    assert_eq!(requests[0].method, "GET");
+    let body: Value = serde_json::from_str(&requests[1].body).expect("SSE body");
+    assert!(body.get("previous_response_id").is_none());
+    assert_eq!(body["store"], false);
+}
+
 fn provider_with_token(base_url: String) -> CodexResponsesProvider {
     provider_from_config(CodexProviderConfig {
         base_url,
@@ -321,6 +493,28 @@ fn sse_completed() -> String {
          data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
         \n"
         .to_string()
+}
+
+fn websocket_completed(id: &str, text: &str) -> Value {
+    serde_json::json!({
+        "type": "response.completed",
+        "response": {
+            "id": id,
+            "model": "gpt-test",
+            "status": "completed",
+            "output": [{
+                "type": "message",
+                "content": [{"type": "output_text", "text": text}]
+            }]
+        }
+    })
+}
+
+fn codex_request_text(request: &Value) -> &str {
+    request["input"][0]["content"]
+        .as_str()
+        .or_else(|| request["input"][0]["content"][0]["text"].as_str())
+        .expect("request text")
 }
 
 fn search_memory_tool() -> ToolSpec {

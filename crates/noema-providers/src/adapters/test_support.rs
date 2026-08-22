@@ -5,11 +5,13 @@
 
 use std::collections::HashMap;
 
+use futures_util::{SinkExt, StreamExt};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
     sync::oneshot,
 };
+use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 #[derive(Debug)]
 struct StaticCodexCredentials {
@@ -113,6 +115,37 @@ where
         let _ = requests_tx.send(requests);
     });
 
+    (format!("http://{addr}"), requests_rx)
+}
+
+/// Spawn one WebSocket connection with one event script for each request.
+pub(crate) async fn spawn_websocket_server(
+    scripts: Vec<Vec<serde_json::Value>>,
+) -> (String, oneshot::Receiver<Vec<serde_json::Value>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("local addr");
+    let (requests_tx, requests_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.expect("accept");
+        let mut socket = accept_async(socket).await.expect("WebSocket handshake");
+        let mut requests = Vec::with_capacity(scripts.len());
+        for events in scripts {
+            let message = socket
+                .next()
+                .await
+                .expect("request message")
+                .expect("valid request message");
+            let text = message.into_text().expect("text request");
+            requests.push(serde_json::from_str(&text).expect("JSON request"));
+            for event in events {
+                socket
+                    .send(Message::Text(event.to_string().into()))
+                    .await
+                    .expect("send event");
+            }
+        }
+        let _ = requests_tx.send(requests);
+    });
     (format!("http://{addr}"), requests_rx)
 }
 

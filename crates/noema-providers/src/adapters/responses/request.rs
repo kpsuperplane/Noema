@@ -9,6 +9,7 @@ use crate::{
     ProviderSchemaRequestCapabilities, ProviderToolTransport, ReasoningEffort,
 };
 use serde::Serialize;
+use serde_json::Value;
 
 /// JSON request body sent to a Responses-compatible endpoint.
 #[derive(Debug, Clone, Serialize)]
@@ -108,6 +109,25 @@ pub(crate) const CODEX_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesReq
 };
 
 impl ResponsesRequest {
+    /// Return the request fields that must match before incremental input is safe.
+    pub(crate) fn continuation_fingerprint(&self) -> Result<Value, ProviderError> {
+        let mut value = serde_json::to_value(self).map_err(|_| ProviderError::InvalidRequest {
+            message: "failed to encode Responses request settings".to_string(),
+        })?;
+        let object = value
+            .as_object_mut()
+            .expect("Responses requests serialize as objects");
+        object.remove("input");
+        object.remove("previous_response_id");
+        object.remove("stream");
+        Ok(value)
+    }
+
+    /// Request event delivery for a WebSocket generation.
+    pub(crate) fn use_websocket_events(&mut self) {
+        self.stream = Some(true);
+    }
+
     /// Lower one provider-neutral request according to a Responses wire profile.
     #[cfg(test)]
     pub(crate) fn from_generate(

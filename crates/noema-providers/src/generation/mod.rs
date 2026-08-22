@@ -5,7 +5,7 @@ mod message_splitter;
 mod request;
 mod response;
 
-use std::future::Future;
+use std::{future::Future, pin::Pin};
 
 pub use error::{ProviderError, ProviderTransportContext, ProviderTransportKind};
 pub(crate) use message_splitter::{MarkdownMessageDeltaSplitter, split_markdown_message_segments};
@@ -99,6 +99,106 @@ pub trait ModelProvider: Send + Sync {
             let _ = on_event;
             self.generate(request).await
         }
+    }
+
+    /// Open one provider-owned session for a related generation sequence.
+    fn open_generation_session(&self) -> Box<dyn ProviderGenerationSession + '_>
+    where
+        Self: Sized,
+    {
+        Box::new(DirectGenerationSession::new(self))
+    }
+}
+
+/// Complete and optional changed input for one provider generation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProviderSessionInput {
+    /// Complete authoritative input for stateless replay.
+    pub replay: GenerateInput,
+    /// Input added after the preceding successful generation.
+    pub incremental: Option<GenerateInput>,
+}
+
+impl ProviderSessionInput {
+    /// Build the first input for a provider session.
+    #[must_use]
+    pub fn initial(replay: GenerateInput) -> Self {
+        Self {
+            replay,
+            incremental: None,
+        }
+    }
+}
+
+/// Future returned by an object-safe provider generation session.
+pub type ProviderGenerationFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>>;
+
+/// Provider-owned state for one related generation sequence.
+pub trait ProviderGenerationSession: Send {
+    /// Generate one response from authoritative replay and optional changed input.
+    fn generate<'a>(
+        &'a mut self,
+        request: GenerateRequest,
+        input: ProviderSessionInput,
+        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> ProviderGenerationFuture<'a>;
+}
+
+struct DirectGenerationSession<'a, T> {
+    provider: &'a T,
+    previous_response_id: Option<String>,
+    completed_generation: bool,
+}
+
+impl<'a, T> DirectGenerationSession<'a, T> {
+    fn new(provider: &'a T) -> Self {
+        Self {
+            provider,
+            previous_response_id: None,
+            completed_generation: false,
+        }
+    }
+}
+
+impl<T> ProviderGenerationSession for DirectGenerationSession<'_, T>
+where
+    T: ModelProvider,
+{
+    fn generate<'a>(
+        &'a mut self,
+        mut request: GenerateRequest,
+        input: ProviderSessionInput,
+        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> ProviderGenerationFuture<'a> {
+        Box::pin(async move {
+            let strategy = self
+                .provider
+                .response_continuation(request.model.as_deref());
+            request.options.previous_response_id = None;
+            request.options.store_response = false;
+            let can_continue = match strategy {
+                ProviderResponseContinuation::Unsupported => false,
+                ProviderResponseContinuation::PreviousResponseId { .. } => {
+                    self.previous_response_id.is_some()
+                }
+                ProviderResponseContinuation::ActiveSession => self.completed_generation,
+            };
+            if let (true, Some(incremental)) = (can_continue, input.incremental) {
+                request.input = incremental;
+                request.options.previous_response_id = strategy
+                    .supports_previous_response_id()
+                    .then(|| self.previous_response_id.clone())
+                    .flatten();
+                request.options.store_response = strategy.store_response();
+            } else {
+                request.input = input.replay;
+            }
+            let response = self.provider.generate_streaming(request, on_event).await?;
+            self.previous_response_id.clone_from(&response.response_id);
+            self.completed_generation = true;
+            Ok(response)
+        })
     }
 }
 

@@ -7,14 +7,16 @@ use crate::adapters::{
     account_service::{ProviderCredential, ProviderCredentialAccessHandle},
     reqwest_transport_error,
     responses::{
-        CODEX_RESPONSES_PROFILE, ResponsesDiagnosticContext, ResponsesRequest, ResponsesTransport,
-        normalize_base_url,
+        CODEX_RESPONSES_PROFILE, ResponsesDiagnosticContext, ResponsesRequest,
+        ResponsesToolNameMap, ResponsesTransport, ResponsesWebSocketError,
+        ResponsesWebSocketSession, normalize_base_url,
     },
 };
 use crate::{
     CodexProviderConfig, DEFAULT_CODEX_MODEL, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest,
     GenerateResponse, GenerateStreamEvent, ModelProvider, ProviderContextMetadata, ProviderError,
-    ProviderResponseContinuation, ProviderSchemaRequest, ProviderSchemaRequestCapabilities,
+    ProviderGenerationFuture, ProviderGenerationSession, ProviderResponseContinuation,
+    ProviderSchemaRequest, ProviderSchemaRequestCapabilities, ProviderSessionInput,
     ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
 };
 use noema_home::SystemErrorLogger;
@@ -236,11 +238,18 @@ fn codex_encrypted_reasoning_supported() -> bool {
 }
 
 impl CodexResponsesProvider {
-    async fn generate_with_events(
+    fn lower_request(
         &self,
-        request: GenerateRequest,
-        on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
-    ) -> Result<GenerateResponse, ProviderError> {
+        request: &GenerateRequest,
+    ) -> Result<
+        (
+            ResponsesRequest,
+            ResponsesToolNameMap,
+            ProviderToolTransport,
+            ResponsesDiagnosticContext,
+        ),
+        ProviderError,
+    > {
         let request_model = request
             .model
             .as_ref()
@@ -253,7 +262,7 @@ impl CodexResponsesProvider {
             .flatten();
         let (mut body, tool_names, tool_transport) =
             ResponsesRequest::from_generate_with_schema_request_capabilities(
-                &request,
+                request,
                 model.clone(),
                 default_reasoning_effort,
                 self.schema_request_capabilities(Some(&model)),
@@ -263,9 +272,18 @@ impl CodexResponsesProvider {
         let diagnostics = ResponsesDiagnosticContext::new(
             self.system_errors.clone(),
             "codex",
-            model.clone(),
+            model,
             request.conversation_id.clone(),
         );
+        Ok((body, tool_names, tool_transport, diagnostics))
+    }
+
+    async fn generate_with_events(
+        &self,
+        request: GenerateRequest,
+        on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Result<GenerateResponse, ProviderError> {
+        let (body, tool_names, tool_transport, diagnostics) = self.lower_request(&request)?;
         let access_token = self.access_token().await?;
         let request_headers = self
             .request_headers(&access_token, request.conversation_id.as_deref())
@@ -304,7 +322,121 @@ impl CodexResponsesProvider {
     }
 }
 
+struct CodexGenerationSession<'a> {
+    provider: &'a CodexResponsesProvider,
+    responses: ResponsesWebSocketSession,
+}
+
+impl ProviderGenerationSession for CodexGenerationSession<'_> {
+    fn generate<'a>(
+        &'a mut self,
+        mut request: GenerateRequest,
+        input: ProviderSessionInput,
+        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> ProviderGenerationFuture<'a> {
+        Box::pin(async move {
+            request.options.previous_response_id = None;
+            request.options.store_response = false;
+            request.input = input.replay;
+            let (replay_body, tool_names, tool_transport, diagnostics) =
+                self.provider.lower_request(&request)?;
+            let incremental_body = input
+                .incremental
+                .map(|incremental| {
+                    let mut incremental_request = request.clone();
+                    incremental_request.input = incremental;
+                    self.provider
+                        .lower_request(&incremental_request)
+                        .map(|(body, _, _, _)| body)
+                })
+                .transpose()?;
+            let mut prepared = self
+                .responses
+                .prepare_request(replay_body.clone(), incremental_body)?;
+            let mut access_token = self.provider.access_token().await?;
+            let mut headers = self
+                .provider
+                .request_headers(&access_token, request.conversation_id.as_deref())
+                .await?;
+            let mut result = self
+                .responses
+                .send(
+                    &access_token,
+                    &prepared.body,
+                    &headers,
+                    diagnostics.clone(),
+                    on_event,
+                )
+                .await;
+            if matches!(result, Err(ResponsesWebSocketError::Authentication(_))) {
+                access_token = self.provider.refresh_access_token().await?;
+                headers = self
+                    .provider
+                    .request_headers(&access_token, request.conversation_id.as_deref())
+                    .await?;
+                result = self
+                    .responses
+                    .send(
+                        &access_token,
+                        &prepared.body,
+                        &headers,
+                        diagnostics.clone(),
+                        on_event,
+                    )
+                    .await;
+            }
+            if matches!(
+                result,
+                Err(ResponsesWebSocketError::PreviousResponseNotFound)
+            ) && prepared.used_response_id
+            {
+                self.responses.clear_response_id();
+                prepared = self.responses.prepare_request(replay_body.clone(), None)?;
+                result = self
+                    .responses
+                    .send(
+                        &access_token,
+                        &prepared.body,
+                        &headers,
+                        diagnostics.clone(),
+                        on_event,
+                    )
+                    .await;
+            }
+            let response = match result {
+                Ok(response) => response,
+                Err(
+                    ResponsesWebSocketError::Unsupported(_) | ResponsesWebSocketError::Setup(_),
+                ) => {
+                    let mut replay_body = replay_body;
+                    replay_body.previous_response_id = None;
+                    self.provider
+                        .transport
+                        .send_streaming(
+                            &access_token,
+                            replay_body,
+                            headers,
+                            diagnostics.clone(),
+                            on_event,
+                        )
+                        .await?
+                }
+                Err(error) => return Err(error.into_provider_error()),
+            };
+            self.responses.record_response(&prepared, &response);
+            response.finalize(&tool_names, tool_transport, &diagnostics)
+        })
+    }
+}
+
 impl ModelProvider for CodexResponsesProvider {
+    fn open_generation_session(&self) -> Box<dyn ProviderGenerationSession + '_> {
+        Box::new(CodexGenerationSession {
+            provider: self,
+            responses: self.transport.websocket_session(),
+        })
+    }
+
     fn default_tool_classification_model(&self) -> Option<String> {
         Some(
             self.config

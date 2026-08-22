@@ -9,7 +9,8 @@ use crate::generation::split_markdown_response_item;
 use crate::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
     MarkdownMessageDeltaSplitter, ModelProvider, ProviderContextMetadata, ProviderError,
-    ProviderResponseContinuation, ProviderSchemaRequestCapabilities, ProviderToolCapabilities,
+    ProviderGenerationFuture, ProviderGenerationSession, ProviderResponseContinuation,
+    ProviderSchemaRequestCapabilities, ProviderSessionInput, ProviderToolCapabilities,
 };
 
 #[cfg(test)]
@@ -97,6 +98,11 @@ pub trait ProviderOperations: Debug + Send + Sync {
         request: GenerateRequest,
         on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> ProviderOperationFuture<'a, GenerateResponse>;
+
+    /// Open one provider-owned session for a related generation sequence.
+    fn open_generation_session(&self) -> Box<dyn ProviderGenerationSession + '_> {
+        Box::new(OperationsGenerationSession { provider: self })
+    }
 }
 
 /// Clonable object-safe provider generation handle.
@@ -177,6 +183,164 @@ impl ProviderTextDeltaFilter {
 
 struct ErasedModelProvider<T>(T);
 
+struct OperationsGenerationSession<'a, T>
+where
+    T: ProviderOperations + ?Sized,
+{
+    provider: &'a T,
+}
+
+impl<T> ProviderGenerationSession for OperationsGenerationSession<'_, T>
+where
+    T: ProviderOperations + ?Sized,
+{
+    fn generate<'a>(
+        &'a mut self,
+        mut request: GenerateRequest,
+        input: ProviderSessionInput,
+        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> ProviderGenerationFuture<'a> {
+        request.input = input.replay;
+        request.options.previous_response_id = None;
+        request.options.store_response = false;
+        self.provider.generate_streaming(request, on_event)
+    }
+}
+
+struct NormalizedGenerationSession<'a> {
+    inner: Box<dyn ProviderGenerationSession + 'a>,
+}
+
+impl ProviderGenerationSession for NormalizedGenerationSession<'_> {
+    fn generate<'a>(
+        &'a mut self,
+        request: GenerateRequest,
+        input: ProviderSessionInput,
+        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> ProviderGenerationFuture<'a> {
+        Box::pin(async move {
+            let mut normalizer = GenerationNormalizer::new(on_event);
+            let result = self
+                .inner
+                .generate(request, input, &mut |event| normalizer.push(event))
+                .await;
+            normalizer.finish(result)
+        })
+    }
+}
+
+struct GenerationNormalizer<'a> {
+    on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    text_filters: BTreeMap<usize, ProviderTextDeltaFilter>,
+    splitters: BTreeMap<usize, MarkdownMessageDeltaSplitter>,
+    response_indices: BTreeMap<(usize, usize), usize>,
+    next_response_index: usize,
+}
+
+impl<'a> GenerationNormalizer<'a> {
+    fn new(on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send)) -> Self {
+        Self {
+            on_event,
+            text_filters: BTreeMap::new(),
+            splitters: BTreeMap::new(),
+            response_indices: BTreeMap::new(),
+            next_response_index: 0,
+        }
+    }
+
+    fn output_index(&mut self, source_index: usize, segment: usize) -> usize {
+        *self
+            .response_indices
+            .entry((source_index, segment))
+            .or_insert_with(|| {
+                let index = self.next_response_index;
+                self.next_response_index = self.next_response_index.saturating_add(1);
+                index
+            })
+    }
+
+    fn push(&mut self, event: GenerateStreamEvent) {
+        let GenerateStreamEvent::AssistantTextDelta {
+            response_index,
+            delta,
+        } = event
+        else {
+            (self.on_event)(event);
+            return;
+        };
+        let delta = self
+            .text_filters
+            .entry(response_index)
+            .or_default()
+            .push(&delta);
+        let segments = self
+            .splitters
+            .entry(response_index)
+            .or_default()
+            .push(&delta);
+        for (segment, delta) in segments {
+            let response_index = self.output_index(response_index, segment);
+            (self.on_event)(GenerateStreamEvent::AssistantTextDelta {
+                response_index,
+                delta,
+            });
+        }
+    }
+
+    fn finish(
+        mut self,
+        result: Result<GenerateResponse, ProviderError>,
+    ) -> Result<GenerateResponse, ProviderError> {
+        let source_indices = self.text_filters.keys().copied().collect::<Vec<_>>();
+        for source_index in source_indices {
+            let delta = self
+                .text_filters
+                .get_mut(&source_index)
+                .expect("source index exists")
+                .finish();
+            if !delta.is_empty() {
+                let segments = self.splitters.entry(source_index).or_default().push(&delta);
+                for (segment, delta) in segments {
+                    let response_index = self.output_index(source_index, segment);
+                    (self.on_event)(GenerateStreamEvent::AssistantTextDelta {
+                        response_index,
+                        delta,
+                    });
+                }
+            }
+        }
+        let source_indices = self.splitters.keys().copied().collect::<Vec<_>>();
+        for source_index in source_indices {
+            let segments = self
+                .splitters
+                .get_mut(&source_index)
+                .expect("source index exists")
+                .finish();
+            for (segment, delta) in segments {
+                let response_index = self.output_index(source_index, segment);
+                (self.on_event)(GenerateStreamEvent::AssistantTextDelta {
+                    response_index,
+                    delta,
+                });
+            }
+        }
+        let mut response = result?;
+        let mut normalized = Vec::new();
+        for (source_index, item) in std::mem::take(&mut response.responses)
+            .into_iter()
+            .enumerate()
+        {
+            for (segment, item) in split_markdown_response_item(item).into_iter().enumerate() {
+                let output_index = self.output_index(source_index, segment);
+                normalized.push((output_index, item));
+            }
+        }
+        normalized.sort_by_key(|(output_index, _)| *output_index);
+        response.responses = normalized.into_iter().map(|(_, item)| item).collect();
+        Ok(response)
+    }
+}
+
 impl<T> Debug for ErasedModelProvider<T> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -243,90 +407,18 @@ where
         on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> ProviderOperationFuture<'a, GenerateResponse> {
         Box::pin(async move {
-            let mut text_filters = BTreeMap::<usize, ProviderTextDeltaFilter>::new();
-            let mut splitters = BTreeMap::<usize, MarkdownMessageDeltaSplitter>::new();
-            let mut response_indices = BTreeMap::<(usize, usize), usize>::new();
-            let mut next_response_index = 0usize;
-            let result = {
-                let mut forward = |event| match event {
-                    GenerateStreamEvent::AssistantTextDelta {
-                        response_index,
-                        delta,
-                    } => {
-                        let delta = text_filters.entry(response_index).or_default().push(&delta);
-                        let splitter = splitters.entry(response_index).or_default();
-                        for (segment, delta) in splitter.push(&delta) {
-                            let output_index = *response_indices
-                                .entry((response_index, segment))
-                                .or_insert_with(|| {
-                                    let index = next_response_index;
-                                    next_response_index = next_response_index.saturating_add(1);
-                                    index
-                                });
-                            on_event(GenerateStreamEvent::AssistantTextDelta {
-                                response_index: output_index,
-                                delta,
-                            });
-                        }
-                    }
-                    event => on_event(event),
-                };
-                ModelProvider::generate_streaming(&self.0, request, &mut forward).await
-            };
-            for (source_index, filter) in &mut text_filters {
-                let delta = filter.finish();
-                if !delta.is_empty() {
-                    let splitter = splitters.entry(*source_index).or_default();
-                    for (segment, delta) in splitter.push(&delta) {
-                        let output_index = *response_indices
-                            .entry((*source_index, segment))
-                            .or_insert_with(|| {
-                                let index = next_response_index;
-                                next_response_index = next_response_index.saturating_add(1);
-                                index
-                            });
-                        on_event(GenerateStreamEvent::AssistantTextDelta {
-                            response_index: output_index,
-                            delta,
-                        });
-                    }
-                }
-            }
-            for (source_index, splitter) in &mut splitters {
-                for (segment, delta) in splitter.finish() {
-                    let output_index = *response_indices
-                        .entry((*source_index, segment))
-                        .or_insert_with(|| {
-                            let index = next_response_index;
-                            next_response_index = next_response_index.saturating_add(1);
-                            index
-                        });
-                    on_event(GenerateStreamEvent::AssistantTextDelta {
-                        response_index: output_index,
-                        delta,
-                    });
-                }
-            }
-            let mut response = result?;
-            let mut normalized = Vec::new();
-            for (source_index, item) in std::mem::take(&mut response.responses)
-                .into_iter()
-                .enumerate()
-            {
-                for (segment, item) in split_markdown_response_item(item).into_iter().enumerate() {
-                    let output_index = *response_indices
-                        .entry((source_index, segment))
-                        .or_insert_with(|| {
-                            let index = next_response_index;
-                            next_response_index = next_response_index.saturating_add(1);
-                            index
-                        });
-                    normalized.push((output_index, item));
-                }
-            }
-            normalized.sort_by_key(|(output_index, _)| *output_index);
-            response.responses = normalized.into_iter().map(|(_, item)| item).collect();
-            Ok(response)
+            let mut normalizer = GenerationNormalizer::new(on_event);
+            let result = ModelProvider::generate_streaming(&self.0, request, &mut |event| {
+                normalizer.push(event);
+            })
+            .await;
+            normalizer.finish(result)
+        })
+    }
+
+    fn open_generation_session(&self) -> Box<dyn ProviderGenerationSession + '_> {
+        Box::new(NormalizedGenerationSession {
+            inner: ModelProvider::open_generation_session(&self.0),
         })
     }
 }

@@ -2,13 +2,15 @@
 
 use super::reqwest_transport_error;
 use super::responses::{
-    OPENAI_RESPONSES_PROFILE, ResponsesDiagnosticContext, ResponsesRequest, ResponsesTransport,
-    header_value, normalize_base_url,
+    OPENAI_RESPONSES_PROFILE, ResponsesDiagnosticContext, ResponsesRequest, ResponsesToolNameMap,
+    ResponsesTransport, ResponsesWebSocketError, ResponsesWebSocketSession, header_value,
+    normalize_base_url,
 };
 use crate::{
-    DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, ModelProvider,
-    OpenAiProviderConfig, ProviderError, ProviderResponseContinuation,
-    ProviderSchemaRequestCapabilities, ProviderToolCapabilities, ProviderToolSchemaDialect,
+    DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
+    ModelProvider, OpenAiProviderConfig, ProviderError, ProviderGenerationFuture,
+    ProviderGenerationSession, ProviderResponseContinuation, ProviderSchemaRequestCapabilities,
+    ProviderSessionInput, ProviderToolCapabilities, ProviderToolSchemaDialect,
     ProviderToolTransport,
 };
 use noema_home::SystemErrorLogger;
@@ -89,6 +91,51 @@ impl OpenAiProvider {
 
         Ok(headers)
     }
+
+    fn lower_request(
+        &self,
+        request: &GenerateRequest,
+    ) -> Result<
+        (
+            ResponsesRequest,
+            ResponsesToolNameMap,
+            ProviderToolTransport,
+            ResponsesDiagnosticContext,
+        ),
+        ProviderError,
+    > {
+        let request_model = request
+            .model
+            .as_deref()
+            .filter(|model| !model.trim().is_empty())
+            .map(|model| model.trim().to_string());
+        let using_config_default_model = request_model.is_none();
+        let model = request_model.unwrap_or_else(|| self.config.default_model.clone());
+        if model.trim().is_empty() {
+            return Err(ProviderError::InvalidRequest {
+                message: "model cannot be empty".to_string(),
+            });
+        }
+        let default_reasoning_effort = using_config_default_model
+            .then_some(self.config.reasoning_effort)
+            .flatten();
+        let (mut body, tool_names, tool_transport) =
+            ResponsesRequest::from_generate_with_schema_request_capabilities(
+                request,
+                model.clone(),
+                default_reasoning_effort,
+                self.schema_request_capabilities(Some(&model)),
+                OPENAI_RESPONSES_PROFILE,
+            )?;
+        body.set_fast_mode(request.options.fast_mode);
+        let diagnostics = ResponsesDiagnosticContext::new(
+            self.system_errors.clone(),
+            "openai",
+            model,
+            request.conversation_id.clone(),
+        );
+        Ok((body, tool_names, tool_transport, diagnostics))
+    }
 }
 
 fn normalize_config(
@@ -125,6 +172,13 @@ fn normalize_config(
 }
 
 impl ModelProvider for OpenAiProvider {
+    fn open_generation_session(&self) -> Box<dyn ProviderGenerationSession + '_> {
+        Box::new(OpenAiGenerationSession {
+            provider: self,
+            responses: self.transport.websocket_session(),
+        })
+    }
+
     fn default_tool_classification_model(&self) -> Option<String> {
         Some(
             self.config
@@ -169,39 +223,7 @@ impl ModelProvider for OpenAiProvider {
     }
 
     async fn generate(&self, request: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
-        let request_model = request
-            .model
-            .as_deref()
-            .filter(|model| !model.trim().is_empty())
-            .map(|model| model.trim().to_string());
-        let using_config_default_model = request_model.is_none();
-        let model = request_model.unwrap_or_else(|| self.config.default_model.clone());
-
-        if model.trim().is_empty() {
-            return Err(ProviderError::InvalidRequest {
-                message: "model cannot be empty".to_string(),
-            });
-        }
-
-        let default_reasoning_effort = using_config_default_model
-            .then_some(self.config.reasoning_effort)
-            .flatten();
-        let (mut body, tool_names, tool_transport) =
-            ResponsesRequest::from_generate_with_schema_request_capabilities(
-                &request,
-                model.clone(),
-                default_reasoning_effort,
-                self.schema_request_capabilities(Some(&model)),
-                OPENAI_RESPONSES_PROFILE,
-            )?;
-        body.set_fast_mode(request.options.fast_mode);
-
-        let diagnostics = ResponsesDiagnosticContext::new(
-            self.system_errors.clone(),
-            "openai",
-            model.clone(),
-            request.conversation_id.clone(),
-        );
+        let (body, tool_names, tool_transport, diagnostics) = self.lower_request(&request)?;
         let response = self
             .transport
             .send(
@@ -215,12 +237,96 @@ impl ModelProvider for OpenAiProvider {
     }
 }
 
+struct OpenAiGenerationSession<'a> {
+    provider: &'a OpenAiProvider,
+    responses: ResponsesWebSocketSession,
+}
+
+impl ProviderGenerationSession for OpenAiGenerationSession<'_> {
+    fn generate<'a>(
+        &'a mut self,
+        mut request: GenerateRequest,
+        input: ProviderSessionInput,
+        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> ProviderGenerationFuture<'a> {
+        Box::pin(async move {
+            request.options.previous_response_id = None;
+            request.options.store_response = true;
+            request.input = input.replay;
+            let (replay_body, tool_names, tool_transport, diagnostics) =
+                self.provider.lower_request(&request)?;
+            let incremental_body = input
+                .incremental
+                .map(|incremental| {
+                    let mut incremental_request = request.clone();
+                    incremental_request.input = incremental;
+                    self.provider
+                        .lower_request(&incremental_request)
+                        .map(|(body, _, _, _)| body)
+                })
+                .transpose()?;
+            let mut prepared = self
+                .responses
+                .prepare_request(replay_body.clone(), incremental_body)?;
+            let headers = self.provider.extra_headers()?;
+            let mut result = self
+                .responses
+                .send(
+                    &self.provider.config.api_key,
+                    &prepared.body,
+                    &headers,
+                    diagnostics.clone(),
+                    on_event,
+                )
+                .await;
+            if matches!(
+                result,
+                Err(ResponsesWebSocketError::PreviousResponseNotFound)
+            ) && prepared.used_response_id
+            {
+                self.responses.clear_response_id();
+                prepared = self.responses.prepare_request(replay_body, None)?;
+                result = self
+                    .responses
+                    .send(
+                        &self.provider.config.api_key,
+                        &prepared.body,
+                        &headers,
+                        diagnostics.clone(),
+                        on_event,
+                    )
+                    .await;
+            }
+            let response = match result {
+                Ok(response) => response,
+                Err(
+                    ResponsesWebSocketError::Unsupported(_) | ResponsesWebSocketError::Setup(_),
+                ) => {
+                    let mut body = prepared.body.clone();
+                    body.stream = None;
+                    self.provider
+                        .transport
+                        .send(
+                            &self.provider.config.api_key,
+                            body,
+                            headers,
+                            diagnostics.clone(),
+                        )
+                        .await?
+                }
+                Err(error) => return Err(error.into_provider_error()),
+            };
+            self.responses.record_response(&prepared, &response);
+            response.finalize(&tool_names, tool_transport, &diagnostics)
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DEFAULT_OPENAI_TIMEOUT_SECONDS;
-    use crate::TokenUsage;
-    use crate::adapters::test_support::spawn_server;
+    use crate::adapters::test_support::{spawn_server, spawn_websocket_server};
+    use crate::{DEFAULT_OPENAI_TIMEOUT_SECONDS, GenerateInput, ProviderSessionInput, TokenUsage};
 
     #[tokio::test]
     async fn sends_expected_request_and_extracts_text() {
@@ -312,6 +418,36 @@ mod tests {
                 cached_input_tokens: Some(1),
             })
         );
+    }
+
+    #[tokio::test]
+    async fn websocket_session_preserves_openai_storage_policy() {
+        let (base_url, requests_rx) = spawn_websocket_server(vec![vec![serde_json::json!({
+            "type": "response.completed",
+            "response": {
+                "id": "resp_1",
+                "model": "gpt-test",
+                "status": "completed",
+                "output": [{
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "done"}]
+                }]
+            }
+        })]])
+        .await;
+        let provider = test_provider(base_url);
+        let mut session = provider.open_generation_session();
+        session
+            .generate(
+                GenerateRequest::text("hello"),
+                ProviderSessionInput::initial(GenerateInput::Text("hello".to_string())),
+                &mut |_| {},
+            )
+            .await
+            .expect("response");
+        let requests = requests_rx.await.expect("WebSocket requests");
+        assert_eq!(requests[0]["type"], "response.create");
+        assert_eq!(requests[0]["store"], true);
     }
 
     #[tokio::test]
