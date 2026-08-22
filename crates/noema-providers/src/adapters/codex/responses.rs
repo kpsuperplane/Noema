@@ -392,6 +392,13 @@ impl ProviderGenerationSession for CodexGenerationSession<'_> {
                 Err(ResponsesWebSocketError::PreviousResponseNotFound)
             ) && prepared.used_response_id
             {
+                if self.responses.has_hosted_web_state() {
+                    return Err(ProviderError::ProtocolError {
+                        provider: "codex".to_string(),
+                        message: "provider-hosted web state expired; this response cannot continue safely"
+                            .to_string(),
+                    });
+                }
                 self.responses.clear_response_id();
                 prepared = self.responses.prepare_request(replay_body.clone(), None)?;
                 self.responses.replay_missing_response();
@@ -409,6 +416,13 @@ impl ProviderGenerationSession for CodexGenerationSession<'_> {
             let response = match result {
                 Ok(response) => response,
                 Err(ResponsesWebSocketError::Unsupported(_)) => {
+                    if self.responses.has_hosted_web_state() {
+                        return Err(ProviderError::ProtocolError {
+                            provider: "codex".to_string(),
+                            message: "the Codex connection lost provider-hosted web state; this response cannot continue safely"
+                                .to_string(),
+                        });
+                    }
                     self.responses.use_http("unsupported_websocket", false);
                     let mut replay_body = replay_body;
                     replay_body.previous_response_id = None;
@@ -424,6 +438,13 @@ impl ProviderGenerationSession for CodexGenerationSession<'_> {
                         .await?
                 }
                 Err(ResponsesWebSocketError::Setup(_)) => {
+                    if self.responses.has_hosted_web_state() {
+                        return Err(ProviderError::ProtocolError {
+                            provider: "codex".to_string(),
+                            message: "the Codex connection lost provider-hosted web state; this response cannot continue safely"
+                                .to_string(),
+                        });
+                    }
                     self.responses.use_http("websocket_setup_failed", false);
                     let mut replay_body = replay_body;
                     replay_body.previous_response_id = None;
@@ -441,12 +462,20 @@ impl ProviderGenerationSession for CodexGenerationSession<'_> {
                 Err(error) => return Err(error.into_provider_error()),
             };
             self.responses.record_response(&prepared, &response);
+            if self.responses.metadata().transport != Some("responses_websocket") {
+                self.responses.clear_response_id();
+            }
             response.finalize(&tool_names, tool_transport, &diagnostics)
         })
     }
 
     fn metadata(&self) -> ProviderGenerationMetadata {
         self.responses.metadata()
+    }
+
+    fn has_active_continuation(&self) -> bool {
+        self.responses.metadata().transport == Some("responses_websocket")
+            && self.responses.has_active_continuation()
     }
 }
 

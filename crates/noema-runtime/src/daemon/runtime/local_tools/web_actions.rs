@@ -59,18 +59,7 @@ impl RuntimeActor {
                 .browser_sessions
                 .session(owner_key)
                 .ok_or(WebBrowseError::SessionNotFound)?;
-            if !session
-                .backend
-                .has_session(&WebBrowseOwner::new(owner_key))
-                .await
-            {
-                return Err(WebBrowseError::SessionNotFound);
-            }
-            return match session.snapshot {
-                Some(snapshot) if snapshot.revision == request.snapshot_revision => Ok(()),
-                Some(_) => Err(WebBrowseError::StaleSnapshot),
-                None => Err(WebBrowseError::SessionNotFound),
-            };
+            return super::validate_browser_switch_revision(&session, request.snapshot_revision);
         }
         let command = match parse_command(name, arguments) {
             Ok(BrowseCommand::Interact(request)) => BrowseCommand::Interact(request),
@@ -211,7 +200,14 @@ impl RuntimeActor {
                 self.record_browser_urls(source, &payload).await;
                 browser_capability_output(payload)
             }
-            Err(error) => browser_failure_output(error),
+            Err(error) => {
+                let can_switch_provider = self
+                    .browser_sessions
+                    .session(&owner_key)
+                    .and_then(|state| super::next_browser_route_position(&state))
+                    .is_some();
+                browser_failure_output(error, can_switch_provider)
+            }
         }
     }
 
@@ -358,7 +354,10 @@ fn browser_capability_output(payload: Value) -> CapabilityOutput {
         .with_persisted_output_source(payload)
 }
 
-pub(super) fn browser_failure_output(error: WebBrowseError) -> CapabilityOutput {
+pub(super) fn browser_failure_output(
+    error: WebBrowseError,
+    can_switch_provider: bool,
+) -> CapabilityOutput {
     let message = error.to_string();
     let mut base = &error;
     let mut diagnostic = None;
@@ -426,22 +425,38 @@ pub(super) fn browser_failure_output(error: WebBrowseError) -> CapabilityOutput 
         WebBrowseError::Capacity => (
             "capacity_reached",
             CapabilityFailureKind::RemoteUnavailable,
-            CapabilityRecovery::RetryLater,
+            if can_switch_provider {
+                CapabilityRecovery::SwitchProvider
+            } else {
+                CapabilityRecovery::RetryLater
+            },
         ),
         WebBrowseError::Timeout => (
             "timeout",
             CapabilityFailureKind::RemoteUnavailable,
-            CapabilityRecovery::RetryLater,
+            if can_switch_provider {
+                CapabilityRecovery::SwitchProvider
+            } else {
+                CapabilityRecovery::RetryLater
+            },
         ),
         WebBrowseError::NavigationFailed => (
             "navigation_failed",
             CapabilityFailureKind::RemoteUnavailable,
-            CapabilityRecovery::RetryLater,
+            if can_switch_provider {
+                CapabilityRecovery::SwitchProvider
+            } else {
+                CapabilityRecovery::RetryLater
+            },
         ),
         WebBrowseError::Unavailable => (
             "unavailable",
             CapabilityFailureKind::RemoteUnavailable,
-            CapabilityRecovery::RetryLater,
+            if can_switch_provider {
+                CapabilityRecovery::SwitchProvider
+            } else {
+                CapabilityRecovery::RetryLater
+            },
         ),
         WebBrowseError::RouteUnavailable => (
             "route_unavailable",
@@ -494,11 +509,14 @@ mod hosted_search_tests {
 
     #[test]
     fn browser_failures_keep_structured_diagnostics_and_uncertain_semantics() {
-        let detailed = browser_failure_output(WebBrowseError::Timeout.with_provider_detail(
-            "obscura",
-            "open_worker_response",
-            "worker response exceeded 30000ms",
-        ));
+        let detailed = browser_failure_output(
+            WebBrowseError::Timeout.with_provider_detail(
+                "obscura",
+                "open_worker_response",
+                "worker response exceeded 30000ms",
+            ),
+            true,
+        );
         assert_eq!(detailed.payload["error"], "timeout");
         assert_eq!(detailed.payload["provider"], "obscura");
         assert_eq!(detailed.payload["stage"], "open_worker_response");
@@ -510,11 +528,11 @@ mod hosted_search_tests {
             detailed.failure,
             Some(CapabilityFailure {
                 kind: CapabilityFailureKind::RemoteUnavailable,
-                recovery: CapabilityRecovery::RetryLater,
+                recovery: CapabilityRecovery::SwitchProvider,
             })
         );
 
-        let uncertain = browser_failure_output(WebBrowseError::OutcomeUncertain);
+        let uncertain = browser_failure_output(WebBrowseError::OutcomeUncertain, true);
         assert_eq!(uncertain.payload["error"], "outcome_uncertain");
         assert_eq!(
             uncertain.failure.unwrap().kind,

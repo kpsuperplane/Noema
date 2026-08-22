@@ -28,6 +28,12 @@ pub struct ResponsesResponse {
 }
 
 impl ResponsesResponse {
+    pub(crate) fn has_hosted_web_state(&self) -> bool {
+        self.output
+            .iter()
+            .any(|item| matches!(item, ResponsesOutputItem::WebSearchCall { .. }))
+    }
+
     /// Finalize one shared Responses result into Noema's provider-neutral response.
     ///
     /// # Errors

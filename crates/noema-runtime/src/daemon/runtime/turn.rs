@@ -60,7 +60,7 @@ use crate::daemon::{
     memory::context::ConversationMemoryContext,
     prompts::{
         build_initial_name_onboarding_system_prompt,
-        build_local_tool_result_continuation_system_prompt,
+        build_local_tool_result_continuation_system_prompt, task_delegation_continuation_reminder,
     },
     protocol::{
         RuntimeError, StartedConversation, TurnActivityStatus, TurnStreamEvent, TurnTranscriptItem,
@@ -371,6 +371,8 @@ pub(in crate::daemon) struct SuccessfulProviderTurn {
     pub(in crate::daemon) model: Option<String>,
     pub(in crate::daemon) reasoning_effort: Option<noema_providers::ReasoningEffort>,
     pub(in crate::daemon) fast_mode: bool,
+    pub(in crate::daemon) max_output_tokens: Option<u32>,
+    pub(in crate::daemon) prompt_cache_breakpoints: Vec<usize>,
     pub(in crate::daemon) provider_route: Arc<ProviderRouteLease>,
     pub(in crate::daemon) initial_stream_id: String,
     pub(in crate::daemon) response: GenerateResponse,

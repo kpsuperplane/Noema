@@ -35,6 +35,7 @@ impl RuntimeActor {
         }
         let mut waiting_for_interaction = false;
         let mut next_provider_round_index = 1;
+        let mut delegation_reminder_sent = false;
         for continuation_step in 0..MAX_PROVIDER_TOOL_CONTINUATIONS {
             if continuation_tool_results.is_empty() {
                 break;
@@ -202,9 +203,18 @@ impl RuntimeActor {
             }
             let task_delegation_available =
                 active_continuation_model_tools.has_callable_tool(TASK_DELEGATE_TOOL);
-            let continuation_instructions = build_local_tool_result_continuation_system_prompt(
-                should_nudge_task_delegation(continuation_step_number, task_delegation_available),
-            );
+            let continuation_instructions = build_local_tool_result_continuation_system_prompt(false);
+            if !delegation_reminder_sent
+                && should_nudge_task_delegation(
+                    continuation_step_number,
+                    task_delegation_available,
+                )
+            {
+                continuation_context.append_developer_message(
+                    task_delegation_continuation_reminder().to_string(),
+                );
+                delegation_reminder_sent = true;
+            }
             let continuation_stream_suffix = if continuation_step == 0 {
                 "continuation".to_string()
             } else {
@@ -326,19 +336,19 @@ impl RuntimeActor {
                 && turn.continuation_model_tools.transport == ProviderToolTransport::Native
                 && active_continuation_model_tools.has_callable_tools()
                 && turn.tool_capabilities.parallel_tool_calls;
-            admit_foreground_context(
-                &mut continuation_context,
-                turn,
-                provider,
-                &continuation_instructions,
-                &continuation_tools,
-                hosted_web_search,
-            )
-            .await?;
+            if !provider_session.has_active_continuation() {
+                admit_foreground_context(
+                    &mut continuation_context,
+                    turn,
+                    provider,
+                    &continuation_instructions,
+                    &continuation_tools,
+                    hosted_web_search,
+                )
+                .await?;
+            }
             let continuation_input = continuation_context
                 .next_provider_input(turn.tool_capabilities.native_tool_results);
-            let continuation_prompt_cache_breakpoints =
-                prompt_cache_breakpoints_for(&continuation_input.replay, turn.tool_capabilities);
             let continuation_request = GenerateRequest {
                 conversation_id: Some(turn.conversation_id.clone()),
                 model: turn.model.clone(),
@@ -346,9 +356,10 @@ impl RuntimeActor {
                 instructions: Some(continuation_instructions.clone()),
                 options: GenerateOptions {
                     hosted_web_search,
+                    max_output_tokens: turn.max_output_tokens,
                     prompt_cache_retention: prompt_cache_retention_for(turn.tool_capabilities),
                     prompt_cache_options: prompt_cache_options_for(turn.tool_capabilities),
-                    prompt_cache_breakpoints: continuation_prompt_cache_breakpoints,
+                    prompt_cache_breakpoints: turn.prompt_cache_breakpoints.clone(),
                     reasoning_effort: turn.reasoning_effort,
                     fast_mode: turn.fast_mode,
                     ..GenerateOptions::default()
@@ -545,6 +556,8 @@ impl RuntimeActor {
                 model: turn.model.clone(),
                 reasoning_effort: turn.reasoning_effort,
                 fast_mode: turn.fast_mode,
+                max_output_tokens: turn.max_output_tokens,
+                prompt_cache_breakpoints: turn.prompt_cache_breakpoints.clone(),
                 provider_route: Arc::clone(&turn.provider_route),
                 initial_stream_id: continuation_stream_id.clone(),
                 response: GenerateResponse {

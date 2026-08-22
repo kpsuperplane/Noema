@@ -121,6 +121,8 @@ pub enum CapabilityRecovery {
     ResolveResource,
     /// Wait or report the temporary failure before another attempt.
     RetryLater,
+    /// Continue through the capability's next configured provider.
+    SwitchProvider,
     /// Stop this operation instead of attempting a workaround.
     Stop,
 }
@@ -131,6 +133,7 @@ impl CapabilityRecovery {
             Self::CorrectArguments => "correct_arguments",
             Self::ResolveResource => "resolve_resource",
             Self::RetryLater => "retry_later",
+            Self::SwitchProvider => "switch_provider",
             Self::Stop => "stop",
         }
     }

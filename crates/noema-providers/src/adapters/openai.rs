@@ -285,6 +285,13 @@ impl ProviderGenerationSession for OpenAiGenerationSession<'_> {
                 Err(ResponsesWebSocketError::PreviousResponseNotFound)
             ) && prepared.used_response_id
             {
+                if self.responses.has_hosted_web_state() {
+                    return Err(ProviderError::ProtocolError {
+                        provider: "openai".to_string(),
+                        message: "provider-hosted web state expired; this response cannot continue safely"
+                            .to_string(),
+                    });
+                }
                 self.responses.clear_response_id();
                 prepared = self.responses.prepare_request(replay_body, None)?;
                 self.responses.replay_missing_response();
@@ -340,6 +347,10 @@ impl ProviderGenerationSession for OpenAiGenerationSession<'_> {
 
     fn metadata(&self) -> ProviderGenerationMetadata {
         self.responses.metadata()
+    }
+
+    fn has_active_continuation(&self) -> bool {
+        self.responses.has_active_continuation()
     }
 }
 

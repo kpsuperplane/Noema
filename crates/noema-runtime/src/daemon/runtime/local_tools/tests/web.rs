@@ -79,6 +79,11 @@ async fn browser_switch_retries_the_next_route_after_a_failed_open() {
     };
 
     assert_eq!(super::next_browser_route_position(&state), Some(1));
+    assert_eq!(super::validate_browser_switch_revision(&state, None), Ok(()));
+    assert_eq!(
+        super::validate_browser_switch_revision(&state, Some(1)),
+        Err(noema_providers::WebBrowseError::StaleSnapshot)
+    );
 }
 
 #[tokio::test]

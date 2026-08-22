@@ -192,6 +192,7 @@ impl ResponsesTransport {
             unsupported: false,
             previous_response_id: None,
             fingerprint: None,
+            has_hosted_web_state: false,
             metadata: crate::ProviderGenerationMetadata::default(),
         }
     }
@@ -227,6 +228,7 @@ pub(crate) struct ResponsesWebSocketSession {
     unsupported: bool,
     previous_response_id: Option<String>,
     fingerprint: Option<Value>,
+    has_hosted_web_state: bool,
     metadata: crate::ProviderGenerationMetadata,
 }
 
@@ -276,8 +278,17 @@ impl ResponsesWebSocketSession {
         incremental: Option<super::ResponsesRequest>,
     ) -> Result<PreparedResponsesRequest, ProviderError> {
         let fingerprint = replay.continuation_fingerprint()?;
-        let can_continue =
-            self.fingerprint.as_ref() == Some(&fingerprint) && self.previous_response_id.is_some();
+        let can_continue = self.fingerprint.as_ref() == Some(&fingerprint)
+            && self.previous_response_id.is_some()
+            && incremental.is_some();
+        if self.has_hosted_web_state && !can_continue {
+            return Err(ProviderError::ProtocolError {
+                provider: "responses".to_string(),
+                message:
+                    "provider-hosted web state is unavailable; this response cannot continue safely"
+                        .to_string(),
+            });
+        }
         let (mut body, used_response_id) = match (can_continue, incremental) {
             (true, Some(body)) => (body, true),
             _ => {
@@ -338,10 +349,19 @@ impl ResponsesWebSocketSession {
     ) {
         self.fingerprint = Some(prepared.fingerprint.clone());
         self.previous_response_id.clone_from(&response.id);
+        self.has_hosted_web_state |= response.has_hosted_web_state();
     }
 
     pub(crate) fn clear_response_id(&mut self) {
         self.previous_response_id = None;
+    }
+
+    pub(crate) fn has_active_continuation(&self) -> bool {
+        self.previous_response_id.is_some()
+    }
+
+    pub(crate) fn has_hosted_web_state(&self) -> bool {
+        self.has_hosted_web_state
     }
 
     /// Send one request and collect Responses events through the shared accumulator.

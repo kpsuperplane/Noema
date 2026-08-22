@@ -382,6 +382,42 @@ async fn missing_previous_response_replays_complete_input_once() {
 }
 
 #[tokio::test]
+async fn missing_previous_response_does_not_replay_hosted_web_state() {
+    let (base_url, requests_rx) = spawn_websocket_server(vec![
+        vec![websocket_completed_with_search("resp_1")],
+        vec![serde_json::json!({
+            "type": "error",
+            "error": {"code": "previous_response_not_found", "message": "gone"}
+        })],
+    ])
+    .await;
+    let provider = provider_with_token(base_url);
+    let mut session = provider.open_generation_session();
+    session
+        .generate(
+            GenerateRequest::text("one"),
+            ProviderSessionInput::initial(GenerateInput::Text("one".to_string())),
+            &mut |_| {},
+        )
+        .await
+        .expect("initial response");
+    let error = session
+        .generate(
+            GenerateRequest::text("two"),
+            ProviderSessionInput {
+                replay: GenerateInput::Text("complete two".to_string()),
+                incremental: Some(GenerateInput::Text("incremental two".to_string())),
+            },
+            &mut |_| {},
+        )
+        .await
+        .expect_err("provider-only state must fail closed");
+
+    assert!(matches!(error, ProviderError::ProtocolError { .. }));
+    assert_eq!(requests_rx.await.expect("WebSocket requests").len(), 2);
+}
+
+#[tokio::test]
 async fn websocket_failure_after_output_does_not_replay() {
     let (base_url, requests_rx) = spawn_websocket_server(vec![
         vec![websocket_completed("resp_1", "one")],
@@ -507,6 +543,29 @@ fn websocket_completed(id: &str, text: &str) -> Value {
                 "type": "message",
                 "content": [{"type": "output_text", "text": text}]
             }]
+        }
+    })
+}
+
+fn websocket_completed_with_search(id: &str) -> Value {
+    serde_json::json!({
+        "type": "response.completed",
+        "response": {
+            "id": id,
+            "model": "gpt-test",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "web_search_call",
+                    "id": "search_1",
+                    "status": "completed",
+                    "action": {"type": "search", "query": "current facts"}
+                },
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "found it"}]
+                }
+            ]
         }
     })
 }

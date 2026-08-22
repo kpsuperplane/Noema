@@ -489,6 +489,7 @@ impl RuntimeActor {
         let initial_provider_input = planned_context.input.clone();
         let initial_prompt_cache_breakpoints =
             prompt_cache_breakpoints_for(&planned_context.input, tool_capabilities);
+        let initial_max_output_tokens = planned_context.budget.output_reserve_tokens();
         let initial_provider_tools = initial_request_tools;
         let (initial_tools, initial_tool_choice) = if tool_capabilities.allowed_tools
             && model_tools.transport == ProviderToolTransport::Native
@@ -509,13 +510,13 @@ impl RuntimeActor {
                     input: planned_context.input,
                     instructions: Some(planned_context.instructions),
                     options: GenerateOptions {
-                        max_output_tokens: planned_context.budget.output_reserve_tokens(),
+                        max_output_tokens: initial_max_output_tokens,
                         reasoning_effort,
                         fast_mode,
                         hosted_web_search: model_tools.hosted_web_search(),
                         prompt_cache_retention: prompt_cache_retention_for(tool_capabilities),
                         prompt_cache_options: prompt_cache_options_for(tool_capabilities),
-                        prompt_cache_breakpoints: initial_prompt_cache_breakpoints,
+                        prompt_cache_breakpoints: initial_prompt_cache_breakpoints.clone(),
                         ..GenerateOptions::default()
                     },
                     tools: initial_tools,
@@ -594,6 +595,8 @@ impl RuntimeActor {
                             model: provider_selection.model_profile.clone(),
                             reasoning_effort,
                             fast_mode,
+                            max_output_tokens: initial_max_output_tokens,
+                            prompt_cache_breakpoints: initial_prompt_cache_breakpoints,
                             provider_route: Arc::clone(&provider_route),
                             initial_stream_id: initial_stream_id.clone(),
                             response,

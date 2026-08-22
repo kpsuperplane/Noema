@@ -157,6 +157,8 @@ fn test_turn_with_selection(
         model: model.clone(),
         reasoning_effort,
         fast_mode,
+        max_output_tokens: None,
+        prompt_cache_breakpoints: Vec::new(),
         provider_route: crate::test_support::provider_route(selection, local_tool_test_provider()),
         initial_stream_id: "stream:test".to_string(),
         response: GenerateResponse {

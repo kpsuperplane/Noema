@@ -148,6 +148,11 @@ pub trait ProviderGenerationSession: Send {
     fn metadata(&self) -> ProviderGenerationMetadata {
         ProviderGenerationMetadata::default()
     }
+
+    /// Return whether this session can accept only the next changed input.
+    fn has_active_continuation(&self) -> bool {
+        false
+    }
 }
 
 /// Non-sensitive transport diagnostics for one provider generation.

@@ -336,6 +336,8 @@ impl RuntimeActor {
             model,
             reasoning_effort: selection.reasoning_effort,
             fast_mode: selection.fast_mode,
+            max_output_tokens: None,
+            prompt_cache_breakpoints: Vec::new(),
             provider_route: Arc::clone(&route),
             initial_stream_id: assistant_stream_id(
                 &interaction.originating_turn_id,

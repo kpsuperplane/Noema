@@ -14,7 +14,7 @@ Codex and OpenAI Responses share one WebSocket transport and one response accumu
 
 The session opens its WebSocket connection when the first request starts. The session closes the connection when its handle is dropped.
 
-Incremental input requires unchanged request settings and an earlier response identifier. Changed settings or compacted history use complete replay.
+Incremental input requires unchanged request settings and an earlier response identifier. Changed settings use complete replay. A healthy active continuation does not compact its complete replay copy.
 
 Complete Responses replay keeps ordered reasoning, hosted web actions, assistant phases, citation annotations, and tool calls.
 
@@ -24,7 +24,7 @@ An unsupported WebSocket handshake selects HTTP for that session. A transient se
 
 Codex HTTP requests always use complete replay without a response identifier. OpenAI HTTP requests can use stored response continuation.
 
-If an earlier response is missing, the session retries complete replay once. This retry is permitted only before provider output arrives.
+If an earlier response is missing, the session retries complete replay once when all prior output is replayable. Provider-hosted web state fails closed because complete replay cannot restore its source identities.
 
 The session returns an interrupted error after text, tool, or hosted-action output arrives. It does not replay the request automatically.
 

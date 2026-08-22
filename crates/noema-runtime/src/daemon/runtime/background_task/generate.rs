@@ -247,6 +247,8 @@ impl RuntimeActor {
                 model: provider_selection.model_profile.clone(),
                 reasoning_effort: provider_selection.reasoning_effort,
                 fast_mode: provider_selection.fast_mode,
+                max_output_tokens: Some(8_000),
+                prompt_cache_breakpoints: Vec::new(),
                 provider_route: Arc::clone(&provider_route),
                 initial_stream_id: format!("task_stream:{}:{continuation_index}", request.run_id),
                 response: response.clone(),

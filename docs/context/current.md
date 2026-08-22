@@ -64,6 +64,8 @@ slice or a net-negative reduction.
   call must pass the source input check before invocation.
 - [Provider generation sessions](../development/provider-sessions.md) own transport efficiency.
   Complete local replay preserves ordered provider output and owns correctness.
+- A healthy provider continuation can exceed the local replay admission limit.
+  Provider-hosted web state fails closed if the provider continuation expires.
 - A full provider conversion preserves every source rule. Optional null
   placeholders are restored before policy, review, or storage.
 
@@ -109,6 +111,7 @@ slice or a net-negative reduction.
   The human configures an ordered provider route. Obscura remains the default.
 - The agent changes providers only through `web.browse.switch_provider`.
   A switch starts fresh and never transfers browser state.
+- A failed initial browser open keeps route state. The agent can switch providers without a snapshot revision.
 - Browser failures retain typed recovery and safe provider diagnostics through
   model results, persistence, governed actions, and diagnostics.
 - Each capability binding owns its Task checkpoint policy.

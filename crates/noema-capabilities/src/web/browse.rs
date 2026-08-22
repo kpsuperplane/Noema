@@ -92,7 +92,7 @@ pub struct BrowseHistoryRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrowseProviderSwitchRequest {
-    pub snapshot_revision: u64,
+    pub snapshot_revision: Option<u64>,
     pub url: String,
 }
 
@@ -213,7 +213,7 @@ struct HistoryArguments {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProviderSwitchArguments {
-    snapshot_revision: u64,
+    snapshot_revision: Option<u64>,
     url: String,
 }
 
@@ -288,12 +288,12 @@ pub fn tool_specs() -> Result<Vec<ToolSpec>, ToolContractError> {
         )?,
         ToolSpec::new(
             WEB_BROWSE_SWITCH_PROVIDER_TOOL,
-            "Open an agent-selected public URL with the next configured browser provider when the current provider cannot continue. A successful switch creates a fresh session and destroys the previous cookies, local storage, session storage, browser history, DOM state, and element references.",
+            "Open an agent-selected public URL with the next configured browser provider when the current provider cannot continue. Supply snapshot_revision when the failed session has a snapshot. Omit it when the initial open failed. A successful switch creates a fresh session and destroys the previous cookies, local storage, session storage, browser history, DOM state, and element references.",
             json!({
                 "type":"object", "properties": {
                     "snapshot_revision":{"type":"integer","minimum":1},
                     "url":{"type":"string","minLength":1,"maxLength":MAX_URL_CHARS}
-                }, "required":["snapshot_revision","url"], "additionalProperties":false
+                }, "required":["url"], "additionalProperties":false
             }),
         )?,
         ToolSpec::new(
@@ -310,15 +310,14 @@ pub fn tool_specs() -> Result<Vec<ToolSpec>, ToolContractError> {
 ///
 /// # Errors
 ///
-/// Returns an error when the input does not name the latest snapshot and a
-/// bounded public navigation URL.
+/// Returns an error when the optional revision is invalid or the URL is not bounded.
 pub fn parse_provider_switch(
     payload: &Value,
 ) -> Result<BrowseProviderSwitchRequest, BrowseArgumentError> {
     let arguments = super::nested_arguments(payload).map_err(argument_error)?;
     let mut value: ProviderSwitchArguments = decode(arguments)?;
     value.url = value.url.trim().to_string();
-    if value.snapshot_revision == 0 {
+    if value.snapshot_revision == Some(0) {
         return Err(argument_error("snapshot_revision must be positive"));
     }
     if value.url.is_empty() {
@@ -540,8 +539,14 @@ mod tests {
                 "url": " https://example.com/start "
             }))
             .expect("provider switch")
-            .url,
-            "https://example.com/start"
+            .snapshot_revision,
+            Some(4)
+        );
+        assert_eq!(
+            parse_provider_switch(&json!({"url": "https://example.com/start"}))
+                .expect("failed-open provider switch")
+                .snapshot_revision,
+            None
         );
         let specs = tool_specs().expect("browser tool specs");
         let open = specs

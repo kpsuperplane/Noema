@@ -966,7 +966,14 @@ impl RuntimeActor {
                 self.mark_provider_account_unauthenticated(&target).await;
             }
         }
-        let mut response = result?;
+        let mut response = match result {
+            Ok(response) => response,
+            Err(error) => {
+                self.browser_sessions
+                    .set_session(owner_key.to_string(), state);
+                return Err(error);
+            }
+        };
         let public_revision = response
             .snapshot
             .as_ref()
@@ -1036,13 +1043,7 @@ impl RuntimeActor {
                 .await;
             return Err(WebBrowseError::SessionNotFound);
         }
-        let snapshot = source
-            .snapshot
-            .as_ref()
-            .ok_or(WebBrowseError::SessionNotFound)?;
-        if request.snapshot_revision != snapshot.revision {
-            return Err(WebBrowseError::StaleSnapshot);
-        }
+        validate_browser_switch_revision(&source, request.snapshot_revision)?;
         noema_providers::validate_public_url(&request.url)
             .await
             .map_err(browser_url_policy_error)?;
@@ -1064,7 +1065,7 @@ impl RuntimeActor {
                 BrowseCommand::Open(BrowseNavigationRequest {
                     url: request.url,
                     reason: None,
-                    wait_until: BrowseWaitUntil::Load,
+                    wait_until: BrowseWaitUntil::Domcontentloaded,
                 }),
             )
             .await;
@@ -1135,6 +1136,17 @@ fn translate_browser_revision(
 fn next_browser_route_position(state: &BrowserSessionState) -> Option<usize> {
     let position = state.active_position + 1;
     (position < state.route.providers.len()).then_some(position)
+}
+
+fn validate_browser_switch_revision(
+    state: &BrowserSessionState,
+    revision: Option<u64>,
+) -> Result<(), WebBrowseError> {
+    match (state.snapshot.as_ref(), revision) {
+        (Some(snapshot), Some(revision)) if revision == snapshot.revision => Ok(()),
+        (None, None) => Ok(()),
+        _ => Err(WebBrowseError::StaleSnapshot),
+    }
 }
 
 fn is_builtin_browser_tool(name: &str) -> bool {
@@ -1223,7 +1235,7 @@ fn browser_validation_failure_result(
     binding: &noema_capabilities::CapabilityBinding,
     error: WebBrowseError,
 ) -> LocalToolResult {
-    let output = web_actions::browser_failure_output(error);
+    let output = web_actions::browser_failure_output(error, false);
     LocalToolResult::from_call(
         call,
         LocalToolKind::WebBrowse,
