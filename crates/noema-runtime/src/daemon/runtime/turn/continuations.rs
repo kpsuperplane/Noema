@@ -349,6 +349,15 @@ impl RuntimeActor {
             }
             let continuation_input = continuation_context
                 .next_provider_input(turn.tool_capabilities.native_tool_results);
+            if provider_session.has_active_continuation()
+                && continuation_input.incremental.is_none()
+            {
+                let (requires_replay, delta_start, item_count) =
+                    continuation_context.incremental_debug_state();
+                return Err(RuntimeError::Protocol(format!(
+                    "active provider continuation has no incremental input; requires_replay={requires_replay}; delta_start={delta_start:?}; item_count={item_count}; pending_result_count={continuation_result_count}"
+                )));
+            }
             let continuation_request = GenerateRequest {
                 conversation_id: Some(turn.conversation_id.clone()),
                 model: turn.model.clone(),

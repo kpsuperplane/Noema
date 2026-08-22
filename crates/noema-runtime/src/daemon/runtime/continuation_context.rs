@@ -233,6 +233,14 @@ impl ContinuationContext {
         }
     }
 
+    pub(super) fn incremental_debug_state(&self) -> (bool, Option<usize>, usize) {
+        (
+            self.requires_replay,
+            self.continuation_delta_start,
+            self.items.len(),
+        )
+    }
+
     /// Admit the complete reconstructed continuation context, compacting the
     /// smallest useful protocol-closed prefix until the request is safe.
     #[allow(clippy::too_many_arguments)]
@@ -717,6 +725,7 @@ mod tests {
         context.finish_round();
 
         let continuation = context.next_provider_input(true);
+        assert_eq!(context.incremental_debug_state(), (false, Some(2), 3));
 
         let Some(GenerateInput::NativeToolResults(results)) = continuation.incremental else {
             panic!("expected native tool-result delta");

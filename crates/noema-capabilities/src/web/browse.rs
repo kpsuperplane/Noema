@@ -288,7 +288,7 @@ pub fn tool_specs() -> Result<Vec<ToolSpec>, ToolContractError> {
         )?,
         ToolSpec::new(
             WEB_BROWSE_SWITCH_PROVIDER_TOOL,
-            "Open an agent-selected public URL with the next configured browser provider when the current provider cannot continue. Supply snapshot_revision when the failed session has a snapshot. Omit it when the initial open failed. A successful switch creates a fresh session and destroys the previous cookies, local storage, session storage, browser history, DOM state, and element references.",
+            "Open an agent-selected public URL with the next configured browser provider when the current provider cannot continue. Do not close the failed session first. Supply the snapshot_revision from the failure result when present. Omit it when the initial open failed without one. A successful switch creates a fresh session and destroys the previous cookies, local storage, session storage, browser history, DOM state, and element references.",
             json!({
                 "type":"object", "properties": {
                     "snapshot_revision":{"type":"integer","minimum":1},
