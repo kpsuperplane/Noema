@@ -282,11 +282,21 @@ impl ResponsesWebSocketSession {
             && self.previous_response_id.is_some()
             && incremental.is_some();
         if self.has_hosted_web_state && !can_continue {
+            let reason = if let Some(previous) = &self.fingerprint {
+                if previous != &fingerprint {
+                    let changed = changed_fingerprint_fields(previous, &fingerprint);
+                    format!("request settings changed: {changed}")
+                } else if self.previous_response_id.is_none() {
+                    "the previous response identifier is absent".to_string()
+                } else {
+                    "incremental input is absent".to_string()
+                }
+            } else {
+                "the request fingerprint is absent".to_string()
+            };
             return Err(ProviderError::ProtocolError {
                 provider: "responses".to_string(),
-                message:
-                    "provider-hosted web state is unavailable; this response cannot continue safely"
-                        .to_string(),
+                message: format!("provider-hosted web state cannot continue because {reason}"),
             });
         }
         let (mut body, used_response_id) = match (can_continue, incremental) {
@@ -558,6 +568,21 @@ impl ResponsesWebSocketSession {
             ))),
         }
     }
+}
+
+fn changed_fingerprint_fields(previous: &Value, current: &Value) -> String {
+    let (Some(previous), Some(current)) = (previous.as_object(), current.as_object()) else {
+        return "request".to_string();
+    };
+    previous
+        .keys()
+        .chain(current.keys())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .filter(|key| previous.get(*key) != current.get(*key))
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn install_crypto_provider() {

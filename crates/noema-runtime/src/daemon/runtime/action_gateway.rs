@@ -311,13 +311,12 @@ async fn observed_read_arguments(
         let Ok(request) = noema_capabilities::web::browse::parse_provider_switch(payload) else {
             return Ok(None);
         };
-        (
-            request.url.clone(),
-            serde_json::json!({
-                "snapshot_revision": request.snapshot_revision,
-                "url": request.url,
-            }),
-        )
+        let url = request.url.clone();
+        let mut arguments = serde_json::json!({"url": request.url});
+        if let Some(snapshot_revision) = request.snapshot_revision {
+            arguments["snapshot_revision"] = snapshot_revision.into();
+        }
+        (url, arguments)
     } else {
         return Ok(None);
     };
@@ -539,6 +538,17 @@ mod tests {
         .expect("authorize observed switch URL");
         assert_eq!(switch["snapshot_revision"], 7);
         assert_eq!(switch["url"], "https://example.com/public?q=one");
+
+        let initial_switch = observed_read_arguments(
+            &store,
+            noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL,
+            &serde_json::json!({"url": url}),
+        )
+        .await
+        .expect("lookup observed initial switch URL")
+        .expect("authorize observed initial switch URL");
+        assert!(initial_switch.get("snapshot_revision").is_none());
+        assert_eq!(initial_switch["url"], "https://example.com/public?q=one");
     }
 
     #[tokio::test]

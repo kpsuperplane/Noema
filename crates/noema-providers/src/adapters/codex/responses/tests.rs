@@ -418,6 +418,42 @@ async fn missing_previous_response_does_not_replay_hosted_web_state() {
 }
 
 #[tokio::test]
+async fn hosted_web_state_reports_changed_request_fields() {
+    let (base_url, requests_rx) =
+        spawn_websocket_server(vec![vec![websocket_completed_with_search("resp_1")]]).await;
+    let provider = provider_with_token(base_url);
+    let mut session = provider.open_generation_session();
+    let mut request = GenerateRequest::text("one");
+    session
+        .generate(
+            request.clone(),
+            ProviderSessionInput::initial(GenerateInput::Text("one".to_string())),
+            &mut |_| {},
+        )
+        .await
+        .expect("initial response");
+    request.instructions = Some("changed instructions".to_string());
+    let error = session
+        .generate(
+            request,
+            ProviderSessionInput {
+                replay: GenerateInput::Text("complete two".to_string()),
+                incremental: Some(GenerateInput::Text("incremental two".to_string())),
+            },
+            &mut |_| {},
+        )
+        .await
+        .expect_err("changed settings must fail closed");
+
+    assert!(matches!(
+        error,
+        ProviderError::ProtocolError { message, .. }
+            if message.ends_with("request settings changed: instructions")
+    ));
+    assert_eq!(requests_rx.await.expect("WebSocket requests").len(), 1);
+}
+
+#[tokio::test]
 async fn websocket_failure_after_output_does_not_replay() {
     let (base_url, requests_rx) = spawn_websocket_server(vec![
         vec![websocket_completed("resp_1", "one")],
