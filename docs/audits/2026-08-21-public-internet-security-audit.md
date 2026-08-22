@@ -8,13 +8,13 @@
 
 ## Decision
 
-**Do not expose the current instance to the public internet.**
+**Do not expose the instance until the remaining manual edge steps pass.**
 
-The review found three high-severity release blockers. The current process is a root debug process on a wildcard listener.
+H-03 remains open until Cloudflare applies explicit global and route request limits.
 
-The Caddy binary also contains directly reachable TLS denial-of-service defects. The edge has no required pre-authentication limits.
+The operator must also keep recovery off the public route or accept its rotation behavior. The Tunnel must route through Caddy.
 
-No critical finding was confirmed. The review found three high, three medium, and five low findings.
+The requested local deployment controls now pass. No critical finding was confirmed.
 
 ## Post-audit remediation
 
@@ -25,6 +25,12 @@ The audit evidence below describes the original runtime.
 - The instance home moved from the repository to `/var/lib/noema-dev` with mode `0700`.
 - H-02 is remediated. Caddy 2.11.4 now uses Go 1.27.0 without the two listed TLS findings.
 - H-03 remains open until the public Cloudflare route has explicit request limits.
+- M-01 is remediated locally. Caddy uses a Caddy-only Unix administration socket and a restricted systemd sandbox.
+- M-02 is remediated. Runtime logs retain request paths but remove OAuth query strings and the known custom session header.
+- The journal retains at most 512 MiB for at most 30 days.
+- M-03 is remediated. Diagnostics use mode `0600`, bounded events, and one bounded rotated file.
+- L-02 is remediated with a one-year HSTS policy without `includeSubDomains` or preload.
+- L-03 is remediated for this instance. All Noema data directories and files now deny group and other access.
 
 ## Severity model
 
@@ -60,7 +66,7 @@ Several unrelated tracked and untracked files remained at cutoff. They included 
 
 I reviewed its owner, traversal, symlink, and size controls. No new unauthenticated path was found.
 
-The dirty debug build is not reproducible. H-01 requires a clean, reviewed release revision.
+The operator chose the live development process. Its debug build remains an accepted H-01 residual risk.
 
 ## Observed deployment
 
@@ -69,10 +75,10 @@ The dirty debug build is not reproducible. H-01 requires a clean, reviewed relea
 | DNS | The public name resolved only to a Tailscale address. | The current shield appears active. |
 | Firewall | Incoming and routed traffic used a default deny policy. | No external validation was possible. |
 | Caddy | Caddy listened on ports 80 and 443. | Public edge when DNS changes. |
-| Noema HTTP | `noema_web` listened on `0.0.0.0:3737`. | Unsafe public target. |
-| Noema process | Root debug binary with all effective capabilities. | Unsafe public target. |
+| Noema HTTP | `noema_web` listens on `127.0.0.1:3737`. | Correct private listener. |
+| Noema process | The debug binary runs as `noema-dev` without capabilities and with `NoNewPrivileges`. | Accepted development residual. |
 | Caddy upstream | `127.0.0.1:3737`. | Correct proxy destination. |
-| Caddy admin | Unauthenticated loopback API on `127.0.0.1:2019`. | Local control risk. |
+| Caddy admin | `/run/caddy/admin.sock` has mode `0200` inside a mode `0750` Caddy directory. | `noema-dev` cannot connect. |
 | GraphQL socket | `.noema-dev/run/graphql.sock`, mode `0600`. | Private under a `0700` directory. |
 | Browser auth | `login_required`, mode `required`. | Authentication bypass is now off. |
 
@@ -82,15 +88,15 @@ The current shield depends on DNS, Tailscale, and host firewall state. This revi
 
 | ID | Severity | Finding | Public release |
 | --- | --- | --- | --- |
-| H-01 | High | The target is a root debug process on a wildcard listener. | Blocked |
-| H-02 | High | Caddy uses a Go runtime with reachable TLS denial defects. | Blocked |
+| H-01 | High | The target was a root debug process on a wildcard listener. | Partly remediated; debug risk accepted |
+| H-02 | High | Caddy used a Go runtime with reachable TLS denial defects. | Remediated |
 | H-03 | High | Missing explicit edge admission limits permit authentication-state exhaustion. | Blocked |
-| M-01 | Medium | Caddy local control and containment widen compromise impact. | Fix before public access |
-| M-02 | Medium | Proxy errors can record OAuth authorization codes. | Fix before public access |
-| M-03 | Medium | The diagnostic log has no total size or retention bound. | Fix before sustained public use |
+| M-01 | Medium | Caddy local control and containment widened compromise impact. | Remediated locally |
+| M-02 | Medium | Proxy errors could record OAuth authorization codes. | Remediated |
+| M-03 | Medium | The diagnostic log had no total size or retention bound. | Remediated |
 | L-01 | Low | Rust `h2` has an unbounded empty-frame advisory. | Upgrade before public access |
-| L-02 | Low | HTTPS responses omit HSTS. | Add before public access |
-| L-03 | Low | Database and data modes do not match the production contract. | Correct during deployment |
+| L-02 | Low | HTTPS responses omitted HSTS. | Remediated |
+| L-03 | Low | Database and data modes did not match the production contract. | Remediated for this instance |
 | L-04 | Low | MCP setup infers secret status from English key names. | Correct in normal hardening |
 | L-05 | Low | Malformed passkey state can block browser recovery. | Correct in recovery hardening |
 
@@ -552,6 +558,6 @@ No application tests ran because this task was an audit-only review. The command
 
 The application has strong authentication, authority, session, SSRF, path, and secret-boundary controls. These controls reduce common public attack paths.
 
-The running deployment does not yet implement its production contract. The root debug process, vulnerable TLS runtime, and missing edge limits are decisive blockers.
+The local deployment controls now implement the chosen live-development boundary. The debug build remains an accepted residual risk.
 
-The operator attestation resolves the prior credential concern. Complete the acceptance checklist against the actual production service.
+Explicit Cloudflare limits remain the decisive blocker. Recovery exposure and Tunnel routing remain manual operator steps.
