@@ -68,6 +68,8 @@ slice or a net-negative reduction.
   Provider-hosted web state fails closed if the provider continuation expires.
 - Finalization keeps an active provider session's request contract. It sends
   stop guidance as incremental input instead of changing tools or instructions.
+- Historical tool results can support valid facts. They do not prove a requested
+  current-turn action occurred.
 - Responses WebSocket requests use the provider timeout. Request changes report
   the changed field names without exposing field values.
 - A full provider conversion preserves every source rule. Optional null
