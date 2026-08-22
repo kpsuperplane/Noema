@@ -3,7 +3,8 @@ use noema_conversations::{
     NewConversationItem, NewConversationTurn,
 };
 use noema_providers::{
-    GenerateMessageRole, GenerateOptions, GenerateRequest, NoemaToolChoice, ProviderToolTransport,
+    GenerateMessageRole, GenerateOptions, GenerateRequest, NoemaToolChoice, ProviderSessionInput,
+    ProviderToolTransport,
 };
 use serde_json::{Map, Value, json};
 
@@ -155,6 +156,7 @@ impl RuntimeActor {
         let route = self.resolve_primary_provider().await?;
         let selection = route.selection().clone();
         let provider = route.operations();
+        let mut provider_session = provider.open_generation_session();
         let planned = plan_prompt_context_with_input_role(
             PromptPlanRequest {
                 store: &self.store,
@@ -174,8 +176,9 @@ impl RuntimeActor {
                 "primary notification context exceeds the selected model window".to_string(),
             ));
         }
-        let response = provider
-            .generate_streaming(
+        let provider_input = planned.input.clone();
+        let response = provider_session
+            .generate(
                 GenerateRequest {
                     conversation_id: Some(conversation_id.to_string()),
                     model: selection.model_profile.clone(),
@@ -191,6 +194,7 @@ impl RuntimeActor {
                     tool_choice: NoemaToolChoice::None,
                     parallel_tool_calls: false,
                 },
+                ProviderSessionInput::initial(provider_input),
                 &mut |_| {},
             )
             .await;
@@ -217,6 +221,8 @@ impl RuntimeActor {
             metadata.extend(Map::from_iter([
                 ("turn_index".to_string(), json!(turn_index)),
                 ("response_index".to_string(), json!(response_index)),
+                ("output_index".to_string(), json!(response_index)),
+                ("provider_round".to_string(), json!(0)),
                 ("phase".to_string(), json!(output.phase.as_str())),
                 (
                     "provider_item_id".to_string(),
@@ -226,6 +232,17 @@ impl RuntimeActor {
                 ("notification_id".to_string(), json!(notification.id)),
                 ("provider".to_string(), json!(response.provider)),
                 ("model".to_string(), json!(response.model)),
+                (
+                    "usage".to_string(),
+                    response.usage.as_ref().map_or(Value::Null, |usage| {
+                        json!({
+                            "input_tokens": usage.input_tokens,
+                            "cached_input_tokens": usage.cached_input_tokens,
+                            "output_tokens": usage.output_tokens,
+                            "total_tokens": usage.total_tokens,
+                        })
+                    }),
+                ),
             ]));
             let Some((record, inserted)) = self
                 .persist_provider_assistant_text(

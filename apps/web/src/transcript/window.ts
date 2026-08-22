@@ -114,21 +114,13 @@ function mergeEntriesByItemId(
       return entry.type === "assistant" && key ? [[key, entry]] : [];
     })
   );
-  const incomingAssistantByTurnText = new Map(
-    incoming.flatMap((entry) => {
-      const key = assistantTurnTextKey(entry);
-      return entry.type === "assistant" && key ? [[key, entry]] : [];
-    })
-  );
   const seenItemIds = new Set<string>();
-  const seenAssistantTurnText = new Set<string>();
 
   return baseEntries.flatMap((entry) => {
     if (entry.type === "assistant_stream") {
       const replacement =
         incomingAssistantByStreamId.get(entry.streamId) ??
-        incomingAssistantByTurnResponse.get(assistantTurnResponseKey(entry) ?? "") ??
-        incomingAssistantByTurnText.get(assistantTurnTextKey(entry) ?? "");
+        incomingAssistantByTurnResponse.get(assistantTurnResponseKey(entry) ?? "");
       const replacementItemId = replacement ? transcriptEntryItemId(replacement) : undefined;
       if (!replacement) {
         return [entry];
@@ -144,27 +136,6 @@ function mergeEntriesByItemId(
     const itemId = transcriptEntryItemId(entry);
     if (itemId !== undefined && seenItemIds.has(itemId)) {
       return [];
-    }
-    if (entry.type === "assistant") {
-      const turnTextKey = assistantTurnTextKey(entry);
-      if (turnTextKey) {
-        const replacement = incomingAssistantByTurnText.get(turnTextKey);
-        if (replacement) {
-          if (seenAssistantTurnText.has(turnTextKey)) {
-            return [];
-          }
-          seenAssistantTurnText.add(turnTextKey);
-          const replacementItemId = transcriptEntryItemId(replacement);
-          if (replacementItemId) {
-            seenItemIds.add(replacementItemId);
-          }
-          return [replacement];
-        }
-        if (seenAssistantTurnText.has(turnTextKey)) {
-          return [];
-        }
-        seenAssistantTurnText.add(turnTextKey);
-      }
     }
     if (itemId === undefined) {
       return [entry];
@@ -204,17 +175,6 @@ function assistantTurnResponseKey(entry: TranscriptEntry): string | undefined {
     return undefined;
   }
   return typeof entry.responseIndex === "number" ? `${entry.turnId}:${entry.responseIndex}` : undefined;
-}
-
-function assistantTurnTextKey(entry: TranscriptEntry): string | undefined {
-  if (
-    (entry.type !== "assistant" && entry.type !== "assistant_stream") ||
-    !entry.turnId ||
-    !entry.text.trim()
-  ) {
-    return undefined;
-  }
-  return `${entry.turnId}:${entry.text}`;
 }
 
 function assistantReconciledStreamIds(

@@ -8,7 +8,7 @@ use noema_providers::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
     GenerateReasoningInput, GenerateRequest, GenerateResponse, GenerateStreamEvent,
     GenerateToolCallInput, GenerateToolResultInput, GenerationPriority, ProviderError,
-    ProviderOperations, ProviderResponseContinuation, ProviderTool, ReasoningEffort,
+    ProviderOperations, ProviderSessionInput, ProviderTool, ReasoningEffort,
 };
 
 use super::{
@@ -22,18 +22,12 @@ use super::{
 const DEFAULT_SUMMARY_TARGET_TOKENS: u32 = 1_200;
 const MODEL_TOOL_RESULT_LIMIT: usize = 64 * 1024;
 
-/// Minimal provider request state for the next continuation round.
-pub(super) struct ProviderContinuationInput {
-    pub(super) input: GenerateInput,
-    pub(super) previous_response_id: Option<String>,
-}
-
 /// Complete ordered model context for one tool-using execution.
 #[derive(Debug, Clone)]
 pub(crate) struct ContinuationContext {
     checkpoint: Option<String>,
     items: Vec<GenerateInputItem>,
-    previous_response_id: Option<String>,
+    requires_replay: bool,
     continuation_delta_start: Option<usize>,
     round_ends: Vec<usize>,
     awaiting_provider_consumption: bool,
@@ -72,7 +66,7 @@ impl ContinuationContext {
         Self {
             checkpoint: None,
             items,
-            previous_response_id: None,
+            requires_replay: false,
             continuation_delta_start: None,
             round_ends: Vec::new(),
             awaiting_provider_consumption: false,
@@ -85,7 +79,7 @@ impl ContinuationContext {
     /// and tool calls in their provider-visible order.
     pub(crate) fn append_response(&mut self, response: &GenerateResponse) {
         self.awaiting_provider_consumption = false;
-        self.previous_response_id.clone_from(&response.response_id);
+        self.requires_replay = false;
         self.items
             .extend(response.reasoning_items.iter().filter_map(|item| {
                 let encrypted_content = item
@@ -195,19 +189,12 @@ impl ContinuationContext {
         }
     }
 
-    /// Prefer a provider-side response chain when both the provider and the
-    /// latest response support it; otherwise return complete local replay.
-    pub(super) fn next_provider_input(
-        &self,
-        native_history: bool,
-        strategy: ProviderResponseContinuation,
-    ) -> ProviderContinuationInput {
-        let mut previous_response_id = strategy
-            .supports_previous_response_id()
-            .then(|| self.previous_response_id.clone())
-            .flatten();
-        let active_session = strategy.supports_active_session();
-        let input = if previous_response_id.is_some() || active_session {
+    /// Return complete local replay and the safe input added after the prior response.
+    pub(super) fn next_provider_input(&self, native_history: bool) -> ProviderSessionInput {
+        let replay = self.provider_input(native_history);
+        let incremental = if self.requires_replay {
+            None
+        } else {
             let items = self
                 .continuation_delta_start
                 .map_or_else(Vec::new, |start| self.items[start..].to_vec());
@@ -221,23 +208,16 @@ impl ContinuationContext {
                     | GenerateInputItem::ToolCall(_) => None,
                 })
                 .collect::<Vec<_>>();
-            let delta = if !results.is_empty() && (active_session || results.len() == items.len()) {
+            let delta = if !results.is_empty() && results.len() == items.len() {
                 GenerateInput::NativeToolResults(results)
             } else {
                 GenerateInput::Items(items)
             };
-            if delta.is_empty() {
-                previous_response_id = None;
-                self.provider_input(native_history)
-            } else {
-                delta
-            }
-        } else {
-            self.provider_input(native_history)
+            if delta.is_empty() { None } else { Some(delta) }
         };
-        ProviderContinuationInput {
-            input,
-            previous_response_id,
+        ProviderSessionInput {
+            replay,
+            incremental,
         }
     }
 
@@ -435,7 +415,7 @@ impl ContinuationContext {
         self.continuation_delta_start = self
             .continuation_delta_start
             .and_then(|start| start.checked_sub(boundary));
-        self.previous_response_id = None;
+        self.requires_replay = true;
         for round_end in &mut self.round_ends {
             *round_end = round_end.saturating_sub(boundary);
         }
@@ -542,8 +522,7 @@ mod tests {
     use super::*;
     use crate::daemon::runtime::local_tools::LocalToolResult;
     use noema_providers::{
-        GenerateReasoningItem, GenerateToolCall, ProviderContextMetadata,
-        ProviderResponseContinuation, ProviderToolCapabilities,
+        GenerateReasoningItem, GenerateToolCall, ProviderContextMetadata, ProviderToolCapabilities,
     };
     use serde_json::json;
     use std::{
@@ -686,15 +665,9 @@ mod tests {
         )]);
         context.finish_round();
 
-        let continuation = context.next_provider_input(
-            true,
-            ProviderResponseContinuation::PreviousResponseId {
-                store_response: true,
-            },
-        );
+        let continuation = context.next_provider_input(true);
 
-        assert_eq!(continuation.previous_response_id.as_deref(), Some("resp_1"));
-        let GenerateInput::NativeToolResults(results) = continuation.input else {
+        let Some(GenerateInput::NativeToolResults(results)) = continuation.incremental else {
             panic!("expected native tool-result delta");
         };
         assert_eq!(results.len(), 1);
@@ -716,15 +689,9 @@ mod tests {
         context.append_developer_message("NOEMA_MODEL_CONTEXT_UPDATE\n{}".to_string());
         context.finish_round();
 
-        let continuation = context.next_provider_input(
-            true,
-            ProviderResponseContinuation::PreviousResponseId {
-                store_response: true,
-            },
-        );
+        let continuation = context.next_provider_input(true);
 
-        assert_eq!(continuation.previous_response_id.as_deref(), Some("resp_1"));
-        let GenerateInput::Items(items) = continuation.input else {
+        let Some(GenerateInput::Items(items)) = continuation.incremental else {
             panic!("expected mixed continuation delta");
         };
         assert!(matches!(items[0], GenerateInputItem::ToolResult(_)));
@@ -755,15 +722,15 @@ mod tests {
         context.append_developer_message("NOEMA_MODEL_CONTEXT_UPDATE\n{}".to_string());
         context.finish_round();
 
-        let continuation =
-            context.next_provider_input(true, ProviderResponseContinuation::ActiveSession);
+        let continuation = context.next_provider_input(true);
 
-        assert_eq!(continuation.previous_response_id, None);
-        let GenerateInput::NativeToolResults(results) = continuation.input else {
+        let Some(GenerateInput::Items(items)) = continuation.incremental else {
+            panic!("expected active-session changed items");
+        };
+        let GenerateInputItem::ToolResult(result) = &items[0] else {
             panic!("expected active-session native tool results");
         };
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].call_id, "call_1");
+        assert_eq!(result.call_id, "call_1");
     }
 
     #[tokio::test]
@@ -822,15 +789,10 @@ mod tests {
             "new result",
         )]);
 
-        let continuation = context.next_provider_input(
-            true,
-            ProviderResponseContinuation::PreviousResponseId {
-                store_response: true,
-            },
-        );
+        let continuation = context.next_provider_input(true);
 
-        assert_eq!(continuation.previous_response_id, None);
-        let rendered = continuation.input.render_for_token_count();
+        assert!(continuation.incremental.is_none());
+        let rendered = continuation.replay.render_for_token_count();
         assert!(rendered.contains("Noema execution context checkpoint"));
         assert!(rendered.contains("450,000"));
         assert!(!rendered.contains("round 1:"));

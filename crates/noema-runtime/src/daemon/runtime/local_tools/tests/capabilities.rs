@@ -355,6 +355,7 @@ async fn approved_foreground_action_resumes_with_its_stored_result() {
         user_item_id: turn.user_item_id.clone(),
         provider: "codex".to_string(),
         model: "gpt-test".to_string(),
+        provider_round: 0,
         response_phase: "initial",
         usage: None,
         stream_id: Some("stream:test".to_string()),

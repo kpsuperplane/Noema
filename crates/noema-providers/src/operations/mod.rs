@@ -9,8 +9,9 @@ use crate::generation::split_markdown_response_item;
 use crate::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
     MarkdownMessageDeltaSplitter, ModelProvider, ProviderContextMetadata, ProviderError,
-    ProviderGenerationFuture, ProviderGenerationSession, ProviderResponseContinuation,
-    ProviderSchemaRequestCapabilities, ProviderSessionInput, ProviderToolCapabilities,
+    ProviderGenerationFuture, ProviderGenerationMetadata, ProviderGenerationSession,
+    ProviderResponseContinuation, ProviderSchemaRequestCapabilities, ProviderSessionInput,
+    ProviderToolCapabilities,
 };
 
 #[cfg(test)]
@@ -226,6 +227,10 @@ impl ProviderGenerationSession for NormalizedGenerationSession<'_> {
                 .await;
             normalizer.finish(result)
         })
+    }
+
+    fn metadata(&self) -> ProviderGenerationMetadata {
+        self.inner.metadata()
     }
 }
 
@@ -724,6 +729,79 @@ mod tests {
             .expect("default streaming");
         assert_eq!(response.assistant_text(), "hello stream");
         assert!(events.is_empty());
+
+        #[derive(Debug)]
+        struct ExpiredActiveSessionProvider {
+            inputs: Arc<std::sync::Mutex<Vec<crate::GenerateInput>>>,
+        }
+
+        impl ModelProvider for ExpiredActiveSessionProvider {
+            async fn generate(
+                &self,
+                request: GenerateRequest,
+            ) -> Result<GenerateResponse, ProviderError> {
+                self.inputs
+                    .lock()
+                    .expect("inputs")
+                    .push(request.input.clone());
+                if matches!(request.input, crate::GenerateInput::NativeToolResults(_)) {
+                    return Err(ProviderError::ProviderUnavailable {
+                        provider: "active-session".to_string(),
+                        message: "session expired".to_string(),
+                    });
+                }
+                Ok(GenerateResponse::final_text(
+                    "complete replay",
+                    "active-session",
+                    "model",
+                ))
+            }
+
+            fn response_continuation(&self, _model: Option<&str>) -> ProviderResponseContinuation {
+                ProviderResponseContinuation::ActiveSession
+            }
+        }
+
+        let inputs = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let expired_provider = erase_model_provider(ExpiredActiveSessionProvider {
+            inputs: Arc::clone(&inputs),
+        });
+        let mut session = expired_provider.open_generation_session();
+        session
+            .generate(
+                GenerateRequest::text("initial"),
+                ProviderSessionInput::initial(crate::GenerateInput::Text("initial".to_string())),
+                &mut |_| {},
+            )
+            .await
+            .expect("initial response");
+        session
+            .generate(
+                GenerateRequest::text("complete replay"),
+                ProviderSessionInput {
+                    replay: crate::GenerateInput::Text("complete replay".to_string()),
+                    incremental: Some(crate::GenerateInput::Items(vec![
+                        crate::GenerateInputItem::ToolResult(crate::GenerateToolResultInput {
+                            id: None,
+                            call_id: "call-1".to_string(),
+                            name: "search".to_string(),
+                            provider_name: None,
+                            arguments: serde_json::json!({}),
+                            success: true,
+                            payload: serde_json::json!({"result": "done"}),
+                        }),
+                    ])),
+                },
+                &mut |_| {},
+            )
+            .await
+            .expect("expired session replay");
+        let inputs = inputs.lock().expect("inputs");
+        assert!(matches!(
+            inputs[1],
+            crate::GenerateInput::NativeToolResults(_)
+        ));
+        assert!(matches!(inputs[2], crate::GenerateInput::Text(_)));
 
         #[cfg(feature = "adapters")]
         {

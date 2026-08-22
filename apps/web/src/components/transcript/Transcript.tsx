@@ -483,6 +483,7 @@ function renderTranscriptEntry(
         group={bubbleGroup}
         reserveAvatarSpace={reserveAvatarSpace}
         role="assistant"
+        progress={entry.phase === "commentary"}
         text={entry.text}
         showAvatar={showAvatar}
         citations={citations}

@@ -155,6 +155,7 @@ struct ChatMessageView: View {
         }
       }
     case let .assistant(text, _):
+      let isProgress = assistantPhase(message.metadata) == "commentary"
       let minimumContentWidth: CGFloat? = !attachedTaskIDs.isEmpty && text.count > 30 ? 247 : nil
       let citations = ProviderCitation.from(metadata: message.metadata)
       ChatLaneRow(
@@ -178,6 +179,10 @@ struct ChatMessageView: View {
           }
           .padding(.vertical, attachedTaskIDs.isEmpty ? 0 : 3)
           .frame(minWidth: minimumContentWidth, alignment: .leading)
+          .font(isProgress ? NoemaFont.compact : NoemaFont.message)
+          .foregroundStyle(isProgress ? NoemaColor.contentSecondary : NoemaColor.content)
+          .accessibilityElement(children: .combine)
+          .accessibilityLabel(isProgress ? "Assistant progress, \(text)" : text)
         }
       }
     case let .activity(title, summary, status, metadata, activityKind):
@@ -264,6 +269,14 @@ struct ChatMessageView: View {
       }
       }
   }
+}
+
+private func assistantPhase(_ metadata: String?) -> String {
+  guard let metadata,
+        let data = metadata.data(using: .utf8),
+        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let phase = object["phase"] as? String else { return "final_answer" }
+  return phase
 }
 
 struct ChatBubbleView<Content: View>: View {

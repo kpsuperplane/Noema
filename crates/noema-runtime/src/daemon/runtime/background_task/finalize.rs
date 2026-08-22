@@ -7,7 +7,7 @@ impl RuntimeActor {
         conversation_id: &str,
         model_tools: &ModelTools,
         capabilities: ProviderToolCapabilities,
-        response_continuation: ProviderResponseContinuation,
+        provider_session: &mut dyn noema_providers::ProviderGenerationSession,
         context: &mut ContinuationContext,
         citation_sources: &mut CitationSourceRegistry,
         provider_round: usize,
@@ -93,20 +93,16 @@ impl RuntimeActor {
                 .await;
             propagate_compaction_result(readmission)?;
         }
-        let continuation_input =
-            context.next_provider_input(capabilities.native_tool_results, response_continuation);
-        let chained = continuation_input.previous_response_id.is_some();
+        let continuation_input = context.next_provider_input(capabilities.native_tool_results);
         let finalization_request = GenerateRequest {
             conversation_id: Some(conversation_id.to_string()),
             model: request.provider_selection.model_profile.clone(),
-            input: continuation_input.input,
+            input: continuation_input.replay.clone(),
             instructions: Some(instructions.clone()),
             options: GenerateOptions {
                 reasoning_effort: request.provider_selection.reasoning_effort,
                 fast_mode: request.provider_selection.fast_mode,
                 max_output_tokens: Some(8_000),
-                previous_response_id: continuation_input.previous_response_id,
-                store_response: response_continuation.store_response(),
                 ..GenerateOptions::default()
             },
             tools: finalization_tools.clone(),
@@ -114,10 +110,11 @@ impl RuntimeActor {
             tool_choice: finalization_tool_choice.clone(),
             parallel_tool_calls: false,
         };
-        let mut finalization_result = self
+        let finalization_result = self
             .generate_task_provider_round(
-                provider,
+                provider_session,
                 finalization_request,
+                continuation_input,
                 &terminal_bindings,
                 &request.run_id,
                 &request.task_id,
@@ -130,42 +127,6 @@ impl RuntimeActor {
                 &request.runtime_events,
             )
             .await;
-        if chained && matches!(&finalization_result, Err(RuntimeError::Provider(_))) {
-            let fallback_request = GenerateRequest {
-                conversation_id: Some(conversation_id.to_string()),
-                model: request.provider_selection.model_profile.clone(),
-                input: context.provider_input(capabilities.native_tool_results),
-                instructions: Some(instructions),
-                options: GenerateOptions {
-                    reasoning_effort: request.provider_selection.reasoning_effort,
-                    fast_mode: request.provider_selection.fast_mode,
-                    max_output_tokens: Some(8_000),
-                    store_response: response_continuation.store_response(),
-                    ..GenerateOptions::default()
-                },
-                tools: finalization_tools,
-                tool_transport: model_tools.transport,
-                tool_choice: finalization_tool_choice,
-                parallel_tool_calls: false,
-            };
-            admit_uncompacted_request(provider, &fallback_request).await?;
-            finalization_result = self
-                .generate_task_provider_round(
-                    provider,
-                    fallback_request,
-                    &terminal_bindings,
-                    &request.run_id,
-                    &request.task_id,
-                    &request.lease_token,
-                    request.task_generation,
-                    "finalization",
-                    i64::from(request.execution_policy.max_provider_continuations),
-                    deadline,
-                    &request.cancellation,
-                    &request.runtime_events,
-                )
-                .await;
-        }
         let mut response = finalization_result?;
         citation_sources.observe(provider_round, &response.hosted_web_searches);
         add_usage(&mut aggregate_usage, response.usage.as_ref());
@@ -237,7 +198,10 @@ impl RuntimeActor {
         )
         .await;
         let citation_sources = std::mem::take(citation_sources);
-        Ok(BackgroundTaskGenerateResult { response, citation_sources })
+        Ok(BackgroundTaskGenerateResult {
+            response,
+            citation_sources,
+        })
     }
 
     async fn persist_progress_notice(

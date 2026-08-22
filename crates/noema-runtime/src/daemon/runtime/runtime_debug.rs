@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, time::Instant};
 
-use noema_providers::{GenerateStreamEvent, ProviderTimingMilestone};
+use noema_providers::{GenerateStreamEvent, ProviderGenerationSession, ProviderTimingMilestone};
 use noema_store::{
     NewRuntimeDebugSpan, NoemaStore, RuntimeDebugChildSpan, RuntimeDebugMetadata,
     RuntimeDebugScope, RuntimeDebugSpanCategory, RuntimeDebugSpanStatus,
@@ -73,6 +73,19 @@ impl RuntimeDebugSpan {
         {
             eprintln!("runtime debug span finish failed: {error}");
         }
+    }
+}
+
+pub(super) fn provider_session_debug_metadata(
+    session: &dyn ProviderGenerationSession,
+) -> RuntimeDebugMetadata {
+    let metadata = session.metadata();
+    RuntimeDebugMetadata {
+        transport: metadata.transport.map(str::to_string),
+        input_mode: metadata.input_mode.map(str::to_string),
+        fallback_reason: metadata.fallback_reason.map(str::to_string),
+        used_response_id: Some(metadata.used_response_id),
+        ..RuntimeDebugMetadata::default()
     }
 }
 

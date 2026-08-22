@@ -192,6 +192,7 @@ impl ResponsesTransport {
             unsupported: false,
             previous_response_id: None,
             fingerprint: None,
+            metadata: crate::ProviderGenerationMetadata::default(),
         }
     }
 
@@ -226,12 +227,14 @@ pub(crate) struct ResponsesWebSocketSession {
     unsupported: bool,
     previous_response_id: Option<String>,
     fingerprint: Option<Value>,
+    metadata: crate::ProviderGenerationMetadata,
 }
 
 pub(crate) struct PreparedResponsesRequest {
     pub(crate) body: super::ResponsesRequest,
     fingerprint: Value,
     pub(crate) used_response_id: bool,
+    input_mode: &'static str,
 }
 
 /// A WebSocket failure classified for safe HTTP fallback.
@@ -290,7 +293,42 @@ impl ResponsesWebSocketSession {
             body,
             fingerprint,
             used_response_id,
+            input_mode: if used_response_id {
+                "incremental"
+            } else if self.fingerprint.is_some() {
+                "replay"
+            } else {
+                "full"
+            },
         })
+    }
+
+    pub(crate) fn begin_request(&mut self, prepared: &PreparedResponsesRequest) {
+        self.metadata = crate::ProviderGenerationMetadata {
+            transport: Some("responses_websocket"),
+            input_mode: Some(prepared.input_mode),
+            fallback_reason: None,
+            used_response_id: prepared.used_response_id,
+        };
+    }
+
+    pub(crate) fn use_http(&mut self, reason: &'static str, used_response_id: bool) {
+        self.metadata.transport = Some("responses_http");
+        self.metadata.fallback_reason = Some(reason);
+        self.metadata.used_response_id = used_response_id;
+        if !used_response_id && self.metadata.input_mode == Some("incremental") {
+            self.metadata.input_mode = Some("replay");
+        }
+    }
+
+    pub(crate) fn replay_missing_response(&mut self) {
+        self.metadata.input_mode = Some("replay");
+        self.metadata.fallback_reason = Some("previous_response_not_found");
+        self.metadata.used_response_id = false;
+    }
+
+    pub(crate) fn metadata(&self) -> crate::ProviderGenerationMetadata {
+        self.metadata
     }
 
     pub(crate) fn record_response(

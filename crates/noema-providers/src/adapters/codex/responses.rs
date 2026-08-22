@@ -15,9 +15,10 @@ use crate::adapters::{
 use crate::{
     CodexProviderConfig, DEFAULT_CODEX_MODEL, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest,
     GenerateResponse, GenerateStreamEvent, ModelProvider, ProviderContextMetadata, ProviderError,
-    ProviderGenerationFuture, ProviderGenerationSession, ProviderResponseContinuation,
-    ProviderSchemaRequest, ProviderSchemaRequestCapabilities, ProviderSessionInput,
-    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
+    ProviderGenerationFuture, ProviderGenerationMetadata, ProviderGenerationSession,
+    ProviderResponseContinuation, ProviderSchemaRequest, ProviderSchemaRequestCapabilities,
+    ProviderSessionInput, ProviderToolCapabilities, ProviderToolSchemaDialect,
+    ProviderToolTransport,
 };
 use noema_home::SystemErrorLogger;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
@@ -353,6 +354,7 @@ impl ProviderGenerationSession for CodexGenerationSession<'_> {
             let mut prepared = self
                 .responses
                 .prepare_request(replay_body.clone(), incremental_body)?;
+            self.responses.begin_request(&prepared);
             let mut access_token = self.provider.access_token().await?;
             let mut headers = self
                 .provider
@@ -392,6 +394,7 @@ impl ProviderGenerationSession for CodexGenerationSession<'_> {
             {
                 self.responses.clear_response_id();
                 prepared = self.responses.prepare_request(replay_body.clone(), None)?;
+                self.responses.replay_missing_response();
                 result = self
                     .responses
                     .send(
@@ -405,9 +408,23 @@ impl ProviderGenerationSession for CodexGenerationSession<'_> {
             }
             let response = match result {
                 Ok(response) => response,
-                Err(
-                    ResponsesWebSocketError::Unsupported(_) | ResponsesWebSocketError::Setup(_),
-                ) => {
+                Err(ResponsesWebSocketError::Unsupported(_)) => {
+                    self.responses.use_http("unsupported_websocket", false);
+                    let mut replay_body = replay_body;
+                    replay_body.previous_response_id = None;
+                    self.provider
+                        .transport
+                        .send_streaming(
+                            &access_token,
+                            replay_body,
+                            headers,
+                            diagnostics.clone(),
+                            on_event,
+                        )
+                        .await?
+                }
+                Err(ResponsesWebSocketError::Setup(_)) => {
+                    self.responses.use_http("websocket_setup_failed", false);
                     let mut replay_body = replay_body;
                     replay_body.previous_response_id = None;
                     self.provider
@@ -426,6 +443,10 @@ impl ProviderGenerationSession for CodexGenerationSession<'_> {
             self.responses.record_response(&prepared, &response);
             response.finalize(&tool_names, tool_transport, &diagnostics)
         })
+    }
+
+    fn metadata(&self) -> ProviderGenerationMetadata {
+        self.responses.metadata()
     }
 }
 

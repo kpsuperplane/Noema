@@ -20,7 +20,8 @@ impl RuntimeActor {
         let reasoning_effort = provider_selection.reasoning_effort;
         let fast_mode = provider_selection.fast_mode;
         let turn_index = conversation.next_turn_index;
-        let turn = if let Some((intervention_id, trigger_item_id)) = user_input.human_intervention() {
+        let turn = if let Some((intervention_id, trigger_item_id)) = user_input.human_intervention()
+        {
             let (turn, inserted) = self
                 .store
                 .create_conversation_turn_with_id_if_absent(
@@ -66,10 +67,8 @@ impl RuntimeActor {
         );
         let provider = provider_route.operations();
         let tool_capabilities = provider.tool_capabilities(model_profile);
-        let response_continuation = provider.response_continuation(model_profile);
-        let agent_identity = self
-            .agent_identity_for_conversation()
-            .await?;
+        let mut provider_session = provider.open_generation_session();
+        let agent_identity = self.agent_identity_for_conversation().await?;
         let tools_started_at = std::time::Instant::now();
         let tools_debug = RuntimeDebugSpan::begin(
             &self.store,
@@ -108,7 +107,8 @@ impl RuntimeActor {
         .await?;
         timing.mark("runtime_status_thinking", json!({}));
         let runtime_environment = current_runtime_environment_with_timezone(
-            conversation.cwd.as_deref(), client_time_zone.as_deref(),
+            conversation.cwd.as_deref(),
+            client_time_zone.as_deref(),
         );
         let model_context_state = model_context_state(
             &agent_identity,
@@ -200,15 +200,15 @@ impl RuntimeActor {
             });
             let (user_kind, parent_item_id, user_content_text, user_payload, transcript_item) =
                 match &user_input {
-                UserTurnInput::Text(text) => (
-                    ConversationItemKind::UserText,
-                    None,
-                    Some(text.clone()),
-                    json!({}),
-                    TurnTranscriptItem::UserText { text: text.clone() },
-                ),
-                UserTurnInput::HumanInterventionContinuation { .. } => unreachable!(),
-            };
+                    UserTurnInput::Text(text) => (
+                        ConversationItemKind::UserText,
+                        None,
+                        Some(text.clone()),
+                        json!({}),
+                        TurnTranscriptItem::UserText { text: text.clone() },
+                    ),
+                    UserTurnInput::HumanInterventionContinuation { .. } => unreachable!(),
+                };
             let user_item = self
                 .store
                 .append_conversation_item(NewConversationItem {
@@ -315,8 +315,8 @@ impl RuntimeActor {
             })
             .await?;
             let prompt_replan_started_at = std::time::Instant::now();
-            planned_context =
-                super::prompt_context::plan_prompt_context(super::prompt_context::PromptPlanRequest {
+            planned_context = super::prompt_context::plan_prompt_context(
+                super::prompt_context::PromptPlanRequest {
                     store: &self.store,
                     provider,
                     conversation_id: &conversation_id,
@@ -324,8 +324,9 @@ impl RuntimeActor {
                     model_profile,
                     current_input: &input,
                     memory_root_context: memory_root_context.as_deref(),
-                })
-                .await?;
+                },
+            )
+            .await?;
             self.reconcile_model_context_plan(
                 provider,
                 &conversation_id,
@@ -435,8 +436,7 @@ impl RuntimeActor {
         let mut provider_timeline = ProviderDebugTimeline::begin();
         let mut on_initial_event = |event| {
             provider_timeline.observe(&event);
-            if !matches!(&event, GenerateStreamEvent::ProviderTiming { .. })
-                && !initial_stream_seen
+            if !matches!(&event, GenerateStreamEvent::ProviderTiming { .. }) && !initial_stream_seen
             {
                 timing.mark(
                     "provider_initial_first_stream_event",
@@ -501,8 +501,8 @@ impl RuntimeActor {
         } else {
             (initial_provider_tools, NoemaToolChoice::Auto)
         };
-        let initial_result = provider
-            .generate_streaming(
+        let initial_result = provider_session
+            .generate(
                 GenerateRequest {
                     conversation_id: Some(conversation_id.clone()),
                     model: provider_selection.model_profile.clone(),
@@ -516,7 +516,6 @@ impl RuntimeActor {
                         prompt_cache_retention: prompt_cache_retention_for(tool_capabilities),
                         prompt_cache_options: prompt_cache_options_for(tool_capabilities),
                         prompt_cache_breakpoints: initial_prompt_cache_breakpoints,
-                        store_response: response_continuation.store_response(),
                         ..GenerateOptions::default()
                     },
                     tools: initial_tools,
@@ -526,6 +525,7 @@ impl RuntimeActor {
                         && model_tools.has_callable_tools()
                         && tool_capabilities.parallel_tool_calls,
                 },
+                ProviderSessionInput::initial(initial_provider_input.clone()),
                 &mut on_initial_event,
             )
             .await;
@@ -545,7 +545,7 @@ impl RuntimeActor {
                             cached_input_tokens: usage.and_then(|value| value.cached_input_tokens),
                             output_tokens: usage.map(|value| value.output_tokens),
                             total_tokens: usage.map(|value| value.total_tokens),
-                            ..RuntimeDebugMetadata::default()
+                            ..provider_session_debug_metadata(provider_session.as_ref())
                         }),
                         &provider_children,
                     )
@@ -604,6 +604,7 @@ impl RuntimeActor {
                             continuation_model_tools,
                             initial_provider_input,
                         },
+                        provider_session.as_mut(),
                         &item_tx,
                         &timing,
                     )
@@ -621,6 +622,7 @@ impl RuntimeActor {
                     self.conversations.remove(&conversation_id);
                     return Err(error);
                 }
+                drop(provider_session);
                 self.schedule_background_context_compaction(BackgroundContextCompactionSchedule {
                     conversation_id: conversation_id.clone(),
                     provider_kind: provider_selection.provider_kind.clone(),
@@ -638,7 +640,7 @@ impl RuntimeActor {
                 initial_provider_debug
                     .finish_with_children(
                         RuntimeDebugSpanStatus::Failed,
-                        None,
+                        Some(provider_session_debug_metadata(provider_session.as_ref())),
                         &provider_children,
                     )
                     .await;
@@ -680,6 +682,7 @@ impl RuntimeActor {
                         user_item_id,
                         provider,
                         model: "unknown".to_string(),
+                        provider_round: 0,
                         response_phase: "continuation",
                         usage: None,
                         stream_id: None,

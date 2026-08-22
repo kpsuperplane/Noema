@@ -2,6 +2,7 @@ impl RuntimeActor {
     pub(super) async fn persist_successful_provider_turn(
         &mut self,
         turn: SuccessfulProviderTurn,
+        provider_session: &mut dyn ProviderGenerationSession,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
         timing: &TurnTiming,
     ) -> Result<(), RuntimeError> {
@@ -11,7 +12,7 @@ impl RuntimeActor {
             .prepare_foreground_continuations(&turn, item_tx, timing)
             .await?;
         if self
-            .run_foreground_continuations(&turn, continuation, item_tx, timing)
+            .run_foreground_continuations(&turn, provider_session, continuation, item_tx, timing)
             .await?
         {
             return Ok(());
@@ -52,6 +53,7 @@ impl RuntimeActor {
             user_item_id: turn.user_item_id.clone(),
             provider: turn.response.provider.clone(),
             model: turn.response.model.clone(),
+            provider_round: 0,
             response_phase: "initial",
             usage: turn.response.usage.clone(),
             stream_id: Some(turn.initial_stream_id.clone()),
@@ -117,6 +119,7 @@ impl RuntimeActor {
             user_item_id: turn.user_item_id.clone(),
             provider: turn.provider_kind.clone(),
             model: "noema_local".to_string(),
+            provider_round: 0,
             response_phase: "continuation",
             usage: None,
             stream_id: None,

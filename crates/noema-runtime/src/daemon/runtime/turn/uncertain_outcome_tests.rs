@@ -84,11 +84,13 @@ async fn uncertain_foreground_action_fails_with_a_durable_non_retry_notice() {
         citation_sources: Default::default(),
     };
     let (item_tx, _item_rx) = mpsc::unbounded_channel();
+    let mut provider_session = turn.provider_route.operations().open_generation_session();
 
     assert!(
         actor
             .run_foreground_continuations(
                 &turn,
+                provider_session.as_mut(),
                 state,
                 &item_tx,
                 &TurnTiming::new(&turn.conversation_id, &turn.turn_id, 1, None),

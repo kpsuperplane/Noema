@@ -17,20 +17,23 @@ use crate::daemon::{RuntimeError, RuntimeEventRegistry, TaskRuntimeEvent};
 use noema_capabilities::CapabilityCatalogSnapshot;
 use noema_providers::{
     GenerateHostedWebSearch, GenerateRequest, GenerateResponse, GenerateStreamEvent,
-    GenerationPriority, ProviderOperations,
+    GenerationPriority, ProviderGenerationSession, ProviderSessionInput,
 };
 
 use super::{
-    actor::RuntimeActor, background_task::BackgroundTaskGenerateRequest,
-    runtime_debug::RuntimeDebugSpan, tool_lifecycle::LocalToolCall,
+    actor::RuntimeActor,
+    background_task::BackgroundTaskGenerateRequest,
+    runtime_debug::{RuntimeDebugSpan, provider_session_debug_metadata},
+    tool_lifecycle::LocalToolCall,
 };
 
 impl RuntimeActor {
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn generate_task_provider_round(
         &self,
-        provider: &dyn ProviderOperations,
+        provider_session: &mut dyn ProviderGenerationSession,
         mut request: GenerateRequest,
+        provider_input: ProviderSessionInput,
         bindings: &CapabilityCatalogSnapshot,
         run_id: &str,
         task_id: &str,
@@ -203,7 +206,7 @@ impl RuntimeActor {
         let result = tokio::select! {
             _ = cancellation.cancelled() => Err(RuntimeError::Protocol("task execution cancelled".to_string())),
             _ = tokio::time::sleep_until(deadline) => Err(RuntimeError::Protocol("task active wall-time safety ceiling reached".to_string())),
-            result = provider.generate_streaming(request, &mut emit) => result.map_err(RuntimeError::Provider),
+            result = provider_session.generate(request, provider_input, &mut emit) => result.map_err(RuntimeError::Provider),
         };
         drop(event_tx);
         let _ = writer.await;
@@ -221,7 +224,7 @@ impl RuntimeActor {
                         cached_input_tokens: usage.and_then(|value| value.cached_input_tokens),
                         output_tokens: usage.map(|value| value.output_tokens),
                         total_tokens: usage.map(|value| value.total_tokens),
-                        ..RuntimeDebugMetadata::default()
+                        ..provider_session_debug_metadata(provider_session)
                     },
                 )
             }
@@ -232,7 +235,7 @@ impl RuntimeActor {
                     phase: Some(phase.to_string()),
                     round_index: u64::try_from(round_index).ok(),
                     error: Some(error.to_string()),
-                    ..RuntimeDebugMetadata::default()
+                    ..provider_session_debug_metadata(provider_session)
                 },
             ),
         };
@@ -343,7 +346,15 @@ impl RuntimeActor {
                             "phase": output.phase.as_str(),
                             "provider": response.provider,
                             "model": response.model,
+                            "provider_round": round_index,
+                            "output_index": output.response_index,
                             "provider_item_id": output.provider_item_id,
+                            "usage": response.usage.as_ref().map(|usage| serde_json::json!({
+                                "input_tokens": usage.input_tokens,
+                                "cached_input_tokens": usage.cached_input_tokens,
+                                "output_tokens": usage.output_tokens,
+                                "total_tokens": usage.total_tokens,
+                            })),
                         })),
                     ),
                     &fence,
@@ -533,10 +544,10 @@ fn assistant_run_item(
     metadata: Option<serde_json::Value>,
 ) -> NewAgentRunItem {
     let mut payload = serde_json::json!({"response_index": response_index});
-    if let (Some(payload), Some(metadata)) = (payload.as_object_mut(), metadata) {
-        if let Some(metadata) = metadata.as_object() {
-            payload.extend(metadata.clone());
-        }
+    if let (Some(payload), Some(metadata)) = (payload.as_object_mut(), metadata)
+        && let Some(metadata) = metadata.as_object()
+    {
+        payload.extend(metadata.clone());
     }
     NewAgentRunItem {
         item_id: Some(format!(

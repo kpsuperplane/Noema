@@ -18,7 +18,7 @@ use noema_capabilities::{CapabilityExecutionDecision, CapabilityToolBehavior};
 use noema_providers::{
     GenerateInput, GenerateMessage, GenerateMessageRole, GenerateOptions, GenerateRequest,
     GenerateResponse, NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderError,
-    ProviderResponseContinuation, ProviderSelectionSnapshot, ProviderToolCapabilities, TokenUsage,
+    ProviderSelectionSnapshot, ProviderSessionInput, ProviderToolCapabilities, TokenUsage,
 };
 
 use super::{

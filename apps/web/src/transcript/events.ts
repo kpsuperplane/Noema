@@ -155,6 +155,7 @@ function entryFromConversationItem(
       turnId,
       debugScope: turnId ? { kind: "CONVERSATION_TURN", scopeId: turnId } : undefined,
       type: "assistant",
+      phase: assistantPhaseFromMetadata(metadata),
       streamId: streamIdFromMetadata(metadata),
       responseIndex: responseIndexFromMetadata(metadata),
       metadata,
@@ -232,6 +233,10 @@ function responseIndexFromMetadata(metadata: unknown): number | undefined {
     return undefined;
   }
   return typeof metadata.response_index === "number" ? metadata.response_index : undefined;
+}
+
+function assistantPhaseFromMetadata(metadata: unknown): "commentary" | "final_answer" {
+  return isRecord(metadata) && metadata.phase === "commentary" ? "commentary" : "final_answer";
 }
 
 function markClientTurnEvent(event: string, fields: Record<string, unknown>) {

@@ -5,7 +5,7 @@ use noema_conversations::{
 use noema_providers::{
     GenerateInput, GenerateRequest, GenerateStreamEvent, GenerateToolResultInput,
     GenerationPriority, NoemaToolChoice, ProviderInstanceKey, ProviderSelectionMode,
-    ProviderSelectionSnapshot, ProviderToolTransport, ReasoningEffort,
+    ProviderSelectionSnapshot, ProviderSessionInput, ProviderToolTransport, ReasoningEffort,
 };
 use noema_store::{ConversationInteractionKind, ConversationInteractionRecord};
 use serde_json::Value;
@@ -283,13 +283,9 @@ impl RuntimeActor {
             .ok_or_else(|| {
                 RuntimeError::Protocol("interaction tool result item is missing".to_string())
             })?;
-        let result_input = interaction_tool_result_input(interaction, result_item)?;
-        let mut input = planned.input.clone();
-        let native_session = selection.provider_kind == "foundation_local"
-            && capabilities.native_tool_results
-            && provider
-                .response_continuation(selection.model_profile.as_deref())
-                .supports_active_session();
+        interaction_tool_result_input(interaction, result_item)?;
+        let provider_input = planned.input.clone();
+        let mut provider_session = provider.open_generation_session();
         let mut ignore_event = |_event: GenerateStreamEvent| {};
         let request = |input: GenerateInput| GenerateRequest {
             conversation_id: Some(interaction.conversation_id.clone()),
@@ -309,21 +305,13 @@ impl RuntimeActor {
                 && model_tools.has_callable_tools()
                 && capabilities.parallel_tool_calls,
         };
-        if native_session {
-            input = GenerateInput::NativeToolResults(vec![result_input.clone()]);
-        }
-        let response = match provider
-            .generate_streaming(request(input), &mut ignore_event)
-            .await
-        {
-            Ok(response) => response,
-            Err(_error) if native_session => {
-                provider
-                    .generate_streaming(request(planned.input.clone()), &mut ignore_event)
-                    .await?
-            }
-            Err(error) => return Err(error.into()),
-        };
+        let response = provider_session
+            .generate(
+                request(provider_input.clone()),
+                ProviderSessionInput::initial(provider_input),
+                &mut ignore_event,
+            )
+            .await?;
         let turn_index = provider_call
             .metadata
             .get("turn_index")
@@ -348,7 +336,7 @@ impl RuntimeActor {
             model,
             reasoning_effort: selection.reasoning_effort,
             fast_mode: selection.fast_mode,
-            provider_route: route,
+            provider_route: Arc::clone(&route),
             initial_stream_id: assistant_stream_id(
                 &interaction.originating_turn_id,
                 "interaction-resume",
@@ -367,7 +355,7 @@ impl RuntimeActor {
             turn_index,
             interaction.client_message_id.clone(),
         );
-        self.persist_successful_provider_turn(turn, item_tx, &timing)
+        self.persist_successful_provider_turn(turn, provider_session.as_mut(), item_tx, &timing)
             .await
     }
 }

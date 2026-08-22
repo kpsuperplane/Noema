@@ -66,6 +66,11 @@ const styles = stylex.create({
     maxWidth: "100%",
     minWidth: 0
   },
+  progress: {
+    color: "var(--color-text-secondary)",
+    fontSize: "var(--font-size-sm)",
+    opacity: 0.82
+  },
   content: {
     display: "grid",
     minWidth: 0
@@ -106,7 +111,8 @@ export function Message({
   debugUsage = null,
   onDebug,
   attachment,
-  citations = []
+  citations = [],
+  progress = false
 }: {
   animate: boolean;
   avatarActivity?: IdentityAvatarActivity;
@@ -123,6 +129,7 @@ export function Message({
   onDebug?: () => void;
   attachment?: ReactNode;
   citations?: readonly ProviderCitation[];
+  progress?: boolean;
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const [overflowing, setOverflowing] = React.useState(false);
@@ -169,7 +176,11 @@ export function Message({
   }
 
   return (
-    <div {...stylex.props(styles.assistantContextMenu)}>
+    <div
+      aria-label={progress ? "Assistant progress" : undefined}
+      role={progress ? "group" : undefined}
+      {...stylex.props(styles.assistantContextMenu, progress && styles.progress)}
+    >
       <ContextMenu items={[{ label: "Debug", isDisabled: !onDebug && !debugUsage, onClick: onDebug }]}>
         {bubble}
       </ContextMenu>

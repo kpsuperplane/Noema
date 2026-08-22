@@ -1,4 +1,5 @@
 impl RuntimeActor {
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn persist_provider_assistant_text(
         &mut self,
         stable_item_id: Option<String>,
@@ -113,6 +114,7 @@ impl RuntimeActor {
             "turn_index": turn.turn_index,
             "response_index": position.response_index,
             "output_index": position.output_index,
+            "provider_round": turn.provider_round,
             "stream_id": stream_id,
             "phase": item.phase.as_str(),
             "provider_item_id": item.provider_item_id,

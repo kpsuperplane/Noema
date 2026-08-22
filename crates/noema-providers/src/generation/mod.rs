@@ -143,12 +143,31 @@ pub trait ProviderGenerationSession: Send {
         input: ProviderSessionInput,
         on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> ProviderGenerationFuture<'a>;
+
+    /// Return bounded diagnostics for the latest generation.
+    fn metadata(&self) -> ProviderGenerationMetadata {
+        ProviderGenerationMetadata::default()
+    }
+}
+
+/// Non-sensitive transport diagnostics for one provider generation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProviderGenerationMetadata {
+    /// Transport used for the completed request.
+    pub transport: Option<&'static str>,
+    /// Whether the provider received complete, changed, or replay input.
+    pub input_mode: Option<&'static str>,
+    /// Safe transport fallback reason.
+    pub fallback_reason: Option<&'static str>,
+    /// Whether the request referenced an earlier provider response.
+    pub used_response_id: bool,
 }
 
 struct DirectGenerationSession<'a, T> {
     provider: &'a T,
     previous_response_id: Option<String>,
     completed_generation: bool,
+    metadata: ProviderGenerationMetadata,
 }
 
 impl<'a, T> DirectGenerationSession<'a, T> {
@@ -157,6 +176,7 @@ impl<'a, T> DirectGenerationSession<'a, T> {
             provider,
             previous_response_id: None,
             completed_generation: false,
+            metadata: ProviderGenerationMetadata::default(),
         }
     }
 }
@@ -177,6 +197,8 @@ where
                 .response_continuation(request.model.as_deref());
             request.options.previous_response_id = None;
             request.options.store_response = false;
+            let mut replay_request = request.clone();
+            replay_request.input = input.replay;
             let can_continue = match strategy {
                 ProviderResponseContinuation::Unsupported => false,
                 ProviderResponseContinuation::PreviousResponseId { .. } => {
@@ -184,7 +206,41 @@ where
                 }
                 ProviderResponseContinuation::ActiveSession => self.completed_generation,
             };
-            if let (true, Some(incremental)) = (can_continue, input.incremental) {
+            let incremental = input.incremental.and_then(|input| {
+                if strategy.supports_active_session() {
+                    let GenerateInput::Items(items) = input else {
+                        return Some(input);
+                    };
+                    let results = items
+                        .into_iter()
+                        .filter_map(|item| match item {
+                            GenerateInputItem::ToolResult(result) => Some(result),
+                            GenerateInputItem::Message(_)
+                            | GenerateInputItem::AssistantText(_)
+                            | GenerateInputItem::Reasoning(_)
+                            | GenerateInputItem::ToolCall(_) => None,
+                        })
+                        .collect::<Vec<_>>();
+                    return (!results.is_empty())
+                        .then_some(GenerateInput::NativeToolResults(results));
+                }
+                Some(input)
+            });
+            let used_incremental = can_continue && incremental.is_some();
+            self.metadata = ProviderGenerationMetadata {
+                input_mode: Some(if used_incremental {
+                    "incremental"
+                } else if self.completed_generation {
+                    "replay"
+                } else {
+                    "full"
+                }),
+                used_response_id: used_incremental
+                    && strategy.supports_previous_response_id()
+                    && self.previous_response_id.is_some(),
+                ..ProviderGenerationMetadata::default()
+            };
+            if let (true, Some(incremental)) = (can_continue, incremental) {
                 request.input = incremental;
                 request.options.previous_response_id = strategy
                     .supports_previous_response_id()
@@ -192,13 +248,41 @@ where
                     .flatten();
                 request.options.store_response = strategy.store_response();
             } else {
-                request.input = input.replay;
+                request = replay_request.clone();
             }
-            let response = self.provider.generate_streaming(request, on_event).await?;
+            let mut saw_output = false;
+            let result = self
+                .provider
+                .generate_streaming(request, &mut |event| {
+                    saw_output |= !matches!(event, GenerateStreamEvent::ProviderTiming { .. });
+                    on_event(event);
+                })
+                .await;
+            let response = match result {
+                Ok(response) => response,
+                Err(error)
+                    if used_incremental
+                        && !saw_output
+                        && !matches!(error, ProviderError::PartialResponse { .. }) =>
+                {
+                    self.previous_response_id = None;
+                    self.completed_generation = false;
+                    self.metadata.input_mode = Some("replay");
+                    self.metadata.used_response_id = false;
+                    self.provider
+                        .generate_streaming(replay_request, on_event)
+                        .await?
+                }
+                Err(error) => return Err(error),
+            };
             self.previous_response_id.clone_from(&response.response_id);
             self.completed_generation = true;
             Ok(response)
         })
+    }
+
+    fn metadata(&self) -> ProviderGenerationMetadata {
+        self.metadata
     }
 }
 

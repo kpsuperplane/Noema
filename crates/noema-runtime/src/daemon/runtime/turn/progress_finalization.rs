@@ -3,6 +3,7 @@ impl RuntimeActor {
     async fn finalize_after_continuation_ceiling(
         &mut self,
         turn: &SuccessfulProviderTurn,
+        provider_session: &mut dyn ProviderGenerationSession,
         context: &mut ContinuationContext,
         tool_result_count: usize,
         index: usize,
@@ -23,6 +24,7 @@ impl RuntimeActor {
         if let Some(reason) = reason {
             self.finalize_after_progress_stop(
                 turn,
+                provider_session,
                 context,
                 index,
                 reason,
@@ -36,9 +38,11 @@ impl RuntimeActor {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn finalize_after_progress_stop(
         &mut self,
         turn: &SuccessfulProviderTurn,
+        provider_session: &mut dyn ProviderGenerationSession,
         context: &mut ContinuationContext,
         index: usize,
         reason: &str,
@@ -48,7 +52,6 @@ impl RuntimeActor {
         timing: &TurnTiming,
     ) -> Result<(), RuntimeError> {
         let provider = turn.provider_route.operations();
-        let response_continuation = provider.response_continuation(turn.model.as_deref());
         let instructions = build_no_tools_finalization_prompt(reason);
         context
             .compact_to_fit(
@@ -65,11 +68,8 @@ impl RuntimeActor {
             )
             .await
             .map_err(RuntimeError::Provider)?;
-        let continuation_input = context.next_provider_input(
-            turn.tool_capabilities.native_tool_results,
-            response_continuation,
-        );
-        let chained = continuation_input.previous_response_id.is_some();
+        let continuation_input =
+            context.next_provider_input(turn.tool_capabilities.native_tool_results);
         let mut ignore_event = |_| {};
         timing.mark(
             "provider_progress_finalization_request_started",
@@ -91,19 +91,17 @@ impl RuntimeActor {
             },
         )
         .await;
-        let mut response = provider
-            .generate_streaming(
+        let response = provider_session
+            .generate(
                 GenerateRequest {
                     conversation_id: Some(turn.conversation_id.clone()),
                     model: turn.model.clone(),
-                    input: continuation_input.input,
+                    input: continuation_input.replay.clone(),
                     instructions: Some(instructions.clone()),
                     options: GenerateOptions {
                         prompt_cache_retention: prompt_cache_retention_for(turn.tool_capabilities),
                         reasoning_effort: turn.reasoning_effort,
                         fast_mode: turn.fast_mode,
-                        previous_response_id: continuation_input.previous_response_id,
-                        store_response: response_continuation.store_response(),
                         ..GenerateOptions::default()
                     },
                     tools: Vec::new(),
@@ -111,55 +109,18 @@ impl RuntimeActor {
                     tool_choice: Default::default(),
                     parallel_tool_calls: false,
                 },
+                continuation_input,
                 &mut ignore_event,
             )
             .await;
-        if chained && response.is_err() {
-            context
-                .compact_to_fit(
-                    provider,
-                    turn.model.as_deref(),
-                    turn.tool_capabilities.native_tool_results,
-                    &instructions,
-                    &[],
-                    false,
-                    None,
-                    turn.reasoning_effort,
-                    noema_providers::GenerationPriority::Foreground,
-                    &turn.user_input,
-                )
-                .await
-                .map_err(RuntimeError::Provider)?;
-            response = provider
-                .generate_streaming(
-                    GenerateRequest {
-                        conversation_id: Some(turn.conversation_id.clone()),
-                        model: turn.model.clone(),
-                        input: context.provider_input(turn.tool_capabilities.native_tool_results),
-                        instructions: Some(instructions),
-                        options: GenerateOptions {
-                            prompt_cache_retention: prompt_cache_retention_for(
-                                turn.tool_capabilities,
-                            ),
-                            reasoning_effort: turn.reasoning_effort,
-                            fast_mode: turn.fast_mode,
-                            store_response: response_continuation.store_response(),
-                            ..GenerateOptions::default()
-                        },
-                        tools: Vec::new(),
-                        tool_transport: turn.tool_capabilities.tool_transport,
-                        tool_choice: Default::default(),
-                        parallel_tool_calls: false,
-                    },
-                    &mut ignore_event,
-                )
-                .await;
-        }
         let response = match response {
             Ok(response) => response,
             Err(error) => {
                 finalization_debug
-                    .finish(RuntimeDebugSpanStatus::Failed, None)
+                    .finish(
+                        RuntimeDebugSpanStatus::Failed,
+                        Some(provider_session_debug_metadata(provider_session)),
+                    )
                     .await;
                 return Err(RuntimeError::Provider(error));
             }
@@ -176,7 +137,7 @@ impl RuntimeActor {
                     cached_input_tokens: usage.and_then(|value| value.cached_input_tokens),
                     output_tokens: usage.map(|value| value.output_tokens),
                     total_tokens: usage.map(|value| value.total_tokens),
-                    ..RuntimeDebugMetadata::default()
+                    ..provider_session_debug_metadata(provider_session)
                 }),
             )
             .await;
@@ -196,6 +157,7 @@ impl RuntimeActor {
             user_item_id: turn.user_item_id.clone(),
             provider: response.provider.clone(),
             model: response.model.clone(),
+            provider_round: provider_round_index,
             response_phase: "continuation",
             usage: response.usage.clone(),
             stream_id: None,
@@ -256,16 +218,16 @@ impl RuntimeActor {
                 "progress_audit",
                 &turn.turn_id,
                 NewConversationItem {
-                conversation_id: turn.conversation_id.clone(),
-                turn_id: Some(turn.turn_id.clone()),
-                parent_item_id: Some(turn.user_item_id.clone()),
-                kind: ConversationItemKind::AssistantText,
-                status: ConversationItemStatus::Completed,
-                author: ActorRef::new("agent:primary")
-                    .expect("static primary agent id must be valid"),
-                content_text: None,
-                payload_json: json!({}),
-                metadata: metadata.clone(),
+                    conversation_id: turn.conversation_id.clone(),
+                    turn_id: Some(turn.turn_id.clone()),
+                    parent_item_id: Some(turn.user_item_id.clone()),
+                    kind: ConversationItemKind::AssistantText,
+                    status: ConversationItemStatus::Completed,
+                    author: ActorRef::new("agent:primary")
+                        .expect("static primary agent id must be valid"),
+                    content_text: None,
+                    payload_json: json!({}),
+                    metadata: metadata.clone(),
                 },
             )
             .await?
@@ -312,5 +274,4 @@ impl RuntimeActor {
         .await
         .map_err(|error| RuntimeError::Protocol(error.to_string()))
     }
-
 }

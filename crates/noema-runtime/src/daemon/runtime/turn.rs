@@ -9,8 +9,8 @@ use noema_providers::{
     GenerateHostedWebSearch, GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse,
     GenerateStreamEvent, GenerationPriority, MultipleChoiceOption, MultipleChoiceSelectionMode,
     NoemaAllowedToolsMode, NoemaToolChoice, PromptCacheMode, PromptCacheOptions,
-    PromptCacheRetention, ProviderError, ProviderRouteLease, ProviderToolCapabilities,
-    ProviderToolTransport, TokenUsage,
+    PromptCacheRetention, ProviderError, ProviderGenerationSession, ProviderRouteLease,
+    ProviderSessionInput, ProviderToolCapabilities, ProviderToolTransport, TokenUsage,
 };
 use noema_store::{
     RuntimeDebugMetadata, RuntimeDebugScope, RuntimeDebugSpanCategory, RuntimeDebugSpanStatus,
@@ -47,7 +47,7 @@ use super::{
     progress_audit::{
         ProgressAuditDecision, ProgressAuditError, build_no_tools_finalization_prompt,
     },
-    runtime_debug::{ProviderDebugTimeline, RuntimeDebugSpan},
+    runtime_debug::{ProviderDebugTimeline, RuntimeDebugSpan, provider_session_debug_metadata},
     tool_lifecycle::{LocalToolCall, local_tool_calls, single_tool_display_description},
     transcript_persistence::{
         assistant_stream_id, handle_provider_stream_event, send_conversation_item,
@@ -403,6 +403,7 @@ pub(in crate::daemon) struct ProviderActionTurn {
     pub(in crate::daemon) user_item_id: String,
     pub(in crate::daemon) provider: String,
     pub(in crate::daemon) model: String,
+    pub(in crate::daemon) provider_round: usize,
     pub(in crate::daemon) response_phase: &'static str,
     pub(in crate::daemon) usage: Option<TokenUsage>,
     pub(in crate::daemon) stream_id: Option<String>,

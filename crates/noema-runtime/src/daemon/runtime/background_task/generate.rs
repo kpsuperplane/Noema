@@ -29,8 +29,7 @@ impl RuntimeActor {
         let provider_selection = provider_route.selection();
         let provider = provider_route.operations();
         let capabilities = provider.tool_capabilities(provider_selection.model_profile.as_deref());
-        let response_continuation =
-            provider.response_continuation(provider_selection.model_profile.as_deref());
+        let mut provider_session = provider.open_generation_session();
         let model_tools = build_model_tools_for_role(
             &self.store,
             &self.capability_bindings,
@@ -61,10 +60,8 @@ impl RuntimeActor {
             background_tool_instructions(&request.instructions, &model_tools),
             &request.instance_name,
         );
-        let initial_provider_input = task_initial_provider_input(
-            &request.input,
-            request.runtime_environment.as_ref(),
-        );
+        let initial_provider_input =
+            task_initial_provider_input(&request.input, request.runtime_environment.as_ref());
         let mut context = ContinuationContext::from_provider_input(initial_provider_input.clone());
         let initial_request = GenerateRequest {
             conversation_id: Some(conversation_id.clone()),
@@ -76,7 +73,6 @@ impl RuntimeActor {
                 reasoning_effort: provider_selection.reasoning_effort,
                 fast_mode: provider_selection.fast_mode,
                 max_output_tokens: Some(8_000),
-                store_response: response_continuation.store_response(),
                 ..GenerateOptions::default()
             },
             tools: model_tools.provider_tools(),
@@ -97,8 +93,9 @@ impl RuntimeActor {
         let mut next_provider_round = 0;
         let initial_response = self
             .generate_task_provider_round(
-                provider,
+                provider_session.as_mut(),
                 initial_request,
+                ProviderSessionInput::initial(initial_provider_input.clone()),
                 &model_tools.bindings,
                 &request.run_id,
                 &request.task_id,
@@ -125,7 +122,7 @@ impl RuntimeActor {
                         &conversation_id,
                         &model_tools,
                         capabilities,
-                        response_continuation,
+                        provider_session.as_mut(),
                         &mut context,
                         &mut citation_sources,
                         next_provider_round,
@@ -158,7 +155,7 @@ impl RuntimeActor {
                         &conversation_id,
                         &model_tools,
                         capabilities,
-                        response_continuation,
+                        provider_session.as_mut(),
                         &mut context,
                         &mut citation_sources,
                         next_provider_round,
@@ -197,7 +194,7 @@ impl RuntimeActor {
                         &conversation_id,
                         &model_tools,
                         capabilities,
-                        response_continuation,
+                        provider_session.as_mut(),
                         &mut context,
                         &mut citation_sources,
                         next_provider_round,
@@ -227,7 +224,7 @@ impl RuntimeActor {
                         &conversation_id,
                         &model_tools,
                         capabilities,
-                        response_continuation,
+                        provider_session.as_mut(),
                         &mut context,
                         &mut citation_sources,
                         next_provider_round,
@@ -310,9 +307,7 @@ impl RuntimeActor {
                         }),
                         true,
                     )
-                } else if is_task_continue_execution_tool(&call.name)
-                    && !checkpoint_current
-                {
+                } else if is_task_continue_execution_tool(&call.name) && !checkpoint_current {
                     LocalToolResult::from_call(
                         call,
                         LocalToolKind::Gateway,
@@ -323,41 +318,43 @@ impl RuntimeActor {
                         }),
                         true,
                     )
-                } else { tokio::select! {
-                    _ = request.cancellation.cancelled() => {
-                        return Err(RuntimeError::Protocol("task execution cancelled".to_string()));
+                } else {
+                    tokio::select! {
+                        _ = request.cancellation.cancelled() => {
+                            return Err(RuntimeError::Protocol("task execution cancelled".to_string()));
+                        }
+                        _ = tokio::time::sleep_until(deadline) => {
+                            self.mark_task_calls_skipped(
+                                &request,
+                                continuation_index as i64,
+                                &calls[call_index..],
+                                "task active wall-time safety ceiling reached",
+                            ).await;
+                            context.append_results(&results);
+                            context.finish_round();
+                            return self.finalize_background_task(
+                                &request,
+                                provider,
+                                &conversation_id,
+                                &model_tools,
+                                capabilities,
+                                provider_session.as_mut(),
+                                &mut context,
+                                &mut citation_sources,
+                                next_provider_round,
+                                "task active wall-time safety ceiling reached",
+                                deadline,
+                                aggregate_usage,
+                            ).await;
+                        }
+                        result = self.execute_local_tool_with_policy(
+                            &turn,
+                            &agent_identity,
+                            call,
+                            &model_tools.tool_policy,
+                        ) => result,
                     }
-                    _ = tokio::time::sleep_until(deadline) => {
-                        self.mark_task_calls_skipped(
-                            &request,
-                            continuation_index as i64,
-                            &calls[call_index..],
-                            "task active wall-time safety ceiling reached",
-                        ).await;
-                        context.append_results(&results);
-                        context.finish_round();
-                        return self.finalize_background_task(
-                            &request,
-                            provider,
-                            &conversation_id,
-                            &model_tools,
-                            capabilities,
-                            response_continuation,
-                            &mut context,
-                            &mut citation_sources,
-                            next_provider_round,
-                            "task active wall-time safety ceiling reached",
-                            deadline,
-                            aggregate_usage,
-                        ).await;
-                    }
-                    result = self.execute_local_tool_with_policy(
-                        &turn,
-                        &agent_identity,
-                        call,
-                        &model_tools.tool_policy,
-                    ) => result,
-                }};
+                };
                 checkpoint_current = checkpoint_after_result(checkpoint_current, call, &result);
                 tool_debug_span
                     .finish(
@@ -453,7 +450,10 @@ impl RuntimeActor {
                 .any(|result| result.requires_provider_continuation)
             {
                 response.usage = aggregate_usage;
-                return Ok(BackgroundTaskGenerateResult { response, citation_sources });
+                return Ok(BackgroundTaskGenerateResult {
+                    response,
+                    citation_sources,
+                });
             }
             let continuation_step = continuation_index + 1;
             progress.mark_continuation_step(continuation_step);
@@ -485,7 +485,7 @@ impl RuntimeActor {
                             &conversation_id,
                             &model_tools,
                             capabilities,
-                            response_continuation,
+                            provider_session.as_mut(),
                             &mut context,
                             &mut citation_sources,
                             next_provider_round,
@@ -502,7 +502,8 @@ impl RuntimeActor {
                     progress.update_current_goal(audit.next_goal);
                     progress.reset_window();
                     if audit.decision == ProgressAuditDecision::Checkpoint {
-                        context.append_developer_message(build_task_checkpoint_prompt().to_string());
+                        context
+                            .append_developer_message(build_task_checkpoint_prompt().to_string());
                     } else if audit.decision != ProgressAuditDecision::Continue {
                         let reason = match audit.decision {
                             ProgressAuditDecision::Finalize => {
@@ -521,7 +522,7 @@ impl RuntimeActor {
                                 &conversation_id,
                                 &model_tools,
                                 capabilities,
-                                response_continuation,
+                                provider_session.as_mut(),
                                 &mut context,
                                 &mut citation_sources,
                                 next_provider_round,
@@ -546,7 +547,7 @@ impl RuntimeActor {
                         &conversation_id,
                         &model_tools,
                         capabilities,
-                        response_continuation,
+                        provider_session.as_mut(),
                         &mut context,
                         &mut citation_sources,
                         next_provider_round,
@@ -611,7 +612,7 @@ impl RuntimeActor {
                         &conversation_id,
                         &model_tools,
                         capabilities,
-                        response_continuation,
+                        provider_session.as_mut(),
                         &mut context,
                         &mut citation_sources,
                         next_provider_round,
@@ -657,20 +658,17 @@ impl RuntimeActor {
                     .await;
                 propagate_compaction_result(readmission)?;
             }
-            let continuation_input = context
-                .next_provider_input(capabilities.native_tool_results, response_continuation);
+            let continuation_input = context.next_provider_input(capabilities.native_tool_results);
             let continuation_request = GenerateRequest {
                 conversation_id: Some(conversation_id.clone()),
                 model: provider_selection.model_profile.clone(),
-                input: continuation_input.input,
+                input: continuation_input.replay.clone(),
                 instructions: Some(instructions.clone()),
                 options: GenerateOptions {
                     hosted_web_search: !terminal_repair && model_tools.hosted_web_search(),
                     reasoning_effort: provider_selection.reasoning_effort,
                     fast_mode: provider_selection.fast_mode,
                     max_output_tokens: Some(8_000),
-                    previous_response_id: continuation_input.previous_response_id.clone(),
-                    store_response: response_continuation.store_response(),
                     ..GenerateOptions::default()
                 },
                 tools: continuation_tools.clone(),
@@ -678,10 +676,11 @@ impl RuntimeActor {
                 tool_choice: continuation_tool_choice.clone(),
                 parallel_tool_calls,
             };
-            let mut continuation_response = self
+            let continuation_response = self
                 .generate_task_provider_round(
-                    provider,
+                    provider_session.as_mut(),
                     continuation_request,
+                    continuation_input,
                     &model_tools.bindings,
                     &request.run_id,
                     &request.task_id,
@@ -694,51 +693,11 @@ impl RuntimeActor {
                     &request.runtime_events,
                 )
                 .await;
-            if matches!(&continuation_response, Err(RuntimeError::Provider(_)))
-                && continuation_input.previous_response_id.is_some()
-            {
-                let fallback_request = GenerateRequest {
-                    conversation_id: Some(conversation_id.clone()),
-                    model: provider_selection.model_profile.clone(),
-                    input: context.provider_input(capabilities.native_tool_results),
-                    instructions: Some(instructions),
-                    options: GenerateOptions {
-                        hosted_web_search: !terminal_repair && model_tools.hosted_web_search(),
-                        reasoning_effort: provider_selection.reasoning_effort,
-                        fast_mode: provider_selection.fast_mode,
-                        max_output_tokens: Some(8_000),
-                        store_response: response_continuation.store_response(),
-                        ..GenerateOptions::default()
-                    },
-                    tools: continuation_tools,
-                    tool_transport: model_tools.transport,
-                    tool_choice: continuation_tool_choice,
-                    parallel_tool_calls,
-                };
-                admit_uncompacted_request(provider, &fallback_request).await?;
-                continuation_response = self
-                    .generate_task_provider_round(
-                        provider,
-                        fallback_request,
-                        &model_tools.bindings,
-                        &request.run_id,
-                        &request.task_id,
-                        &request.lease_token,
-                        request.task_generation,
-                        "continuation",
-                        continuation_step as i64,
-                        deadline,
-                        &request.cancellation,
-                        &request.runtime_events,
-                    )
-                    .await;
-            }
             response = match continuation_response {
                 Ok(response) => {
-                    citation_sources
-                        .observe(continuation_step, &response.hosted_web_searches);
-                    completed_tool_calls = completed_tool_calls
-                        .saturating_add(response.hosted_web_searches.len());
+                    citation_sources.observe(continuation_step, &response.hosted_web_searches);
+                    completed_tool_calls =
+                        completed_tool_calls.saturating_add(response.hosted_web_searches.len());
                     next_provider_round = continuation_step.saturating_add(1);
                     response
                 }
@@ -750,7 +709,7 @@ impl RuntimeActor {
                             &conversation_id,
                             &model_tools,
                             capabilities,
-                            response_continuation,
+                            provider_session.as_mut(),
                             &mut context,
                             &mut citation_sources,
                             next_provider_round,

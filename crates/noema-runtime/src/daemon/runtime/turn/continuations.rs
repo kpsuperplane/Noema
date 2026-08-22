@@ -2,6 +2,7 @@ impl RuntimeActor {
     async fn run_foreground_continuations(
         &mut self,
         turn: &SuccessfulProviderTurn,
+        provider_session: &mut dyn ProviderGenerationSession,
         continuation: ForegroundContinuationState,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
         timing: &TurnTiming,
@@ -47,6 +48,7 @@ impl RuntimeActor {
                 };
                 self.finalize_after_progress_stop(
                     turn,
+                    provider_session,
                     &mut continuation_context,
                     next_output_index,
                     reason,
@@ -67,6 +69,7 @@ impl RuntimeActor {
                     user_item_id: turn.user_item_id.clone(),
                     provider: "noema_local".to_string(),
                     model: "noema_local".to_string(),
+                    provider_round: continuation_step_number,
                     response_phase: "continuation",
                     usage: None,
                     stream_id: None,
@@ -99,6 +102,7 @@ impl RuntimeActor {
                             ProgressAuditDecision::Finalize => {
                                 self.finalize_after_progress_stop(
                                     turn,
+                                    provider_session,
                                     &mut continuation_context,
                                     next_output_index,
                                     "progress audit requested final answer",
@@ -148,6 +152,7 @@ impl RuntimeActor {
                         next_output_index += 1;
                         self.finalize_after_progress_stop(
                             turn,
+                            provider_session,
                             &mut continuation_context,
                             next_output_index,
                             &message,
@@ -169,7 +174,6 @@ impl RuntimeActor {
                 agent_identity_after_local_tools(&turn.agent_identity, &all_local_tool_results);
             let continuation_result_count = continuation_tool_results.len();
             let provider = turn.provider_route.operations();
-            let response_continuation = provider.response_continuation(turn.model.as_deref());
             let active_continuation_model_tools = if task_handoff {
                 ModelTools::empty(crate::agent_execution::ExecutionRole::PrimaryConversation)
             } else {
@@ -196,8 +200,8 @@ impl RuntimeActor {
             for update in context_updates {
                 continuation_context.append_developer_message(update.model_visible_content());
             }
-            let task_delegation_available = active_continuation_model_tools
-                .has_callable_tool(TASK_DELEGATE_TOOL);
+            let task_delegation_available =
+                active_continuation_model_tools.has_callable_tool(TASK_DELEGATE_TOOL);
             let continuation_instructions = build_local_tool_result_continuation_system_prompt(
                 should_nudge_task_delegation(continuation_step_number, task_delegation_available),
             );
@@ -331,17 +335,14 @@ impl RuntimeActor {
                 hosted_web_search,
             )
             .await?;
-            let continuation_input = continuation_context.next_provider_input(
-                turn.tool_capabilities.native_tool_results,
-                response_continuation,
-            );
-            let chained = continuation_input.previous_response_id.is_some();
+            let continuation_input = continuation_context
+                .next_provider_input(turn.tool_capabilities.native_tool_results);
             let continuation_prompt_cache_breakpoints =
-                prompt_cache_breakpoints_for(&continuation_input.input, turn.tool_capabilities);
+                prompt_cache_breakpoints_for(&continuation_input.replay, turn.tool_capabilities);
             let continuation_request = GenerateRequest {
                 conversation_id: Some(turn.conversation_id.clone()),
                 model: turn.model.clone(),
-                input: continuation_input.input,
+                input: continuation_input.replay.clone(),
                 instructions: Some(continuation_instructions.clone()),
                 options: GenerateOptions {
                     hosted_web_search,
@@ -350,8 +351,6 @@ impl RuntimeActor {
                     prompt_cache_breakpoints: continuation_prompt_cache_breakpoints,
                     reasoning_effort: turn.reasoning_effort,
                     fast_mode: turn.fast_mode,
-                    previous_response_id: continuation_input.previous_response_id,
-                    store_response: response_continuation.store_response(),
                     ..GenerateOptions::default()
                 },
                 tools: continuation_tools.clone(),
@@ -359,60 +358,13 @@ impl RuntimeActor {
                 tool_choice: continuation_tool_choice.clone(),
                 parallel_tool_calls,
             };
-            let mut continuation_result = provider
-                .generate_streaming(continuation_request, &mut on_continuation_event)
-                .await;
-            if chained
-                && continuation_result.is_err()
-                && !continuation_stream_seen.load(Ordering::Relaxed)
-            {
-                timing.mark(
-                    "provider_continuation_chain_fallback",
-                    json!({"continuation_step": continuation_step}),
-                );
-                admit_foreground_context(
-                    &mut continuation_context,
-                    turn,
-                    provider,
-                    &continuation_instructions,
-                    &continuation_tools,
-                    hosted_web_search,
+            let continuation_result = provider_session
+                .generate(
+                    continuation_request,
+                    continuation_input,
+                    &mut on_continuation_event,
                 )
-                .await?;
-                let fallback_input =
-                    continuation_context.provider_input(turn.tool_capabilities.native_tool_results);
-                let fallback_prompt_cache_breakpoints =
-                    prompt_cache_breakpoints_for(&fallback_input, turn.tool_capabilities);
-                continuation_result = provider
-                    .generate_streaming(
-                        GenerateRequest {
-                            conversation_id: Some(turn.conversation_id.clone()),
-                            model: turn.model.clone(),
-                            input: fallback_input,
-                            instructions: Some(continuation_instructions),
-                            options: GenerateOptions {
-                                hosted_web_search,
-                                prompt_cache_retention: prompt_cache_retention_for(
-                                    turn.tool_capabilities,
-                                ),
-                                prompt_cache_options: prompt_cache_options_for(
-                                    turn.tool_capabilities,
-                                ),
-                                prompt_cache_breakpoints: fallback_prompt_cache_breakpoints,
-                                reasoning_effort: turn.reasoning_effort,
-                                fast_mode: turn.fast_mode,
-                                store_response: response_continuation.store_response(),
-                                ..GenerateOptions::default()
-                            },
-                            tools: continuation_tools,
-                            tool_transport: turn.continuation_model_tools.transport,
-                            tool_choice: continuation_tool_choice,
-                            parallel_tool_calls,
-                        },
-                        &mut on_continuation_event,
-                    )
-                    .await;
-            }
+                .await;
             let provider_children = provider_timeline.completed_spans();
             let continuation_response = match continuation_result {
                 Ok(response) => response,
@@ -420,7 +372,7 @@ impl RuntimeActor {
                     continuation_debug
                         .finish_with_children(
                             RuntimeDebugSpanStatus::Failed,
-                            None,
+                            Some(provider_session_debug_metadata(provider_session)),
                             &provider_children,
                         )
                         .await;
@@ -441,7 +393,7 @@ impl RuntimeActor {
                             .and_then(|value| value.cached_input_tokens),
                         output_tokens: continuation_usage.map(|value| value.output_tokens),
                         total_tokens: continuation_usage.map(|value| value.total_tokens),
-                        ..RuntimeDebugMetadata::default()
+                        ..provider_session_debug_metadata(provider_session)
                     }),
                     &provider_children,
                 )
@@ -484,6 +436,7 @@ impl RuntimeActor {
                 user_item_id: turn.user_item_id.clone(),
                 provider: continuation_response.provider.clone(),
                 model: continuation_response.model.clone(),
+                provider_round: continuation_step_number,
                 response_phase: "continuation",
                 usage: continuation_response.usage.clone(),
                 stream_id: Some(continuation_stream_id.clone()),
@@ -622,6 +575,7 @@ impl RuntimeActor {
                 user_item_id: turn.user_item_id.clone(),
                 provider: turn.provider_kind.clone(),
                 model: "noema_local".to_string(),
+                provider_round: continuation_step_number,
                 response_phase: "continuation",
                 usage: None,
                 stream_id: None,
@@ -814,6 +768,7 @@ impl RuntimeActor {
         }
         self.finalize_after_continuation_ceiling(
             turn,
+            provider_session,
             &mut continuation_context,
             all_local_tool_results.len(),
             next_output_index,

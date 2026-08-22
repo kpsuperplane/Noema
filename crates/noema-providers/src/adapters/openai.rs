@@ -9,9 +9,9 @@ use super::responses::{
 use crate::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
     ModelProvider, OpenAiProviderConfig, ProviderError, ProviderGenerationFuture,
-    ProviderGenerationSession, ProviderResponseContinuation, ProviderSchemaRequestCapabilities,
-    ProviderSessionInput, ProviderToolCapabilities, ProviderToolSchemaDialect,
-    ProviderToolTransport,
+    ProviderGenerationMetadata, ProviderGenerationSession, ProviderResponseContinuation,
+    ProviderSchemaRequestCapabilities, ProviderSessionInput, ProviderToolCapabilities,
+    ProviderToolSchemaDialect, ProviderToolTransport,
 };
 use noema_home::SystemErrorLogger;
 use reqwest::header::{HeaderMap, HeaderName};
@@ -268,6 +268,7 @@ impl ProviderGenerationSession for OpenAiGenerationSession<'_> {
             let mut prepared = self
                 .responses
                 .prepare_request(replay_body.clone(), incremental_body)?;
+            self.responses.begin_request(&prepared);
             let headers = self.provider.extra_headers()?;
             let mut result = self
                 .responses
@@ -286,6 +287,7 @@ impl ProviderGenerationSession for OpenAiGenerationSession<'_> {
             {
                 self.responses.clear_response_id();
                 prepared = self.responses.prepare_request(replay_body, None)?;
+                self.responses.replay_missing_response();
                 result = self
                     .responses
                     .send(
@@ -299,9 +301,24 @@ impl ProviderGenerationSession for OpenAiGenerationSession<'_> {
             }
             let response = match result {
                 Ok(response) => response,
-                Err(
-                    ResponsesWebSocketError::Unsupported(_) | ResponsesWebSocketError::Setup(_),
-                ) => {
+                Err(ResponsesWebSocketError::Unsupported(_)) => {
+                    self.responses
+                        .use_http("unsupported_websocket", prepared.used_response_id);
+                    let mut body = prepared.body.clone();
+                    body.stream = None;
+                    self.provider
+                        .transport
+                        .send(
+                            &self.provider.config.api_key,
+                            body,
+                            headers,
+                            diagnostics.clone(),
+                        )
+                        .await?
+                }
+                Err(ResponsesWebSocketError::Setup(_)) => {
+                    self.responses
+                        .use_http("websocket_setup_failed", prepared.used_response_id);
                     let mut body = prepared.body.clone();
                     body.stream = None;
                     self.provider
@@ -319,6 +336,10 @@ impl ProviderGenerationSession for OpenAiGenerationSession<'_> {
             self.responses.record_response(&prepared, &response);
             response.finalize(&tool_names, tool_transport, &diagnostics)
         })
+    }
+
+    fn metadata(&self) -> ProviderGenerationMetadata {
+        self.responses.metadata()
     }
 }
 

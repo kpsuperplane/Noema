@@ -96,6 +96,10 @@ pub struct RuntimeDebugMetadata {
     pub cached_input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
+    pub transport: Option<String>,
+    pub input_mode: Option<String>,
+    pub fallback_reason: Option<String>,
+    pub used_response_id: Option<bool>,
 }
 
 #[derive(Clone, Debug)]
