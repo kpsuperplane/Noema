@@ -7,6 +7,8 @@ The runtime opens one provider session for each foreground turn, background run,
 Each session receives complete replay input. It can also receive input added after the prior response.
 
 The session owns connection state and provider response identifiers. The runtime does not retry provider continuation requests.
+Every provider wrapper forwards the session's active-continuation state. The
+runtime uses that state to avoid replay compaction during a live continuation.
 
 ## Responses Transport
 

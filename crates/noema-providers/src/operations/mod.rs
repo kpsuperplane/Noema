@@ -232,6 +232,10 @@ impl ProviderGenerationSession for NormalizedGenerationSession<'_> {
     fn metadata(&self) -> ProviderGenerationMetadata {
         self.inner.metadata()
     }
+
+    fn has_active_continuation(&self) -> bool {
+        self.inner.has_active_continuation()
+    }
 }
 
 struct GenerationNormalizer<'a> {
@@ -767,6 +771,7 @@ mod tests {
             inputs: Arc::clone(&inputs),
         });
         let mut session = expired_provider.open_generation_session();
+        assert!(!session.has_active_continuation());
         session
             .generate(
                 GenerateRequest::text("initial"),
@@ -775,6 +780,7 @@ mod tests {
             )
             .await
             .expect("initial response");
+        assert!(session.has_active_continuation());
         session
             .generate(
                 GenerateRequest::text("complete replay"),
@@ -796,6 +802,7 @@ mod tests {
             )
             .await
             .expect("expired session replay");
+        assert!(session.has_active_continuation());
         let inputs = inputs.lock().expect("inputs");
         assert!(matches!(
             inputs[1],

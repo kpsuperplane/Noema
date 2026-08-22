@@ -66,6 +66,8 @@ slice or a net-negative reduction.
   Complete local replay preserves ordered provider output and owns correctness.
 - A healthy provider continuation can exceed the local replay admission limit.
   Provider-hosted web state fails closed if the provider continuation expires.
+- Provider wrappers forward active-continuation state. The runtime does not
+  compact replay while the inner provider session remains active.
 - Finalization keeps an active provider session's request contract. It sends
   stop guidance as incremental input instead of changing tools or instructions.
 - Historical tool results can support valid facts. They do not prove a requested

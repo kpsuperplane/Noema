@@ -172,6 +172,7 @@ struct DirectGenerationSession<'a, T> {
     provider: &'a T,
     previous_response_id: Option<String>,
     completed_generation: bool,
+    continuation_strategy: ProviderResponseContinuation,
     metadata: ProviderGenerationMetadata,
 }
 
@@ -181,6 +182,7 @@ impl<'a, T> DirectGenerationSession<'a, T> {
             provider,
             previous_response_id: None,
             completed_generation: false,
+            continuation_strategy: ProviderResponseContinuation::Unsupported,
             metadata: ProviderGenerationMetadata::default(),
         }
     }
@@ -200,6 +202,7 @@ where
             let strategy = self
                 .provider
                 .response_continuation(request.model.as_deref());
+            self.continuation_strategy = strategy;
             request.options.previous_response_id = None;
             request.options.store_response = false;
             let mut replay_request = request.clone();
@@ -289,6 +292,16 @@ where
 
     fn metadata(&self) -> ProviderGenerationMetadata {
         self.metadata
+    }
+
+    fn has_active_continuation(&self) -> bool {
+        match self.continuation_strategy {
+            ProviderResponseContinuation::Unsupported => false,
+            ProviderResponseContinuation::PreviousResponseId { .. } => {
+                self.previous_response_id.is_some()
+            }
+            ProviderResponseContinuation::ActiveSession => self.completed_generation,
+        }
     }
 }
 
