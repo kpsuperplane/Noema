@@ -31,7 +31,8 @@ fn input_messages(input: &GenerateInput) -> Vec<&noema_providers::GenerateMessag
                 GenerateInputItem::AssistantText(_)
                 | GenerateInputItem::Reasoning(_)
                 | GenerateInputItem::ToolCall(_)
-                | GenerateInputItem::ToolResult(_) => None,
+                | GenerateInputItem::ToolResult(_)
+                | GenerateInputItem::HostedWebSearch(_) => None,
             })
             .collect(),
         GenerateInput::Text(_) | GenerateInput::NativeToolResults(_) => Vec::new(),
@@ -88,7 +89,8 @@ fn input_message_texts(input: &GenerateInput) -> Vec<String> {
                 GenerateInputItem::AssistantText(message) => Some(message.content.clone()),
                 GenerateInputItem::Reasoning(_)
                 | GenerateInputItem::ToolCall(_)
-                | GenerateInputItem::ToolResult(_) => None,
+                | GenerateInputItem::ToolResult(_)
+                | GenerateInputItem::HostedWebSearch(_) => None,
             })
             .collect(),
         GenerateInput::NativeToolResults(_) => Vec::new(),
@@ -129,7 +131,8 @@ fn input_tool_results(input: &GenerateInput) -> Vec<&noema_providers::GenerateTo
                 GenerateInputItem::Message(_)
                 | GenerateInputItem::AssistantText(_)
                 | GenerateInputItem::Reasoning(_)
-                | GenerateInputItem::ToolCall(_) => None,
+                | GenerateInputItem::ToolCall(_)
+                | GenerateInputItem::HostedWebSearch(_) => None,
             })
             .collect(),
         GenerateInput::NativeToolResults(results) => results.iter().collect(),

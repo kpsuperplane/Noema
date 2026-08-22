@@ -544,6 +544,11 @@ fn render_compaction_transcript(items: &[ConversationItemRecord]) -> String {
                     "Noema tool result",
                     noema_providers::GenerateInputItem::ToolResult(result).render_for_token_count(),
                 ),
+                noema_providers::GenerateInputItem::HostedWebSearch(search) => (
+                    "Noema web search",
+                    noema_providers::GenerateInputItem::HostedWebSearch(search)
+                        .render_for_token_count(),
+                ),
             };
             Some(format!("[{}] {role}: {text}", item.sequence_index))
         })

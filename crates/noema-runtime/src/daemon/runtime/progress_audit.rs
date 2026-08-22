@@ -267,6 +267,7 @@ mod tests {
                     .expect("requests")
                     .push(request.clone());
                 Ok(GenerateResponse {
+                    replay_items: Vec::new(),
                     responses: Vec::new(),
                     tool_calls: vec![GenerateToolCall {
                         id: Some("call-progress".to_string()),

@@ -775,6 +775,7 @@ mod tests {
 
     fn tool_response(name: &str, payload: Value) -> GenerateResponse {
         GenerateResponse {
+            replay_items: Vec::new(),
             responses: Vec::new(),
             tool_calls: vec![noema_providers::GenerateToolCall {
                 id: None,

@@ -80,6 +80,16 @@ impl ContinuationContext {
     pub(crate) fn append_response(&mut self, response: &GenerateResponse) {
         self.awaiting_provider_consumption = false;
         self.requires_replay = false;
+        if !response.replay_items.is_empty() {
+            for item in &response.replay_items {
+                if let GenerateInputItem::ToolCall(call) = item {
+                    self.pending_call_ids.push_back(call.call_id.clone());
+                }
+                self.items.push(item.clone());
+            }
+            self.continuation_delta_start = Some(self.items.len());
+            return;
+        }
         self.items
             .extend(response.reasoning_items.iter().filter_map(|item| {
                 let encrypted_content = item
@@ -106,6 +116,7 @@ impl ContinuationContext {
                     id: item.provider_item_id.map(ToString::to_string),
                     phase: item.phase,
                     content: item.text.to_string(),
+                    citations: item.citations.to_vec(),
                 })
             }));
         for call in &response.tool_calls {
@@ -205,7 +216,8 @@ impl ContinuationContext {
                     GenerateInputItem::Message(_)
                     | GenerateInputItem::AssistantText(_)
                     | GenerateInputItem::Reasoning(_)
-                    | GenerateInputItem::ToolCall(_) => None,
+                    | GenerateInputItem::ToolCall(_)
+                    | GenerateInputItem::HostedWebSearch(_) => None,
                 })
                 .collect::<Vec<_>>();
             let delta = if !results.is_empty() && results.len() == items.len() {
@@ -513,6 +525,11 @@ fn messages_for_non_native_history(items: &[GenerateInputItem]) -> Vec<GenerateM
                     GenerateInputItem::ToolResult(result.clone()).render_for_token_count()
                 ),
             }),
+            GenerateInputItem::HostedWebSearch(search) => Some(GenerateMessage {
+                role: GenerateMessageRole::Assistant,
+                content: GenerateInputItem::HostedWebSearch(search.clone())
+                    .render_for_token_count(),
+            }),
         })
         .collect()
 }
@@ -575,6 +592,39 @@ mod tests {
     fn continuation_context_preserves_reasoning_calls_and_results_in_order() {
         let mut context = ContinuationContext::new("Research bears");
         let response = GenerateResponse {
+            replay_items: vec![
+                GenerateInputItem::Reasoning(GenerateReasoningInput {
+                    id: Some("rs_1".to_string()),
+                    encrypted_content: "encrypted".to_string(),
+                    provider_details: None,
+                }),
+                GenerateInputItem::HostedWebSearch(noema_providers::GenerateHostedWebSearch {
+                    output_index: 1,
+                    id: Some("ws_1".to_string()),
+                    tool_name: "web.search".to_string(),
+                    arguments: json!({"query": "official bear population"}),
+                    result: json!({"status": "completed"}),
+                    status: "completed".to_string(),
+                    sources: Vec::new(),
+                    provider_action: Some(json!({
+                        "type": "search",
+                        "query": "official bear population"
+                    })),
+                }),
+                GenerateInputItem::AssistantText(noema_providers::GenerateAssistantTextInput {
+                    id: None,
+                    phase: noema_providers::AssistantTextPhase::Commentary,
+                    content: "I will inspect the official source.".to_string(),
+                    citations: Vec::new(),
+                }),
+                GenerateInputItem::ToolCall(GenerateToolCallInput {
+                    id: Some("fc_1".to_string()),
+                    call_id: "call_1".to_string(),
+                    name: "web.fetch".to_string(),
+                    provider_name: Some("web_fetch".to_string()),
+                    arguments: json!({"url": "https://example.test/official"}),
+                }),
+            ],
             responses: vec![GenerateResponseItem::Text {
                 id: None,
                 phase: None,
@@ -619,15 +669,16 @@ mod tests {
             })
         ));
         assert!(matches!(items[1], GenerateInputItem::Reasoning(_)));
+        assert!(matches!(items[2], GenerateInputItem::HostedWebSearch(_)));
         assert!(matches!(
-            items[2],
+            items[3],
             GenerateInputItem::AssistantText(noema_providers::GenerateAssistantTextInput {
                 phase: noema_providers::AssistantTextPhase::Commentary,
                 ..
             })
         ));
-        assert!(matches!(items[3], GenerateInputItem::ToolCall(_)));
-        assert!(matches!(items[4], GenerateInputItem::ToolResult(_)));
+        assert!(matches!(items[4], GenerateInputItem::ToolCall(_)));
+        assert!(matches!(items[5], GenerateInputItem::ToolResult(_)));
         let rendered = GenerateInput::Items(items).render_for_token_count();
         assert!(rendered.contains("450,000 black bears"));
         assert!(rendered.contains("https://example.test/official"));

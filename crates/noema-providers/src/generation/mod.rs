@@ -218,7 +218,8 @@ where
                             GenerateInputItem::Message(_)
                             | GenerateInputItem::AssistantText(_)
                             | GenerateInputItem::Reasoning(_)
-                            | GenerateInputItem::ToolCall(_) => None,
+                            | GenerateInputItem::ToolCall(_)
+                            | GenerateInputItem::HostedWebSearch(_) => None,
                         })
                         .collect::<Vec<_>>();
                     return (!results.is_empty())

@@ -423,10 +423,6 @@ impl RuntimeActor {
                         .and_then(|usage| usage.cached_input_tokens),
                 }),
             );
-            citation_sources.observe(
-                continuation_step_number,
-                &continuation_response.hosted_web_searches,
-            );
             next_provider_round_index = continuation_step_number + 1;
             let mut continuation_assistant_response = ProviderAssistantResponse::default();
             let continuation_action_turn = ProviderActionTurn {
@@ -458,6 +454,7 @@ impl RuntimeActor {
                 };
             let continuation_tool_call_items = continuation_response.tool_calls.clone();
             continuation_context.append_response(&GenerateResponse {
+                replay_items: continuation_response.replay_items.clone(),
                 responses: continuation_response.responses.clone(),
                 tool_calls: continuation_tool_call_items.clone(),
                 reasoning_items: continuation_response.reasoning_items.clone(),
@@ -551,6 +548,7 @@ impl RuntimeActor {
                 provider_route: Arc::clone(&turn.provider_route),
                 initial_stream_id: continuation_stream_id.clone(),
                 response: GenerateResponse {
+                    replay_items: continuation_response.replay_items.clone(),
                     responses: continuation_response.responses.clone(),
                     tool_calls: continuation_tool_call_items,
                     reasoning_items: continuation_response.reasoning_items.clone(),

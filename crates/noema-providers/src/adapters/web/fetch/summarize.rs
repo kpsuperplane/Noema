@@ -257,6 +257,7 @@ mod tests {
                     .expect("requests")
                     .push(request.clone());
                 Ok(GenerateResponse {
+                    replay_items: Vec::new(),
                     responses: vec![GenerateResponseItem::Text {
                         id: None,
                         phase: None,

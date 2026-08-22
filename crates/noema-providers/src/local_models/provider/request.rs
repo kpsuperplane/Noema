@@ -321,6 +321,10 @@ fn append_generate_input(messages: &mut Vec<ChatMessage>, input: &GenerateInput)
                         flush_tool_calls(messages, &mut pending_tool_calls);
                         messages.push(ChatMessage::tool_result(result));
                     }
+                    GenerateInputItem::HostedWebSearch(_) => {
+                        flush_tool_calls(messages, &mut pending_tool_calls);
+                        push_chat_message(messages, "assistant", item.render_for_token_count());
+                    }
                 }
             }
             flush_tool_calls(messages, &mut pending_tool_calls);

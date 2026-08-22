@@ -179,6 +179,7 @@ impl noema_providers::ProviderOperations for StreamingMarkerProvider {
             self.started.notify_one();
             self.release.notified().await;
             Ok(GenerateResponse {
+                replay_items: Vec::new(),
                 responses: Vec::new(),
                 tool_calls: vec![GenerateToolCall {
                     id: Some("item:finish".to_string()),
@@ -201,6 +202,7 @@ impl noema_providers::ProviderOperations for StreamingMarkerProvider {
                     result: serde_json::json!({"summary": "completed"}),
                     status: "completed".to_string(),
                     sources: Vec::new(),
+                    provider_action: None,
                 })
                 .collect(),
                 provider: "test".to_string(),
@@ -257,6 +259,7 @@ impl noema_providers::ProviderOperations for TerminalRepairProvider {
                 serde_json::json!({})
             };
             Ok(GenerateResponse {
+                replay_items: Vec::new(),
                 responses: Vec::new(),
                 tool_calls: vec![GenerateToolCall {
                     id: Some(format!("call:terminal:{call_index}")),
@@ -390,6 +393,7 @@ impl noema_providers::ProviderOperations for BlockingProvider {
         Box::pin(async move {
             if self.terminal {
                 return Ok(GenerateResponse {
+                    replay_items: Vec::new(),
                     responses: Vec::new(),
                     tool_calls: vec![GenerateToolCall {
                         id: Some("call:block".to_string()),

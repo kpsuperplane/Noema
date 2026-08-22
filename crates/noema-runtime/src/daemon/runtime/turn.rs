@@ -153,7 +153,8 @@ fn prompt_cache_breakpoints_for(
                 noema_providers::GenerateInputItem::AssistantText(_)
                 | noema_providers::GenerateInputItem::Reasoning(_)
                 | noema_providers::GenerateInputItem::ToolCall(_)
-                | noema_providers::GenerateInputItem::ToolResult(_) => None,
+                | noema_providers::GenerateInputItem::ToolResult(_)
+                | noema_providers::GenerateInputItem::HostedWebSearch(_) => None,
             })
             .collect(),
         GenerateInput::Text(_) | GenerateInput::NativeToolResults(_) => Vec::new(),
@@ -538,6 +539,7 @@ mod provider_output_span_tests {
             result: json!({}),
             status: "completed".to_string(),
             sources: Vec::new(),
+            provider_action: None,
         }];
 
         assert_eq!(provider_output_span(1, 0, &searches), 3);

@@ -176,7 +176,6 @@ impl RuntimeActor {
             item_tx,
         )
         .await?;
-        citation_sources.observe(provider_round_index, &response.hosted_web_searches);
         let mut assistant_response = ProviderAssistantResponse::default();
         for response_item in response.assistant_response_texts() {
             let offset = response_item.response_index;
@@ -212,7 +211,7 @@ impl RuntimeActor {
         let Some((assistant_item, _)) = self
             .persist_provider_assistant_text(
                 None,
-                &CitationSourceRegistry::default(),
+                &CitationSourceRegistry,
                 summary.to_string(),
                 &[],
                 "progress_audit",

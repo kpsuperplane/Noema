@@ -2,8 +2,8 @@
 
 use super::tools::provider_safe_tool_name;
 use crate::{
-    GenerateAssistantTextInput, GenerateInput, GenerateInputItem, GenerateReasoningInput,
-    GenerateToolCallInput, GenerateToolResultInput, ProviderError,
+    GenerateAssistantTextInput, GenerateHostedWebSearch, GenerateInput, GenerateInputItem,
+    GenerateReasoningInput, GenerateToolCallInput, GenerateToolResultInput, ProviderError,
 };
 use serde::Serialize;
 
@@ -42,7 +42,9 @@ impl ResponsesInput {
     ) -> Result<Self, ProviderError> {
         if let (GenerateInput::Text(text), ResponsesInputShape::MessageArray) = (value, shape) {
             let mut input = Self::Items(vec![ResponsesInputItem::Message(ResponsesInputMessage {
+                kind: None,
                 id: None,
+                status: None,
                 role: "user",
                 content: text.clone().into(),
                 phase: None,
@@ -93,7 +95,9 @@ impl ResponsesInput {
                     ));
                 }
                 let mut message = ResponsesInputMessage {
+                    kind: None,
                     id: None,
+                    status: None,
                     role: "user",
                     content: std::mem::take(text).into(),
                     phase: None,
@@ -142,7 +146,9 @@ impl From<&GenerateInput> for ResponsesInput {
                     .filter(|message| !message.content.trim().is_empty())
                     .map(|message| {
                         ResponsesInputItem::Message(ResponsesInputMessage {
+                            kind: None,
                             id: None,
+                            status: None,
                             role: message.role.as_str(),
                             content: message.content.clone().into(),
                             phase: None,
@@ -191,6 +197,8 @@ pub enum ResponsesInputItem {
     FunctionCall(ResponsesFunctionCall),
     /// Native function-call output.
     FunctionCallOutput(ResponsesFunctionCallOutput),
+    /// Prior provider-hosted web action.
+    HostedWebSearch(ResponsesHostedWebSearch),
 }
 
 impl From<&GenerateToolResultInput> for ResponsesInputItem {
@@ -203,7 +211,9 @@ impl From<&GenerateInputItem> for ResponsesInputItem {
     fn from(value: &GenerateInputItem) -> Self {
         match value {
             GenerateInputItem::Message(message) => Self::Message(ResponsesInputMessage {
+                kind: None,
                 id: None,
+                status: None,
                 role: message.role.as_str(),
                 content: message.content.clone().into(),
                 phase: None,
@@ -220,6 +230,47 @@ impl From<&GenerateInputItem> for ResponsesInputItem {
             GenerateInputItem::ToolResult(result) => {
                 Self::FunctionCallOutput(ResponsesFunctionCallOutput::from(result))
             }
+            GenerateInputItem::HostedWebSearch(search) => {
+                Self::HostedWebSearch(ResponsesHostedWebSearch::from(search))
+            }
+        }
+    }
+}
+
+/// One completed hosted web action replayed as Responses input.
+#[derive(Debug, Clone, Serialize)]
+pub struct ResponsesHostedWebSearch {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    status: String,
+    action: serde_json::Value,
+}
+
+impl From<&GenerateHostedWebSearch> for ResponsesHostedWebSearch {
+    fn from(search: &GenerateHostedWebSearch) -> Self {
+        Self {
+            kind: "web_search_call",
+            id: search.id.clone(),
+            status: search.status.clone(),
+            action: search.provider_action.clone().unwrap_or_else(|| {
+                let action_type = if search.tool_name == "web.fetch" {
+                    "open_page"
+                } else {
+                    "search"
+                };
+                let mut action = search.arguments.clone();
+                let action = action
+                    .as_object_mut()
+                    .map_or_else(serde_json::Map::new, std::mem::take);
+                let mut action = action;
+                action.insert(
+                    "type".to_string(),
+                    serde_json::Value::String(action_type.to_string()),
+                );
+                serde_json::Value::Object(action)
+            }),
         }
     }
 }
@@ -249,9 +300,13 @@ impl From<&GenerateReasoningInput> for ResponsesReasoningItem {
 /// One Responses API input message.
 #[derive(Debug, Clone, Serialize)]
 pub struct ResponsesInputMessage {
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    kind: Option<&'static str>,
     /// Provider output item id retained for same-provider replay.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<&'static str>,
     /// Provider role.
     pub role: &'static str,
     /// Message text or content blocks carrying provider controls.
@@ -264,9 +319,20 @@ pub struct ResponsesInputMessage {
 impl From<&GenerateAssistantTextInput> for ResponsesInputMessage {
     fn from(message: &GenerateAssistantTextInput) -> Self {
         Self {
+            kind: Some("message"),
             id: message.id.clone(),
+            status: Some("completed"),
             role: "assistant",
-            content: message.content.clone().into(),
+            content: ResponsesInputMessageContent::Blocks(vec![ResponsesInputText {
+                kind: "output_text",
+                text: message.content.clone(),
+                prompt_cache_breakpoint: None,
+                annotations: message
+                    .citations
+                    .iter()
+                    .map(ResponsesInputCitation::from)
+                    .collect(),
+            }]),
             phase: Some(message.phase.as_str()),
         }
     }
@@ -292,6 +358,7 @@ impl ResponsesInputMessage {
             kind: "input_text",
             text,
             prompt_cache_breakpoint: Some(ResponsesPromptCacheBreakpoint { mode: "explicit" }),
+            annotations: Vec::new(),
         }]);
     }
 }
@@ -320,6 +387,32 @@ pub struct ResponsesInputText {
     pub(super) text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     prompt_cache_breakpoint: Option<ResponsesPromptCacheBreakpoint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    annotations: Vec<ResponsesInputCitation>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ResponsesInputCitation {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    title: String,
+    url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    end_index: Option<usize>,
+}
+
+impl From<&crate::GenerateCitation> for ResponsesInputCitation {
+    fn from(citation: &crate::GenerateCitation) -> Self {
+        Self {
+            kind: "url_citation",
+            title: citation.title.clone(),
+            url: citation.url.clone(),
+            start_index: citation.start_index,
+            end_index: citation.end_index,
+        }
+    }
 }
 
 /// Explicit cache marker attached to a supported Responses content block.

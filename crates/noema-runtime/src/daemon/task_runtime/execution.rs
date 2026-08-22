@@ -67,7 +67,7 @@ pub(super) async fn execute_run(
         .await?
         {
             crate::acp::AcpRunOutcome::Terminal(terminal) => {
-                normalize_task_result(services, run, &CitationSourceRegistry::default()).await?;
+                normalize_task_result(services, run, &CitationSourceRegistry).await?;
                 command_service
                     .record_work_run_terminal(
                         *terminal,
@@ -145,6 +145,7 @@ async fn normalize_task_result(
                 "scope_kind": "task_run",
                 "scope_id": run.run_id,
                 "reference_count": normalized.unresolved_references.len(),
+                "references": &normalized.unresolved_references,
             })),
         );
     }
@@ -412,7 +413,6 @@ fn parse_payload<T: serde::de::DeserializeOwned>(
 
 #[cfg(test)]
 mod tests {
-    use noema_providers::{GenerateHostedWebSearch, GenerateWebSource};
 
     use super::*;
 
@@ -483,7 +483,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_result_normalization_removes_unresolved_markers_and_rejects_growth() {
+    async fn task_result_normalization_preserves_unresolved_markers_and_rejects_growth() {
         let store = crate::test_support::test_store().await;
         let (task, run) = crate::test_support::seed_task(&store, "Task citations").await;
         let errors = tempfile::TempDir::new().unwrap();
@@ -509,7 +509,7 @@ mod tests {
             )
             .await
             .unwrap();
-        normalize_task_result(&services, &run, &CitationSourceRegistry::default())
+        normalize_task_result(&services, &run, &CitationSourceRegistry)
             .await
             .unwrap();
         assert_eq!(
@@ -517,27 +517,14 @@ mod tests {
                 .read_task_file(&task.task_id, noema_store::TASK_RESULT)
                 .await
                 .unwrap(),
-            "Claim\nTail end\nOther remainder"
+            "Claim\u{e200}cite\u{e202}turn1view0\u{e201}\nTail\u{e200}cite\u{e202}broken end\nOther remainder"
         );
         let error_log = std::fs::read_to_string(&error_path).unwrap();
         assert!(error_log.contains("provider_citation_unresolved"));
-        let mut registry = CitationSourceRegistry::default();
-        registry.observe(
-            0,
-            &[GenerateHostedWebSearch {
-                output_index: 0,
-                id: None,
-                tool_name: "web.search".to_string(),
-                arguments: serde_json::json!({}),
-                result: serde_json::json!({}),
-                status: "completed".to_string(),
-                sources: vec![GenerateWebSource {
-                    title: Some("Source".to_string()),
-                    url: "https://example.com/source".to_string(),
-                }],
-            }],
-        );
-        let marker = "\u{e200}cite\u{e202}turn0search0\u{e201}";
+        assert!(error_log.contains("turn1view0"));
+        assert!(error_log.contains("broken"));
+        let registry = CitationSourceRegistry;
+        let marker = "\u{e200}cite\u{e202}https://example.com/source\u{e201}";
         let current = format!(
             "{}{marker}",
             "a".repeat(noema_store::TASK_FILE_TEXT_LIMIT - marker.len())

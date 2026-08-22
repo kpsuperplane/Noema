@@ -108,7 +108,7 @@ impl RuntimeActor {
         response: GenerateResponse,
     ) -> Result<usize, RuntimeError> {
         let mut persisted_count = 0usize;
-        let citation_sources = CitationSourceRegistry::default();
+        let citation_sources = CitationSourceRegistry;
         for output in response.assistant_response_texts() {
             let index = output.response_index;
             let metadata = json!({

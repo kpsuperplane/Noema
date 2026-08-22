@@ -66,7 +66,8 @@ pub(super) fn foundation_prompt_parts(input: &GenerateInput) -> FoundationPrompt
                 GenerateInputItem::AssistantText(_)
                 | GenerateInputItem::Reasoning(_)
                 | GenerateInputItem::ToolCall(_)
-                | GenerateInputItem::ToolResult(_) => String::new(),
+                | GenerateInputItem::ToolResult(_)
+                | GenerateInputItem::HostedWebSearch(_) => String::new(),
             };
             let mut replay_turns = bridge_replay_input_items(&items[..last_user_index]);
             replay_turns.extend(
@@ -145,6 +146,12 @@ fn bridge_replay_input_items(items: &[GenerateInputItem]) -> Vec<BridgeReplayTur
                     })
                     .to_string(),
                 }),
+            }],
+            GenerateInputItem::HostedWebSearch(_) => vec![BridgeReplayTurn {
+                role: BridgeRole::Assistant,
+                text: item.render_for_token_count(),
+                tool_call: None,
+                tool_result: None,
             }],
         })
         .collect()

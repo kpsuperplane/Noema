@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use noema_home::SystemErrorEvent;
-use noema_providers::{GenerateCitation, GenerateHostedWebSearch};
+use noema_providers::GenerateCitation;
 use serde_json::json;
 use url::Url;
 
@@ -21,11 +21,7 @@ struct CitationSource {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct CitationSourceRegistry {
-    sources: HashMap<String, CitationSource>,
-    search_counts: HashMap<usize, usize>,
-    view_counts: HashMap<usize, usize>,
-}
+pub(crate) struct CitationSourceRegistry;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct NormalizedCitationText {
@@ -42,43 +38,6 @@ pub fn project_task_result(text: &str) -> (String, Vec<GenerateCitation>) {
 }
 
 impl CitationSourceRegistry {
-    pub(crate) fn observe(&mut self, round_index: usize, searches: &[GenerateHostedWebSearch]) {
-        for search in searches {
-            let is_view = search.tool_name == "web.fetch";
-            let count = if is_view {
-                self.view_counts.entry(round_index).or_default()
-            } else {
-                self.search_counts.entry(round_index).or_default()
-            };
-            let kind = if is_view { "view" } else { "search" };
-            for source in &search.sources {
-                let reference = format!("turn{round_index}{kind}{count}");
-                *count += 1;
-                let Ok(url) = Url::parse(&source.url) else {
-                    continue;
-                };
-                if !matches!(url.scheme(), "http" | "https") {
-                    continue;
-                }
-                let title = source
-                    .title
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|title| !title.is_empty())
-                    .or_else(|| url.host_str().filter(|host| !host.is_empty()))
-                    .unwrap_or(source.url.as_str())
-                    .to_string();
-                self.sources.insert(
-                    reference,
-                    CitationSource {
-                        title,
-                        url: source.url.clone(),
-                    },
-                );
-            }
-        }
-    }
-
     pub(crate) fn normalize(
         &self,
         text: &str,
@@ -102,10 +61,10 @@ impl CitationSourceRegistry {
                 let end = marker_body
                     .find(char::is_whitespace)
                     .unwrap_or(marker_body.len());
-                let length =
-                    MARKER_START.encode_utf16().count() + marker_body[..end].encode_utf16().count();
+                let malformed = &remaining[start..start + MARKER_START.len() + end];
+                normalized.push_str(malformed);
+                let length = malformed.encode_utf16().count();
                 unresolved.push(marker_body[..end].to_string());
-                removals.push((raw_utf16, raw_utf16 + length));
                 raw_utf16 += length;
                 remaining = &marker_body[end..];
                 continue;
@@ -114,8 +73,22 @@ impl CitationSourceRegistry {
                 &remaining[start..start + MARKER_START.len() + end + MARKER_END.len_utf8()];
             let marker_end = raw_utf16 + marker.encode_utf16().count();
             let citation_end = normalized.encode_utf16().count();
-            for reference in marker_body[..end].split(MARKER_SEPARATOR) {
-                if let Some(source) = self.source(reference) {
+            let references = marker_body[..end]
+                .split(MARKER_SEPARATOR)
+                .filter(|reference| !reference.is_empty())
+                .collect::<Vec<_>>();
+            let annotation_resolves_marker = existing.iter().any(|citation| {
+                citation
+                    .start_index
+                    .zip(citation.end_index)
+                    .is_some_and(|(start, end)| start < marker_end && end > raw_utf16)
+            });
+            let resolved_sources = references
+                .iter()
+                .filter_map(|reference| self.source(reference))
+                .collect::<Vec<_>>();
+            if annotation_resolves_marker || resolved_sources.len() == references.len() {
+                for source in resolved_sources {
                     if seen.insert((source.url.clone(), citation_end)) {
                         citations.push(GenerateCitation {
                             title: source.title,
@@ -124,11 +97,17 @@ impl CitationSourceRegistry {
                             end_index: Some(citation_end),
                         });
                     }
-                } else if !reference.is_empty() {
-                    unresolved.push(reference.to_string());
                 }
+                removals.push((raw_utf16, marker_end));
+            } else {
+                normalized.push_str(marker);
+                unresolved.extend(
+                    references
+                        .into_iter()
+                        .filter(|reference| self.source(reference).is_none())
+                        .map(ToString::to_string),
+                );
             }
-            removals.push((raw_utf16, marker_end));
             raw_utf16 = marker_end;
             remaining = &remaining[start + marker.len()..];
         }
@@ -151,16 +130,14 @@ impl CitationSourceRegistry {
     }
 
     fn source(&self, reference: &str) -> Option<CitationSource> {
-        self.sources.get(reference).cloned().or_else(|| {
-            let url = Url::parse(reference).ok()?;
-            matches!(url.scheme(), "http" | "https").then(|| CitationSource {
-                title: url
-                    .host_str()
-                    .filter(|host| !host.is_empty())
-                    .unwrap_or(reference)
-                    .to_string(),
-                url: url.to_string(),
-            })
+        let url = Url::parse(reference).ok()?;
+        matches!(url.scheme(), "http" | "https").then(|| CitationSource {
+            title: url
+                .host_str()
+                .filter(|host| !host.is_empty())
+                .unwrap_or(reference)
+                .to_string(),
+            url: url.to_string(),
         })
     }
 
@@ -442,6 +419,7 @@ impl RuntimeActor {
                     "scope_kind": scope_kind,
                     "scope_id": scope_id,
                     "reference_count": normalized.unresolved_references.len(),
+                    "references": &normalized.unresolved_references,
                 })),
             );
         }
@@ -467,69 +445,43 @@ fn adjust_index(index: usize, removals: &[(usize, usize)]) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use noema_providers::GenerateWebSource;
-
     use super::*;
 
     #[test]
-    fn resolves_markers_and_preserves_utf16_positions() {
-        let mut registry = CitationSourceRegistry::default();
-        registry.observe(
-            0,
-            &[GenerateHostedWebSearch {
-                output_index: 0,
-                id: None,
-                tool_name: "web.search".to_string(),
-                arguments: serde_json::json!({}),
-                result: serde_json::json!({}),
-                status: "completed".to_string(),
-                sources: vec![
-                    GenerateWebSource {
-                        title: Some("First source".to_string()),
-                        url: "https://one.example/a".to_string(),
-                    },
-                    GenerateWebSource {
-                        title: None,
-                        url: "https://two.example/b".to_string(),
-                    },
-                ],
-            }],
-        );
-        let text = "😀 claim \u{e200}cite\u{e202}turn0search0\u{e202}turn0search1\u{e201}";
-        let result = registry.normalize(text, &[]);
+    fn structured_annotation_resolves_private_marker() {
+        let prefix = "😀 claim ";
+        let text = format!("{prefix}\u{e200}cite\u{e202}turn5search4\u{e201}");
+        let citation = GenerateCitation {
+            title: "Official source".to_string(),
+            url: "https://one.example/a".to_string(),
+            start_index: Some(prefix.encode_utf16().count()),
+            end_index: Some(text.encode_utf16().count()),
+        };
+        let result = CitationSourceRegistry.normalize(&text, &[citation]);
 
-        assert_eq!(result.text, "😀 claim ");
-        assert_eq!(result.citations.len(), 2);
-        assert_eq!(result.citations[0].title, "First source");
-        assert_eq!(result.citations[1].title, "two.example");
-        assert!(
-            result
-                .citations
-                .iter()
-                .all(|citation| citation.start_index.is_none())
-        );
-        assert!(
-            result
-                .citations
-                .iter()
-                .all(|citation| citation.end_index == Some(9))
-        );
+        assert_eq!(result.text, prefix);
+        assert_eq!(result.citations.len(), 1);
+        assert_eq!(result.citations[0].title, "Official source");
+        assert_eq!(result.citations[0].end_index, Some(9));
         assert!(result.unresolved_references.is_empty());
     }
 
     #[test]
-    fn removes_unresolved_markers_without_inventing_sources() {
-        let result = CitationSourceRegistry::default()
+    fn preserves_unresolved_markers_without_inventing_sources() {
+        let result = CitationSourceRegistry
             .normalize("claim \u{e200}cite\u{e202}turn1view1\u{e201} end", &[]);
 
-        assert_eq!(result.text, "claim  end");
+        assert_eq!(
+            result.text,
+            "claim \u{e200}cite\u{e202}turn1view1\u{e201} end"
+        );
         assert!(result.citations.is_empty());
         assert_eq!(result.unresolved_references, ["turn1view1"]);
     }
 
     #[test]
     fn resolves_direct_https_markers_without_fetching() {
-        let result = CitationSourceRegistry::default().normalize(
+        let result = CitationSourceRegistry.normalize(
             "claim \u{e200}cite\u{e202}https://example.com/news?id=1\u{e201}",
             &[],
         );
@@ -543,38 +495,8 @@ mod tests {
     }
 
     #[test]
-    fn resolves_continuation_views_and_adjusts_existing_annotations() {
-        let mut registry = CitationSourceRegistry::default();
-        registry.observe(
-            1,
-            &[
-                GenerateHostedWebSearch {
-                    output_index: 0,
-                    id: None,
-                    tool_name: "web.fetch".to_string(),
-                    arguments: serde_json::json!({}),
-                    result: serde_json::json!({}),
-                    status: "completed".to_string(),
-                    sources: vec![GenerateWebSource {
-                        title: None,
-                        url: "https://view.example/a".to_string(),
-                    }],
-                },
-                GenerateHostedWebSearch {
-                    output_index: 1,
-                    id: None,
-                    tool_name: "web.fetch".to_string(),
-                    arguments: serde_json::json!({}),
-                    result: serde_json::json!({}),
-                    status: "completed".to_string(),
-                    sources: vec![GenerateWebSource {
-                        title: None,
-                        url: "https://find.example/b".to_string(),
-                    }],
-                },
-            ],
-        );
-        let marker = "\u{e200}cite\u{e202}turn1view1\u{e202}turn1view1\u{e201}";
+    fn annotation_range_adjusts_after_private_marker_removal() {
+        let marker = "\u{e200}cite\u{e202}turn1view1\u{e201}";
         let text = format!("claim{marker} tail");
         let existing = GenerateCitation {
             title: "Existing".to_string(),
@@ -583,13 +505,12 @@ mod tests {
             end_index: Some(text.encode_utf16().count()),
         };
 
-        let result = registry.normalize(&text, &[existing]);
+        let result = CitationSourceRegistry.normalize(&text, &[existing]);
 
         assert_eq!(result.text, "claim tail");
-        assert_eq!(result.citations.len(), 2);
-        assert_eq!(result.citations[0].url, "https://find.example/b");
-        assert_eq!(result.citations[0].end_index, Some(5));
-        assert_eq!(result.citations[1].end_index, Some(10));
+        assert_eq!(result.citations.len(), 1);
+        assert_eq!(result.citations[0].url, "https://existing.example");
+        assert_eq!(result.citations[0].end_index, Some(10));
     }
 
     #[test]
@@ -607,7 +528,7 @@ mod tests {
             end_index: Some(end),
         };
 
-        let stripped = CitationSourceRegistry::default().normalize(
+        let stripped = CitationSourceRegistry.normalize(
             &suffix,
             &[citation(suffix_start, suffix.encode_utf16().count())],
         );
@@ -615,7 +536,7 @@ mod tests {
         assert_eq!(stripped.citations[0].start_index, None);
         assert_eq!(stripped.citations[0].end_index, Some(9));
 
-        let preserved = CitationSourceRegistry::default().normalize(
+        let preserved = CitationSourceRegistry.normalize(
             &requested,
             &[citation(requested_start, requested.len() - 1)],
         );
@@ -623,36 +544,16 @@ mod tests {
     }
     #[test]
     fn task_result_merges_durable_and_provider_sources() {
-        let mut registry = CitationSourceRegistry::default();
-        registry.observe(
-            0,
-            &[GenerateHostedWebSearch {
-                output_index: 0,
-                id: None,
-                tool_name: "web.search".to_string(),
-                arguments: serde_json::json!({}),
-                result: serde_json::json!({}),
-                status: "completed".to_string(),
-                sources: vec![
-                    GenerateWebSource {
-                        title: Some("Duplicate".to_string()),
-                        url: "https://old.example/a".to_string(),
-                    },
-                    GenerateWebSource {
-                        title: Some("New".to_string()),
-                        url: "https://new.example/b".to_string(),
-                    },
-                ],
-            }],
-        );
-        let marker = "\u{e200}cite\u{e202}turn0search0\u{e202}turn0search1\u{e201}";
+        let registry = CitationSourceRegistry;
+        let marker =
+            "\u{e200}cite\u{e202}https://old.example/a\u{e202}https://new.example/b\u{e201}";
         let input = format!(
             "Old[^noema-source-1]. New{marker}\n\n[^note]: keep\n[^noema-source-1]: [Old](<https://old.example/a>)\n"
         );
         let result = registry.normalize_task_result(&input);
         assert_eq!(
             result.text,
-            "Old[^noema-source-1]. New[^noema-source-1][^noema-source-2]\n\n[^note]: keep\n\n[^noema-source-1]: [Old](<https://old.example/a>)\n[^noema-source-2]: [New](<https://new.example/b>)\n"
+            "Old[^noema-source-1]. New[^noema-source-1][^noema-source-2]\n\n[^note]: keep\n\n[^noema-source-1]: [Old](<https://old.example/a>)\n[^noema-source-2]: [new.example](<https://new.example/b>)\n"
         );
         assert_eq!(
             registry.normalize_task_result(&result.text).text,

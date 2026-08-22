@@ -4,8 +4,9 @@ use std::collections::HashSet;
 
 use super::{ResponsesDiagnosticContext, tools::ResponsesToolNameMap};
 use crate::{
-    AssistantTextPhase, GenerateCitation, GenerateHostedWebSearch, GenerateReasoningItem,
-    GenerateResponse, GenerateResponseItem, GenerateWebSource, ProviderError,
+    AssistantTextPhase, GenerateAssistantTextInput, GenerateCitation, GenerateHostedWebSearch,
+    GenerateInputItem, GenerateReasoningInput, GenerateReasoningItem, GenerateResponse,
+    GenerateResponseItem, GenerateToolCallInput, GenerateWebSource, ProviderError,
     ProviderToolTransport, TokenUsage,
 };
 use serde::{Deserialize, Serialize};
@@ -76,7 +77,14 @@ impl ResponsesResponse {
     ) -> GenerateResponse {
         let reasoning_items = self.reasoning_items();
         let hosted_web_searches = self.hosted_web_searches();
+        let replay_items = self.replay_items(
+            &responses,
+            &tool_calls,
+            &reasoning_items,
+            &hosted_web_searches,
+        );
         GenerateResponse {
+            replay_items,
             responses,
             tool_calls,
             reasoning_items,
@@ -86,6 +94,82 @@ impl ResponsesResponse {
             response_id: self.id,
             usage: self.usage.map(Into::into),
         }
+    }
+
+    fn replay_items(
+        &self,
+        responses: &[GenerateResponseItem],
+        tool_calls: &[crate::GenerateToolCall],
+        reasoning_items: &[GenerateReasoningItem],
+        hosted_web_searches: &[GenerateHostedWebSearch],
+    ) -> Vec<GenerateInputItem> {
+        let default_text_phase = if tool_calls.is_empty() {
+            AssistantTextPhase::FinalAnswer
+        } else {
+            AssistantTextPhase::Commentary
+        };
+        let mut responses = responses.iter();
+        let mut tool_calls = tool_calls.iter();
+        let mut reasoning_items = reasoning_items.iter();
+        self.output
+            .iter()
+            .enumerate()
+            .filter_map(|(output_index, item)| match item {
+                ResponsesOutputItem::Message { content, .. }
+                    if content.iter().any(|content| {
+                        matches!(content, ResponsesContent::OutputText { text, .. } if !text.is_empty())
+                    }) =>
+                {
+                    let GenerateResponseItem::Text {
+                        id,
+                        phase,
+                        text,
+                        citations,
+                    } = responses.next()?;
+                    Some(GenerateInputItem::AssistantText(
+                        GenerateAssistantTextInput {
+                            id: id.clone(),
+                            phase: phase.unwrap_or(default_text_phase),
+                            content: text.clone(),
+                            citations: citations.clone(),
+                        },
+                    ))
+                }
+                ResponsesOutputItem::Reasoning {
+                    encrypted_content,
+                    summary,
+                    ..
+                } if encrypted_content.is_some() || !summary.is_empty() => {
+                    let reasoning = reasoning_items.next()?;
+                    Some(GenerateInputItem::Reasoning(GenerateReasoningInput {
+                        id: reasoning.id.clone(),
+                        encrypted_content: reasoning.encrypted_content.clone().unwrap_or_default(),
+                        provider_details: reasoning.provider_details.clone(),
+                    }))
+                }
+                ResponsesOutputItem::FunctionCall { .. } => {
+                    let call = tool_calls.next()?;
+                    Some(GenerateInputItem::ToolCall(GenerateToolCallInput {
+                        id: call.id.clone(),
+                        call_id: call
+                            .provider_call_id
+                            .clone()
+                            .or_else(|| call.id.clone())?,
+                        name: call.name.clone(),
+                        provider_name: call.provider_name.clone(),
+                        arguments: call.payload.clone(),
+                    }))
+                }
+                ResponsesOutputItem::WebSearchCall { .. } => hosted_web_searches
+                    .iter()
+                    .find(|search| search.output_index == output_index)
+                    .cloned()
+                    .map(GenerateInputItem::HostedWebSearch),
+                ResponsesOutputItem::Message { .. }
+                | ResponsesOutputItem::Reasoning { .. }
+                | ResponsesOutputItem::Other => None,
+            })
+            .collect()
     }
 
     /// Collect assistant output text in provider order.
@@ -277,6 +361,7 @@ impl ResponsesResponse {
                         result,
                         status: status.clone(),
                         sources,
+                        provider_action: Some(action.clone()),
                     })
                 }
                 _ => None,

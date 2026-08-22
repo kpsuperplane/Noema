@@ -318,6 +318,15 @@ fn append_items(messages: &mut Vec<ChatMessage>, items: &[GenerateInputItem]) {
                 }
                 messages.push(ChatMessage::tool_result(result));
             }
+            GenerateInputItem::HostedWebSearch(_) => {
+                if !pending_reasoning.is_empty() {
+                    push_reasoning_message(messages, &mut pending_reasoning);
+                }
+                messages.push(ChatMessage::text(
+                    GenerateMessageRole::Assistant,
+                    item.render_for_token_count(),
+                ));
+            }
         }
     }
     if !pending_reasoning.is_empty() {

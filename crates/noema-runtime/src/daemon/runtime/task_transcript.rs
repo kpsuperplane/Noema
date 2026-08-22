@@ -611,6 +611,7 @@ mod tests {
                     url: "https://two.example".to_string(),
                 },
             ],
+            provider_action: None,
         };
 
         let (call, result) = hosted_web_search_run_items("run:test", 2, "test-provider", &search);

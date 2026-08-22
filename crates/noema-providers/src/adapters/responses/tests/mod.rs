@@ -140,6 +140,22 @@ fn hosted_web_actions_preserve_ordered_search_and_page_sources() {
                     "url": "https://four.example/d",
                     "pattern": "citation"
                 }
+            },
+            {
+                "type": "message",
+                "id": "answer",
+                "phase": "final_answer",
+                "content": [{
+                    "type": "output_text",
+                    "text": "Done.",
+                    "annotations": [{
+                        "type": "url_citation",
+                        "title": "Source",
+                        "url": "https://one.example/a",
+                        "start_index": 0,
+                        "end_index": 5
+                    }]
+                }]
             }
         ],
         "usage": null
@@ -164,6 +180,33 @@ fn hosted_web_actions_preserve_ordered_search_and_page_sources() {
         actions[1..]
             .iter()
             .all(|action| action.tool_name == "web.fetch")
+    );
+
+    let diagnostics = ResponsesDiagnosticContext::new(None, "test", "gpt-test", None);
+    let response = response
+        .finalize(
+            &test_tool_names(),
+            ProviderToolTransport::Native,
+            &diagnostics,
+        )
+        .expect("response with hosted output");
+    let replay = ResponsesInput::from(&GenerateInput::Items(response.replay_items));
+    let value = serde_json::to_value(replay).expect("replay JSON");
+    assert_eq!(value.as_array().map(Vec::len), Some(4));
+    assert_eq!(value[0]["type"], "web_search_call");
+    assert_eq!(
+        value[0]["action"]["sources"][1]["url"],
+        "https://two.example/b"
+    );
+    assert_eq!(value[2]["action"]["type"], "find_in_page");
+    assert_eq!(value[2]["action"]["pattern"], "citation");
+    assert_eq!(value[3]["type"], "message");
+    assert_eq!(value[3]["status"], "completed");
+    assert_eq!(value[3]["role"], "assistant");
+    assert_eq!(value[3]["phase"], "final_answer");
+    assert_eq!(
+        value[3]["content"][0]["annotations"][0]["url"],
+        "https://one.example/a"
     );
 }
 

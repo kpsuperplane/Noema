@@ -207,7 +207,8 @@ fn build_turn_input(
                     }),
                     GenerateInputItem::Reasoning(_)
                     | GenerateInputItem::ToolCall(_)
-                    | GenerateInputItem::ToolResult(_) => None,
+                    | GenerateInputItem::ToolResult(_)
+                    | GenerateInputItem::HostedWebSearch(_) => None,
                 })
                 .collect(),
         )
@@ -338,7 +339,8 @@ pub(super) fn transcript_input_items(
             | GenerateInputItem::AssistantText(_)
             | GenerateInputItem::Reasoning(_)
             | GenerateInputItem::ToolCall(_)
-            | GenerateInputItem::ToolResult(_) => None,
+            | GenerateInputItem::ToolResult(_)
+            | GenerateInputItem::HostedWebSearch(_) => None,
         };
         inputs.push(input);
         inputs.extend(interrupted_result);
@@ -364,6 +366,7 @@ fn provider_assistant_text_input_item(item: &ConversationItemRecord) -> Option<G
             id: action_string(&item.metadata, "provider_item_id"),
             phase,
             content: content.to_string(),
+            citations: Vec::new(),
         },
     ))
 }

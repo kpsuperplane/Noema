@@ -40,7 +40,7 @@ pub(crate) const WEB_FETCH_PROVENANCE_INSTRUCTIONS: &str = r#"Web URL provenance
 When following a `web.search` result or a link returned by `web.fetch`, copy the exact URL string from that result into the next `web.fetch` call. Do not reconstruct, canonicalize, swap hostnames, or add or remove path segments. If the exact URL is not present in a result, search for it first instead of inventing an alternate URL."#;
 
 pub(crate) const CITATION_OUTPUT_INSTRUCTIONS: &str = r#"Citation output:
-After web research, cite supported claims only with the provider-native private citation markers in the `cite…` form. Noema removes those markers from the message and saves their sources as structured citation metadata. Do not omit these markers for supported claims. Never convert or repeat them as Markdown links, source attribution, source domains, source URLs, parenthesized citations, or Sources sections. Forbidden output includes `([example.com](https://example.com/page))`, `[example.com](https://example.com/page)`, and `(example.com)`. This rule applies even if another default asks for visible citations. Include a URL in message text only when the human requested it or the URL is necessary answer content."#;
+When a provider supplies source citations, keep attribution in provider-native citation annotations. Do not add citation-only Markdown links, parenthesized domains, source URLs, or Sources sections to user-visible text. Include a URL in user-visible text only when the human requested it or the URL is necessary answer content."#;
 
 /// Build the immutable instruction kernel for ordinary primary-agent turns.
 /// Mutable identity, environment, and tool state belongs in keyed context updates.
@@ -253,12 +253,8 @@ mod tests {
                 "provider's native tool channel",
                 "NOEMA_MODEL_CONTEXT_UPDATE",
                 "copy the exact URL string from that result",
-                "provider-native private citation markers in the `cite…` form",
-                "saves their sources as structured citation metadata",
-                "Do not omit these markers for supported claims",
-                "Never convert or repeat them as Markdown links",
-                "`([example.com](https://example.com/page))`",
-                "This rule applies even if another default asks for visible citations",
+                "keep attribution in provider-native citation annotations",
+                "Do not add citation-only Markdown links",
                 "only when the human requested it or the URL is necessary answer content",
                 "Do not proactively mention the internal `RESULT.md` file",
                 "Work through ambiguity by inspecting the available context",

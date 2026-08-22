@@ -88,7 +88,7 @@ impl RuntimeActor {
                 && capabilities.parallel_tool_calls,
         };
         admit_uncompacted_request(provider, &initial_request).await?;
-        let mut citation_sources = CitationSourceRegistry::default();
+        let mut citation_sources = CitationSourceRegistry;
         let mut checkpoint_current = true;
         let mut next_provider_round = 0;
         let initial_response = self
@@ -110,7 +110,6 @@ impl RuntimeActor {
             .await;
         let mut response = match initial_response {
             Ok(response) => {
-                citation_sources.observe(0, &response.hosted_web_searches);
                 next_provider_round = 1;
                 response
             }
@@ -686,7 +685,6 @@ impl RuntimeActor {
                 .await;
             response = match continuation_response {
                 Ok(response) => {
-                    citation_sources.observe(continuation_step, &response.hosted_web_searches);
                     completed_tool_calls =
                         completed_tool_calls.saturating_add(response.hosted_web_searches.len());
                     next_provider_round = continuation_step.saturating_add(1);

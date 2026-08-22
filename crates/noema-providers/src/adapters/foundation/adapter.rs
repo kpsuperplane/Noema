@@ -496,6 +496,7 @@ fn foundation_response(
         .into_iter()
         .collect();
     Ok(GenerateResponse {
+        replay_items: Vec::new(),
         responses,
         tool_calls,
         reasoning_items: Vec::new(),

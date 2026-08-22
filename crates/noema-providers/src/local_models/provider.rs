@@ -412,6 +412,7 @@ impl ModelProvider for LocalModelsProvider {
             }]
         };
         Ok(GenerateResponse {
+            replay_items: Vec::new(),
             responses,
             tool_calls,
             reasoning_items: Vec::new(),
@@ -644,6 +645,7 @@ mod tests {
     #[test]
     fn native_tool_qualification_requires_the_expected_object_call() {
         let response = GenerateResponse {
+            replay_items: Vec::new(),
             responses: Vec::new(),
             tool_calls: vec![GenerateToolCall {
                 id: Some("call-1".to_string()),

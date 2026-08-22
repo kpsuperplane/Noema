@@ -65,8 +65,7 @@ impl RuntimeActor {
             &turn.response.reasoning_items,
         )
         .await?;
-        let mut citation_sources = CitationSourceRegistry::default();
-        citation_sources.observe(0, &turn.response.hosted_web_searches);
+        let citation_sources = CitationSourceRegistry;
         let mut initial_assistant_response = ProviderAssistantResponse::default();
         let initial_tool_calls = local_tool_calls(&turn.response.tool_calls);
         let initial_tool_description = single_tool_display_description(

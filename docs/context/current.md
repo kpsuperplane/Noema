@@ -62,6 +62,8 @@ slice or a net-negative reduction.
   Unknown external outcomes are not retried automatically.
 - Provider request settings do not authorize returned tool input. Every returned
   call must pass the source input check before invocation.
+- [Provider generation sessions](../development/provider-sessions.md) own transport efficiency.
+  Complete local replay preserves ordered provider output and owns correctness.
 - A full provider conversion preserves every source rule. Optional null
   placeholders are restored before policy, review, or storage.
 

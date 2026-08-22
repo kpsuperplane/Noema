@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::GenerateHostedWebSearch;
 use crate::{AssistantTextPhase, NoemaToolChoice, ProviderTool, ProviderToolTransport};
 
 /// Scheduling priority for generation on providers with constrained local capacity.
@@ -131,6 +132,8 @@ pub enum GenerateInputItem {
     ToolCall(GenerateToolCallInput),
     /// Historical local tool result.
     ToolResult(GenerateToolResultInput),
+    /// Historical provider-hosted web action.
+    HostedWebSearch(GenerateHostedWebSearch),
 }
 
 impl GenerateInputItem {
@@ -151,6 +154,7 @@ impl GenerateInputItem {
             Self::ToolResult(result) => {
                 result.call_id.trim().is_empty() || result.name.trim().is_empty()
             }
+            Self::HostedWebSearch(search) => search.status.trim().is_empty(),
         }
     }
 
@@ -195,6 +199,13 @@ impl GenerateInputItem {
                 "payload": result.payload,
             })
             .to_string(),
+            Self::HostedWebSearch(search) => serde_json::json!({
+                "type": "web_search_call",
+                "id": search.id,
+                "status": search.status,
+                "action": search.provider_action,
+            })
+            .to_string(),
         }
     }
 }
@@ -209,6 +220,9 @@ pub struct GenerateAssistantTextInput {
     pub phase: AssistantTextPhase,
     /// Exact provider text.
     pub content: String,
+    /// Structured provider citations attached to the text.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub citations: Vec<crate::GenerateCitation>,
 }
 
 /// Provider-neutral encrypted reasoning item for stateless replay.

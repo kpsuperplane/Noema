@@ -10,7 +10,7 @@ impl RuntimeActor {
         provider_session: &mut dyn noema_providers::ProviderGenerationSession,
         context: &mut ContinuationContext,
         citation_sources: &mut CitationSourceRegistry,
-        provider_round: usize,
+        _provider_round: usize,
         reason: &str,
         deadline: tokio::time::Instant,
         mut aggregate_usage: Option<TokenUsage>,
@@ -128,7 +128,6 @@ impl RuntimeActor {
             )
             .await;
         let mut response = finalization_result?;
-        citation_sources.observe(provider_round, &response.hosted_web_searches);
         add_usage(&mut aggregate_usage, response.usage.as_ref());
         response.usage = aggregate_usage;
         let terminal_calls = response

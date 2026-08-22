@@ -214,7 +214,7 @@ impl RuntimeActor {
         .await?;
 
         let mut text_count = 0;
-        let citation_sources = CitationSourceRegistry::default();
+        let citation_sources = CitationSourceRegistry;
         for output in response.assistant_response_texts() {
             let response_index = output.response_index;
             let mut metadata = notification.metadata.clone();

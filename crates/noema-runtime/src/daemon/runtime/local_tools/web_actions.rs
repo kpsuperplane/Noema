@@ -535,6 +535,7 @@ mod hosted_search_tests {
                 title: Some("Hotel".to_string()),
                 url: "HTTPS://Example.com:443/booking#rooms".to_string(),
             }],
+            provider_action: None,
         }];
 
         assert_eq!(

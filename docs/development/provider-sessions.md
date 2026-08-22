@@ -16,6 +16,8 @@ The session opens its WebSocket connection when the first request starts. The se
 
 Incremental input requires unchanged request settings and an earlier response identifier. Changed settings or compacted history use complete replay.
 
+Complete Responses replay keeps ordered reasoning, hosted web actions, assistant phases, citation annotations, and tool calls.
+
 Codex requests use `store:false`. OpenAI requests keep the provider account storage policy.
 
 An unsupported WebSocket handshake selects HTTP for that session. A transient setup failure selects HTTP for the current request.

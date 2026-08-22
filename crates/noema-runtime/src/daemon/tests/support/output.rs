@@ -4,6 +4,7 @@ fn fake_generate_response(
     model: String,
 ) -> GenerateResponse {
     GenerateResponse {
+        replay_items: Vec::new(),
         responses,
         tool_calls,
         reasoning_items: Vec::new(),

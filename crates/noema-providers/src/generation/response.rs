@@ -5,6 +5,8 @@ use ts_rs::TS;
 /// Structured response returned by a model provider.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenerateResponse {
+    /// Provider output items retained in exact order for stateless replay.
+    pub replay_items: Vec<crate::GenerateInputItem>,
     /// Provider-native response items retained for continuation and projection.
     pub responses: Vec<GenerateResponseItem>,
     /// Tool calls requested by the provider.
@@ -57,6 +59,9 @@ pub struct GenerateHostedWebSearch {
     /// Ordered public sources used by this hosted web action.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<GenerateWebSource>,
+    /// Exact provider action used when stateless replay needs the output item.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_action: Option<Value>,
 }
 
 /// One public source used by a provider-hosted web action.
@@ -148,6 +153,7 @@ impl GenerateResponse {
         model: impl Into<String>,
     ) -> Self {
         Self {
+            replay_items: Vec::new(),
             responses: vec![GenerateResponseItem::Text {
                 id: None,
                 phase: None,
@@ -379,6 +385,7 @@ mod citation_split_tests {
     #[test]
     fn citations_follow_utf16_bubble_ranges_and_missing_offset_fallback() {
         let mut response = GenerateResponse {
+            replay_items: Vec::new(),
             responses: vec![GenerateResponseItem::Text {
                 id: None,
                 phase: None,
@@ -423,6 +430,7 @@ mod citation_split_tests {
     #[test]
     fn assistant_response_texts_preserve_order_late_commentary_and_exact_duplicates() {
         let response = GenerateResponse {
+            replay_items: Vec::new(),
             responses: vec![
                 text_item(None, "progress"),
                 text_item(Some(AssistantTextPhase::FinalAnswer), "same"),

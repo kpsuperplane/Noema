@@ -160,6 +160,7 @@ fn test_turn_with_selection(
         provider_route: crate::test_support::provider_route(selection, local_tool_test_provider()),
         initial_stream_id: "stream:test".to_string(),
         response: GenerateResponse {
+            replay_items: Vec::new(),
             responses: Vec::new(),
             tool_calls: Vec::new(),
             reasoning_items: Vec::new(),

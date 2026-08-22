@@ -91,6 +91,7 @@ impl ChatCompletionResponse {
             .into_iter()
             .collect();
         Ok(GenerateResponse {
+            replay_items: Vec::new(),
             responses,
             tool_calls,
             reasoning_items: self.reasoning_items(),
@@ -262,6 +263,7 @@ impl ChatCompletionResponse {
                             result,
                             status,
                             sources: Vec::new(),
+                            provider_action: None,
                         })
                     })
             })
@@ -297,6 +299,7 @@ impl ChatCompletionResponse {
                 }),
                 status: "completed".to_string(),
                 sources: Vec::new(),
+                provider_action: None,
             }
         }));
         for (output_index, search) in searches.iter_mut().enumerate() {

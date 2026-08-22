@@ -228,6 +228,7 @@ impl FakeCodexProvider {
                         result: json!({"summary": "Found one source"}),
                         status: "completed".to_string(),
                         sources: Vec::new(),
+                        provider_action: None,
                     });
                 }
                 return Ok(response);
