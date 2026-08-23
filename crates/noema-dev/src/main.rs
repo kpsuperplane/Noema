@@ -45,6 +45,7 @@ enum DevError {
     ProcessExited {
         label: &'static str,
         status: ExitStatus,
+        process_group: Option<u32>,
     },
 
     #[error("failed to install dev shutdown signal handler: {source}")]
@@ -145,12 +146,16 @@ where
                 return Ok(());
             }
             Err(error) => {
-                let Some(label) = watcher_exit_label(&error) else {
+                let Some((label, _process_group)) = watcher_exit(&error) else {
                     stop_dev_processes(web, server, bridge).await;
                     return Err(error);
                 };
 
                 eprintln!("{error}; retrying {label}");
+                #[cfg(unix)]
+                if let Some(process_group) = _process_group {
+                    signal_process_group_id(process_group, "-TERM").await;
+                }
                 tokio::time::sleep(WATCHER_RESTART_DELAY).await;
 
                 let restart = match label {
@@ -172,9 +177,13 @@ where
     }
 }
 
-fn watcher_exit_label(error: &DevError) -> Option<&'static str> {
+fn watcher_exit(error: &DevError) -> Option<(&'static str, Option<u32>)> {
     match error {
-        DevError::ProcessExited { label, .. } => Some(label),
+        DevError::ProcessExited {
+            label,
+            process_group,
+            ..
+        } => Some((label, *process_group)),
         _ => None,
     }
 }
@@ -318,11 +327,20 @@ fn strip_cargo_run_env(command: &mut Command) {
 }
 
 async fn wait_for_child(label: &'static str, child: &mut Child) -> Result<(), DevError> {
+    #[cfg(unix)]
+    let process_group = child.id();
+    #[cfg(not(unix))]
+    let process_group = None;
+
     let status = child
         .wait()
         .await
         .map_err(|source| DevError::WaitProcess { label, source })?;
-    Err(DevError::ProcessExited { label, status })
+    Err(DevError::ProcessExited {
+        label,
+        status,
+        process_group,
+    })
 }
 
 async fn stop_child(child: &mut Child) {
@@ -356,7 +374,12 @@ async fn signal_process_group(child: &Child, signal: &str) {
         return;
     };
 
-    let process_group = format!("-{pid}");
+    signal_process_group_id(pid, signal).await;
+}
+
+#[cfg(unix)]
+async fn signal_process_group_id(process_group: u32, signal: &str) {
+    let process_group = format!("-{process_group}");
     let _ = Command::new("kill")
         .arg(signal)
         .arg("--")
@@ -477,19 +500,41 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn only_watcher_exit_requests_a_restart() {
+    fn only_watcher_exit_returns_restart_information() {
         use std::os::unix::process::ExitStatusExt;
 
         let exited = DevError::ProcessExited {
             label: "web asset watcher",
             status: ExitStatus::from_raw(1),
+            process_group: Some(42),
         };
-        assert_eq!(watcher_exit_label(&exited), Some("web asset watcher"));
+        assert_eq!(watcher_exit(&exited), Some(("web asset watcher", Some(42))));
 
         let unknown = DevError::UnknownMode {
             mode: OsString::from("unknown"),
         };
-        assert_eq!(watcher_exit_label(&unknown), None);
+        assert_eq!(watcher_exit(&unknown), None);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn watcher_exit_retains_process_group_after_reaping_leader() {
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg("exit 7")
+            .process_group(0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = command.spawn().expect("spawn exiting watcher");
+        let process_group = child.id();
+
+        let error = wait_for_child("test watcher", &mut child)
+            .await
+            .expect_err("watcher exit should be an error");
+
+        assert_eq!(watcher_exit(&error), Some(("test watcher", process_group)));
     }
 
     #[cfg(unix)]
