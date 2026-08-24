@@ -25,12 +25,14 @@ The audit evidence below describes the original runtime.
 - The instance home moved from the repository to `/var/lib/noema-dev` with mode `0700`.
 - H-02 is remediated. Caddy 2.11.4 now uses Go 1.27.0 without the two listed TLS findings.
 - H-03 remains open until the public Cloudflare route has explicit request limits.
+- L-01 is remediated. The workspace now resolves `h2` 0.4.16.
 - M-01 is remediated locally. Caddy uses a Caddy-only Unix administration socket and a restricted systemd sandbox.
 - M-02 is remediated. Runtime logs retain request paths but remove OAuth query strings and the known custom session header.
 - The journal retains at most 512 MiB for at most 30 days.
 - M-03 is remediated. Diagnostics use mode `0600`, bounded events, and one bounded rotated file.
 - L-02 is remediated with a one-year HSTS policy without `includeSubDomains` or preload.
 - L-03 is remediated for this instance. All Noema data directories and files now deny group and other access.
+- The later Tunnel connector runs as a dedicated `cloudflared` user without Linux capabilities and with a systemd sandbox.
 
 ## Severity model
 
@@ -94,7 +96,7 @@ The current shield depends on DNS, Tailscale, and host firewall state. This revi
 | M-01 | Medium | Caddy local control and containment widened compromise impact. | Remediated locally |
 | M-02 | Medium | Proxy errors could record OAuth authorization codes. | Remediated |
 | M-03 | Medium | The diagnostic log had no total size or retention bound. | Remediated |
-| L-01 | Low | Rust `h2` has an unbounded empty-frame advisory. | Upgrade before public access |
+| L-01 | Low | Rust `h2` has an unbounded empty-frame advisory. | Remediated |
 | L-02 | Low | HTTPS responses omitted HSTS. | Remediated |
 | L-03 | Low | Database and data modes did not match the production contract. | Remediated for this instance |
 | L-04 | Low | MCP setup infers secret status from English key names. | Correct in normal hardening |
