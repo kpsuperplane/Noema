@@ -18,6 +18,7 @@ __pycache__/
 .env.*
 !.env.example
 .DS_Store
+xcuserdata/
 *.swp
 *.swo
 .codex
