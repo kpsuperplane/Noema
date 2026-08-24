@@ -533,7 +533,8 @@ fn begin_delete_on_connection(
                   ON requests.governed_action_id = actions.action_id
                  AND requests.governed_action_revision = actions.revision
                 WHERE actions.state = 'executing' AND actions.authentication_pending = 1
-                  AND requests.mcp_server_id = ?1
+                  AND requests.authority_kind = 'mcp_server'
+                  AND requests.authority_id = ?1
                   AND requests.state IN ('awaiting_user', 'authorizing', 'resuming')
                 "#,
             )
@@ -557,7 +558,8 @@ fn begin_delete_on_connection(
                 SELECT 1 FROM capability_auth_requests requests
                 WHERE requests.governed_action_id = governed_actions.action_id
                   AND requests.governed_action_revision = governed_actions.revision
-                  AND requests.mcp_server_id = ?1
+                  AND requests.authority_kind = 'mcp_server'
+                  AND requests.authority_id = ?1
                   AND requests.state IN ('awaiting_user', 'authorizing', 'resuming')
               )
             "#,
@@ -585,7 +587,7 @@ fn begin_delete_on_connection(
                 supersession_reason = 'connection_deleted',
                 completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE mcp_server_id = ?1
+            WHERE authority_kind = 'mcp_server' AND authority_id = ?1
               AND state IN ('awaiting_user', 'authorizing', 'resuming')
             "#,
             [mcp_server_id],

@@ -11,14 +11,87 @@ use crate::{
 };
 
 #[tokio::test]
-async fn v61_upgrade_adds_browser_sessions_and_matches_fresh_schema() {
+async fn v61_upgrade_recovers_complete_capability_authentication_identity() {
     let home = TempDir::new().expect("store root");
     let config = store_config(home.path());
     fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
-    let mut connection = Connection::open(&config.path).expect("v60 database");
+    let mut connection = Connection::open(&config.path).expect("v61 database");
     store_migrations()
-        .to_version(&mut connection, 60)
-        .expect("construct v60 schema");
+        .to_version(&mut connection, 61)
+        .expect("construct v61 schema");
+    insert_migration_conversation(&connection, "conversation:auth-v61", "turn:auth-v61");
+    connection
+        .execute_batch(&format!(
+            r#"
+            INSERT INTO mcp_definitions (
+              mcp_definition_id, display_name, transport_kind, safe_config_json,
+              definition_revision
+            ) VALUES (
+              'mcp_definition:auth-v61', 'MCP', 'streamable_http', '{{}}',
+              'mcp_definition_revision:auth-v61'
+            );
+            INSERT INTO mcp_servers (
+              mcp_server_id, mcp_definition_id, connection_config_json,
+              auth_status, health_status, enabled
+            ) VALUES (
+              'mcp:auth-v61', 'mcp_definition:auth-v61', '{{}}', 'needs_auth', 'healthy', 1
+            );
+            INSERT INTO adapter_oauth_profiles (
+              profile_digest, profile_id, display_name, grant_audience,
+              descriptor_relative_path
+            ) VALUES (
+              '{profile}', 'profile:test', 'Provider', 'audience:test',
+              'adapters/oauth-profiles/{profile}/profile.json'
+            );
+            INSERT INTO adapter_oauth_applications (
+              application_id, profile_digest, callback_mode, client_id, status,
+              revision, credential_generation, descriptor_relative_path
+            ) VALUES (
+              '{application}', '{profile}', 'hosted', 'client', 'active', 1,
+              '{generation}', 'adapters/oauth-applications/{application}/application.json'
+            );
+            INSERT INTO adapter_oauth_grants (
+              grant_id, application_id, audience, desired_scopes_json,
+              granted_scopes_json, authority_revision, token_revision, status,
+              descriptor_relative_path
+            ) VALUES
+              ('{grant}', '{application}', 'audience:test', '[]', '[]', 1, 1,
+               'authentication_required', 'adapters/oauth-grants/{grant}/grant.json'),
+              ('{terminal_grant}', '{application}', 'audience:terminal', '[]', '[]', 1, 1,
+               'authentication_required', 'adapters/oauth-grants/{terminal_grant}/grant.json');
+            "#,
+            profile = "1".repeat(64),
+            application = "2".repeat(32),
+            generation = "3".repeat(32),
+            grant = "b".repeat(32),
+            terminal_grant = "f".repeat(32),
+        ))
+        .expect("OAuth authorities");
+    connection
+        .execute_batch(&format!(r#"
+          WITH fixtures(request_id, mcp_id, adapter_id, context, state, output_index) AS (
+            VALUES
+              ('cap_auth:mcp', 'mcp:auth-v61', NULL, '{{}}', 'awaiting_user', 0),
+              ('cap_auth:connection', NULL, '{a}', '{{"destination":{{"connection_id":"{a}"}}}}', 'awaiting_user', 1),
+              ('cap_auth:grant', NULL, '{b}', '{{"destination":{{"connection_id":"{c}"}}}}', 'authorizing', 2),
+              ('cap_auth:historical-grant', NULL, '{d}', '{{"destination":{{"connection_id":"{e}"}}}}', 'completed', 3),
+              ('cap_auth:terminal-fallback', NULL, '{f}', '{{}}', 'cancelled', 4)
+          )
+          INSERT INTO capability_auth_requests (
+            request_id, owner_human_id, conversation_id, turn_id, requesting_agent_id,
+            mcp_server_id, adapter_connection_id, challenge_kind, authority_revision,
+            capability_name, operation_token, input_schema_json, protected_arguments_ref,
+            arguments_sha256, provider_selection_digest, output_index, result_context_json, state
+          ) SELECT request_id, 'human:local', 'conversation:auth-v61', 'turn:auth-v61',
+            'agent:primary', mcp_id, adapter_id, 'reauthenticate', 'revision:1',
+            'fixture.call', 'operation', '{{}}', '{protected}', '{digest}', '{digest}',
+            output_index, context, state FROM fixtures;
+          "#,
+          a = "a".repeat(32), b = "b".repeat(32), c = "c".repeat(32),
+          d = "d".repeat(32), e = "e".repeat(32), f = "f".repeat(32),
+          protected = "4".repeat(32), digest = "5".repeat(64),
+        ))
+        .expect("authentication requests");
     drop(connection);
 
     drop(NoemaStore::open(&config).await.expect("upgrade store"));
@@ -26,19 +99,65 @@ async fn v61_upgrade_adds_browser_sessions_and_matches_fresh_schema() {
     assert_eq!(
         connection
             .query_row(
-                "SELECT count(*) FROM pragma_table_info('browser_sessions')",
+                r#"SELECT COUNT(*) FROM capability_auth_requests WHERE
+                  (request_id = 'cap_auth:mcp' AND authority_kind = 'mcp_server' AND authority_id = 'mcp:auth-v61' AND destination_id = authority_id) OR
+                  (request_id = 'cap_auth:connection' AND authority_kind = 'adapter_connection' AND authority_id = destination_id) OR
+                  (request_id = 'cap_auth:grant' AND authority_kind = 'adapter_grant' AND authority_id <> destination_id) OR
+                  (request_id = 'cap_auth:historical-grant' AND authority_kind = 'adapter_grant' AND authority_id <> destination_id) OR
+                  (request_id = 'cap_auth:terminal-fallback' AND authority_kind = 'adapter_connection' AND authority_id = destination_id)"#,
                 [],
                 |row| row.get::<_, usize>(0),
             )
-            .expect("browser session columns"),
-        4
+            .expect("recovered identities"),
+        5
     );
+
+    let fresh_home = TempDir::new().expect("fresh root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(NoemaStore::open(&fresh_config).await.expect("fresh store"));
     assert_eq!(
-        connection
-            .query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))
-            .expect("schema version"),
-        STORE_SCHEMA_VERSION
+        database_snapshot(&config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
     );
+
+    let invalid_home = TempDir::new().expect("invalid root");
+    let invalid_config = store_config(invalid_home.path());
+    fs::create_dir_all(invalid_config.path.parent().expect("database parent"))
+        .expect("invalid database parent");
+    let mut invalid = Connection::open(&invalid_config.path).expect("invalid database");
+    store_migrations()
+        .to_version(&mut invalid, 61)
+        .expect("construct invalid v61 schema");
+    invalid
+        .execute("INSERT INTO adapter_oauth_profiles (profile_digest, profile_id, display_name, grant_audience, descriptor_relative_path) VALUES (?1, 'profile:invalid', 'Provider', 'audience:invalid', ?2)", params!["6".repeat(64), format!("adapters/oauth-profiles/{}/profile.json", "6".repeat(64))])
+        .expect("invalid profile");
+    invalid
+        .execute("INSERT INTO adapter_oauth_applications (application_id, profile_digest, callback_mode, client_id, status, revision, credential_generation, descriptor_relative_path) VALUES (?1, ?2, 'hosted', 'client', 'active', 1, ?3, ?4)", params!["7".repeat(32), "6".repeat(64), "8".repeat(32), format!("adapters/oauth-applications/{}/application.json", "7".repeat(32))])
+        .expect("invalid application");
+    invalid
+        .execute("INSERT INTO adapter_oauth_grants (grant_id, application_id, audience, desired_scopes_json, granted_scopes_json, authority_revision, token_revision, status, descriptor_relative_path) VALUES (?1, ?2, 'audience:invalid', '[]', '[]', 1, 1, 'authentication_required', ?3)", params!["9".repeat(32), "7".repeat(32), format!("adapters/oauth-grants/{}/grant.json", "9".repeat(32))])
+        .expect("invalid grant");
+    insert_migration_conversation(&invalid, "conversation:invalid-auth", "turn:invalid-auth");
+    invalid
+        .execute("INSERT INTO capability_auth_requests (request_id, owner_human_id, conversation_id, turn_id, requesting_agent_id, adapter_connection_id, challenge_kind, authority_revision, capability_name, operation_token, input_schema_json, protected_arguments_ref, arguments_sha256, provider_selection_digest, output_index, result_context_json, state) VALUES ('cap_auth:invalid-grant', 'human:local', 'conversation:invalid-auth', 'turn:invalid-auth', 'agent:primary', ?1, 'reauthenticate', 'revision:1', 'fixture.call', 'operation', '{}', ?2, ?3, ?3, 0, '{}', 'awaiting_user')", params!["9".repeat(32), "a".repeat(32), "b".repeat(64)])
+        .expect("invalid active request");
+    invalid
+        .execute("INSERT INTO capability_auth_requests (request_id, owner_human_id, conversation_id, turn_id, requesting_agent_id, adapter_connection_id, challenge_kind, authority_revision, capability_name, operation_token, input_schema_json, protected_arguments_ref, arguments_sha256, provider_selection_digest, output_index, result_context_json, state) VALUES ('cap_auth:ambiguous-connection', 'human:local', 'conversation:invalid-auth', 'turn:invalid-auth', 'agent:primary', ?1, 'reauthenticate', 'revision:1', 'fixture.call', 'operation', '{}', ?2, ?3, ?3, 1, '{}', 'awaiting_user')", params!["c".repeat(32), "d".repeat(32), "e".repeat(64)])
+        .expect("ambiguous active request");
+    store_migrations()
+        .to_version(&mut invalid, 62)
+        .expect("apply version 62 boundary");
+    assert!(store_migrations().to_version(&mut invalid, 63).is_err());
+    invalid
+        .execute(
+            "DELETE FROM capability_auth_requests WHERE request_id = 'cap_auth:invalid-grant'",
+            [],
+        )
+        .expect("remove version 63 defect fixture");
+    store_migrations()
+        .to_version(&mut invalid, 63)
+        .expect("apply version 63 repair");
+    assert!(store_migrations().to_latest(&mut invalid).is_err());
 }
 
 #[tokio::test]
@@ -1386,7 +1505,7 @@ async fn current_schema_enforces_projection_history_and_ledger_invariants() {
             )?;
             let insert_auth_request = |authority: &str| {
                 conn.execute(
-                    "INSERT INTO capability_auth_requests (request_id, owner_human_id, task_id, run_id, task_generation, requesting_agent_id, mcp_server_id, challenge_kind, authority_revision, capability_name, operation_token, input_schema_json, protected_arguments_ref, arguments_sha256, provider_selection_digest, output_index, result_context_json, state) VALUES (?1, 'human:local', 'task:valid', 'run:two', 1, 'agent:task-executor', ?2, 'reauthenticate', 'generation:1', 'mcp.auth/tool', 'operation', '{}', ?3, ?4, ?4, 0, '{}', 'awaiting_user')",
+                    "INSERT INTO capability_auth_requests (request_id, owner_human_id, task_id, run_id, task_generation, requesting_agent_id, authority_kind, authority_id, destination_id, challenge_kind, destination_revision, capability_name, operation_token, input_schema_json, protected_arguments_ref, arguments_sha256, provider_selection_digest, output_index, result_context_json, state) VALUES (?1, 'human:local', 'task:valid', 'run:two', 1, 'agent:task-executor', 'mcp_server', ?2, ?2, 'reauthenticate', 'generation:1', 'mcp.auth/tool', 'operation', '{}', ?3, ?4, ?4, 0, '{}', 'awaiting_user')",
                     rusqlite::params![format!("cap_auth:{authority}"), authority, "a".repeat(32), "b".repeat(64)],
                 )
             };
@@ -1400,7 +1519,7 @@ async fn current_schema_enforces_projection_history_and_ledger_invariants() {
                 .is_err()
             );
             conn.execute(
-                "UPDATE capability_auth_requests SET state = 'superseded' WHERE mcp_server_id = 'mcp:auth-integrity'",
+                "UPDATE capability_auth_requests SET state = 'superseded' WHERE authority_kind = 'mcp_server' AND authority_id = 'mcp:auth-integrity'",
                 [],
             )?;
             conn.execute(
@@ -1409,7 +1528,7 @@ async fn current_schema_enforces_projection_history_and_ledger_invariants() {
             )?;
             assert_eq!(
                 conn.query_row(
-                    "SELECT COUNT(*) FROM capability_auth_requests WHERE mcp_server_id = 'mcp:auth-integrity'",
+                    "SELECT COUNT(*) FROM capability_auth_requests WHERE authority_kind = 'mcp_server' AND authority_id = 'mcp:auth-integrity'",
                     [],
                     |row| row.get::<_, usize>(0),
                 )?,

@@ -337,6 +337,11 @@ async fn one_oauth_attempt_unions_scopes_for_selected_services() {
         )
         .await
         .expect("start authorization");
+    let active = fixture
+        .service
+        .active_oauth_attempt(&started.attempt_id)
+        .expect("active attempt");
+    assert_eq!(active.authorization_url, started.authorization_url);
     let authorization_url = url::Url::parse(&started.authorization_url).expect("authorization URL");
     let scopes = authorization_url
         .query_pairs()

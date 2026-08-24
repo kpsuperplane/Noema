@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 61;
+pub const STORE_SCHEMA_VERSION: usize = 64;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1208,8 +1208,277 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(PROVIDER_CONVERSATION_ITEM_TEXT_SQL),
         M::up(BROWSER_PROVIDER_ROUTES_SQL),
         M::up(BROWSER_SESSIONS_SQL),
+        M::up(CAPABILITY_AUTH_IDENTITY_SQL),
+        M::up(CAPABILITY_AUTH_IDENTITY_NULL_REPAIR_SQL),
+        M::up(CAPABILITY_AUTH_IDENTITY_ACTIVE_GUARD_SQL),
     ])
 }
+
+/// Reject an active version 62 row that has no recoverable adapter identity.
+const CAPABILITY_AUTH_IDENTITY_ACTIVE_GUARD_SQL: &str = r#"
+CREATE TABLE capability_auth_migration_guard (
+  valid INTEGER NOT NULL CHECK (valid = 1)
+);
+INSERT INTO capability_auth_migration_guard (valid)
+SELECT CASE WHEN EXISTS (
+  SELECT 1
+  FROM capability_auth_requests requests
+  WHERE requests.authority_kind = 'adapter_connection'
+    AND requests.state IN ('awaiting_user', 'authorizing', 'resuming')
+    AND NOT EXISTS (
+      SELECT 1 FROM adapter_connections connections
+      WHERE connections.connection_id = requests.authority_id
+    )
+    AND COALESCE(
+      json_type(requests.result_context_json, '$.destination.connection_id') = 'text'
+      AND length(trim(json_extract(
+        requests.result_context_json, '$.destination.connection_id'
+      ))) BETWEEN 1 AND 512
+      AND json_extract(requests.result_context_json, '$.destination.connection_id')
+        NOT GLOB '*[^0-9A-Za-z:_./-]*',
+      0
+    ) = 0
+) THEN 0 ELSE 1 END;
+DROP TABLE capability_auth_migration_guard;
+"#;
+
+/// Repair version 62 handling for a missing JSON destination.
+const CAPABILITY_AUTH_IDENTITY_NULL_REPAIR_SQL: &str = r#"
+CREATE TABLE capability_auth_migration_guard (
+  valid INTEGER NOT NULL CHECK (valid = 1)
+);
+INSERT INTO capability_auth_migration_guard (valid)
+SELECT CASE WHEN EXISTS (
+  SELECT 1
+  FROM capability_auth_requests requests
+  WHERE requests.authority_kind = 'adapter_grant'
+    AND requests.state IN ('awaiting_user', 'authorizing', 'resuming')
+    AND EXISTS (
+      SELECT 1 FROM adapter_oauth_grants grants
+      WHERE grants.grant_id = requests.authority_id
+    )
+    AND COALESCE(
+      json_type(requests.result_context_json, '$.destination.connection_id') = 'text'
+      AND length(trim(json_extract(
+        requests.result_context_json, '$.destination.connection_id'
+      ))) BETWEEN 1 AND 512
+      AND json_extract(requests.result_context_json, '$.destination.connection_id')
+        NOT GLOB '*[^0-9A-Za-z:_./-]*',
+      0
+    ) = 0
+) THEN 0 ELSE 1 END;
+DROP TABLE capability_auth_migration_guard;
+
+UPDATE capability_auth_requests
+SET authority_kind = 'adapter_connection'
+WHERE authority_kind = 'adapter_grant'
+  AND authority_id = destination_id
+  AND state NOT IN ('awaiting_user', 'authorizing', 'resuming')
+  AND COALESCE(
+    json_type(result_context_json, '$.destination.connection_id') = 'text'
+    AND length(trim(json_extract(
+      result_context_json, '$.destination.connection_id'
+    ))) BETWEEN 1 AND 512
+    AND json_extract(result_context_json, '$.destination.connection_id')
+      NOT GLOB '*[^0-9A-Za-z:_./-]*',
+    0
+  ) = 0;
+"#;
+
+/// Preserve each authentication authority and its exact capability destination.
+const CAPABILITY_AUTH_IDENTITY_SQL: &str = r#"
+DROP TRIGGER capability_auth_requests_active_mcp_insert;
+DROP TRIGGER capability_auth_requests_active_mcp_update;
+DROP TRIGGER mcp_servers_active_capability_auth_delete;
+DROP INDEX capability_auth_requests_conversation_call;
+DROP INDEX capability_auth_requests_run_call;
+DROP INDEX capability_auth_requests_governed_action;
+DROP INDEX capability_auth_requests_attention;
+DROP INDEX capability_auth_requests_attempt;
+ALTER TABLE capability_auth_requests RENAME TO capability_auth_requests_v61;
+
+CREATE TABLE capability_auth_migration_guard (
+  valid INTEGER NOT NULL CHECK (valid = 1)
+);
+INSERT INTO capability_auth_migration_guard (valid)
+SELECT CASE WHEN EXISTS (
+  SELECT 1
+  FROM capability_auth_requests_v61 requests
+  WHERE requests.adapter_connection_id IS NOT NULL
+    AND requests.state IN ('awaiting_user', 'authorizing', 'resuming')
+    AND EXISTS (
+      SELECT 1 FROM adapter_oauth_grants grants
+      WHERE grants.grant_id = requests.adapter_connection_id
+    )
+    AND NOT (
+      json_type(requests.result_context_json, '$.destination.connection_id') = 'text'
+      AND length(trim(json_extract(
+        requests.result_context_json, '$.destination.connection_id'
+      ))) BETWEEN 1 AND 512
+      AND json_extract(requests.result_context_json, '$.destination.connection_id')
+        NOT GLOB '*[^0-9A-Za-z:_./-]*'
+    )
+) THEN 0 ELSE 1 END;
+DROP TABLE capability_auth_migration_guard;
+
+CREATE TABLE capability_auth_requests (
+  request_id TEXT PRIMARY KEY NOT NULL CHECK (request_id GLOB 'cap_auth:*'),
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+  owner_human_id TEXT NOT NULL,
+  conversation_id TEXT,
+  turn_id TEXT,
+  task_id TEXT,
+  run_id TEXT,
+  task_generation INTEGER CHECK (task_generation IS NULL OR task_generation > 0),
+  requesting_agent_id TEXT NOT NULL CHECK (trim(requesting_agent_id) <> ''),
+  authority_kind TEXT NOT NULL CHECK (authority_kind IN (
+    'mcp_server', 'adapter_connection', 'adapter_grant'
+  )),
+  authority_id TEXT NOT NULL CHECK (
+    length(authority_id) BETWEEN 1 AND 512
+    AND authority_id NOT GLOB '*[^0-9A-Za-z:_./-]*'
+  ),
+  destination_id TEXT NOT NULL CHECK (
+    length(destination_id) BETWEEN 1 AND 512
+    AND destination_id NOT GLOB '*[^0-9A-Za-z:_./-]*'
+  ),
+  challenge_kind TEXT NOT NULL CHECK (challenge_kind IN ('reauthenticate', 'replace_credential')),
+  destination_revision TEXT NOT NULL CHECK (
+    length(destination_revision) BETWEEN 1 AND 512
+    AND destination_revision NOT GLOB '*[^0-9A-Za-z:_./-]*'
+  ),
+  capability_name TEXT NOT NULL CHECK (trim(capability_name) <> ''),
+  operation_token TEXT NOT NULL CHECK (trim(operation_token) <> ''),
+  input_schema_json TEXT NOT NULL CHECK (json_valid(input_schema_json)),
+  protected_arguments_ref TEXT NOT NULL CHECK (length(protected_arguments_ref) = 32 AND protected_arguments_ref = lower(protected_arguments_ref) AND protected_arguments_ref NOT GLOB '*[^0-9a-f]*'),
+  arguments_sha256 TEXT NOT NULL CHECK (length(arguments_sha256) = 64 AND arguments_sha256 = lower(arguments_sha256) AND arguments_sha256 NOT GLOB '*[^0-9a-f]*'),
+  provider_selection_digest TEXT NOT NULL CHECK (length(provider_selection_digest) = 64 AND provider_selection_digest = lower(provider_selection_digest) AND provider_selection_digest NOT GLOB '*[^0-9a-f]*'),
+  output_index INTEGER NOT NULL CHECK (output_index >= 0),
+  call_id TEXT,
+  provider_call_id TEXT,
+  provider_name TEXT,
+  governed_action_id TEXT,
+  governed_action_revision INTEGER,
+  result_context_json TEXT NOT NULL CHECK (json_valid(result_context_json)),
+  authentication_attempt_id TEXT,
+  state TEXT NOT NULL CHECK (state IN ('awaiting_user', 'authorizing', 'resuming', 'completed', 'cancelled', 'superseded')),
+  output_json TEXT CHECK (output_json IS NULL OR json_valid(output_json)),
+  failure_code TEXT,
+  supersession_reason TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  completed_at TEXT,
+  origin_resumed_at TEXT,
+  FOREIGN KEY (owner_human_id) REFERENCES humans(human_id) ON DELETE RESTRICT,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE RESTRICT,
+  FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE RESTRICT,
+  FOREIGN KEY (run_id) REFERENCES agent_runs(run_id) ON DELETE RESTRICT,
+  FOREIGN KEY (governed_action_id, governed_action_revision) REFERENCES governed_actions(action_id, revision) ON DELETE RESTRICT,
+  CHECK (authority_kind <> 'mcp_server' OR authority_id = destination_id),
+  CHECK (authority_kind <> 'adapter_connection' OR authority_id = destination_id),
+  CHECK ((conversation_id IS NOT NULL AND turn_id IS NOT NULL AND task_id IS NULL AND run_id IS NULL AND task_generation IS NULL)
+      OR (conversation_id IS NULL AND turn_id IS NULL AND task_id IS NOT NULL AND run_id IS NOT NULL AND task_generation IS NOT NULL)),
+  CHECK ((governed_action_id IS NULL) = (governed_action_revision IS NULL))
+);
+
+INSERT INTO capability_auth_requests (
+  request_id, revision, owner_human_id, conversation_id, turn_id, task_id, run_id,
+  task_generation, requesting_agent_id, authority_kind, authority_id, destination_id,
+  challenge_kind, destination_revision, capability_name, operation_token,
+  input_schema_json, protected_arguments_ref, arguments_sha256,
+  provider_selection_digest, output_index, call_id, provider_call_id,
+  provider_name, governed_action_id, governed_action_revision, result_context_json,
+  authentication_attempt_id, state, output_json, failure_code, supersession_reason,
+  created_at, updated_at, completed_at, origin_resumed_at
+)
+SELECT
+  request_id, revision, owner_human_id, conversation_id, turn_id, task_id, run_id,
+  task_generation, requesting_agent_id,
+  CASE
+    WHEN mcp_server_id IS NOT NULL THEN 'mcp_server'
+    WHEN state NOT IN ('awaiting_user', 'authorizing', 'resuming')
+      AND NOT (
+        json_type(result_context_json, '$.destination.connection_id') = 'text'
+        AND length(trim(json_extract(
+          result_context_json, '$.destination.connection_id'
+        ))) BETWEEN 1 AND 512
+        AND json_extract(result_context_json, '$.destination.connection_id')
+          NOT GLOB '*[^0-9A-Za-z:_./-]*'
+      ) THEN 'adapter_connection'
+    WHEN EXISTS (
+      SELECT 1 FROM adapter_oauth_grants grants
+      WHERE grants.grant_id = capability_auth_requests_v61.adapter_connection_id
+    ) OR adapter_connection_id <> json_extract(
+      result_context_json, '$.destination.connection_id'
+    ) THEN 'adapter_grant'
+    ELSE 'adapter_connection'
+  END,
+  COALESCE(mcp_server_id, adapter_connection_id),
+  CASE
+    WHEN mcp_server_id IS NOT NULL THEN mcp_server_id
+    WHEN json_type(result_context_json, '$.destination.connection_id') = 'text'
+      AND length(trim(json_extract(
+        result_context_json, '$.destination.connection_id'
+      ))) BETWEEN 1 AND 512
+      AND json_extract(result_context_json, '$.destination.connection_id')
+        NOT GLOB '*[^0-9A-Za-z:_./-]*'
+      THEN json_extract(result_context_json, '$.destination.connection_id')
+    ELSE adapter_connection_id
+  END,
+  challenge_kind, authority_revision, capability_name, operation_token,
+  input_schema_json, protected_arguments_ref, arguments_sha256,
+  provider_selection_digest, output_index, call_id, provider_call_id,
+  provider_name, governed_action_id, governed_action_revision, result_context_json,
+  authentication_attempt_id, state, output_json, failure_code, supersession_reason,
+  created_at, updated_at, completed_at, origin_resumed_at
+FROM capability_auth_requests_v61;
+
+DROP TABLE capability_auth_requests_v61;
+
+CREATE UNIQUE INDEX capability_auth_requests_conversation_call
+ON capability_auth_requests(conversation_id, turn_id, output_index)
+WHERE conversation_id IS NOT NULL AND governed_action_id IS NULL;
+CREATE UNIQUE INDEX capability_auth_requests_run_call
+ON capability_auth_requests(run_id, output_index)
+WHERE run_id IS NOT NULL AND governed_action_id IS NULL;
+CREATE UNIQUE INDEX capability_auth_requests_governed_action
+ON capability_auth_requests(governed_action_id, governed_action_revision)
+WHERE governed_action_id IS NOT NULL;
+CREATE INDEX capability_auth_requests_attention
+ON capability_auth_requests(
+  owner_human_id, state, authority_kind, authority_id, challenge_kind, created_at, request_id
+)
+WHERE state IN ('awaiting_user', 'authorizing');
+CREATE INDEX capability_auth_requests_attempt
+ON capability_auth_requests(authentication_attempt_id, state)
+WHERE authentication_attempt_id IS NOT NULL;
+
+CREATE TRIGGER capability_auth_requests_active_mcp_insert
+BEFORE INSERT ON capability_auth_requests
+WHEN NEW.authority_kind = 'mcp_server'
+ AND NOT EXISTS (SELECT 1 FROM mcp_servers WHERE mcp_server_id = NEW.authority_id)
+BEGIN
+  SELECT RAISE(ABORT, 'active MCP authentication authority is unavailable');
+END;
+CREATE TRIGGER capability_auth_requests_active_mcp_update
+BEFORE UPDATE OF authority_kind, authority_id, state ON capability_auth_requests
+WHEN NEW.authority_kind = 'mcp_server'
+ AND NEW.state IN ('awaiting_user', 'authorizing', 'resuming')
+ AND NOT EXISTS (SELECT 1 FROM mcp_servers WHERE mcp_server_id = NEW.authority_id)
+BEGIN
+  SELECT RAISE(ABORT, 'active MCP authentication authority is unavailable');
+END;
+CREATE TRIGGER mcp_servers_active_capability_auth_delete
+BEFORE DELETE ON mcp_servers
+WHEN EXISTS (
+  SELECT 1 FROM capability_auth_requests
+  WHERE authority_kind = 'mcp_server' AND authority_id = OLD.mcp_server_id
+    AND state IN ('awaiting_user', 'authorizing', 'resuming')
+)
+BEGIN
+  SELECT RAISE(ABORT, 'active capability authentication must be terminalized before deletion');
+END;
+"#;
 
 /// Persist browser sessions without storing the private cookie value.
 const BROWSER_SESSIONS_SQL: &str = r#"

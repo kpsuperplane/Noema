@@ -37,47 +37,95 @@ fn proposed_action(arguments: serde_json::Value) -> NewGovernedAction {
 }
 
 #[tokio::test]
-async fn adapter_authentication_attempt_can_be_explicitly_restarted() {
+async fn shared_adapter_authentication_groups_restarts_and_binds_late_requests() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let conversation = store
         .get_or_create_primary_conversation("human:local", None, None)
         .await
         .expect("conversation");
+    let grant_id = "a".repeat(32);
+    let destination_id = "b".repeat(32);
+    let mut input = NewCapabilityAuthenticationRequest {
+        owner_human_id: "human:local".to_string(),
+        conversation_id: Some(conversation.conversation_id.clone()),
+        turn_id: Some("turn:adapter-auth-one".to_string()),
+        task_id: None,
+        run_id: None,
+        task_generation: None,
+        requesting_agent_id: "agent:primary".to_string(),
+        challenge: CapabilityAuthenticationChallenge::new_for_destination(
+            CapabilityAuthenticationChallengeKind::Reauthenticate,
+            CapabilityAuthenticationAuthorityKind::AdapterGrant,
+            &grant_id,
+            &destination_id,
+            "definition:1/policy:1/grant:1",
+        )
+        .expect("challenge"),
+        capability_name: "gmail.list_messages".to_string(),
+        operation_token: "exact-token".to_string(),
+        input_schema: json!({"type":"object"}),
+        protected_arguments_ref: "c".repeat(32),
+        arguments_sha256: "d".repeat(64),
+        provider_selection_digest: "e".repeat(64),
+        output_index: 0,
+        call_id: None,
+        provider_call_id: None,
+        provider_name: None,
+        governed_action: None,
+        result_context: json!({"destination":{"connection_id":destination_id}}),
+    };
     let request = store
-        .create_capability_authentication_request(
-            NewCapabilityAuthenticationRequest {
-                owner_human_id: "human:local".to_string(),
-                conversation_id: Some(conversation.conversation_id),
-                turn_id: Some("turn:adapter-auth".to_string()),
-                task_id: None,
-                run_id: None,
-                task_generation: None,
-                requesting_agent_id: "agent:primary".to_string(),
-                challenge: CapabilityAuthenticationChallenge::new(
-                    CapabilityAuthenticationChallengeKind::Reauthenticate,
-                    CapabilityAuthenticationAuthorityKind::AdapterConnection,
-                    "a".repeat(32),
-                    "credential:1",
-                )
-                .expect("challenge"),
-                capability_name: "gmail.list_messages".to_string(),
-                operation_token: "exact-token".to_string(),
-                input_schema: json!({"type":"object"}),
-                protected_arguments_ref: "b".repeat(32),
-                arguments_sha256: "c".repeat(64),
-                provider_selection_digest: "d".repeat(64),
-                output_index: 0,
-                call_id: None,
-                provider_call_id: None,
-                provider_name: None,
-                governed_action: None,
-                result_context: json!({}),
-            },
+        .create_capability_authentication_request(input.clone(), None)
+        .await
+        .expect("first request");
+    assert_eq!(request.challenge, input.challenge);
+    assert_eq!(
+        request.protected_arguments_ref,
+        input.protected_arguments_ref
+    );
+    input.turn_id = Some("turn:adapter-auth-two".to_string());
+    input.challenge = CapabilityAuthenticationChallenge::new_for_destination(
+        CapabilityAuthenticationChallengeKind::Reauthenticate,
+        CapabilityAuthenticationAuthorityKind::AdapterGrant,
+        &grant_id,
+        "f".repeat(32),
+        "definition:2/policy:1/grant:1",
+    )
+    .expect("second challenge");
+    let second = store
+        .create_capability_authentication_request(input.clone(), None)
+        .await
+        .expect("second request");
+    input.turn_id = Some("turn:static-credential".to_string());
+    input.challenge = CapabilityAuthenticationChallenge::new(
+        CapabilityAuthenticationChallengeKind::ReplaceCredential,
+        CapabilityAuthenticationAuthorityKind::AdapterConnection,
+        "1".repeat(32),
+        "credential:1",
+    )
+    .expect("credential challenge");
+    let unrelated = store
+        .create_capability_authentication_request(input.clone(), None)
+        .await
+        .expect("unrelated authority");
+    let pending = store
+        .list_pending_capability_authentication_requests(
+            "human:local",
+            Some(&conversation.conversation_id),
             None,
+            2,
         )
         .await
-        .expect("request");
+        .expect("grouped pending requests");
+    assert_eq!(pending.len(), 2, "grouping must occur before the limit");
+    let pending_ids = pending
+        .iter()
+        .map(|item| item.request_id.as_str())
+        .collect::<Vec<_>>();
+    assert!(pending_ids.contains(&request.request_id.as_str()));
+    assert!(pending_ids.contains(&unrelated.request_id.as_str()));
+
     store
         .begin_capability_authentication(
             &request.request_id,
@@ -87,7 +135,7 @@ async fn adapter_authentication_attempt_can_be_explicitly_restarted() {
         )
         .await
         .expect("first attempt");
-    let restarted = store
+    store
         .begin_capability_authentication(
             &request.request_id,
             request.revision,
@@ -96,10 +144,57 @@ async fn adapter_authentication_attempt_can_be_explicitly_restarted() {
         )
         .await
         .expect("replacement attempt");
-    assert_eq!(
-        restarted.authentication_attempt_id.as_deref(),
-        Some("attempt:second")
-    );
+    for bound in [&request, &second] {
+        store
+            .cancel_capability_authentication_request(
+                &bound.request_id,
+                bound.revision,
+                "human:local",
+            )
+            .await
+            .expect("cancel bound request");
+    }
+    input.turn_id = Some("turn:adapter-auth-late".to_string());
+    input.challenge = CapabilityAuthenticationChallenge::new_for_destination(
+        CapabilityAuthenticationChallengeKind::Reauthenticate,
+        CapabilityAuthenticationAuthorityKind::AdapterGrant,
+        &grant_id,
+        "2".repeat(32),
+        "definition:3/policy:1/grant:1",
+    )
+    .expect("late challenge");
+    store
+        .with_connection(|connection| {
+            connection.execute(
+                "INSERT INTO humans (human_id, display_name) VALUES ('human:other', 'Other')",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("other human");
+    let other_conversation = store
+        .get_or_create_primary_conversation("human:other", None, None)
+        .await
+        .expect("other conversation");
+    let mut foreign_input = input.clone();
+    foreign_input.owner_human_id = "human:other".to_string();
+    foreign_input.conversation_id = Some(other_conversation.conversation_id);
+    foreign_input.turn_id = Some("turn:other-human-auth".to_string());
+    store
+        .create_capability_authentication_request(foreign_input, None)
+        .await
+        .expect("other human request");
+    let late = store
+        .create_capability_authentication_request(input, None)
+        .await
+        .expect("late request");
+    let bound = store
+        .list_capability_authentication_requests_for_attempt("attempt:second")
+        .await
+        .expect("callback requests");
+    assert_eq!(bound.len(), 1);
+    assert_eq!(bound[0].request_id, late.request_id);
 }
 
 #[tokio::test]

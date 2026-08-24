@@ -443,6 +443,19 @@ impl AdapterCapabilityService {
             .cloned()
     }
 
+    /// Return the browser handoff for one active process-local OAuth attempt.
+    #[must_use]
+    pub fn active_oauth_attempt(&self, attempt_id: &str) -> Option<AdapterOAuthSetupStart> {
+        let now_epoch_seconds = epoch_seconds().ok()?;
+        let attempts = self.inner.oauth_attempts.lock().ok()?;
+        let attempt = attempts.active_attempt(attempt_id)?;
+        (now_epoch_seconds < attempt.expires_at_epoch_seconds()).then(|| AdapterOAuthSetupStart {
+            attempt_id: attempt.attempt_id().to_string(),
+            authorization_url: attempt.authorization_url().to_string(),
+            expires_at_epoch_seconds: attempt.expires_at_epoch_seconds(),
+        })
+    }
+
     /// Subscribe to process-local OAuth attempt lifecycle events.
     #[must_use]
     pub fn subscribe_oauth_attempts(&self) -> broadcast::Receiver<AdapterOAuthAttemptEvent> {

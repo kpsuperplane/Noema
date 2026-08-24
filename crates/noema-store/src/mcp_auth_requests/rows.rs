@@ -5,9 +5,9 @@ pub(super) const REQUEST_SELECT: &str = r#"
 SELECT requests.request_id, requests.revision, requests.owner_human_id,
        requests.conversation_id, requests.turn_id, requests.task_id, requests.run_id,
        requests.task_generation,
-       requests.requesting_agent_id, requests.mcp_server_id, requests.adapter_connection_id,
-       requests.challenge_kind, requests.authority_revision,
-       COALESCE(definitions.display_name, requests.mcp_server_id, requests.adapter_connection_id),
+       requests.requesting_agent_id, requests.authority_kind, requests.authority_id,
+       requests.destination_id, requests.challenge_kind, requests.destination_revision,
+       COALESCE(definitions.display_name, requests.authority_id),
        requests.capability_name, requests.operation_token, requests.input_schema_json,
        requests.protected_arguments_ref, requests.arguments_sha256,
        requests.provider_selection_digest, requests.output_index,
@@ -18,7 +18,9 @@ SELECT requests.request_id, requests.revision, requests.owner_human_id,
        requests.created_at, requests.updated_at,
        requests.result_context_json
 FROM capability_auth_requests requests
-LEFT JOIN mcp_servers servers ON servers.mcp_server_id = requests.mcp_server_id
+LEFT JOIN mcp_servers servers
+  ON requests.authority_kind = 'mcp_server'
+ AND servers.mcp_server_id = requests.authority_id
 LEFT JOIN mcp_definitions definitions ON definitions.mcp_definition_id = servers.mcp_definition_id
 "#;
 
@@ -79,39 +81,45 @@ pub(super) fn request_from_row(
 ) -> rusqlite::Result<CapabilityAuthenticationRequestRecord> {
     let revision = row.get::<_, i64>(1)?;
     let task_generation = row.get::<_, Option<i64>>(7)?;
-    let mcp_server_id = row.get::<_, Option<String>>(9)?;
-    let adapter_connection_id = row.get::<_, Option<String>>(10)?;
-    let authority_kind = match (mcp_server_id, adapter_connection_id) {
-        (Some(authority_id), None) => (
-            CapabilityAuthenticationAuthorityKind::McpServer,
-            authority_id,
-        ),
-        (None, Some(authority_id)) => (
-            CapabilityAuthenticationAuthorityKind::AdapterConnection,
-            authority_id,
-        ),
+    let authority_kind = match row.get::<_, String>(9)?.as_str() {
+        "mcp_server" => CapabilityAuthenticationAuthorityKind::McpServer,
+        "adapter_connection" => CapabilityAuthenticationAuthorityKind::AdapterConnection,
+        "adapter_grant" => CapabilityAuthenticationAuthorityKind::AdapterGrant,
         _ => {
             return Err(invalid_row(
-                10,
+                9,
                 "invalid capability authentication authority",
             ));
         }
     };
-    let challenge_kind = match row.get::<_, String>(11)?.as_str() {
+    let authority_id = row.get::<_, String>(10)?;
+    let destination_id = row.get::<_, String>(11)?;
+    let challenge_kind = match row.get::<_, String>(12)?.as_str() {
         "reauthenticate" => CapabilityAuthenticationChallengeKind::Reauthenticate,
         "replace_credential" => CapabilityAuthenticationChallengeKind::ReplaceCredential,
-        _ => return Err(invalid_row(11, "invalid authentication challenge kind")),
+        _ => return Err(invalid_row(12, "invalid authentication challenge kind")),
     };
-    let challenge = CapabilityAuthenticationChallenge::new(
-        challenge_kind,
-        authority_kind.0,
-        authority_kind.1,
-        row.get::<_, String>(12)?,
-    )
-    .map_err(|_| invalid_row(12, "invalid capability authentication challenge"))?;
-    let output_index = row.get::<_, i64>(20)?;
-    let governed_action_id = row.get::<_, Option<String>>(24)?;
-    let governed_action_revision = row.get::<_, Option<i64>>(25)?;
+    let destination_revision = row.get::<_, String>(13)?;
+    let challenge = if authority_kind == CapabilityAuthenticationAuthorityKind::AdapterGrant {
+        CapabilityAuthenticationChallenge::new_for_destination(
+            challenge_kind,
+            authority_kind,
+            authority_id,
+            destination_id,
+            destination_revision,
+        )
+    } else {
+        CapabilityAuthenticationChallenge::new(
+            challenge_kind,
+            authority_kind,
+            authority_id,
+            destination_revision,
+        )
+    }
+    .map_err(|_| invalid_row(13, "invalid capability authentication challenge"))?;
+    let output_index = row.get::<_, i64>(21)?;
+    let governed_action_id = row.get::<_, Option<String>>(25)?;
+    let governed_action_revision = row.get::<_, Option<i64>>(26)?;
     Ok(CapabilityAuthenticationRequestRecord {
         request_id: row.get(0)?,
         revision: u64::try_from(revision)
@@ -129,45 +137,45 @@ pub(super) fn request_from_row(
             .transpose()?,
         requesting_agent_id: row.get(8)?,
         challenge,
-        authority_display_name: row.get(13)?,
-        capability_name: row.get(14)?,
-        operation_token: row.get(15)?,
-        input_schema: serde_json::from_str(&row.get::<_, String>(16)?).map_err(json_error)?,
-        protected_arguments_ref: row.get(17)?,
-        arguments_sha256: row.get(18)?,
-        provider_selection_digest: row.get(19)?,
+        authority_display_name: row.get(14)?,
+        capability_name: row.get(15)?,
+        operation_token: row.get(16)?,
+        input_schema: serde_json::from_str(&row.get::<_, String>(17)?).map_err(json_error)?,
+        protected_arguments_ref: row.get(18)?,
+        arguments_sha256: row.get(19)?,
+        provider_selection_digest: row.get(20)?,
         output_index: usize::try_from(output_index)
-            .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(20, output_index))?,
-        call_id: row.get(21)?,
-        provider_call_id: row.get(22)?,
-        provider_name: row.get(23)?,
+            .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(21, output_index))?,
+        call_id: row.get(22)?,
+        provider_call_id: row.get(23)?,
+        provider_name: row.get(24)?,
         governed_action: match (governed_action_id, governed_action_revision) {
             (Some(id), Some(revision)) => Some((
                 id,
                 u64::try_from(revision)
-                    .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(25, revision))?,
+                    .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(26, revision))?,
             )),
             _ => None,
         },
-        authentication_attempt_id: row.get(26)?,
-        state: CapabilityAuthenticationRequestState::parse(&row.get::<_, String>(27)?).map_err(
+        authentication_attempt_id: row.get(27)?,
+        state: CapabilityAuthenticationRequestState::parse(&row.get::<_, String>(28)?).map_err(
             |error| {
                 rusqlite::Error::FromSqlConversionFailure(
-                    27,
+                    28,
                     rusqlite::types::Type::Text,
                     Box::new(error),
                 )
             },
         )?,
         output: row
-            .get::<_, Option<String>>(28)?
+            .get::<_, Option<String>>(29)?
             .map(|value| serde_json::from_str(&value).map_err(json_error))
             .transpose()?,
-        failure_code: row.get(29)?,
-        supersession_reason: row.get(30)?,
-        created_at: row.get(31)?,
-        updated_at: row.get(32)?,
-        result_context: serde_json::from_str(&row.get::<_, String>(33)?).map_err(json_error)?,
+        failure_code: row.get(30)?,
+        supersession_reason: row.get(31)?,
+        created_at: row.get(32)?,
+        updated_at: row.get(33)?,
+        result_context: serde_json::from_str(&row.get::<_, String>(34)?).map_err(json_error)?,
     })
 }
 

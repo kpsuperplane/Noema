@@ -1932,12 +1932,13 @@ const fn authentication_label(mode: AuthenticationMode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graphql::human_interventions::adapter_connection_needs_chat_intervention;
     use noema_capabilities::{
         CapabilityBindingSource, CapabilityInvocation, CapabilityInvoker, ToolName,
     };
     use noema_capability_adapters::{
-        AdapterCompiler, AdapterManifest, AuthorizationGrantV1, OauthApplicationV1,
-        OauthAuthoritySnapshot,
+        AdapterCompiler, AdapterConnectionV4, AdapterManifest, AuthorizationGrantV1,
+        OauthApplicationV1, OauthAuthoritySnapshot,
     };
     use noema_home::NoemaPaths;
     use serde_json::json;
@@ -2170,6 +2171,26 @@ mod tests {
         assert_eq!(action.kind, "reconnect_account");
         assert_eq!(action.application_id.as_deref(), Some("application-a"));
         assert_eq!(action.expected_application_revision, Some(1));
+        let shared_repair = oauth_connection("grant-a", "authentication_required");
+        assert!(!adapter_connection_needs_chat_intervention(&shared_repair));
+        let mut initial_setup = shared_repair;
+        initial_setup.grant_id = None;
+        assert!(adapter_connection_needs_chat_intervention(&initial_setup));
+        let connections = ["b", "a"].map(|id| serde_json::from_value::<AdapterConnectionV4>(json!({
+            "schema_version":4,"connection_id":id,"connection_slug":id,"semantic_digest":"0".repeat(64),
+            "status":"active","connection_revision":1,"policy_revision":1,
+            "authentication":{"kind":"oauth_grant","grant_id":"grant-a"},"allowed_operations":[]
+        })).expect("connection"));
+        assert_eq!(
+            crate::graphql::human_interventions::adapter_authentication_connection(
+                connections.iter(),
+                "stale",
+                Some("grant-a")
+            )
+            .expect("fallback")
+            .connection_id,
+            "a"
+        );
     }
 
     async fn fixture() -> (crate::test_support::TestEnvironment, GraphqlState, String) {

@@ -174,17 +174,6 @@ impl NoemaStore {
             ));
         }
         let request_id = allocate_id("cap_auth");
-        let (mcp_server_id, adapter_connection_id) = match input.challenge.authority_kind() {
-            CapabilityAuthenticationAuthorityKind::McpServer => {
-                (Some(input.challenge.authority_id()), None)
-            }
-            CapabilityAuthenticationAuthorityKind::AdapterConnection => {
-                (None, Some(input.challenge.authority_id()))
-            }
-            CapabilityAuthenticationAuthorityKind::AdapterGrant => {
-                (None, Some(input.challenge.authority_id()))
-            }
-        };
         let output_index = i64::try_from(input.output_index)
             .map_err(|_| conflict("capability authentication output index is invalid"))?;
         let governed_action_id = input.governed_action.as_ref().map(|value| value.0.as_str());
@@ -230,8 +219,8 @@ impl NoemaStore {
                 r#"
                 INSERT INTO capability_auth_requests (
                   request_id, owner_human_id, conversation_id, turn_id, task_id, run_id,
-                  task_generation, requesting_agent_id, mcp_server_id, adapter_connection_id,
-                  challenge_kind, authority_revision, capability_name, operation_token,
+                  task_generation, requesting_agent_id, authority_kind, authority_id,
+                  destination_id, challenge_kind, destination_revision, capability_name, operation_token,
                   input_schema_json, protected_arguments_ref, arguments_sha256,
                   provider_selection_digest, output_index,
                   call_id, provider_call_id, provider_name, governed_action_id,
@@ -239,7 +228,7 @@ impl NoemaStore {
                 ) VALUES (
                   ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
                   ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
-                  ?21, ?22, ?23, ?24, ?25, 'awaiting_user'
+                  ?21, ?22, ?23, ?24, ?25, ?26, 'awaiting_user'
                 )
                 "#,
                 params![
@@ -251,8 +240,9 @@ impl NoemaStore {
                     input.run_id,
                     task_generation,
                     input.requesting_agent_id,
-                    mcp_server_id,
-                    adapter_connection_id,
+                    input.challenge.authority_kind().as_str(),
+                    input.challenge.authority_id(),
+                    input.challenge.destination_id(),
                     input.challenge.challenge_kind().as_str(),
                     input.challenge.authority_revision(),
                     input.capability_name,
@@ -315,10 +305,33 @@ impl NoemaStore {
         let limit = i64::try_from(limit.clamp(1, 100)).unwrap_or(100);
         self.with_connection(|connection| {
             let mut statement = connection.prepare(&format!(
-                "{REQUEST_SELECT} WHERE requests.owner_human_id = ?1 AND requests.state IN ('awaiting_user', 'authorizing') AND (?2 IS NULL OR requests.conversation_id = ?2) AND (?3 IS NULL OR requests.task_id = ?3) ORDER BY requests.created_at DESC, requests.request_id DESC LIMIT ?4"
+                r#"
+                WITH grouped_requests AS (
+                  SELECT request_id,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY authority_kind, authority_id, challenge_kind
+                      ORDER BY CASE state WHEN 'authorizing' THEN 0 ELSE 1 END,
+                               created_at, request_id
+                    ) AS authority_rank
+                  FROM capability_auth_requests
+                  WHERE owner_human_id = ?1
+                    AND state IN ('awaiting_user', 'authorizing')
+                    AND (?2 IS NULL OR conversation_id = ?2)
+                    AND (?3 IS NULL OR task_id = ?3)
+                )
+                {REQUEST_SELECT}
+                JOIN grouped_requests grouped ON grouped.request_id = requests.request_id
+                WHERE grouped.authority_rank = 1
+                ORDER BY CASE requests.state WHEN 'authorizing' THEN 0 ELSE 1 END,
+                         requests.created_at, requests.request_id
+                LIMIT ?4
+                "#
             ))?;
             statement
-                .query_map(params![owner_human_id, conversation_id, task_id, limit], request_from_row)?
+                .query_map(
+                    params![owner_human_id, conversation_id, task_id, limit],
+                    request_from_row,
+                )?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(Into::into)
         })
@@ -337,7 +350,7 @@ impl NoemaStore {
         self.with_connection(|connection| {
             connection
                 .query_row(
-                    "SELECT authentication_attempt_id FROM capability_auth_requests WHERE owner_human_id = ?1 AND mcp_server_id = ?2 AND state = 'authorizing' AND authentication_attempt_id IS NOT NULL ORDER BY created_at LIMIT 1",
+                    "SELECT authentication_attempt_id FROM capability_auth_requests WHERE owner_human_id = ?1 AND authority_kind = 'mcp_server' AND authority_id = ?2 AND state = 'authorizing' AND authentication_attempt_id IS NOT NULL ORDER BY created_at LIMIT 1",
                     params![owner_human_id, mcp_server_id],
                     |row| row.get(0),
                 )
@@ -371,30 +384,24 @@ impl NoemaStore {
             ) {
                 return Err(conflict("capability authentication request is already resolved"));
             }
-            if request.state == CapabilityAuthenticationRequestState::Authorizing {
-                if request.authentication_attempt_id.as_deref() == Some(attempt_id) {
-                    return Ok(request);
-                }
-                if request.adapter_connection_id().is_none() {
-                    return Err(conflict(
-                        "capability authentication request is already authorizing",
-                    ));
-                }
+            if request.state == CapabilityAuthenticationRequestState::Authorizing
+                && request.authentication_attempt_id.as_deref() != Some(attempt_id)
+                && request.challenge.authority_kind()
+                    == CapabilityAuthenticationAuthorityKind::McpServer
+            {
+                return Err(conflict(
+                    "capability authentication request is already authorizing",
+                ));
             }
-            let (authority_column, authority_id) = match request.challenge.authority_kind() {
-                CapabilityAuthenticationAuthorityKind::McpServer => {
-                    ("mcp_server_id", request.challenge.authority_id())
-                }
-                CapabilityAuthenticationAuthorityKind::AdapterConnection
-                | CapabilityAuthenticationAuthorityKind::AdapterGrant => {
-                    ("adapter_connection_id", request.challenge.authority_id())
-                }
-            };
             transaction.execute(
-                &format!(
-                    "UPDATE capability_auth_requests SET state = 'authorizing', authentication_attempt_id = ?3, failure_code = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE owner_human_id = ?1 AND {authority_column} = ?2 AND state IN ('awaiting_user', 'authorizing')"
-                ),
-                params![owner_human_id, authority_id, attempt_id],
+                "UPDATE capability_auth_requests SET state = 'authorizing', authentication_attempt_id = ?5, failure_code = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE owner_human_id = ?1 AND authority_kind = ?2 AND authority_id = ?3 AND challenge_kind = ?4 AND state IN ('awaiting_user', 'authorizing')",
+                params![
+                    owner_human_id,
+                    request.challenge.authority_kind().as_str(),
+                    request.challenge.authority_id(),
+                    request.challenge.challenge_kind().as_str(),
+                    attempt_id,
+                ],
             )?;
             request_by_id(transaction, request_id)?.ok_or_else(|| {
                 conflict("capability authentication request disappeared during authorization")
@@ -403,7 +410,7 @@ impl NoemaStore {
         .await
     }
 
-    /// Return authorizing requests for one completed OAuth attempt.
+    /// Bind late matching requests and return every request for one OAuth attempt.
     ///
     /// # Errors
     /// Returns [`StoreError`] when the requests cannot be read.
@@ -411,8 +418,21 @@ impl NoemaStore {
         &self,
         attempt_id: &str,
     ) -> Result<Vec<CapabilityAuthenticationRequestRecord>, StoreError> {
-        self.with_connection(|connection| {
-            let mut statement = connection.prepare(&format!(
+        self.with_immediate_transaction_retry(|transaction| {
+            let authority = transaction
+                .query_row(
+                    "SELECT owner_human_id, authority_kind, authority_id, challenge_kind FROM capability_auth_requests WHERE authentication_attempt_id = ?1 ORDER BY CASE state WHEN 'authorizing' THEN 0 ELSE 1 END, created_at, request_id LIMIT 1",
+                    [attempt_id],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?)),
+                )
+                .optional()?;
+            if let Some((owner_human_id, authority_kind, authority_id, challenge_kind)) = authority {
+                transaction.execute(
+                    "UPDATE capability_auth_requests SET state = 'authorizing', authentication_attempt_id = ?5, failure_code = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE owner_human_id = ?1 AND authority_kind = ?2 AND authority_id = ?3 AND challenge_kind = ?4 AND state = 'awaiting_user'",
+                    params![owner_human_id, authority_kind, authority_id, challenge_kind, attempt_id],
+                )?;
+            }
+            let mut statement = transaction.prepare(&format!(
                 "{REQUEST_SELECT} WHERE requests.authentication_attempt_id = ?1 AND requests.state = 'authorizing' ORDER BY requests.created_at, requests.request_id"
             ))?;
             statement

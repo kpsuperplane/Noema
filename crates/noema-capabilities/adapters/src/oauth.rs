@@ -433,6 +433,15 @@ impl AdapterOAuthAttemptReservation {
 }
 
 impl AdapterOAuthAttemptRegistry {
+    pub(crate) fn active_attempt(&self, attempt_id: &str) -> Option<&AdapterOAuthAttempt> {
+        self.attempts.values().find_map(|registered| {
+            registered
+                .attempt
+                .as_ref()
+                .filter(|attempt| attempt.attempt_id() == attempt_id)
+        })
+    }
+
     pub(crate) fn active_attempt_for_grant(&self, grant_id: &str) -> Option<String> {
         self.attempts.values().find_map(|registered| {
             if registered.authority.grant_id.as_deref() == Some(grant_id) {
