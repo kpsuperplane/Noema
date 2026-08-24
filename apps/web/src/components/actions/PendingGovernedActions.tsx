@@ -121,10 +121,16 @@ export function PendingHumanInterventionsResult({
   result: PendingHumanInterventionsResultLike;
 }) {
   const interventions = result.data?.pendingHumanInterventions ?? [];
+  const stale = Boolean(result.error);
+  const invalidAdapterAuthentication = interventions.some((intervention) => (
+    intervention.__typename === "AdapterAuthenticationIntervention"
+      && (typeof intervention.serviceDisplayName !== "string"
+        || !intervention.serviceDisplayName.trim())
+  ));
   const [dismissedAdapterSetups, setDismissedAdapterSetups] = React.useState(readDismissedAdapterSetups);
   const [selectedChatInterventionKey, setSelectedChatInterventionKey] = React.useState<string | null>(null);
   const allowAdapterSetupDismissal = Boolean(conversationId) && placement === "chat";
-  const visibleInterventions = allowAdapterSetupDismissal
+  const availableInterventions = allowAdapterSetupDismissal
     ? interventions.filter((intervention) => (
         intervention.__typename === "AdapterOauthClientSetupIntervention"
           ? !dismissedAdapterSetups.has(`oauth:${intervention.profileDigest}`)
@@ -134,6 +140,11 @@ export function PendingHumanInterventionsResult({
             || !dismissedAdapterSetups.has(intervention.semanticDigest)
       ))
     : interventions;
+  const visibleInterventions = availableInterventions.filter((intervention) => (
+    intervention.__typename !== "AdapterAuthenticationIntervention"
+      || (!stale && typeof intervention.serviceDisplayName === "string"
+        && Boolean(intervention.serviceDisplayName.trim()))
+  ));
   const selectedChatInterventionIndex = Math.max(0, visibleInterventions.findIndex(
     (intervention) => humanInterventionKey(intervention) === selectedChatInterventionKey
   ));
@@ -147,7 +158,6 @@ export function PendingHumanInterventionsResult({
       return next;
     });
   }, []);
-  const stale = Boolean(result.error);
   const listContent = visibleInterventions.length ? (
     <VStack gap={0}>
       {placement === "chat" && visibleInterventions.length > 1 ? (
@@ -201,9 +211,9 @@ export function PendingHumanInterventionsResult({
       {listContent}
     </HumanInterventionMotionItem>
   ) : null;
-  const queryError = stale ? (
+  const queryError = stale || invalidAdapterAuthentication ? (
     <HStack as="div" role="alert" gap={2} align="center" justify="between" wrap="wrap" {...stylex.props(styles.queryError)}>
-      <span>Response options could not load. Shown details may be out of date.</span>
+      <span>Response options could not load. Try again.</span>
       <Button
         type="button"
         size="sm"
@@ -216,6 +226,7 @@ export function PendingHumanInterventionsResult({
   ) : null;
   const empty = result.data
     && !stale
+    && !invalidAdapterAuthentication
     && visibleInterventions.length === 0
     ? emptyContent
     : null;
