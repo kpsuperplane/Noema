@@ -55,6 +55,9 @@ pub(super) fn is_spa_entry_path(path: &str) -> bool {
 }
 
 fn static_asset_name(path: &str) -> Option<&str> {
+    if path == "/favicon.ico" {
+        return Some("favicon.ico");
+    }
     let name = path.strip_prefix("/assets/")?;
     if name.is_empty()
         || name == "graphiql.html"
@@ -73,6 +76,7 @@ fn content_type_for_asset_name(name: &str) -> Option<&'static str> {
         "css" => Some("text/css; charset=utf-8"),
         "svg" => Some("image/svg+xml; charset=utf-8"),
         "png" => Some("image/png"),
+        "ico" => Some("image/x-icon"),
         "ttf" => Some("font/ttf"),
         "webmanifest" => Some("application/manifest+json; charset=utf-8"),
         "html" => Some("text/html; charset=utf-8"),
@@ -148,6 +152,7 @@ mod tests {
             Some("route-chunk.js")
         );
         assert_eq!(static_asset_name("/assets/styles.css"), Some("styles.css"));
+        assert_eq!(static_asset_name("/favicon.ico"), Some("favicon.ico"));
         assert_eq!(static_asset_name("/assets/nested/chunk.js"), None);
         assert_eq!(static_asset_name("/assets/../chunk.js"), None);
         assert_eq!(static_asset_name("/assets"), None);
@@ -170,6 +175,10 @@ mod tests {
             Some("application/manifest+json; charset=utf-8")
         );
         assert_eq!(content_type_for_asset_name("icon.png"), Some("image/png"));
+        assert_eq!(
+            content_type_for_asset_name("favicon.ico"),
+            Some("image/x-icon")
+        );
         assert_eq!(
             content_type_for_asset_name("noema-font.ttf"),
             Some("font/ttf")

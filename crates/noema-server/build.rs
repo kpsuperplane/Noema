@@ -37,6 +37,7 @@ fn validate_release_assets(asset_dir: &Path) -> io::Result<()> {
     for name in [
         "index.html",
         "graphiql.html",
+        "favicon.ico",
         "manifest.webmanifest",
         "sw.js",
         "apple-touch-icon.png",

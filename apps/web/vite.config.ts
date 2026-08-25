@@ -39,7 +39,7 @@ export default defineConfig({
       registerType: "prompt",
       filename: "sw.js",
       scope: "/",
-      includeAssets: ["apple-touch-icon.png", "push-handler.js"],
+      includeAssets: ["apple-touch-icon.png", "favicon.ico", "push-handler.js"],
       manifest: {
         id: "/",
         name: "Noema",
