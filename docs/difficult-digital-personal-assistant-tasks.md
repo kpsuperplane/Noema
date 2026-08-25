@@ -2,9 +2,9 @@
 
 Research date: 2026-08-18
 
-Noema assessment date: 2026-08-18
+Noema assessment date: 2026-08-25
 
-Noema assessment baseline: commit `76d54bdc`
+Noema assessment baseline: commit `93f5d630`
 
 ## Executive summary
 
@@ -357,16 +357,23 @@ This section assesses Noema at the stated baseline. It is an implementation snap
 
 The assessment uses these current authorities:
 
-- The [Tasks contract](tasks.md) defines recurring work, review, gates, artifacts, and deferred collaboration features.
-- The [Memory contract](memory.md) defines local-human memory and its missing history, editing, private scopes, and additional scopes.
+- The [Tasks contract](tasks.md) defines durable working directories, recurring work, review, gates, and deferred collaboration features.
+- The [Memory contract](memory.md) defines evidence-backed local-human memory and its missing history, editing, private scopes, and additional scopes.
 - The [Capability contract](harness/capabilities.md) defines governed MCP and native HTTP integrations.
-- The [browser contract](harness/web-browsing.md) excludes downloads, uploads, multiple tabs, and durable profiles.
+- The [browser contract](harness/web-browsing.md) defines interactive browsing, public downloads, document parsing, and remaining browser limits.
 - The [50-case ledger](validation/personal-agent-50-case-ledger.md) supplies dated live evidence for Gmail, Google Calendar, and Notion workflows.
 - The [proactive-event plan](plans/2026-08-15-proactive-event-sources.md) states that implementation has not started.
+- The [current context](context/current.md) records implemented file tools and remaining live Gmail and Calendar OAuth acceptance.
 
-Task-created artifacts support bounded UTF-8 text. They do not provide general file intake, PDF parsing, image OCR, or deterministic calculations.
+Primary chats and Tasks now have durable working directories.
 
-These assessments name the smallest reusable improvement that closes each demonstrated gap.
+`file.download` stores public non-HTML resources. `file.parse` converts supported documents into bounded text.
+
+Supported documents include PDF, Office, OpenDocument, EPUB, RTF, Excel, CSV, XML, JSON, Markdown, and plain text.
+
+Noema still lacks user file uploads, browser uploads, image OCR, general export formats, and deterministic calculation tools.
+
+Every row below was reassessed against the current contracts. Each row names the smallest reusable improvement that closes its demonstrated gap.
 
 | Status | Meaning |
 | --- | --- |
@@ -374,157 +381,159 @@ These assessments name the smallest reusable improvement that closes each demons
 | Extend | Core primitives exist. Noema needs bounded connectors, data, rules, or reliability work. |
 | Build | A central data, authority, integration, or execution system is absent. |
 
-At this baseline, 13 tasks need testing, 49 need bounded extensions, and 38 need new systems.
+At this baseline, 14 tasks need testing, 50 need bounded extensions, and 36 need new systems.
+
+Three classifications changed since 2026-08-18. Tasks 36 and 100 moved from Build to Extend. Task 98 moved from Extend to Test.
 
 ### 1. Daily coordination and commitments
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 1 | Build a daily operational brief | Test | Retest the proven morning-brief path with non-empty Tasks, Memory preferences, travel evidence, and changing daily load. |
-| 2 | Maintain one trusted promise register | Extend | Use Tasks as authority. Add counterparty, due date, source evidence, deduplication, completion proof, and connector-driven capture. |
-| 3 | Capture actions, decisions, and dates | Build | Implement external event sources and governed routing into Tasks, Calendar, or project records. One-time extraction already passed. |
-| 4 | Maintain a prioritized reply and action queue | Extend | Add durable thread identity, relationship priority, mail drafts, reply operations, and sent-reply reconciliation. Current Gmail evidence is read-only. |
-| 5 | Audit the calendar for conflicts and hidden load | Test | Test populated travel, preparation, recovery, flexibility, and time-zone cases. Add map data when travel time matters. |
-| 6 | Create a realistic daily plan | Test | Retest the proven day-planning path with Memory preferences, estimates, fatigue limits, breaks, and infeasible overload. |
-| 7 | Replan after disruption | Extend | Calendar replanning passed. Add Task dependencies, travel-time data, simultaneous changes, and partial-write recovery. |
-| 8 | Produce a weekly preview and review | Test | Retest recurring execution, prior-period comparisons, and non-empty native Tasks. Weekly and monthly review cases already passed. |
-| 9 | Track deadlines, renewals, and recurring obligations | Extend | Add source-linked obligation state, portal intake, change detection, and completion reconciliation. Task Repeat already supplies scheduling. |
-| 10 | Review personal goals and adjust the plan | Build | Add goal outcomes, measures, target dates, review history, and links to Tasks and actual time. Project descriptions are insufficient. |
+| 1 | Build a daily operational brief | Test | Retest the proven path after Task-file and provider changes. Verify current connections, non-empty Tasks, Memory preferences, travel, and changing load. |
+| 2 | Maintain one trusted promise register | Extend | Tasks and working files provide a base. Add counterparties, source-linked capture, due dates, deduplication, and completion proof. |
+| 3 | Capture actions, decisions, and dates | Build | Implement external event sources and authorized routing into Tasks, Calendar, or project records. One-time extraction already passed. |
+| 4 | Maintain a prioritized reply and action queue | Extend | Add thread identity, relationship priority, mail drafts, reply operations, and sent-reply reconciliation. Revalidate the current Gmail connection. |
+| 5 | Audit the calendar for conflicts and hidden load | Test | Test current Calendar access with travel, preparation, recovery, flexibility, and time zones. Add map data when travel matters. |
+| 6 | Create a realistic daily plan | Test | Retest with current Tasks, Memory preferences, estimates, fatigue limits, breaks, and infeasible overload. |
+| 7 | Replan after disruption | Extend | Calendar replanning passed. Add Task dependencies, travel data, simultaneous changes, and partial-write recovery. |
+| 8 | Produce a weekly preview and review | Test | Retest recurrence history, prior-period comparison, non-empty Tasks, and current external connections. Earlier weekly and monthly cases passed. |
+| 9 | Track deadlines, renewals, and recurring obligations | Extend | Repeat supplies scheduling. Add source-linked obligation state, portal intake, change detection, and completion reconciliation. |
+| 10 | Review personal goals and adjust the plan | Build | Add goal outcomes, measures, target dates, review history, and links to Tasks and actual time. Projects do not supply this authority. |
 
 ### 2. Communication and relationships
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 11 | Resolve conflicting requests | Test | Test authority conflicts, relationship trade-offs, escalation drafts, and safe non-action. Existing cross-system risk ranking is a close precedent. |
-| 12 | Monitor an important conversation | Build | Implement external event sources, thread checkpoints, silence deadlines, material-change rules, and escalation controls. Scheduled checks are not reliable monitoring. |
-| 13 | Coordinate a multi-person meeting | Extend | Add stable contacts, free-busy access, invitations, negotiation replies, fairness rules, and time-zone exception tests. |
-| 14 | Prepare a meeting brief and agenda | Test | Retest the proven cross-system brief with populated attendees, ambiguous identities, sensitive Memory boundaries, and conflicting decisions. |
-| 15 | Prepare audience-specific updates | Test | Validate fact parity, audience confidentiality, formatting, and review before delivery. Synthesis and text artifacts already exist. |
-| 16 | Record decisions and close follow-ups | Extend | Add durable ownership, source-linked status, transcript intake, event-driven reminders, and later completion evidence. |
-| 17 | Maintain a relationship brief | Test | Retest the proven relationship brief with identity merging, richer history, Memory retrieval, private exclusions, and staleness. |
-| 18 | Maintain a relationship follow-up plan | Extend | Add stable contacts, interaction history, cadence rules, reciprocity signals, and consent boundaries. Memory and Task Repeat provide partial support. |
+| 11 | Resolve conflicting requests | Test | Test authority conflicts, relationship trade-offs, escalation drafts, and safe non-action. Cross-system risk ranking remains a close precedent. |
+| 12 | Monitor an important conversation | Build | Implement external event sources, thread checkpoints, silence deadlines, material-change rules, and escalation controls. Repeat is not reliable event monitoring. |
+| 13 | Coordinate a multi-person meeting | Extend | Add stable contacts, current free-busy access, invitations, negotiation replies, fairness rules, and time-zone exception tests. |
+| 14 | Prepare a meeting brief and agenda | Test | Retest current connections with populated attendees, ambiguous identities, sensitive Memory boundaries, conflicting decisions, and parsed attachments. |
+| 15 | Prepare audience-specific updates | Test | Validate fact parity, audience confidentiality, formatting, citations, and review before delivery. Task results and support files provide the base. |
+| 16 | Record decisions and close follow-ups | Extend | Task files can hold a log. Add durable ownership, source-linked status, transcript intake, event reminders, and later completion evidence. |
+| 17 | Maintain a relationship brief | Test | Retest Memory version two with identity merging, richer history, evidence links, private exclusions, changed facts, and staleness. |
+| 18 | Maintain a relationship follow-up plan | Extend | Memory and Repeat provide partial support. Add stable contacts, interaction history, cadence rules, reciprocity signals, and consent boundaries. |
 
 ### 3. Work, projects, and career
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 19 | Produce an evidence-based project status | Test | Retest the proven status synthesis with native Projects and Tasks, conflicting updates, missing reports, and source links. |
-| 20 | Detect project risks and dependencies | Extend | Add native Task dependency links and commitment ownership. Test weak signals and the smallest useful intervention. |
-| 21 | Maintain a decision log | Extend | Retest the proven Notion log. Add native decision records, replacement links, source evidence, chronology, and Project links. |
-| 22 | Turn an ambiguous goal into a project plan | Extend | Add milestones, dependencies, estimates, review points, and plan-to-Task conversion. Planner contracts and Project-linked Tasks already exist. |
-| 23 | Assemble a deliverable from scattered material | Extend | Add governed file import, PDF and Office extraction, version reconciliation, and required-format export. Text artifact creation already works. |
-| 24 | Coordinate a multi-reviewer approval | Build | Add reviewer identities, routing, version binding, quorum, conflict resolution, and audit. Current Tasks has one human gate and one model reviewer. |
-| 25 | Build an employer expense packet | Build | Add receipt intake, OCR, transaction matching, policy checks, expense-system writes, exception review, and reimbursement reconciliation. |
-| 26 | Prepare onboarding, offboarding, or handoff | Extend | Add access inventories, owner handoff, permission-safe exports, and lifecycle checklists. Projects, Tasks, Memory, connectors, and artifacts provide the base. |
-| 27 | Maintain credentials and compliance obligations | Extend | Add compliance records, evidence-file intake, rule monitoring, portal file transfer, fee workflows, and renewal receipts. |
-| 28 | Run a job-search pipeline | Extend | Add job-board connectors, application state, deduplication, and outcome learning. Web, Gmail, Calendar, Tasks, Memory, and artifacts provide the base. |
-| 29 | Prepare tailored application packets | Extend | Add verified career-record intake, reusable templates, DOCX and PDF generation, version control, and governed portal uploads. |
-| 30 | Compare job offers and prepare negotiation | Extend | Add benefits-document intake, compensation normalization, location data, and spreadsheet-grade calculations. Web, Memory, and text artifacts support small comparisons. |
+| 19 | Produce an evidence-based project status | Test | Retest with native Projects, shared files, Task workspaces, conflicting updates, missing reports, and source links. |
+| 20 | Detect project risks and dependencies | Extend | Dependencies and subtasks remain excluded. Add Task dependency links, commitment ownership, weak-signal tests, and intervention rules. |
+| 21 | Maintain a decision log | Extend | Task files can hold local decisions. Add a cross-Task decision authority, replacement links, chronology, source evidence, and Project updates. |
+| 22 | Turn an ambiguous goal into a project plan | Extend | Planner and Task files cover decomposition. Add milestones, dependencies, estimates, review points, subtasks, and plan-to-Task conversion. |
+| 23 | Assemble a deliverable from scattered material | Extend | Public downloads and PDF or Office parsing now work. Add user file intake, version comparison, and required-format export. |
+| 24 | Coordinate a multi-reviewer approval | Build | Add reviewer identities, routing, version binding, quorum, conflict resolution, and audit. Tasks supports one human gate and one model reviewer. |
+| 25 | Build an employer expense packet | Build | Document parsing helps with statements. Add receipt uploads, image OCR, transaction matching, policy checks, expense writes, and reimbursement reconciliation. |
+| 26 | Prepare onboarding, offboarding, or handoff | Extend | Task and project files provide a stronger base. Add access inventories, shared ownership, lifecycle connectors, and permission-safe export. |
+| 27 | Maintain credentials and compliance obligations | Extend | Public evidence parsing now works. Add compliance records, private file intake, rule monitoring, portal uploads, fees, and renewal receipts. |
+| 28 | Run a job-search pipeline | Extend | Task workspaces improve long searches. Add job-board connectors, application state, deduplication, current mail access, and outcome learning. |
+| 29 | Prepare tailored application packets | Extend | Noema can parse source documents. Add user file intake, verified career records, templates, document generation, version control, and portal uploads. |
+| 30 | Compare job offers and prepare negotiation | Extend | Noema can parse downloaded benefit documents. Add private file intake, compensation normalization, location data, and deterministic calculations. |
 
 ### 4. Research, learning, and personal knowledge
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 31 | Compare a major product or service | Test | Validate freshness, total cost, compatibility, source disagreement, and preference weighting. Search, browsing, Memory, and artifacts already exist. |
-| 32 | Produce a current research brief | Test | Validate source quality, citation accuracy, disagreement, and coverage limits. Search, fetch, review, criterion evidence, and artifacts already exist. |
-| 33 | Monitor a topic for material changes | Extend | Add series-owned baselines, prior-result retrieval, source checkpoints, material-change rules, and notification thresholds. Task Repeat provides the schedule. |
-| 34 | Build a literature review and evidence map | Extend | Add scholarly-index adapters, citation tools, PDF ingestion, DOI deduplication, and evidence-map structures. Web research supports bounded reviews. |
-| 35 | Fact-check claims and uncertainty | Test | Test primary-source tracing, date conflicts, archived evidence, and explicit uncertainty. Web research, citations, Tasks, and review already exist. |
-| 36 | Extract a structured inventory | Build | Add governed document intake, PDF parsing, OCR, table extraction, deduplication, field normalization, and source-level evidence. |
-| 37 | Analyze a personal dataset | Build | Add secure dataset import and a deterministic analysis engine. Alternatively, support a governed spreadsheet or notebook connector. |
-| 38 | Maintain a reading and newsletter digest | Extend | Add full-content feeds, durable read state, preference adaptation, and repeated-run tests. One Gmail-to-Notion digest passed. |
-| 39 | Maintain an adaptive learning plan | Extend | Add learner progress state, course connectors, assessments, and adaptation tests. Memory, recurring Tasks, and calendars cover planning. |
-| 40 | Compare courses, programs, or credentials | Extend | Add structured option tracking, education portals, aid data, enrollment operations, and deadline state. Web research covers public comparisons. |
+| 31 | Compare a major product or service | Test | Retest freshness, total cost, compatibility, source disagreement, and preference weighting. Search, browser recovery, Memory, and Task files exist. |
+| 32 | Produce a current research brief | Test | Retest source quality, citation accuracy, disagreement, and coverage. Durable Task research, continuations, file parsing, and citations now provide a strong path. |
+| 33 | Monitor a topic for material changes | Extend | Repeat supplies scheduling. Add series baselines, prior-result retrieval, source checkpoints, material-change rules, and notification thresholds. |
+| 34 | Build a literature review and evidence map | Extend | PDF parsing now works. Add scholarly-index adapters, citation management, DOI deduplication, reproducible screening, and evidence-map structures. |
+| 35 | Fact-check claims and uncertainty | Test | Retest primary-source tracing, date conflicts, archived evidence, parsed documents, and explicit uncertainty. Research citations and review already exist. |
+| 36 | Extract a structured inventory | Extend | Public PDF, Office, and Excel parsing now works. Add user and batch intake, image OCR, structured tables, deduplication, and source history. |
+| 37 | Analyze a personal dataset | Build | CSV and Excel parsing exists. Add secure personal-data intake and a deterministic analysis engine or controlled notebook connector. |
+| 38 | Maintain a reading and newsletter digest | Extend | Repeat and Task files improve continuity. Add full-content feeds, durable read state, preference adaptation, current mail proof, and repeated-run tests. |
+| 39 | Maintain an adaptive learning plan | Extend | Memory, Repeat, and Calendar cover planning. Add learner progress state, course connectors, assessments, prior-result retrieval, and adaptation tests. |
+| 40 | Compare courses, programs, or credentials | Extend | Web research and document parsing cover comparison. Add option state, education portals, aid data, enrollment operations, and deadline reconciliation. |
 
 ### 5. Money, tax, insurance, benefits, and personal administration
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
 | 41 | Maintain household cash flow and bills | Build | Add bank and biller connections, a cash-flow ledger, forecasting, shared-account reconciliation, and shortfall alerts. |
-| 42 | Build an annual tax-readiness packet | Build | Add secure tax-document intake, classification, missing-record detection, year-scoped evidence, accountant export, and filing approval controls. |
-| 43 | Audit subscriptions | Extend | Add transaction feeds, a subscription register, cancellation operations, and billing-stop verification. Email receipt and renewal extraction already passed. |
-| 44 | Review insurance coverage | Build | Add policy parsing, insurer and quote connections, a normalized coverage model, household-risk inputs, and qualified-review gates. |
-| 45 | Reconcile an insurance claim | Build | Add durable claim state, evidence intake, insurer connections, deadlines, payment reconciliation, appeal state, and readback receipts. |
+| 42 | Build an annual tax-readiness packet | Build | Public document parsing is insufficient. Add private tax-file intake, classification, missing-record checks, year evidence, accountant export, and filing controls. |
+| 43 | Audit subscriptions | Extend | Historical receipt extraction passed. Add current mail proof, transaction feeds, a subscription register, cancellation operations, and billing-stop verification. |
+| 44 | Review insurance coverage | Build | Policy parsing now helps. Add private policy intake, insurer and quote connections, normalized coverage, household risks, and qualified-review gates. |
+| 45 | Reconcile an insurance claim | Build | Add durable claim state, private evidence intake, insurer connections, deadlines, payment reconciliation, appeal state, and external receipts. |
 | 46 | Find and maintain benefits | Build | Add verified eligibility data, household definitions, evidence packages, portal uploads, application state, reporting duties, and recertification monitoring. |
-| 47 | Consolidate retirement records | Build | Add plan-provider connections, statement intake, account matching, fee comparisons, transfer tracking, tax evidence, and one-shot rollover approvals. |
-| 48 | Maintain credit and debt records | Build | Add bureau, lender, and bank connections, a debt ledger, dispute evidence, status checks, and deadline alerts. |
-| 49 | Maintain official documents and licenses | Extend | Add identity-document intake, government portal operations, uploads, and household authority. Recurring Tasks, Calendar, Memory, and web research cover tracking. |
-| 50 | Escalate a consumer dispute | Extend | Add document intake, complaint connections, delivery receipts, and durable case state. Tasks, browser actions, artifacts, and approvals support a basic case. |
-| 51 | Maintain an affairs and estate map | Build | Add a governed document vault, estate map, beneficiary roles, emergency access, update triggers, and secure export. |
-| 52 | Administer a deceased person's accounts | Build | Add executor authority, death-certificate intake, jurisdiction rules, account and benefit connections, tax and property workflows, notices, receipts, and reconciliation. |
+| 47 | Consolidate retirement records | Build | Add plan-provider connections, private statement intake, account matching, fee comparisons, transfer tracking, tax evidence, and one-shot approvals. |
+| 48 | Maintain credit and debt records | Build | Add bureau, lender, and bank connections, a debt ledger, private dispute evidence, status checks, and deadline alerts. |
+| 49 | Maintain official documents and licenses | Extend | Repeat, web research, and public parsing cover tracking. Add identity-file intake, government portal uploads, confirmation checks, and household authority. |
+| 50 | Escalate a consumer dispute | Extend | Task files, browsing, and review support a case. Add user evidence intake, complaint connections, delivery receipts, and durable case state. |
+| 51 | Maintain an affairs and estate map | Build | Task directories are not a document vault. Add private intake, estate records, beneficiary roles, emergency access, update triggers, and secure export. |
+| 52 | Administer a deceased person's accounts | Build | Add executor authority, death-certificate intake, jurisdiction rules, account and benefit connections, tax and property processes, notices, receipts, and reconciliation. |
 
 ### 6. Health and caregiving
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 53 | Consolidate a medical record | Build | Add FHIR and portal connections, medical-document intake, record normalization, conflict tracking, consent, and proxy access. |
+| 53 | Consolidate a medical record | Build | Document parsing alone is insufficient. Add FHIR and portal connections, private record intake, normalization, conflict tracking, consent, and proxy access. |
 | 54 | Maintain a medication and refill plan | Build | Add a verified medication record, pharmacy connections, refill events, reconciliation evidence, safety rules, and clinician confirmation. |
-| 55 | Prepare a medical appointment brief | Extend | Add health-diary and portal intake, symptom timelines, urgent routing, and a clinical fixture test. Cross-source synthesis and text artifacts exist. |
-| 56 | Coordinate referrals, tests, and specialists | Build | Add referral state, insurer and provider connections, records transfer, scheduling, transport, result retrieval, and follow-up tracking. |
-| 57 | Monitor a care plan | Build | Add care-plan state, portal and device events, threshold rules, safe escalation, and loop-closure checks. Proactive events are absent. |
-| 58 | Compare providers or care services | Extend | Add current network, cost, availability, accessibility, language, phone, and booking data. Web research can create a shortlist. |
-| 59 | Compare health plans | Build | Add plan and formulary intake, network checks, care scenarios, deterministic cost modeling, tax rules, and professional review. |
-| 60 | Build a health authorization or appeal packet | Build | Add case state, denial parsing, record collection, deadlines, submission receipts, status checks, and approvals. |
+| 55 | Prepare a medical appointment brief | Extend | File parsing and synthesis support a draft. Add private health intake, portal data, symptom timelines, urgent routing, and a clinical acceptance test. |
+| 56 | Coordinate referrals, tests, and specialists | Build | Add referral state, insurer and provider connections, record transfer, scheduling, transport, result retrieval, and follow-up tracking. |
+| 57 | Monitor a care plan | Build | Add care-plan state, portal and device events, threshold rules, safe escalation, and loop closure. External event sources remain absent. |
+| 58 | Compare providers or care services | Extend | Web research can create a shortlist. Add current network, cost, availability, accessibility, language, phone, and booking data. |
+| 59 | Compare health plans | Build | Add private plan and formulary intake, network checks, care scenarios, deterministic cost modeling, tax rules, and professional review. |
+| 60 | Build a health authorization or appeal packet | Build | Add durable case state, private denial and record intake, deadlines, portal uploads, submission receipts, status checks, and approvals. |
 | 61 | Coordinate a safe care transition | Build | Add hospital and pharmacy connections, caregiver roles, warning escalation, equipment coordination, transport, and handoff confirmation. |
-| 62 | Maintain a shared caregiver plan | Build | Add multiple humans, consent, caregiver roles, shared Tasks, assignments, handoffs, and notifications. Current production centers one local human. |
+| 62 | Maintain a shared caregiver plan | Build | Add multiple humans, consent, caregiver roles, shared Tasks, assignments, handoffs, and notifications. Production still centers one local human. |
 | 63 | Summarize care-recipient changes | Build | Add authorized health logs, recipient policy, change comparison, urgent routing, recipient-specific sharing, and delivery receipts. |
-| 64 | Prepare a treatment decision brief | Extend | Add medical-record intake, evidence filters, patient values, non-decision controls, and clinician review tests. Research and artifact output support a draft. |
+| 64 | Prepare a treatment decision brief | Extend | Research and file parsing support a draft. Add private medical intake, evidence filters, patient values, non-decision controls, and clinician review. |
 
 ### 7. Home, household, and consumer operations
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 65 | Maintain an asset and recall inventory | Build | Add an asset registry, receipt and serial intake, OCR, owner matching, warranty evidence, recall feeds, and change history. |
-| 66 | Run preventive home maintenance | Extend | Reuse an asset registry and recurring Tasks. Add maintenance rules, climate inputs, service history, and missed-schedule tests. |
-| 67 | Coordinate a home repair project | Extend | Add bid intake, vendor verification, inspections, and payment milestones. Projects, Tasks, web tools, artifacts, and governance provide the workflow. |
-| 68 | Optimize utilities and communication services | Extend | Add bill intake, utility tools, tariff normalization, and renewal monitoring. Test savings against invoices and cancellation terms. |
+| 65 | Maintain an asset and recall inventory | Build | Document parsing helps with receipts. Add private and image intake, OCR, an asset registry, owner matching, recall feeds, and history. |
+| 66 | Run preventive home maintenance | Extend | Repeat supports schedules. Add an asset registry, maintenance rules, climate inputs, service history, and missed-schedule tests. |
+| 67 | Coordinate a home repair project | Extend | Projects, Task files, research, and reviewed actions provide a base. Add bid intake, vendor checks, inspections, and payment milestones. |
+| 68 | Optimize utilities and communication services | Extend | Public bill parsing can support analysis. Add private bill intake, utility tools, tariff normalization, renewal monitoring, and deterministic savings checks. |
 | 69 | Maintain a meal and grocery plan | Extend | Add household food profiles, pantry state, grocery tools, nutrition constraints, allergy rules, substitutions, budgets, and attendance changes. |
-| 70 | Coordinate the vehicle lifecycle | Extend | Add vehicle-record intake, recall feeds, maintenance tools, and renewal checks. Verify records and consequential actions. |
-| 71 | Coordinate recurring pet care | Extend | Add pet profiles and veterinary, pharmacy, licensing, and insurer tools. Test medication safeguards and caregiver handoffs. |
-| 72 | Complete a return, warranty, or repair request | Extend | Add governed retailer file transfers, shipping labels, deadline state, and remedy verification. Browser upload and download support is absent. |
-| 73 | Manage recurring household services | Extend | Add vendor records, contacts, payments, service history, and backup-provider rules. Test schedule changes and cancellations. |
-| 74 | Maintain emergency readiness | Extend | Add local alerts, maps, contacts, supply inventory, secure document intake, periodic review, and offline export. |
+| 70 | Coordinate the vehicle lifecycle | Extend | Add vehicle-record intake, recall feeds, maintenance tools, renewal checks, and tests for consequential actions. |
+| 71 | Coordinate recurring pet care | Extend | Repeat provides scheduling. Add pet profiles, veterinary and pharmacy tools, licensing, insurer tools, medication safeguards, and caregiver handoffs. |
+| 72 | Complete a return, warranty, or repair request | Extend | Public file downloads now work. Add retailer transfers, browser uploads, shipping workflows, deadline state, and remedy verification. |
+| 73 | Manage recurring household services | Extend | Repeat provides scheduling. Add vendor records, contacts, payments, service history, backup-provider rules, and cancellation tests. |
+| 74 | Maintain emergency readiness | Extend | Client notifications provide an alert path. Add local feeds, maps, contacts, supply inventory, private documents, reviews, and offline export. |
 
 ### 8. Travel, moves, housing, and events
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 75 | Build one live itinerary | Test | Run a non-empty case with time zones, changes, cancellations, and missing legs. One dated empty-case itinerary passed. |
-| 76 | Plan and book a multi-leg trip | Extend | Add travel inventory and booking tools, protected payment authority, receipt reconciliation, and partial-failure recovery. |
-| 77 | Monitor disruptions and prepare rebooking | Build | Implement proactive events, carrier feeds, rights rules, downstream dependency analysis, rebooking operations, and uncertain-outcome recovery. |
-| 78 | Maintain international travel readiness | Extend | Add secure document intake, nationality-aware rules, source freshness, medicine checks, and Calendar validation. |
-| 79 | Track travel credits, refunds, and claims | Extend | Add loyalty and insurer tools, evidence uploads, deadline monitoring, and value reconciliation. Test partial refunds and credit expiry. |
+| 75 | Build one live itinerary | Test | Retest a non-empty case with current connections, parsed confirmations, time zones, changes, cancellations, and missing legs. Earlier evidence was empty. |
+| 76 | Plan and book a multi-leg trip | Extend | Browser routing improves recovery. Add travel inventory, booking tools, protected payment authority, receipt reconciliation, and partial-failure tests. |
+| 77 | Monitor disruptions and prepare rebooking | Build | Implement external event sources, carrier feeds, rights rules, downstream dependency analysis, rebooking operations, and uncertain-outcome recovery. |
+| 78 | Maintain international travel readiness | Extend | Public requirement downloads and parsing now work. Add private document intake, nationality rules, source freshness, medicine checks, and Calendar validation. |
+| 79 | Track travel credits, refunds, and claims | Extend | Task files can hold evidence. Add loyalty and insurer tools, user uploads, deadline monitoring, value reconciliation, and partial-refund tests. |
 | 80 | Coordinate group or accessible travel | Build | Add multi-human preferences, consent, conflict resolution, accessibility verification, shared approvals, and per-traveler documents. |
 | 81 | Plan a personal event | Extend | Add contacts, invitations, RSVP state, vendor and payment tools, budgets, dependencies, and guest communications. |
-| 82 | Run a move and propagate changes | Extend | Add mover, utility, bank, insurer, school, and government tools. Add document transfer and confirmation reconciliation. |
-| 83 | Maintain a housing search | Extend | Add listing and map tools, commute calculations, lease extraction, fraud checks, application tracking, and hard-constraint tests. |
-| 84 | Complete a trip or move closeout | Extend | Add transaction, file, and photo intake with claim and deposit matching. Test until every open item has evidence. |
+| 82 | Run a move and propagate changes | Extend | Add mover, utility, bank, insurer, school, and government tools. Add private document transfer and confirmation reconciliation. |
+| 83 | Maintain a housing search | Extend | Web and lease parsing provide a base. Add listing and map tools, commute calculations, fraud checks, applications, and hard-constraint tests. |
+| 84 | Complete a trip or move closeout | Extend | Task files support a case record. Add transaction, private file, and photo intake with claim and deposit matching. |
 
 ### 9. Family, education, relationships, and community
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
 | 85 | Maintain a family schedule and transport plan | Build | Add multi-human calendars, custody rules, shared transport resources, maps, backup plans, and collaborative assignment. |
-| 86 | Turn school communications into a digest | Extend | Add school portal tools, attachments, forms, child scopes, payments, and event ingestion. Test deduplication across sources. |
-| 87 | Coordinate childcare, camps, and activities | Extend | Add provider and waitlist tools, child health scopes, file uploads, payments, transport planning, schedule changes, and refunds. |
-| 88 | Balance household and care responsibilities | Build | Add shared ownership, workload views, consent, negotiation, and fairness controls. Collaborative assignment and multi-user permissions are deferred. |
-| 89 | Run an education or scholarship campaign | Extend | Add application records, dependencies, document and recommendation workflows, portal uploads, contributor roles, and deadline reconciliation. |
-| 90 | Maintain family records and permission packets | Build | Add governed file import, family scopes, consent records, packet generation, expiry checks, secure sharing, and access audit. |
-| 91 | Coordinate community or volunteer participation | Extend | Add forms, file transfer, training state, communications, and renewal reconciliation. Test discovery, eligibility, registration, and Calendar commitment. |
-| 92 | Maintain a relationship and occasion plan | Extend | Add contact or relationship scopes, occasion data, shared duties, shopping, messaging tools, and cultural-preference tests. |
+| 86 | Turn school communications into a digest | Extend | Parsing can read supported files. Add school portal tools, private attachments, forms, child scopes, payments, event intake, and cross-source deduplication. |
+| 87 | Coordinate childcare, camps, and activities | Extend | Add provider and waitlist tools, child health scopes, private uploads, payments, transport planning, schedule changes, and refund checks. |
+| 88 | Balance household and care responsibilities | Build | Add shared ownership, workload views, consent, negotiation, and fairness controls. Collaboration and multi-user permissions remain excluded. |
+| 89 | Run an education or scholarship campaign | Extend | Parsing supports source documents. Add application records, dependencies, recommendations, portal uploads, contributor roles, and deadline reconciliation. |
+| 90 | Maintain family records and permission packets | Build | Add private file intake, family scopes, consent records, packet generation, expiry checks, secure sharing, and access audit. |
+| 91 | Coordinate community or volunteer participation | Extend | Public forms can be downloaded and parsed. Add uploads, training state, communications, renewal reconciliation, and current registration tests. |
+| 92 | Maintain a relationship and occasion plan | Extend | Add contact and relationship scopes, occasion data, shared duties, shopping, messaging tools, and cultural-preference tests. |
 
 ### 10. Digital life, privacy, records, and resilience
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 93 | Organize and preserve files, email, and photos | Build | Add governed file, email, photo, and cloud ingestion, safe deduplication, format migration, backups, restore verification, and retention controls. |
+| 93 | Organize and preserve files, email, and photos | Build | Working directories and public downloads are not an archive. Add private and cloud intake, photo support, deduplication, migration, backups, and restore checks. |
 | 94 | Maintain an account and security inventory | Build | Add account metadata, password-manager status, and device-security integrations. Keep credentials outside model context and verify each change. |
-| 95 | Coordinate account or identity-theft recovery | Build | Add a recovery workspace, trusted-device checks, bank and bureau tools, evidence intake, dispute tracking, and continuous monitoring. |
-| 96 | Review privacy settings and data exposure | Build | Add account inventory, authenticated portal access, deletion tracking, reappearance monitoring, and reversible change plans. Browser profiles are ephemeral. |
+| 95 | Coordinate account or identity-theft recovery | Build | Add a recovery workspace, trusted-device checks, bank and bureau tools, private evidence intake, dispute tracking, and continuous monitoring. |
+| 96 | Review privacy settings and data exposure | Build | Browser routes can reach public sites, but profiles remain temporary. Add account inventory, authenticated access, deletion tracking, and reappearance monitoring. |
 | 97 | Complete device replacement and migration | Build | Add device, backup, authenticator, password-manager, migration, verification, and disposal integrations. Noema cannot control personal devices. |
-| 98 | Maintain a personal knowledge base | Extend | Expand Memory with document ingestion, decision chronology, cross-object links, history, private scopes, direct correction, and broader search. |
+| 98 | Maintain a personal knowledge base | Test | Test Memory version two across repeated updates, changed facts, duplicate evidence, decisions, hierarchy, and FTS retrieval. History and direct editing remain absent. |
 | 99 | Prepare a digital-legacy plan | Build | Add digital-legacy records, trusted roles, delegated access, estate scopes, platform actions, periodic review, and secure export. |
-| 100 | Make digital information accessible | Build | Add document ingestion, OCR, structured conversion, accessibility validation, assistive-technology profiles, source retention, and tests with affected users. |
+| 100 | Make digital information accessible | Extend | Document parsing now converts supported files to Markdown. Add user file intake, OCR, accessible exports, validation, profiles, and affected-user tests. |
 
 ## Cross-cutting findings
 
