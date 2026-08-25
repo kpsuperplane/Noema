@@ -11,8 +11,8 @@ use crate::{
     request::EncodedAdapterRequest,
 };
 use noema_capabilities::{
-    CapabilityAuthenticationAuthorityKind, CapabilityBindingSource, CapabilityError,
-    CapabilityInvocation, CapabilityInvoker, ReviewedCapabilityAuthorization,
+    CapabilityAuthenticationAuthorityKind, CapabilityAvailabilityStatus, CapabilityBindingSource,
+    CapabilityError, CapabilityInvocation, CapabilityInvoker, ReviewedCapabilityAuthorization,
 };
 use noema_home::NoemaPaths;
 use serde_json::json;
@@ -142,6 +142,16 @@ async fn reviewed_enablement_restores_one_disabled_adapter_tool() {
 fn grant_fixture(
     token_result: Result<AdapterOAuthTokenOutcome, AdapterOAuthTokenError>,
 ) -> GrantFixture {
+    grant_fixture_with_scopes(
+        token_result,
+        vec!["scope.extra".to_string(), "scope.read".to_string()],
+    )
+}
+
+fn grant_fixture_with_scopes(
+    token_result: Result<AdapterOAuthTokenOutcome, AdapterOAuthTokenError>,
+    granted_scopes: Vec<String>,
+) -> GrantFixture {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let authorities = OauthAuthorityStore::new(paths.clone());
@@ -213,7 +223,7 @@ fn grant_fixture(
                 account_label: Some("Personal Google".to_string()),
                 audience: "google-apis".to_string(),
                 desired_scopes: vec!["scope.extra".to_string(), "scope.read".to_string()],
-                granted_scopes: vec!["scope.extra".to_string(), "scope.read".to_string()],
+                granted_scopes,
                 authority_revision: 3,
                 token_generation: Some(token_generation.clone()),
                 token_revision: 4,
@@ -274,6 +284,30 @@ fn grant_fixture(
         application_id: "a".repeat(32),
         semantic_digest: definition.compiled.semantic_digest.to_string(),
     }
+}
+
+#[tokio::test]
+async fn active_grant_scope_gap_identifies_the_exact_definition_operation() {
+    let fixture = grant_fixture_with_scopes(
+        Err(AdapterOAuthTokenError::Unavailable),
+        vec!["scope.extra".to_string()],
+    );
+
+    let catalog = CapabilityBindingSource::catalog(&fixture.service)
+        .await
+        .expect("catalog");
+
+    assert_eq!(catalog.snapshot.len(), 2, "only definition tools remain");
+    assert_eq!(catalog.availability_notices.len(), 2);
+    assert!(catalog.availability_notices.iter().all(|notice| {
+        matches!(
+            &notice.status,
+            CapabilityAvailabilityStatus::AuthorizationScopeUnavailable {
+                definition_digest,
+                operation_id,
+            } if definition_digest == &fixture.semantic_digest && operation_id == "get_item"
+        )
+    }));
 }
 
 fn install_oauth_definition(
@@ -513,6 +547,11 @@ async fn rejected_refresh_invalidates_the_shared_grant() {
         0
     );
     assert_eq!(unavailable.availability_notices.len(), 2);
+    assert!(
+        unavailable.availability_notices.iter().all(|notice| {
+            notice.status == CapabilityAvailabilityStatus::AuthenticationRequired
+        })
+    );
 }
 
 #[tokio::test]

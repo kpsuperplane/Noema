@@ -104,6 +104,7 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
             "For a new service, provide new_definition and the required upsert_operations. For a revision, provide the exact base_semantic_digest, revision, and operation changes. ",
             "An upsert adds or replaces one complete operation by operation_id. remove_operation_ids removes exact operations. Noema compiles one complete immutable pending revision. ",
             "For OAuth, research and include a safe account_identity operation whenever the requested scopes expose a recognizable account identifier. ",
+            "For each OAuth operation, include every documented scope alternative that supports its complete argument contract. Prefer the least privileged alternative. ",
             "Never include credentials, tokens, cookies, or private user data. Prefer the smallest required operation set. Do not use MCP endpoints as adapter origins."
         ),
         json!({
@@ -202,6 +203,9 @@ impl AdapterCapabilityService {
                 "For a revision, load the exact digest once and submit operation-keyed changes.",
                 "Noema adds canonical schema fields, review state, behavior provenance, retry policy, and common response transforms.",
                 "Declare all four behavior booleans from researched semantics.",
+                "For each OAuth operation, research its official authorization documentation.",
+                "Include every documented scope alternative that supports the complete operation and all accepted arguments.",
+                "Prefer the least privileged scope alternative. Exclude alternatives that reject an accepted argument.",
                 "Use response kind flat_object, object_list, or scalar_list when possible.",
                 "Use kind custom only when pointer-based field projection cannot express the documented response.",
                 "A string field requires max_bytes. Set truncate only for display text, never opaque identifiers.",
@@ -921,6 +925,12 @@ mod tests {
             binding.spec().input_schema.as_value()["required"],
             json!(["source_reference"])
         );
+        assert!(
+            binding
+                .spec()
+                .description
+                .contains("complete argument contract")
+        );
         for pointer in [
             "/properties/new_definition",
             "/properties/revision",
@@ -940,6 +950,15 @@ mod tests {
             AdapterCapabilityService::definition_help_payload()["proposal_template"]["new_definition"]
                 ["authentication"]["profile_digest"],
             json!(crate::reviewed_google_oauth_profile_digest())
+        );
+        assert!(
+            AdapterCapabilityService::definition_help_payload()["instructions"]
+                .as_array()
+                .expect("instructions")
+                .iter()
+                .any(|instruction| instruction
+                    .as_str()
+                    .is_some_and(|text| text.contains("all accepted arguments")))
         );
         assert_eq!(
             AdapterCapabilityService::definition_help_payload()["response_token_pagination_example"],

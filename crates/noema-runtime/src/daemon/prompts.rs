@@ -68,6 +68,10 @@ Capability extension:
 - When the human asks to connect a service and `mcp.connect_service` is listed in tools.visibility, use web search to identify the service's official website, then call `mcp.connect_service` with that exact website URL. It verifies the site's well-known MCP server card and starts setup inline. Do not guess an MCP endpoint.
 - If the official site does not publish a supported MCP server card, or when no existing tool can complete the request, actively investigate whether a public HTTP API can. When listed in tools.visibility, use `definition_template` to begin creating the tool, research the official API with the listed web route, then use `propose_definition` to continue setup.
 - When the human asks to correct an API proposal, load its exact digest with `definition_template`. Submit only changed operations and removed operation IDs through `propose_definition`. Do not create an unlinked duplicate proposal.
+- `authorization_scope_unavailable` means the connection is active, but one reviewed operation lacks usable authorization. It is not an authentication request.
+- For a requested operation with this status, load its `definition_digest` and `operation_id` through `definition_template`. Research its official authorization documentation.
+- If the definition omits a contract-compatible scope alternative, submit an exact revision through `propose_definition`. Keep the revision pending for human review.
+- If the definition is complete, explain that the operation needs more access. Direct the human to the connection in Settings.
 - Review, authentication, and connection steps are continuations of this tool-creation path. Do not claim that setup or access is unavailable merely because those steps happen after tool creation.
 - Claim that this path is unavailable only when the latest tools.visibility lacks the required research or tool-creation tools, or after an attempted tool call returns unavailable.
 
@@ -291,6 +295,9 @@ mod tests {
                 "use `definition_template` to begin creating the tool",
                 "use `propose_definition` to continue setup",
                 "Do not create an unlinked duplicate proposal",
+                "`authorization_scope_unavailable` means the connection is active",
+                "load its `definition_digest` and `operation_id` through `definition_template`",
+                "Direct the human to the connection in Settings",
                 "after an attempted tool call returns unavailable",
             ],
             &[

@@ -618,12 +618,19 @@ pub enum CapabilityBindingSourceError {
 }
 
 /// Safe availability status supplied alongside a catalog.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CapabilityAvailabilityStatus {
     /// Capability is temporarily unavailable.
     Unavailable,
     /// Capability needs user authentication.
     AuthenticationRequired,
+    /// An active authorization does not satisfy one reviewed operation.
+    AuthorizationScopeUnavailable {
+        /// Exact definition revision that declared the operation authorization.
+        definition_digest: String,
+        /// Stable operation within that definition.
+        operation_id: String,
+    },
     /// Capability is disabled by reviewed policy.
     Disabled,
 }

@@ -577,10 +577,19 @@ fn render_availability_notice(
         .capability
         .as_ref()
         .map_or("capability", ToolName::as_str);
-    let status = match notice.status {
-        CapabilityAvailabilityStatus::Unavailable => "unavailable",
-        CapabilityAvailabilityStatus::AuthenticationRequired => "authentication_required",
-        CapabilityAvailabilityStatus::Disabled => "disabled",
+    let (status, repair) = match &notice.status {
+        CapabilityAvailabilityStatus::Unavailable => ("unavailable", String::new()),
+        CapabilityAvailabilityStatus::AuthenticationRequired => {
+            ("authentication_required", String::new())
+        }
+        CapabilityAvailabilityStatus::AuthorizationScopeUnavailable {
+            definition_digest,
+            operation_id,
+        } => (
+            "authorization_scope_unavailable",
+            format!("\tdefinition_digest={definition_digest}\toperation_id={operation_id}"),
+        ),
+        CapabilityAvailabilityStatus::Disabled => ("disabled", String::new()),
     };
     let enablement = notice
         .capability
@@ -589,7 +598,7 @@ fn render_availability_notice(
         .filter(|name| enablement_supported && catalog.resolve(name.as_str()).is_some())
         .map(|name| format!("\tenable_with={name}"))
         .unwrap_or_default();
-    format!("- unavailable_capability\t{capability}\tstatus={status}{enablement}")
+    format!("- unavailable_capability\t{capability}\tstatus={status}{repair}{enablement}")
 }
 
 #[cfg(feature = "eval-support")]

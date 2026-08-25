@@ -826,6 +826,20 @@ async fn transient_outages_preserve_native_catalog_during_outages() {
         );
         assert!(!disabled.tool_policy.allows_tool("mcp.mcp:docs.read"));
         assert!(disabled.tool_policy.allows_tool("enable.mcp.mcp:docs.read"));
+        source.replace(mcp_catalog(Some(
+            CapabilityAvailabilityStatus::AuthorizationScopeUnavailable {
+                definition_digest: "definition-digest".to_string(),
+                operation_id: "read".to_string(),
+            },
+        )));
+        let scope_unavailable = build_model_tools(&store, &capability_bindings, true, capabilities)
+            .await
+            .expect("scope-unavailable tools");
+        assert!(scope_unavailable.unavailable_rows.iter().any(|row| {
+            row.contains("status=authorization_scope_unavailable")
+                && row.contains("definition_digest=definition-digest")
+                && row.contains("operation_id=read")
+        }));
     }
 }
 

@@ -88,15 +88,29 @@ impl AdapterCatalogCompiler {
                 )?;
                 match descriptor.status {
                     crate::AdapterConnectionStatus::Active => {
-                        if !authentication.active
-                            || !operation
-                                .authorization
-                                .is_satisfied_by(authentication.granted_scopes)
-                        {
+                        if !authentication.active {
                             if enabled {
                                 notices.push(CapabilityAvailabilityNotice {
                                     capability: Some(canonical_name),
                                     status: CapabilityAvailabilityStatus::AuthenticationRequired,
+                                });
+                            }
+                            continue;
+                        }
+                        if !operation
+                            .authorization
+                            .is_satisfied_by(authentication.granted_scopes)
+                        {
+                            if enabled {
+                                notices.push(CapabilityAvailabilityNotice {
+                                    capability: Some(canonical_name),
+                                    status:
+                                        CapabilityAvailabilityStatus::AuthorizationScopeUnavailable {
+                                            definition_digest: definition
+                                                .semantic_digest
+                                                .to_string(),
+                                            operation_id: operation.operation_id.clone(),
+                                        },
                                 });
                             }
                             continue;

@@ -189,12 +189,10 @@ where
         .iter()
         .cloned()
         .collect::<std::collections::BTreeSet<_>>();
-    let scope_change_is_valid = if is_refresh {
-        granted.is_subset(&requested)
-    } else {
-        requested.is_subset(&granted)
-    };
-    if granted_scopes.windows(2).any(|pair| pair[0] == pair[1]) || !scope_change_is_valid {
+    // The authorization server owns the reported grant. Operations check that grant before use.
+    if granted_scopes.windows(2).any(|pair| pair[0] == pair[1])
+        || is_refresh && !granted.is_subset(&requested)
+    {
         return Err(AdapterOAuthTokenError::InvalidResponse);
     }
     let expires_at_epoch_seconds = response
@@ -493,7 +491,7 @@ mod tests {
             Err(AdapterHttpError::InvalidResponse)
         );
         for response in [
-            r#"{"access_token":"access","token_type":"Bearer","scope":"read unknown"}"#,
+            r#"{"access_token":"access","token_type":"Bearer","scope":"read read"}"#,
             r#"{"access_token":"access","token_type":"Bearer","expires_in":0,"scope":"read write"}"#,
             r#"{"access_token":"access","token_type":"MAC","scope":"read write"}"#,
         ] {
@@ -511,7 +509,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn accepts_and_preserves_combined_scope_grants() {
+    async fn authorization_code_preserves_provider_reported_scopes() {
         let client = RecordingOAuthClient::new(
             r#"{"access_token":"access","token_type":"Bearer","scope":"calendar read write"}"#,
         );
@@ -523,6 +521,17 @@ mod tests {
         .expect("combined grant");
 
         assert_eq!(token.granted_scopes, ["calendar", "read", "write"]);
+
+        let client = RecordingOAuthClient::new(
+            r#"{"access_token":"access","token_type":"Bearer","scope":"read"}"#,
+        );
+        let token = exchange_with_client(
+            token_request(Oauth2ClientAuthentication::ClientSecretPost),
+            &client,
+        )
+        .await
+        .expect("partial grant");
+        assert_eq!(token.granted_scopes, ["read"]);
     }
 
     #[tokio::test]
