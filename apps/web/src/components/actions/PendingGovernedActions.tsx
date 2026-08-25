@@ -270,6 +270,7 @@ export function PendingHumanInterventionsResult({
         interventions={presentedInterventions}
         placement={placement}
         onResolved={() => void reload().catch(() => undefined)}
+        onRetry={reload}
         onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
         initialAnimation={false}
       />
@@ -357,6 +358,7 @@ export function HumanInterventionList({
   interventions,
   placement = "chat",
   onResolved,
+  onRetry,
   onDismissAdapterSetup,
   animateItems = true,
   initialAnimation = true
@@ -364,6 +366,7 @@ export function HumanInterventionList({
   interventions: PendingHumanIntervention[];
   placement?: HumanInterventionPlacement;
   onResolved?: () => void;
+  onRetry: () => Promise<unknown>;
   onDismissAdapterSetup?: (semanticDigest: string) => void;
   animateItems?: boolean;
   initialAnimation?: boolean;
@@ -389,21 +392,9 @@ export function HumanInterventionList({
               errorScope={`intervention.${key}`}
               resetKey={intervention}
               fallback={({ retry }) => (
-                <InterventionCardShell
-                  copy={(
-                    <span role="alert">
-                      This request could not display. Other requests remain available.
-                    </span>
-                  )}
-                  actions={(
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      label="Retry request"
-                      onClick={retry}
-                    />
-                  )}
+                <InterventionRenderFallback
+                  retry={retry}
+                  onRetry={onRetry}
                 />
               )}
             >
@@ -422,6 +413,43 @@ export function HumanInterventionList({
         })}
       </AnimatePresence>
     </VStack>
+  );
+}
+
+function InterventionRenderFallback({
+  retry,
+  onRetry
+}: {
+  retry: () => void;
+  onRetry: () => Promise<unknown>;
+}) {
+  const [refreshFailed, setRefreshFailed] = React.useState(false);
+  const refresh = async () => {
+    setRefreshFailed(false);
+    try {
+      await onRetry();
+      retry();
+    } catch {
+      setRefreshFailed(true);
+    }
+  };
+  return (
+    <Banner
+      status="error"
+      title="Request unavailable"
+      description={refreshFailed
+        ? "Noema could not refresh this request. Try again."
+        : "Refresh to load the current request options."}
+      endContent={(
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          label="Refresh request"
+          clickAction={refresh}
+        />
+      )}
+    />
   );
 }
 

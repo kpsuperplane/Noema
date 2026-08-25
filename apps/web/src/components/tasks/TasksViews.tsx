@@ -74,6 +74,7 @@ export function TasksList({
                   <AttentionGroup
                     interventions={visibleInterventions}
                     onResolved={() => void rootResult.refetch()}
+                    onRetry={() => rootResult.refetch()}
                     selectedTaskId={selectedTaskId}
                   />
                 </HumanInterventionMotionItem>
@@ -126,10 +127,12 @@ export function TasksList({
 function AttentionGroup({
   interventions,
   onResolved,
+  onRetry,
   selectedTaskId
 }: {
   interventions: HumanInterventions;
   onResolved: () => void;
+  onRetry: () => Promise<unknown>;
   selectedTaskId?: string;
 }) {
   const attachedInterventions: AttachedIntervention[] = [];
@@ -160,6 +163,7 @@ function AttentionGroup({
                     <AttachedTaskIntervention
                       intervention={intervention}
                       onResolved={onResolved}
+                      onRetry={onRetry}
                       showAction={task.taskId !== selectedTaskId}
                       task={task}
                     />
@@ -177,6 +181,7 @@ function AttentionGroup({
               placement="queue"
               interventions={otherInterventions}
               onResolved={onResolved}
+              onRetry={onRetry}
               initialAnimation={false}
             />
           </HumanInterventionMotionItem>
@@ -208,11 +213,13 @@ function interventionTaskId(intervention: HumanInterventions[number]) {
 function AttachedTaskIntervention({
   intervention,
   onResolved,
+  onRetry,
   showAction,
   task
 }: {
   intervention: HumanInterventions[number];
   onResolved: () => void;
+  onRetry: () => Promise<unknown>;
   showAction: boolean;
   task: AttachedTask;
 }) {
@@ -229,6 +236,7 @@ function AttachedTaskIntervention({
               placement="task"
               interventions={[intervention]}
               onResolved={onResolved}
+              onRetry={onRetry}
               animateItems={false}
               initialAnimation={false}
             />
