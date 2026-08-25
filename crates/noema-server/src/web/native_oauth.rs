@@ -636,18 +636,25 @@ async fn refresh(state: &WebState, parameters: HashMap<String, String>) -> Respo
     let Some(raw_refresh) = parameters.get("refresh_token").cloned() else {
         return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
     };
+    let refresh_request_id = match parameters.get("refresh_request_id") {
+        Some(value) if valid_refresh_request_id(value) => Some(value.as_str()),
+        Some(_) => return oauth_error(StatusCode::BAD_REQUEST, "invalid_request"),
+        None => None,
+    };
     let refresh_hash = sha256(&raw_refresh);
     let issued_at = now();
     let cached = state
         .native_oauth_retries
-        .load(refresh_hash, issued_at)
+        .load(refresh_hash, refresh_request_id, issued_at)
         .ok()
         .flatten();
     let lookup = state
         .store
         .native_oauth_refresh_grant(
             refresh_hash,
-            cached.as_ref().map(NativeOAuthRetryResponse::proof),
+            cached
+                .as_ref()
+                .map(|response| response.proof(refresh_request_id.is_some())),
             issued_at,
         )
         .await;
@@ -702,10 +709,11 @@ async fn refresh(state: &WebState, parameters: HashMap<String, String>) -> Respo
             issued_at,
             access_token: tokens.access.clone(),
             refresh_token: tokens.refresh.clone(),
+            retain_until: refresh_request_id.map(|_| stored.absolute_expires_at),
         };
         if state
             .native_oauth_retries
-            .save(refresh_hash, retry_response, issued_at)
+            .save(refresh_hash, refresh_request_id, retry_response, issued_at)
             .is_err()
         {
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -745,6 +753,8 @@ struct NativeOAuthRetryResponse {
     issued_at: i64,
     access_token: String,
     refresh_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    retain_until: Option<i64>,
 }
 
 impl NativeOAuthRetryStore {
@@ -758,32 +768,35 @@ impl NativeOAuthRetryStore {
     fn load(
         &self,
         refresh_hash: [u8; 32],
+        refresh_request_id: Option<&str>,
         now: i64,
     ) -> Result<Option<NativeOAuthRetryResponse>, ()> {
         let _guard = self.lock.lock().map_err(|_| ())?;
         let entries = self.read_entries()?;
         Ok(entries
-            .get(&hex_hash(refresh_hash))
-            .filter(|entry| {
-                now >= entry.issued_at
-                    && now - entry.issued_at <= noema_store::NATIVE_OAUTH_RETRY_SECONDS
-            })
+            .get(&retry_key(refresh_hash, refresh_request_id))
+            .filter(|entry| entry.is_available(now))
             .cloned())
     }
 
     fn save(
         &self,
         refresh_hash: [u8; 32],
+        refresh_request_id: Option<&str>,
         response: NativeOAuthRetryResponse,
         now: i64,
     ) -> Result<(), ()> {
         let _guard = self.lock.lock().map_err(|_| ())?;
         let mut entries = self.read_entries()?;
-        entries.retain(|_, entry| {
-            now >= entry.issued_at
-                && now - entry.issued_at <= noema_store::NATIVE_OAUTH_RETRY_SECONDS
+        let predecessor = hex_hash(refresh_hash);
+        let predecessor_prefix = format!("{predecessor}:");
+        entries.retain(|key, entry| {
+            entry.is_available(now)
+                && key != &predecessor
+                && !key.starts_with(&predecessor_prefix)
+                && sha256(&entry.refresh_token) != refresh_hash
         });
-        entries.insert(hex_hash(refresh_hash), response);
+        entries.insert(retry_key(refresh_hash, refresh_request_id), response);
         let bytes = serde_json::to_vec(&entries).map_err(|_| ())?;
         noema_home::atomic_write_private(&self.path, &bytes).map_err(|_| ())
     }
@@ -800,12 +813,21 @@ impl NativeOAuthRetryStore {
 }
 
 impl NativeOAuthRetryResponse {
-    fn proof(&self) -> noema_store::NativeOAuthRetryProof {
+    fn proof(&self, request_bound: bool) -> noema_store::NativeOAuthRetryProof {
         noema_store::NativeOAuthRetryProof {
             access_hash: sha256(&self.access_token),
             refresh_hash: sha256(&self.refresh_token),
             issued_at: self.issued_at,
+            request_bound,
         }
+    }
+
+    fn is_available(&self, now: i64) -> bool {
+        let retain_until = self.retain_until.unwrap_or_else(|| {
+            self.issued_at
+                .saturating_add(noema_store::NATIVE_OAUTH_RETRY_SECONDS)
+        });
+        now >= self.issued_at && now <= retain_until
     }
 
     fn into_response(self, access_expires_at: i64, now: i64) -> Response {
@@ -828,6 +850,21 @@ impl NativeOAuthRetryResponse {
 
 fn hex_hash(hash: [u8; 32]) -> String {
     hash.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn retry_key(refresh_hash: [u8; 32], refresh_request_id: Option<&str>) -> String {
+    let refresh_hash = hex_hash(refresh_hash);
+    match refresh_request_id {
+        Some(request_id) => format!("{refresh_hash}:{}", hex_hash(sha256(request_id))),
+        None => refresh_hash,
+    }
+}
+
+fn valid_refresh_request_id(value: &str) -> bool {
+    (32..=128).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
 #[derive(Clone, Copy)]
@@ -1314,6 +1351,61 @@ mod tests {
         );
     }
 
+    #[test]
+    fn request_bound_retry_survives_delay_and_is_consumed_by_its_successor() {
+        let home = tempfile::tempdir().expect("retry root");
+        let path = home.path().join("native-oauth-retries.json");
+        let store = NativeOAuthRetryStore::new(path.clone());
+        let old_refresh = sha256("old-refresh");
+        let successor = "successor-refresh";
+        store
+            .save(
+                old_refresh,
+                Some(&"a".repeat(32)),
+                NativeOAuthRetryResponse {
+                    issued_at: 100,
+                    access_token: "access".to_string(),
+                    refresh_token: successor.to_string(),
+                    retain_until: Some(10_000),
+                },
+                100,
+            )
+            .expect("save retry");
+
+        let reopened = NativeOAuthRetryStore::new(path);
+        assert!(
+            reopened
+                .load(old_refresh, Some(&"a".repeat(32)), 9_000)
+                .expect("load retry")
+                .is_some()
+        );
+        assert!(
+            reopened
+                .load(old_refresh, Some(&"b".repeat(32)), 9_000)
+                .expect("load other request")
+                .is_none()
+        );
+        reopened
+            .save(
+                sha256(successor),
+                Some(&"c".repeat(32)),
+                NativeOAuthRetryResponse {
+                    issued_at: 9_000,
+                    access_token: "next-access".to_string(),
+                    refresh_token: "next-refresh".to_string(),
+                    retain_until: Some(10_000),
+                },
+                9_000,
+            )
+            .expect("consume retry");
+        assert!(
+            reopened
+                .load(old_refresh, Some(&"a".repeat(32)), 9_000)
+                .expect("load consumed retry")
+                .is_none()
+        );
+    }
+
     #[tokio::test]
     async fn code_exchange_refresh_rotation_and_replay_are_end_to_end() {
         let home = tempfile::tempdir().expect("store root");
@@ -1385,6 +1477,7 @@ mod tests {
             HashMap::from([
                 ("grant_type".to_string(), "refresh_token".to_string()),
                 ("refresh_token".to_string(), old_refresh.to_string()),
+                ("refresh_request_id".to_string(), "a".repeat(32)),
             ]),
         )
         .await;
@@ -1407,6 +1500,7 @@ mod tests {
             HashMap::from([
                 ("grant_type".to_string(), "refresh_token".to_string()),
                 ("refresh_token".to_string(), old_refresh.to_string()),
+                ("refresh_request_id".to_string(), "a".repeat(32)),
             ]),
         )
         .await;
@@ -1422,6 +1516,7 @@ mod tests {
             HashMap::from([
                 ("grant_type".to_string(), "refresh_token".to_string()),
                 ("refresh_token".to_string(), rotated_refresh),
+                ("refresh_request_id".to_string(), "b".repeat(32)),
             ]),
         )
         .await;
@@ -1431,6 +1526,7 @@ mod tests {
             HashMap::from([
                 ("grant_type".to_string(), "refresh_token".to_string()),
                 ("refresh_token".to_string(), old_refresh.to_string()),
+                ("refresh_request_id".to_string(), "a".repeat(32)),
             ]),
         )
         .await;

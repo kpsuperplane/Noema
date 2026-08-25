@@ -63,6 +63,7 @@ pub struct NativeOAuthRetryProof {
     pub access_hash: [u8; 32],
     pub refresh_hash: [u8; 32],
     pub issued_at: i64,
+    pub request_bound: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -483,23 +484,24 @@ fn retryable_access_expiry(
     let Some(used_at) = used.used_at else {
         return Ok(None);
     };
-    if now < used_at || now - used_at > NATIVE_OAUTH_RETRY_SECONDS {
+    if now < used_at || (!proof.request_bound && now - used_at > NATIVE_OAUTH_RETRY_SECONDS) {
         return Ok(None);
     }
-    tx.query_row(
-        "SELECT access.expires_at FROM native_oauth_refresh_tokens AS active JOIN native_oauth_access_tokens AS access ON access.family_id = active.family_id AND access.issued_at = active.issued_at WHERE active.family_id = ?1 AND active.sequence = ?2 AND active.status = 'active' AND active.token_hash = ?3 AND active.issued_at = ?4 AND access.token_hash = ?5 AND access.revoked_at IS NULL AND access.expires_at > ?6",
+    let access_expires_at = tx
+        .query_row(
+        "SELECT access.expires_at FROM native_oauth_refresh_tokens AS active JOIN native_oauth_access_tokens AS access ON access.family_id = active.family_id AND access.issued_at = active.issued_at WHERE active.family_id = ?1 AND active.sequence = ?2 AND active.status = 'active' AND active.token_hash = ?3 AND active.issued_at = ?4 AND access.token_hash = ?5 AND access.revoked_at IS NULL",
         params![
             used.family_id,
             used.sequence + 1,
             proof.refresh_hash.as_slice(),
             proof.issued_at,
             proof.access_hash.as_slice(),
-            now,
         ],
         |row| row.get(0),
     )
     .optional()
-    .map_err(StoreError::Sqlite)
+    .map_err(StoreError::Sqlite)?;
+    Ok(access_expires_at.filter(|expires_at| proof.request_bound || *expires_at > now))
 }
 
 fn revoke_family(
@@ -681,25 +683,26 @@ mod tests {
                         access_hash: [4_u8; 32],
                         refresh_hash: [5_u8; 32],
                         issued_at: now + 1,
+                        request_bound: true,
                     }),
-                    now + 2,
+                    now + 3_601,
                 )
                 .await
-                .expect("retry"),
+                .expect("delayed retry"),
             NativeOAuthRefreshLookup::Retryable {
                 access_expires_at: now + 901
             }
         );
         assert!(
             store
-                .active_native_oauth_client([4_u8; 32], now + 2)
+                .active_native_oauth_client([4_u8; 32], now + 3_601)
                 .await
                 .expect("access lookup")
-                .is_some()
+                .is_none()
         );
         assert!(matches!(
             store
-                .native_oauth_refresh_grant([5_u8; 32], None, now + 2)
+                .native_oauth_refresh_grant([5_u8; 32], None, now + 3_602)
                 .await
                 .expect("successor grant"),
             NativeOAuthRefreshLookup::Active(_)
@@ -711,11 +714,11 @@ mod tests {
                     NativeOAuthRotation {
                         access_hash: [6_u8; 32],
                         refresh_hash: [7_u8; 32],
-                        issued_at: now + 2,
-                        access_expires_at: now + 902,
-                        idle_expires_at: now + 2_592_002,
+                        issued_at: now + 3_602,
+                        access_expires_at: now + 4_502,
+                        idle_expires_at: now + 2_595_602,
                     },
-                    now + 2,
+                    now + 3_602,
                 )
                 .await
                 .expect("rotate successor"),
@@ -729,8 +732,9 @@ mod tests {
                         access_hash: [4_u8; 32],
                         refresh_hash: [5_u8; 32],
                         issued_at: now + 1,
+                        request_bound: true,
                     }),
-                    now + 3,
+                    now + 3_603,
                 )
                 .await
                 .expect("late replay"),
@@ -738,7 +742,7 @@ mod tests {
         );
         assert!(
             store
-                .active_native_oauth_client([6_u8; 32], now + 3)
+                .active_native_oauth_client([6_u8; 32], now + 3_603)
                 .await
                 .expect("revoked access lookup")
                 .is_none()
