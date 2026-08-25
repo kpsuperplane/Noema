@@ -1,5 +1,7 @@
 import * as React from "react";
+import type { OperationVariables } from "@apollo/client";
 import { useLazyQuery, useMutation, useQuery, useSubscription } from "@apollo/client/react";
+import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
@@ -9,6 +11,7 @@ import * as stylex from "@stylexjs/stylex";
 import { ChevronLeft, ChevronRight, Code2 } from "lucide-react";
 import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
+import { getOperationAST, print, type DocumentNode } from "graphql";
 import {
   PendingHumanInterventionsDocument,
   ApproveAdapterDefinitionDocument,
@@ -38,6 +41,7 @@ import { McpChatSetupCard } from "@/components/mcp/McpChatSetupCard";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { RollingSwap } from "@/components/RollingText";
 import { springs } from "@/motion/springs";
+import { pwaRuntime } from "@/pwa/runtime";
 import { HumanInterventionCard } from "./HumanInterventionCard";
 import { RenderErrorBoundary } from "@/components/errors/RenderErrorBoundary";
 import {
@@ -60,10 +64,12 @@ type Scope = {
 
 export type HumanInterventionPlacement = "chat" | "dock" | "queue" | "task";
 type PendingHumanInterventionsResultLike = {
-  data?: { pendingHumanInterventions: PendingHumanIntervention[] } | null;
+  data?: PendingHumanInterventionsQuery | null;
   error?: unknown;
   loading: boolean;
+  observable?: { options: { query: DocumentNode } };
   refetch: () => Promise<unknown>;
+  variables?: OperationVariables;
 };
 
 const dismissedAdapterSetupsKey = "noema.dismissed-adapter-setups";
@@ -120,13 +126,30 @@ export function PendingHumanInterventionsResult({
   emptyContent?: React.ReactNode;
   result: PendingHumanInterventionsResultLike;
 }) {
-  const interventions = result.data?.pendingHumanInterventions ?? [];
-  const stale = Boolean(result.error);
+  const query = result.observable?.options.query;
+  const querySource = React.useMemo(() => query ? print(query) : "", [query]);
+  const recoveryKey = `${querySource}:${JSON.stringify(result.variables ?? {})}`;
+  const reloadGeneration = React.useRef(0);
+  const [recoveredData, setRecoveredData] = React.useState<{
+    key: string;
+    data: PendingHumanInterventionsQuery;
+    generation: number;
+    apolloData: PendingHumanInterventionsQuery | null | undefined;
+    apolloError: unknown;
+  } | null>(null);
+  const currentRecoveredData = recoveredData?.key === recoveryKey
+    && recoveredData.apolloData === result.data
+    && recoveredData.apolloError === result.error
+    ? recoveredData.data
+    : null;
+  const effectiveData = currentRecoveredData ?? result.data;
+  const interventions = effectiveData?.pendingHumanInterventions ?? [];
   const invalidAdapterAuthentication = interventions.some((intervention) => (
     intervention.__typename === "AdapterAuthenticationIntervention"
       && (typeof intervention.serviceDisplayName !== "string"
         || !intervention.serviceDisplayName.trim())
   ));
+  const stale = Boolean(result.error) && !currentRecoveredData;
   const [dismissedAdapterSetups, setDismissedAdapterSetups] = React.useState(readDismissedAdapterSetups);
   const [selectedChatInterventionKey, setSelectedChatInterventionKey] = React.useState<string | null>(null);
   const allowAdapterSetupDismissal = Boolean(conversationId) && placement === "chat";
@@ -158,6 +181,52 @@ export function PendingHumanInterventionsResult({
       return next;
     });
   }, []);
+  const reload = React.useCallback(async () => {
+    const generation = ++reloadGeneration.current;
+    setRecoveredData(null);
+    if (!query) {
+      await result.refetch();
+      return;
+    }
+    const response = await fetch("/graphql", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        operationName: getOperationAST(query)?.name?.value,
+        query: querySource,
+        variables: result.variables
+      })
+    });
+    if (response.status === 401) {
+      pwaRuntime.requireAuthentication();
+    }
+    if (!response.ok) throw new Error("Noema could not load response options.");
+    const payload = await response.json() as {
+      data?: PendingHumanInterventionsQuery;
+      errors?: unknown[];
+    };
+    const data = payload.data;
+    if (payload.errors?.length || !data || !Array.isArray(data.pendingHumanInterventions)) {
+      throw new Error("Noema did not return response options.");
+    }
+    setRecoveredData((current) => current && current.generation > generation
+      ? current
+      : {
+          key: recoveryKey,
+          data,
+          generation,
+          apolloData: result.data,
+          apolloError: result.error
+        });
+  }, [query, querySource, recoveryKey, result]);
+  const retry = React.useCallback(async () => {
+    try {
+      await reload();
+    } catch {
+      // Keep the recovery surface available for another attempt.
+    }
+  }, [reload]);
   const listContent = visibleInterventions.length ? (
     <VStack gap={0}>
       {placement === "chat" && visibleInterventions.length > 1 ? (
@@ -200,7 +269,7 @@ export function PendingHumanInterventionsResult({
       <HumanInterventionList
         interventions={presentedInterventions}
         placement={placement}
-        onResolved={() => void result.refetch().catch(() => undefined)}
+        onResolved={() => void reload().catch(() => undefined)}
         onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
         initialAnimation={false}
       />
@@ -212,19 +281,23 @@ export function PendingHumanInterventionsResult({
     </HumanInterventionMotionItem>
   ) : null;
   const queryError = stale || invalidAdapterAuthentication ? (
-    <HStack as="div" role="alert" gap={2} align="center" justify="between" wrap="wrap" {...stylex.props(styles.queryError)}>
-      <span>Response options could not load. Try again.</span>
-      <Button
-        type="button"
-        size="sm"
-        variant="secondary"
-        label="Retry"
-        isLoading={result.loading}
-        onClick={() => void result.refetch().catch(() => undefined)}
-      />
-    </HStack>
+    <Banner
+      status="error"
+      title="Response options unavailable"
+      description="Try again to load the current options."
+      endContent={(
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          label="Retry"
+          clickAction={retry}
+        />
+      )}
+      xstyle={styles.queryError}
+    />
   ) : null;
-  const empty = result.data
+  const empty = effectiveData
     && !stale
     && !invalidAdapterAuthentication
     && visibleInterventions.length === 0
@@ -1102,9 +1175,7 @@ const styles = stylex.create({
   },
   queryError: {
     marginBlockStart: "var(--spacing-2)",
-    color: "var(--destructive)",
-    fontSize: 12,
-    lineHeight: 1.45
+    marginInline: "var(--spacing-2)"
   },
   motionItem: {
     minWidth: 0,

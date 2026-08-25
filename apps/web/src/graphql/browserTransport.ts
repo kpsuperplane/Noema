@@ -1,8 +1,11 @@
 import { ApolloLink, HttpLink } from "@apollo/client";
+import { ServerError } from "@apollo/client/errors";
+import { ErrorLink } from "@apollo/client/link/error";
 import { GraphQLWsLink } from "@apollo/client/link/subscriptions";
 import { RetryLink } from "@apollo/client/link/retry";
 import { OperationTypeNode } from "graphql";
 import { createClient, type ClientOptions } from "graphql-ws";
+import { pwaRuntime } from "@/pwa/runtime";
 
 const GRAPHQL_WS_INITIAL_RETRY_DELAY_MS = 500;
 const GRAPHQL_WS_MAX_RETRY_DELAY_MS = 5_000;
@@ -125,9 +128,18 @@ export function createBrowserGraphqlLink() {
     }
   }).concat(wsLink);
 
-  return ApolloLink.split(
+  const authenticationLink = new ErrorLink(({ error }) => {
+    if (
+      ServerError.is(error)
+      && error.statusCode === 401
+    ) {
+      pwaRuntime.requireAuthentication();
+    }
+  });
+
+  return authenticationLink.concat(ApolloLink.split(
     ({ operationType }) => operationType === OperationTypeNode.SUBSCRIPTION,
     retryingWsLink,
     httpLink
-  );
+  ));
 }
