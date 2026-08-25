@@ -310,6 +310,44 @@ async fn active_grant_scope_gap_identifies_the_exact_definition_operation() {
     }));
 }
 
+#[test]
+fn scope_revision_defers_reauthorization_to_current_post_review_status() {
+    let fixture = grant_fixture_with_scopes(
+        Err(AdapterOAuthTokenError::Unavailable),
+        vec!["scope.extra".to_string()],
+    );
+    let mut manifest = AdapterDefinitionStore::new(fixture.paths.clone())
+        .load(&fixture.semantic_digest)
+        .expect("definition")
+        .manifest;
+    manifest.reviewed = false;
+    manifest.definition_revision = "v2".to_string();
+    manifest.operations[0].authorization = crate::OperationAuthorization::OauthScopes {
+        accepted_scope_sets: vec![
+            vec!["scope.read".to_string()],
+            vec!["scope.extra".to_string()],
+        ],
+    };
+    let operations =
+        crate::proposal_input::operation_proposals(&manifest, &["get_item".to_string()])
+            .expect("operation proposal");
+    let output = fixture
+        .service
+        .propose_definition(json!({
+            "source_reference": "https://developers.example.test/api/scopes",
+            "base_semantic_digest": fixture.semantic_digest,
+            "revision": {"definition_revision": "v2"},
+            "upsert_operations": operations
+        }))
+        .expect("scope revision");
+
+    assert!(
+        output.payload["next_step"]
+            .as_str()
+            .is_some_and(|step| { step.contains("Do not infer reauthorization") })
+    );
+}
+
 fn install_oauth_definition(
     paths: &NoemaPaths,
     base_digest: &str,

@@ -588,6 +588,13 @@ impl AdapterCapabilityService {
         let transition = self
             .plan_definition_transition(&proposed, &replaces)
             .map_err(|_| CapabilityError::Unavailable)?;
+        let next_step = if base_semantic_digest.is_none() {
+            "Tell the human that the discovered definition is waiting for review above the chat composer, then continue setup through that chat intervention."
+        } else if transition.authentication_changed {
+            "Tell the human that the definition is waiting for review above the chat composer. After approval, continue authentication through Settings."
+        } else {
+            "Tell the human that the definition is waiting for review above the chat composer. Do not infer reauthorization from this proposal. After approval, continue from the current connection status."
+        };
         let installed = match self.inner.definitions.install_with_provenance(
             &manifest,
             DefinitionProvenance {
@@ -621,7 +628,7 @@ impl AdapterCapabilityService {
             "source_reference": source_reference,
             "operation_ids": operation_ids,
             "base_semantic_digest": base_semantic_digest,
-            "next_step": "Tell the human that the discovered definition is waiting for review directly above the chat composer, then continue setup through that chat intervention."
+            "next_step": next_step
         })))
     }
 
