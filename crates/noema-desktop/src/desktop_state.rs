@@ -11,7 +11,7 @@ use tauri::async_runtime::JoinHandle;
 use tokio::sync::{Mutex, watch};
 
 use crate::{
-    desktop_profile::{DesktopProfileStore, DesktopSelection, RemoteMetadata},
+    desktop_profile::{DesktopProfileStore, DesktopSelection},
     remote_graphql::{RemoteError, RemoteGraphql},
     remote_oauth::{ConnectionStage, PendingConnection},
 };
@@ -59,15 +59,10 @@ impl DesktopState {
             DesktopSelection::Remote(profile) => {
                 match RemoteGraphql::new(profile, self.profiles.clone()) {
                     Ok(remote) => DesktopBackend::Remote(remote),
-                    Err(message) => DesktopBackend::Recovery {
-                        metadata: None,
-                        message,
-                    },
+                    Err(message) => DesktopBackend::Recovery { message },
                 }
             }
-            DesktopSelection::Recovery { metadata, message } => {
-                DesktopBackend::Recovery { metadata, message }
-            }
+            DesktopSelection::Recovery { message } => DesktopBackend::Recovery { message },
         };
         let runtime = DesktopRuntime {
             backend,
@@ -149,10 +144,10 @@ impl DesktopState {
                     pending_connection_origin,
                 }
             }
-            StatusTarget::Recovery { metadata, message } => DesktopConnectionStatus {
+            StatusTarget::Recovery { message } => DesktopConnectionStatus {
                 mode: "remote",
                 state: "credential_unavailable",
-                origin: metadata.map(|metadata| metadata.origin),
+                origin: None,
                 message: Some(message),
                 pending_connection_origin,
             },
@@ -333,10 +328,7 @@ impl DesktopRuntime {
 enum DesktopBackend {
     Local(Box<LocalRuntime>),
     Remote(RemoteGraphql),
-    Recovery {
-        metadata: Option<RemoteMetadata>,
-        message: String,
-    },
+    Recovery { message: String },
 }
 
 impl DesktopBackend {
@@ -344,8 +336,7 @@ impl DesktopBackend {
         match self {
             Self::Local(_) => StatusTarget::Local,
             Self::Remote(remote) => StatusTarget::Remote(remote.clone()),
-            Self::Recovery { metadata, message } => StatusTarget::Recovery {
-                metadata: metadata.clone(),
+            Self::Recovery { message } => StatusTarget::Recovery {
                 message: message.clone(),
             },
         }
@@ -355,10 +346,7 @@ impl DesktopBackend {
 enum StatusTarget {
     Local,
     Remote(RemoteGraphql),
-    Recovery {
-        metadata: Option<RemoteMetadata>,
-        message: String,
-    },
+    Recovery { message: String },
 }
 
 struct LocalRuntime {

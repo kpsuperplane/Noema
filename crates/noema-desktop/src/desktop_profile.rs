@@ -16,10 +16,7 @@ pub(crate) struct DesktopProfileStore {
 pub(crate) enum DesktopSelection {
     Local,
     Remote(RemoteProfile),
-    Recovery {
-        metadata: Option<RemoteMetadata>,
-        message: String,
-    },
+    Recovery { message: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -66,7 +63,6 @@ impl DesktopProfileStore {
                 Ok(selection) => selection,
                 Err(_) => {
                     return DesktopSelection::Recovery {
-                        metadata: None,
                         message: "Noema could not read its desktop connection settings."
                             .to_string(),
                     };
@@ -75,7 +71,6 @@ impl DesktopProfileStore {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => StoredSelection::Local,
             Err(_) => {
                 return DesktopSelection::Recovery {
-                    metadata: None,
                     message: "Noema could not read its desktop connection settings.".to_string(),
                 };
             }
@@ -108,10 +103,7 @@ impl DesktopProfileStore {
                     });
                 match profile {
                     Ok(profile) => DesktopSelection::Remote(profile),
-                    Err(message) => DesktopSelection::Recovery {
-                        metadata: None,
-                        message,
-                    },
+                    Err(message) => DesktopSelection::Recovery { message },
                 }
             }
         }
