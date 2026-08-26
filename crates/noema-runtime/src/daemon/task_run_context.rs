@@ -28,6 +28,46 @@ pub(crate) struct TaskRolePrompt {
     pub(crate) instructions: &'static str,
 }
 
+pub(crate) struct TaskRoleFile {
+    pub(crate) path: &'static str,
+    pub(crate) tag: &'static str,
+    pub(crate) content: String,
+}
+
+const PLANNER_FILES: &[(&str, &str, bool)] = &[(noema_store::TASK_DOCUMENT, "TASK_DOCUMENT", true)];
+const EXECUTOR_FILES: &[(&str, &str, bool)] = &[
+    (noema_store::TASK_DOCUMENT, "TASK_DOCUMENT", true),
+    (noema_store::TASK_RESULT, "RESULT_DOCUMENT", false),
+    (noema_store::TASK_REVIEW, "REVIEW_DOCUMENT", false),
+];
+const REVIEWER_FILES: &[(&str, &str, bool)] = &[
+    (noema_store::TASK_DOCUMENT, "TASK_DOCUMENT", true),
+    (noema_store::TASK_RESULT, "RESULT_DOCUMENT", true),
+    (noema_store::TASK_REVIEW, "REVIEW_DOCUMENT", false),
+];
+
+pub(crate) async fn load_task_role_files(
+    store: &noema_store::NoemaStore,
+    task_id: &noema_tasks::TaskId,
+    run_kind: RunKind,
+) -> Result<Vec<TaskRoleFile>, noema_store::TaskFileError> {
+    let specs = match run_kind {
+        RunKind::Planner => PLANNER_FILES,
+        RunKind::Executor => EXECUTOR_FILES,
+        RunKind::Reviewer => REVIEWER_FILES,
+    };
+    let mut files = Vec::with_capacity(specs.len());
+    for &(path, tag, required) in specs {
+        match store.read_task_file(task_id, path).await {
+            Ok(content) => files.push(TaskRoleFile { path, tag, content }),
+            Err(noema_store::TaskFileError::Io(error))
+                if error.kind() == std::io::ErrorKind::NotFound && !required => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(files)
+}
+
 /// Render the executor prompt for the current Task files.
 pub(crate) fn format_executor_prompt(context: &WorkRunExecutionContext) -> String {
     format!(
