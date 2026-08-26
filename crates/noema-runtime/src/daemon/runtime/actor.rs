@@ -64,42 +64,36 @@ pub(super) struct BrowserSessionState {
 }
 
 #[derive(Default)]
+struct BrowserOwnerState {
+    gate: Arc<tokio::sync::Mutex<()>>,
+    session: Option<BrowserSessionState>,
+    revision: u64,
+}
+
+#[derive(Default)]
 pub(super) struct BrowserSessionCoordinator {
-    gates: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-    sessions: Mutex<HashMap<String, BrowserSessionState>>,
-    revisions: Mutex<HashMap<String, u64>>,
+    owners: Mutex<HashMap<String, BrowserOwnerState>>,
 }
 
 impl BrowserSessionCoordinator {
     pub(super) fn gate(&self, owner: &str) -> Arc<tokio::sync::Mutex<()>> {
-        self.gates
-            .lock()
-            .expect("browser session gate lock")
-            .entry(owner.to_string())
-            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-            .clone()
+        let mut owners = self.owners.lock().expect("browser owner state lock");
+        Arc::clone(&owners.entry(owner.to_string()).or_default().gate)
     }
 
     pub(super) fn session(&self, owner: &str) -> Option<BrowserSessionState> {
-        self.sessions
-            .lock()
-            .expect("browser session state lock")
-            .get(owner)
-            .cloned()
+        let owners = self.owners.lock().expect("browser owner state lock");
+        owners.get(owner)?.session.clone()
     }
 
     pub(super) fn set_session(&self, owner: String, state: BrowserSessionState) {
-        self.sessions
-            .lock()
-            .expect("browser session state lock")
-            .insert(owner, state);
+        let mut owners = self.owners.lock().expect("browser owner state lock");
+        owners.entry(owner).or_default().session = Some(state);
     }
 
     pub(super) fn remove(&self, owner: &str) -> Option<BrowserSessionState> {
-        self.sessions
-            .lock()
-            .expect("browser session state lock")
-            .remove(owner)
+        let mut owners = self.owners.lock().expect("browser owner state lock");
+        owners.get_mut(owner)?.session.take()
     }
 
     pub(super) fn snapshot(&self, owner: &str) -> Option<BrowserSnapshotContext> {
@@ -107,10 +101,10 @@ impl BrowserSessionCoordinator {
     }
 
     pub(super) fn next_revision(&self, owner: &str) -> u64 {
-        let mut revisions = self.revisions.lock().expect("browser revision lock");
-        let revision = revisions.entry(owner.to_string()).or_default();
-        *revision = revision.saturating_add(1);
-        *revision
+        let mut owners = self.owners.lock().expect("browser owner state lock");
+        let state = owners.entry(owner.to_string()).or_default();
+        state.revision = state.revision.saturating_add(1);
+        state.revision
     }
 }
 
