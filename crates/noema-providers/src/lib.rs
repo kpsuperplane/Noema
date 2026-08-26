@@ -52,11 +52,10 @@ pub use accounts::{
 pub use adapters::{
     EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
     FoundationLocalProvider, OPENROUTER_PROVIDER_ACCOUNT_ID, ProviderAccountService,
-    ProviderBootstrap, ProviderCredential, ProviderCredentialAccess,
-    ProviderCredentialAccessHandle, ProviderCredentialFuture, default_web_browse_backend,
-    default_web_fetch_backend, default_web_search_backend, hosted_provider_from_config,
-    provider_bootstrap_from_config, summarize_markdown, validate_openrouter_api_key,
-    web_fetch_summarizer_prompt,
+    ProviderCredential, ProviderCredentialAccess, ProviderCredentialAccessHandle,
+    ProviderCredentialFuture, default_web_browse_backend, default_web_fetch_backend,
+    default_web_search_backend, hosted_provider_from_config, summarize_markdown,
+    validate_openrouter_api_key, web_fetch_summarizer_prompt,
 };
 pub use capabilities::{
     ProviderCapability, ProviderCapabilityAssignment, ProviderCapabilityStatus,

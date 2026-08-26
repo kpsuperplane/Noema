@@ -26,9 +26,9 @@ use noema_capability_adapters::AdapterCapabilityService;
 use noema_home::{NoemaPaths, SystemErrorLogger, init_noema_home};
 use noema_memory::NativeMemory;
 use noema_providers::{
-    CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE, EXA_FETCH_PROVIDER_ID,
-    EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient, FoundationLocalProvider,
-    FoundationLocalProviderConfig, LocalModelActivationPersistenceHandle,
+    CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE, DEFAULT_OPENAI_MODEL,
+    EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
+    FoundationLocalProvider, FoundationLocalProviderConfig, LocalModelActivationPersistenceHandle,
     LocalModelInstallationPersistenceHandle, LocalModelLifecyclePersistenceHandle,
     LocalModelManager, OpenRouterProviderConfig, ProviderAccountOperationsHandle,
     ProviderAccountPersistenceHandle, ProviderAccountService, ProviderConfig, ProviderCredential,
@@ -36,7 +36,7 @@ use noema_providers::{
     ProviderRegistryHandle, ProviderSelectionSnapshot, RegistryProviderRouteResolver,
     WebBrowseBackendHandle, WebFetchBackendHandle, WebSearchBackendHandle,
     default_web_browse_backend, default_web_fetch_backend, default_web_search_backend,
-    hosted_provider_from_config, provider_account_instance_key, provider_bootstrap_from_config,
+    hosted_provider_from_config, provider_account_instance_key,
 };
 use std::{
     collections::HashMap,
@@ -410,17 +410,26 @@ fn provider_map_from_config(
     provider_accounts: ProviderAccountPersistenceHandle,
     provider_account_operations: ProviderAccountOperationsHandle,
 ) -> Result<ConfiguredProviderMap, ProviderError> {
-    let bootstrap = provider_bootstrap_from_config(
-        provider_config,
-        provider_credentials.clone(),
-        Some(provider_accounts.clone()),
-        Some(provider_account_operations.clone()),
-        system_errors.clone(),
-    )?;
-    let default_provider_kind = bootstrap.default_provider_kind;
-    let default_model_profile = bootstrap.default_model_profile;
+    let default_provider_kind = provider_config.kind().as_str().to_string();
+    let default_model_profile = match &provider_config {
+        ProviderConfig::Codex(config) => Some(
+            config
+                .default_model
+                .as_deref()
+                .unwrap_or(DEFAULT_OPENAI_MODEL)
+                .to_string(),
+        ),
+        _ => provider_config.model().map(str::to_string),
+    };
     let mut providers = std::collections::HashMap::new();
-    if let Some((provider_kind, provider)) = bootstrap.hosted_provider {
+    if !matches!(&provider_config, ProviderConfig::LocalModels(_)) {
+        let (provider_kind, provider) = hosted_provider_from_config(
+            provider_config,
+            provider_credentials.clone(),
+            Some(provider_accounts.clone()),
+            Some(provider_account_operations.clone()),
+            system_errors.clone(),
+        )?;
         providers.insert(provider_kind, provider);
     }
     if !providers.contains_key("codex") {

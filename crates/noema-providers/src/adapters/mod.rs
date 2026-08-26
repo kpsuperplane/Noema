@@ -17,7 +17,7 @@ pub use account_service::{
     ProviderCredentialAccessHandle, ProviderCredentialFuture,
 };
 pub use foundation::FoundationLocalProvider;
-pub use hosted::{ProviderBootstrap, hosted_provider_from_config, provider_bootstrap_from_config};
+pub use hosted::hosted_provider_from_config;
 pub use openrouter::{
     OPENROUTER_PROVIDER_ACCOUNT_ID, catalog::validate_api_key as validate_openrouter_api_key,
 };
