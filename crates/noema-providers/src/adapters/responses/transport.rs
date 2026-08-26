@@ -262,6 +262,14 @@ pub(crate) enum ResponsesWebSocketError {
 }
 
 impl ResponsesWebSocketError {
+    pub(crate) fn http_fallback_reason(&self) -> Option<&'static str> {
+        match self {
+            Self::Unsupported(_) => Some("unsupported_websocket"),
+            Self::Setup(_) => Some("websocket_setup_failed"),
+            _ => None,
+        }
+    }
+
     pub(crate) fn into_provider_error(self) -> ProviderError {
         match self {
             Self::Unsupported(error)
@@ -337,6 +345,33 @@ impl ResponsesWebSocketSession {
             fallback_reason: None,
             used_response_id: prepared.used_response_id,
         };
+    }
+
+    pub(crate) fn recover_missing_response(
+        &mut self,
+        result: &Result<ResponsesResponse, ResponsesWebSocketError>,
+        prepared: &mut PreparedResponsesRequest,
+        replay: super::ResponsesRequest,
+        provider: &str,
+    ) -> Result<bool, ProviderError> {
+        if !matches!(
+            result,
+            Err(ResponsesWebSocketError::PreviousResponseNotFound)
+        ) || !prepared.used_response_id
+        {
+            return Ok(false);
+        }
+        if self.has_hosted_web_state {
+            return Err(ProviderError::ProtocolError {
+                provider: provider.to_string(),
+                message: "provider-hosted web state expired; this response cannot continue safely"
+                    .to_string(),
+            });
+        }
+        self.previous_response_id = None;
+        *prepared = self.prepare_request(replay, None)?;
+        self.replay_missing_response();
+        Ok(true)
     }
 
     pub(crate) fn use_http(&mut self, reason: &'static str, used_response_id: bool) {
