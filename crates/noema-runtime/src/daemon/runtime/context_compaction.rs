@@ -31,6 +31,15 @@ pub(super) enum CompactionMode {
     Background,
 }
 
+impl CompactionMode {
+    const fn priority(self) -> GenerationPriority {
+        match self {
+            Self::Foreground => GenerationPriority::Foreground,
+            Self::Background => GenerationPriority::Background,
+        }
+    }
+}
+
 pub(super) async fn persist_context_compaction_notice(
     store: &NoemaStore,
     conversation_id: &str,
@@ -173,7 +182,7 @@ pub(super) async fn compact_active_summary_smaller(
         request.model_profile,
     )
     .await;
-    let response = generate_compaction_summary(
+    let summary_text = generate_compaction_summary(
         request.provider,
         request.model_profile,
         instructions,
@@ -181,10 +190,9 @@ pub(super) async fn compact_active_summary_smaller(
         target_tokens,
         request.reasoning_effort,
         request.fast_mode,
-        request.mode,
+        request.mode.priority(),
     )
     .await?;
-    let summary_text = parse_compaction_summary(response)?;
     let summary_token_estimate =
         count_tokens_or_estimate(request.provider, None, &summary_text, request.model_profile)
             .await;
@@ -292,7 +300,7 @@ async fn compact_context_with_target(
         summary_seed.previous_summary.as_ref(),
         &summary_seed.transcript_items,
     );
-    let response = generate_compaction_summary(
+    let summary_text = generate_compaction_summary(
         request.provider,
         request.model_profile,
         instructions,
@@ -300,10 +308,9 @@ async fn compact_context_with_target(
         target_tokens,
         request.reasoning_effort,
         request.fast_mode,
-        request.mode,
+        request.mode.priority(),
     )
     .await?;
-    let summary_text = parse_compaction_summary(response)?;
     let summary_token_estimate =
         count_tokens_or_estimate(request.provider, None, &summary_text, request.model_profile)
             .await;
@@ -399,7 +406,7 @@ async fn recent_transcript_prefix_len(
     suffix_start
 }
 
-async fn generate_compaction_summary(
+pub(super) async fn generate_compaction_summary(
     provider: &dyn ProviderOperations,
     model_profile: Option<&str>,
     instructions: String,
@@ -407,10 +414,10 @@ async fn generate_compaction_summary(
     target_tokens: u32,
     reasoning_effort: Option<noema_providers::ReasoningEffort>,
     fast_mode: bool,
-    mode: CompactionMode,
-) -> Result<GenerateResponse, ProviderError> {
+    generation_priority: GenerationPriority,
+) -> Result<String, ProviderError> {
     let mut ignore_event = |_: GenerateStreamEvent| {};
-    provider
+    let response = provider
         .generate_streaming(
             GenerateRequest {
                 conversation_id: None,
@@ -418,10 +425,7 @@ async fn generate_compaction_summary(
                 input: GenerateInput::Text(input),
                 instructions: Some(instructions),
                 options: GenerateOptions {
-                    generation_priority: match mode {
-                        CompactionMode::Foreground => GenerationPriority::Foreground,
-                        CompactionMode::Background => GenerationPriority::Background,
-                    },
+                    generation_priority,
                     max_output_tokens: Some(target_tokens),
                     reasoning_effort,
                     fast_mode,
@@ -434,7 +438,8 @@ async fn generate_compaction_summary(
             },
             &mut ignore_event,
         )
-        .await
+        .await?;
+    parse_compaction_summary(response)
 }
 
 fn parse_compaction_summary(response: GenerateResponse) -> Result<String, ProviderError> {

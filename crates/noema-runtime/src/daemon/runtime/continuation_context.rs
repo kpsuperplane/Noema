@@ -2,16 +2,16 @@
 
 use std::collections::VecDeque;
 
-#[cfg(test)]
-use noema_providers::GenerateResponseItem;
 use noema_providers::{
-    GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
-    GenerateReasoningInput, GenerateRequest, GenerateResponse, GenerateStreamEvent,
-    GenerateToolCallInput, GenerateToolResultInput, GenerationPriority, ProviderError,
-    ProviderOperations, ProviderSessionInput, ProviderTool, ReasoningEffort,
+    GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateReasoningInput,
+    GenerateResponse, GenerateToolCallInput, GenerateToolResultInput, GenerationPriority,
+    ProviderError, ProviderOperations, ProviderSessionInput, ProviderTool, ReasoningEffort,
 };
+#[cfg(test)]
+use noema_providers::{GenerateRequest, GenerateResponseItem, GenerateStreamEvent};
 
 use super::{
+    context_compaction::generate_compaction_summary,
     context_window::{
         ContextAdmission, ContextBudget, RequestContext, admit_request, count_tokens_or_estimate,
         hard_overflow_error, soft_compaction_threshold,
@@ -300,34 +300,17 @@ impl ContinuationContext {
                 .await?;
             let summary_input =
                 render_compaction_input(self.checkpoint.as_deref(), &self.items[..boundary]);
-            let mut ignore_event = |_: GenerateStreamEvent| {};
-            let response = provider
-                .generate_streaming(
-                    GenerateRequest {
-                        conversation_id: None,
-                        model: model.map(str::to_string),
-                        input: GenerateInput::Text(summary_input),
-                        instructions: Some(compaction_prompt.clone()),
-                        options: GenerateOptions {
-                            generation_priority,
-                            max_output_tokens: Some(target_tokens),
-                            reasoning_effort,
-                            ..GenerateOptions::default()
-                        },
-                        tools: Vec::new(),
-                        tool_transport: provider.tool_capabilities(model).tool_transport,
-                        tool_choice: Default::default(),
-                        parallel_tool_calls: false,
-                    },
-                    &mut ignore_event,
-                )
-                .await?;
-            let summary = response.assistant_text().trim().to_string();
-            if summary.is_empty() {
-                return Err(ProviderError::MalformedResponse {
-                    message: "continuation compaction did not return a summary".to_string(),
-                });
-            }
+            let summary = generate_compaction_summary(
+                provider,
+                model,
+                compaction_prompt.clone(),
+                summary_input,
+                target_tokens,
+                reasoning_effort,
+                false,
+                generation_priority,
+            )
+            .await?;
             self.replace_prefix_with_checkpoint(boundary, summary);
             compacted = true;
         }
