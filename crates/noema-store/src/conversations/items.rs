@@ -44,7 +44,6 @@ impl NoemaStore {
             "item:tool_result:{}",
             call_item_id.strip_prefix("item:").unwrap_or(call_item_id)
         );
-        let _append_guard = self.append_item_lock.lock().await;
         self.with_immediate_transaction_retry(|tx| {
             let call = load_conversation_item(tx, call_item_id)?
                 .ok_or_else(|| invariant("tool call was not found"))?;
@@ -297,9 +296,7 @@ impl NoemaStore {
             self.require_conversation_item_for_conversation(parent_item_id, &item.conversation_id)
                 .await?;
         }
-        let _append_guard = self.append_item_lock.lock().await;
-        let (sequence_index, inserted) = self
-            .with_connection(|conn| {
+        self.with_immediate_transaction_retry(|conn| {
                 if let Some(existing_row) = collect_conversation_item_rows(
                     conn,
                     "WHERE item_id = ?1 LIMIT 1",
@@ -331,7 +328,7 @@ impl NoemaStore {
                             ),
                         });
                     }
-                    return Ok((existing.sequence_index, false));
+                    return Ok((existing, false));
                 }
                 let next_sequence = conn.query_row(
                     "SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM conversation_items WHERE conversation_id = ?1",
@@ -360,12 +357,7 @@ impl NoemaStore {
                         serialize_json(&item.metadata)?,
                     ],
                 )?;
-                Ok((next_sequence, true))
-            })
-            .await?;
-        let record = self
-            .with_connection(|conn| {
-                collect_conversation_item_rows(
+                let record = collect_conversation_item_rows(
                     conn,
                     "WHERE item_id = ?1 LIMIT 1",
                     params![item_id],
@@ -376,11 +368,11 @@ impl NoemaStore {
                 .transpose()?
                 .ok_or_else(|| StoreError::InvariantViolation {
                     message: "conversation item disappeared after append".to_string(),
-                })
+                })?;
+                debug_assert_eq!(record.sequence_index, next_sequence);
+                Ok((record, true))
             })
-            .await?;
-        debug_assert_eq!(record.sequence_index, sequence_index);
-        Ok((record, inserted))
+            .await
     }
 
     #[cfg(test)]

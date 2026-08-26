@@ -156,7 +156,6 @@ impl NoemaStore {
         let projection_json = serialize_json(&interaction.projection)?;
         let provider_call_item_id = allocate_id("item");
         let projection_item_id = allocate_id("item");
-        let _append_guard = self.append_item_lock.lock().await;
         self.with_immediate_transaction_retry(|tx| {
             let provider_item = append_conversation_item_tx(tx, provider_call_item_id.clone(), provider_tool_call.clone())?;
             let projection_item = append_conversation_item_tx(tx, projection_item_id.clone(), projection.clone())?;
@@ -251,7 +250,6 @@ impl NoemaStore {
         let provider_call_status = provider_tool_result.status.as_str();
         let human_action_item_id = allocate_id("item");
         let tool_result_item_id = allocate_id("item");
-        let _append_guard = self.append_item_lock.lock().await;
         self.with_immediate_transaction_retry(|tx| {
             let interaction = interaction_by_id_tx(tx, interaction_id)?
                 .ok_or_else(|| conflict("conversation interaction was not found"))?;
