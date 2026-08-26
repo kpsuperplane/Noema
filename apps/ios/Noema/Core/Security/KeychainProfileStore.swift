@@ -4,7 +4,6 @@ import Security
 struct NoemaProfile: Hashable, Sendable {
   let origin: URL
   let clientId: String
-  let refreshToken: String
   let accessToken: String
   let accessExpiresAt: Date
 }
@@ -13,6 +12,19 @@ struct StoredNoemaProfile: Codable, Hashable, Sendable {
   let origin: URL
   let clientId: String
   let refreshToken: String
+  let pendingRefreshRequestId: String?
+
+  init(
+    origin: URL,
+    clientId: String,
+    refreshToken: String,
+    pendingRefreshRequestId: String? = nil
+  ) {
+    self.origin = origin
+    self.clientId = clientId
+    self.refreshToken = refreshToken
+    self.pendingRefreshRequestId = pendingRefreshRequestId
+  }
 }
 
 enum KeychainProfileError: Error, LocalizedError {
@@ -30,8 +42,16 @@ enum KeychainProfileError: Error, LocalizedError {
 }
 
 actor KeychainProfileStore {
-  private let service = "dev.noema.app.ios.profile"
-  private let account = "active"
+  private let service: String
+  private let account: String
+
+  init(
+    service: String = "dev.noema.app.ios.profile",
+    account: String = "active"
+  ) {
+    self.service = service
+    self.account = account
+  }
 
   func read() throws -> StoredNoemaProfile? {
     var query = baseQuery
@@ -46,12 +66,8 @@ actor KeychainProfileStore {
     return try JSONDecoder().decode(StoredNoemaProfile.self, from: data)
   }
 
-  func replace(with profile: NoemaProfile) throws {
-    let data = try JSONEncoder().encode(StoredNoemaProfile(
-      origin: profile.origin,
-      clientId: profile.clientId,
-      refreshToken: profile.refreshToken
-    ))
+  func replace(with profile: StoredNoemaProfile) throws {
+    let data = try JSONEncoder().encode(profile)
     let updates: [String: Any] = [kSecValueData as String: data]
     let updateStatus = SecItemUpdate(baseQuery as CFDictionary, updates as CFDictionary)
     if updateStatus == errSecSuccess { return }

@@ -7,6 +7,7 @@ import UIKit
 enum ConnectionServiceError: Error, LocalizedError, Sendable {
   case busy
   case cancelled
+  case inactive
   case authorizationExpired
   case invalidCallback
   case serverRejected(Int)
@@ -16,6 +17,7 @@ enum ConnectionServiceError: Error, LocalizedError, Sendable {
     switch self {
     case .busy: "A connection request is already in progress."
     case .cancelled: "The connection request was cancelled."
+    case .inactive: "Credential refresh waits until Noema is active."
     case .authorizationExpired: "This client authorization has expired. Connect this device again."
     case .invalidCallback: "Noema rejected an invalid authorization response."
     case .serverRejected(let status): "The Noema server rejected authorization (HTTP \(status))."
@@ -27,12 +29,29 @@ enum ConnectionServiceError: Error, LocalizedError, Sendable {
 @MainActor
 final class ConnectionService: NSObject, ASWebAuthenticationPresentationContextProviding {
   private let profileStore: KeychainProfileStore
+  private let sessionConfiguration: URLSessionConfiguration
   private var isWorking = false
+  private var refreshAllowed = false
+  private var refreshTask: Task<NoemaProfile, Error>?
+  private var refreshGeneration = 0
   private var browserSession: ASWebAuthenticationSession?
   private var browserContinuation: CheckedContinuation<URL, Error>?
 
-  init(profileStore: KeychainProfileStore) {
+  init(
+    profileStore: KeychainProfileStore,
+    sessionConfiguration: URLSessionConfiguration = .ephemeral
+  ) {
     self.profileStore = profileStore
+    self.sessionConfiguration = sessionConfiguration
+  }
+
+  func setRefreshAllowed(_ allowed: Bool) {
+    refreshAllowed = allowed
+    if !allowed {
+      refreshGeneration &+= 1
+      refreshTask?.cancel()
+      refreshTask = nil
+    }
   }
 
   func authorize(payload: ConnectionPayload) async throws -> NoemaProfile {
@@ -82,31 +101,37 @@ final class ConnectionService: NSObject, ASWebAuthenticationPresentationContextP
     )
   }
 
-  func refresh(_ stored: StoredNoemaProfile) async throws -> NoemaProfile {
-    try await exchange(
-      origin: stored.origin,
-      clientID: stored.clientId,
-      fields: [
-        "grant_type": "refresh_token",
-        "refresh_token": stored.refreshToken
-      ]
-    )
+  func refresh() async throws -> NoemaProfile {
+    guard refreshAllowed else { throw ConnectionServiceError.inactive }
+    if let refreshTask { return try await refreshTask.value }
+    refreshGeneration &+= 1
+    let generation = refreshGeneration
+    let task = Task { @MainActor [weak self] in
+      guard let self else { throw CancellationError() }
+      return try await self.performRefresh()
+    }
+    refreshTask = task
+    do {
+      let profile = try await task.value
+      if refreshGeneration == generation { refreshTask = nil }
+      return profile
+    } catch {
+      if refreshGeneration == generation { refreshTask = nil }
+      throw error
+    }
   }
 
-  func refresh(_ profile: NoemaProfile) async throws -> NoemaProfile {
-    try await refresh(StoredNoemaProfile(
-      origin: profile.origin,
-      clientId: profile.clientId,
-      refreshToken: profile.refreshToken
-    ))
-  }
-
-  func revoke(_ profile: NoemaProfile) async throws {
+  func revoke() async throws {
+    guard let profile = try await profileStore.read() else {
+      throw ConnectionServiceError.authorizationExpired
+    }
     var request = URLRequest(url: profile.origin.appending(path: "oauth/revoke"))
     request.httpMethod = "POST"
     request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
     request.httpBody = Self.formBody(["token": profile.refreshToken])
-    let (_, response) = try await URLSession.shared.data(for: request)
+    let session = URLSession(configuration: requestConfiguration())
+    defer { session.invalidateAndCancel() }
+    let (_, response) = try await session.data(for: request)
     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
       throw ConnectionServiceError.serverRejected((response as? HTTPURLResponse)?.statusCode ?? 0)
     }
@@ -181,16 +206,14 @@ final class ConnectionService: NSObject, ASWebAuthenticationPresentationContextP
   private func exchange(
     origin: URL,
     clientID: String,
-    fields: [String: String]
+    fields: [String: String],
+    allowExpiredAccess: Bool = false
   ) async throws -> NoemaProfile {
     var request = URLRequest(url: origin.appending(path: "oauth/token"))
     request.httpMethod = "POST"
     request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
     request.httpBody = Self.formBody(fields)
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.timeoutIntervalForRequest = 30
-    configuration.timeoutIntervalForResource = 30
-    let session = URLSession(configuration: configuration)
+    let session = URLSession(configuration: requestConfiguration())
     defer { session.invalidateAndCancel() }
     let (data, response) = try await session.data(for: request)
     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -203,17 +226,71 @@ final class ConnectionService: NSObject, ASWebAuthenticationPresentationContextP
     guard let token = try? JSONDecoder().decode(TokenResponse.self, from: data),
           (1...128).contains(token.accessToken.utf8.count),
           (1...128).contains(token.refreshToken.utf8.count),
-          (1...86_400).contains(token.expiresIn)
+          ((allowExpiredAccess ? 0 : 1)...86_400).contains(token.expiresIn)
     else { throw ConnectionServiceError.malformedResponse }
     let profile = NoemaProfile(
       origin: origin,
       clientId: clientID,
-      refreshToken: token.refreshToken,
       accessToken: token.accessToken,
       accessExpiresAt: Date().addingTimeInterval(TimeInterval(token.expiresIn))
     )
-    try await profileStore.replace(with: profile)
+    try await profileStore.replace(with: StoredNoemaProfile(
+      origin: origin,
+      clientId: clientID,
+      refreshToken: token.refreshToken
+    ))
     return profile
+  }
+
+  private func performRefresh() async throws -> NoemaProfile {
+    guard refreshAllowed else { throw ConnectionServiceError.inactive }
+    guard var stored = try await profileStore.read() else {
+      throw ConnectionServiceError.authorizationExpired
+    }
+    let requestID: String
+    if let pending = stored.pendingRefreshRequestId {
+      guard Self.validRefreshRequestID(pending) else {
+        throw ConnectionServiceError.malformedResponse
+      }
+      requestID = pending
+    } else {
+      requestID = try Self.randomBase64URL(bytes: 32)
+      stored = StoredNoemaProfile(
+        origin: stored.origin,
+        clientId: stored.clientId,
+        refreshToken: stored.refreshToken,
+        pendingRefreshRequestId: requestID
+      )
+      try await profileStore.replace(with: stored)
+    }
+    guard refreshAllowed, !Task.isCancelled else { throw CancellationError() }
+    return try await exchange(
+      origin: stored.origin,
+      clientID: stored.clientId,
+      fields: [
+        "grant_type": "refresh_token",
+        "refresh_token": stored.refreshToken,
+        "refresh_request_id": requestID
+      ],
+      allowExpiredAccess: true
+    )
+  }
+
+  private func requestConfiguration() -> URLSessionConfiguration {
+    let configuration = sessionConfiguration.copy() as! URLSessionConfiguration
+    configuration.timeoutIntervalForRequest = 30
+    configuration.timeoutIntervalForResource = 30
+    return configuration
+  }
+
+  private static func validRefreshRequestID(_ value: String) -> Bool {
+    (32...128).contains(value.utf8.count)
+      && value.utf8.allSatisfy { byte in
+        switch byte {
+        case 45, 48...57, 65...90, 95, 97...122: true
+        default: false
+        }
+      }
   }
 
   private static func formBody(_ fields: [String: String]) -> Data? {
