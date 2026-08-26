@@ -3,10 +3,6 @@ impl noema_providers::ProviderOperations for FakeCodexProvider {
         self.tool_capabilities
     }
 
-    fn response_continuation(&self, _model: Option<&str>) -> ProviderResponseContinuation {
-        self.response_continuation
-    }
-
     fn generate_streaming<'a>(
         &'a self,
         request: GenerateRequest,

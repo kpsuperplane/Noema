@@ -10,12 +10,11 @@ use crate::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
     MarkdownMessageDeltaSplitter, ModelProvider, ProviderContextMetadata, ProviderError,
     ProviderGenerationFuture, ProviderGenerationMetadata, ProviderGenerationSession,
-    ProviderResponseContinuation, ProviderSchemaRequestCapabilities, ProviderSessionInput,
-    ProviderToolCapabilities,
+    ProviderSessionInput, ProviderToolCapabilities,
 };
 
 #[cfg(test)]
-use crate::GenerateResponseItem;
+use crate::{GenerateResponseItem, ProviderResponseContinuation};
 
 /// Boxed future returned by object-safe provider generation operations.
 pub type ProviderOperationFuture<'a, T> =
@@ -57,22 +56,9 @@ pub trait ProviderOperations: Debug + Send + Sync {
         Box::pin(async { ProviderContextMetadata::default() })
     }
 
-    /// Return the provider's supported response-continuation strategy.
-    fn response_continuation(&self, _model: Option<&str>) -> ProviderResponseContinuation {
-        ProviderResponseContinuation::default()
-    }
-
     /// Return native tool-calling capabilities for this provider/model.
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities::default()
-    }
-
-    /// Return the schema request modes for native tools and structured output.
-    fn schema_request_capabilities(
-        &self,
-        model: Option<&str>,
-    ) -> ProviderSchemaRequestCapabilities {
-        self.tool_capabilities(model).schema_request_capabilities()
     }
 
     /// Count request tokens when the provider has an authoritative tokenizer.
@@ -381,19 +367,8 @@ where
         Box::pin(ModelProvider::context_metadata(&self.0, model))
     }
 
-    fn response_continuation(&self, model: Option<&str>) -> ProviderResponseContinuation {
-        ModelProvider::response_continuation(&self.0, model)
-    }
-
     fn tool_capabilities(&self, model: Option<&str>) -> ProviderToolCapabilities {
         ModelProvider::tool_capabilities(&self.0, model)
-    }
-
-    fn schema_request_capabilities(
-        &self,
-        model: Option<&str>,
-    ) -> ProviderSchemaRequestCapabilities {
-        ModelProvider::schema_request_capabilities(&self.0, model)
     }
 
     fn count_tokens<'a>(
@@ -587,7 +562,6 @@ mod tests {
             (
                 provider.default_tool_classification_model(),
                 provider.context_metadata(Some("large")).await,
-                provider.response_continuation(None),
                 provider.tool_capabilities(None),
             ),
             (
@@ -596,9 +570,6 @@ mod tests {
                     context_window_tokens: Some(32_768),
                     default_output_reserve_tokens: Some(1_024),
                     compact_summary_target_tokens: Some(512),
-                },
-                ProviderResponseContinuation::PreviousResponseId {
-                    store_response: true,
                 },
                 ProviderToolCapabilities {
                     tool_transport: ProviderToolTransport::Native,
@@ -671,13 +642,11 @@ mod tests {
             (
                 provider.default_tool_classification_model(),
                 provider.context_metadata(None).await,
-                provider.response_continuation(None),
                 provider.tool_capabilities(None),
             ),
             (
                 Some(DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string()),
                 ProviderContextMetadata::default(),
-                ProviderResponseContinuation::Unsupported,
                 ProviderToolCapabilities::default(),
             )
         );
