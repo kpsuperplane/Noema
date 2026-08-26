@@ -261,13 +261,13 @@ impl NativeMemory {
 
     #[must_use]
     /// Return the canonical human-memory root directory.
-    pub fn root(&self) -> &Path {
+    pub(crate) fn root(&self) -> &Path {
         &self.inner.root
     }
 
     #[must_use]
     /// Return the disposable SQLite FTS index path.
-    pub fn index_path(&self) -> &Path {
+    pub(crate) fn index_path(&self) -> &Path {
         &self.inner.index_path
     }
 
@@ -514,17 +514,16 @@ impl NativeMemory {
         let pending = self.root().join(".pending").join(&operation_id);
         fs::create_dir_all(&pending)?;
         let staged_pages = self.stage_changes(changes)?;
-        let payload = serde_json::to_vec(&PendingPayload {
+        let staged = PendingPayload {
             pages: staged_pages,
             deletes,
             state: state.clone(),
-        })
-        .map_err(|error| NativeMemoryError::InvalidChangeSet(error.to_string()))?;
-        let mut staged = File::create(pending.join("changes.json"))?;
-        staged.write_all(&payload)?;
-        staged.sync_all()?;
-        let staged: PendingPayload = serde_json::from_slice(&payload)
+        };
+        let payload = serde_json::to_vec(&staged)
             .map_err(|error| NativeMemoryError::InvalidChangeSet(error.to_string()))?;
+        let mut staged_file = File::create(pending.join("changes.json"))?;
+        staged_file.write_all(&payload)?;
+        staged_file.sync_all()?;
         self.apply_staged(&staged)?;
         self.rebuild_index()?;
         self.advance_state(state)?;
@@ -537,7 +536,7 @@ impl NativeMemory {
     /// # Errors
     ///
     /// Returns an error when the checkpoint cannot be read.
-    pub fn state_body(&self) -> Result<Option<String>, NativeMemoryError> {
+    fn state_body(&self) -> Result<Option<String>, NativeMemoryError> {
         let path = self.root().join(".state.md");
         Ok(path
             .exists()
@@ -641,7 +640,6 @@ impl NativeMemory {
     fn rebuild_index(&self) -> Result<(), NativeMemoryError> {
         let connection = self.open_index()?;
         let transaction = connection.unchecked_transaction()?;
-        transaction.execute("DROP TABLE IF EXISTS memory_pages", [])?;
         transaction.execute("DELETE FROM memory_fts", [])?;
         let mut ids = std::collections::HashSet::new();
         for path in self.all_page_paths()? {
