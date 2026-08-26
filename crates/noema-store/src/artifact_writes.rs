@@ -12,7 +12,6 @@ use super::{
         artifact_version_from_row, artifact_version_row,
     },
     ids::allocate_id,
-    sqlite::now_timestamp_sql,
 };
 
 pub(super) struct PreparedArtifactCreate {
@@ -108,19 +107,17 @@ pub(super) fn create_artifact_transaction(
         .map_err(transaction_sql_error)?;
     require_owner(&tx, &prepared.artifact.owner)?;
     tx.execute(
-        format!(
-            r#"
+        r#"
             INSERT INTO artifacts (
               artifact_id, owner_object_type, owner_object_id, title, description,
               artifact_kind, storage_kind, current_version_id, created_by_actor_id,
               source_conversation_id, source_turn_id, source_item_id, metadata_json,
               created_at, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, {now}, {now})
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             "#,
-            now = now_timestamp_sql()
-        )
-        .as_str(),
         params![
             prepared.artifact_id,
             prepared.artifact.owner.object_type,
@@ -139,19 +136,16 @@ pub(super) fn create_artifact_transaction(
     )
     .map_err(transaction_sql_error)?;
     tx.execute(
-        format!(
-            r#"
+        r#"
             INSERT INTO artifact_versions (
               artifact_version_id, artifact_id, version_index, title, local_relative_path,
               external_url, media_type, byte_size, content_sha256, created_by_actor_id,
               source_conversation_id, source_turn_id, source_item_id, metadata_json,
               created_at
             )
-            VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, {now})
+            VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             "#,
-            now = now_timestamp_sql()
-        )
-        .as_str(),
         params![
             prepared.artifact_version_id,
             prepared.artifact_id,
@@ -254,19 +248,16 @@ pub(super) fn append_artifact_transaction(
     }
 
     tx.execute(
-        format!(
-            r#"
+        r#"
             INSERT INTO artifact_versions (
               artifact_version_id, artifact_id, version_index, title, local_relative_path,
               external_url, media_type, byte_size, content_sha256, created_by_actor_id,
               source_conversation_id, source_turn_id, source_item_id, metadata_json,
               created_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, {now})
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             "#,
-            now = now_timestamp_sql()
-        )
-        .as_str(),
         params![
             prepared.artifact_version_id,
             prepared.artifact_id,
@@ -287,11 +278,7 @@ pub(super) fn append_artifact_transaction(
     .map_err(transaction_sql_error)?;
     let updated = tx
         .execute(
-            format!(
-                "UPDATE artifacts SET current_version_id = ?2, updated_at = {now} WHERE artifact_id = ?1 AND deleted_at IS NULL",
-                now = now_timestamp_sql()
-            )
-            .as_str(),
+            "UPDATE artifacts SET current_version_id = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE artifact_id = ?1 AND deleted_at IS NULL",
             params![prepared.artifact_id, prepared.artifact_version_id],
         )
         .map_err(transaction_sql_error)?;

@@ -78,7 +78,3 @@ pub(super) fn conversion_failure(
 ) -> rusqlite::Error {
     rusqlite::Error::FromSqlConversionFailure(index, source_type, Box::new(error))
 }
-
-pub(super) fn now_timestamp_sql() -> &'static str {
-    "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
-}
