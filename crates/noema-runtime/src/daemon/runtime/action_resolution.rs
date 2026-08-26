@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use noema_capabilities::{
     CapabilityError, CapabilityFailureKind, CapabilityInvoker, CapabilityRegistryRouter,
-    PayloadSanitizer, ReviewedCapabilityAuthorization,
+    ReviewedCapabilityAuthorization,
 };
 use noema_conversations::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
@@ -241,22 +241,7 @@ impl RuntimeActor {
                 .failure
                 .is_some_and(|failure| failure.kind == CapabilityFailureKind::OutcomeUncertain);
             let outcome = super::action_gateway::capability_execution_outcome(&output);
-            let persisted_output = match claimed.capability_name.as_str() {
-                noema_capabilities::web::fetch::WEB_FETCH_TOOL => {
-                    noema_capabilities::WebFetchPayloadSanitizer
-                        .persist_output(output.persisted_output_source())
-                }
-                noema_capabilities::file::FILE_DOWNLOAD_TOOL => {
-                    noema_capabilities::FilePayloadSanitizer
-                        .persist_output(output.persisted_output_source())
-                }
-                name if name.starts_with("web.browse.") => {
-                    noema_capabilities::WebBrowsePayloadSanitizer
-                        .persist_output(output.persisted_output_source())
-                }
-                _ => noema_capabilities::RedactingPayloadSanitizer
-                    .persist_output(output.persisted_output_source()),
-            };
+            let persisted_output = binding.persist_output(output.persisted_output_source());
             let finished = self
                 .store
                 .finish_governed_action_execution(
