@@ -330,9 +330,7 @@ pub(super) async fn authorize(
     };
     let client_name = display_name(client_id);
     let ios_client = client_id.starts_with("noema-ios:");
-    if validate_request_shape(&parameters).is_err()
-        || run_authorization(parameters, Consent::Pending).is_err()
-    {
+    if run_authorization(parameters, Consent::Pending).is_err() {
         return authorization_error(
             StatusCode::BAD_REQUEST,
             AuthorizationFailure::InvalidRequest,

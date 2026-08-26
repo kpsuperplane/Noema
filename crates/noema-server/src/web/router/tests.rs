@@ -77,7 +77,7 @@ async fn test_setup_router() -> Router {
 #[tokio::test]
 async fn favicon_route_requires_authentication_and_serves_cached_images() {
     let state = web_state(WebAuthMode::Required).await;
-    state.favicons.seed_test_icon("example.com", b"png");
+    super::super::favicons::seed_icon(&state.favicons, "example.com", b"png");
     let router = build_router(state);
     let cookie = authenticate(router.clone()).await;
 

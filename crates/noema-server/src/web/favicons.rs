@@ -237,11 +237,6 @@ impl FaviconService {
         }
         evict_old_entries(&self.inner.cache_dir);
     }
-
-    #[cfg(test)]
-    pub(super) fn seed_test_icon(&self, hostname: &str, png: &[u8]) {
-        self.write_cache(hostname, CacheOutcome::Available, unix_time(), png);
-    }
 }
 
 fn normalize_hostname(raw_hostname: &str) -> Result<String, FaviconError> {
@@ -559,8 +554,15 @@ fn evict_old_entries(cache_dir: &Path) {
 }
 
 #[cfg(test)]
+pub(in crate::web) use tests::seed_icon;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    pub(in crate::web) fn seed_icon(service: &FaviconService, hostname: &str, png: &[u8]) {
+        service.write_cache(hostname, CacheOutcome::Available, unix_time(), png);
+    }
 
     #[test]
     fn hostname_normalization_keeps_exact_hosts_distinct() {

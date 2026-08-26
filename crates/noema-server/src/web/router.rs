@@ -444,67 +444,67 @@ async fn recover(
     }
 }
 
-async fn mcp_oauth_callback(State(state): State<WebState>, RawQuery(query): RawQuery) -> Response {
-    let Some(query) = query else {
-        return plain_response(StatusCode::BAD_REQUEST, "missing OAuth callback query");
+macro_rules! require_oauth_query {
+    ($query:ident) => {
+        let Some($query) = $query else {
+            return plain_response(StatusCode::BAD_REQUEST, "missing OAuth callback query");
+        };
+        if $query.len() > MAX_OAUTH_QUERY_BYTES {
+            return plain_response(StatusCode::BAD_REQUEST, "invalid OAuth callback query");
+        }
     };
-    if query.len() > MAX_OAUTH_QUERY_BYTES {
-        return plain_response(StatusCode::BAD_REQUEST, "invalid OAuth callback query");
-    }
+}
+
+async fn mcp_oauth_callback(State(state): State<WebState>, RawQuery(query): RawQuery) -> Response {
+    require_oauth_query!(query);
     let Some(attempt_id) = query_value(&query, "attemptId") else {
         return plain_response(StatusCode::BAD_REQUEST, "missing MCP OAuth attempt id");
     };
     let callback_url = oauth_callback_url(&state.authority, "/mcp/oauth/callback", &query);
 
-    match noema_api::graphql::complete_mcp_server_oauth_setup(
+    let (status, message, action) = match noema_api::graphql::complete_mcp_server_oauth_setup(
         &state.graphql_state,
         &attempt_id,
         &callback_url,
     )
     .await
     {
-        Ok(attempt) if attempt.status == "completed" => Html(
-            "<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema MCP OAuth</title><main><p>Authentication completed.</p><p><a href=\"/\">Return to Noema</a></p></main>",
-        )
-        .into_response(),
-        Ok(_) => Html(
-            "<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema MCP OAuth</title><main><p>Authentication finished, but Noema could not list tools.</p><p><a href=\"/\">Return to Noema to retry</a></p></main>",
-        )
-        .into_response(),
+        Ok(attempt) if attempt.status == "completed" => (
+            StatusCode::OK,
+            "Authentication completed.",
+            "Return to Noema",
+        ),
+        Ok(_) => (
+            StatusCode::OK,
+            "Authentication finished, but Noema could not list tools.",
+            "Return to Noema to retry",
+        ),
         Err(_) => (
             StatusCode::BAD_REQUEST,
-            Html("<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema MCP OAuth</title><main><p>Noema could not complete this MCP OAuth setup attempt.</p><p><a href=\"/\">Return to Noema</a></p></main>"),
-        )
-            .into_response(),
-    }
+            "Noema could not complete this MCP OAuth setup attempt.",
+            "Return to Noema",
+        ),
+    };
+    oauth_result_page(status, "Noema MCP OAuth", message, action)
 }
 
 async fn adapter_oauth_callback(
     State(state): State<WebState>,
     RawQuery(query): RawQuery,
 ) -> Response {
-    let Some(query) = query else {
-        return plain_response(StatusCode::BAD_REQUEST, "missing OAuth callback query");
-    };
-    if query.len() > MAX_OAUTH_QUERY_BYTES {
-        return plain_response(StatusCode::BAD_REQUEST, "invalid OAuth callback query");
-    }
+    require_oauth_query!(query);
     let callback_url = oauth_callback_url(&state.authority, "/adapter/oauth/callback", &query);
-    match noema_api::graphql::complete_adapter_oauth_setup(&state.graphql_state, &callback_url).await
-    {
-        Ok(_) => Html(
-            "<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema OAuth</title><main><p>Authentication completed.</p><p><a href=\"/\">Return to Noema</a></p></main>",
-        )
-        .into_response(),
-        Err(error) => (
-            StatusCode::BAD_REQUEST,
-            Html(format!(
-                "<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema OAuth</title><main><p>{}</p><p><a href=\"/\">Return to Noema</a></p></main>",
-                noema_api::graphql::adapter_oauth_failure_message(error)
-            )),
-        )
-            .into_response(),
-    }
+    let (status, message) =
+        match noema_api::graphql::complete_adapter_oauth_setup(&state.graphql_state, &callback_url)
+            .await
+        {
+            Ok(_) => (StatusCode::OK, "Authentication completed."),
+            Err(error) => (
+                StatusCode::BAD_REQUEST,
+                noema_api::graphql::adapter_oauth_failure_message(error),
+            ),
+        };
+    oauth_result_page(status, "Noema OAuth", message, "Return to Noema")
 }
 
 async fn provider_oauth_callback(
@@ -512,12 +512,7 @@ async fn provider_oauth_callback(
     Path(attempt_id): Path<String>,
     RawQuery(query): RawQuery,
 ) -> Response {
-    let Some(query) = query else {
-        return plain_response(StatusCode::BAD_REQUEST, "missing OAuth callback query");
-    };
-    if query.len() > MAX_OAUTH_QUERY_BYTES {
-        return plain_response(StatusCode::BAD_REQUEST, "invalid OAuth callback query");
-    }
+    require_oauth_query!(query);
     if query_value(&query, "code").is_none() {
         return plain_response(StatusCode::BAD_REQUEST, "invalid provider OAuth callback");
     }
@@ -526,22 +521,26 @@ async fn provider_oauth_callback(
         &format!("/provider/oauth/callback/{attempt_id}"),
         &query,
     );
-    match noema_api::graphql::complete_provider_oauth_callback(
+    let (status, message) = match noema_api::graphql::complete_provider_oauth_callback(
         &state.graphql_state,
         &callback_url,
     )
     .await
     {
-        Ok(_) => Html(
-            "<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema Provider OAuth</title><main><p>Authentication completed.</p><p><a href=\"/\">Return to Noema</a></p></main>",
-        )
-        .into_response(),
+        Ok(_) => (StatusCode::OK, "Authentication completed."),
         Err(_) => (
             StatusCode::BAD_REQUEST,
-            Html("<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema Provider OAuth</title><main><p>Noema could not complete this provider connection.</p><p><a href=\"/\">Return to Noema</a></p></main>"),
-        )
-            .into_response(),
-    }
+            "Noema could not complete this provider connection.",
+        ),
+    };
+    oauth_result_page(status, "Noema Provider OAuth", message, "Return to Noema")
+}
+
+fn oauth_result_page(status: StatusCode, title: &str, message: &str, action: &str) -> Response {
+    let body = format!(
+        "<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{title}</title><main><p>{message}</p><p><a href=\"/\">{action}</a></p></main>"
+    );
+    (status, Html(body)).into_response()
 }
 
 fn oauth_callback_url(
