@@ -1776,12 +1776,12 @@ async fn uncertain_capability_authentication_opens_typed_recovery_gate() {
             .expect("resume uncertain authentication"),
         None
     );
-    let snapshot = store
-        .load_work_reconciliation_snapshot(&task.task_id)
+    let detail = store
+        .get_work_task(&task.task_id)
         .await
-        .expect("load task snapshot")
-        .expect("task snapshot");
-    let gate = snapshot.active_gate.expect("typed recovery gate");
+        .expect("load task")
+        .expect("task");
+    let gate = detail.active_gate.expect("typed recovery gate");
     assert_eq!(gate.kind, TaskGateKind::Recovery);
     assert_eq!(
         gate.recovery_reason,
@@ -2065,14 +2065,17 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
             .status,
         noema_tasks::RunStatus::WaitingForApproval
     );
-    let snapshot = store
-        .load_work_reconciliation_snapshot(&captured.task_id)
-        .await
-        .expect("load waiting reconciliation snapshot")
-        .expect("task snapshot");
     assert_eq!(
-        crate::plan_work_reconciliation(&snapshot).expect("plan waiting reconciliation"),
-        noema_tasks::WorkReconciliationAction::Idle
+        service
+            .apply_work_reconciliation_action(crate::ApplyReconciliation {
+                task_id: captured.task_id.clone(),
+                actor_id: "actor:store:reconciliation".to_string(),
+                correlation_id: "correlation:waiting-action:reconcile".to_string(),
+                causation_id: None,
+            })
+            .await
+            .expect("reconcile waiting task"),
+        None
     );
 
     let declined = store

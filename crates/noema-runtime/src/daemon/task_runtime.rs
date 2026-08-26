@@ -12,7 +12,7 @@ use noema_providers::ProviderRegistryHandle;
 use noema_store::{
     ApplyReconciliation, ClaimedWorkRun, NoemaStore, WorkCommandService, WorkRunFence,
 };
-use noema_tasks::{RunStatus, SafeErrorCode, WorkReconciliationAction};
+use noema_tasks::{RunStatus, SafeErrorCode};
 use noema_workspaces::WorkspaceId;
 use serde_json::json;
 use tokio::task::JoinSet;
@@ -705,40 +705,6 @@ async fn reconcile_one(
     task_id: &noema_tasks::TaskId,
     causation_id: Option<&str>,
 ) {
-    let envelope = match services
-        .store
-        .load_work_reconciliation_snapshot(task_id)
-        .await
-    {
-        Ok(Some(envelope)) => envelope,
-        Ok(None) => return,
-        Err(error) => {
-            log_system_error(
-                &services.system_errors,
-                "work_reconciliation_snapshot_failed",
-                "Work reconciliation snapshot could not be loaded",
-                Some(json!({"task_id": task_id})),
-                error,
-            );
-            return;
-        }
-    };
-    let action = match noema_store::plan_work_reconciliation(&envelope) {
-        Ok(action) => action,
-        Err(error) => {
-            log_system_error(
-                &services.system_errors,
-                "work_reconciliation_plan_failed",
-                "Work reconciliation could not derive a next action",
-                Some(json!({"task_id": task_id})),
-                error,
-            );
-            return;
-        }
-    };
-    if matches!(action, WorkReconciliationAction::Idle) {
-        return;
-    }
     let request = ApplyReconciliation {
         task_id: task_id.clone(),
         actor_id: "actor:runtime:reconciler".to_string(),
@@ -746,7 +712,7 @@ async fn reconcile_one(
         causation_id: causation_id.map(ToOwned::to_owned),
     };
     match service.apply_work_reconciliation_action(request).await {
-        Ok(result) => {
+        Ok(Some(result)) => {
             services
                 .subscriptions
                 .publish_task(TaskRuntimeEvent::Changed {
@@ -757,6 +723,7 @@ async fn reconcile_one(
                 publish_work_changed(&services.subscriptions, task);
             }
         }
+        Ok(None) => {}
         Err(error) => log_system_error(
             &services.system_errors,
             "work_reconciliation_apply_failed",

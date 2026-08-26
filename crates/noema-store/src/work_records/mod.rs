@@ -214,7 +214,7 @@ pub struct WorkTaskDetail {
 
 /// Durable rows needed to derive and atomically apply one reconciliation step.
 #[derive(Debug, Clone, PartialEq)]
-pub struct WorkReconciliationEnvelope {
+pub(crate) struct WorkReconciliationEnvelope {
     /// Canonical task projection used by reconciliation.
     pub task: noema_tasks::TaskRecord,
     /// Current workflow stage definition.

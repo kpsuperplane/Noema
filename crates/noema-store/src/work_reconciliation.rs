@@ -34,7 +34,7 @@ use crate::{
 /// # Errors
 ///
 /// Returns an error when the durable envelope violates reconciliation invariants.
-pub fn plan_work_reconciliation(
+fn plan_work_reconciliation(
     envelope: &WorkReconciliationEnvelope,
 ) -> Result<WorkReconciliationAction, StoreError> {
     plan_reconciliation_action(envelope.snapshot.clone()).map_err(StoreError::Work)
@@ -92,7 +92,7 @@ impl WorkCommandService {
     pub async fn apply_work_reconciliation_action(
         &self,
         request: ApplyReconciliation,
-    ) -> Result<WorkCommandResult, StoreError> {
+    ) -> Result<Option<WorkCommandResult>, StoreError> {
         let write = self
             .store
             .with_immediate_transaction_retry(|transaction| {
@@ -102,15 +102,17 @@ impl WorkCommandService {
                         .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
                 let envelope = snapshot::derive_envelope(transaction, facts)?;
                 let action = plan_work_reconciliation(&envelope)?;
-                action.validate().map_err(StoreError::Work)?;
+                if action == WorkReconciliationAction::Idle {
+                    return Ok(None);
+                }
                 let mut task = helpers::load_task_state_tx(transaction, &request.task_id)?;
                 let write = match &action {
-                    WorkReconciliationAction::Idle => latest_task_marker(transaction, &task),
+                    WorkReconciliationAction::Idle => unreachable!("idle returns before writes"),
                     WorkReconciliationAction::QueueRun { run_kind }
                     | WorkReconciliationAction::MoveToQueueAndQueueRun { run_kind } => {
                         if let Some(marker) = already_queued_run_tx(transaction, &task, *run_kind)?
                         {
-                            return capture_snapshot(transaction, marker);
+                            return capture_snapshot(transaction, marker).map(Some);
                         }
                         if matches!(action, WorkReconciliationAction::QueueRun { .. }) {
                             queue::queue_reconciled_run_tx(
@@ -144,10 +146,15 @@ impl WorkCommandService {
                         fence_stale_runs_tx(transaction, &task, &request)
                     }
                 }?;
-                capture_snapshot(transaction, write)
+                capture_snapshot(transaction, write).map(Some)
             })
             .await?;
-        helpers::materialize_result(&self.store, write).await
+        match write {
+            Some(write) => helpers::materialize_result(&self.store, write)
+                .await
+                .map(Some),
+            None => Ok(None),
+        }
     }
 }
 

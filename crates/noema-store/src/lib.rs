@@ -140,15 +140,15 @@ pub use work_notifications::{
     ClaimedWorkNotification, CompleteWorkNotification, FailWorkNotification,
     WorkNotificationLeaseRequest,
 };
-pub use work_reconciliation::{ApplyReconciliation, plan_work_reconciliation};
+pub use work_reconciliation::ApplyReconciliation;
 pub use work_records::{
     ProjectConnection, ProjectCursor, ProjectEdge, ProjectQuery, WorkConnection, WorkCursorError,
     WorkEdge, WorkEventBeforeQuery, WorkEventConnection, WorkEventCursor, WorkEventEdge,
     WorkEventQuery, WorkOverview, WorkOverviewQuery, WorkPageInfo, WorkPageSize,
-    WorkReconciliationEnvelope, WorkRunItemConnection, WorkRunItemCursor, WorkRunItemEdge,
-    WorkRunItemOwnerScope, WorkRunItemQuery, WorkStageTaskCount, WorkTaskArtifact,
-    WorkTaskAttention, WorkTaskConnection, WorkTaskCursor, WorkTaskDetail, WorkTaskEdge,
-    WorkTaskQuery, WorkTaskScope, WorkTaskSummary, WorkTaskValidAction, WorkWorkflowWithStages,
+    WorkRunItemConnection, WorkRunItemCursor, WorkRunItemEdge, WorkRunItemOwnerScope,
+    WorkRunItemQuery, WorkStageTaskCount, WorkTaskArtifact, WorkTaskAttention, WorkTaskConnection,
+    WorkTaskCursor, WorkTaskDetail, WorkTaskEdge, WorkTaskQuery, WorkTaskScope, WorkTaskSummary,
+    WorkTaskValidAction, WorkWorkflowWithStages,
 };
 pub use work_run_context_records::{
     TaskRequestEnvironment, WORK_RUN_CONTEXT_MAX_GATES, WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN,

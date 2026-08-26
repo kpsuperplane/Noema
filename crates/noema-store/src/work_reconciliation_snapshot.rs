@@ -3,43 +3,17 @@
 use std::str::FromStr;
 
 use noema_tasks::{
-    AgentRunRecord, RunKind, RunStatus, SafeErrorCode, TaskGateKind, TaskGateState, TaskId,
-    WorkEventKind, WorkEventPayload, WorkFailedRunFacts, WorkReconciliationSnapshot,
-    reported_failure_facts,
+    AgentRunRecord, RunKind, RunStatus, SafeErrorCode, TaskGateKind, TaskGateState, WorkEventKind,
+    WorkEventPayload, WorkFailedRunFacts, WorkReconciliationSnapshot, reported_failure_facts,
 };
 use rusqlite::{OptionalExtension, Transaction, params};
 
 use crate::{
-    NoemaStore, StoreError, WorkReconciliationEnvelope,
-    work_reads::{
-        rows::load_gate,
-        task::{LoadedWorkTask, load_task_facts},
-    },
+    StoreError,
+    work_reads::{rows::load_gate, task::LoadedWorkTask},
+    work_records::WorkReconciliationEnvelope,
     work_runs::rows::load_run_tx,
 };
-
-impl NoemaStore {
-    /// Load the bounded durable envelope consumed by the pure reconciler.
-    /// Process state, provider output, and transcript text never participate.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when durable Task, run, gate, or review facts are invalid.
-    pub async fn load_work_reconciliation_snapshot(
-        &self,
-        task_id: &TaskId,
-    ) -> Result<Option<WorkReconciliationEnvelope>, StoreError> {
-        let task_id = task_id.clone();
-        self.with_connection(move |connection| {
-            let transaction = connection.transaction()?;
-            let Some(facts) = load_task_facts(&transaction, &task_id)? else {
-                return Ok(None);
-            };
-            derive_envelope(&transaction, facts).map(Some)
-        })
-        .await
-    }
-}
 
 pub(super) fn derive_envelope(
     transaction: &Transaction<'_>,
