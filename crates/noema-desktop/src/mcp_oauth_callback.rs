@@ -2,9 +2,11 @@
 
 use noema_api::graphql::GraphqlState;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::AsyncWriteExt,
     net::{TcpListener, TcpStream},
 };
+
+use crate::loopback_http;
 
 const MCP_CALLBACK_PATH: &str = "/mcp/oauth/callback";
 const PROVIDER_CALLBACK_PATH: &str = "/provider/oauth/callback";
@@ -76,17 +78,17 @@ async fn handle_connection(
     if request.method != "GET" {
         reject!("404 Not Found", "not found");
     }
-    if request.host != expected_authority {
+    if request.host.as_deref() != Some(expected_authority) {
         reject!("400 Bad Request", "Invalid MCP OAuth callback authority.");
     }
-    let Some(query) = request.query.as_deref() else {
+    let Some(query) = request.query() else {
         reject!("400 Bad Request", "Missing OAuth callback query.");
     };
     if query.len() > MAX_QUERY_BYTES {
         reject!("400 Bad Request", "Invalid OAuth callback query.");
     }
     let callback_url = request.callback_url(expected_authority);
-    match request.path.as_str() {
+    match request.path() {
         MCP_CALLBACK_PATH => {
             let Some(attempt_id) = query_value(query, "attemptId") else {
                 reject!("400 Bad Request", "Missing MCP OAuth attempt id.");
@@ -155,76 +157,8 @@ async fn handle_connection(
     Ok(())
 }
 
-struct CallbackRequest {
-    method: String,
-    path: String,
-    query: Option<String>,
-    host: String,
-}
-
-impl CallbackRequest {
-    fn callback_url(&self, authority: &str) -> String {
-        format!(
-            "http://{}{}{}",
-            authority,
-            self.path,
-            self.query
-                .as_deref()
-                .map_or_else(String::new, |query| format!("?{query}"))
-        )
-    }
-}
-
-async fn read_request(stream: &mut TcpStream) -> Result<CallbackRequest, String> {
-    let mut bytes = Vec::with_capacity(1024);
-    let mut buffer = [0_u8; 1024];
-    let header_end = loop {
-        let read = stream
-            .read(&mut buffer)
-            .await
-            .map_err(|_| "invalid request".to_string())?;
-        if read == 0 {
-            return Err("missing request".to_string());
-        }
-        bytes.extend_from_slice(&buffer[..read]);
-        if bytes.len() > MAX_REQUEST_BYTES {
-            return Err("request too large".to_string());
-        }
-        if let Some(index) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
-            break index;
-        }
-    };
-    let text = std::str::from_utf8(&bytes[..header_end])
-        .map_err(|_| "invalid request headers".to_string())?;
-    parse_request_head(text)
-}
-
-fn parse_request_head(text: &str) -> Result<CallbackRequest, String> {
-    let mut lines = text.lines();
-    let request_line = lines
-        .next()
-        .ok_or_else(|| "missing request line".to_string())?;
-    let mut parts = request_line.split_whitespace();
-    let method = parts
-        .next()
-        .ok_or_else(|| "missing method".to_string())?
-        .to_string();
-    let target = parts.next().ok_or_else(|| "missing target".to_string())?;
-    let host = lines
-        .filter_map(|line| line.split_once(':'))
-        .find(|(name, _value)| name.trim().eq_ignore_ascii_case("host"))
-        .map(|(_name, value)| value.trim().to_string())
-        .ok_or_else(|| "missing host".to_string())?;
-    let (path, query) = match target.split_once('?') {
-        Some((path, query)) => (path.to_string(), Some(query.to_string())),
-        None => (target.to_string(), None),
-    };
-    Ok(CallbackRequest {
-        method,
-        path,
-        query,
-        host,
-    })
+async fn read_request(stream: &mut TcpStream) -> Result<loopback_http::RequestHead, String> {
+    loopback_http::read_request_head(stream, MAX_REQUEST_BYTES).await
 }
 
 fn query_value(query: &str, key: &str) -> Option<String> {
@@ -254,34 +188,34 @@ mod tests {
 
     #[test]
     fn parses_callback_request_head() {
-        let request = parse_request_head(
+        let request = loopback_http::parse_request_head(
             "GET /mcp/oauth/callback?attemptId=mcp_oauth%3Aabc&code=123 HTTP/1.1\r\nHost: 127.0.0.1:4444\r\n\r\n",
         )
         .expect("request");
 
         assert_eq!(request.method, "GET");
-        assert_eq!(request.path, MCP_CALLBACK_PATH);
+        assert_eq!(request.path(), MCP_CALLBACK_PATH);
         assert_eq!(
-            query_value(request.query.as_deref().expect("query"), "attemptId").as_deref(),
+            query_value(request.query().expect("query"), "attemptId").as_deref(),
             Some("mcp_oauth:abc")
         );
         assert_eq!(
             request.callback_url("127.0.0.1:4444"),
             "http://127.0.0.1:4444/mcp/oauth/callback?attemptId=mcp_oauth%3Aabc&code=123"
         );
-        assert_ne!(request.host, "127.0.0.1:5555");
+        assert_ne!(request.host.as_deref(), Some("127.0.0.1:5555"));
 
-        let adapter = parse_request_head(
+        let adapter = loopback_http::parse_request_head(
             "GET /adapter/oauth/callback?code=123&state=abc HTTP/1.1\r\nHost: 127.0.0.1:4444\r\n\r\n",
         )
         .expect("adapter request");
-        assert_eq!(adapter.path, ADAPTER_CALLBACK_PATH);
+        assert_eq!(adapter.path(), ADAPTER_CALLBACK_PATH);
         assert_eq!(
             adapter.callback_url("127.0.0.1:4444"),
             "http://127.0.0.1:4444/adapter/oauth/callback?code=123&state=abc"
         );
 
-        let provider = parse_request_head(
+        let provider = loopback_http::parse_request_head(
             "GET /provider/oauth/callback/abcdEFGH01234567ijklMNOP89012345?code=123 HTTP/1.1\r\nHost: 127.0.0.1:4444\r\n\r\n",
         )
         .expect("provider request");

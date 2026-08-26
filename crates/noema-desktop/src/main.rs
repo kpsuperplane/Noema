@@ -9,6 +9,7 @@ mod desktop_profile;
 mod desktop_state;
 mod external_url;
 mod graphql_ipc;
+mod loopback_http;
 mod mcp_oauth_callback;
 mod remote_graphql;
 mod remote_oauth;

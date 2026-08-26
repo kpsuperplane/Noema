@@ -9,11 +9,14 @@ use oauth2::{
 };
 use ring::rand::{SecureRandom as _, SystemRandom};
 use tokio::{
-    io::{AsyncReadExt as _, AsyncWriteExt as _},
+    io::AsyncWriteExt as _,
     net::{TcpListener, TcpStream},
 };
 
-use crate::desktop_profile::{RemoteMetadata, RemoteProfile};
+use crate::{
+    desktop_profile::{RemoteMetadata, RemoteProfile},
+    loopback_http,
+};
 
 const CALLBACK_PATH: &str = "/oauth/callback";
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
@@ -156,41 +159,16 @@ async fn read_callback(
     stream: &mut TcpStream,
     redirect: &str,
 ) -> Result<(AuthorizationCode, CsrfToken), String> {
-    let mut input = Vec::with_capacity(1024);
-    loop {
-        let mut chunk = [0_u8; 1024];
-        let read = stream
-            .read(&mut chunk)
-            .await
-            .map_err(|_| "Noema could not read the sign-in response.".to_string())?;
-        if read == 0 || input.len() + read > MAX_CALLBACK_BYTES {
-            return Err("Noema received an invalid sign-in response.".to_string());
-        }
-        input.extend_from_slice(&chunk[..read]);
-        if input.windows(4).any(|window| window == b"\r\n\r\n") {
-            break;
-        }
-    }
-    let request = std::str::from_utf8(&input)
+    let request = loopback_http::read_request_head(stream, MAX_CALLBACK_BYTES)
+        .await
         .map_err(|_| "Noema received an invalid sign-in response.".to_string())?;
-    let mut fields = request
-        .lines()
-        .next()
-        .ok_or_else(|| "Noema received an invalid sign-in response.".to_string())?
-        .split_whitespace();
-    if fields.next() != Some("GET") {
-        return Err("Noema received an invalid sign-in response.".to_string());
-    }
-    let target = fields
-        .next()
-        .ok_or_else(|| "Noema received an invalid sign-in response.".to_string())?;
-    if fields.next() != Some("HTTP/1.1") || fields.next().is_some() {
+    if request.method != "GET" {
         return Err("Noema received an invalid sign-in response.".to_string());
     }
     let base = url::Url::parse(redirect)
         .map_err(|_| "Noema received an invalid sign-in response.".to_string())?;
     let callback = base
-        .join(target)
+        .join(&request.target)
         .map_err(|_| "Noema received an invalid sign-in response.".to_string())?;
     if callback.origin() != base.origin()
         || callback.path() != CALLBACK_PATH
