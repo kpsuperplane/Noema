@@ -15,7 +15,6 @@ impl RuntimeActor {
             mut continuation_context,
             mut continuation_tool_results,
             waiting_for_interaction,
-            mut citation_sources,
         } = continuation;
         if waiting_for_interaction {
             self.update_conversation_agent_status(
@@ -53,7 +52,6 @@ impl RuntimeActor {
                     &mut continuation_context,
                     next_output_index,
                     reason,
-                    &mut citation_sources,
                     continuation_step_number,
                     item_tx,
                     timing,
@@ -107,7 +105,6 @@ impl RuntimeActor {
                                     &mut continuation_context,
                                     next_output_index,
                                     "progress audit requested final answer",
-                                    &mut citation_sources,
                                     continuation_step_number,
                                     item_tx,
                                     timing,
@@ -157,7 +154,6 @@ impl RuntimeActor {
                             &mut continuation_context,
                             next_output_index,
                             &message,
-                            &mut citation_sources,
                             continuation_step_number,
                             item_tx,
                             timing,
@@ -530,7 +526,6 @@ impl RuntimeActor {
                             output_index: Some(continuation_output_base + offset),
                         },
                         response_item,
-                        &citation_sources,
                         &mut continuation_assistant_response,
                         item_tx,
                     )
@@ -794,7 +789,6 @@ impl RuntimeActor {
             next_output_index,
             task_handoff,
             !continuation_tool_results.is_empty(),
-            &mut citation_sources,
             next_provider_round_index,
             item_tx,
             timing,

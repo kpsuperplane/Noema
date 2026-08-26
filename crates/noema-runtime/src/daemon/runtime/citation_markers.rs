@@ -20,9 +20,6 @@ struct CitationSource {
     url: String,
 }
 
-#[derive(Debug, Default)]
-pub(crate) struct CitationSourceRegistry;
-
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct NormalizedCitationText {
     pub(crate) text: String,
@@ -37,119 +34,112 @@ pub fn project_task_result(text: &str) -> (String, Vec<GenerateCitation>) {
     (decoded.text, decoded.citations)
 }
 
-impl CitationSourceRegistry {
-    pub(crate) fn normalize(
-        &self,
-        text: &str,
-        existing: &[GenerateCitation],
-    ) -> NormalizedCitationText {
-        let (text, existing) = strip_links(text, existing);
-        let mut normalized = String::with_capacity(text.len());
-        let mut removals = Vec::new();
-        let mut citations = Vec::new();
-        let mut unresolved = Vec::new();
-        let mut remaining = text.as_str();
-        let mut raw_utf16 = 0;
-        let mut seen = HashSet::new();
+pub(crate) fn normalize(text: &str, existing: &[GenerateCitation]) -> NormalizedCitationText {
+    let (text, existing) = strip_links(text, existing);
+    let mut normalized = String::with_capacity(text.len());
+    let mut removals = Vec::new();
+    let mut citations = Vec::new();
+    let mut unresolved = Vec::new();
+    let mut remaining = text.as_str();
+    let mut raw_utf16 = 0;
+    let mut seen = HashSet::new();
 
-        while let Some(start) = remaining.find(MARKER_START) {
-            let prefix = &remaining[..start];
-            normalized.push_str(prefix);
-            raw_utf16 += prefix.encode_utf16().count();
-            let marker_body = &remaining[start + MARKER_START.len()..];
-            let Some(end) = marker_body.find(MARKER_END) else {
-                let end = marker_body
-                    .find(char::is_whitespace)
-                    .unwrap_or(marker_body.len());
-                let malformed = &remaining[start..start + MARKER_START.len() + end];
-                normalized.push_str(malformed);
-                let length = malformed.encode_utf16().count();
-                unresolved.push(marker_body[..end].to_string());
-                raw_utf16 += length;
-                remaining = &marker_body[end..];
-                continue;
-            };
-            let marker =
-                &remaining[start..start + MARKER_START.len() + end + MARKER_END.len_utf8()];
-            let marker_end = raw_utf16 + marker.encode_utf16().count();
-            let citation_end = normalized.encode_utf16().count();
-            let references = marker_body[..end]
-                .split(MARKER_SEPARATOR)
-                .filter(|reference| !reference.is_empty())
-                .collect::<Vec<_>>();
-            let annotation_resolves_marker = existing.iter().any(|citation| {
-                citation
-                    .start_index
-                    .zip(citation.end_index)
-                    .is_some_and(|(start, end)| start < marker_end && end > raw_utf16)
-            });
-            let resolved_sources = references
-                .iter()
-                .filter_map(|reference| self.source(reference))
-                .collect::<Vec<_>>();
-            if annotation_resolves_marker || resolved_sources.len() == references.len() {
-                for source in resolved_sources {
-                    if seen.insert((source.url.clone(), citation_end)) {
-                        citations.push(GenerateCitation {
-                            title: source.title,
-                            url: source.url,
-                            start_index: None,
-                            end_index: Some(citation_end),
-                        });
-                    }
-                }
-                removals.push((raw_utf16, marker_end));
-            } else {
-                normalized.push_str(marker);
-                unresolved.extend(
-                    references
-                        .into_iter()
-                        .filter(|reference| self.source(reference).is_none())
-                        .map(ToString::to_string),
-                );
-            }
-            raw_utf16 = marker_end;
-            remaining = &remaining[start + marker.len()..];
-        }
-        normalized.push_str(remaining);
-
-        citations.extend(existing.into_iter().map(|mut citation| {
-            citation.start_index = citation
-                .start_index
-                .map(|index| adjust_index(index, &removals));
-            citation.end_index = citation
-                .end_index
-                .map(|index| adjust_index(index, &removals));
+    while let Some(start) = remaining.find(MARKER_START) {
+        let prefix = &remaining[..start];
+        normalized.push_str(prefix);
+        raw_utf16 += prefix.encode_utf16().count();
+        let marker_body = &remaining[start + MARKER_START.len()..];
+        let Some(end) = marker_body.find(MARKER_END) else {
+            let end = marker_body
+                .find(char::is_whitespace)
+                .unwrap_or(marker_body.len());
+            let malformed = &remaining[start..start + MARKER_START.len() + end];
+            normalized.push_str(malformed);
+            let length = malformed.encode_utf16().count();
+            unresolved.push(marker_body[..end].to_string());
+            raw_utf16 += length;
+            remaining = &marker_body[end..];
+            continue;
+        };
+        let marker = &remaining[start..start + MARKER_START.len() + end + MARKER_END.len_utf8()];
+        let marker_end = raw_utf16 + marker.encode_utf16().count();
+        let citation_end = normalized.encode_utf16().count();
+        let references = marker_body[..end]
+            .split(MARKER_SEPARATOR)
+            .filter(|reference| !reference.is_empty())
+            .collect::<Vec<_>>();
+        let annotation_resolves_marker = existing.iter().any(|citation| {
             citation
-        }));
-        NormalizedCitationText {
-            text: normalized,
-            citations,
-            unresolved_references: unresolved,
+                .start_index
+                .zip(citation.end_index)
+                .is_some_and(|(start, end)| start < marker_end && end > raw_utf16)
+        });
+        let resolved_sources = references
+            .iter()
+            .filter_map(|reference| citation_source(reference))
+            .collect::<Vec<_>>();
+        if annotation_resolves_marker || resolved_sources.len() == references.len() {
+            for source in resolved_sources {
+                if seen.insert((source.url.clone(), citation_end)) {
+                    citations.push(GenerateCitation {
+                        title: source.title,
+                        url: source.url,
+                        start_index: None,
+                        end_index: Some(citation_end),
+                    });
+                }
+            }
+            removals.push((raw_utf16, marker_end));
+        } else {
+            normalized.push_str(marker);
+            unresolved.extend(
+                references
+                    .into_iter()
+                    .filter(|reference| citation_source(reference).is_none())
+                    .map(ToString::to_string),
+            );
         }
+        raw_utf16 = marker_end;
+        remaining = &remaining[start + marker.len()..];
     }
+    normalized.push_str(remaining);
 
-    fn source(&self, reference: &str) -> Option<CitationSource> {
-        let url = Url::parse(reference).ok()?;
-        matches!(url.scheme(), "http" | "https").then(|| CitationSource {
-            title: url
-                .host_str()
-                .filter(|host| !host.is_empty())
-                .unwrap_or(reference)
-                .to_string(),
-            url: url.to_string(),
-        })
+    citations.extend(existing.into_iter().map(|mut citation| {
+        citation.start_index = citation
+            .start_index
+            .map(|index| adjust_index(index, &removals));
+        citation.end_index = citation
+            .end_index
+            .map(|index| adjust_index(index, &removals));
+        citation
+    }));
+    NormalizedCitationText {
+        text: normalized,
+        citations,
+        unresolved_references: unresolved,
     }
+}
 
-    pub(crate) fn normalize_task_result(&self, text: &str) -> NormalizedCitationText {
-        let decoded = decode_task_sources(text);
-        let mut normalized = self.normalize(&decoded.text, &decoded.citations);
-        normalized
-            .unresolved_references
-            .extend(decoded.unresolved_references);
-        normalized.text = encode_task_sources(&normalized.text, &normalized.citations);
-        normalized
-    }
+fn citation_source(reference: &str) -> Option<CitationSource> {
+    let url = Url::parse(reference).ok()?;
+    matches!(url.scheme(), "http" | "https").then(|| CitationSource {
+        title: url
+            .host_str()
+            .filter(|host| !host.is_empty())
+            .unwrap_or(reference)
+            .to_string(),
+        url: url.to_string(),
+    })
+}
+
+pub(crate) fn normalize_task_result(text: &str) -> NormalizedCitationText {
+    let decoded = decode_task_sources(text);
+    let mut normalized = normalize(&decoded.text, &decoded.citations);
+    normalized
+        .unresolved_references
+        .extend(decoded.unresolved_references);
+    normalized.text = encode_task_sources(&normalized.text, &normalized.citations);
+    normalized
 }
 
 fn decode_task_sources(text: &str) -> NormalizedCitationText {
@@ -402,13 +392,12 @@ fn utf16_slice(text: &str, start: usize, end: usize) -> Option<&str> {
 impl RuntimeActor {
     pub(super) fn normalize_provider_citation_text(
         &self,
-        registry: &CitationSourceRegistry,
         text: &str,
         existing: &[GenerateCitation],
         scope_kind: &'static str,
         scope_id: &str,
     ) -> NormalizedCitationText {
-        let normalized = registry.normalize(text, existing);
+        let normalized = normalize(text, existing);
         if !normalized.unresolved_references.is_empty() {
             self.system_errors.try_append(
                 SystemErrorEvent::new(
@@ -457,7 +446,7 @@ mod tests {
             start_index: Some(prefix.encode_utf16().count()),
             end_index: Some(text.encode_utf16().count()),
         };
-        let result = CitationSourceRegistry.normalize(&text, &[citation]);
+        let result = normalize(&text, &[citation]);
 
         assert_eq!(result.text, prefix);
         assert_eq!(result.citations.len(), 1);
@@ -468,8 +457,7 @@ mod tests {
 
     #[test]
     fn preserves_unresolved_markers_without_inventing_sources() {
-        let result = CitationSourceRegistry
-            .normalize("claim \u{e200}cite\u{e202}turn1view1\u{e201} end", &[]);
+        let result = normalize("claim \u{e200}cite\u{e202}turn1view1\u{e201} end", &[]);
 
         assert_eq!(
             result.text,
@@ -481,7 +469,7 @@ mod tests {
 
     #[test]
     fn resolves_direct_https_markers_without_fetching() {
-        let result = CitationSourceRegistry.normalize(
+        let result = normalize(
             "claim \u{e200}cite\u{e202}https://example.com/news?id=1\u{e201}",
             &[],
         );
@@ -505,7 +493,7 @@ mod tests {
             end_index: Some(text.encode_utf16().count()),
         };
 
-        let result = CitationSourceRegistry.normalize(&text, &[existing]);
+        let result = normalize(&text, &[existing]);
 
         assert_eq!(result.text, "claim tail");
         assert_eq!(result.citations.len(), 1);
@@ -528,7 +516,7 @@ mod tests {
             end_index: Some(end),
         };
 
-        let stripped = CitationSourceRegistry.normalize(
+        let stripped = normalize(
             &suffix,
             &[citation(suffix_start, suffix.encode_utf16().count())],
         );
@@ -537,12 +525,11 @@ mod tests {
         assert_eq!(stripped.citations[0].end_index, Some(9));
 
         let leading = format!("([one.example]({url}))");
-        let stripped = CitationSourceRegistry
-            .normalize(&leading, &[citation(0, leading.encode_utf16().count())]);
+        let stripped = normalize(&leading, &[citation(0, leading.encode_utf16().count())]);
         assert_eq!(stripped.text, "");
         assert_eq!(stripped.citations[0].end_index, Some(0));
 
-        let preserved = CitationSourceRegistry.normalize(
+        let preserved = normalize(
             &requested,
             &[citation(requested_start, requested.len() - 1)],
         );
@@ -550,20 +537,16 @@ mod tests {
     }
     #[test]
     fn task_result_merges_durable_and_provider_sources() {
-        let registry = CitationSourceRegistry;
         let marker =
             "\u{e200}cite\u{e202}https://old.example/a\u{e202}https://new.example/b\u{e201}";
         let input = format!(
             "Old[^noema-source-1]. New{marker}\n\n[^note]: keep\n[^noema-source-1]: [Old](<https://old.example/a>)\n"
         );
-        let result = registry.normalize_task_result(&input);
+        let result = normalize_task_result(&input);
         assert_eq!(
             result.text,
             "Old[^noema-source-1]. New[^noema-source-1][^noema-source-2]\n\n[^note]: keep\n\n[^noema-source-1]: [Old](<https://old.example/a>)\n[^noema-source-2]: [new.example](<https://new.example/b>)\n"
         );
-        assert_eq!(
-            registry.normalize_task_result(&result.text).text,
-            result.text
-        );
+        assert_eq!(normalize_task_result(&result.text).text, result.text);
     }
 }

@@ -108,7 +108,6 @@ impl RuntimeActor {
         response: GenerateResponse,
     ) -> Result<usize, RuntimeError> {
         let mut persisted_count = 0usize;
-        let citation_sources = CitationSourceRegistry;
         for output in response.assistant_response_texts() {
             let index = output.response_index;
             let metadata = json!({
@@ -126,7 +125,6 @@ impl RuntimeActor {
                         "item:assistant:{}:{index}",
                         turn_id.strip_prefix("turn:").unwrap_or(turn_id)
                     )),
-                    &citation_sources,
                     output.text.to_string(),
                     output.citations,
                     "agent_onboarding",

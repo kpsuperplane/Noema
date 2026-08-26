@@ -9,7 +9,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     daemon::runtime::{
-        BackgroundTaskGenerateRequest, BackgroundTaskGenerateResult, CitationSourceRegistry,
+        BackgroundTaskGenerateRequest, BackgroundTaskGenerateResult,
+        normalize_task_result as normalize_citations,
     },
     daemon::task_run_context::{
         ExecutorBlockedResponse, ExecutorFinishResponse, PlannerBlockedResponse,
@@ -68,7 +69,7 @@ pub(super) async fn execute_run(
         .await?
         {
             crate::acp::AcpRunOutcome::Terminal(terminal) => {
-                normalize_task_result(services, run, &CitationSourceRegistry).await?;
+                normalize_task_result(services, run).await?;
                 command_service
                     .record_work_run_terminal(
                         *terminal,
@@ -101,7 +102,7 @@ pub(super) async fn execute_run(
         fence.clone(),
     )
     .map_err(RuntimeError::Protocol)?;
-    normalize_task_result(services, run, &generated.citation_sources).await?;
+    normalize_task_result(services, run).await?;
     command_service
         .record_work_run_terminal(
             terminal,
@@ -117,7 +118,6 @@ pub(super) async fn execute_run(
 async fn normalize_task_result(
     services: &TaskRuntimeServices,
     run: &noema_tasks::AgentRunRecord,
-    citation_sources: &CitationSourceRegistry,
 ) -> Result<(), RuntimeError> {
     if run.run_kind != RunKind::Executor {
         return Ok(());
@@ -135,7 +135,7 @@ async fn normalize_task_result(
         }
         Err(error) => return Err(RuntimeError::Protocol(error.to_string())),
     };
-    let normalized = citation_sources.normalize_task_result(&current);
+    let normalized = normalize_citations(&current);
     if !normalized.unresolved_references.is_empty() {
         services.system_errors.try_append(
             noema_home::SystemErrorEvent::new(
@@ -468,9 +468,7 @@ mod tests {
             )
             .await
             .unwrap();
-        normalize_task_result(&services, &run, &CitationSourceRegistry)
-            .await
-            .unwrap();
+        normalize_task_result(&services, &run).await.unwrap();
         assert_eq!(
             store
                 .read_task_file(&task.task_id, noema_store::TASK_RESULT)
@@ -482,7 +480,6 @@ mod tests {
         assert!(error_log.contains("provider_citation_unresolved"));
         assert!(error_log.contains("turn1view0"));
         assert!(error_log.contains("broken"));
-        let registry = CitationSourceRegistry;
         let marker = "\u{e200}cite\u{e202}https://example.com/source\u{e201}";
         let current = format!(
             "{}{marker}",
@@ -492,11 +489,7 @@ mod tests {
             .write_task_file(&task.task_id, noema_store::TASK_RESULT, &current)
             .await
             .unwrap();
-        assert!(
-            normalize_task_result(&services, &run, &registry)
-                .await
-                .is_err()
-        );
+        assert!(normalize_task_result(&services, &run).await.is_err());
         assert_eq!(
             store
                 .read_task_file(&task.task_id, noema_store::TASK_RESULT)

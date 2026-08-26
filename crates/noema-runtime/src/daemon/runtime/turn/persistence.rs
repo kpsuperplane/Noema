@@ -65,7 +65,6 @@ impl RuntimeActor {
             &turn.response.reasoning_items,
         )
         .await?;
-        let citation_sources = CitationSourceRegistry;
         let mut initial_assistant_response = ProviderAssistantResponse::default();
         let initial_tool_calls = local_tool_calls(&turn.response.tool_calls);
         let initial_tool_description = single_tool_display_description(
@@ -91,7 +90,6 @@ impl RuntimeActor {
                         output_index: Some(index),
                     },
                     response_item,
-                    &citation_sources,
                     &mut initial_assistant_response,
                     item_tx,
                 )
@@ -294,7 +292,6 @@ impl RuntimeActor {
             continuation_context,
             continuation_tool_results,
             waiting_for_interaction,
-            citation_sources,
         })
     }
 }

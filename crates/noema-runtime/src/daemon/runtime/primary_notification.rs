@@ -10,7 +10,6 @@ use serde_json::{Map, Value, json};
 
 use super::{
     actor::RuntimeActor,
-    citation_markers::CitationSourceRegistry,
     prompt_context::{PromptPlanRequest, plan_prompt_context_with_input_role},
 };
 use crate::daemon::{ConversationRuntimeEvent, RuntimeError, TurnStreamEvent, TurnTranscriptItem};
@@ -214,7 +213,6 @@ impl RuntimeActor {
         .await?;
 
         let mut text_count = 0;
-        let citation_sources = CitationSourceRegistry;
         for output in response.assistant_response_texts() {
             let response_index = output.response_index;
             let mut metadata = notification.metadata.clone();
@@ -250,7 +248,6 @@ impl RuntimeActor {
                         "item:assistant:{}:{response_index}",
                         turn.turn_id.strip_prefix("turn:").unwrap_or(&turn.turn_id)
                     )),
-                    &citation_sources,
                     output.text.to_string(),
                     output.citations,
                     notification.source,

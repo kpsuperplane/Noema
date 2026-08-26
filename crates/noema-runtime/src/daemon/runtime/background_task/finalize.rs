@@ -9,7 +9,6 @@ impl RuntimeActor {
         capabilities: ProviderToolCapabilities,
         provider_session: &mut dyn noema_providers::ProviderGenerationSession,
         context: &mut ContinuationContext,
-        citation_sources: &mut CitationSourceRegistry,
         _provider_round: usize,
         reason: &str,
         deadline: tokio::time::Instant,
@@ -196,11 +195,7 @@ impl RuntimeActor {
             &run_fence,
         )
         .await;
-        let citation_sources = std::mem::take(citation_sources);
-        Ok(BackgroundTaskGenerateResult {
-            response,
-            citation_sources,
-        })
+        Ok(BackgroundTaskGenerateResult { response })
     }
 
     async fn persist_progress_notice(

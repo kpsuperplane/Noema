@@ -88,7 +88,6 @@ impl RuntimeActor {
                 && capabilities.parallel_tool_calls,
         };
         admit_uncompacted_request(provider, &initial_request).await?;
-        let mut citation_sources = CitationSourceRegistry;
         let mut checkpoint_current = true;
         let mut next_provider_round = 0;
         let initial_response = self
@@ -123,7 +122,6 @@ impl RuntimeActor {
                         capabilities,
                         provider_session.as_mut(),
                         &mut context,
-                        &mut citation_sources,
                         next_provider_round,
                         "task active wall-time safety ceiling reached",
                         deadline,
@@ -156,7 +154,6 @@ impl RuntimeActor {
                         capabilities,
                         provider_session.as_mut(),
                         &mut context,
-                        &mut citation_sources,
                         next_provider_round,
                         "model returned without the required terminal tool",
                         deadline,
@@ -195,7 +192,6 @@ impl RuntimeActor {
                         capabilities,
                         provider_session.as_mut(),
                         &mut context,
-                        &mut citation_sources,
                         next_provider_round,
                         "task active wall-time safety ceiling reached",
                         deadline,
@@ -225,7 +221,6 @@ impl RuntimeActor {
                         capabilities,
                         provider_session.as_mut(),
                         &mut context,
-                        &mut citation_sources,
                         next_provider_round,
                         "task tool-call safety ceiling reached",
                         deadline,
@@ -332,7 +327,6 @@ impl RuntimeActor {
                                 capabilities,
                                 provider_session.as_mut(),
                                 &mut context,
-                                &mut citation_sources,
                                 next_provider_round,
                                 "task active wall-time safety ceiling reached",
                                 deadline,
@@ -442,10 +436,7 @@ impl RuntimeActor {
                 .any(|result| result.requires_provider_continuation)
             {
                 response.usage = aggregate_usage;
-                return Ok(BackgroundTaskGenerateResult {
-                    response,
-                    citation_sources,
-                });
+                return Ok(BackgroundTaskGenerateResult { response });
             }
             let continuation_step = continuation_index + 1;
             progress.mark_continuation_step(continuation_step);
@@ -479,7 +470,6 @@ impl RuntimeActor {
                             capabilities,
                             provider_session.as_mut(),
                             &mut context,
-                            &mut citation_sources,
                             next_provider_round,
                             "task active wall-time safety ceiling reached",
                             deadline,
@@ -516,7 +506,6 @@ impl RuntimeActor {
                                 capabilities,
                                 provider_session.as_mut(),
                                 &mut context,
-                                &mut citation_sources,
                                 next_provider_round,
                                 reason,
                                 deadline,
@@ -541,7 +530,6 @@ impl RuntimeActor {
                         capabilities,
                         provider_session.as_mut(),
                         &mut context,
-                        &mut citation_sources,
                         next_provider_round,
                         "maximum provider tool continuations reached",
                         deadline,
@@ -606,7 +594,6 @@ impl RuntimeActor {
                         capabilities,
                         provider_session.as_mut(),
                         &mut context,
-                        &mut citation_sources,
                         next_provider_round,
                         "task active wall-time safety ceiling reached",
                         deadline,
@@ -702,7 +689,6 @@ impl RuntimeActor {
                             capabilities,
                             provider_session.as_mut(),
                             &mut context,
-                            &mut citation_sources,
                             next_provider_round,
                             "task active wall-time safety ceiling reached",
                             deadline,

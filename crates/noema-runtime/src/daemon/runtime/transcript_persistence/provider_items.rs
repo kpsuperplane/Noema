@@ -3,7 +3,6 @@ impl RuntimeActor {
     pub(super) async fn persist_provider_assistant_text(
         &mut self,
         stable_item_id: Option<String>,
-        citation_sources: &CitationSourceRegistry,
         provider_text: String,
         citations: &[GenerateCitation],
         scope_kind: &'static str,
@@ -11,7 +10,6 @@ impl RuntimeActor {
         mut item: NewConversationItem,
     ) -> Result<Option<(ConversationItemRecord, bool)>, RuntimeError> {
         let normalized = self.normalize_provider_citation_text(
-            citation_sources,
             &provider_text,
             citations,
             scope_kind,
@@ -100,7 +98,6 @@ impl RuntimeActor {
         turn: &ProviderActionTurn,
         position: ProviderResponsePosition,
         item: noema_providers::AssistantResponseText<'_>,
-        citation_sources: &CitationSourceRegistry,
         assistant_response: &mut ProviderAssistantResponse,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), RuntimeError> {
@@ -136,7 +133,6 @@ impl RuntimeActor {
         let Some((assistant_item, inserted)) = self
             .persist_provider_assistant_text(
                 Some(stable_item_id),
-                citation_sources,
                 provider_text,
                 item.citations,
                 "conversation_turn",

@@ -28,7 +28,6 @@ use tokio::sync::mpsc;
 
 use super::{
     actor::RuntimeActor,
-    citation_markers::CitationSourceRegistry,
     context_window::{ContextAdmission, RequestContext, admit_request, hard_overflow_error},
     continuation_context::ContinuationContext,
     interaction_lifecycle::resolved_interaction_tool_result_item,
@@ -342,7 +341,6 @@ struct ForegroundContinuationState {
     continuation_context: ContinuationContext,
     continuation_tool_results: Vec<LocalToolResult>,
     waiting_for_interaction: bool,
-    citation_sources: CitationSourceRegistry,
 }
 
 #[derive(Debug)]

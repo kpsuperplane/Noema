@@ -9,7 +9,6 @@ impl RuntimeActor {
         index: usize,
         task_handoff: bool,
         has_pending_results: bool,
-        citation_sources: &mut CitationSourceRegistry,
         provider_round_index: usize,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
         timing: &TurnTiming,
@@ -28,7 +27,6 @@ impl RuntimeActor {
                 context,
                 index,
                 reason,
-                citation_sources,
                 provider_round_index,
                 item_tx,
                 timing,
@@ -46,7 +44,6 @@ impl RuntimeActor {
         context: &mut ContinuationContext,
         index: usize,
         reason: &str,
-        citation_sources: &mut CitationSourceRegistry,
         provider_round_index: usize,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
         timing: &TurnTiming,
@@ -208,7 +205,6 @@ impl RuntimeActor {
                     output_index: Some(index + offset),
                 },
                 response_item,
-                citation_sources,
                 &mut assistant_response,
                 item_tx,
             )
@@ -233,7 +229,6 @@ impl RuntimeActor {
         let Some((assistant_item, _)) = self
             .persist_provider_assistant_text(
                 None,
-                &CitationSourceRegistry,
                 summary.to_string(),
                 &[],
                 "progress_audit",

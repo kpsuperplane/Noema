@@ -23,7 +23,6 @@ use noema_providers::{
 
 use super::{
     actor::RuntimeActor,
-    citation_markers::CitationSourceRegistry,
     context_window::{ContextAdmission, RequestContext, admit_request, hard_overflow_error},
     continuation_context::ContinuationContext,
     local_tool_results::{LocalToolKind, LocalToolResult},
@@ -82,7 +81,6 @@ pub(crate) struct BackgroundTaskGenerateRequest {
 #[derive(Debug)]
 pub(crate) struct BackgroundTaskGenerateResult {
     pub(crate) response: GenerateResponse,
-    pub(crate) citation_sources: CitationSourceRegistry,
 }
 
 impl BackgroundTaskGenerateRequest {
