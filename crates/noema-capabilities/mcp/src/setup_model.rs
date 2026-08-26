@@ -1,6 +1,6 @@
 //! Transport-neutral MCP setup commands and result models.
 
-use std::{collections::BTreeMap, fmt};
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -67,7 +67,7 @@ impl McpSetupTransportConfig {
 }
 
 /// Add and verify one MCP server without persisting it before discovery succeeds.
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CreateMcpServerCommand {
     /// Human-visible server name.
     pub display_name: String,
@@ -79,20 +79,8 @@ pub struct CreateMcpServerCommand {
     pub auth_preference: McpSetupAuthPreference,
 }
 
-impl fmt::Debug for CreateMcpServerCommand {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("CreateMcpServerCommand")
-            .field("display_name", &self.display_name)
-            .field("transport", &self.transport)
-            .field("secrets", &self.secrets)
-            .field("auth_preference", &self.auth_preference)
-            .finish()
-    }
-}
-
 /// Add a fresh connection to one explicitly selected MCP definition revision.
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AddMcpConnectionCommand {
     /// Stable definition selected by the human.
     pub mcp_definition_id: String,
@@ -106,22 +94,6 @@ pub struct AddMcpConnectionCommand {
     pub auth_preference: McpSetupAuthPreference,
 }
 
-impl fmt::Debug for AddMcpConnectionCommand {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("AddMcpConnectionCommand")
-            .field("mcp_definition_id", &self.mcp_definition_id)
-            .field(
-                "expected_definition_revision",
-                &self.expected_definition_revision,
-            )
-            .field("connection_label", &self.connection_label)
-            .field("secrets", &self.secrets)
-            .field("auth_preference", &self.auth_preference)
-            .finish()
-    }
-}
-
 /// Authentication behavior for an otherwise successful anonymous setup.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum McpSetupAuthPreference {
@@ -133,22 +105,12 @@ pub enum McpSetupAuthPreference {
 }
 
 /// Update secret material for an existing server and retry discovery.
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ContinueMcpServerSetupCommand {
     /// Durable MCP server identifier.
     pub mcp_server_id: String,
     /// Secret entries to merge into the server's current secret material.
     pub secrets: McpSecretMaterial,
-}
-
-impl fmt::Debug for ContinueMcpServerSetupCommand {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ContinueMcpServerSetupCommand")
-            .field("mcp_server_id", &self.mcp_server_id)
-            .field("secrets", &self.secrets)
-            .finish()
-    }
 }
 
 /// High-level guided setup status.
