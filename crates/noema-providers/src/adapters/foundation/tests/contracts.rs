@@ -55,7 +55,6 @@ fn foundation_local_advertises_native_tool_transport() {
     let capabilities = test_provider("default", None).tool_capabilities(Some("default"));
     assert_eq!(capabilities.tool_transport, ProviderToolTransport::Native);
     assert!(!capabilities.parallel_tool_calls);
-    assert!(!capabilities.tool_choice);
     assert!(!capabilities.allowed_tools);
     assert!(capabilities.native_tool_results);
     assert_eq!(

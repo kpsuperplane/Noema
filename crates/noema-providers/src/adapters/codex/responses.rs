@@ -16,9 +16,8 @@ use crate::{
     CodexProviderConfig, DEFAULT_CODEX_MODEL, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest,
     GenerateResponse, GenerateStreamEvent, ModelProvider, ProviderContextMetadata, ProviderError,
     ProviderGenerationFuture, ProviderGenerationMetadata, ProviderGenerationSession,
-    ProviderResponseContinuation, ProviderSchemaRequest, ProviderSchemaRequestCapabilities,
-    ProviderSessionInput, ProviderToolCapabilities, ProviderToolSchemaDialect,
-    ProviderToolTransport,
+    ProviderResponseContinuation, ProviderSessionInput, ProviderToolCapabilities,
+    ProviderToolSchemaDialect, ProviderToolTransport,
 };
 use noema_home::SystemErrorLogger;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
@@ -203,10 +202,6 @@ fn normalize_config(mut config: CodexProviderConfig) -> Result<CodexProviderConf
         (!version.is_empty()).then_some(version)
     });
     Ok(config)
-}
-
-fn codex_encrypted_reasoning_supported() -> bool {
-    false
 }
 
 impl CodexResponsesProvider {
@@ -479,27 +474,15 @@ impl ModelProvider for CodexResponsesProvider {
         ProviderToolCapabilities {
             tool_transport: ProviderToolTransport::Native,
             parallel_tool_calls: true,
-            tool_choice: true,
             allowed_tools: false,
             schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
             request_strict_schema_when_possible: true,
-            custom_tools: false,
             native_tool_results: true,
             prompt_cache_retention: false,
             prompt_cache_key: true,
             prompt_cache_options: false,
             prompt_cache_breakpoints: false,
-            encrypted_reasoning: codex_encrypted_reasoning_supported(),
             hosted_web_provider_name: Some("OpenAI"),
-        }
-    }
-
-    fn schema_request_capabilities(
-        &self,
-        _model: Option<&str>,
-    ) -> ProviderSchemaRequestCapabilities {
-        ProviderSchemaRequestCapabilities {
-            native_tool_arguments: ProviderSchemaRequest::RequestStrictWhenPossible,
         }
     }
 

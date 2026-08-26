@@ -13,8 +13,8 @@ use crate::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
     ModelProvider, OpenRouterProviderConfig, ProviderAccountOperationsHandle,
     ProviderAccountPersistenceHandle, ProviderContextMetadata, ProviderError, ProviderModelProfile,
-    ProviderResponseContinuation, ProviderSchemaRequest, ProviderSchemaRequestCapabilities,
-    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
+    ProviderResponseContinuation, ProviderToolCapabilities, ProviderToolSchemaDialect,
+    ProviderToolTransport,
     chat_completions::{
         ChatCompletionRequest, ChatDiagnosticContext, ChatMessage, ChatTool, ChatTransport,
     },
@@ -265,27 +265,15 @@ impl ModelProvider for OpenRouterProvider {
         ProviderToolCapabilities {
             tool_transport: ProviderToolTransport::Native,
             parallel_tool_calls: true,
-            tool_choice: true,
             allowed_tools: false,
             schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
             request_strict_schema_when_possible: true,
-            custom_tools: false,
             native_tool_results: true,
             prompt_cache_retention: false,
             prompt_cache_key: true,
             prompt_cache_options: false,
             prompt_cache_breakpoints: false,
-            encrypted_reasoning: true,
             hosted_web_provider_name: Some("OpenRouter"),
-        }
-    }
-
-    fn schema_request_capabilities(
-        &self,
-        _model: Option<&str>,
-    ) -> ProviderSchemaRequestCapabilities {
-        ProviderSchemaRequestCapabilities {
-            native_tool_arguments: ProviderSchemaRequest::RequestStrictWhenPossible,
         }
     }
 

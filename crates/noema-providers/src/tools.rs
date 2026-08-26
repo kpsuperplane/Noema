@@ -113,16 +113,12 @@ pub struct ProviderToolCapabilities {
     pub tool_transport: ProviderToolTransport,
     /// Whether independent parallel tool calls are supported.
     pub parallel_tool_calls: bool,
-    /// Whether explicit tool choice is supported.
-    pub tool_choice: bool,
     /// Whether the provider can restrict calls to a subset of a stable catalog.
     pub allowed_tools: bool,
     /// Provider schema dialect for native tools.
     pub schema_dialect: ProviderToolSchemaDialect,
     /// Whether Noema can request strict schema handling after full conversion.
     pub request_strict_schema_when_possible: bool,
-    /// Whether provider custom tools are supported.
-    pub custom_tools: bool,
     /// Whether native tool-result messages are supported.
     pub native_tool_results: bool,
     /// Whether provider prompt-cache retention requests are supported.
@@ -133,8 +129,6 @@ pub struct ProviderToolCapabilities {
     pub prompt_cache_options: bool,
     /// Whether explicit prompt-cache breakpoints are supported on input content.
     pub prompt_cache_breakpoints: bool,
-    /// Whether provider requests support encrypted reasoning include/replay.
-    pub encrypted_reasoning: bool,
     /// Human-visible provider name when this provider/model supplies hosted
     /// web search and fetch instead of Noema's configured web tools.
     pub hosted_web_provider_name: Option<&'static str>,

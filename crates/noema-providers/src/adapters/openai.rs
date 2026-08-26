@@ -10,8 +10,8 @@ use crate::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
     ModelProvider, OpenAiProviderConfig, ProviderError, ProviderGenerationFuture,
     ProviderGenerationMetadata, ProviderGenerationSession, ProviderResponseContinuation,
-    ProviderSchemaRequestCapabilities, ProviderSessionInput, ProviderToolCapabilities,
-    ProviderToolSchemaDialect, ProviderToolTransport,
+    ProviderSessionInput, ProviderToolCapabilities, ProviderToolSchemaDialect,
+    ProviderToolTransport,
 };
 use noema_home::SystemErrorLogger;
 use reqwest::header::{HeaderMap, HeaderName};
@@ -198,26 +198,16 @@ impl ModelProvider for OpenAiProvider {
         ProviderToolCapabilities {
             tool_transport: ProviderToolTransport::Native,
             parallel_tool_calls: true,
-            tool_choice: true,
             allowed_tools: true,
             schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
             request_strict_schema_when_possible: true,
-            custom_tools: false,
             native_tool_results: true,
             prompt_cache_retention: !explicit_prompt_cache,
             prompt_cache_key: true,
             prompt_cache_options: explicit_prompt_cache,
             prompt_cache_breakpoints: explicit_prompt_cache,
-            encrypted_reasoning: true,
             hosted_web_provider_name: Some("OpenAI"),
         }
-    }
-
-    fn schema_request_capabilities(
-        &self,
-        _model: Option<&str>,
-    ) -> ProviderSchemaRequestCapabilities {
-        ProviderSchemaRequestCapabilities::request_strict_when_possible()
     }
 
     fn response_continuation(&self, _model: Option<&str>) -> ProviderResponseContinuation {

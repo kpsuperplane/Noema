@@ -521,7 +521,6 @@ mod tests {
             ProviderToolCapabilities {
                 tool_transport: ProviderToolTransport::Native,
                 parallel_tool_calls: true,
-                tool_choice: true,
                 schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
                 native_tool_results: true,
                 ..ProviderToolCapabilities::default()
@@ -574,7 +573,6 @@ mod tests {
                 ProviderToolCapabilities {
                     tool_transport: ProviderToolTransport::Native,
                     parallel_tool_calls: true,
-                    tool_choice: true,
                     schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
                     native_tool_results: true,
                     ..ProviderToolCapabilities::default()

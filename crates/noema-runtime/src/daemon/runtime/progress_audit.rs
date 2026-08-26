@@ -249,7 +249,6 @@ mod tests {
                 tool_transport: ProviderToolTransport::Native,
                 schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
                 allowed_tools: true,
-                tool_choice: true,
                 request_strict_schema_when_possible: true,
                 ..ProviderToolCapabilities::default()
             }

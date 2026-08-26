@@ -11,9 +11,8 @@ use tokio::sync::Mutex;
 use crate::{
     FoundationLocalProviderConfig, GenerateInput, GenerateRequest, GenerateResponse,
     GenerateResponseItem, GenerateStreamEvent, GenerateToolCall, ModelProvider,
-    ProviderContextMetadata, ProviderError, ProviderResponseContinuation, ProviderSchemaRequest,
-    ProviderSchemaRequestCapabilities, ProviderTool, ProviderToolCapabilities,
-    ProviderToolSchemaDialect, ProviderToolTransport,
+    ProviderContextMetadata, ProviderError, ProviderResponseContinuation, ProviderTool,
+    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
 };
 
 use super::{
@@ -232,21 +231,11 @@ impl ModelProvider for FoundationLocalProvider {
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities {
             tool_transport: ProviderToolTransport::Native,
-            tool_choice: false,
             allowed_tools: false,
             schema_dialect: ProviderToolSchemaDialect::FoundationLocal,
             request_strict_schema_when_possible: true,
             native_tool_results: true,
             ..ProviderToolCapabilities::default()
-        }
-    }
-
-    fn schema_request_capabilities(
-        &self,
-        _model: Option<&str>,
-    ) -> ProviderSchemaRequestCapabilities {
-        ProviderSchemaRequestCapabilities {
-            native_tool_arguments: ProviderSchemaRequest::RequestStrictWhenPossible,
         }
     }
 
