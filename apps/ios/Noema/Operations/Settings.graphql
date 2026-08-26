@@ -242,8 +242,6 @@ query SettingsSnapshot {
         sha256
         downloadGb
         backends
-        minRamGb
-        minVramGb
       }
       hardwareFit {
         backend
@@ -286,8 +284,6 @@ query SettingsSnapshot {
       sha256
       downloadGb
       backends
-      minRamGb
-      minVramGb
     }
     hardwareFit {
       backend

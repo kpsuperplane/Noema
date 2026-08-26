@@ -6,7 +6,7 @@
 
 nonisolated public struct NativeLocalModelCatalogEntryFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment NativeLocalModelCatalogEntryFields on LocalModelCatalogEntry { __typename modelId name license priority repo revision isRecommended compatibleBackend selectedBuild { __typename file sha256 downloadGb backends minRamGb minVramGb } hardwareFit { __typename backend ramGb vramGb unifiedMemory explanation } }"#
+    #"fragment NativeLocalModelCatalogEntryFields on LocalModelCatalogEntry { __typename modelId name license priority repo revision isRecommended compatibleBackend selectedBuild { __typename file sha256 downloadGb backends } hardwareFit { __typename backend ramGb vramGb unifiedMemory explanation } }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -65,8 +65,6 @@ nonisolated public struct NativeLocalModelCatalogEntryFields: NoemaAPI.Selection
       .field("sha256", String.self),
       .field("downloadGb", Double.self),
       .field("backends", [GraphQLEnum<NoemaAPI.LocalModelBackend>].self),
-      .field("minRamGb", Int.self),
-      .field("minVramGb", Int?.self),
     ] }
     @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
       NativeLocalModelCatalogEntryFields.SelectedBuild.self
@@ -80,10 +78,6 @@ nonisolated public struct NativeLocalModelCatalogEntryFields: NoemaAPI.Selection
     public var downloadGb: Double { __data["downloadGb"] }
     /// Backends compatible with this artifact.
     public var backends: [GraphQLEnum<NoemaAPI.LocalModelBackend>] { __data["backends"] }
-    /// Minimum system or unified memory in whole gigabytes.
-    public var minRamGb: Int { __data["minRamGb"] }
-    /// Minimum discrete or unified accelerator memory in whole gigabytes.
-    public var minVramGb: Int? { __data["minVramGb"] }
   }
 
   /// HardwareFit

@@ -113,7 +113,6 @@ async fn visible_conversation_transcript_page(
         page_info: GraphqlConversationTranscriptPageInfo {
             before_cursor: page.before_cursor,
             has_more_before: page.has_more_before,
-            limit: i32::try_from(page.limit).unwrap_or(i32::MAX),
         },
     })
 }

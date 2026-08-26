@@ -156,7 +156,6 @@ export const ConversationTranscriptPageFields = gql`
     pageInfo {
       beforeCursor
       hasMoreBefore
-      limit
     }
   }
   ${ConversationItemFields}

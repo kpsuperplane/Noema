@@ -157,7 +157,6 @@ fn tasks_schema_exposes_exact_detail_attention_and_closed_vocabularies() {
         "messages: [TaskMessage!]!",
         "runs: [TaskRun!]!",
         "contributorInstanceNames: [String!]!",
-        "artifacts: [Artifact!]!",
         "task: TaskCard!",
         "gate: TaskGate",
     ] {

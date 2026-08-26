@@ -63,7 +63,6 @@ fragment NativeConversationPageFields on ConversationTranscriptPage {
   pageInfo {
     beforeCursor
     hasMoreBefore
-    limit
   }
 }
 
@@ -294,10 +293,7 @@ query PendingChatInterventions($conversationId: String, $taskId: String, $projec
     ... on McpAuthenticationIntervention {
       requestId
       revision
-      mcpAuthConversationId: conversationId
       taskId
-      runId
-      mcpAuthServerId: mcpServerId
       serverDisplayName
       capabilityName
       mcpAuthState: state
@@ -306,10 +302,7 @@ query PendingChatInterventions($conversationId: String, $taskId: String, $projec
     ... on AdapterAuthenticationIntervention {
       requestId
       revision
-      adapterAuthConversationId: conversationId
       taskId
-      runId
-      adapterConnectionId
       serviceDisplayName
       capabilityName
       adapterAuthState: state
@@ -317,7 +310,6 @@ query PendingChatInterventions($conversationId: String, $taskId: String, $projec
     }
     ... on McpSetupIntervention {
       itemId
-      setupConversationId: conversationId
       setupStatus
       displayName
       description

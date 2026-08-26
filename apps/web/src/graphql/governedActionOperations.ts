@@ -77,17 +77,13 @@ export const HumanInterventionFields = gql`
       ... on McpAuthenticationIntervention {
         requestId
         revision
-        conversationId
         taskId
-        runId
-        mcpServerId
         serverDisplayName
         capabilityName
         failureCode
       }
       ... on McpSetupIntervention {
         itemId
-        setupConversationId: conversationId
         setupStatus
         displayName
         description
@@ -103,10 +99,7 @@ export const HumanInterventionFields = gql`
       ... on AdapterAuthenticationIntervention {
         requestId
         revision
-        conversationId
         taskId
-        runId
-        adapterConnectionId
         serviceDisplayName
         capabilityName
         state

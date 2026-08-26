@@ -44,10 +44,7 @@ pub enum GraphqlMcpAuthenticationRequestState {
 pub struct GraphqlMcpAuthenticationIntervention {
     pub request_id: String,
     pub revision: u64,
-    pub conversation_id: Option<String>,
     pub task_id: Option<String>,
-    pub run_id: Option<String>,
-    pub mcp_server_id: String,
     pub server_display_name: String,
     pub capability_name: String,
     pub state: GraphqlMcpAuthenticationRequestState,
@@ -60,11 +57,7 @@ pub struct GraphqlMcpAuthenticationIntervention {
 pub struct GraphqlAdapterAuthenticationIntervention {
     pub request_id: String,
     pub revision: u64,
-    pub conversation_id: Option<String>,
     pub task_id: Option<String>,
-    pub run_id: Option<String>,
-    pub adapter_connection_id: String,
-    pub grant_id: Option<String>,
     pub service_display_name: String,
     pub capability_name: String,
     pub state: GraphqlMcpAuthenticationRequestState,
@@ -76,7 +69,6 @@ pub struct GraphqlAdapterAuthenticationIntervention {
 #[graphql(name = "McpSetupIntervention")]
 pub struct GraphqlMcpSetupIntervention {
     pub item_id: String,
-    pub conversation_id: String,
     pub setup_status: String,
     pub display_name: String,
     pub description: Option<String>,
@@ -355,12 +347,7 @@ async fn pending_mcp_setups(
             if server.is_some_and(mcp_server_policy_configured) {
                 return None;
             }
-            GraphqlMcpSetupIntervention::from_stored(
-                item.item_id,
-                item.conversation_id,
-                setup,
-                server,
-            )
+            GraphqlMcpSetupIntervention::from_stored(item.item_id, setup, server)
         })
         .collect())
 }
@@ -503,7 +490,6 @@ fn mcp_server_policy_configured(server: &McpServerRecord) -> bool {
 impl GraphqlMcpSetupIntervention {
     fn from_stored(
         item_id: String,
-        conversation_id: String,
         setup: StoredMcpSetup,
         server: Option<&McpServerRecord>,
     ) -> Option<Self> {
@@ -520,7 +506,6 @@ impl GraphqlMcpSetupIntervention {
         }
         Some(Self {
             item_id,
-            conversation_id,
             setup_status: setup_status.clone(),
             display_name: setup.display_name,
             description: setup.description,
@@ -917,14 +902,11 @@ async fn owned_adapter_request(
 
 impl GraphqlMcpAuthenticationIntervention {
     fn from_mcp(request: CapabilityAuthenticationRequestRecord) -> Option<Self> {
-        let mcp_server_id = request.mcp_server_id()?.to_string();
+        request.mcp_server_id()?;
         Some(Self {
             request_id: request.request_id,
             revision: request.revision,
-            conversation_id: request.conversation_id,
             task_id: request.task_id,
-            run_id: request.run_id,
-            mcp_server_id,
             server_display_name: request.authority_display_name,
             capability_name: request.capability_name,
             state: request.state.into(),
@@ -938,16 +920,10 @@ impl GraphqlAdapterAuthenticationIntervention {
         request: CapabilityAuthenticationRequestRecord,
         display_name: Option<String>,
     ) -> Option<Self> {
-        let adapter_connection_id = request.challenge.destination_id().to_string();
-        let grant_id = request.adapter_grant_id().map(str::to_string);
         Some(Self {
             request_id: request.request_id,
             revision: request.revision,
-            conversation_id: request.conversation_id,
             task_id: request.task_id,
-            run_id: request.run_id,
-            adapter_connection_id,
-            grant_id,
             service_display_name: display_name.unwrap_or(request.authority_display_name),
             capability_name: request.capability_name,
             state: request.state.into(),

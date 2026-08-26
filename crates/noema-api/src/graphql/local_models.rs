@@ -49,10 +49,6 @@ pub struct GraphqlLocalModelBuild {
     pub download_gb: f64,
     /// Backends compatible with this artifact.
     pub backends: Vec<GraphqlLocalModelBackend>,
-    /// Minimum system or unified memory in whole gigabytes.
-    pub min_ram_gb: i64,
-    /// Minimum discrete or unified accelerator memory in whole gigabytes.
-    pub min_vram_gb: Option<i64>,
 }
 
 impl From<&noema_providers::LocalModelBuild> for GraphqlLocalModelBuild {
@@ -62,8 +58,6 @@ impl From<&noema_providers::LocalModelBuild> for GraphqlLocalModelBuild {
             sha256: value.sha256.clone(),
             download_gb: value.download_gb,
             backends: value.backends.iter().copied().map(Into::into).collect(),
-            min_ram_gb: value.min_ram_gb.cast_signed(),
-            min_vram_gb: value.min_vram_gb.map(u64::cast_signed),
         }
     }
 }
@@ -100,8 +94,6 @@ pub struct GraphqlLocalModelCatalogEntry {
     pub repo: String,
     /// Immutable source revision.
     pub revision: String,
-    /// Every curated artifact for advanced inspection.
-    pub builds: Vec<GraphqlLocalModelBuild>,
     /// Best compatible artifact for this machine, when one fits.
     pub selected_build: Option<GraphqlLocalModelBuild>,
     /// Backend used by the selected artifact.

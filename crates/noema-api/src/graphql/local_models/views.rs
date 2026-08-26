@@ -35,7 +35,6 @@ fn catalog_views(
                 priority: i64::from(model.priority),
                 repo: model.repo.clone(),
                 revision: model.revision.clone(),
-                builds: model.builds.iter().map(Into::into).collect(),
                 selected_build: entry.selected_build.as_ref().map(Into::into),
                 compatible_backend: entry
                     .compatible_hardware

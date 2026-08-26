@@ -151,11 +151,7 @@ Safe projection of an API adapter sign-in request; exact arguments remain privat
 type AdapterAuthenticationIntervention {
 	requestId: String!
 	revision: Int!
-	conversationId: String
 	taskId: String
-	runId: String
-	adapterConnectionId: String!
-	grantId: String
 	serviceDisplayName: String!
 	capabilityName: String!
 	state: McpAuthenticationRequestState!
@@ -1315,10 +1311,6 @@ type ConversationTranscriptPageInfo {
 	Whether more visible items exist before this page.
 	"""
 	hasMoreBefore: Boolean!
-	"""
-	Applied page size.
-	"""
-	limit: Int!
 }
 
 """
@@ -1867,14 +1859,6 @@ type LocalModelBuild {
 	Backends compatible with this artifact.
 	"""
 	backends: [LocalModelBackend!]!
-	"""
-	Minimum system or unified memory in whole gigabytes.
-	"""
-	minRamGb: Int!
-	"""
-	Minimum discrete or unified accelerator memory in whole gigabytes.
-	"""
-	minVramGb: Int
 }
 
 """
@@ -1905,10 +1889,6 @@ type LocalModelCatalogEntry {
 	Immutable source revision.
 	"""
 	revision: String!
-	"""
-	Every curated artifact for advanced inspection.
-	"""
-	builds: [LocalModelBuild!]!
 	"""
 	Best compatible artifact for this machine, when one fits.
 	"""
@@ -2195,10 +2175,7 @@ Safe projection of an MCP sign-in request; exact arguments remain private.
 type McpAuthenticationIntervention {
 	requestId: String!
 	revision: Int!
-	conversationId: String
 	taskId: String
-	runId: String
-	mcpServerId: String!
 	serverDisplayName: String!
 	capabilityName: String!
 	state: McpAuthenticationRequestState!
@@ -2392,7 +2369,6 @@ Durable chat-driven MCP setup waiting for authentication or policy.
 """
 type McpSetupIntervention {
 	itemId: String!
-	conversationId: String!
 	setupStatus: String!
 	displayName: String!
 	description: String
@@ -4726,10 +4702,6 @@ type TaskDetail {
 	Every distinct agent instance that contributed to this task.
 	"""
 	contributorInstanceNames: [String!]!
-	"""
-	Bounded current artifacts.
-	"""
-	artifacts: [Artifact!]!
 	"""
 	Derived attention.
 	"""

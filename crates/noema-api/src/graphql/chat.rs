@@ -419,8 +419,6 @@ pub struct GraphqlConversationTranscriptPageInfo {
     pub before_cursor: Option<String>,
     /// Whether more visible items exist before this page.
     pub has_more_before: bool,
-    /// Applied page size.
-    pub limit: i32,
 }
 
 /// One visible conversation item.

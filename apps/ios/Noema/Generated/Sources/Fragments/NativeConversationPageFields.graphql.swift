@@ -6,7 +6,7 @@
 
 nonisolated public struct NativeConversationPageFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment NativeConversationPageFields on ConversationTranscriptPage { __typename items { __typename ...NativeConversationItemFields } pageInfo { __typename beforeCursor hasMoreBefore limit } }"#
+    #"fragment NativeConversationPageFields on ConversationTranscriptPage { __typename items { __typename ...NativeConversationItemFields } pageInfo { __typename beforeCursor hasMoreBefore } }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -77,7 +77,6 @@ nonisolated public struct NativeConversationPageFields: NoemaAPI.SelectionSet, F
       .field("__typename", String.self),
       .field("beforeCursor", String?.self),
       .field("hasMoreBefore", Bool.self),
-      .field("limit", Int.self),
     ] }
     @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
       NativeConversationPageFields.PageInfo.self
@@ -87,7 +86,5 @@ nonisolated public struct NativeConversationPageFields: NoemaAPI.SelectionSet, F
     public var beforeCursor: String? { __data["beforeCursor"] }
     /// Whether more visible items exist before this page.
     public var hasMoreBefore: Bool { __data["hasMoreBefore"] }
-    /// Applied page size.
-    public var limit: Int { __data["limit"] }
   }
 }

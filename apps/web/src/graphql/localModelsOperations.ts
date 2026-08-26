@@ -15,8 +15,6 @@ export const LocalModelCatalogEntryFields = gql`
       sha256
       downloadGb
       backends
-      minRamGb
-      minVramGb
     }
     hardwareFit {
       backend

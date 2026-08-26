@@ -140,7 +140,6 @@ graphql_object! { "Full task detail projection." => pub struct GraphqlTaskDetail
     "Bounded recent human messages." => messages: Vec<GraphqlTaskMessage>,
     "Bounded recent task runs." => runs: Vec<GraphqlTaskRun>,
     "Every distinct agent instance that contributed to this task." => contributor_instance_names: Vec<String>,
-    "Bounded current artifacts." => artifacts: Vec<crate::graphql::artifacts::GraphqlArtifact>,
     "Derived attention." => attention: Option<GraphqlTaskAttention>,
     "Server-authorized actions." => valid_actions: Vec<GraphqlValidTaskAction>,
 } }

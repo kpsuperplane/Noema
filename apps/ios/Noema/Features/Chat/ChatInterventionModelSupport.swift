@@ -115,7 +115,6 @@ struct AdapterAuthModel: Equatable {
 
 struct McpSetupModel: Equatable {
   let itemID: String
-  let conversationID: String
   let serverID: String?
   let status: String
   let displayName: String
@@ -299,7 +298,7 @@ extension ChatIntervention {
     } else if let auth = data.asAdapterAuthenticationIntervention {
       self = .adapterAuth(AdapterAuthModel(requestID: auth.requestId, revision: auth.revision, serviceName: auth.serviceDisplayName, capabilityName: auth.capabilityName, taskID: auth.taskId, state: auth.adapterAuthState.rawValue, failureCode: auth.failureCode))
     } else if let setup = data.asMcpSetupIntervention {
-      self = .setup(McpSetupModel(itemID: setup.itemId, conversationID: setup.setupConversationId, serverID: setup.setupMcpServerId, status: setup.setupStatus, displayName: setup.displayName, serviceURL: URL(string: setup.serviceUrl), endpointURL: URL(string: setup.endpointUrl), oauthSupported: setup.oauthSupported, description: setup.description, discoveredToolCount: setup.discoveredToolCount, connectionRevision: setup.connectionRevision, policyRevision: setup.policyRevision, toolCount: setup.toolCount))
+      self = .setup(McpSetupModel(itemID: setup.itemId, serverID: setup.setupMcpServerId, status: setup.setupStatus, displayName: setup.displayName, serviceURL: URL(string: setup.serviceUrl), endpointURL: URL(string: setup.endpointUrl), oauthSupported: setup.oauthSupported, description: setup.description, discoveredToolCount: setup.discoveredToolCount, connectionRevision: setup.connectionRevision, policyRevision: setup.policyRevision, toolCount: setup.toolCount))
     } else if let attention = data.asTaskAttention {
       let task = attention.task
       let gate = attention.gate.map { mapChatTaskGate($0.fragments.tasksGateFields) } ?? task.activeGate.map { mapChatTaskGate($0.fragments.tasksGateFields) }

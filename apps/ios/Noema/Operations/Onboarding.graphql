@@ -12,8 +12,6 @@ fragment NativeLocalModelCatalogEntryFields on LocalModelCatalogEntry {
     sha256
     downloadGb
     backends
-    minRamGb
-    minVramGb
   }
   hardwareFit {
     backend

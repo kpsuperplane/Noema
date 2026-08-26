@@ -107,16 +107,6 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         .into_iter()
         .map(TryInto::try_into)
         .collect::<async_graphql::Result<_>>()?;
-    let artifacts = value
-        .artifacts
-        .into_iter()
-        .map(|artifact| {
-            crate::graphql::artifacts::graphql_artifact_from_current(
-                artifact.artifact,
-                artifact.current_version,
-            )
-        })
-        .collect::<async_graphql::Result<_>>()?;
     let schedule = task_schedule(&value.task)?;
     let (result_document, result_metadata) = value.result_document.map_or_else(
         || (None, serde_json::json!({})),
@@ -154,7 +144,6 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         messages,
         runs,
         contributor_instance_names: value.contributor_instance_names,
-        artifacts,
         attention,
         valid_actions: value.valid_actions.into_iter().map(Into::into).collect(),
     })
