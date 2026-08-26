@@ -46,9 +46,10 @@ import { SettingsEditDialog } from "./SettingsEditDialog";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 
-type AdapterDefinition = AdapterManagementRootQuery["adapterDefinitions"][number];
-type AdapterOauthState = AdapterManagementRootQuery["adapterOauthState"];
-type CapabilityIntegration = AdapterManagementRootQuery["capabilityIntegrations"][number];
+type AdapterManagement = AdapterManagementRootQuery["adapterManagement"];
+type AdapterDefinition = AdapterManagement["definitions"][number];
+type AdapterOauthState = AdapterManagement["oauthState"];
+type CapabilityIntegration = AdapterManagement["integrations"][number];
 type Grant = AdapterOauthState["grants"][number];
 type NextAction = NonNullable<AdapterDefinition["nextAction"]>;
 type ConnectionAction = AdapterDefinition["connectionActions"][number];
@@ -153,9 +154,9 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     }
   });
 
-  const definitions = (definitionsResult.data?.adapterDefinitions ?? []).filter((item) => !item.superseded);
-  const oauth = oauthResult.data?.adapterOauthState;
-  const integrations = integrationsResult.data?.capabilityIntegrations ?? [];
+  const definitions = (definitionsResult.data?.adapterManagement.definitions ?? []).filter((item) => !item.superseded);
+  const oauth = oauthResult.data?.adapterManagement.oauthState;
+  const integrations = integrationsResult.data?.adapterManagement.integrations ?? [];
   const apiIntegrations = integrations
     .filter((integration) => integration.connections.length > 0)
     .map((integration) => ({

@@ -138,9 +138,11 @@ export const AdapterOauthStateFields = gql`
 
 export const AdapterManagementRootDocument = gql`
   query AdapterManagementRoot {
-    adapterDefinitions { ...AdapterDefinitionFields }
-    adapterOauthState { ...AdapterOauthStateFields }
-    capabilityIntegrations(kind: API) { ...CapabilityIntegrationFields }
+    adapterManagement {
+      definitions { ...AdapterDefinitionFields }
+      oauthState { ...AdapterOauthStateFields }
+      integrations { ...CapabilityIntegrationFields }
+    }
   }
   ${AdapterDefinitionFields}
   ${AdapterOauthStateFields}

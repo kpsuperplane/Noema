@@ -17,7 +17,7 @@ pub use super::GraphqlState;
 
 use super::{
     adapters::{
-        self, GraphqlAdapterAuthorizationGrant, GraphqlAdapterDefinition,
+        self, GraphqlAdapterAuthorizationGrant, GraphqlAdapterDefinition, GraphqlAdapterManagement,
         GraphqlAdapterOauthApplication, GraphqlAdapterOauthAttemptEvent,
         GraphqlAdapterOauthSetupAttempt, GraphqlAdapterOauthState,
         GraphqlApproveAdapterDefinitionInput, GraphqlAttachAdapterOauthConnectionInput,
@@ -126,9 +126,7 @@ pub type GraphqlSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
 /// Build the Noema GraphQL schema.
 #[must_use]
 pub fn build_schema(state: GraphqlState) -> GraphqlSchema {
-    let builder = Schema::build(QueryRoot, MutationRoot, SubscriptionRoot)
-        .data(state)
-        .extension(adapters::AdapterManagementRequestCacheExtension);
+    let builder = Schema::build(QueryRoot, MutationRoot, SubscriptionRoot).data(state);
     #[cfg(test)]
     let builder = builder.data(crate::graphql::RequestPrincipal::local());
     builder.finish()

@@ -1,6 +1,6 @@
 //! Source-neutral API and MCP management views with structured dispatch.
 
-use async_graphql::{Context, Json, Result};
+use async_graphql::{Json, Result};
 use noema_capabilities::{
     CapabilityConnectionPolicy, CapabilityDataSharingPolicy, CapabilityExecutionDecision,
     CapabilityToolBehavior, CapabilityToolHint, CapabilityToolHintSource, CapabilityToolPolicy,
@@ -28,21 +28,6 @@ pub(super) async fn integrations(
 ) -> Result<Vec<GraphqlCapabilityIntegration>> {
     match kind {
         GraphqlCapabilityIntegrationKind::Api => api_integrations(state),
-        GraphqlCapabilityIntegrationKind::Mcp => mcp_integrations(state).await,
-    }
-}
-
-pub(super) async fn query_integrations(
-    ctx: &Context<'_>,
-    state: &GraphqlState,
-    kind: GraphqlCapabilityIntegrationKind,
-) -> Result<Vec<GraphqlCapabilityIntegration>> {
-    match kind {
-        GraphqlCapabilityIntegrationKind::Api => {
-            let snapshot = adapters::management_snapshot_for_query(ctx, state)
-                .map_err(|error| async_graphql::Error::new(error.to_string()))?;
-            Ok(api_integrations_from_snapshot(&snapshot))
-        }
         GraphqlCapabilityIntegrationKind::Mcp => mcp_integrations(state).await,
     }
 }
@@ -288,7 +273,7 @@ fn api_integrations(state: &GraphqlState) -> Result<Vec<GraphqlCapabilityIntegra
     Ok(api_integrations_from_snapshot(&snapshot))
 }
 
-fn api_integrations_from_snapshot(
+pub(super) fn api_integrations_from_snapshot(
     snapshot: &AdapterManagementSnapshot,
 ) -> Vec<GraphqlCapabilityIntegration> {
     let mut grouped = BTreeMap::<String, Vec<&DefinitionInstall>>::new();

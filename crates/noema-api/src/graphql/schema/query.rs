@@ -76,8 +76,7 @@ impl QueryRoot {
         ctx: &Context<'_>,
         kind: GraphqlCapabilityIntegrationKind,
     ) -> Result<Vec<GraphqlCapabilityIntegration>> {
-        capability_integrations::query_integrations(ctx, ctx.data_unchecked::<GraphqlState>(), kind)
-            .await
+        capability_integrations::integrations(ctx.data_unchecked::<GraphqlState>(), kind).await
     }
 
     /// Return one concrete source-owned connection by structured identity.
@@ -462,13 +461,18 @@ impl QueryRoot {
         ctx: &Context<'_>,
     ) -> Result<Vec<GraphqlAdapterDefinition>> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        adapters::query_adapter_definitions(ctx, state)
+        adapters::adapter_definitions(state).await
     }
 
     /// Return the reusable OAuth application and account hierarchy.
     async fn adapter_oauth_state(&self, ctx: &Context<'_>) -> Result<GraphqlAdapterOauthState> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        adapters::query_adapter_oauth_state(ctx, state)
+        adapters::adapter_oauth_state(state).await
+    }
+
+    /// Return one coherent API adapter management snapshot.
+    async fn adapter_management(&self, ctx: &Context<'_>) -> Result<GraphqlAdapterManagement> {
+        adapters::adapter_management(ctx.data_unchecked::<GraphqlState>())
     }
 
     /// Return the latest process-local state for one OAuth attempt.

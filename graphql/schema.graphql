@@ -290,6 +290,15 @@ type AdapterExternalAccount {
 }
 
 """
+One coherent non-secret API adapter management snapshot.
+"""
+type AdapterManagement {
+	definitions: [AdapterDefinition!]!
+	oauthState: AdapterOauthState!
+	integrations: [CapabilityIntegration!]!
+}
+
+"""
 One server-selected safe action for an adapter definition.
 """
 type AdapterNextAction {
@@ -3670,6 +3679,10 @@ type QueryRoot {
 	Return the reusable OAuth application and account hierarchy.
 	"""
 	adapterOauthState: AdapterOauthState!
+	"""
+	Return one coherent API adapter management snapshot.
+	"""
+	adapterManagement: AdapterManagement!
 	"""
 	Return the latest process-local state for one OAuth attempt.
 	"""
