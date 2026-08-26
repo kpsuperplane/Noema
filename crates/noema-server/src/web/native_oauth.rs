@@ -637,7 +637,7 @@ async fn refresh(state: &WebState, parameters: HashMap<String, String>) -> Respo
         return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
     };
     let refresh_request_id = match parameters.get("refresh_request_id") {
-        Some(value) if valid_refresh_request_id(value) => Some(value.as_str()),
+        Some(value) if valid_refresh_request_id(value) => Some(value.clone()),
         Some(_) => return oauth_error(StatusCode::BAD_REQUEST, "invalid_request"),
         None => None,
     };
@@ -645,7 +645,7 @@ async fn refresh(state: &WebState, parameters: HashMap<String, String>) -> Respo
     let issued_at = now();
     let cached = state
         .native_oauth_retries
-        .load(refresh_hash, refresh_request_id, issued_at)
+        .load(refresh_hash, refresh_request_id.as_deref(), issued_at)
         .ok()
         .flatten();
     let lookup = state
@@ -709,11 +709,18 @@ async fn refresh(state: &WebState, parameters: HashMap<String, String>) -> Respo
             issued_at,
             access_token: tokens.access.clone(),
             refresh_token: tokens.refresh.clone(),
-            retain_until: refresh_request_id.map(|_| stored.absolute_expires_at),
+            retain_until: refresh_request_id
+                .as_ref()
+                .map(|_| stored.absolute_expires_at),
         };
         if state
             .native_oauth_retries
-            .save(refresh_hash, refresh_request_id, retry_response, issued_at)
+            .save(
+                refresh_hash,
+                refresh_request_id.as_deref(),
+                retry_response,
+                issued_at,
+            )
             .is_err()
         {
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();

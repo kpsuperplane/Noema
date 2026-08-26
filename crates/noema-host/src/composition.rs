@@ -105,6 +105,10 @@ async fn assemble_services(
     } = config.clone();
     let configured_provider_model = provider.model().map(str::to_string);
     let configured_reasoning_effort = provider.reasoning_effort();
+    let configured_foundation_local = match &provider {
+        ProviderConfig::FoundationLocal(config) => Some(config.clone()),
+        _ => None,
+    };
     let adapter_service = AdapterCapabilityService::new(paths.clone());
     adapter_service.prepare_filesystem()?;
     adapter_service.resume_definition_transitions().await?;
@@ -197,14 +201,16 @@ async fn assemble_services(
             let account = match default_provider_kind.as_str() {
                 "openai" => Some(store.ensure_default_openai_provider_account().await?),
                 "foundation_local" => {
-                    let available = FoundationLocalProvider::new(FoundationLocalProviderConfig {
-                        default_profile: DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
-                        bridge_path: None,
-                        system_errors: Some(system_errors.clone()),
-                    })?
-                    .probe_availability()
-                    .await
-                    .is_ok();
+                    let mut config = configured_foundation_local.ok_or_else(|| {
+                        RuntimeHostError::Composition(
+                            "Foundation Local configuration disappeared during startup".to_string(),
+                        )
+                    })?;
+                    config.system_errors = Some(system_errors.clone());
+                    let available = FoundationLocalProvider::new(config)?
+                        .probe_availability()
+                        .await
+                        .is_ok();
                     if available {
                         Some(
                             store

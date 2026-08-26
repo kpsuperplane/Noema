@@ -315,6 +315,7 @@ impl NoemaStore {
                 )
                 .optional()?;
             let Some((client_id, event_key)) = key else {
+                transaction.commit()?;
                 return Ok(None);
             };
             transaction.execute(
@@ -705,5 +706,61 @@ mod tests {
             .await
             .expect("read terminalized delivery");
         assert_eq!(status, "failed");
+    }
+
+    #[tokio::test]
+    async fn empty_apns_claim_commits_orphan_cleanup() {
+        let store = test_store().await;
+        store
+            .insert_client("client:one", LOCAL_HUMAN_ID, "Phone", [1; 32])
+            .await
+            .expect("insert client");
+        store
+            .register_client_notifications("client:one", &[9, 8, 7], ApnsEnvironment::Production)
+            .await
+            .expect("register client");
+        store
+            .queue_notification_fanout(
+                LOCAL_HUMAN_ID,
+                "chat-turn:orphan",
+                "Noema",
+                "Finished",
+                "normal",
+                3600,
+                &HashSet::new(),
+                &HashSet::new(),
+                true,
+            )
+            .await
+            .expect("queue APNs delivery");
+        store
+            .with_connection(|connection| {
+                connection.execute(
+                    "UPDATE clients SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = 'client:one'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .await
+            .expect("orphan APNs delivery");
+
+        assert_eq!(store.claim_due_apns_delivery().await.expect("claim"), None);
+
+        let row = store
+            .with_connection(|connection| {
+                connection
+                    .query_row(
+                        "SELECT status, last_error_code FROM apns_deliveries WHERE client_id = 'client:one' AND event_key = 'chat-turn:orphan'",
+                        [],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                    )
+                    .map_err(StoreError::Sqlite)
+            })
+            .await
+            .expect("read orphan result");
+        assert_eq!(
+            row,
+            ("failed".to_string(), "registration_unavailable".to_string())
+        );
     }
 }

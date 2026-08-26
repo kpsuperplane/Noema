@@ -72,22 +72,16 @@ impl NoemaStore {
     ) -> Result<Option<ClientRecord>, StoreError> {
         let (client, newly_revoked) = self
             .with_connection(|conn| {
-                let changed = conn.execute(
+                let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let changed = transaction.execute(
                     "UPDATE clients SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE owner_human_id = ?1 AND client_id = ?2 AND revoked_at IS NULL",
                     params![owner_human_id, client_id],
                 )?;
                 if changed == 1 {
-                    conn.execute(
-                        "UPDATE native_oauth_families SET revoked_at = unixepoch(), revoke_reason = 'client' WHERE client_id = ?1 AND revoked_at IS NULL",
-                        [client_id],
-                    )?;
-                    conn.execute(
-                        "UPDATE native_oauth_access_tokens SET revoked_at = unixepoch() WHERE family_id IN (SELECT family_id FROM native_oauth_families WHERE client_id = ?1) AND revoked_at IS NULL",
-                        [client_id],
-                    )?;
-                    revoke_client_dependents(conn, client_id)?;
+                    revoke_client_authority(&transaction, client_id, "client")?;
                 }
-                let client = load_client(conn, owner_human_id, client_id, false)?;
+                let client = load_client(&transaction, owner_human_id, client_id, false)?;
+                transaction.commit()?;
                 Ok((client, changed == 1))
             })
             .await?;
@@ -121,15 +115,7 @@ impl NoemaStore {
                         "UPDATE clients SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND revoked_at IS NULL",
                         [client_id],
                     )?;
-                    tx.execute(
-                        "UPDATE native_oauth_families SET revoked_at = unixepoch(), revoke_reason = 'global' WHERE client_id = ?1 AND revoked_at IS NULL",
-                        [client_id],
-                    )?;
-                    tx.execute(
-                        "UPDATE native_oauth_access_tokens SET revoked_at = unixepoch() WHERE family_id IN (SELECT family_id FROM native_oauth_families WHERE client_id = ?1) AND revoked_at IS NULL",
-                        [client_id],
-                    )?;
-                    revoke_client_dependents(&tx, client_id)?;
+                    revoke_client_authority(&tx, client_id, "global")?;
                 }
                 tx.commit()?;
                 Ok(client_ids)
@@ -147,14 +133,26 @@ impl NoemaStore {
     }
 }
 
+fn revoke_client_authority(
+    conn: &rusqlite::Connection,
+    client_id: &str,
+    reason: &str,
+) -> Result<(), StoreError> {
+    conn.execute(
+        "UPDATE native_oauth_families SET revoked_at = unixepoch(), revoke_reason = ?2 WHERE client_id = ?1 AND revoked_at IS NULL",
+        params![client_id, reason],
+    )?;
+    conn.execute(
+        "UPDATE native_oauth_access_tokens SET revoked_at = unixepoch() WHERE family_id IN (SELECT family_id FROM native_oauth_families WHERE client_id = ?1) AND revoked_at IS NULL",
+        [client_id],
+    )?;
+    revoke_client_dependents(conn, client_id)
+}
+
 pub(super) fn revoke_client_dependents(
     conn: &rusqlite::Connection,
     client_id: &str,
 ) -> Result<(), StoreError> {
-    conn.execute(
-        "UPDATE live_activity_deliveries SET status = 'suppressed', last_error_code = 'client_revoked', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND event <> 'end' AND status = 'pending'",
-        [client_id],
-    )?;
     conn.execute(
         "UPDATE apns_deliveries SET status = 'failed', last_error_code = 'client_revoked', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND status = 'pending'",
         [client_id],
@@ -294,6 +292,63 @@ mod tests {
                 .expect("list clients")
                 .into_iter()
                 .all(|client| client.revoked_at.is_some())
+        );
+    }
+
+    #[tokio::test]
+    async fn client_revocation_failure_rolls_back_and_sends_no_event() {
+        let home = TempDir::new().expect("store root");
+        let store = NoemaStore::open(&StoreConfig::new(home.path().join("noema.sqlite3")))
+            .await
+            .expect("store");
+        store
+            .insert_client("client-one", "human:local", "Phone", [4_u8; 32])
+            .await
+            .expect("insert client");
+        store
+            .register_client_notifications("client-one", &[1, 2, 3], ApnsEnvironment::Development)
+            .await
+            .expect("register notifications");
+        store
+            .with_connection(|connection| {
+                connection.execute_batch(
+                    r#"
+                    CREATE TEMP TRIGGER fail_client_dependent_revocation
+                    BEFORE DELETE ON client_notification_registrations
+                    BEGIN
+                      SELECT RAISE(ABORT, 'forced client revocation failure');
+                    END;
+                    "#,
+                )?;
+                Ok(())
+            })
+            .await
+            .expect("install failure trigger");
+        let mut events = store.subscribe_client_revocations();
+
+        let error = store
+            .revoke_client("human:local", "client-one")
+            .await
+            .expect_err("dependent failure must abort revocation");
+
+        assert!(matches!(error, StoreError::Sqlite(_)));
+        assert!(matches!(
+            events.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
+        let client = store
+            .list_clients("human:local")
+            .await
+            .expect("list clients")
+            .pop()
+            .expect("client remains");
+        assert_eq!(client.revoked_at, None);
+        assert!(
+            store
+                .client_notification_registration("client-one")
+                .await
+                .expect("registration lookup")
+                .is_some()
         );
     }
 }

@@ -55,12 +55,14 @@ async fn startup_entrypoint_child() {
                     .expect("read default")
                     .is_none()
             );
+            let accounts = store
+                .active_provider_accounts()
+                .await
+                .expect("read accounts");
             assert!(
-                store
-                    .active_provider_accounts()
-                    .await
-                    .expect("read accounts")
-                    .is_empty()
+                accounts
+                    .iter()
+                    .all(|account| !is_model_provider(&account.provider_kind))
             );
             host.shutdown().await;
         }
@@ -129,13 +131,79 @@ async fn fresh_unresolvable_local_default_starts_onboarding_without_an_account()
             .expect("default")
             .is_none()
     );
+    let accounts = host
+        .services()
+        .store
+        .active_provider_accounts()
+        .await
+        .expect("accounts");
     assert!(
-        host.services()
-            .store
-            .active_provider_accounts()
-            .await
-            .expect("accounts")
-            .is_empty()
+        accounts
+            .iter()
+            .all(|account| !is_model_provider(&account.provider_kind))
+    );
+    host.shutdown().await;
+}
+
+fn is_model_provider(provider_kind: &str) -> bool {
+    matches!(
+        provider_kind,
+        "codex" | "openai" | "foundation_local" | "local_models" | "openrouter"
+    )
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn configured_foundation_bridge_establishes_default_readiness() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().expect("temporary test root");
+    let bridge_path = root.path().join("foundation-bridge");
+    std::fs::write(
+        &bridge_path,
+        r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":3}}' ;;
+    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"foundation-live","label":"Foundation Live"}],"unavailable_reason":null}}' ;;
+  esac
+done
+"#,
+    )
+    .expect("write bridge");
+    let mut permissions = std::fs::metadata(&bridge_path)
+        .expect("bridge metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&bridge_path, permissions).expect("make bridge executable");
+    let home = root.path().join("home");
+    let paths = NoemaPaths::from_noema_home(&home).expect("Noema paths");
+    initialize_home(&paths).expect("initialize home");
+    let config = HostConfig::new(
+        ProviderConfig::FoundationLocal(FoundationLocalProviderConfig {
+            default_profile: "foundation-live".to_string(),
+            bridge_path: Some(bridge_path),
+            system_errors: None,
+        }),
+        crate::BrowserConfig::default(),
+        crate::WebConfig::default(),
+        crate::McpConfig::default(),
+    );
+
+    let host = assemble(config, paths)
+        .await
+        .expect("start configured Foundation host");
+    let preference = host
+        .services()
+        .store
+        .get_default_model_preference()
+        .await
+        .expect("read default")
+        .expect("Foundation default");
+    assert_eq!(preference.provider_kind, "foundation_local");
+    assert_eq!(
+        preference.selection.model_profile(),
+        Some("foundation-live")
     );
     host.shutdown().await;
 }
