@@ -62,12 +62,12 @@ nonisolated public struct OnboardingStatusQuery: GraphQLQuery {
           .field("__typename", String.self),
           .field("id", String.self),
           .field("status", GraphQLEnum<NoemaAPI.OnboardingStepStatus>.self),
-          .field("providerKind", String?.self),
-          .field("providerAccountId", String?.self),
-          .field("accountKey", String?.self),
-          .field("displayName", String?.self),
-          .field("providerAccountStatus", GraphQLEnum<NoemaAPI.ProviderAccountStatus>?.self),
-          .field("authMethod", GraphQLEnum<NoemaAPI.ProviderAuthMethod>?.self),
+          .field("providerKind", String.self),
+          .field("providerAccountId", String.self),
+          .field("accountKey", String.self),
+          .field("displayName", String.self),
+          .field("providerAccountStatus", GraphQLEnum<NoemaAPI.ProviderAccountStatus>.self),
+          .field("authMethod", GraphQLEnum<NoemaAPI.ProviderAuthMethod>.self),
         ] }
         @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
           OnboardingStatusQuery.Data.OnboardingStatus.Step.self
@@ -77,18 +77,18 @@ nonisolated public struct OnboardingStatusQuery: GraphQLQuery {
         public var id: String { __data["id"] }
         /// Step status.
         public var status: GraphQLEnum<NoemaAPI.OnboardingStepStatus> { __data["status"] }
-        /// Provider family when the step is provider-backed.
-        public var providerKind: String? { __data["providerKind"] }
-        /// Provider account id when the step is provider-backed.
-        public var providerAccountId: String? { __data["providerAccountId"] }
-        /// Provider-local account key when the step is provider-backed.
-        public var accountKey: String? { __data["accountKey"] }
-        /// Human-readable account name when the step is provider-backed.
-        public var displayName: String? { __data["displayName"] }
+        /// Provider family for this step.
+        public var providerKind: String { __data["providerKind"] }
+        /// Provider account id for this step.
+        public var providerAccountId: String { __data["providerAccountId"] }
+        /// Provider-local account key for this step.
+        public var accountKey: String { __data["accountKey"] }
+        /// Human-readable account name for this step.
+        public var displayName: String { __data["displayName"] }
         /// Last known provider account status.
-        public var providerAccountStatus: GraphQLEnum<NoemaAPI.ProviderAccountStatus>? { __data["providerAccountStatus"] }
+        public var providerAccountStatus: GraphQLEnum<NoemaAPI.ProviderAccountStatus> { __data["providerAccountStatus"] }
         /// Auth method when the step can start auth.
-        public var authMethod: GraphQLEnum<NoemaAPI.ProviderAuthMethod>? { __data["authMethod"] }
+        public var authMethod: GraphQLEnum<NoemaAPI.ProviderAuthMethod> { __data["authMethod"] }
       }
     }
   }

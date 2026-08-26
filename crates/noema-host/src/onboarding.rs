@@ -26,17 +26,17 @@ pub struct OnboardingStep {
     /// Current step completion state.
     pub status: OnboardingStepStatus,
     /// Provider family connected by this step, such as `codex`.
-    pub provider_kind: Option<String>,
+    pub provider_kind: String,
     /// Stable provider account id connected by this step.
-    pub provider_account_id: Option<String>,
+    pub provider_account_id: String,
     /// Provider-local account key connected by this step.
-    pub account_key: Option<String>,
+    pub account_key: String,
     /// Human-readable provider account name connected by this step.
-    pub display_name: Option<String>,
+    pub display_name: String,
     /// Last known provider account readiness status.
-    pub provider_account_status: Option<ProviderAccountStatus>,
+    pub provider_account_status: ProviderAccountStatus,
     /// Authentication method expected for this provider account.
-    pub auth_method: Option<ProviderAuthMethod>,
+    pub auth_method: ProviderAuthMethod,
 }
 
 /// Frontend-visible onboarding status.
@@ -173,16 +173,16 @@ fn local_model_step(ready: bool) -> OnboardingStep {
         } else {
             OnboardingStepStatus::Blocked
         },
-        provider_kind: Some("local_models".to_string()),
-        provider_account_id: Some("provider_account:local_models:default".to_string()),
-        account_key: Some("default".to_string()),
-        display_name: Some("Local models".to_string()),
+        provider_kind: "local_models".to_string(),
+        provider_account_id: noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID.to_string(),
+        account_key: "default".to_string(),
+        display_name: "Local models".to_string(),
         provider_account_status: if ready {
-            Some(ProviderAccountStatus::Authenticated)
+            ProviderAccountStatus::Authenticated
         } else {
-            Some(ProviderAccountStatus::Unknown)
+            ProviderAccountStatus::Unknown
         },
-        auth_method: Some(ProviderAuthMethod::None),
+        auth_method: ProviderAuthMethod::None,
     }
 }
 
@@ -190,17 +190,15 @@ fn provider_account_step(
     account: ProviderAccountRecord,
     status: OnboardingStepStatus,
 ) -> OnboardingStep {
-    let provider_account_status = account.status;
-
     OnboardingStep {
         id: PROVIDER_LOGIN_STEP_ID.to_string(),
         status,
-        provider_kind: Some(account.provider_kind),
-        provider_account_id: Some(account.provider_account_id),
-        account_key: Some(account.account_key),
-        display_name: Some(account.display_name),
-        provider_account_status: Some(provider_account_status),
-        auth_method: Some(account.auth_method),
+        provider_kind: account.provider_kind,
+        provider_account_id: account.provider_account_id,
+        account_key: account.account_key,
+        display_name: account.display_name,
+        provider_account_status: account.status,
+        auth_method: account.auth_method,
     }
 }
 
@@ -283,10 +281,7 @@ mod tests {
                 onboarding_status_from_options(Some(codex_default_account(account_status)), false);
             assert!(!status.is_user_onboarded);
             assert_eq!(status.steps[1].status, OnboardingStepStatus::Blocked);
-            assert_eq!(
-                status.steps[1].provider_account_status,
-                Some(account_status)
-            );
+            assert_eq!(status.steps[1].provider_account_status, account_status);
         }
     }
 

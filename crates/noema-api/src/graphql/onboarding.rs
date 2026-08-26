@@ -87,18 +87,18 @@ pub struct GraphqlOnboardingStep {
     pub id: String,
     /// Step status.
     pub status: GraphqlOnboardingStepStatus,
-    /// Provider family when the step is provider-backed.
-    pub provider_kind: Option<String>,
-    /// Provider account id when the step is provider-backed.
-    pub provider_account_id: Option<String>,
-    /// Provider-local account key when the step is provider-backed.
-    pub account_key: Option<String>,
-    /// Human-readable account name when the step is provider-backed.
-    pub display_name: Option<String>,
+    /// Provider family for this step.
+    pub provider_kind: String,
+    /// Provider account id for this step.
+    pub provider_account_id: String,
+    /// Provider-local account key for this step.
+    pub account_key: String,
+    /// Human-readable account name for this step.
+    pub display_name: String,
     /// Last known provider account status.
-    pub provider_account_status: Option<GraphqlProviderAccountStatus>,
+    pub provider_account_status: GraphqlProviderAccountStatus,
     /// Auth method when the step can start auth.
-    pub auth_method: Option<GraphqlProviderAuthMethod>,
+    pub auth_method: GraphqlProviderAuthMethod,
 }
 
 /// Onboarding status.
@@ -128,8 +128,8 @@ impl From<OnboardingStatus> for GraphqlOnboardingStatus {
                     provider_account_id: step.provider_account_id,
                     account_key: step.account_key,
                     display_name: step.display_name,
-                    provider_account_status: step.provider_account_status.map(Into::into),
-                    auth_method: step.auth_method.map(Into::into),
+                    provider_account_status: step.provider_account_status.into(),
+                    auth_method: step.auth_method.into(),
                 })
                 .collect(),
         }

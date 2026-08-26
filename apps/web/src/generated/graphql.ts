@@ -1644,7 +1644,7 @@ export type ConversationTranscriptPageFieldsFragment = { items: Array<{ itemId: 
 export type ChatBootQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type ChatBootQuery = { localStatus: { localService: LocalServiceStatus, assistantConnection: AssistantConnection, memoryStorage: MemoryStorageStatus, primaryAgentDisplayName: string | null }, onboardingStatus: { isUserOnboarded: boolean, steps: Array<{ id: string, status: OnboardingStepStatus, providerKind: string | null, providerAccountId: string | null, accountKey: string | null, displayName: string | null, providerAccountStatus: ProviderAccountStatus | null, authMethod: ProviderAuthMethod | null }> }, providerAccountCatalog: Array<{ providerKind: string, displayName: string, preferredAuthMethod: ProviderAuthMethod, supportedAuthMethods: Array<ProviderAuthMethod> }>, providerAccounts: Array<{ providerAccountId: string, providerKind: string, displayName: string, status: ProviderAccountStatus, isActive: boolean, isDefault: boolean }>, primaryConversation: { conversationId: string, provider: string } | null };
+export type ChatBootQuery = { localStatus: { localService: LocalServiceStatus, assistantConnection: AssistantConnection, memoryStorage: MemoryStorageStatus, primaryAgentDisplayName: string | null }, onboardingStatus: { isUserOnboarded: boolean, steps: Array<{ id: string, status: OnboardingStepStatus, providerKind: string, providerAccountId: string, accountKey: string, displayName: string, providerAccountStatus: ProviderAccountStatus, authMethod: ProviderAuthMethod }> }, providerAccountCatalog: Array<{ providerKind: string, displayName: string, preferredAuthMethod: ProviderAuthMethod, supportedAuthMethods: Array<ProviderAuthMethod> }>, providerAccounts: Array<{ providerAccountId: string, providerKind: string, displayName: string, status: ProviderAccountStatus, isActive: boolean, isDefault: boolean }>, primaryConversation: { conversationId: string, provider: string } | null };
 
 export type PrimaryConversationQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -2015,7 +2015,7 @@ export type LocalStatusQuery = { localStatus: { localService: LocalServiceStatus
 export type OnboardingStatusQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type OnboardingStatusQuery = { onboardingStatus: { isUserOnboarded: boolean, steps: Array<{ id: string, status: OnboardingStepStatus, providerKind: string | null, providerAccountId: string | null, accountKey: string | null, displayName: string | null, providerAccountStatus: ProviderAccountStatus | null, authMethod: ProviderAuthMethod | null }> } };
+export type OnboardingStatusQuery = { onboardingStatus: { isUserOnboarded: boolean, steps: Array<{ id: string, status: OnboardingStepStatus, providerKind: string, providerAccountId: string, accountKey: string, displayName: string, providerAccountStatus: ProviderAccountStatus, authMethod: ProviderAuthMethod }> } };
 
 export type OnboardingModelSetupQueryVariables = Exact<{
   providerAccountId: string;
@@ -2029,7 +2029,7 @@ export type ConfirmOnboardingModelSelectionsMutationVariables = Exact<{
 }>;
 
 
-export type ConfirmOnboardingModelSelectionsMutation = { confirmOnboardingModelSelections: { isUserOnboarded: boolean, steps: Array<{ id: string, status: OnboardingStepStatus, providerKind: string | null, providerAccountId: string | null }> } };
+export type ConfirmOnboardingModelSelectionsMutation = { confirmOnboardingModelSelections: { isUserOnboarded: boolean, steps: Array<{ id: string, status: OnboardingStepStatus, providerKind: string, providerAccountId: string }> } };
 
 export type ProviderAccountCatalogFieldsFragment = { providerKind: string, displayName: string, preferredAuthMethod: ProviderAuthMethod, supportedAuthMethods: Array<ProviderAuthMethod>, capabilities: Array<{ capabilityId: string, status: string, reliabilityContract: string, dataFlowClass: string }> };
 

@@ -3064,29 +3064,29 @@ type OnboardingStep {
 	"""
 	status: OnboardingStepStatus!
 	"""
-	Provider family when the step is provider-backed.
+	Provider family for this step.
 	"""
-	providerKind: String
+	providerKind: String!
 	"""
-	Provider account id when the step is provider-backed.
+	Provider account id for this step.
 	"""
-	providerAccountId: String
+	providerAccountId: String!
 	"""
-	Provider-local account key when the step is provider-backed.
+	Provider-local account key for this step.
 	"""
-	accountKey: String
+	accountKey: String!
 	"""
-	Human-readable account name when the step is provider-backed.
+	Human-readable account name for this step.
 	"""
-	displayName: String
+	displayName: String!
 	"""
 	Last known provider account status.
 	"""
-	providerAccountStatus: ProviderAccountStatus
+	providerAccountStatus: ProviderAccountStatus!
 	"""
 	Auth method when the step can start auth.
 	"""
-	authMethod: ProviderAuthMethod
+	authMethod: ProviderAuthMethod!
 }
 
 """
