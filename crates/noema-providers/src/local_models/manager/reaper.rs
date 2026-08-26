@@ -30,7 +30,7 @@ impl LocalModelManagerService {
                     biased;
                     () = task_cancellation.cancelled() => break,
                     () = task_trigger.notified() => {}
-                    () = manager.inner.reaper_clock.sleep(manager.inner.reaper_interval) => {}
+                    () = tokio::time::sleep(manager.inner.reaper_interval) => {}
                 }
                 if let Err(error) = manager.reap_once_owned().await {
                     manager.record_reaper_failure(&error);

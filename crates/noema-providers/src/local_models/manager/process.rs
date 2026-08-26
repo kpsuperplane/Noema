@@ -1,6 +1,6 @@
-//! Injectable managed-process construction.
+//! Managed local-model process construction.
 
-use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -21,79 +21,47 @@ use crate::{
     },
 };
 
-pub(super) type LocalModelProcessFuture<'a, T> =
-    Pin<Box<dyn Future<Output = Result<T, LocalModelManagerError>> + Send + 'a>>;
-
-pub(super) trait LocalModelProcessFactory: Send + Sync {
-    fn start(
-        &self,
-        installation: LocalModelInstallationRecord,
-    ) -> LocalModelProcessFuture<'_, Arc<dyn LocalModelProcess>>;
-}
-
-pub(super) trait LocalModelProcess: Send + Sync {
-    fn provider(&self) -> ProviderHandle;
-
-    fn status(&self) -> LocalModelRuntimeStatus;
-
-    fn subscribe_status(&self) -> watch::Receiver<LocalModelRuntimeStatus>;
-
-    fn shutdown(&self) -> LocalModelProcessFuture<'_, ()>;
-}
-
-pub(super) struct DefaultLocalModelProcessFactory {
-    paths: NoemaPaths,
-    config: LocalModelManagerConfig,
-}
-
-impl DefaultLocalModelProcessFactory {
-    pub(super) fn new(paths: NoemaPaths, config: LocalModelManagerConfig) -> Self {
-        Self { paths, config }
+pub(super) async fn start_managed_process(
+    paths: &NoemaPaths,
+    config: &LocalModelManagerConfig,
+    installation: LocalModelInstallationRecord,
+) -> Result<Arc<ManagedProcess>, LocalModelManagerError> {
+    let model_path = verified_model_blob_path(paths, &installation).await?;
+    let provider = LocalModelsProvider::new(LocalModelsProviderConfig {
+        default_model: installation.model_id,
+        model_path: Some(model_path),
+        preferred_backend: Some(installation.backend),
+        runtime_root: config.runtime_root.clone(),
+        context_window_tokens: config.context_window_tokens,
+        timeout_seconds: config.timeout_seconds,
+        startup_timeout_seconds: config.startup_timeout_seconds,
+        system_errors: config.system_errors.clone(),
+    })
+    .map_err(|error| LocalModelManagerError::Runtime {
+        operation: "construct_local_provider",
+        message: error.to_string(),
+    })?;
+    let runtime = provider.runtime().clone();
+    runtime
+        .ensure_ready()
+        .await
+        .map_err(|error| LocalModelManagerError::Runtime {
+            operation: "start_local_process",
+            message: error.to_string(),
+        })?;
+    if let Err(error) = provider.qualify_native_tools().await {
+        runtime.shutdown().await;
+        return Err(LocalModelManagerError::Runtime {
+            operation: "qualify_local_native_tools",
+            message: error.to_string(),
+        });
     }
-}
-
-impl LocalModelProcessFactory for DefaultLocalModelProcessFactory {
-    fn start(
-        &self,
-        installation: LocalModelInstallationRecord,
-    ) -> LocalModelProcessFuture<'_, Arc<dyn LocalModelProcess>> {
-        Box::pin(async move {
-            let model_path = verified_model_blob_path(&self.paths, &installation).await?;
-            let provider = LocalModelsProvider::new(LocalModelsProviderConfig {
-                default_model: installation.model_id,
-                model_path: Some(model_path),
-                preferred_backend: Some(installation.backend),
-                runtime_root: self.config.runtime_root.clone(),
-                context_window_tokens: self.config.context_window_tokens,
-                timeout_seconds: self.config.timeout_seconds,
-                startup_timeout_seconds: self.config.startup_timeout_seconds,
-                system_errors: self.config.system_errors.clone(),
-            })
-            .map_err(|error| LocalModelManagerError::Runtime {
-                operation: "construct_local_provider",
-                message: error.to_string(),
-            })?;
-            let runtime = provider.runtime().clone();
-            runtime
-                .ensure_ready()
-                .await
-                .map_err(|error| LocalModelManagerError::Runtime {
-                    operation: "start_local_process",
-                    message: error.to_string(),
-                })?;
-            if let Err(error) = provider.qualify_native_tools().await {
-                runtime.shutdown().await;
-                return Err(LocalModelManagerError::Runtime {
-                    operation: "qualify_local_native_tools",
-                    message: error.to_string(),
-                });
-            }
-            Ok(Arc::new(LlamaManagedProcess {
-                provider: erase_model_provider(provider),
-                runtime,
-            }) as Arc<dyn LocalModelProcess>)
-        })
-    }
+    let statuses = runtime.subscribe_status();
+    Ok(Arc::new(ManagedProcess {
+        provider: erase_model_provider(provider),
+        statuses,
+        shutdown: ManagedProcessShutdown::Llama(runtime),
+    }))
 }
 
 async fn verified_model_blob_path(
@@ -149,29 +117,49 @@ async fn verified_model_blob_path(
     Ok(model_path)
 }
 
-struct LlamaManagedProcess {
+pub(super) struct ManagedProcess {
     provider: ProviderHandle,
-    runtime: crate::local_models::LlamaServerSupervisor,
+    statuses: watch::Receiver<LocalModelRuntimeStatus>,
+    shutdown: ManagedProcessShutdown,
 }
 
-impl LocalModelProcess for LlamaManagedProcess {
-    fn provider(&self) -> ProviderHandle {
+enum ManagedProcessShutdown {
+    Llama(crate::local_models::LlamaServerSupervisor),
+    #[cfg(test)]
+    Fake(Arc<super::tests::fakes::FakeProcess>),
+}
+
+impl ManagedProcess {
+    #[cfg(test)]
+    pub(super) fn fake(process: Arc<super::tests::fakes::FakeProcess>) -> Arc<Self> {
+        Arc::new(Self {
+            provider: process.provider(),
+            statuses: process.subscribe_status(),
+            shutdown: ManagedProcessShutdown::Fake(process),
+        })
+    }
+
+    pub(super) fn provider(&self) -> ProviderHandle {
         Arc::clone(&self.provider)
     }
 
-    fn status(&self) -> LocalModelRuntimeStatus {
-        self.runtime.status()
+    pub(super) fn status(&self) -> LocalModelRuntimeStatus {
+        self.statuses.borrow().clone()
     }
 
-    fn subscribe_status(&self) -> watch::Receiver<LocalModelRuntimeStatus> {
-        self.runtime.subscribe_status()
+    pub(super) fn subscribe_status(&self) -> watch::Receiver<LocalModelRuntimeStatus> {
+        self.statuses.clone()
     }
 
-    fn shutdown(&self) -> LocalModelProcessFuture<'_, ()> {
-        Box::pin(async move {
-            self.runtime.shutdown().await;
-            Ok(())
-        })
+    pub(super) async fn shutdown(&self) -> Result<(), LocalModelManagerError> {
+        match &self.shutdown {
+            ManagedProcessShutdown::Llama(runtime) => {
+                runtime.shutdown().await;
+                Ok(())
+            }
+            #[cfg(test)]
+            ManagedProcessShutdown::Fake(process) => process.shutdown().await,
+        }
     }
 }
 

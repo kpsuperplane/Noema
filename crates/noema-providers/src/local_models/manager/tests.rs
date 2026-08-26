@@ -1,14 +1,6 @@
 pub(in crate::local_models) mod fakes;
 
-use std::{
-    future::Future,
-    pin::Pin,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use futures_util::StreamExt;
 use tokio::time::{sleep, timeout};
@@ -21,7 +13,7 @@ use crate::{
 
 use super::{
     LocalModelManagerError, LocalModelManagerEvent, LocalModelManagerService,
-    LocalModelReaperClock, LocalModelRuntimeStatus,
+    LocalModelRuntimeStatus,
 };
 use crate::LocalFileModelImport;
 use fakes::{FakeProcessFactory, FakeRepository, installed_record};
@@ -43,7 +35,8 @@ fn manager_fixture(
         .into_iter()
         .for_each(|record| repository.insert(record));
     let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(Arc::clone(&repository), Arc::clone(&factory), &paths);
+    let manager =
+        manager_with_diagnostics(Arc::clone(&repository), Arc::clone(&factory), &paths, None);
     (home, repository, factory, manager)
 }
 
@@ -115,58 +108,6 @@ fn manager_with_diagnostics(
         paths.clone(),
         factory,
         system_errors,
-    )
-    .expect("manager")
-}
-
-#[derive(Default)]
-struct ManualReaperClock {
-    sleepers: AtomicUsize,
-    tick: tokio::sync::Notify,
-}
-
-impl ManualReaperClock {
-    async fn wait_until_sleeping(&self) {
-        while self.sleepers.load(Ordering::Acquire) == 0 {
-            tokio::task::yield_now().await;
-        }
-    }
-
-    fn advance(&self) {
-        self.tick.notify_one();
-    }
-}
-
-impl LocalModelReaperClock for ManualReaperClock {
-    fn sleep(&self, _duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        Box::pin(async move {
-            self.sleepers.fetch_add(1, Ordering::AcqRel);
-            self.tick.notified().await;
-            self.sleepers.fetch_sub(1, Ordering::AcqRel);
-        })
-    }
-}
-
-fn manager_with_clock(
-    repository: Arc<FakeRepository>,
-    factory: Arc<FakeProcessFactory>,
-    paths: &noema_home::NoemaPaths,
-    clock: Arc<ManualReaperClock>,
-) -> LocalModelManagerService {
-    let installations: Arc<dyn crate::LocalModelInstallationPersistence> = repository.clone();
-    let activation: Arc<dyn crate::LocalModelActivationPersistence> = repository.clone();
-    let lifecycle: Arc<dyn crate::LocalModelLifecyclePersistence> = repository;
-    LocalModelManagerService::new_with_factory_and_clock(
-        installations,
-        activation,
-        lifecycle,
-        Arc::new(ProviderRegistry::new()),
-        paths.clone(),
-        factory,
-        None,
-        clock,
-        Duration::from_secs(3_600),
-        8,
     )
     .expect("manager")
 }
@@ -604,29 +545,23 @@ async fn reconstruction_reaping_and_retry_contracts() {
     assert_eq!(retained.status, LocalModelInstallationStatus::Downloading);
     assert!(retained.retirement_claimed_at.is_none());
     manager.shutdown().await.expect("shutdown");
-    eprintln!("case: periodic_reaper_stops_runtime_but_preserves_installed_row_and_blob");
+    eprintln!("case: reaper_stops_runtime_but_preserves_installed_row_and_blob");
     let home = tempfile::tempdir().expect("home");
     let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let repository = Arc::new(FakeRepository::default());
     repository.insert(installed_record("retire", "retire-model", 'e', true));
     let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let clock = Arc::new(ManualReaperClock::default());
-    let manager = manager_with_clock(
-        Arc::clone(&repository),
-        Arc::clone(&factory),
-        &paths,
-        Arc::clone(&clock),
-    );
+    let manager =
+        manager_with_diagnostics(Arc::clone(&repository), Arc::clone(&factory), &paths, None);
     manager
         .reconstruct_persisted_instances()
         .await
         .expect("startup reconstruction");
     repository.deactivate_all_and_clear_references();
     let process = factory.process("retire");
-    clock.wait_until_sleeping().await;
     assert_eq!(process.shutdowns(), 0);
 
-    clock.advance();
+    manager.trigger_reaper().await;
     timeout(Duration::from_secs(1), async {
         while process.shutdowns() == 0 {
             tokio::task::yield_now().await;

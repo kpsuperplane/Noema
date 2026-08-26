@@ -240,7 +240,10 @@ PY
         );
 
         session.shutdown().await;
-        assert_eq!(session.runtime.status(), LocalModelRuntimeStatus::Stopped);
+        assert_eq!(
+            session.runtime.subscribe_status().borrow().clone(),
+            LocalModelRuntimeStatus::Stopped
+        );
         assert_eq!(session.runtime.process_id(), None);
     }
 }

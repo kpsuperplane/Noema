@@ -22,10 +22,20 @@ use crate::{
     local_model_provider_instance_key,
 };
 
-use super::super::{LocalModelManagerError, LocalModelRuntimeStatus};
-use crate::local_models::manager::process::{
-    LocalModelProcess, LocalModelProcessFactory, LocalModelProcessFuture,
+use super::super::{
+    LocalModelManagerError, LocalModelRuntimeStatus, ManagedProcess, ManagerInner,
+    process::start_managed_process,
 };
+
+pub(in crate::local_models::manager) async fn start_process(
+    manager: &ManagerInner,
+    installation: LocalModelInstallationRecord,
+) -> Result<Arc<ManagedProcess>, LocalModelManagerError> {
+    if let Some(factory) = &manager.fake_process_factory {
+        return factory.start(installation).await.map(ManagedProcess::fake);
+    }
+    start_managed_process(&manager.paths, &manager.local_model_config, installation).await
+}
 
 #[derive(Default)]
 pub(in crate::local_models) struct FakeRepository {
@@ -558,7 +568,7 @@ impl LocalModelLifecyclePersistence for FakeRepository {
 }
 
 #[derive(Debug)]
-pub(super) struct FakeProcessFactory {
+pub(in crate::local_models::manager) struct FakeProcessFactory {
     processes: Mutex<HashMap<String, Arc<FakeProcess>>>,
     fail_starts: Mutex<HashSet<String>>,
     log: Arc<Mutex<Vec<String>>>,
@@ -610,39 +620,37 @@ impl FakeProcessFactory {
     }
 }
 
-impl LocalModelProcessFactory for FakeProcessFactory {
-    fn start(
+impl FakeProcessFactory {
+    pub(in crate::local_models::manager) async fn start(
         &self,
         installation: LocalModelInstallationRecord,
-    ) -> LocalModelProcessFuture<'_, Arc<dyn LocalModelProcess>> {
-        Box::pin(async move {
-            if self
-                .fail_starts
-                .lock()
-                .expect("fail starts lock")
-                .contains(&installation.installation_id)
-            {
-                return Err(LocalModelManagerError::Runtime {
-                    operation: "start_fake_process",
-                    message: "injected start failure".to_string(),
-                });
-            }
-            let process = Arc::new(FakeProcess::new(
-                installation.installation_id.clone(),
-                installation.model_id,
-                Arc::clone(&self.log),
-            ));
-            self.processes
-                .lock()
-                .expect("processes lock")
-                .insert(installation.installation_id, Arc::clone(&process));
-            Ok(process as Arc<dyn LocalModelProcess>)
-        })
+    ) -> Result<Arc<FakeProcess>, LocalModelManagerError> {
+        if self
+            .fail_starts
+            .lock()
+            .expect("fail starts lock")
+            .contains(&installation.installation_id)
+        {
+            return Err(LocalModelManagerError::Runtime {
+                operation: "start_fake_process",
+                message: "injected start failure".to_string(),
+            });
+        }
+        let process = Arc::new(FakeProcess::new(
+            installation.installation_id.clone(),
+            installation.model_id,
+            Arc::clone(&self.log),
+        ));
+        self.processes
+            .lock()
+            .expect("processes lock")
+            .insert(installation.installation_id, Arc::clone(&process));
+        Ok(process)
     }
 }
 
 #[derive(Debug)]
-pub(super) struct FakeProcess {
+pub(in crate::local_models::manager) struct FakeProcess {
     installation_id: String,
     provider: ProviderHandle,
     status_tx: watch::Sender<LocalModelRuntimeStatus>,
@@ -681,36 +689,34 @@ impl FakeProcess {
     }
 }
 
-impl LocalModelProcess for FakeProcess {
-    fn provider(&self) -> ProviderHandle {
+impl FakeProcess {
+    pub(in crate::local_models::manager) fn provider(&self) -> ProviderHandle {
         Arc::clone(&self.provider)
     }
 
-    fn status(&self) -> LocalModelRuntimeStatus {
-        self.status_tx.borrow().clone()
-    }
-
-    fn subscribe_status(&self) -> watch::Receiver<LocalModelRuntimeStatus> {
+    pub(in crate::local_models::manager) fn subscribe_status(
+        &self,
+    ) -> watch::Receiver<LocalModelRuntimeStatus> {
         self.status_tx.subscribe()
     }
 
-    fn shutdown(&self) -> LocalModelProcessFuture<'_, ()> {
-        Box::pin(async move {
-            self.log
-                .lock()
-                .expect("log lock")
-                .push(format!("stop:{}", self.installation_id));
-            if self.fail_shutdown.load(Ordering::Acquire) {
-                return Err(LocalModelManagerError::Runtime {
-                    operation: "stop_fake_process",
-                    message: "injected stop failure".to_string(),
-                });
-            }
-            self.shutdowns.fetch_add(1, Ordering::AcqRel);
-            self.status_tx
-                .send_replace(LocalModelRuntimeStatus::Stopped);
-            Ok(())
-        })
+    pub(in crate::local_models::manager) async fn shutdown(
+        &self,
+    ) -> Result<(), LocalModelManagerError> {
+        self.log
+            .lock()
+            .expect("log lock")
+            .push(format!("stop:{}", self.installation_id));
+        if self.fail_shutdown.load(Ordering::Acquire) {
+            return Err(LocalModelManagerError::Runtime {
+                operation: "stop_fake_process",
+                message: "injected stop failure".to_string(),
+            });
+        }
+        self.shutdowns.fetch_add(1, Ordering::AcqRel);
+        self.status_tx
+            .send_replace(LocalModelRuntimeStatus::Stopped);
+        Ok(())
     }
 }
 

@@ -549,7 +549,16 @@ impl LocalModelManagerService {
         ensure_unclaimed(&installation)?;
         validate_runtime_installation(&installation)?;
         let key = instance_key(&installation)?;
-        let process = match self.inner.process_factory.start(installation.clone()).await {
+        #[cfg(test)]
+        let started = super::tests::fakes::start_process(&self.inner, installation.clone()).await;
+        #[cfg(not(test))]
+        let started = super::process::start_managed_process(
+            &self.inner.paths,
+            &self.inner.local_model_config,
+            installation.clone(),
+        )
+        .await;
+        let process = match started {
             Ok(process) => process,
             Err(error) => {
                 self.inner.registry.mark_unready(key.clone());
@@ -605,7 +614,7 @@ impl LocalModelManagerService {
         Ok(())
     }
 
-    async fn publish_active_status(&self, process: Arc<dyn super::LocalModelProcess>) {
+    async fn publish_active_status(&self, process: Arc<super::ManagedProcess>) {
         self.stop_active_status_forwarder().await;
         let cancellation = CancellationToken::new();
         self.inner.runtime_status_tx.send_replace(process.status());

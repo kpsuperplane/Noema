@@ -3,8 +3,6 @@
 use std::{
     collections::HashMap,
     fmt,
-    future::Future,
-    pin::Pin,
     sync::{
         Arc, Mutex as StdMutex,
         atomic::{AtomicU8, Ordering},
@@ -30,7 +28,7 @@ use crate::{
 };
 
 use super::{LocalModelInstallError, LocalModelInstaller};
-use process::{DefaultLocalModelProcessFactory, LocalModelProcess, LocalModelProcessFactory};
+use process::ManagedProcess;
 
 mod events;
 mod lifecycle;
@@ -69,14 +67,15 @@ struct ManagerInner {
     activation: LocalModelActivationPersistenceHandle,
     lifecycle_persistence: LocalModelLifecyclePersistenceHandle,
     registry: ProviderRegistryHandle,
-    process_factory: Arc<dyn LocalModelProcessFactory>,
+    local_model_config: LocalModelManagerConfig,
+    #[cfg(test)]
+    fake_process_factory: Option<Arc<tests::fakes::FakeProcessFactory>>,
     system_errors: Option<SystemErrorLogger>,
     control: Mutex<()>,
     instances: StdMutex<HashMap<ProviderInstanceKey, ManagedInstance>>,
     workers: Mutex<HashMap<String, InstallationWorker>>,
     active_status_forwarder: Mutex<Option<ActiveStatusForwarder>>,
     reaper: Mutex<Option<ReaperWorker>>,
-    reaper_clock: Arc<dyn LocalModelReaperClock>,
     reaper_interval: Duration,
     reaper_batch_size: usize,
     degraded: StdMutex<HashMap<ProviderInstanceKey, DegradedLocalModelInstance>>,
@@ -89,7 +88,7 @@ struct ManagerInner {
 struct ManagedInstance {
     installation: LocalModelInstallationRecord,
     registration: ProviderRegistration,
-    process: Arc<dyn LocalModelProcess>,
+    process: Arc<ManagedProcess>,
 }
 
 struct InstallationWorker {
@@ -106,18 +105,6 @@ struct ReaperWorker {
     cancellation: CancellationToken,
     trigger: Arc<tokio::sync::Notify>,
     task: JoinHandle<()>,
-}
-
-trait LocalModelReaperClock: Send + Sync {
-    fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
-}
-
-struct TokioLocalModelReaperClock;
-
-impl LocalModelReaperClock for TokioLocalModelReaperClock {
-    fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        Box::pin(tokio::time::sleep(duration))
-    }
 }
 
 impl LocalModelManager {
@@ -164,51 +151,62 @@ impl LocalModelManagerService {
     ) -> Result<Self, LocalModelManagerError> {
         validate_config(&config)?;
         let system_errors = config.system_errors.clone();
-        let process_factory = Arc::new(DefaultLocalModelProcessFactory::new(paths.clone(), config));
-        Self::new_with_factory(
+        Self::build(
             installations,
             activation,
             lifecycle_persistence,
             registry,
             paths,
-            process_factory,
+            config,
+            #[cfg(test)]
+            None,
             system_errors,
+            DEFAULT_REAPER_INTERVAL,
+            DEFAULT_REAPER_BATCH_SIZE,
         )
     }
 
+    #[cfg(test)]
     fn new_with_factory(
         installations: LocalModelInstallationPersistenceHandle,
         activation: LocalModelActivationPersistenceHandle,
         lifecycle_persistence: LocalModelLifecyclePersistenceHandle,
         registry: ProviderRegistryHandle,
         paths: NoemaPaths,
-        process_factory: Arc<dyn LocalModelProcessFactory>,
+        process_factory: Arc<tests::fakes::FakeProcessFactory>,
         system_errors: Option<SystemErrorLogger>,
     ) -> Result<Self, LocalModelManagerError> {
-        Self::new_with_factory_and_clock(
+        let config = LocalModelManagerConfig {
+            runtime_root: None,
+            context_window_tokens: 1,
+            timeout_seconds: 1,
+            startup_timeout_seconds: 1,
+            system_errors: system_errors.clone(),
+        };
+        Self::build(
             installations,
             activation,
             lifecycle_persistence,
             registry,
             paths,
-            process_factory,
+            config,
+            Some(process_factory),
             system_errors,
-            Arc::new(TokioLocalModelReaperClock),
             DEFAULT_REAPER_INTERVAL,
             DEFAULT_REAPER_BATCH_SIZE,
         )
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn new_with_factory_and_clock(
+    fn build(
         installations: LocalModelInstallationPersistenceHandle,
         activation: LocalModelActivationPersistenceHandle,
         lifecycle_persistence: LocalModelLifecyclePersistenceHandle,
         registry: ProviderRegistryHandle,
         paths: NoemaPaths,
-        process_factory: Arc<dyn LocalModelProcessFactory>,
+        local_model_config: LocalModelManagerConfig,
+        #[cfg(test)] fake_process_factory: Option<Arc<tests::fakes::FakeProcessFactory>>,
         system_errors: Option<SystemErrorLogger>,
-        reaper_clock: Arc<dyn LocalModelReaperClock>,
         reaper_interval: Duration,
         reaper_batch_size: usize,
     ) -> Result<Self, LocalModelManagerError> {
@@ -223,14 +221,15 @@ impl LocalModelManagerService {
                 activation,
                 lifecycle_persistence,
                 registry,
-                process_factory,
+                local_model_config,
+                #[cfg(test)]
+                fake_process_factory,
                 system_errors,
                 control: Mutex::new(()),
                 instances: StdMutex::new(HashMap::new()),
                 workers: Mutex::new(HashMap::new()),
                 active_status_forwarder: Mutex::new(None),
                 reaper: Mutex::new(None),
-                reaper_clock,
                 reaper_interval,
                 reaper_batch_size,
                 degraded: StdMutex::new(HashMap::new()),

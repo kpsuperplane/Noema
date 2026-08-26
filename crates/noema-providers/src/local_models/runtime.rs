@@ -231,12 +231,6 @@ impl LlamaServerSupervisor {
         self.inner.status_tx.subscribe()
     }
 
-    /// Returns the latest runtime state without waiting for a change.
-    #[must_use]
-    pub fn status(&self) -> LocalModelRuntimeStatus {
-        self.inner.status_tx.borrow().clone()
-    }
-
     /// Returns the active llama-server process id when the runtime is ready.
     #[must_use]
     #[cfg(feature = "local-model-evals")]
@@ -631,7 +625,7 @@ mod tests {
 
         assert!(matches!(error, LlamaServerError::Unavailable(_)));
         assert!(matches!(
-            supervisor.status(),
+            supervisor.subscribe_status().borrow().clone(),
             LocalModelRuntimeStatus::Failed { .. }
         ));
 
