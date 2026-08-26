@@ -61,6 +61,10 @@ pub(super) async fn authenticate_bearer(
     mut request: Request,
     next: Next,
 ) -> Response {
+    let path = request.uri().path();
+    if !matches!(path, "/graphql" | "/graphql/ws") && !path.starts_with("/artifacts/versions/") {
+        return next.run(request).await;
+    }
     let Some(raw) = bearer_header(request.headers()) else {
         return next.run(request).await;
     };

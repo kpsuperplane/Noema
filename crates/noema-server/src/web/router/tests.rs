@@ -400,7 +400,7 @@ async fn development_mode_keeps_canonical_host_and_origin_checks() {
             .expect("OAuth approval"),
     )
     .await;
-    assert_eq!(approval_status, StatusCode::FORBIDDEN);
+    assert_eq!(approval_status, StatusCode::BAD_REQUEST);
 
     let (logout_status, _, _) = raw_request(
         router,
