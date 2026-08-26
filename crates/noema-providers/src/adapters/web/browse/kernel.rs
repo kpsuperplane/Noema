@@ -1,13 +1,9 @@
 use crate::{WebBrowseError, WebBrowseOwner, web::KERNEL_BROWSER_PROVIDER_ID};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
-use noema_capabilities::web::{
-    browse::{
-        BrowseCommand, BrowseHistoryAction, BrowseInteractionAction, BrowseResponse,
-        BrowseScreenshot, BrowseSnapshot, BrowseWaitUntil, MAX_INTERACTIVE_ELEMENTS,
-        MAX_SNAPSHOT_CHARS,
-    },
-    url_policy::validate_public_url,
+use noema_capabilities::web::browse::{
+    BrowseCommand, BrowseHistoryAction, BrowseInteractionAction, BrowseResponse, BrowseScreenshot,
+    BrowseSnapshot, BrowseWaitUntil, MAX_INTERACTIVE_ELEMENTS, MAX_SNAPSHOT_CHARS,
 };
 use reqwest::{Client, Response, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -26,6 +22,8 @@ use tokio::{
 };
 
 use crate::web::public_url::validate_public_url as validate_public_url_with_dns;
+
+use super::{map_resulting_url_error, map_url_error, public_display_url, truncate_chars};
 
 const KERNEL_API_BASE_URL: &str = "https://api.onkernel.com";
 const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -749,38 +747,6 @@ fn provider_execution_failure(
         stage,
         truncate_chars(detail, 8_192).0,
     )
-}
-
-fn map_url_error(error: crate::WebFetchError) -> WebBrowseError {
-    match error {
-        crate::WebFetchError::BlockedTarget | crate::WebFetchError::RedirectBlocked => {
-            WebBrowseError::BlockedTarget
-        }
-        crate::WebFetchError::Timeout => WebBrowseError::Timeout,
-        crate::WebFetchError::UnsupportedScheme | crate::WebFetchError::MalformedUrl => {
-            WebBrowseError::InvalidUrl
-        }
-        _ => WebBrowseError::Unavailable,
-    }
-}
-
-fn map_resulting_url_error(error: crate::WebFetchError) -> WebBrowseError {
-    match map_url_error(error) {
-        WebBrowseError::InvalidUrl | WebBrowseError::BlockedTarget => WebBrowseError::BlockedTarget,
-        error => error,
-    }
-}
-
-fn public_display_url(raw: String) -> Option<String> {
-    validate_public_url(&raw).ok().map(|url| url.to_string())
-}
-
-fn truncate_chars(value: String, limit: usize) -> (String, bool) {
-    let mut characters = value.char_indices();
-    let Some((byte_index, _)) = characters.nth(limit) else {
-        return (value, false);
-    };
-    (value[..byte_index].to_string(), true)
 }
 
 fn wait_until_value(wait_until: BrowseWaitUntil) -> &'static str {

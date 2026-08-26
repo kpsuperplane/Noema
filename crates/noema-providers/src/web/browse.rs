@@ -182,7 +182,7 @@ impl fmt::Debug for WebBrowseBackendHandle {
 }
 
 /// Browser facade whose concrete implementation remains private.
-pub struct WebBrowseBackend {
+struct WebBrowseBackend {
     implementation: WebBrowseBackendKind,
 }
 

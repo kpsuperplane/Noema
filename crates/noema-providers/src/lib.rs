@@ -166,7 +166,7 @@ pub use web::public_url::{
 pub use web::{
     BEST_EFFORT_PUBLIC_CONTRACT, DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID,
     EXTRACTION_READABILITYRS, KERNEL_BROWSER_PROVIDER_ID, OBSCURA_BROWSER_PROVIDER_ID,
-    WebBrowseBackend, WebBrowseBackendHandle, WebBrowseError, WebBrowseOwner, WebFetchBackend,
-    WebFetchBackendHandle, WebFetchContext, WebFetchError, WebOperationFuture, WebSearchBackend,
-    WebSearchBackendHandle, WebSearchError,
+    WebBrowseBackendHandle, WebBrowseError, WebBrowseOwner, WebFetchBackend, WebFetchBackendHandle,
+    WebFetchContext, WebFetchError, WebOperationFuture, WebSearchBackend, WebSearchBackendHandle,
+    WebSearchError,
 };

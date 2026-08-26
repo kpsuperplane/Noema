@@ -2,13 +2,10 @@ use crate::{WebBrowseError, WebBrowseOwner};
 pub(super) mod process;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use noema_capabilities::web::{
-    browse::{
-        BrowseCommand, BrowseHistoryAction, BrowseInteractionAction, BrowseInteractiveElement,
-        BrowseResponse, BrowseScreenshot, BrowseSnapshot, BrowseWaitUntil,
-        MAX_INTERACTIVE_ELEMENTS, MAX_SNAPSHOT_CHARS,
-    },
-    url_policy::validate_public_url,
+use noema_capabilities::web::browse::{
+    BrowseCommand, BrowseHistoryAction, BrowseInteractionAction, BrowseInteractiveElement,
+    BrowseResponse, BrowseScreenshot, BrowseSnapshot, BrowseWaitUntil, MAX_INTERACTIVE_ELEMENTS,
+    MAX_SNAPSHOT_CHARS,
 };
 use obscura_browser::{BrowserContext, Page, WaitUntil};
 use process::{WorkerHandle, WorkerLaunch, WorkerRequest, spawn_worker};
@@ -26,6 +23,8 @@ use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore, oneshot};
 use tokio::time::Instant;
 
 use crate::web::public_url::validate_public_url as validate_public_url_with_dns;
+
+use super::{map_resulting_url_error, map_url_error, public_display_url, truncate_chars};
 
 const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const POST_NAVIGATION_SETTLE_MS: u64 = 250;
@@ -683,38 +682,6 @@ fn map_wait(wait: BrowseWaitUntil) -> WaitUntil {
     }
 }
 
-fn map_url_error(error: crate::WebFetchError) -> WebBrowseError {
-    match error {
-        crate::WebFetchError::BlockedTarget | crate::WebFetchError::RedirectBlocked => {
-            WebBrowseError::BlockedTarget
-        }
-        crate::WebFetchError::Timeout => WebBrowseError::Timeout,
-        crate::WebFetchError::UnsupportedScheme | crate::WebFetchError::MalformedUrl => {
-            WebBrowseError::InvalidUrl
-        }
-        _ => WebBrowseError::Unavailable,
-    }
-}
-
-fn map_resulting_url_error(error: crate::WebFetchError) -> WebBrowseError {
-    match map_url_error(error) {
-        WebBrowseError::InvalidUrl | WebBrowseError::BlockedTarget => WebBrowseError::BlockedTarget,
-        error => error,
-    }
-}
-
-fn public_display_url(raw: String) -> Option<String> {
-    validate_public_url(&raw).ok().map(|url| url.to_string())
-}
-
-fn truncate_chars(value: String, limit: usize) -> (String, bool) {
-    let mut characters = value.char_indices();
-    let Some((byte_index, _)) = characters.nth(limit) else {
-        return (value, false);
-    };
-    (value[..byte_index].to_string(), true)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -912,8 +879,8 @@ mod tests {
             state.require_revision(snapshot.snapshot_revision),
             Err(WebBrowseError::StaleSnapshot)
         );
-        assert!(validate_public_url("https://user@example.com").is_err());
-        assert!(validate_public_url("http://127.0.0.1").is_err());
+        assert!(super::super::validate_public_url("https://user@example.com").is_err());
+        assert!(super::super::validate_public_url("http://127.0.0.1").is_err());
         state.page.url =
             Some(url::Url::parse("http://127.0.0.1").expect("invalid policy fixture URL"));
         assert_eq!(
