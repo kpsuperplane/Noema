@@ -110,17 +110,6 @@ macro_rules! persisted_enum {
 }
 
 persisted_enum! {
-    /// Source kind for one managed capability integration.
-    pub enum CapabilityIntegrationKind {
-        /// Reviewed API definition and one of its authenticated connections.
-        Api => "api",
-        /// MCP transport definition and one of its concrete connections.
-        Mcp => "mcp",
-    }
-    kind = "capability_integration_kind"
-}
-
-persisted_enum! {
     /// Whether ordinary calls may share context with an integration directly.
     pub enum CapabilityDataSharingPolicy {
         /// Otherwise-safe calls may execute without approval.

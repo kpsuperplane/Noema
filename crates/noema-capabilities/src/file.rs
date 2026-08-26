@@ -161,7 +161,7 @@ pub fn download_tool_spec() -> Result<ToolSpec, ToolContractError> {
 ///
 /// Returns a safe message when arguments do not match the contract.
 pub fn parse_arguments(payload: &Value) -> Result<FileParseRequest, String> {
-    let value = nested_arguments(payload)?;
+    let value = crate::web::nested_arguments(payload).map_err(str::to_string)?;
     let arguments: ParseArguments = serde_json::from_value(value)
         .map_err(|_| "arguments do not match the file.parse schema".to_string())?;
     let path = arguments.path.trim().to_string();
@@ -185,22 +185,18 @@ pub fn parse_arguments(payload: &Value) -> Result<FileParseRequest, String> {
 /// # Errors
 /// Returns a safe message when arguments do not match the contract.
 pub fn parse_download_arguments(payload: &Value) -> Result<FileDownloadRequest, String> {
-    let arguments: DownloadArguments = serde_json::from_value(nested_arguments(payload)?)
+    let value = crate::web::nested_arguments(payload).map_err(str::to_string)?;
+    let arguments: DownloadArguments = serde_json::from_value(value)
         .map_err(|_| "arguments do not match the file.download schema".to_string())?;
     let url = arguments.url.trim().to_string();
     let path = arguments.path.trim().to_string();
-    let reason = arguments.reason.map(|value| value.trim().to_string());
+    let reason = crate::web::normalize_reason(arguments.reason, MAX_REASON_CHARS)
+        .map_err(|_| "reason must fit the file.download limit".to_string())?;
     if url.is_empty() || url.chars().count() > MAX_URL_CHARS {
         return Err("url is required and must fit the file.download limit".to_string());
     }
     if path.is_empty() || path.chars().count() > MAX_PATH_CHARS {
         return Err("path is required and must fit the file.download limit".to_string());
-    }
-    if reason
-        .as_ref()
-        .is_some_and(|value| value.is_empty() || value.chars().count() > MAX_REASON_CHARS)
-    {
-        return Err("reason must fit the file.download limit".to_string());
     }
     Ok(FileDownloadRequest {
         url,
@@ -209,17 +205,6 @@ pub fn parse_download_arguments(payload: &Value) -> Result<FileDownloadRequest, 
         max_chars: arguments.max_chars.unwrap_or(DEFAULT_MAX_CHARS),
         reason,
     })
-}
-
-fn nested_arguments(payload: &Value) -> Result<Value, String> {
-    let valid = payload
-        .as_object()
-        .is_some_and(|object| object.keys().all(|key| key == "arguments"));
-    match payload.get("arguments") {
-        Some(arguments) if valid => Ok(arguments.clone()),
-        Some(_) => Err("nested arguments payload cannot include outer fields".to_string()),
-        None => Ok(payload.clone()),
-    }
 }
 
 #[cfg(test)]

@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use thiserror::Error;
 
-pub const WEB_BROWSE_CAPABILITY: &str = "web.browse";
 pub const WEB_BROWSE_OPEN_TOOL: &str = "web.browse.open";
 pub const WEB_BROWSE_SNAPSHOT_TOOL: &str = "web.browse.snapshot";
 pub const WEB_BROWSE_INTERACT_TOOL: &str = "web.browse.interact";
