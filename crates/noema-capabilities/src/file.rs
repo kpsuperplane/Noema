@@ -211,12 +211,6 @@ pub fn parse_download_arguments(payload: &Value) -> Result<FileDownloadRequest, 
     })
 }
 
-/// Preserve file payloads and sanitize URL credentials before persistence.
-#[must_use]
-pub fn sanitize_payload_for_storage(payload: &Value) -> Value {
-    crate::web::fetch::sanitize_payload_for_storage(payload)
-}
-
 fn nested_arguments(payload: &Value) -> Result<Value, String> {
     let valid = payload
         .as_object()
@@ -233,7 +227,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_contract_bounds_input_and_preserves_persisted_content() {
+    fn parse_contract_bounds_input() {
         let request = parse_arguments(&json!({"path":" data.csv ","max_chars":1000}))
             .expect("parse arguments");
         assert_eq!(request.path, "data.csv");
@@ -246,19 +240,5 @@ mod tests {
         .expect("download arguments");
         assert!(download.parse);
         assert_eq!(download.max_chars, DEFAULT_MAX_CHARS);
-
-        let persisted = sanitize_payload_for_storage(&json!({
-            "path":"data.csv",
-            "content":"private source text",
-            "parse":{"content":"nested text"}
-        }));
-        assert_eq!(
-            persisted,
-            json!({
-                "path":"data.csv",
-                "content":"private source text",
-                "parse":{"content":"nested text"}
-            })
-        );
     }
 }

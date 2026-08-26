@@ -26,12 +26,11 @@ use crate::{
     web_fetch::tool::web_fetch_tool_spec,
 };
 use noema_capabilities::{
-    ArtifactPayloadSanitizer, CapabilityAvailabilityNotice, CapabilityAvailabilityStatus,
-    CapabilityBinding, CapabilityBindingSourceError, CapabilityBindingSourceHandle,
-    CapabilityCatalogBuilder, CapabilityCatalogSnapshot, CapabilityExecutionDecision,
-    CapabilityScope, CapabilityTarget, CapabilityToolBehavior, FilePayloadSanitizer, InvokerKey,
-    RedactingPayloadSanitizer, ToolContractError, ToolName, ToolSpec, WebBrowsePayloadSanitizer,
-    WebFetchPayloadSanitizer, tool_enablement_name,
+    CapabilityAvailabilityNotice, CapabilityAvailabilityStatus, CapabilityBinding,
+    CapabilityBindingSourceError, CapabilityBindingSourceHandle, CapabilityCatalogBuilder,
+    CapabilityCatalogSnapshot, CapabilityExecutionDecision, CapabilityScope, CapabilityTarget,
+    CapabilityToolBehavior, InvokerKey, RedactingPayloadSanitizer, ToolContractError, ToolName,
+    ToolSpec, UrlPayloadSanitizer, tool_enablement_name,
 };
 use noema_memory::{native_search_memory_tool_spec, read_memory_page_tool_spec};
 use noema_providers::{
@@ -178,16 +177,14 @@ pub(super) async fn build_model_tools_for_role(
         prompt_kinds.insert(tool.name.as_str().to_string(), ModelToolPromptKind::Builtin);
         let persistence = if matches!(tool.name.as_str(), "search_memory" | "read_memory_page") {
             BindingPersistence::Memory
-        } else if tool.name.as_str() == "artifact.create_local_file" {
-            BindingPersistence::Artifact
         } else if matches!(
             tool.name.as_str(),
             noema_capabilities::file::FILE_PARSE_TOOL
                 | noema_capabilities::file::FILE_DOWNLOAD_TOOL
         ) {
-            BindingPersistence::File
+            BindingPersistence::Url
         } else {
-            BindingPersistence::Redacted
+            BindingPersistence::Standard
         };
         let binding = if tool.name.as_str() == noema_capabilities::file::FILE_DOWNLOAD_TOOL {
             native_web_binding(store, tool).await?
@@ -692,12 +689,9 @@ fn catalog_prompt_rows(
 
 #[derive(Debug, Clone, Copy)]
 enum BindingPersistence {
-    Redacted,
-    WebFetch,
-    WebBrowse,
-    Artifact,
+    Standard,
+    Url,
     Memory,
-    File,
 }
 
 #[derive(Debug, Default)]
@@ -792,12 +786,9 @@ fn runtime_binding(
         behavior.idempotent = false;
     }
     let sanitizer: Arc<dyn noema_capabilities::PayloadSanitizer> = match persistence {
-        BindingPersistence::Redacted => Arc::new(RedactingPayloadSanitizer),
-        BindingPersistence::WebFetch => Arc::new(WebFetchPayloadSanitizer),
-        BindingPersistence::WebBrowse => Arc::new(WebBrowsePayloadSanitizer),
-        BindingPersistence::Artifact => Arc::new(ArtifactPayloadSanitizer),
+        BindingPersistence::Standard => Arc::new(RedactingPayloadSanitizer),
+        BindingPersistence::Url => Arc::new(UrlPayloadSanitizer),
         BindingPersistence::Memory => Arc::new(NativeMemoryPayloadSanitizer),
-        BindingPersistence::File => Arc::new(FilePayloadSanitizer),
     };
     let validator = jsonschema::options()
         .with_draft(jsonschema::Draft::Draft202012)
@@ -831,10 +822,10 @@ pub(super) async fn native_web_binding(
     spec: ToolSpec,
 ) -> Result<CapabilityBinding, ToolContractError> {
     let persistence = match spec.name.as_str() {
-        noema_capabilities::web::fetch::WEB_FETCH_TOOL => BindingPersistence::WebFetch,
-        name if name.starts_with("web.browse.") => BindingPersistence::WebBrowse,
-        noema_capabilities::file::FILE_DOWNLOAD_TOOL => BindingPersistence::File,
-        _ => BindingPersistence::Redacted,
+        noema_capabilities::web::fetch::WEB_FETCH_TOOL
+        | noema_capabilities::file::FILE_DOWNLOAD_TOOL => BindingPersistence::Url,
+        name if name.starts_with("web.browse.") => BindingPersistence::Url,
+        _ => BindingPersistence::Standard,
     };
     let class = web_tool_access_class(spec.name.as_str());
     let binding = runtime_binding(spec, class, persistence)?;

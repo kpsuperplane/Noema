@@ -476,16 +476,6 @@ fn argument_error(message: &str) -> BrowseArgumentError {
     }
 }
 
-#[must_use]
-pub fn sanitize_arguments_for_storage(arguments: &Value) -> Value {
-    crate::web::fetch::sanitize_payload_for_storage(arguments)
-}
-
-#[must_use]
-pub fn sanitize_output_for_storage(output: &Value) -> Value {
-    crate::web::fetch::sanitize_payload_for_storage(output)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -558,19 +548,5 @@ mod tests {
             open.description
                 .contains("when JavaScript rendering or page interaction is necessary")
         );
-    }
-
-    #[test]
-    fn persistence_views_keep_arguments_and_page_outputs() {
-        let arguments = sanitize_arguments_for_storage(
-            &json!({"snapshot_revision":1,"ref":"e1","action":"fill","value":"private"}),
-        );
-        let output = sanitize_output_for_storage(
-            &json!({"provider":"obscura","state":"open","snapshot":{"url":"https://example.com","title":"Example","text":"private page","snapshot_revision":2,"elements":[{"name":"secret"}],"truncated":false},"screenshot":{"media_type":"image/png","data":"cG5n","width":1280,"height":720}}),
-        );
-        assert_eq!(arguments["value"], "private");
-        assert_eq!(output["snapshot"]["text"], "private page");
-        assert_eq!(output["snapshot"]["elements"][0]["name"], "secret");
-        assert_eq!(output["screenshot"]["data"], "cG5n");
     }
 }

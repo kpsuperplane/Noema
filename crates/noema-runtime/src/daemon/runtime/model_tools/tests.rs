@@ -17,7 +17,7 @@ fn runtime_binding_checks_its_published_input_rules() {
     let binding = runtime_binding(
         web_search_tool_spec().expect("search spec"),
         ToolAccessClass::ReadOnly,
-        BindingPersistence::Redacted,
+        BindingPersistence::Standard,
     )
     .expect("binding");
     assert!(binding.accepts_arguments(&json!({"query":"reliability"})));
@@ -33,7 +33,7 @@ fn runtime_binding_checks_its_published_input_rules() {
             })
             .expect("wait spec"),
         ToolAccessClass::ReadOnly,
-        BindingPersistence::WebBrowse,
+        BindingPersistence::Url,
     )
     .expect("wait binding");
     assert!(wait.accepts_arguments(&json!({"condition":{"text":"ready"},"timeout_ms":5000})));

@@ -2,7 +2,7 @@ use crate::agent_execution::{ExecutionRole, ToolPolicy};
 use noema_capabilities::{
     CapabilityDispatchFailure, CapabilityError, CapabilityFailureKind, CapabilityFuture,
     CapabilityInvocation, CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter,
-    InvokerKey, PayloadSanitizer, WebBrowsePayloadSanitizer,
+    InvokerKey, PayloadSanitizer, UrlPayloadSanitizer,
 };
 use noema_providers::ProviderRouteLease;
 use noema_store::{GovernedExecutionOutcome, NewCapabilityAuthenticationRequest};
@@ -1165,7 +1165,7 @@ fn is_builtin_browser_tool(name: &str) -> bool {
 
 fn unadvertised_browser_failure_result(call: &LocalToolCall) -> LocalToolResult {
     let payload = CapabilityError::UnknownOperation.model_payload();
-    let sanitizer = WebBrowsePayloadSanitizer;
+    let sanitizer = UrlPayloadSanitizer;
     LocalToolResult::from_call(call, LocalToolKind::WebBrowse, false, payload.clone(), true)
         .with_persisted(noema_capabilities::PersistedCapabilityPayload {
             arguments: sanitizer.persist_arguments(&call.payload),

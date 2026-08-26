@@ -1,7 +1,7 @@
 //! Immutable server-only capability bindings and persistence views.
 
 use crate::{
-    CapabilityDestination, CapabilityFuture, InvokerKey, ToolName, ToolSpec, file,
+    CapabilityDestination, CapabilityFuture, InvokerKey, ToolName, ToolSpec,
     normalize_capability_connection_label, sanitize_standard_credentials, web,
 };
 use serde_json::Value;
@@ -167,55 +167,15 @@ impl PayloadSanitizer for RedactingPayloadSanitizer {
     }
 }
 
-/// Sanitize credential-bearing fetch URL components and standard credential fields.
+/// Sanitize credential-bearing URL components and standard credential fields.
 #[derive(Debug, Default)]
-pub struct WebFetchPayloadSanitizer;
+pub struct UrlPayloadSanitizer;
 
-impl PayloadSanitizer for WebFetchPayloadSanitizer {
+impl PayloadSanitizer for UrlPayloadSanitizer {
     fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
         Some(sanitize_standard_credentials(
             &web::fetch::sanitize_payload_for_storage(arguments),
         ))
-    }
-}
-
-/// Preserve file payloads while removing standard credential fields and URL components.
-#[derive(Debug, Default)]
-pub struct FilePayloadSanitizer;
-
-impl PayloadSanitizer for FilePayloadSanitizer {
-    fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
-        Some(sanitize_standard_credentials(
-            &file::sanitize_payload_for_storage(arguments),
-        ))
-    }
-}
-
-/// Preserve reviewed browser payloads while removing standard credential fields.
-#[derive(Debug, Default)]
-pub struct WebBrowsePayloadSanitizer;
-
-impl PayloadSanitizer for WebBrowsePayloadSanitizer {
-    fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
-        Some(sanitize_standard_credentials(
-            &web::browse::sanitize_arguments_for_storage(arguments),
-        ))
-    }
-
-    fn persist_output(&self, output: &Value) -> Option<Value> {
-        Some(sanitize_standard_credentials(
-            &web::browse::sanitize_output_for_storage(output),
-        ))
-    }
-}
-
-/// Preserve artifact payloads while removing standard credential fields.
-#[derive(Debug, Default)]
-pub struct ArtifactPayloadSanitizer;
-
-impl PayloadSanitizer for ArtifactPayloadSanitizer {
-    fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
-        Some(sanitize_standard_credentials(arguments))
     }
 }
 
@@ -726,30 +686,38 @@ mod tests {
     }
 
     #[test]
-    fn web_fetch_policy_composes_url_and_exact_standard_credential_cleanup() {
-        let sanitizer = WebFetchPayloadSanitizer;
+    fn url_policy_composes_url_and_exact_standard_credential_cleanup() {
+        let sanitizer = UrlPayloadSanitizer;
         let views = PersistedCapabilityPayload {
             arguments: sanitizer.persist_arguments(&json!({
                 "url":"https://user:secret@example.com/path?view=full#section",
-                "headers":{"Authorization":"Bearer private"}
+                "headers":{"Authorization":"Bearer private"},
+                "content":"authorized private source"
             })),
-            output: sanitizer.persist_output(&json!({"access_token":"private"})),
+            output: sanitizer.persist_output(&json!({
+                "access_token":"private",
+                "snapshot":{"text":"authorized private page"}
+            })),
         };
         let arguments = views.arguments.expect("arguments");
         let output = views.output.expect("output");
         assert_json_fields!(arguments,
             "/url" => "https://example.com/path?view=full#section",
             "/headers/Authorization" => "[REDACTED]",
+            "/content" => "authorized private source",
         );
-        assert_json_fields!(output, "/access_token" => "[REDACTED]");
-        assert!(!arguments.to_string().contains("private"));
+        assert_json_fields!(output,
+            "/access_token" => "[REDACTED]",
+            "/snapshot/text" => "authorized private page",
+        );
+        assert!(!arguments.to_string().contains("user:secret"));
     }
 
     #[test]
     fn artifact_policy_preserves_content_and_redacts_secrets_on_both_paths() {
         let binding = binding(
             "artifact.create_local_file",
-            Arc::new(ArtifactPayloadSanitizer),
+            Arc::new(RedactingPayloadSanitizer),
         );
         let views = persisted_views(
             &binding,

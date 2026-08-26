@@ -195,7 +195,7 @@ fn test_web_model_tools() -> ModelTools {
         let name = spec.name.as_str().to_string();
         let sanitizer: Arc<dyn noema_capabilities::PayloadSanitizer> =
             if name == noema_capabilities::web::fetch::WEB_FETCH_TOOL {
-                Arc::new(noema_capabilities::WebFetchPayloadSanitizer)
+                Arc::new(noema_capabilities::UrlPayloadSanitizer)
             } else {
                 Arc::new(noema_capabilities::RedactingPayloadSanitizer)
             };
@@ -263,7 +263,7 @@ fn test_governed_web_fetch_model_tools() -> ModelTools {
                 noema_capabilities::CapabilityExecutionDecision::LlmReview,
                 noema_capabilities::CapabilityScope::Global,
                 Arc::new(|_: &serde_json::Value| true),
-                Arc::new(noema_capabilities::WebFetchPayloadSanitizer),
+                Arc::new(noema_capabilities::UrlPayloadSanitizer),
             )
             .with_destination(
                 noema_capabilities::CapabilityDestination::new(
@@ -325,7 +325,7 @@ fn test_governed_web_browse_model_tools() -> ModelTools {
             noema_capabilities::CapabilityExecutionDecision::LlmReview,
             noema_capabilities::CapabilityScope::Global,
             Arc::new(|_: &serde_json::Value| true),
-            Arc::new(noema_capabilities::WebBrowsePayloadSanitizer),
+            Arc::new(noema_capabilities::UrlPayloadSanitizer),
         ))
         .expect("unique binding");
     let bindings = builder.build();

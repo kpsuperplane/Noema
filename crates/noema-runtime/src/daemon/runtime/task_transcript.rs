@@ -710,7 +710,7 @@ mod tests {
             CapabilityExecutionDecision::ExecuteImmediately,
             CapabilityScope::ConversationOwned,
             Arc::new(|_: &serde_json::Value| true),
-            Arc::new(noema_capabilities::ArtifactPayloadSanitizer),
+            Arc::new(noema_capabilities::RedactingPayloadSanitizer),
         );
         let mut builder = CapabilityCatalogBuilder::new();
         builder.add(binding).expect("unique binding");

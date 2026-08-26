@@ -22,14 +22,13 @@ pub use authentication::{
     CapabilityAuthenticationChallengeError, CapabilityAuthenticationChallengeKind,
 };
 pub use binding::{
-    ArtifactPayloadSanitizer, CapabilityAvailabilityNotice, CapabilityAvailabilityStatus,
-    CapabilityBinding, CapabilityBindingSource, CapabilityBindingSourceError,
-    CapabilityBindingSourceHandle, CapabilityCatalogBuilder, CapabilityCatalogError,
-    CapabilityCatalogResult, CapabilityCatalogSnapshot, CapabilityExecutionDecision,
-    CapabilityScope, CapabilityServiceContext, CapabilityServiceContextError, CapabilityTarget,
-    CapabilityToolBehavior, FilePayloadSanitizer, OmitPayloadSanitizer, OperationToken,
-    PayloadSanitizer, PersistedCapabilityPayload, RedactingPayloadSanitizer, ToolInputCheck,
-    WebBrowsePayloadSanitizer, WebFetchPayloadSanitizer,
+    CapabilityAvailabilityNotice, CapabilityAvailabilityStatus, CapabilityBinding,
+    CapabilityBindingSource, CapabilityBindingSourceError, CapabilityBindingSourceHandle,
+    CapabilityCatalogBuilder, CapabilityCatalogError, CapabilityCatalogResult,
+    CapabilityCatalogSnapshot, CapabilityExecutionDecision, CapabilityScope,
+    CapabilityServiceContext, CapabilityServiceContextError, CapabilityTarget,
+    CapabilityToolBehavior, OmitPayloadSanitizer, OperationToken, PayloadSanitizer,
+    PersistedCapabilityPayload, RedactingPayloadSanitizer, ToolInputCheck, UrlPayloadSanitizer,
 };
 pub use composite::CompositeCapabilityBindingSource;
 pub use credential_sanitization::{
