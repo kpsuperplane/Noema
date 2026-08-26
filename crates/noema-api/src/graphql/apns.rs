@@ -8,7 +8,7 @@ use noema_capability_adapters::{
     sync_directory, write_new_file,
 };
 use noema_home::NoemaPaths;
-use noema_store::{ApnsEnvironment, ClientNotificationRecord};
+use noema_store::{ApnsEnvironment, ClientNotificationRecord, NotificationDeliveryOutcome};
 use reqwest::StatusCode;
 use ring::digest;
 use serde::{Deserialize, Serialize};
@@ -178,20 +178,24 @@ pub(crate) enum ApnsSendError {
     InvalidToken,
 }
 
-pub(crate) fn delivery_disposition_apns(
+pub(crate) fn delivery_outcome_apns(
     result: std::result::Result<StatusCode, ApnsSendError>,
-) -> (&'static str, Option<&'static str>) {
+) -> NotificationDeliveryOutcome<'static> {
     match result {
-        Ok(status) if status.is_success() => ("delivered", None),
-        Ok(status) if matches!(status.as_u16(), 400 | 410) => ("failed", Some("remote_rejected")),
-        Ok(status) if status.as_u16() == 403 => ("failed", Some("provider_auth_rejected")),
-        Ok(status) if status.as_u16() == 429 || status.is_server_error() => {
-            ("retry", Some("remote_retry"))
+        Ok(status) if status.is_success() => NotificationDeliveryOutcome::Delivered,
+        Ok(status) if matches!(status.as_u16(), 400 | 410) => {
+            NotificationDeliveryOutcome::Failed(Some("remote_rejected"))
         }
-        Ok(_) => ("failed", Some("remote_rejected")),
-        Err(ApnsSendError::InvalidToken) => ("invalid_token", Some("invalid_device_token")),
-        Err(ApnsSendError::Provider(code)) => ("failed", Some(code)),
-        Err(ApnsSendError::Transport(code)) => ("retry", Some(code)),
+        Ok(status) if status.as_u16() == 403 => {
+            NotificationDeliveryOutcome::Failed(Some("provider_auth_rejected"))
+        }
+        Ok(status) if status.as_u16() == 429 || status.is_server_error() => {
+            NotificationDeliveryOutcome::Retry("remote_retry")
+        }
+        Ok(_) => NotificationDeliveryOutcome::Failed(Some("remote_rejected")),
+        Err(ApnsSendError::InvalidToken) => NotificationDeliveryOutcome::InvalidToken,
+        Err(ApnsSendError::Provider(code)) => NotificationDeliveryOutcome::Failed(Some(code)),
+        Err(ApnsSendError::Transport(code)) => NotificationDeliveryOutcome::Retry(code),
     }
 }
 

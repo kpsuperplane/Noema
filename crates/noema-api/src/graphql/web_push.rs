@@ -14,7 +14,7 @@ use super::{
         GraphqlClientNotificationStatus, GraphqlConfigureApnsProviderInput,
         GraphqlRegisterClientLiveActivitiesInput, GraphqlRegisterClientLiveActivityUpdateInput,
         GraphqlRegisterClientNotificationsInput, LIVE_ACTIVITY_ATTRIBUTES_TYPE,
-        LIVE_ACTIVITY_TOPIC, client_status, delivery_disposition_apns, hex_digest, is_pkcs8_pem,
+        LIVE_ACTIVITY_TOPIC, client_status, delivery_outcome_apns, hex_digest, is_pkcs8_pem,
         live_activity_status, now_timestamp, positive_revision, read_apns_credential,
         validate_apns_credential, validate_apns_identifier, write_apns_credential,
     },
@@ -32,8 +32,9 @@ use noema_runtime::{ConversationRuntimeEvent, TaskRuntimeEvent, WorkRuntimeEvent
 use noema_store::{
     ApnsEnvironment, ClaimedApnsDelivery, ClaimedLiveActivityDelivery, ClaimedWebPushDelivery,
     ClientLiveActivityRegistration, LiveActivityEvent, LiveActivityTarget, NewLiveActivityDelivery,
-    NewWebPushSubscription, NoemaStore, WorkPageSize, WorkRunItemOwnerScope, WorkRunItemQuery,
-    WorkTaskCursor, WorkTaskQuery, WorkTaskScope, WorkTaskSummary,
+    NewWebPushSubscription, NoemaStore, NotificationDeliveryOutcome, WorkPageSize,
+    WorkRunItemOwnerScope, WorkRunItemQuery, WorkTaskCursor, WorkTaskQuery, WorkTaskScope,
+    WorkTaskSummary,
 };
 use noema_tasks::{
     AgentRunItemKind, AgentRunItemRecord, AgentRunItemStatus, RunKind, RunStatus, TaskId,
@@ -806,8 +807,7 @@ impl NotificationCoordinator {
                     .store
                     .finish_live_activity_delivery(
                         &delivery,
-                        "suppressed",
-                        Some("stale_start"),
+                        NotificationDeliveryOutcome::Suppressed(Some("stale_start")),
                         None,
                     )
                     .await;
@@ -815,19 +815,22 @@ impl NotificationCoordinator {
             }
             let (revision, result, apns_id) = self.send_live_activity(delivery.clone()).await;
             let transport_error = matches!(&result, Err(ApnsSendError::Transport(_)));
-            let (mut disposition, code) = delivery_disposition_apns(result);
+            let mut outcome = delivery_outcome_apns(result);
             if delivery.event == LiveActivityEvent::Start && transport_error {
-                disposition = "failed";
+                outcome = NotificationDeliveryOutcome::Failed(outcome.error_code());
             }
-            if let Some(code) = code
-                && matches!(disposition, "failed" | "retry")
+            if let Some(code) = outcome.error_code()
+                && matches!(
+                    outcome,
+                    NotificationDeliveryOutcome::Failed(_) | NotificationDeliveryOutcome::Retry(_)
+                )
             {
                 let _ = self.record_apns_error(code, revision).await;
             }
             let _ = self
                 .inner
                 .store
-                .finish_live_activity_delivery(&delivery, disposition, code, apns_id.as_deref())
+                .finish_live_activity_delivery(&delivery, outcome, apns_id.as_deref())
                 .await;
         }
         while let Ok(Some(delivery)) = self.inner.store.claim_due_apns_delivery().await {
@@ -839,16 +842,18 @@ impl NotificationCoordinator {
                         &delivery.client.client_id,
                         &delivery.event_key,
                         &delivery.client.device_token,
-                        "suppressed",
-                        None,
+                        NotificationDeliveryOutcome::Suppressed(None),
                     )
                     .await;
                 continue;
             }
             let (revision, result, _) = self.send_apns(delivery.clone()).await;
-            let (disposition, code) = delivery_disposition_apns(result);
-            if let Some(code) = code
-                && matches!(disposition, "failed" | "retry")
+            let outcome = delivery_outcome_apns(result);
+            if let Some(code) = outcome.error_code()
+                && matches!(
+                    outcome,
+                    NotificationDeliveryOutcome::Failed(_) | NotificationDeliveryOutcome::Retry(_)
+                )
             {
                 let _ = self.record_apns_error(code, revision).await;
             }
@@ -859,8 +864,7 @@ impl NotificationCoordinator {
                     &delivery.client.client_id,
                     &delivery.event_key,
                     &delivery.client.device_token,
-                    disposition,
-                    code,
+                    outcome,
                 )
                 .await;
         }
@@ -872,21 +876,19 @@ impl NotificationCoordinator {
                     .finish_web_push_delivery(
                         &delivery.subscription.subscription_id,
                         &delivery.event_key,
-                        "suppressed",
-                        None,
+                        NotificationDeliveryOutcome::Suppressed(None),
                     )
                     .await;
                 continue;
             }
-            let (disposition, code) = delivery_disposition(self.send(delivery.clone()).await);
+            let outcome = delivery_outcome(self.send(delivery.clone()).await);
             let _ = self
                 .inner
                 .store
                 .finish_web_push_delivery(
                     &delivery.subscription.subscription_id,
                     &delivery.event_key,
-                    disposition,
-                    code,
+                    outcome,
                 )
                 .await;
         }
@@ -2329,17 +2331,17 @@ fn primary_chat_notification(
     ))
 }
 
-fn delivery_disposition(
+fn delivery_outcome(
     result: std::result::Result<reqwest::StatusCode, String>,
-) -> (&'static str, Option<&'static str>) {
+) -> NotificationDeliveryOutcome<'static> {
     match result {
-        Ok(status) if status.is_success() => ("delivered", None),
-        Ok(status) if matches!(status.as_u16(), 404 | 410) => ("expired", Some("expired")),
+        Ok(status) if status.is_success() => NotificationDeliveryOutcome::Delivered,
+        Ok(status) if matches!(status.as_u16(), 404 | 410) => NotificationDeliveryOutcome::Expired,
         Ok(status) if status.as_u16() == 429 || status.is_server_error() => {
-            ("retry", Some("remote_retry"))
+            NotificationDeliveryOutcome::Retry("remote_retry")
         }
-        Ok(_) => ("failed", Some("remote_rejected")),
-        Err(_) => ("retry", Some("transport_unavailable")),
+        Ok(_) => NotificationDeliveryOutcome::Failed(Some("remote_rejected")),
+        Err(_) => NotificationDeliveryOutcome::Retry("transport_unavailable"),
     }
 }
 
@@ -3049,36 +3051,36 @@ mod tests {
     #[test]
     fn delivery_statuses_have_bounded_retry_and_expiry_classes() {
         assert_eq!(
-            delivery_disposition(Ok(StatusCode::CREATED)),
-            ("delivered", None)
+            delivery_outcome(Ok(StatusCode::CREATED)),
+            NotificationDeliveryOutcome::Delivered
         );
         assert_eq!(
-            delivery_disposition(Ok(StatusCode::GONE)),
-            ("expired", Some("expired"))
+            delivery_outcome(Ok(StatusCode::GONE)),
+            NotificationDeliveryOutcome::Expired
         );
         assert_eq!(
-            delivery_disposition(Ok(StatusCode::TOO_MANY_REQUESTS)),
-            ("retry", Some("remote_retry"))
+            delivery_outcome(Ok(StatusCode::TOO_MANY_REQUESTS)),
+            NotificationDeliveryOutcome::Retry("remote_retry")
         );
         assert_eq!(
-            delivery_disposition(Ok(StatusCode::BAD_REQUEST)),
-            ("failed", Some("remote_rejected"))
+            delivery_outcome(Ok(StatusCode::BAD_REQUEST)),
+            NotificationDeliveryOutcome::Failed(Some("remote_rejected"))
         );
         assert_eq!(
-            delivery_disposition(Err("offline".to_string())),
-            ("retry", Some("transport_unavailable"))
+            delivery_outcome(Err("offline".to_string())),
+            NotificationDeliveryOutcome::Retry("transport_unavailable")
         );
         assert_eq!(
-            delivery_disposition_apns(Err(ApnsSendError::InvalidToken)),
-            ("invalid_token", Some("invalid_device_token"))
+            delivery_outcome_apns(Err(ApnsSendError::InvalidToken)),
+            NotificationDeliveryOutcome::InvalidToken
         );
         assert_eq!(
-            delivery_disposition_apns(Ok(StatusCode::BAD_REQUEST)),
-            ("failed", Some("remote_rejected"))
+            delivery_outcome_apns(Ok(StatusCode::BAD_REQUEST)),
+            NotificationDeliveryOutcome::Failed(Some("remote_rejected"))
         );
         assert_eq!(
-            delivery_disposition_apns(Ok(StatusCode::TOO_MANY_REQUESTS)),
-            ("retry", Some("remote_retry"))
+            delivery_outcome_apns(Ok(StatusCode::TOO_MANY_REQUESTS)),
+            NotificationDeliveryOutcome::Retry("remote_retry")
         );
     }
 }

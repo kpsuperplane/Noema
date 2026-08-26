@@ -12,8 +12,8 @@ use std::str::FromStr;
 
 use noema_tasks::{
     RunKind, RunStatus, TaskGateKind, TaskRecoveryReason, WorkCommandResult, WorkDomainError,
-    WorkEventKind, WorkEventPayload, WorkReconciliationAction, WorkReconciliationSnapshot,
-    WorkflowStageBehavior, WorkflowStageId, plan_reconciliation_action,
+    WorkEventKind, WorkEventPayload, WorkReconciliationAction, WorkflowStageBehavior,
+    WorkflowStageId, plan_reconciliation_action,
 };
 use rusqlite::{OptionalExtension, Transaction, params};
 
@@ -38,20 +38,6 @@ pub fn plan_work_reconciliation(
     envelope: &WorkReconciliationEnvelope,
 ) -> Result<WorkReconciliationAction, StoreError> {
     plan_reconciliation_action(envelope.snapshot.clone()).map_err(StoreError::Work)
-}
-
-/// Validate a caller-supplied snapshot before handing it to the domain planner.
-///
-/// This is useful in focused tests and in recovery code that reconstructs a
-/// snapshot from a bounded SQL projection.  It intentionally performs no SQL.
-///
-/// # Errors
-///
-/// Returns an error when the supplied facts do not describe a valid workflow state.
-pub fn plan_snapshot(
-    snapshot: WorkReconciliationSnapshot,
-) -> Result<WorkReconciliationAction, StoreError> {
-    plan_reconciliation_action(snapshot).map_err(StoreError::Work)
 }
 
 /// Store-owned request to apply one pure reconciliation action to a task.
@@ -93,20 +79,6 @@ impl ApplyReconciliation {
 
     fn scope(&self, task: &helpers::TaskState, run_id: Option<&str>) -> WorkEventScope {
         self.event_context().task_scope(task, run_id)
-    }
-}
-
-/// Role carried by a queued reconciliation action.
-#[must_use]
-pub const fn action_run_kind(action: &WorkReconciliationAction) -> Option<RunKind> {
-    match action {
-        WorkReconciliationAction::QueueRun { run_kind }
-        | WorkReconciliationAction::MoveToQueueAndQueueRun { run_kind }
-        | WorkReconciliationAction::OpenRecoveryGate {
-            retry_run_kind: Some(run_kind),
-            ..
-        } => Some(*run_kind),
-        _ => None,
     }
 }
 

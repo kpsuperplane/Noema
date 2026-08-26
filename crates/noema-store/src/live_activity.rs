@@ -1,5 +1,9 @@
 #![allow(missing_docs)]
-use super::{ApnsEnvironment, NoemaStore, StoreError, ids::allocate_id};
+use super::{
+    ApnsEnvironment, NoemaStore, StoreError,
+    ids::allocate_id,
+    notifications::{NotificationDeliveryOutcome, notification_retry},
+};
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::Value;
 #[derive(Clone, PartialEq, Eq)]
@@ -489,16 +493,9 @@ impl NoemaStore {
     pub async fn finish_live_activity_delivery(
         &self,
         delivery: &ClaimedLiveActivityDelivery,
-        disposition: &str,
-        error_code: Option<&str>,
+        outcome: NotificationDeliveryOutcome<'_>,
         apns_id: Option<&str>,
     ) -> Result<(), StoreError> {
-        if !matches!(
-            disposition,
-            "delivered" | "suppressed" | "failed" | "retry" | "invalid_token"
-        ) {
-            return Err(invalid("invalid Live Activity delivery disposition"));
-        }
         if apns_id.is_some_and(|value| {
             value.is_empty() || value.len() > 128 || value.trim() != value || !value.is_ascii()
         }) {
@@ -506,8 +503,8 @@ impl NoemaStore {
         }
         self.with_connection(|connection| {
             let transaction = connection.transaction()?;
-            match disposition {
-                "invalid_token" => {
+            match outcome {
+                NotificationDeliveryOutcome::InvalidToken => {
                     if delivery.event == LiveActivityEvent::Start {
                         transaction.execute(
                             "UPDATE client_live_activity_registrations SET push_to_start_token = NULL, environment = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND push_to_start_token = ?2",
@@ -527,32 +524,37 @@ impl NoemaStore {
                         apns_id,
                     )?;
                 }
-                "retry" => {
+                NotificationDeliveryOutcome::Retry(error_code) => {
                     let attempt: u32 = transaction.query_row(
                         "SELECT attempt_count FROM live_activity_deliveries WHERE client_id = ?1 AND delivery_key = ?2",
                         params![delivery.client_id, delivery.delivery_key],
                         |row| row.get(0),
                     )?;
-                    let delay = match attempt {
-                        0 | 1 => 60,
-                        2 => 300,
-                        _ => 1800,
-                    };
-                    let status = if attempt >= 4 { "failed" } else { "pending" };
+                    let (status, delay) = notification_retry(attempt);
                     transaction.execute(
                         "UPDATE live_activity_deliveries SET status = ?3, available_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || ?4 || ' seconds'), last_error_code = ?5, apns_id = COALESCE(?7, apns_id), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND delivery_key = ?2 AND status = 'pending' AND token = ?6",
                         params![delivery.client_id, delivery.delivery_key, status, delay, error_code, delivery.token, apns_id],
                     )?;
                 }
-                _ => terminal_delivery_tx(
-                    &transaction,
-                    delivery,
-                    disposition,
-                    error_code,
-                    apns_id,
-                )?,
+                NotificationDeliveryOutcome::Delivered
+                | NotificationDeliveryOutcome::Suppressed(_)
+                | NotificationDeliveryOutcome::Failed(_) => {
+                    let (status, error_code) = outcome.terminal().expect("terminal outcome");
+                    terminal_delivery_tx(
+                        &transaction,
+                        delivery,
+                        status,
+                        error_code,
+                        apns_id,
+                    )?;
+                }
+                NotificationDeliveryOutcome::Expired => {
+                    return Err(invalid("unsupported Live Activity delivery outcome"));
+                }
             }
-            if disposition == "delivered" && delivery.event == LiveActivityEvent::End {
+            if outcome == NotificationDeliveryOutcome::Delivered
+                && delivery.event == LiveActivityEvent::End
+            {
                 transaction.execute(
                     "UPDATE client_task_activities SET lifecycle = 'dismissed', suppressed = 1, latest_projection_json = CASE WHEN lifecycle = 'ending' THEN '{}' ELSE latest_projection_json END, latest_projection_signature = CASE WHEN lifecycle = 'ending' THEN '' ELSE latest_projection_signature END, focused_task_id = CASE WHEN lifecycle = 'ending' THEN NULL ELSE focused_task_id END, dismissed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND activity_id = ?2",
                     params![delivery.client_id, delivery.activity_id],

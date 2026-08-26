@@ -230,23 +230,6 @@ impl NoemaStore {
         .await
     }
 
-    /// Idempotently append a durable item with a caller-derived stable id.
-    /// This is reserved for exactly-once projections of another durable event.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the id is empty, ownership references are
-    /// invalid, or an existing id belongs to a different projection.
-    pub async fn append_conversation_item_with_id(
-        &self,
-        item_id: String,
-        item: NewConversationItem,
-    ) -> Result<ConversationItemRecord, StoreError> {
-        self.append_conversation_item_with_id_if_absent(item_id, item)
-            .await
-            .map(|(record, _)| record)
-    }
-
     /// Idempotently append an item and report whether this call inserted it.
     ///
     /// # Errors

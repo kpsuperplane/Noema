@@ -1,6 +1,10 @@
 use rusqlite::{OptionalExtension, params};
 
-use super::{NoemaStore, StoreError, ids::allocate_id};
+use super::{
+    NoemaStore, StoreError,
+    ids::allocate_id,
+    notifications::{NotificationDeliveryOutcome, notification_retry},
+};
 
 /// Durable VAPID identity for one Noema installation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -338,36 +342,37 @@ impl NoemaStore {
     /// Mark one delivery complete, suppressed, retryable, terminal, or expired.
     ///
     /// # Errors
-    /// Returns an invariant or storage error when the disposition is invalid or cannot be saved.
+    /// Returns an invariant or storage error when the outcome is unsupported or cannot be saved.
     pub async fn finish_web_push_delivery(
         &self,
         subscription_id: &str,
         event_key: &str,
-        disposition: &str,
-        error_code: Option<&str>,
+        outcome: NotificationDeliveryOutcome<'_>,
     ) -> Result<(), StoreError> {
         self.with_connection(|conn| {
-            match disposition {
-                "expired" => { conn.execute("DELETE FROM web_push_subscriptions WHERE subscription_id = ?1", [subscription_id])?; }
-                "retry" => {
+            match outcome {
+                NotificationDeliveryOutcome::Expired => { conn.execute("DELETE FROM web_push_subscriptions WHERE subscription_id = ?1", [subscription_id])?; }
+                NotificationDeliveryOutcome::Retry(error_code) => {
                     let attempt: u32 = conn.query_row(
                         "SELECT attempt_count FROM web_push_deliveries WHERE subscription_id = ?1 AND event_key = ?2",
                         params![subscription_id, event_key], |row| row.get(0),
                     )?;
-                    let delay = match attempt { 0 | 1 => 60, 2 => 300, _ => 1800 };
-                    let status = if attempt >= 4 { "failed" } else { "pending" };
+                    let (status, delay) = notification_retry(attempt);
                     conn.execute(
                         "UPDATE web_push_deliveries SET status = ?3, available_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || ?4 || ' seconds'), last_error_code = ?5, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE subscription_id = ?1 AND event_key = ?2",
                         params![subscription_id, event_key, status, delay, error_code],
                     )?;
                 }
-                "delivered" | "suppressed" | "failed" => {
+                NotificationDeliveryOutcome::Delivered
+                | NotificationDeliveryOutcome::Suppressed(_)
+                | NotificationDeliveryOutcome::Failed(_) => {
+                    let (status, error_code) = outcome.terminal().expect("terminal outcome");
                     conn.execute(
                         "UPDATE web_push_deliveries SET status = ?3, last_error_code = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE subscription_id = ?1 AND event_key = ?2",
-                        params![subscription_id, event_key, disposition, error_code],
+                        params![subscription_id, event_key, status, error_code],
                     )?;
                 }
-                _ => return Err(StoreError::InvariantViolation { message: "invalid Web Push delivery disposition".to_string() }),
+                NotificationDeliveryOutcome::InvalidToken => return Err(StoreError::InvariantViolation { message: "unsupported Web Push delivery outcome".to_string() }),
             }
             Ok(())
         }).await

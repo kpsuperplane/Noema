@@ -3,6 +3,49 @@ use super::{NoemaStore, StoreError};
 use rusqlite::{OptionalExtension, params};
 use std::{collections::HashSet, fmt::Write as _};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NotificationDeliveryOutcome<'a> {
+    Delivered,
+    Suppressed(Option<&'a str>),
+    Failed(Option<&'a str>),
+    Retry(&'a str),
+    InvalidToken,
+    Expired,
+}
+
+impl<'a> NotificationDeliveryOutcome<'a> {
+    #[must_use]
+    pub const fn error_code(self) -> Option<&'a str> {
+        match self {
+            Self::Delivered => None,
+            Self::Suppressed(code) | Self::Failed(code) => code,
+            Self::Retry(code) => Some(code),
+            Self::InvalidToken => Some("invalid_device_token"),
+            Self::Expired => Some("expired"),
+        }
+    }
+
+    pub(crate) const fn terminal(self) -> Option<(&'static str, Option<&'a str>)> {
+        match self {
+            Self::Delivered => Some(("delivered", None)),
+            Self::Suppressed(code) => Some(("suppressed", code)),
+            Self::Failed(code) => Some(("failed", code)),
+            Self::Retry(_) | Self::InvalidToken | Self::Expired => None,
+        }
+    }
+}
+
+pub(crate) const fn notification_retry(attempt: u32) -> (&'static str, u32) {
+    (
+        if attempt >= 4 { "failed" } else { "pending" },
+        match attempt {
+            0 | 1 => 60,
+            2 => 300,
+            _ => 1800,
+        },
+    )
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ApnsEnvironment {
     Development,
@@ -356,19 +399,18 @@ impl NoemaStore {
         .await
     }
 
-    #[doc = "Complete a claimed APNs delivery only while its token binding remains current.\n\n# Errors\nReturns a store error for invalid dispositions or failed persistence."]
+    #[doc = "Complete a claimed APNs delivery only while its token binding remains current.\n\n# Errors\nReturns a store error for an unsupported outcome or failed persistence."]
     pub async fn finish_apns_delivery(
         &self,
         client_id: &str,
         event_key: &str,
         expected_device_token: &[u8],
-        disposition: &str,
-        error_code: Option<&str>,
+        outcome: NotificationDeliveryOutcome<'_>,
     ) -> Result<(), StoreError> {
         self.with_connection(|conn| {
             let transaction = conn.transaction()?;
-            match disposition {
-                "invalid_token" => {
+            match outcome {
+                NotificationDeliveryOutcome::InvalidToken => {
                     transaction.execute(
                         "UPDATE apns_deliveries SET status = 'failed', last_error_code = 'invalid_device_token', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND event_key = ?2 AND status = 'pending' AND EXISTS (SELECT 1 FROM client_notification_registrations WHERE client_id = ?1 AND device_token = ?3)",
                         params![client_id, event_key, expected_device_token],
@@ -378,30 +420,30 @@ impl NoemaStore {
                         params![client_id, expected_device_token],
                     )?;
                 }
-                "retry" => {
+                NotificationDeliveryOutcome::Retry(error_code) => {
                     let attempt: u32 = transaction.query_row(
                         "SELECT attempt_count FROM apns_deliveries WHERE client_id = ?1 AND event_key = ?2",
                         params![client_id, event_key],
                         |row| row.get(0),
                     )?;
-                    let delay = match attempt {
-                        0 | 1 => 60,
-                        2 => 300,
-                        _ => 1800,
-                    };
-                    let status = if attempt >= 4 { "failed" } else { "pending" };
+                    let (status, delay) = notification_retry(attempt);
                     transaction.execute(
                         "UPDATE apns_deliveries SET status = ?4, available_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || ?5 || ' seconds'), last_error_code = ?6, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND event_key = ?2 AND status = 'pending' AND EXISTS (SELECT 1 FROM client_notification_registrations WHERE client_id = ?1 AND device_token = ?3)",
                         params![client_id, event_key, expected_device_token, status, delay, error_code],
                     )?;
                 }
-                "delivered" | "suppressed" | "failed" => {
+                NotificationDeliveryOutcome::Delivered
+                | NotificationDeliveryOutcome::Suppressed(_)
+                | NotificationDeliveryOutcome::Failed(_) => {
+                    let (status, error_code) = outcome.terminal().expect("terminal outcome");
                     transaction.execute(
                         "UPDATE apns_deliveries SET status = ?4, last_error_code = ?5, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE client_id = ?1 AND event_key = ?2 AND status = 'pending' AND EXISTS (SELECT 1 FROM client_notification_registrations WHERE client_id = ?1 AND device_token = ?3)",
-                        params![client_id, event_key, expected_device_token, disposition, error_code],
+                        params![client_id, event_key, expected_device_token, status, error_code],
                     )?;
                 }
-                _ => return Err(invalid("invalid APNs delivery disposition")),
+                NotificationDeliveryOutcome::Expired => {
+                    return Err(invalid("unsupported APNs delivery outcome"));
+                }
             }
             transaction.commit()?;
             Ok(())
@@ -526,8 +568,7 @@ mod tests {
                 "client:two",
                 "chat-turn:before-token-rotation",
                 &[1, 2, 3],
-                "invalid_token",
-                Some("invalid_device_token"),
+                NotificationDeliveryOutcome::InvalidToken,
             )
             .await
             .expect("ignore stale invalid-token response");
@@ -545,8 +586,7 @@ mod tests {
                 "client:two",
                 "chat-turn:before-token-rotation",
                 &[4, 5, 6],
-                "invalid_token",
-                Some("invalid_device_token"),
+                NotificationDeliveryOutcome::InvalidToken,
             )
             .await
             .expect("finish current invalid token");
@@ -689,8 +729,7 @@ mod tests {
                 "client:one",
                 "chat-turn:two",
                 &[9, 8, 7],
-                "retry",
-                Some("remote_retry"),
+                NotificationDeliveryOutcome::Retry("remote_retry"),
             )
             .await
             .expect("ignore stale send completion");

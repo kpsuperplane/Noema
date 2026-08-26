@@ -1,5 +1,7 @@
 use super::test_store;
-use crate::{ApnsEnvironment, LiveActivityEvent, NewLiveActivityDelivery};
+use crate::{
+    ApnsEnvironment, LiveActivityEvent, NewLiveActivityDelivery, NotificationDeliveryOutcome,
+};
 use serde_json::json;
 
 #[tokio::test]
@@ -115,7 +117,11 @@ async fn terminal_live_activity_delivery_keeps_apns_id_for_thirty_days() {
         .expect("claim delivery")
         .expect("delivery");
     store
-        .finish_live_activity_delivery(&delivery, "delivered", None, Some("apns-retained"))
+        .finish_live_activity_delivery(
+            &delivery,
+            NotificationDeliveryOutcome::Delivered,
+            Some("apns-retained"),
+        )
         .await
         .expect("finish delivery");
     store
@@ -518,7 +524,11 @@ async fn live_activity_end_delivery_dismisses_and_allows_a_new_session() {
         .expect("start delivery");
     assert_eq!(start.event, LiveActivityEvent::Start);
     store
-        .finish_live_activity_delivery(&start, "delivered", None, Some("apns-start"))
+        .finish_live_activity_delivery(
+            &start,
+            NotificationDeliveryOutcome::Delivered,
+            Some("apns-start"),
+        )
         .await
         .expect("finish start");
     store
@@ -568,7 +578,11 @@ async fn live_activity_end_delivery_dismisses_and_allows_a_new_session() {
         .expect("end delivery");
     assert_eq!(end.event, LiveActivityEvent::End);
     store
-        .finish_live_activity_delivery(&end, "delivered", None, Some("apns-end"))
+        .finish_live_activity_delivery(
+            &end,
+            NotificationDeliveryOutcome::Delivered,
+            Some("apns-end"),
+        )
         .await
         .expect("finish end");
     assert_eq!(
@@ -630,7 +644,11 @@ async fn live_activity_end_delivery_dismisses_and_allows_a_new_session() {
         .expect("claim second start")
         .expect("second start delivery");
     store
-        .finish_live_activity_delivery(&second_start, "invalid_token", None, None)
+        .finish_live_activity_delivery(
+            &second_start,
+            NotificationDeliveryOutcome::InvalidToken,
+            None,
+        )
         .await
         .expect("finish invalid start");
     store

@@ -117,6 +117,7 @@ pub use native_oauth::{
     NativeOAuthRefreshLookup, NativeOAuthRetryProof, NativeOAuthRotation,
     NativeOAuthRotationOutcome, NewNativeOAuthCode, NewNativeOAuthFamily,
 };
+pub use notifications::NotificationDeliveryOutcome;
 pub use notifications::{ApnsEnvironment, ClaimedApnsDelivery, ClientNotificationRecord};
 pub use observed_urls::ObservedUrlSource;
 pub use provider_setup_confirmation::{ProviderSetupRole, ReadyProviderSetupSelection};
@@ -139,9 +140,7 @@ pub use work_notifications::{
     ClaimedWorkNotification, CompleteWorkNotification, FailWorkNotification,
     WorkNotificationLeaseRequest,
 };
-pub use work_reconciliation::{
-    ApplyReconciliation, action_run_kind, plan_snapshot, plan_work_reconciliation,
-};
+pub use work_reconciliation::{ApplyReconciliation, plan_work_reconciliation};
 pub use work_records::{
     ProjectConnection, ProjectCursor, ProjectEdge, ProjectQuery, WorkConnection, WorkCursorError,
     WorkEdge, WorkEventBeforeQuery, WorkEventConnection, WorkEventCursor, WorkEventEdge,

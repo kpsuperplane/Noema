@@ -280,13 +280,15 @@ async fn idempotent_conversation_item_id_prevents_duplicate_task_delivery() {
     };
 
     let first = store
-        .append_conversation_item_with_id("item:task_status:event:1".to_string(), item())
+        .append_conversation_item_with_id_if_absent("item:task_status:event:1".to_string(), item())
         .await
-        .expect("first delivery");
+        .expect("first delivery")
+        .0;
     let second = store
-        .append_conversation_item_with_id("item:task_status:event:1".to_string(), item())
+        .append_conversation_item_with_id_if_absent("item:task_status:event:1".to_string(), item())
         .await
-        .expect("idempotent delivery");
+        .expect("idempotent delivery")
+        .0;
     let rows = store
         .list_conversation_items(
             &conversation.conversation_id,
