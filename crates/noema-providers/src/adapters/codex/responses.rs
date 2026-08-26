@@ -38,39 +38,18 @@ pub struct CodexResponsesProvider {
     transport: ResponsesTransport,
     version_client: reqwest::Client,
     resolved_client_version: Arc<OnceCell<String>>,
-    credentials: CodexCredentialSource,
+    provider_account_id: String,
+    credential_access: ProviderCredentialAccessHandle,
     config: CodexProviderConfig,
     system_errors: Option<SystemErrorLogger>,
-}
-
-#[derive(Clone)]
-enum CodexCredentialSource {
-    Service {
-        provider_account_id: String,
-        access: ProviderCredentialAccessHandle,
-    },
-}
-
-impl std::fmt::Debug for CodexCredentialSource {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Service {
-                provider_account_id,
-                ..
-            } => formatter
-                .debug_struct("CodexCredentialSource::Service")
-                .field("provider_account_id", provider_account_id)
-                .field("access", &"[CONFIGURED]")
-                .finish(),
-        }
-    }
 }
 
 impl std::fmt::Debug for CodexResponsesProvider {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("CodexResponsesProvider")
-            .field("credentials", &self.credentials)
+            .field("provider_account_id", &self.provider_account_id)
+            .field("credential_access", &"[CONFIGURED]")
             .field("config", &self.config)
             .field("system_errors", &self.system_errors)
             .finish_non_exhaustive()
@@ -124,10 +103,8 @@ impl CodexResponsesProvider {
             transport,
             version_client: client,
             resolved_client_version: Arc::new(OnceCell::new()),
-            credentials: CodexCredentialSource::Service {
-                provider_account_id,
-                access,
-            },
+            provider_account_id,
+            credential_access: access,
             system_errors: config.system_errors.clone(),
             config,
         })
@@ -192,27 +169,17 @@ impl CodexResponsesProvider {
     }
 
     async fn access_token(&self) -> Result<String, ProviderError> {
-        match &self.credentials {
-            CodexCredentialSource::Service {
-                provider_account_id,
-                access,
-            } => access
-                .codex_access_token(provider_account_id)
-                .await
-                .map(ProviderCredential::into_secret),
-        }
+        self.credential_access
+            .codex_access_token(&self.provider_account_id)
+            .await
+            .map(ProviderCredential::into_secret)
     }
 
     async fn refresh_access_token(&self) -> Result<String, ProviderError> {
-        match &self.credentials {
-            CodexCredentialSource::Service {
-                provider_account_id,
-                access,
-            } => access
-                .refresh_codex_access_token(provider_account_id)
-                .await
-                .map(ProviderCredential::into_secret),
-        }
+        self.credential_access
+            .refresh_codex_access_token(&self.provider_account_id)
+            .await
+            .map(ProviderCredential::into_secret)
     }
 }
 
