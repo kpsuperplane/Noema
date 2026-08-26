@@ -2,9 +2,9 @@
 
 Research date: 2026-08-18
 
-Noema assessment date: 2026-08-25
+Noema assessment date: 2026-08-26
 
-Noema assessment baseline: commit `93f5d630`
+Noema assessment baseline: commit `6cb847c3`, plus pre-existing development worktree changes
 
 ## Executive summary
 
@@ -362,6 +362,7 @@ The assessment uses these current authorities:
 - The [Capability contract](harness/capabilities.md) defines governed MCP and native HTTP integrations.
 - The [browser contract](harness/web-browsing.md) defines interactive browsing, public downloads, document parsing, and remaining browser limits.
 - The [50-case ledger](validation/personal-agent-50-case-ledger.md) supplies dated live evidence for Gmail, Google Calendar, and Notion workflows.
+- The [14-case live ledger](validation/difficult-personal-assistant-test-ledger-2026-08-26.md) records exact acceptance evidence for every row previously marked `Test`.
 - The [proactive-event plan](plans/2026-08-15-proactive-event-sources.md) states that implementation has not started.
 - The [current context](context/current.md) records implemented file tools and remaining live Gmail and Calendar OAuth acceptance.
 
@@ -377,26 +378,31 @@ Every row below was reassessed against the current contracts. Each row names the
 
 | Status | Meaning |
 | --- | --- |
+| Verified | One current live acceptance case passed. This result is evidence, not a permanent guarantee. |
 | Test | A close implementation path exists. Noema needs an exact acceptance case and current connection proof. |
 | Extend | Core primitives exist. Noema needs bounded connectors, data, rules, or reliability work. |
 | Build | A central data, authority, integration, or execution system is absent. |
 
-At this baseline, 14 tasks need testing, 50 need bounded extensions, and 36 need new systems.
+The live suite produced five passes, eight partial results, and one failure.
 
-Three classifications changed since 2026-08-18. Tasks 36 and 100 moved from Build to Extend. Task 98 moved from Extend to Test.
+At this baseline, five tasks are verified, nine need more testing, 50 need bounded extensions, and 36 need new systems.
+
+Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend. Task 98 moved from Extend to Test.
+
+Tasks 11, 14, 31, 32, and 35 are now Verified after live acceptance.
 
 ### 1. Daily coordination and commitments
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 1 | Build a daily operational brief | Test | Retest the proven path after Task-file and provider changes. Verify current connections, non-empty Tasks, Memory preferences, travel, and changing load. |
+| 1 | Build a daily operational brief | Test | The live case was partial. All four sources ran, but Calendar lacked a reliable bounded day view. Gmail second-page parsing failed. Add bounded Calendar reads, repair Gmail pagination, and retest with non-empty Tasks and preferences. |
 | 2 | Maintain one trusted promise register | Extend | Tasks and working files provide a base. Add counterparties, source-linked capture, due dates, deduplication, and completion proof. |
 | 3 | Capture actions, decisions, and dates | Build | Implement external event sources and authorized routing into Tasks, Calendar, or project records. One-time extraction already passed. |
 | 4 | Maintain a prioritized reply and action queue | Extend | Add thread identity, relationship priority, mail drafts, reply operations, and sent-reply reconciliation. Revalidate the current Gmail connection. |
-| 5 | Audit the calendar for conflicts and hidden load | Test | Test current Calendar access with travel, preparation, recovery, flexibility, and time zones. Add map data when travel matters. |
-| 6 | Create a realistic daily plan | Test | Retest with current Tasks, Memory preferences, estimates, fatigue limits, breaks, and infeasible overload. |
+| 5 | Audit the calendar for conflicts and hidden load | Test | The live audit handled time zones and recovery load. Recurrence instances, all-day dates, locations, and routes remained unavailable. Add interval-native expansion and location data. Then test map travel time. |
+| 6 | Create a realistic daily plan | Test | The live case failed in recovery. The delegated worker lacked native Task access. A moving time anchor caused repeated review rejection. Use a fixed anchor, bounded tolerance, and delegated Task reads. |
 | 7 | Replan after disruption | Extend | Calendar replanning passed. Add Task dependencies, travel data, simultaneous changes, and partial-write recovery. |
-| 8 | Produce a weekly preview and review | Test | Retest recurrence history, prior-period comparison, non-empty Tasks, and current external connections. Earlier weekly and monthly cases passed. |
+| 8 | Produce a weekly preview and review | Test | The live case used Calendar and Gmail, but delegated work lacked native Tasks and Repeat history. Repair secondary Calendar transforms and expose those reads before retesting. |
 | 9 | Track deadlines, renewals, and recurring obligations | Extend | Repeat supplies scheduling. Add source-linked obligation state, portal intake, change detection, and completion reconciliation. |
 | 10 | Review personal goals and adjust the plan | Build | Add goal outcomes, measures, target dates, review history, and links to Tasks and actual time. Projects do not supply this authority. |
 
@@ -404,20 +410,20 @@ Three classifications changed since 2026-08-18. Tasks 36 and 100 moved from Buil
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 11 | Resolve conflicting requests | Test | Test authority conflicts, relationship trade-offs, escalation drafts, and safe non-action. Cross-system risk ranking remains a close precedent. |
+| 11 | Resolve conflicting requests | Verified | The synthetic live case passed authority ranking, relationship trade-offs, escalation drafts, and safe non-action. Add a source-backed cross-system conflict case later. |
 | 12 | Monitor an important conversation | Build | Implement external event sources, thread checkpoints, silence deadlines, material-change rules, and escalation controls. Repeat is not reliable event monitoring. |
 | 13 | Coordinate a multi-person meeting | Extend | Add stable contacts, current free-busy access, invitations, negotiation replies, fairness rules, and time-zone exception tests. |
-| 14 | Prepare a meeting brief and agenda | Test | Retest current connections with populated attendees, ambiguous identities, sensitive Memory boundaries, conflicting decisions, and parsed attachments. |
-| 15 | Prepare audience-specific updates | Test | Validate fact parity, audience confidentiality, formatting, citations, and review before delivery. Task results and support files provide the base. |
+| 14 | Prepare a meeting brief and agenda | Verified | A current live case found a qualifying external meeting and produced a cited, sensitive brief. Parsed attachments and conflicting prior decisions still need a fixture. |
+| 15 | Prepare audience-specific updates | Test | The live case correctly rejected an unsupported Project narrative. No qualifying linked Project existed, so three fact-matched versions were not exercised. Add a populated Project fixture. |
 | 16 | Record decisions and close follow-ups | Extend | Task files can hold a log. Add durable ownership, source-linked status, transcript intake, event reminders, and later completion evidence. |
-| 17 | Maintain a relationship brief | Test | Retest Memory version two with identity merging, richer history, evidence links, private exclusions, changed facts, and staleness. |
+| 17 | Maintain a relationship brief | Test | The live case rejected unsafe identity merges and protected private facts. No person spanned Memory, Gmail, and Calendar. Add stable contact links and Calendar attendees before retesting. |
 | 18 | Maintain a relationship follow-up plan | Extend | Memory and Repeat provide partial support. Add stable contacts, interaction history, cadence rules, reciprocity signals, and consent boundaries. |
 
 ### 3. Work, projects, and career
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 19 | Produce an evidence-based project status | Test | Retest with native Projects, shared files, Task workspaces, conflicting updates, missing reports, and source links. |
+| 19 | Produce an evidence-based project status | Test | A strong cited status used current project-like records. Native Project-to-Task linkage was absent, and a source query limit blocked aggregates. Retest a populated native Project. |
 | 20 | Detect project risks and dependencies | Extend | Dependencies and subtasks remain excluded. Add Task dependency links, commitment ownership, weak-signal tests, and intervention rules. |
 | 21 | Maintain a decision log | Extend | Task files can hold local decisions. Add a cross-Task decision authority, replacement links, chronology, source evidence, and Project updates. |
 | 22 | Turn an ambiguous goal into a project plan | Extend | Planner and Task files cover decomposition. Add milestones, dependencies, estimates, review points, subtasks, and plan-to-Task conversion. |
@@ -434,11 +440,11 @@ Three classifications changed since 2026-08-18. Tasks 36 and 100 moved from Buil
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 31 | Compare a major product or service | Test | Retest freshness, total cost, compatibility, source disagreement, and preference weighting. Search, browser recovery, Memory, and Task files exist. |
-| 32 | Produce a current research brief | Test | Retest source quality, citation accuracy, disagreement, and coverage. Durable Task research, continuations, file parsing, and citations now provide a strong path. |
+| 31 | Compare a major product or service | Verified | The live case passed current pricing, compatibility, warranty, source disagreement, budget handling, and preference weighting. Add tax and shipping in a future regression. |
+| 32 | Produce a current research brief | Verified | The live case passed primary-source research, claim citations, uncertainty, inference separation, and recommendations. Retain citation regressions across provider changes. |
 | 33 | Monitor a topic for material changes | Extend | Repeat supplies scheduling. Add series baselines, prior-result retrieval, source checkpoints, material-change rules, and notification thresholds. |
 | 34 | Build a literature review and evidence map | Extend | PDF parsing now works. Add scholarly-index adapters, citation management, DOI deduplication, reproducible screening, and evidence-map structures. |
-| 35 | Fact-check claims and uncertainty | Test | Retest primary-source tracing, date conflicts, archived evidence, parsed documents, and explicit uncertainty. Research citations and review already exist. |
+| 35 | Fact-check claims and uncertainty | Verified | The live case passed primary-source tracing, exact dates, definitions, scope limits, and explicit uncertainty. Archived historical evidence still needs a later case. |
 | 36 | Extract a structured inventory | Extend | Public PDF, Office, and Excel parsing now works. Add user and batch intake, image OCR, structured tables, deduplication, and source history. |
 | 37 | Analyze a personal dataset | Build | CSV and Excel parsing exists. Add secure personal-data intake and a deterministic analysis engine or controlled notebook connector. |
 | 38 | Maintain a reading and newsletter digest | Extend | Repeat and Task files improve continuity. Add full-content feeds, durable read state, preference adaptation, current mail proof, and repeated-run tests. |
@@ -498,7 +504,7 @@ Three classifications changed since 2026-08-18. Tasks 36 and 100 moved from Buil
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 75 | Build one live itinerary | Test | Retest a non-empty case with current connections, parsed confirmations, time zones, changes, cancellations, and missing legs. Earlier evidence was empty. |
+| 75 | Build one live itinerary | Test | The synthetic live case passed time-zone normalization, cancellation detection, transfer risks, and missing legs. Current mail intake, parsed confirmations, and change reconciliation remain untested. |
 | 76 | Plan and book a multi-leg trip | Extend | Browser routing improves recovery. Add travel inventory, booking tools, protected payment authority, receipt reconciliation, and partial-failure tests. |
 | 77 | Monitor disruptions and prepare rebooking | Build | Implement external event sources, carrier feeds, rights rules, downstream dependency analysis, rebooking operations, and uncertain-outcome recovery. |
 | 78 | Maintain international travel readiness | Extend | Public requirement downloads and parsing now work. Add private document intake, nationality rules, source freshness, medicine checks, and Calendar validation. |
@@ -531,7 +537,7 @@ Three classifications changed since 2026-08-18. Tasks 36 and 100 moved from Buil
 | 95 | Coordinate account or identity-theft recovery | Build | Add a recovery workspace, trusted-device checks, bank and bureau tools, private evidence intake, dispute tracking, and continuous monitoring. |
 | 96 | Review privacy settings and data exposure | Build | Browser routes can reach public sites, but profiles remain temporary. Add account inventory, authenticated access, deletion tracking, and reappearance monitoring. |
 | 97 | Complete device replacement and migration | Build | Add device, backup, authenticator, password-manager, migration, verification, and disposal integrations. Noema cannot control personal devices. |
-| 98 | Maintain a personal knowledge base | Test | Test Memory version two across repeated updates, changed facts, duplicate evidence, decisions, hierarchy, and FTS retrieval. History and direct editing remain absent. |
+| 98 | Maintain a personal knowledge base | Test | Live page reads and targeted FTS passed. Recency, replacement history, direct editing, and source-level duplicate evidence remain absent. Test repeated updates after those systems exist. |
 | 99 | Prepare a digital-legacy plan | Build | Add digital-legacy records, trusted roles, delegated access, estate scopes, platform actions, periodic review, and secure export. |
 | 100 | Make digital information accessible | Extend | Document parsing now converts supported files to Markdown. Add user file intake, OCR, accessible exports, validation, profiles, and affected-user tests. |
 

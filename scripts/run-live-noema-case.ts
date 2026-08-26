@@ -5,6 +5,7 @@ follow any directly delegated task until completion or human intervention.
 
 Options:
   --origin <url>       Noema origin (default: http://localhost:3737)
+  --socket <path>      Authenticated local GraphQL Unix socket
   --timezone <zone>    IANA client timezone (default: Etc/UTC)
   --timeout-ms <ms>    Turn timeout (default: 600000)
   --help               Show this help
@@ -12,6 +13,7 @@ Options:
 
 type Options = {
   origin: string;
+  socketPath?: string;
   timezone: string;
   timeoutMs: number;
   prompt: string;
@@ -42,26 +44,15 @@ type DelegatedTaskState = {
       state: string;
       prompt: string;
     } | null;
-    completedResult: {
-      submissionId: string;
-      executorRunId: string;
-      summary: string;
-      resultMarkdown: string;
-      criteria: Array<{ criterionId: string; evidenceMarkdown: string }>;
-      artifacts: Array<{
-        artifactId: string;
-        artifactVersionId: string;
-        title: string;
-        artifactKind: string;
-        externalUrl: string | null;
-      }>;
-    } | null;
+    resultDocument: string | null;
+    resultMetadata: unknown;
   } | null;
   pendingHumanInterventions: Array<Record<string, unknown>>;
 };
 
 function parseArgs(args: string[]): Options {
   let origin = "http://localhost:3737";
+  let socketPath: string | undefined;
   let timezone = "Etc/UTC";
   let timeoutMs = 600_000;
   const prompt: string[] = [];
@@ -76,11 +67,17 @@ function parseArgs(args: string[]): Options {
       prompt.push(...args.slice(index + 1));
       break;
     }
-    if (argument === "--origin" || argument === "--timezone" || argument === "--timeout-ms") {
+    if (
+      argument === "--origin"
+      || argument === "--socket"
+      || argument === "--timezone"
+      || argument === "--timeout-ms"
+    ) {
       const value = args[index + 1];
       if (!value) throw new Error(`${argument} requires a value`);
       index += 1;
       if (argument === "--origin") origin = value;
+      if (argument === "--socket") socketPath = value;
       if (argument === "--timezone") timezone = value;
       if (argument === "--timeout-ms") timeoutMs = Number(value);
       continue;
@@ -92,17 +89,52 @@ function parseArgs(args: string[]): Options {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
     throw new Error("--timeout-ms must be a positive integer");
   }
-  return { origin: origin.replace(/\/$/, ""), timezone, timeoutMs, prompt: prompt.join(" ") };
+  return {
+    origin: origin.replace(/\/$/, ""),
+    socketPath,
+    timezone,
+    timeoutMs,
+    prompt: prompt.join(" "),
+  };
 }
 
-async function graphql<T>(origin: string, query: string, variables = {}): Promise<T> {
-  const response = await fetch(`${origin}/graphql`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ query, variables }),
-  });
-  if (!response.ok) throw new Error(`GraphQL HTTP ${response.status}`);
-  const envelope = (await response.json()) as GraphqlEnvelope<T>;
+async function graphql<T>(options: Options, query: string, variables = {}): Promise<T> {
+  const payload = JSON.stringify({ query, variables });
+  let envelope: GraphqlEnvelope<T>;
+  if (options.socketPath) {
+    const process = Bun.spawn([
+      "curl",
+      "--silent",
+      "--show-error",
+      "--fail-with-body",
+      "--unix-socket",
+      options.socketPath,
+      "--header",
+      "content-type: application/json",
+      "--data-binary",
+      "@-",
+      "http://localhost/graphql",
+    ], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    process.stdin.write(payload);
+    process.stdin.end();
+    const [exitCode, stdout, stderr] = await Promise.all([
+      process.exited,
+      new Response(process.stdout).text(),
+      new Response(process.stderr).text(),
+    ]);
+    if (exitCode !== 0) {
+      throw new Error(`GraphQL socket request failed: ${stderr.trim() || stdout.trim()}`);
+    }
+    envelope = JSON.parse(stdout) as GraphqlEnvelope<T>;
+  } else {
+    const response = await fetch(`${options.origin}/graphql`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: payload,
+    });
+    if (!response.ok) throw new Error(`GraphQL HTTP ${response.status}`);
+    envelope = (await response.json()) as GraphqlEnvelope<T>;
+  }
   if (envelope.errors?.length) {
     throw new Error(envelope.errors.map((error) => error.message).join("; "));
   }
@@ -112,7 +144,7 @@ async function graphql<T>(origin: string, query: string, variables = {}): Promis
 
 async function findTurnId(options: Options, conversationId: string, clientMessageId: string) {
   const page = await graphql<{ conversationTranscriptPage: { items: Array<{ turnId: string | null; metadata: unknown }> } }>(
-    options.origin,
+    options,
     `query SubmittedTurn($conversationId: String!) {
       conversationTranscriptPage(input: { conversationId: $conversationId, limit: 200 }) {
         items { turnId metadata }
@@ -129,7 +161,7 @@ async function findTurnId(options: Options, conversationId: string, clientMessag
 
 async function turnIsTerminal(options: Options, turnId: string) {
   const result = await graphql<{ runtimeDebugProfile: { status: string } | null }>(
-    options.origin,
+    options,
     `query TurnStatus($turnId: String!) {
       runtimeDebugProfile(input: { kind: CONVERSATION_TURN, scopeId: $turnId }) { status }
     }`,
@@ -139,11 +171,29 @@ async function turnIsTerminal(options: Options, turnId: string) {
 }
 
 async function waitForTurn(options: Options, conversationId: string, clientMessageId: string) {
-  const wsUrl = `${options.origin.replace(/^http/, "ws")}/graphql/ws`;
   const itemIds = new Set<string>();
   let turnId: string | undefined;
   const deadline = Date.now() + options.timeoutMs;
+  if (options.socketPath) {
+    await graphql(options, `mutation RunCase($input: SendConversationTurnInput!) {
+      sendConversationTurn(input: $input) { conversationId clientMessageId }
+    }`, {
+      input: {
+        conversationId,
+        input: options.prompt,
+        clientMessageId,
+        clientTimeZone: options.timezone,
+      },
+    });
+    while (Date.now() < deadline) {
+      turnId ??= await findTurnId(options, conversationId, clientMessageId);
+      if (turnId && await turnIsTerminal(options, turnId)) return { itemIds, turnId };
+      await Bun.sleep(Math.min(2_000, deadline - Date.now()));
+    }
+    throw new Error(`turn timed out after ${options.timeoutMs} ms; no action was retried`);
+  }
 
+  const wsUrl = `${options.origin.replace(/^http/, "ws")}/graphql/ws`;
   const subscriptionCompleted = await new Promise<boolean>((resolve, reject) => {
     const socket = new WebSocket(wsUrl, "graphql-transport-ws");
     let sent = false;
@@ -204,7 +254,7 @@ async function waitForTurn(options: Options, conversationId: string, clientMessa
       if (event.__typename === "SubscriptionReadyEvent" && !sent) {
         sent = true;
         try {
-          await graphql(options.origin, `mutation RunCase($input: SendConversationTurnInput!) {
+          await graphql(options, `mutation RunCase($input: SendConversationTurnInput!) {
             sendConversationTurn(input: $input) { conversationId clientMessageId }
           }`, {
             input: {
@@ -241,17 +291,13 @@ async function waitForTurn(options: Options, conversationId: string, clientMessa
 }
 
 async function delegatedTaskState(options: Options, taskId: string) {
-  return graphql<DelegatedTaskState>(options.origin, `query DelegatedTask($taskId: String!) {
+  return graphql<DelegatedTaskState>(options, `query DelegatedTask($taskId: String!) {
     task(taskId: $taskId) {
       taskId title completedAt
       stage { key name behavior }
       currentRun { runId kind status attemptIndex updatedAt activityLabel }
       activeGate { gateId kind state prompt }
-      completedResult {
-        submissionId executorRunId summary resultMarkdown
-        criteria { criterionId evidenceMarkdown }
-        artifacts { artifactId artifactVersionId title artifactKind externalUrl }
-      }
+      resultDocument resultMetadata
     }
     pendingHumanInterventions(taskId: $taskId, first: 50) {
       __typename
@@ -274,8 +320,17 @@ async function waitForDelegatedTask(options: Options, taskId: string) {
   const initial = await delegatedTaskState(options, taskId);
   if (delegatedTaskReachedBoundary(initial)) return initial;
 
-  const wsUrl = `${options.origin.replace(/^http/, "ws")}/graphql/ws`;
   const deadline = Date.now() + options.timeoutMs;
+  if (options.socketPath) {
+    while (Date.now() < deadline) {
+      const state = await delegatedTaskState(options, taskId);
+      if (delegatedTaskReachedBoundary(state)) return state;
+      await Bun.sleep(Math.min(2_000, deadline - Date.now()));
+    }
+    throw new Error(`delegated task ${taskId} timed out; no action was retried`);
+  }
+
+  const wsUrl = `${options.origin.replace(/^http/, "ws")}/graphql/ws`;
   const subscribed = await new Promise<DelegatedTaskState | null>((resolve, reject) => {
     const socket = new WebSocket(wsUrl, "graphql-transport-ws");
     let settled = false;
@@ -344,7 +399,7 @@ async function waitForDelegatedTask(options: Options, taskId: string) {
 
 const options = parseArgs(process.argv.slice(2));
 const primary = await graphql<{ primaryConversation: { conversationId: string } | null }>(
-  options.origin,
+  options,
   "query PrimaryConversation { primaryConversation { conversationId } }",
 );
 if (!primary.primaryConversation) throw new Error("Noema has no primary conversation");
@@ -356,7 +411,7 @@ const result = await graphql<{
   conversationTranscriptPage: { items: Array<Record<string, unknown>> };
   pendingGovernedActions: Array<Record<string, unknown>>;
   pendingHumanInterventions: Array<Record<string, unknown>>;
-}>(options.origin, `query CaseResult($conversationId: String!) {
+}>(options, `query CaseResult($conversationId: String!) {
   conversationTranscriptPage(input: { conversationId: $conversationId, limit: 200 }) {
     items {
       itemId cursor turnId metadata
