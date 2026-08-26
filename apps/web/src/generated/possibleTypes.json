@@ -1,0 +1,33 @@
+{
+  "possibleTypes": {
+    "ConversationEvent": [
+      "AgentStatusEvent",
+      "AssistantTextDeltaEvent",
+      "ConversationItemEvent",
+      "HumanInterventionsChangedEvent",
+      "SubscriptionReadyEvent",
+      "TurnCompletedEvent"
+    ],
+    "HumanIntervention": [
+      "AdapterAuthenticationIntervention",
+      "AdapterDefinition",
+      "AdapterOauthAccountSetupIntervention",
+      "AdapterOauthClientSetupIntervention",
+      "GovernedAction",
+      "McpAuthenticationIntervention",
+      "McpSetupIntervention",
+      "TaskAttention"
+    ],
+    "TranscriptItem": [
+      "A2UISurface",
+      "Activity",
+      "ArtifactReference",
+      "AssistantText",
+      "ErrorNotice",
+      "MultipleChoicePrompt",
+      "MultipleChoiceSelection",
+      "TaskReference",
+      "UserText"
+    ]
+  }
+}

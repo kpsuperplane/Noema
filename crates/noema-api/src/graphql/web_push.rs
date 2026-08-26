@@ -2243,6 +2243,29 @@ fn intervention_notification(intervention: &GraphqlHumanIntervention) -> (String
                 }
             ),
         ),
+        GraphqlHumanIntervention::AdapterOauthAccountSetup(setup) => {
+            let account = setup
+                .account_label
+                .as_deref()
+                .unwrap_or(&setup.provider_display_name);
+            (
+                format!("adapter-oauth-account:{}", setup.setup_key),
+                if setup.next_action.kind == "add_access" {
+                    format!("Update access for {account}")
+                } else {
+                    format!("Connect {account}")
+                },
+                format!(
+                    "Set up {} API{}.",
+                    setup.dependent_definitions.len(),
+                    if setup.dependent_definitions.len() == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
+                ),
+            )
+        }
         GraphqlHumanIntervention::AdapterDefinition(definition) => (
             format!(
                 "adapter:{}:{}",

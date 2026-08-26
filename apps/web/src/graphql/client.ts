@@ -1,4 +1,5 @@
 import { ApolloClient, ApolloLink, InMemoryCache } from "@apollo/client";
+import possibleTypes from "@/generated/possibleTypes.json";
 import { createPwaApolloLink, pwaRuntime } from "@/pwa/runtime";
 import { loadDurableSnapshot } from "@/pwa/storage";
 import { createBrowserGraphqlLink } from "./browserTransport";
@@ -10,6 +11,7 @@ export async function createApolloClient() {
   pwaRuntime.initialize(durableSnapshot);
   const transport = isTauriRuntime() ? createDesktopGraphqlLink() : createBrowserGraphqlLink();
   const cache = new InMemoryCache({
+    possibleTypes: possibleTypes.possibleTypes,
     typePolicies: {
       AcpAgent: { keyFields: ["agentId"] },
       Agent: { keyFields: ["agentId"] },

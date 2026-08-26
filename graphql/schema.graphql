@@ -312,6 +312,26 @@ type AdapterNextAction {
 }
 
 """
+One reviewed API and its exact action within an account setup.
+"""
+type AdapterOauthAccountSetupDependency {
+	semanticDigest: String!
+	displayName: String!
+	action: AdapterNextAction!
+}
+
+"""
+One account-owned OAuth setup shared by compatible API definitions.
+"""
+type AdapterOauthAccountSetupIntervention {
+	setupKey: String!
+	providerDisplayName: String!
+	accountLabel: String
+	nextAction: AdapterNextAction!
+	dependentDefinitions: [AdapterOauthAccountSetupDependency!]!
+}
+
+"""
 One non-secret reusable OAuth application.
 """
 type AdapterOauthApplication {
@@ -1739,7 +1759,7 @@ type GraphqlTaskRuntimeEvent {
 """
 Human intervention variants share presentation, but retain separate authorities.
 """
-union HumanIntervention = TaskAttention | GovernedAction | McpAuthenticationIntervention | AdapterAuthenticationIntervention | McpSetupIntervention | AdapterOauthClientSetupIntervention | AdapterDefinition
+union HumanIntervention = TaskAttention | GovernedAction | McpAuthenticationIntervention | AdapterAuthenticationIntervention | McpSetupIntervention | AdapterOauthClientSetupIntervention | AdapterOauthAccountSetupIntervention | AdapterDefinition
 
 """
 Human intervention invalidation delivered by subscription.

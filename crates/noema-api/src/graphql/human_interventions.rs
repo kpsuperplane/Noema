@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use super::{
     adapters::{
         GraphqlAdapterConnection, GraphqlAdapterCredentialSetup, GraphqlAdapterDefinition,
-        adapter_definitions,
+        GraphqlAdapterNextAction, GraphqlAdapterOauthState, adapter_intervention_state,
     },
     governed_actions::{GraphqlGovernedAction, pending_governed_actions},
     mcp::GraphqlMcpOAuthSetupAttempt,
@@ -100,6 +100,26 @@ pub struct GraphqlAdapterOauthClientSetupIntervention {
     pub dependent_definitions: Vec<GraphqlAdapterOauthClientSetupDependency>,
 }
 
+/// One reviewed API and its exact action within an account setup.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "AdapterOauthAccountSetupDependency")]
+pub struct GraphqlAdapterOauthAccountSetupDependency {
+    pub semantic_digest: String,
+    pub display_name: String,
+    pub action: GraphqlAdapterNextAction,
+}
+
+/// One account-owned OAuth setup shared by compatible API definitions.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "AdapterOauthAccountSetupIntervention")]
+pub struct GraphqlAdapterOauthAccountSetupIntervention {
+    pub setup_key: String,
+    pub provider_display_name: String,
+    pub account_label: Option<String>,
+    pub next_action: GraphqlAdapterNextAction,
+    pub dependent_definitions: Vec<GraphqlAdapterOauthAccountSetupDependency>,
+}
+
 /// Human intervention variants share presentation, but retain separate authorities.
 #[derive(Clone, Debug, Union)]
 #[graphql(name = "HumanIntervention")]
@@ -110,6 +130,7 @@ pub enum GraphqlHumanIntervention {
     AdapterAuthentication(GraphqlAdapterAuthenticationIntervention),
     McpSetup(GraphqlMcpSetupIntervention),
     AdapterOauthClientSetup(GraphqlAdapterOauthClientSetupIntervention),
+    AdapterOauthAccountSetup(GraphqlAdapterOauthAccountSetupIntervention),
     AdapterDefinition(Box<GraphqlAdapterDefinition>),
 }
 
@@ -192,11 +213,13 @@ pub(super) async fn pending_human_interventions(
     let mcp_setups =
         pending_mcp_setups(state, principal, conversation_id.as_deref(), first).await?;
     let adapter_authority_names = adapter_authority_names(state, &authentications);
-    let (adapter_reviews, oauth_client_setups) = if conversation_id.is_some() && task_id.is_none() {
-        project_adapter_interventions(adapter_definitions(state).await?)
-    } else {
-        (Vec::new(), Vec::new())
-    };
+    let (adapter_reviews, oauth_account_setups, oauth_client_setups) =
+        if conversation_id.is_some() && task_id.is_none() {
+            let (definitions, oauth) = adapter_intervention_state(state)?;
+            project_adapter_interventions(definitions, &oauth)
+        } else {
+            (Vec::new(), Vec::new(), Vec::new())
+        };
     Ok(task_attentions
         .into_iter()
         .map(|attention| GraphqlHumanIntervention::TaskAttention(Box::new(attention)))
@@ -229,6 +252,7 @@ pub(super) async fn pending_human_interventions(
                         .map(GraphqlHumanIntervention::McpSetup),
                 )
                 .chain(adapter_reviews)
+                .chain(oauth_account_setups)
                 .chain(oauth_client_setups),
         )
         .take(first)
@@ -237,9 +261,15 @@ pub(super) async fn pending_human_interventions(
 
 fn project_adapter_interventions(
     definitions: Vec<GraphqlAdapterDefinition>,
-) -> (Vec<GraphqlHumanIntervention>, Vec<GraphqlHumanIntervention>) {
+    oauth: &GraphqlAdapterOauthState,
+) -> (
+    Vec<GraphqlHumanIntervention>,
+    Vec<GraphqlHumanIntervention>,
+    Vec<GraphqlHumanIntervention>,
+) {
     let mut definitions_to_show = Vec::new();
-    let mut setups = BTreeMap::<String, GraphqlAdapterOauthClientSetupIntervention>::new();
+    let mut client_setups = BTreeMap::<String, GraphqlAdapterOauthClientSetupIntervention>::new();
+    let mut account_setups = BTreeMap::<String, GraphqlAdapterOauthAccountSetupIntervention>::new();
 
     for definition in definitions
         .into_iter()
@@ -256,14 +286,14 @@ fn project_adapter_interventions(
                 definition.oauth_profile_digest.clone(),
                 definition.credential_setup.clone(),
             ) {
-                let setup = setups.entry(profile_digest.clone()).or_insert_with(|| {
-                    GraphqlAdapterOauthClientSetupIntervention {
+                let setup = client_setups
+                    .entry(profile_digest.clone())
+                    .or_insert_with(|| GraphqlAdapterOauthClientSetupIntervention {
                         profile_digest,
                         display_name: "OAuth client".to_string(),
                         credential_setup,
                         dependent_definitions: Vec::new(),
-                    }
-                });
+                    });
                 setup
                     .dependent_definitions
                     .push(GraphqlAdapterOauthClientSetupDependency {
@@ -280,25 +310,111 @@ fn project_adapter_interventions(
                 .connections
                 .iter()
                 .any(adapter_connection_needs_chat_intervention);
-        if needs_definition_intervention {
-            definitions_to_show.push(GraphqlHumanIntervention::AdapterDefinition(Box::new(
-                definition,
-            )));
+        if !needs_definition_intervention {
+            continue;
         }
+        if let Some(action) = definition
+            .next_action
+            .as_ref()
+            .filter(|action| {
+                matches!(
+                    action.kind.as_str(),
+                    "attach_account" | "add_account" | "add_access" | "reconnect_account"
+                )
+            })
+            .cloned()
+            && let Some((setup_key, provider_display_name, account_label)) =
+                account_setup_identity(&action, oauth)
+        {
+            let setup = account_setups.entry(setup_key.clone()).or_insert_with(|| {
+                GraphqlAdapterOauthAccountSetupIntervention {
+                    setup_key,
+                    provider_display_name,
+                    account_label,
+                    next_action: action.clone(),
+                    dependent_definitions: Vec::new(),
+                }
+            });
+            if account_action_rank(&action) < account_action_rank(&setup.next_action) {
+                setup.next_action.clone_from(&action);
+            }
+            setup
+                .dependent_definitions
+                .push(GraphqlAdapterOauthAccountSetupDependency {
+                    semantic_digest: definition.semantic_digest,
+                    display_name: definition.display_name,
+                    action,
+                });
+            continue;
+        }
+        definitions_to_show.push(GraphqlHumanIntervention::AdapterDefinition(Box::new(
+            definition,
+        )));
     }
 
-    for setup in setups.values_mut() {
+    for setup in client_setups.values_mut() {
         setup.dependent_definitions.sort_by(|left, right| {
             left.display_name
                 .cmp(&right.display_name)
                 .then_with(|| left.semantic_digest.cmp(&right.semantic_digest))
         });
     }
-    let setup_interventions = setups
+    for setup in account_setups.values_mut() {
+        setup.dependent_definitions.sort_by(|left, right| {
+            left.display_name
+                .cmp(&right.display_name)
+                .then_with(|| left.semantic_digest.cmp(&right.semantic_digest))
+        });
+    }
+    let account_interventions = account_setups
+        .into_values()
+        .map(GraphqlHumanIntervention::AdapterOauthAccountSetup)
+        .collect();
+    let client_interventions = client_setups
         .into_values()
         .map(GraphqlHumanIntervention::AdapterOauthClientSetup)
         .collect();
-    (definitions_to_show, setup_interventions)
+    (
+        definitions_to_show,
+        account_interventions,
+        client_interventions,
+    )
+}
+
+fn account_setup_identity(
+    action: &GraphqlAdapterNextAction,
+    oauth: &GraphqlAdapterOauthState,
+) -> Option<(String, String, Option<String>)> {
+    if let Some(grant_id) = action.grant_id.as_deref() {
+        let grant = oauth
+            .grants
+            .iter()
+            .find(|grant| grant.grant_id == grant_id)?;
+        return Some((
+            format!("grant:{}", grant.grant_id),
+            grant.provider_display_name.clone(),
+            grant.account_label.clone(),
+        ));
+    }
+    let application_id = action.application_id.as_deref()?;
+    let application = oauth
+        .applications
+        .iter()
+        .find(|application| application.application_id == application_id)?;
+    Some((
+        format!("application:{}", application.application_id),
+        application.provider_display_name.clone(),
+        None,
+    ))
+}
+
+fn account_action_rank(action: &GraphqlAdapterNextAction) -> u8 {
+    match action.kind.as_str() {
+        "reconnect_account" => 0,
+        "add_access" => 1,
+        "add_account" => 2,
+        _ => 3,
+    }
 }
 
 pub(super) fn adapter_connection_needs_chat_intervention(

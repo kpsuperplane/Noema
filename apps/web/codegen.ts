@@ -13,6 +13,13 @@ const config: CodegenConfig = {
           JSON: "unknown"
         }
       }
+    },
+    "src/generated/possibleTypes.json": {
+      plugins: ["fragment-matcher"],
+      config: {
+        apolloClientVersion: 3,
+        deterministic: true
+      }
     }
   }
 };

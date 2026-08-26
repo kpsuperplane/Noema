@@ -98,6 +98,8 @@ slice or a net-negative reduction.
 - OAuth profiles, applications, external accounts, grants, and connections are
   separate authorities. Protected generations contain client secrets and
   tokens.
+- Web Chat groups pending OAuth work by application or grant. Compatible APIs
+  share one attempt, while each API keeps its connection policy.
 - The compiled catalog exposes only operations covered by current OAuth scopes.
   Existing covered operations stay active during scope expansion.
 - A disabled operation remains non-callable. Its enablement tool creates a human
@@ -145,6 +147,8 @@ slice or a net-negative reduction.
   [the current frontend contract](../frontend/current-contract.md). UI changes
   follow [product design guidance](../frontend/product-design.md).
 - Each web route owns one composed GraphQL root read. Shared fragments and normalized mutation payloads update the Apollo cache.
+- Apollo abstract-type metadata comes from the generated GraphQL schema. A cache
+  schema version change discards incompatible installed-PWA snapshots.
 - Subscriptions invalidate one active root. A mutation refetches only when its payload cannot represent server-derived state.
 - The backend formats built-in tool markers from saved tool facts during reads
   and live delivery. It does not store marker text.

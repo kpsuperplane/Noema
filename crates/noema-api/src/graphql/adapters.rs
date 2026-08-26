@@ -445,6 +445,19 @@ pub(super) async fn adapter_definitions(
     adapter_definitions_from_snapshot(state, &snapshot)
 }
 
+pub(super) fn adapter_intervention_state(
+    state: &GraphqlState,
+) -> async_graphql::Result<(Vec<GraphqlAdapterDefinition>, GraphqlAdapterOauthState)> {
+    let snapshot = state
+        .adapter_operations()?
+        .management_snapshot()
+        .map_err(|_| async_graphql::Error::new("adapter setup state is unavailable"))?;
+    Ok((
+        adapter_definitions_from_snapshot(state, &snapshot)?,
+        adapter_oauth_state_from_snapshot(state, &snapshot),
+    ))
+}
+
 fn adapter_definitions_from_snapshot(
     state: &GraphqlState,
     snapshot: &AdapterManagementSnapshot,
@@ -2210,6 +2223,31 @@ mod tests {
         .collect()
     }
 
+    async fn oauth_account_setup_interventions(
+        state: &GraphqlState,
+    ) -> Vec<crate::graphql::human_interventions::GraphqlAdapterOauthAccountSetupIntervention> {
+        crate::graphql::human_interventions::pending_human_interventions(
+            state,
+            "human:local",
+            Some("conversation:fixture".to_string()),
+            None,
+            None,
+            Some(50),
+        )
+        .await
+        .expect("pending interventions")
+        .into_iter()
+        .filter_map(|intervention| {
+            match intervention {
+            crate::graphql::human_interventions::GraphqlHumanIntervention::AdapterOauthAccountSetup(
+                setup,
+            ) => Some(setup),
+            _ => None,
+        }
+        })
+        .collect()
+    }
+
     #[tokio::test]
     async fn composed_management_read_uses_one_current_snapshot() {
         let (_environment, state, pending_digest) = fixture().await;
@@ -2806,7 +2844,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn oauth_client_setup_is_grouped_by_profile_after_definition_reviews() {
+    async fn oauth_setup_is_grouped_by_shared_authority_after_definition_reviews() {
         let environment = crate::test_support::TestEnvironment::new();
         let store = crate::test_support::test_store_for_environment(&environment).await;
         let paths = NoemaPaths::from_noema_home(environment.root()).expect("paths");
@@ -2900,6 +2938,36 @@ mod tests {
                 first_reviewed.semantic_digest.as_str(),
                 second_reviewed.semantic_digest.as_str(),
             ])
+        );
+
+        let application = import_adapter_oauth_application(
+            &state,
+            "human:local",
+            GraphqlImportAdapterOauthApplicationInput {
+                profile_digest: noema_capability_adapters::reviewed_google_oauth_profile_digest(),
+                project_label: Some("Shared account APIs".to_string()),
+                client_document_base64: BASE64_STANDARD.encode(
+                    br#"{"installed":{"client_id":"client-marker","client_secret":"secret-marker"}}"#,
+                ),
+            },
+        )
+        .await
+        .expect("import application");
+        let account_setups = oauth_account_setup_interventions(&state).await;
+        assert_eq!(account_setups.len(), 1);
+        assert_eq!(
+            account_setups[0].setup_key,
+            format!("application:{}", application.application_id)
+        );
+        assert_eq!(account_setups[0].next_action.kind, "add_account");
+        assert_eq!(account_setups[0].dependent_definitions.len(), 2);
+        assert_eq!(
+            account_setups[0]
+                .dependent_definitions
+                .iter()
+                .map(|definition| definition.semantic_digest.as_str())
+                .collect::<std::collections::BTreeSet<_>>(),
+            digests
         );
     }
 

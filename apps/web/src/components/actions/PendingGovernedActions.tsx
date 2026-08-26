@@ -1,5 +1,4 @@
 import * as React from "react";
-import type { OperationVariables } from "@apollo/client";
 import { useLazyQuery, useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -11,7 +10,6 @@ import * as stylex from "@stylexjs/stylex";
 import { ChevronLeft, ChevronRight, Code2 } from "lucide-react";
 import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
-import { getOperationAST, print, type DocumentNode } from "graphql";
 import {
   PendingHumanInterventionsDocument,
   ApproveAdapterDefinitionDocument,
@@ -41,7 +39,6 @@ import { McpChatSetupCard } from "@/components/mcp/McpChatSetupCard";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { RollingSwap } from "@/components/RollingText";
 import { springs } from "@/motion/springs";
-import { pwaRuntime } from "@/pwa/runtime";
 import { HumanInterventionCard } from "./HumanInterventionCard";
 import { RenderErrorBoundary } from "@/components/errors/RenderErrorBoundary";
 import {
@@ -54,6 +51,7 @@ import {
 export type PendingHumanIntervention = PendingHumanInterventionsQuery["pendingHumanInterventions"][number];
 type PendingAdapterDefinition = Extract<PendingHumanIntervention, { __typename: "AdapterDefinition" }>;
 type PendingOauthClientSetup = Extract<PendingHumanIntervention, { __typename: "AdapterOauthClientSetupIntervention" }>;
+type PendingOauthAccountSetup = Extract<PendingHumanIntervention, { __typename: "AdapterOauthAccountSetupIntervention" }>;
 
 type Scope = {
   conversationId?: string | null;
@@ -67,9 +65,7 @@ type PendingHumanInterventionsResultLike = {
   data?: PendingHumanInterventionsQuery | null;
   error?: unknown;
   loading: boolean;
-  observable?: { options: { query: DocumentNode } };
   refetch: () => Promise<unknown>;
-  variables?: OperationVariables;
 };
 
 const dismissedAdapterSetupsKey = "noema.dismissed-adapter-setups";
@@ -126,30 +122,13 @@ export function PendingHumanInterventionsResult({
   emptyContent?: React.ReactNode;
   result: PendingHumanInterventionsResultLike;
 }) {
-  const query = result.observable?.options.query;
-  const querySource = React.useMemo(() => query ? print(query) : "", [query]);
-  const recoveryKey = `${querySource}:${JSON.stringify(result.variables ?? {})}`;
-  const reloadGeneration = React.useRef(0);
-  const [recoveredData, setRecoveredData] = React.useState<{
-    key: string;
-    data: PendingHumanInterventionsQuery;
-    generation: number;
-    apolloData: PendingHumanInterventionsQuery | null | undefined;
-    apolloError: unknown;
-  } | null>(null);
-  const currentRecoveredData = recoveredData?.key === recoveryKey
-    && recoveredData.apolloData === result.data
-    && recoveredData.apolloError === result.error
-    ? recoveredData.data
-    : null;
-  const effectiveData = currentRecoveredData ?? result.data;
-  const interventions = effectiveData?.pendingHumanInterventions ?? [];
+  const interventions = result.data?.pendingHumanInterventions ?? [];
   const invalidAdapterAuthentication = interventions.some((intervention) => (
     intervention.__typename === "AdapterAuthenticationIntervention"
       && (typeof intervention.serviceDisplayName !== "string"
         || !intervention.serviceDisplayName.trim())
   ));
-  const stale = Boolean(result.error) && !currentRecoveredData;
+  const stale = Boolean(result.error);
   const [dismissedAdapterSetups, setDismissedAdapterSetups] = React.useState(readDismissedAdapterSetups);
   const [selectedChatInterventionKey, setSelectedChatInterventionKey] = React.useState<string | null>(null);
   const allowAdapterSetupDismissal = Boolean(conversationId) && placement === "chat";
@@ -157,6 +136,8 @@ export function PendingHumanInterventionsResult({
     ? interventions.filter((intervention) => (
         intervention.__typename === "AdapterOauthClientSetupIntervention"
           ? !dismissedAdapterSetups.has(`oauth:${intervention.profileDigest}`)
+          : intervention.__typename === "AdapterOauthAccountSetupIntervention"
+            ? !dismissedAdapterSetups.has(`account:${intervention.setupKey}`)
           : intervention.__typename !== "AdapterDefinition"
             || !intervention.reviewed
             || intervention.connectionCount > 0
@@ -181,52 +162,13 @@ export function PendingHumanInterventionsResult({
       return next;
     });
   }, []);
-  const reload = React.useCallback(async () => {
-    const generation = ++reloadGeneration.current;
-    setRecoveredData(null);
-    if (!query) {
-      await result.refetch();
-      return;
-    }
-    const response = await fetch("/graphql", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        operationName: getOperationAST(query)?.name?.value,
-        query: querySource,
-        variables: result.variables
-      })
-    });
-    if (response.status === 401) {
-      pwaRuntime.requireAuthentication();
-    }
-    if (!response.ok) throw new Error("Noema could not load response options.");
-    const payload = await response.json() as {
-      data?: PendingHumanInterventionsQuery;
-      errors?: unknown[];
-    };
-    const data = payload.data;
-    if (payload.errors?.length || !data || !Array.isArray(data.pendingHumanInterventions)) {
-      throw new Error("Noema did not return response options.");
-    }
-    setRecoveredData((current) => current && current.generation > generation
-      ? current
-      : {
-          key: recoveryKey,
-          data,
-          generation,
-          apolloData: result.data,
-          apolloError: result.error
-        });
-  }, [query, querySource, recoveryKey, result]);
   const retry = React.useCallback(async () => {
     try {
-      await reload();
+      await result.refetch();
     } catch {
       // Keep the recovery surface available for another attempt.
     }
-  }, [reload]);
+  }, [result]);
   const listContent = visibleInterventions.length ? (
     <VStack gap={0}>
       {placement === "chat" && visibleInterventions.length > 1 ? (
@@ -269,8 +211,8 @@ export function PendingHumanInterventionsResult({
       <HumanInterventionList
         interventions={presentedInterventions}
         placement={placement}
-        onResolved={() => void reload().catch(() => undefined)}
-        onRetry={reload}
+        onResolved={() => void result.refetch().catch(() => undefined)}
+        onRetry={result.refetch}
         onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
         initialAnimation={false}
       />
@@ -298,7 +240,7 @@ export function PendingHumanInterventionsResult({
       xstyle={styles.queryError}
     />
   ) : null;
-  const empty = effectiveData
+  const empty = result.data
     && !stale
     && !invalidAdapterAuthentication
     && visibleInterventions.length === 0
@@ -524,6 +466,17 @@ function HumanInterventionListItem({
       />
     );
   }
+  if (intervention.__typename === "AdapterOauthAccountSetupIntervention") {
+    return (
+      <OauthAccountSetupCard
+        setup={intervention}
+        onResolved={onResolved}
+        onDismiss={onDismissAdapterSetup
+          ? () => onDismissAdapterSetup(`account:${intervention.setupKey}`)
+          : undefined}
+      />
+    );
+  }
   return (
     <AdapterDefinitionCard
       definition={intervention}
@@ -543,6 +496,7 @@ export function humanInterventionKey(intervention: PendingHumanIntervention) {
     case "AdapterAuthenticationIntervention": return `${intervention.requestId}:${intervention.revision}`;
     case "McpSetupIntervention": return intervention.itemId;
     case "AdapterOauthClientSetupIntervention": return `oauth:${intervention.profileDigest}`;
+    case "AdapterOauthAccountSetupIntervention": return `account:${intervention.setupKey}`;
     case "AdapterDefinition": return intervention.semanticDigest;
   }
 }
@@ -643,6 +597,226 @@ function OauthClientSetupCard({
           />
         </HStack>
       }
+    />
+  );
+}
+
+function OauthAccountSetupCard({
+  setup,
+  onResolved,
+  onDismiss
+}: {
+  setup: PendingOauthAccountSetup;
+  onResolved?: () => void;
+  onDismiss?: () => void;
+}) {
+  const [attachGrant, grantAttach] = useMutation(AttachAdapterOauthConnectionDocument);
+  const [startOauth, oauthStart] = useMutation(StartAdapterOauthSetupDocument);
+  const [loadOauthAttempt] = useLazyQuery(AdapterOauthAttemptDocument, {
+    fetchPolicy: "network-only"
+  });
+  const [error, setError] = React.useState<string | null>(null);
+  const [authorizing, setAuthorizing] = React.useState(false);
+  const [attaching, setAttaching] = React.useState(false);
+  const [authorizationExpiry, setAuthorizationExpiry] = React.useState<number | null>(null);
+  const [oauthAttemptId, setOauthAttemptId] = React.useState<string | null>(null);
+  const finishingOauthAttempt = React.useRef(false);
+  const accountName = setup.accountLabel ?? `${setup.providerDisplayName} account`;
+  const action = setup.accountNextAction;
+  const directAttach = action.kind === "attach_account";
+
+  const attachDependencies = React.useCallback(async (
+    grantId: string,
+    authorizedGrantRevision?: number
+  ) => {
+    for (const dependency of setup.dependentDefinitions) {
+      const dependencyAction = dependency.action;
+      if (dependencyAction.connectionId !== null && dependencyAction.kind !== "reconnect_account") continue;
+      const grantRevision = authorizedGrantRevision ?? dependencyAction.expectedGrantRevision;
+      if (grantRevision === null) {
+        throw new Error("Noema did not return the authorized account revision.");
+      }
+      await attachGrant({ variables: { input: {
+        semanticDigest: dependency.semanticDigest,
+        grantId,
+        expectedGrantRevision: grantRevision,
+        replacementConnectionId: dependencyAction.connectionId
+      } } });
+    }
+  }, [attachGrant, setup.dependentDefinitions]);
+
+  const finishOauthAttempt = React.useCallback(async (
+    attempt: { status: string; grantId?: string | null; grantRevision?: number | null }
+  ) => {
+    if (!['completed', 'failed', 'expired', 'superseded'].includes(attempt.status)) return;
+    if (finishingOauthAttempt.current) return;
+    finishingOauthAttempt.current = true;
+    setOauthAttemptId(null);
+    setAuthorizing(false);
+    setAuthorizationExpiry(null);
+    if (attempt.status !== "completed") {
+      setError(attempt.status === "expired"
+        ? "Authorization expired. You can try again."
+        : "Authorization did not complete. You can try again.");
+      return;
+    }
+    setAttaching(true);
+    try {
+      if (!attempt.grantId || attempt.grantRevision == null) {
+        throw new Error("Noema did not return the authorized account revision.");
+      }
+      await attachDependencies(attempt.grantId, attempt.grantRevision);
+      onResolved?.();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "The authorized account could not be attached.");
+      onResolved?.();
+    } finally {
+      setAttaching(false);
+    }
+  }, [attachDependencies, onResolved]);
+
+  useSubscription(AdapterOauthAttemptEventsDocument, {
+    variables: { attemptId: oauthAttemptId ?? "" },
+    skip: oauthAttemptId === null,
+    onData: ({ data }) => {
+      const attempt = data.data?.adapterOauthAttemptEvents;
+      if (attempt) void finishOauthAttempt(attempt);
+    }
+  });
+
+  React.useEffect(() => {
+    if (!oauthAttemptId) return;
+    const recoverAttempt = () => {
+      if (document.visibilityState !== "visible") return;
+      void loadOauthAttempt({ variables: { attemptId: oauthAttemptId } })
+        .then((result) => {
+          if (result.data?.adapterOauthAttempt) {
+            return finishOauthAttempt(result.data.adapterOauthAttempt);
+          }
+          return undefined;
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener("focus", recoverAttempt);
+    document.addEventListener("visibilitychange", recoverAttempt);
+    return () => {
+      window.removeEventListener("focus", recoverAttempt);
+      document.removeEventListener("visibilitychange", recoverAttempt);
+    };
+  }, [finishOauthAttempt, loadOauthAttempt, oauthAttemptId]);
+
+  React.useEffect(() => {
+    if (!authorizing || authorizationExpiry === null) return;
+    const timeout = window.setTimeout(() => {
+      setAuthorizing(false);
+      setOauthAttemptId(null);
+      finishingOauthAttempt.current = false;
+      setAuthorizationExpiry(null);
+      setError("Authorization expired. You can try again.");
+    }, Math.max(0, authorizationExpiry * 1000 - Date.now()));
+    return () => window.clearTimeout(timeout);
+  }, [authorizationExpiry, authorizing]);
+
+  const connect = async () => {
+    finishingOauthAttempt.current = false;
+    setError(null);
+    if (directAttach) {
+      if (!action.grantId) return;
+      setAttaching(true);
+      try {
+        await attachDependencies(action.grantId);
+        onResolved?.();
+      } catch (caught: unknown) {
+        setError(caught instanceof Error ? caught.message : "The account could not be attached.");
+        onResolved?.();
+      } finally {
+        setAttaching(false);
+      }
+      return;
+    }
+    if (!action.applicationId || action.expectedApplicationRevision === null) return;
+    const navigation = reserveExternalAuthNavigation();
+    try {
+      const response = await startOauth({ variables: { input: {
+        applicationId: action.applicationId,
+        expectedApplicationRevision: action.expectedApplicationRevision,
+        grantId: action.grantId,
+        expectedGrantRevision: action.expectedGrantRevision,
+        semanticDigest: action.semanticDigest,
+        operationIds: action.operationIds,
+        additionalServices: setup.dependentDefinitions
+          .filter((dependency) => dependency.semanticDigest !== action.semanticDigest)
+          .map((dependency) => ({
+            semanticDigest: dependency.semanticDigest,
+            operationIds: dependency.action.operationIds
+          }))
+      } } });
+      const attempt = response.data?.startAdapterOauthSetup;
+      if (!attempt) throw new Error("Noema did not return an OAuth attempt.");
+      setOauthAttemptId(attempt.attemptId);
+      setAuthorizationExpiry(attempt.expiresAtEpochSeconds);
+      setAuthorizing(true);
+      await navigation.open(attempt.authorizationUrl);
+    } catch (caught: unknown) {
+      navigation.cancel();
+      setAuthorizing(false);
+      setOauthAttemptId(null);
+      setAuthorizationExpiry(null);
+      setError(caught instanceof Error ? caught.message : "Authorization could not be started.");
+    }
+  };
+
+  const title = action.kind === "add_access"
+    ? `Update access for ${accountName}`
+    : action.kind === "reconnect_account"
+      ? `Reconnect ${accountName}`
+      : action.kind === "add_account"
+        ? `Connect a ${setup.providerDisplayName} account`
+        : `Connect ${accountName}`;
+  const buttonLabel = action.kind === "add_access"
+    ? "Update access"
+    : action.kind === "reconnect_account"
+      ? "Reconnect account"
+      : action.kind === "add_account"
+        ? "Connect account"
+        : "Connect APIs";
+  const loading = attaching || grantAttach.loading || oauthStart.loading || authorizing;
+
+  return (
+    <InterventionCardShell
+      dismissLabel="Hide account setup from chat"
+      onDismiss={onDismiss}
+      copy={(
+        <VStack gap={3} className={stylex.props(styles.copy).className}>
+          <VStack gap={1}>
+            <span {...stylex.props(styles.eyebrow)}>Account access</span>
+            <strong {...stylex.props(styles.summary, styles.adapterSummary)}>{title}</strong>
+            <span {...stylex.props(styles.context)}>
+              One account action will connect {countLabel(setup.dependentDefinitions.length, "reviewed API")}.
+            </span>
+          </VStack>
+          <VStack as="ul" gap={1} className={stylex.props(styles.operationList).className}>
+            {setup.dependentDefinitions.map((dependency) => (
+              <li key={dependency.semanticDigest} {...stylex.props(styles.operationName)}>
+                {dependency.displayName}
+              </li>
+            ))}
+          </VStack>
+          {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
+        </VStack>
+      )}
+      actions={(
+        <HStack gap={1} justify="end" className={stylex.props(styles.actions).className}>
+          <Button
+            size="sm"
+            variant="primary"
+            label={buttonLabel}
+            isLoading={loading}
+            isDisabled={loading}
+            onClick={() => void connect()}
+          />
+        </HStack>
+      )}
     />
   );
 }

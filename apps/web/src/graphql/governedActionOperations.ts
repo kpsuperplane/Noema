@@ -1,6 +1,22 @@
 import { gql } from "@apollo/client";
 import { TasksGateFields, TasksTaskCardFields } from "./tasksFragments";
 
+export const AdapterNextActionFields = gql`
+  fragment AdapterNextActionFields on AdapterNextAction {
+    kind
+    semanticDigest
+    applicationId
+    expectedApplicationRevision
+    grantId
+    expectedGrantRevision
+    connectionId
+    expectedConnectionRevision
+    expectedPolicyRevision
+    operationIds
+    missingScopes
+  }
+`;
+
 export const ResolveGovernedActionDocument = gql`
   mutation ResolveGovernedAction($input: ResolveGovernedActionInput!) {
     resolveGovernedAction(input: $input) {
@@ -121,6 +137,17 @@ export const HumanInterventionFields = gql`
         }
         dependentDefinitions { semanticDigest displayName }
       }
+      ... on AdapterOauthAccountSetupIntervention {
+        setupKey
+        providerDisplayName
+        accountLabel
+        accountNextAction: nextAction { ...AdapterNextActionFields }
+        dependentDefinitions {
+          semanticDigest
+          displayName
+          action { ...AdapterNextActionFields }
+        }
+      }
       ... on AdapterDefinition {
         semanticDigest
         definitionId
@@ -156,19 +183,7 @@ export const HumanInterventionFields = gql`
         }
         accountIdentityOperationId
         reviewed
-        nextAction {
-          kind
-          semanticDigest
-          applicationId
-          expectedApplicationRevision
-          grantId
-          expectedGrantRevision
-          connectionId
-          expectedConnectionRevision
-          expectedPolicyRevision
-          operationIds
-          missingScopes
-        }
+        nextAction { ...AdapterNextActionFields }
         connectionCount
         connections {
           connectionId
@@ -214,6 +229,7 @@ export const HumanInterventionFields = gql`
   }
   ${TasksGateFields}
   ${TasksTaskCardFields}
+  ${AdapterNextActionFields}
 `;
 
 export const PendingHumanInterventionsDocument = gql`

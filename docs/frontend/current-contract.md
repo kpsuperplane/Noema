@@ -127,6 +127,8 @@ tool policy. Chat omits the related internal `enable.*` call and result markers.
 
 An OAuth application is reusable provider setup. An authorization grant is one
 account's access. An API connection keeps its own tool policy and lifecycle.
+Web Chat groups OAuth setup by application for a new account and by grant for an existing account.
+Compatible APIs share one account card and one OAuth attempt. API connection policies remain separate.
 
 Web and iOS use the structured server-selected next action. They do not infer
 setup work from status copy. OAuth completion uses the exact attempt event and
