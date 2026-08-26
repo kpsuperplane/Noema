@@ -30,7 +30,6 @@ final class NoemaAppModel {
   private var registrationCleanupComplete = false
   private var latestScenePhase: ScenePhase?
   private var subscriptionLifecycleTask: Task<Void, Never>?
-  private var tokenRefreshTask: Task<Void, Never>?
   private var hasStoredProfile = false
 
   init() {
@@ -42,6 +41,16 @@ final class NoemaAppModel {
     self.liveActivities = liveActivities
     self.connectionService = ConnectionService(profileStore: store)
     NoemaApplicationDelegate.notifications = notifications
+    connectionService.onProfileRefreshed = { [weak self] profile in
+      guard let self else { return }
+      await self.profileRefreshed(profile)
+      if self.latestScenePhase == .active {
+        await self.graphQL?.resumeSubscriptionsAndRecover()
+      }
+    }
+    connectionService.onAuthorizationExpired = { [weak self] in
+      await self?.authorizationExpired()
+    }
     notifications.onChatTap = { [weak self] in
       self?.openChatFromNotification()
     }
@@ -71,12 +80,7 @@ final class NoemaAppModel {
           throw ConnectionServiceError.authorizationExpired
         } catch let error where error is URLError || error is ConnectionServiceError {
           NoemaDiagnosticTrace.shared.record(category: "app", event: "profile_refresh_deferred", error: error)
-          activeProfile = NoemaProfile(
-            origin: stored.origin,
-            clientId: stored.clientId,
-            accessToken: "",
-            accessExpiresAt: .distantPast
-          )
+          activeProfile = connectionService.profile(for: stored)
         }
         NoemaGraphQLClient.discardStaleCaches(keeping: activeProfile)
         profile = activeProfile
@@ -86,7 +90,7 @@ final class NoemaAppModel {
         await liveActivities.configure(profile: activeProfile, client: graphQL?.client)
         notifications.markModelReady()
         applySubscriptionLifecycle()
-        scheduleTokenRefresh()
+        connectionService.startAutomaticRefresh()
         NoemaDiagnosticTrace.shared.record(category: "app", event: "bootstrap_finished", fields: ["state": "paired"])
       } else {
         hasStoredProfile = false
@@ -184,7 +188,7 @@ final class NoemaAppModel {
         await liveActivities.configure(profile: stored, client: graphQL?.client)
         notifications.markModelReady()
         applySubscriptionLifecycle()
-        scheduleTokenRefresh()
+        connectionService.startAutomaticRefresh()
       } catch {
         pairingError = error.localizedDescription
       }
@@ -248,8 +252,7 @@ final class NoemaAppModel {
       await liveActivities.configure(profile: nil, client: nil)
       graphQL = nil
       profile = nil
-      tokenRefreshTask?.cancel()
-      tokenRefreshTask = nil
+      connectionService.stopAutomaticRefresh()
       registrationCleanupComplete = false
       state = .unpaired
       pairingPayload = nil
@@ -283,12 +286,6 @@ final class NoemaAppModel {
     )
     notifications.scenePhaseChanged(phase == .active)
     liveActivities.scenePhaseChanged(phase == .active)
-    if phase == .active {
-      scheduleTokenRefresh()
-    } else {
-      tokenRefreshTask?.cancel()
-      tokenRefreshTask = nil
-    }
     applySubscriptionLifecycle()
   }
 
@@ -302,9 +299,31 @@ final class NoemaAppModel {
         await graphQL.pauseSubscriptions()
       }
     case .active:
-      subscriptionLifecycleTask = Task {
+      subscriptionLifecycleTask = Task { [weak self] in
+        guard let self else { return }
         let startedAt = ProcessInfo.processInfo.systemUptime
         NoemaDiagnosticTrace.shared.record(category: "graphql", event: "foreground_recovery_started")
+        do {
+          if let refreshed = try await connectionService.refreshIfNeeded() {
+            await profileRefreshed(refreshed)
+          } else if profile != nil {
+            await graphQL.refreshAuthorization()
+          }
+        } catch is CancellationError {
+          return
+        } catch ConnectionServiceError.inactive {
+          return
+        } catch ConnectionServiceError.authorizationExpired {
+          await authorizationExpired()
+          return
+        } catch {
+          NoemaDiagnosticTrace.shared.record(
+            category: "app",
+            event: "profile_refresh_failed",
+            error: error
+          )
+          return
+        }
         await graphQL.resumeSubscriptionsAndRecover()
         guard !Task.isCancelled else { return }
         NoemaDiagnosticTrace.shared.record(
@@ -321,43 +340,22 @@ final class NoemaAppModel {
     }
   }
 
-  private func scheduleTokenRefresh(after retryDelay: TimeInterval? = nil) {
-    tokenRefreshTask?.cancel()
-    guard latestScenePhase == .active, let profile else { return }
-    let delay = retryDelay ?? max(0, profile.accessExpiresAt.timeIntervalSinceNow - 60)
-    tokenRefreshTask = Task { [weak self] in
-      do {
-        try await Task.sleep(for: .seconds(delay))
-        guard let self, self.latestScenePhase == .active else { return }
-        let refreshed = try await self.connectionService.refresh()
-        guard !Task.isCancelled else { return }
-        await self.graphQL?.pauseSubscriptions()
-        self.profile = refreshed
-        self.graphQL = NoemaGraphQLClient(profile: refreshed)
-        await self.notifications.configure(profile: refreshed, client: self.graphQL?.client)
-        await self.liveActivities.configure(profile: refreshed, client: self.graphQL?.client)
-        self.applySubscriptionLifecycle()
-        self.scheduleTokenRefresh()
-      } catch is CancellationError {
-      } catch ConnectionServiceError.inactive {
-      } catch ConnectionServiceError.authorizationExpired {
-        try? await self?.profileStore.disconnect()
-        self?.hasStoredProfile = false
-        self?.notifications.markModelNotReady()
-        await self?.liveActivities.configure(profile: nil, client: nil)
-        self?.graphQL = nil
-        self?.profile = nil
-        self?.state = .unpaired
-        self?.pairingError = "The saved connection needs authorization again."
-      } catch {
-        NoemaDiagnosticTrace.shared.record(
-          category: "app",
-          event: "profile_refresh_failed",
-          error: error
-        )
-        self?.scheduleTokenRefresh(after: 15)
-      }
-    }
+  private func profileRefreshed(_ refreshed: NoemaProfile) async {
+    profile = refreshed
+    await graphQL?.refreshAuthorization()
+  }
+
+  private func authorizationExpired() async {
+    connectionService.stopAutomaticRefresh()
+    try? await profileStore.disconnect()
+    hasStoredProfile = false
+    notifications.markModelNotReady()
+    await notifications.configure(profile: nil, client: nil)
+    await liveActivities.configure(profile: nil, client: nil)
+    graphQL = nil
+    profile = nil
+    state = .unpaired
+    pairingError = "The saved connection needs authorization again."
   }
 
   func openChatFromNotification() {

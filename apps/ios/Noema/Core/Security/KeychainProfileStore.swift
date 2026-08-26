@@ -1,11 +1,50 @@
 import Foundation
 import Security
 
+final class NoemaAccessCredential: @unchecked Sendable {
+  private struct Value {
+    var token: String
+    var expiresAt: Date
+    var generation: Int
+  }
+
+  private let lock = NSLock()
+  private var value = Value(token: "", expiresAt: .distantPast, generation: 0)
+
+  var token: String { lock.withLock { value.token } }
+  var expiresAt: Date { lock.withLock { value.expiresAt } }
+  var generation: Int { lock.withLock { value.generation } }
+
+  func replace(token: String, expiresAt: Date) {
+    lock.withLock {
+      value.token = token
+      value.expiresAt = expiresAt
+      value.generation &+= 1
+    }
+  }
+
+  func clear() {
+    replace(token: "", expiresAt: .distantPast)
+  }
+}
+
 struct NoemaProfile: Hashable, Sendable {
   let origin: URL
   let clientId: String
-  let accessToken: String
-  let accessExpiresAt: Date
+  let credential: NoemaAccessCredential
+
+  var accessToken: String { credential.token }
+  var accessExpiresAt: Date { credential.expiresAt }
+  var credentialGeneration: Int { credential.generation }
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.origin == rhs.origin && lhs.clientId == rhs.clientId
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine(origin)
+    hasher.combine(clientId)
+  }
 }
 
 struct StoredNoemaProfile: Codable, Hashable, Sendable {

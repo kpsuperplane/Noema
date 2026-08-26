@@ -30,12 +30,18 @@ enum ConnectionServiceError: Error, LocalizedError, Sendable {
 final class ConnectionService: NSObject, ASWebAuthenticationPresentationContextProviding {
   private let profileStore: KeychainProfileStore
   private let sessionConfiguration: URLSessionConfiguration
+  private let credential = NoemaAccessCredential()
   private var isWorking = false
   private var refreshAllowed = false
   private var refreshTask: Task<NoemaProfile, Error>?
+  private var automaticRefreshTask: Task<Void, Never>?
+  private var automaticRefreshStarted = false
   private var refreshGeneration = 0
+  private var currentProfile: NoemaProfile?
   private var browserSession: ASWebAuthenticationSession?
   private var browserContinuation: CheckedContinuation<URL, Error>?
+  var onProfileRefreshed: (@MainActor (NoemaProfile) async -> Void)?
+  var onAuthorizationExpired: (@MainActor () async -> Void)?
 
   init(
     profileStore: KeychainProfileStore,
@@ -51,7 +57,38 @@ final class ConnectionService: NSObject, ASWebAuthenticationPresentationContextP
       refreshGeneration &+= 1
       refreshTask?.cancel()
       refreshTask = nil
+      automaticRefreshTask?.cancel()
+      automaticRefreshTask = nil
+    } else if automaticRefreshStarted {
+      scheduleAutomaticRefresh()
     }
+  }
+
+  func profile(for stored: StoredNoemaProfile) -> NoemaProfile {
+    let profile = NoemaProfile(
+      origin: stored.origin,
+      clientId: stored.clientId,
+      credential: credential
+    )
+    currentProfile = profile
+    return profile
+  }
+
+  func startAutomaticRefresh() {
+    automaticRefreshStarted = true
+    scheduleAutomaticRefresh()
+  }
+
+  func stopAutomaticRefresh() {
+    automaticRefreshStarted = false
+    automaticRefreshTask?.cancel()
+    automaticRefreshTask = nil
+  }
+
+  func refreshIfNeeded() async throws -> NoemaProfile? {
+    guard currentProfile != nil else { return nil }
+    guard credential.expiresAt.timeIntervalSinceNow <= 60 else { return nil }
+    return try await refresh()
   }
 
   func authorize(payload: ConnectionPayload) async throws -> NoemaProfile {
@@ -135,6 +172,9 @@ final class ConnectionService: NSObject, ASWebAuthenticationPresentationContextP
     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
       throw ConnectionServiceError.serverRejected((response as? HTTPURLResponse)?.statusCode ?? 0)
     }
+    stopAutomaticRefresh()
+    currentProfile = nil
+    credential.clear()
   }
 
   func handleOAuthCallback(_ url: URL) -> Bool {
@@ -228,17 +268,19 @@ final class ConnectionService: NSObject, ASWebAuthenticationPresentationContextP
           (1...128).contains(token.refreshToken.utf8.count),
           ((allowExpiredAccess ? 0 : 1)...86_400).contains(token.expiresIn)
     else { throw ConnectionServiceError.malformedResponse }
-    let profile = NoemaProfile(
-      origin: origin,
-      clientId: clientID,
-      accessToken: token.accessToken,
-      accessExpiresAt: Date().addingTimeInterval(TimeInterval(token.expiresIn))
-    )
+    let expiresAt = Date().addingTimeInterval(TimeInterval(token.expiresIn))
     try await profileStore.replace(with: StoredNoemaProfile(
       origin: origin,
       clientId: clientID,
       refreshToken: token.refreshToken
     ))
+    credential.replace(token: token.accessToken, expiresAt: expiresAt)
+    let profile = NoemaProfile(
+      origin: origin,
+      clientId: clientID,
+      credential: credential
+    )
+    currentProfile = profile
     return profile
   }
 
@@ -281,6 +323,33 @@ final class ConnectionService: NSObject, ASWebAuthenticationPresentationContextP
     configuration.timeoutIntervalForRequest = 30
     configuration.timeoutIntervalForResource = 30
     return configuration
+  }
+
+  private func scheduleAutomaticRefresh(after retryDelay: TimeInterval? = nil) {
+    automaticRefreshTask?.cancel()
+    guard automaticRefreshStarted, refreshAllowed, currentProfile != nil else { return }
+    let delay = retryDelay ?? max(0, credential.expiresAt.timeIntervalSinceNow - 60)
+    automaticRefreshTask = Task { @MainActor [weak self] in
+      do {
+        try await Task.sleep(for: .seconds(delay))
+        guard let self, self.refreshAllowed else { return }
+        let profile = try await self.refresh()
+        guard !Task.isCancelled else { return }
+        await self.onProfileRefreshed?(profile)
+        self.scheduleAutomaticRefresh()
+      } catch is CancellationError {
+      } catch ConnectionServiceError.inactive {
+      } catch ConnectionServiceError.authorizationExpired {
+        await self?.onAuthorizationExpired?()
+      } catch {
+        NoemaDiagnosticTrace.shared.record(
+          category: "app",
+          event: "profile_refresh_failed",
+          error: error
+        )
+        self?.scheduleAutomaticRefresh(after: 15)
+      }
+    }
   }
 
   private static func validRefreshRequestID(_ value: String) -> Bool {

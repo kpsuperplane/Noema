@@ -140,6 +140,6 @@ struct NoemaFaviconImage: View {
   }
 
   private var requestID: String {
-    "\(profile?.origin.absoluteString ?? "")#\(profile?.accessExpiresAt.timeIntervalSince1970 ?? 0)#\(hostname)"
+    "\(profile?.origin.absoluteString ?? "")#\(profile?.credentialGeneration ?? 0)#\(hostname)"
   }
 }

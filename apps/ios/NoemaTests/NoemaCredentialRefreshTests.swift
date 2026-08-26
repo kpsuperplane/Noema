@@ -26,7 +26,7 @@ struct NoemaCredentialRefreshTests {
   @MainActor
   func responseLossReusesRequestIdentifier() async throws {
     RefreshURLProtocol.reset(with: [
-      .failure(URLError(.networkConnectionLost)),
+      .failure(URLError(.timedOut)),
       .success(tokenResponse(refresh: "recovered-refresh"))
     ])
     let fixture = try await makeFixture()
@@ -63,6 +63,21 @@ struct NoemaCredentialRefreshTests {
     try await fixture.store.disconnect()
   }
 
+  @Test("Existing profile references read the latest access credential")
+  @MainActor
+  func profileReferencesStayCurrent() async throws {
+    RefreshURLProtocol.reset(with: [.success(tokenResponse(access: "first-access", refresh: "first-refresh"))])
+    let fixture = try await makeFixture()
+    let profile = try await fixture.service.refresh()
+
+    RefreshURLProtocol.reset(with: [.success(tokenResponse(access: "second-access", refresh: "second-refresh"))])
+    _ = try await fixture.service.refresh()
+
+    #expect(profile.accessToken == "second-access")
+    #expect(profile.credentialGeneration == 2)
+    try await fixture.store.disconnect()
+  }
+
   @Test("Existing Keychain profiles decode without pending state")
   func existingProfileDecodes() throws {
     let data = Data(#"{"origin":"https:\/\/noema.test","clientId":"client","refreshToken":"refresh"}"#.utf8)
@@ -93,9 +108,9 @@ struct NoemaCredentialRefreshTests {
     return (service, store)
   }
 
-  private func tokenResponse(refresh: String) -> Data {
+  private func tokenResponse(access: String = "access-token", refresh: String) -> Data {
     Data(
-      #"{"access_token":"access-token","refresh_token":"\#(refresh)","expires_in":900}"#.utf8
+      #"{"access_token":"\#(access)","refresh_token":"\#(refresh)","expires_in":900}"#.utf8
     )
   }
 }
@@ -136,7 +151,7 @@ private final class RefreshURLProtocol: URLProtocol, @unchecked Sendable {
 
   override func startLoading() {
     let result = Self.lock.withLock { () -> Result in
-      Self.bodies.append(String(data: request.httpBody ?? Data(), encoding: .utf8) ?? "")
+      Self.bodies.append(Self.body(for: request))
       return Self.results.isEmpty
         ? .failure(URLError(.badServerResponse))
         : Self.results.removeFirst()
@@ -158,4 +173,21 @@ private final class RefreshURLProtocol: URLProtocol, @unchecked Sendable {
   }
 
   override func stopLoading() {}
+
+  private static func body(for request: URLRequest) -> String {
+    if let body = request.httpBody {
+      return String(data: body, encoding: .utf8) ?? ""
+    }
+    guard let stream = request.httpBodyStream else { return "" }
+    stream.open()
+    defer { stream.close() }
+    var data = Data()
+    var buffer = [UInt8](repeating: 0, count: 4_096)
+    while true {
+      let count = stream.read(&buffer, maxLength: buffer.count)
+      guard count > 0 else { break }
+      data.append(contentsOf: buffer.prefix(count))
+    }
+    return String(data: data, encoding: .utf8) ?? ""
+  }
 }

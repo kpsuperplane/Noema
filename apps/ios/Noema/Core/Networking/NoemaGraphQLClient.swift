@@ -10,6 +10,7 @@ final class NoemaGraphQLClient: @unchecked Sendable {
   private static let normalizedCacheVersion = 2
   let client: ApolloClient
   @MainActor let connectionStatus: NoemaConnectionStatus
+  private let credential: NoemaAccessCredential
   private let webSocketTransport: WebSocketTransport
   private let connectionRecovery: NoemaConnectionRecovery
   private var networkObserverID: UUID?
@@ -21,24 +22,24 @@ final class NoemaGraphQLClient: @unchecked Sendable {
     let connectionRecovery = NoemaConnectionRecovery(status: connectionStatus)
     self.connectionStatus = connectionStatus
     self.connectionRecovery = connectionRecovery
+    self.credential = profile.credential
     let store = ApolloStore(cache: Self.normalizedCache(for: profile))
-    let sessionConfiguration = URLSessionConfiguration.ephemeral
-    sessionConfiguration.httpAdditionalHeaders = ["Authorization": "Bearer \(profile.accessToken)"]
     let http = RequestChainNetworkTransport(
-      urlSession: URLSession(configuration: sessionConfiguration),
-      interceptorProvider: DefaultInterceptorProvider.shared,
+      urlSession: URLSession(configuration: .ephemeral),
+      interceptorProvider: NoemaInterceptorProvider(credential: profile.credential),
       store: store,
-      endpointURL: profile.origin.appending(path: "graphql"),
-      additionalHeaders: ["Authorization": "Bearer \(profile.accessToken)"]
+      endpointURL: profile.origin.appending(path: "graphql")
     )
 
+    let webSocketSessionConfiguration = URLSessionConfiguration.ephemeral
+    webSocketSessionConfiguration.httpAdditionalHeaders = ["Authorization": "Bearer \(profile.accessToken)"]
     let websocketConfiguration = WebSocketTransport.Configuration(
       reconnectionInterval: -1,
       connectingPayload: nil,
       pingInterval: 20
     )
     let websocket = WebSocketTransport(
-      urlSession: URLSession(configuration: sessionConfiguration),
+      urlSession: URLSession(configuration: webSocketSessionConfiguration),
       store: store,
       endpointURL: Self.websocketURL(for: profile.origin),
       configuration: websocketConfiguration
@@ -84,6 +85,13 @@ final class NoemaGraphQLClient: @unchecked Sendable {
       await webSocketTransport.resume()
     }
     NoemaDiagnosticTrace.shared.record(category: "graphql", event: "subscriptions_resumed")
+  }
+
+  @MainActor func refreshAuthorization() async {
+    await webSocketTransport.updateHeaderValues(
+      ["Authorization": "Bearer \(credential.token)"],
+      reconnectIfConnected: true
+    )
   }
 
   @MainActor private func confirmConnection() {
@@ -250,6 +258,48 @@ extension NoemaGraphQLClient: WebSocketTransportDelegate {
 
 private enum ConnectionHealthError: Error {
   case invalidResponse
+}
+
+private struct NoemaInterceptorProvider: InterceptorProvider {
+  let credential: NoemaAccessCredential
+
+  func graphQLInterceptors<Operation: GraphQLOperation>(
+    for operation: Operation
+  ) -> [any GraphQLInterceptor] {
+    [NoemaAuthorizationInterceptor(credential: credential)]
+      + DefaultInterceptorProvider.shared.graphQLInterceptors(for: operation)
+  }
+
+  func cacheInterceptor<Operation: GraphQLOperation>(
+    for operation: Operation
+  ) -> any CacheInterceptor {
+    DefaultInterceptorProvider.shared.cacheInterceptor(for: operation)
+  }
+
+  func httpInterceptors<Operation: GraphQLOperation>(
+    for operation: Operation
+  ) -> [any HTTPInterceptor] {
+    DefaultInterceptorProvider.shared.httpInterceptors(for: operation)
+  }
+
+  func responseParser<Operation: GraphQLOperation>(
+    for operation: Operation
+  ) -> any ResponseParsingInterceptor {
+    DefaultInterceptorProvider.shared.responseParser(for: operation)
+  }
+}
+
+private struct NoemaAuthorizationInterceptor: GraphQLInterceptor {
+  let credential: NoemaAccessCredential
+
+  func intercept<Request: GraphQLRequest>(
+    request: Request,
+    next: NextInterceptorFunction<Request>
+  ) async throws -> InterceptorResultStream<Request> {
+    var request = request
+    request.addHeader(name: "Authorization", value: "Bearer \(credential.token)")
+    return await next(request)
+  }
 }
 
 extension ApolloClient {
