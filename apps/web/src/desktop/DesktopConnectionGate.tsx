@@ -61,8 +61,8 @@ export function DesktopConnectionGate({
   const [forgetting, setForgetting] = React.useState(false);
 
   const refresh = React.useCallback(
-    async (command = "desktop_connection_status") => {
-      const next = await invokeDesktop<DesktopConnectionStatus>(command);
+    async () => {
+      const next = await invokeDesktop<DesktopConnectionStatus>("desktop_connection_status");
       setStatus(next);
       if (next.pendingConnectionOrigin) {
         setConnectionOrigin(next.pendingConnectionOrigin);
@@ -166,7 +166,7 @@ export function DesktopConnectionGate({
               <Button
                 type="button"
                 label="Try again"
-                onClick={() => void refresh("desktop_retry_remote")}
+                onClick={() => void refresh()}
               >
                 Try again
               </Button>

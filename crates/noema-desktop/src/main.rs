@@ -82,7 +82,6 @@ fn main() {
             external_url::open_external_url,
             mcp_oauth_callback_url,
             desktop_connection_status,
-            desktop_retry_remote,
             desktop_stage_connection,
             desktop_cancel_connection,
             desktop_complete_connection,
@@ -117,15 +116,6 @@ async fn mcp_oauth_callback_url(
 
 #[tauri::command]
 async fn desktop_connection_status(
-    window: tauri::Window,
-    state: tauri::State<'_, desktop_state::DesktopState>,
-) -> Result<desktop_state::DesktopConnectionStatus, String> {
-    graphql_ipc::require_main_window_label(window.label())?;
-    Ok(state.connection_status().await)
-}
-
-#[tauri::command]
-async fn desktop_retry_remote(
     window: tauri::Window,
     state: tauri::State<'_, desktop_state::DesktopState>,
 ) -> Result<desktop_state::DesktopConnectionStatus, String> {
