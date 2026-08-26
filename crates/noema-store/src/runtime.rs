@@ -17,6 +17,7 @@ const STORE_RUNTIME_PRAGMAS_SQL: &str = r#"
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
+PRAGMA busy_timeout = 5000;
 "#;
 
 /// Configuration for the local Noema store.

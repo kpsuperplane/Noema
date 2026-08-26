@@ -408,6 +408,7 @@ async fn fresh_migrations_are_exact_idempotent_and_enforce_foreign_keys() {
     store
         .with_connection(|conn| {
             assert_eq!(conn.query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))?, 1);
+            assert_eq!(conn.query_row("PRAGMA busy_timeout", [], |row| row.get::<_, i64>(0))?, 5_000);
             assert_eq!(count_where(conn, "humans", "human_id = 'human:local'")?, 1);
             assert_eq!(count_where(conn, "workspaces", "workspace_id = 'workspace:personal' AND name = 'Personal' AND description = '' AND is_personal = 1 AND archived_at IS NULL AND revision = 1")?, 1);
             assert_eq!(count_where(conn, "workspace_memberships", "workspace_id = 'workspace:personal' AND human_id = 'human:local' AND role = 'owner'")?, 1);

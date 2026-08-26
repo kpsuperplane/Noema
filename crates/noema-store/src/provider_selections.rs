@@ -1,17 +1,13 @@
 //! SQLite-authoritative provider-selection validation and writer transactions.
 
-use std::time::Duration;
-
 use noema_providers::{
     LOCAL_MODELS_PROVIDER_ACCOUNT_ID, ModelPreferenceSelection, ProviderInstanceKey,
     ProviderReadySelection, ProviderReadySelectionError, ProviderRegistry, ProviderRegistryError,
     ProviderSelectionSnapshot, provider_account_instance_key,
 };
-use rusqlite::{ErrorCode, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use crate::{NoemaStore, StoreError};
-
-const WRITER_RETRY_LIMIT: usize = 8;
 
 /// Whether a local selection must be the currently active canonical route.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,43 +30,16 @@ pub(crate) enum CanonicalPreferenceOwner<'a> {
 impl NoemaStore {
     /// Run a complete SQLite writer unit under an immediate transaction.
     ///
-    /// A busy/locked failure restarts the closure from the beginning so callers
-    /// never commit a selection captured by an earlier transaction attempt.
+    /// SQLite connection setup applies the common bounded busy-wait policy.
     pub(crate) async fn with_immediate_transaction_retry<T>(
         &self,
-        mut work: impl FnMut(&Transaction<'_>) -> Result<T, StoreError>,
+        work: impl FnOnce(&Transaction<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
         self.with_connection(|conn| {
-            conn.busy_timeout(Duration::from_secs(5))?;
-            for attempt in 0..WRITER_RETRY_LIMIT {
-                let transaction = match conn
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
-                {
-                    Ok(transaction) => transaction,
-                    Err(error) if sqlite_is_busy(&error) && attempt + 1 < WRITER_RETRY_LIMIT => {
-                        continue;
-                    }
-                    Err(error) => return Err(StoreError::Sqlite(error)),
-                };
-                match work(&transaction) {
-                    Ok(value) => match transaction.commit() {
-                        Ok(()) => return Ok(value),
-                        Err(error)
-                            if sqlite_is_busy(&error) && attempt + 1 < WRITER_RETRY_LIMIT =>
-                        {
-                            continue;
-                        }
-                        Err(error) => return Err(StoreError::Sqlite(error)),
-                    },
-                    Err(StoreError::Sqlite(error))
-                        if sqlite_is_busy(&error) && attempt + 1 < WRITER_RETRY_LIMIT =>
-                    {
-                        continue;
-                    }
-                    Err(error) => return Err(error),
-                }
-            }
-            unreachable!("writer retry loop returns on its final attempt")
+            let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let value = work(&transaction)?;
+            transaction.commit()?;
+            Ok(value)
         })
         .await
     }
@@ -494,30 +463,4 @@ fn validate_local_instance_tx(
         });
     }
     Ok(())
-}
-
-fn sqlite_is_busy(error: &rusqlite::Error) -> bool {
-    matches!(
-        error,
-        rusqlite::Error::SqliteFailure(failure, _)
-            if matches!(
-                failure.code,
-                ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked
-            )
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn busy_classifier_is_narrow() {
-        let busy = rusqlite::Error::SqliteFailure(
-            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
-            None,
-        );
-        assert!(sqlite_is_busy(&busy));
-        assert!(!sqlite_is_busy(&rusqlite::Error::InvalidQuery));
-    }
 }
