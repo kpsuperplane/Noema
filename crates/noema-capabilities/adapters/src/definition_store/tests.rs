@@ -64,7 +64,6 @@ fn install_is_content_addressed_idempotent_and_scannable() {
         .install(
             &manifest("definition:one", "one"),
             "https://github.com/github/rest-api-description",
-            None,
             Some((source, "json")),
         )
         .expect("install");
@@ -72,7 +71,6 @@ fn install_is_content_addressed_idempotent_and_scannable() {
         .install(
             &manifest("definition:one", "one"),
             "fixture://other-provenance",
-            Some("2026-07-26T00:00:00Z"),
             Some((source, "json")),
         )
         .expect("idempotent install");
@@ -99,7 +97,6 @@ fn install_is_content_addressed_idempotent_and_scannable() {
         .install(
             &manifest("definition:two", "two"),
             "https://github.com/stripe/openapi",
-            None,
             Some((
                 include_bytes!("../../tests/fixtures/stripe-openapi-source.json"),
                 "json",
@@ -122,12 +119,7 @@ fn scan_blocks_tampered_symlinked_and_oversized_objects() {
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = AdapterDefinitionStore::new(paths.clone());
     let installed = store
-        .install(
-            &manifest("definition:one", "one"),
-            "fixture://one",
-            None,
-            None,
-        )
+        .install(&manifest("definition:one", "one"), "fixture://one", None)
         .expect("install");
     let directory = paths
         .adapter_definition_dir(installed.compiled.semantic_digest.as_str())
@@ -161,7 +153,6 @@ fn exact_source_digest_detects_mutation_and_source_bounds() {
         .install(
             &manifest("definition:one", "one"),
             "fixture://one",
-            None,
             Some((source, "yaml")),
         )
         .expect("install");
@@ -185,7 +176,6 @@ fn exact_source_digest_detects_mutation_and_source_bounds() {
         store.install(
             &manifest("definition:two", "two"),
             "fixture://two",
-            None,
             Some((&vec![0; MAX_SOURCE_BYTES + 1], "json"))
         ),
         Err(DefinitionStoreError::Integrity("source_oversized"))
@@ -199,12 +189,12 @@ fn quarantine_conflict_preserves_different_active_and_quarantined_definitions() 
     let store = AdapterDefinitionStore::new(paths.clone());
     let definition = manifest("definition:one", "one");
     let installed = store
-        .install(&definition, "fixture://first", None, None)
+        .install(&definition, "fixture://first", None)
         .expect("first install");
     let digest = installed.compiled.semantic_digest.to_string();
     store.quarantine(&digest).expect("first quarantine");
     store
-        .install(&definition, "fixture://different", None, None)
+        .install(&definition, "fixture://different", None)
         .expect("second install");
 
     assert!(matches!(

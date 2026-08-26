@@ -601,7 +601,6 @@ impl AdapterCapabilityService {
                 source_digest: None,
                 source_extension: None,
                 source_reference: source_reference.clone(),
-                imported_at: None,
                 replaces_semantic_digests: replaces,
                 transition: Some(transition),
             },

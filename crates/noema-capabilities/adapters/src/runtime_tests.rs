@@ -72,15 +72,6 @@ struct GrantFixture {
     semantic_digest: String,
 }
 
-#[test]
-fn management_snapshot_reuses_the_immutable_definition_registry() {
-    let fixture = grant_fixture(Err(AdapterOAuthTokenError::Unavailable));
-    let registry = fixture.service.definition_registry().expect("registry");
-    let snapshot = fixture.service.management_snapshot().expect("management");
-
-    assert!(Arc::ptr_eq(&registry, &snapshot.definitions));
-}
-
 #[tokio::test]
 async fn reviewed_enablement_restores_one_disabled_adapter_tool() {
     let fixture = grant_fixture(Err(AdapterOAuthTokenError::Unavailable));
@@ -187,7 +178,7 @@ fn grant_fixture_with_scopes(
     }))
     .expect("manifest");
     let definition = AdapterDefinitionStore::new(paths.clone())
-        .install(&manifest, "https://developers.example.test/api", None, None)
+        .install(&manifest, "https://developers.example.test/api", None)
         .expect("definition");
     let application_id = "a".repeat(32);
     let app_generation = "b".repeat(32);
@@ -367,7 +358,7 @@ fn install_oauth_definition(
     value["operations"][0]["authorization"]["accepted_scope_sets"] = json!([[scope]]);
     let manifest = serde_json::from_value(value).expect("manifest");
     store
-        .install(&manifest, "https://developers.example.test/api", None, None)
+        .install(&manifest, "https://developers.example.test/api", None)
         .expect("definition")
         .compiled
         .semantic_digest

@@ -536,8 +536,15 @@ fn adapter_definitions_from_snapshot(
             let has_connections = connections_by_digest
                 .get(digest)
                 .is_some_and(|connections| !connections.is_empty());
-            !snapshot.superseded_pending_digests.contains(digest)
-                && (has_connections || !snapshot.replaced_definition_digests.contains(digest))
+            !snapshot
+                .definitions
+                .superseded_pending_digests
+                .contains(digest)
+                && (has_connections
+                    || !snapshot
+                        .definitions
+                        .replaced_definition_digests
+                        .contains(digest))
         })
         .map(|definition| {
             let digest = definition.compiled.semantic_digest.as_str();
@@ -2200,7 +2207,6 @@ mod tests {
                 &pending_manifest(),
                 "https://developers.example.test/api",
                 None,
-                None,
             )
             .expect("pending definition");
         let state = GraphqlState::for_tests_with_store_and_environment(store, environment.clone());
@@ -2459,7 +2465,6 @@ mod tests {
                 &pending_manifest(),
                 "https://developers.example.test/api-v1",
                 None,
-                None,
             )
             .expect("pending definition");
         let state = GraphqlState::for_tests_with_store_and_environment(store, environment);
@@ -2682,7 +2687,6 @@ mod tests {
                 &oauth_pending_manifest(),
                 "https://developers.example.test/oauth",
                 None,
-                None,
             )
             .expect("pending definition");
         let state = GraphqlState::for_tests_with_store_and_environment(store, environment.clone())
@@ -2867,7 +2871,6 @@ mod tests {
                 &oauth_pending_manifest(),
                 "https://developers.example.test/oauth-a",
                 None,
-                None,
             )
             .expect("first pending definition");
         let mut second_manifest = oauth_pending_manifest();
@@ -2879,7 +2882,6 @@ mod tests {
             .install(
                 &second_manifest,
                 "https://developers.example.test/oauth-b",
-                None,
                 None,
             )
             .expect("second pending definition");
@@ -2967,7 +2969,6 @@ mod tests {
                 &pending_manifest(),
                 "https://developers.example.test/api-v1",
                 None,
-                None,
             )
             .expect("pending definition");
         let state = GraphqlState::for_tests_with_store_and_environment(store, environment)
@@ -2990,12 +2991,7 @@ mod tests {
         newer_draft.definition_revision = "v2".to_string();
         newer_draft.operations[0].path = "/v2/items".to_string();
         definitions
-            .install(
-                &newer_draft,
-                "https://developers.example.test/api-v2",
-                None,
-                None,
-            )
+            .install(&newer_draft, "https://developers.example.test/api-v2", None)
             .expect("newer draft");
 
         let integrations = crate::graphql::capability_integrations::integrations(
@@ -3022,7 +3018,6 @@ mod tests {
             .install(
                 &pending_manifest(),
                 "https://developers.example.test/api",
-                None,
                 None,
             )
             .expect("pending definition");
@@ -3125,7 +3120,6 @@ mod tests {
             .install(
                 &pending_manifest(),
                 "https://developers.example.test/api",
-                None,
                 None,
             )
             .expect("repeated pending definition");

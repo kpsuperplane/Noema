@@ -37,9 +37,6 @@ pub struct DefinitionProvenance {
     pub source_extension: Option<String>,
     /// Human-auditable source reference. It is never policy authority.
     pub source_reference: String,
-    /// Optional volatile import timestamp, excluded from semantic identity.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub imported_at: Option<String>,
     /// Exact earlier definition revisions replaced by this immutable object.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub replaces_semantic_digests: Vec<String>,
@@ -196,18 +193,13 @@ impl AdapterDefinitionStore {
         &self,
         manifest: &AdapterManifest,
         source_reference: &str,
-        imported_at: Option<&str>,
         source: Option<(&[u8], &str)>,
     ) -> Result<DefinitionInstall, DefinitionStoreError> {
         validate_provenance_text(source_reference, 4_096)?;
-        if let Some(imported_at) = imported_at {
-            validate_provenance_text(imported_at, 128)?;
-        }
         let provenance = DefinitionProvenance {
             source_digest: None,
             source_extension: None,
             source_reference: source_reference.to_string(),
-            imported_at: imported_at.map(str::to_string),
             replaces_semantic_digests: Vec::new(),
             transition: None,
         };
@@ -222,9 +214,6 @@ impl AdapterDefinitionStore {
         source: Option<(&[u8], &str)>,
     ) -> Result<DefinitionInstall, DefinitionStoreError> {
         validate_provenance_text(&provenance.source_reference, 4_096)?;
-        if let Some(imported_at) = &provenance.imported_at {
-            validate_provenance_text(imported_at, 128)?;
-        }
         provenance.replaces_semantic_digests.sort();
         provenance.replaces_semantic_digests.dedup();
         for digest in &provenance.replaces_semantic_digests {

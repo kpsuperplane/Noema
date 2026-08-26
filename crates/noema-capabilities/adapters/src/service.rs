@@ -113,10 +113,6 @@ pub enum AdapterManagementError {
 pub struct AdapterManagementSnapshot {
     /// Immutable compiled definition registry and its diagnostics.
     pub definitions: Arc<crate::DefinitionScan>,
-    /// Pending definitions hidden by a later proposal or approval.
-    pub superseded_pending_digests: BTreeSet<String>,
-    /// Earlier definition revisions replaced by reviewed definitions.
-    pub replaced_definition_digests: BTreeSet<String>,
     /// Connection scan and its quarantine diagnostics.
     pub connections: crate::ConnectionScan,
     /// Complete reusable OAuth authority hierarchy.
@@ -516,8 +512,6 @@ impl AdapterCapabilityService {
         let definitions = self
             .definition_registry()
             .map_err(|_| AdapterManagementError::Unavailable)?;
-        let superseded_pending_digests = definitions.superseded_pending_digests.clone();
-        let replaced_definition_digests = definitions.replaced_definition_digests.clone();
         let connections = self
             .inner
             .connections
@@ -530,8 +524,6 @@ impl AdapterCapabilityService {
             .map_err(|_| AdapterManagementError::Unavailable)?;
         Ok(AdapterManagementSnapshot {
             definitions,
-            superseded_pending_digests,
-            replaced_definition_digests,
             connections,
             oauth_authorities,
         })
@@ -1297,30 +1289,16 @@ impl AdapterCapabilityService {
                 )
                 .map_err(|_| AdapterConnectionSetupError::Conflict);
         }
-        let status = AdapterConnectionStatus::Active;
-        let mut allowed_operations = definition
-            .operations
-            .iter()
-            .map(|operation| operation.operation_id.clone())
-            .collect::<Vec<_>>();
-        allowed_operations.sort();
-        let descriptor = AdapterConnectionV4 {
-            schema_version: 4,
+        let descriptor = new_connection_descriptor(
             connection_id,
             connection_slug,
-            semantic_digest: semantic_digest.to_string(),
-            connection_label: None,
-            status,
-            connection_revision: 1,
-            policy_revision: 1,
-            authentication: AdapterConnectionAuthenticationV1::Credential {
+            semantic_digest,
+            AdapterConnectionAuthenticationV1::Credential {
                 generation_id: credential.generation_id.clone(),
                 revision: 1,
             },
-            allowed_operations,
-            policy: None,
-            tool_overrides: Vec::new(),
-        };
+            &definition,
+        );
         self.inner
             .connections
             .install(&descriptor, Some(&credential), &definition)
@@ -1654,28 +1632,16 @@ impl AdapterCapabilityService {
             return Ok(existing);
         }
         let connection_id = random_hex(16).map_err(|_| AdapterConnectionSetupError::Unavailable)?;
-        let mut allowed_operations = definition
-            .operations
-            .iter()
-            .map(|operation| operation.operation_id.clone())
-            .collect::<Vec<_>>();
-        allowed_operations.sort();
-        let descriptor = AdapterConnectionV4 {
-            schema_version: 4,
-            connection_slug: format!("personal-{}", &connection_id[..8]),
+        let connection_slug = format!("personal-{}", &connection_id[..8]);
+        let descriptor = new_connection_descriptor(
             connection_id,
-            semantic_digest: semantic_digest.to_string(),
-            connection_label: None,
-            status: AdapterConnectionStatus::Active,
-            connection_revision: 1,
-            policy_revision: 1,
-            authentication: AdapterConnectionAuthenticationV1::OauthGrant {
+            connection_slug,
+            semantic_digest,
+            AdapterConnectionAuthenticationV1::OauthGrant {
                 grant_id: grant_id.to_string(),
             },
-            allowed_operations,
-            policy: None,
-            tool_overrides: Vec::new(),
-        };
+            &definition,
+        );
         self.inner
             .connections
             .install(&descriptor, None, &definition)
@@ -1795,26 +1761,14 @@ impl AdapterCapabilityService {
             return Ok(connection);
         }
         let connection_id = random_hex(16).map_err(|_| AdapterConnectionSetupError::Unavailable)?;
-        let mut allowed_operations = definition
-            .operations
-            .iter()
-            .map(|operation| operation.operation_id.clone())
-            .collect::<Vec<_>>();
-        allowed_operations.sort();
-        let descriptor = AdapterConnectionV4 {
-            schema_version: 4,
-            connection_slug: format!("personal-{}", &connection_id[..8]),
+        let connection_slug = format!("personal-{}", &connection_id[..8]);
+        let descriptor = new_connection_descriptor(
             connection_id,
-            semantic_digest: semantic_digest.to_string(),
-            connection_label: None,
-            status: AdapterConnectionStatus::Active,
-            connection_revision: 1,
-            policy_revision: 1,
-            authentication: AdapterConnectionAuthenticationV1::None,
-            allowed_operations,
-            policy: None,
-            tool_overrides: Vec::new(),
-        };
+            connection_slug,
+            semantic_digest,
+            AdapterConnectionAuthenticationV1::None,
+            &definition,
+        );
         self.inner
             .connections
             .install(&descriptor, None, &definition)
@@ -2542,6 +2496,35 @@ impl AdapterCapabilityService {
         http: Arc<dyn AdapterHttpExecutor>,
     ) -> Self {
         Self::with_http(paths, http)
+    }
+}
+
+fn new_connection_descriptor(
+    connection_id: String,
+    connection_slug: String,
+    semantic_digest: &str,
+    authentication: AdapterConnectionAuthenticationV1,
+    definition: &CompiledAdapterDefinition,
+) -> AdapterConnectionV4 {
+    let mut allowed_operations = definition
+        .operations
+        .iter()
+        .map(|operation| operation.operation_id.clone())
+        .collect::<Vec<_>>();
+    allowed_operations.sort();
+    AdapterConnectionV4 {
+        schema_version: 4,
+        connection_id,
+        connection_slug,
+        semantic_digest: semantic_digest.to_string(),
+        connection_label: None,
+        status: AdapterConnectionStatus::Active,
+        connection_revision: 1,
+        policy_revision: 1,
+        authentication,
+        allowed_operations,
+        policy: None,
+        tool_overrides: Vec::new(),
     }
 }
 

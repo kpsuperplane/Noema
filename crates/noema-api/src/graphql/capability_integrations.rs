@@ -317,6 +317,7 @@ fn api_integrations_from_snapshot(
                 .filter(|definition| {
                     definition.compiled.reviewed
                         && !snapshot
+                            .definitions
                             .replaced_definition_digests
                             .contains(definition.compiled.semantic_digest.as_str())
                 })
