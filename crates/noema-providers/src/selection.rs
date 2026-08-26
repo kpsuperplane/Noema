@@ -5,7 +5,7 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
-use crate::ReasoningEffort;
+use crate::{ProviderKind, ReasoningEffort};
 
 /// Stable key for one concrete provider instance.
 #[derive(Clone, PartialEq, Eq, Hash, Serialize)]
@@ -180,19 +180,18 @@ impl ProviderSelectionSnapshot {
     /// Returns [`ProviderSelectionError`] when the provider, account, instance,
     /// or selection mode is malformed.
     pub fn normalized(&self) -> Result<Self, ProviderSelectionError> {
-        let provider_kind = self.provider_kind.trim().to_ascii_lowercase();
-        if !matches!(
-            provider_kind.as_str(),
-            "codex" | "openai" | "openrouter" | "foundation_local" | "local_models"
-        ) {
-            return Err(ProviderSelectionError::UnsupportedProvider { provider_kind });
-        }
+        let provider_kind =
+            ProviderKind::from_str(&self.provider_kind).map_err(|provider_kind| {
+                ProviderSelectionError::UnsupportedProvider { provider_kind }
+            })?;
         let provider_account_id = self.provider_account_id.trim();
         if provider_account_id.is_empty() {
             return Err(ProviderSelectionError::EmptyField("provider_account_id"));
         }
-        if self.fast_mode && !matches!(provider_kind.as_str(), "codex" | "openai") {
-            return Err(ProviderSelectionError::UnsupportedFastMode { provider_kind });
+        if self.fast_mode && !matches!(provider_kind, ProviderKind::Codex | ProviderKind::OpenAi) {
+            return Err(ProviderSelectionError::UnsupportedFastMode {
+                provider_kind: provider_kind.to_string(),
+            });
         }
         let provider_instance_key = self
             .provider_instance_key
@@ -220,7 +219,7 @@ impl ProviderSelectionSnapshot {
                 Err(ProviderSelectionError::ProfileForbidden)
             }
             _ => Ok(Self {
-                provider_kind,
+                provider_kind: provider_kind.to_string(),
                 provider_account_id: provider_account_id.to_string(),
                 provider_instance_key,
                 selection_mode: self.selection_mode,
