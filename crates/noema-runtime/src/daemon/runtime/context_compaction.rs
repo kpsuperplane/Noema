@@ -107,9 +107,6 @@ pub(super) fn should_compact_background(plan: &PlannedPromptContext) -> bool {
     let Some(available) = plan.budget.available_input_tokens() else {
         return false;
     };
-    if available == 0 {
-        return true;
-    }
     let threshold = available.saturating_mul(BACKGROUND_COMPACTION_THRESHOLD_NUMERATOR)
         / BACKGROUND_COMPACTION_THRESHOLD_DENOMINATOR;
     plan.estimated_input_tokens >= threshold
@@ -182,41 +179,19 @@ pub(super) async fn compact_active_summary_smaller(
         request.model_profile,
     )
     .await;
-    let summary_text = generate_compaction_summary(
-        request.provider,
-        request.model_profile,
+    generate_and_persist_compaction(
+        &request,
         instructions,
         input,
         target_tokens,
-        request.reasoning_effort,
-        request.fast_mode,
-        request.mode.priority(),
+        input_token_estimate,
+        (
+            active_summary.covered_item_start_sequence,
+            active_summary.covered_item_end_sequence,
+            active_summary.source_item_ids,
+        ),
     )
-    .await?;
-    let summary_token_estimate =
-        count_tokens_or_estimate(request.provider, None, &summary_text, request.model_profile)
-            .await;
-
-    request
-        .store
-        .insert_conversation_context_summary(NewConversationContextSummary {
-            conversation_id: request.conversation_id.to_string(),
-            provider_kind: request.provider_kind.to_string(),
-            model_profile: request.model_profile.map(str::to_string),
-            summary_text,
-            covered_item_start_sequence: active_summary.covered_item_start_sequence,
-            covered_item_end_sequence: active_summary.covered_item_end_sequence,
-            source_item_ids: active_summary.source_item_ids,
-            input_token_estimate: u64::from(input_token_estimate),
-            summary_token_estimate: u64::from(summary_token_estimate),
-            compaction_provider_kind: request.provider_kind.to_string(),
-            compaction_model_profile: request.model_profile.map(str::to_string),
-            status: ConversationContextSummaryStatus::Active,
-            error_code: None,
-            error_message: None,
-        })
-        .await
-        .map_err(Into::into)
+    .await
 }
 
 pub(super) async fn record_failed_background_compaction(
@@ -296,10 +271,33 @@ async fn compact_context_with_target(
         &mut summary_seed,
     )
     .await?;
-    let input = render_compaction_input(
-        summary_seed.previous_summary.as_ref(),
-        &summary_seed.transcript_items,
-    );
+    generate_and_persist_compaction(
+        &request,
+        instructions,
+        render_compaction_input(
+            summary_seed.previous_summary.as_ref(),
+            &summary_seed.transcript_items,
+        ),
+        target_tokens,
+        input_token_estimate,
+        (
+            summary_seed.covered_item_start_sequence,
+            summary_seed.covered_item_end_sequence,
+            summary_seed.source_item_ids,
+        ),
+    )
+    .await
+    .map(Some)
+}
+
+async fn generate_and_persist_compaction(
+    request: &CompactionRequest<'_>,
+    instructions: String,
+    input: String,
+    target_tokens: u32,
+    input_token_estimate: u32,
+    coverage: (i64, i64, Vec<String>),
+) -> Result<ConversationContextSummaryRecord, RuntimeError> {
     let summary_text = generate_compaction_summary(
         request.provider,
         request.model_profile,
@@ -314,17 +312,16 @@ async fn compact_context_with_target(
     let summary_token_estimate =
         count_tokens_or_estimate(request.provider, None, &summary_text, request.model_profile)
             .await;
-
-    let summary = request
+    request
         .store
         .insert_conversation_context_summary(NewConversationContextSummary {
             conversation_id: request.conversation_id.to_string(),
             provider_kind: request.provider_kind.to_string(),
             model_profile: request.model_profile.map(str::to_string),
             summary_text,
-            covered_item_start_sequence: summary_seed.covered_item_start_sequence,
-            covered_item_end_sequence: summary_seed.covered_item_end_sequence,
-            source_item_ids: summary_seed.source_item_ids,
+            covered_item_start_sequence: coverage.0,
+            covered_item_end_sequence: coverage.1,
+            source_item_ids: coverage.2,
             input_token_estimate: u64::from(input_token_estimate),
             summary_token_estimate: u64::from(summary_token_estimate),
             compaction_provider_kind: request.provider_kind.to_string(),
@@ -333,8 +330,8 @@ async fn compact_context_with_target(
             error_code: None,
             error_message: None,
         })
-        .await?;
-    Ok(Some(summary))
+        .await
+        .map_err(Into::into)
 }
 
 fn no_compactable_prefix_error(budget: ContextBudget) -> RuntimeError {
