@@ -1,7 +1,5 @@
 //! Shared SQL helpers for semantic Work command transactions.
 
-use std::str::FromStr;
-
 use noema_tasks::{
     CaptureTask, DelegateTask, TaskExecutionPolicy, TaskId, WorkCommand, WorkDomainError,
     WorkEventRecord, WorkflowStageBehavior, WorkflowStageId,
@@ -150,13 +148,11 @@ pub(crate) fn load_task_state_tx(
     let row = transaction
         .query_row(
             r#"SELECT t.workspace_id, t.project_id, t.stage_id,
-                      s.system_behavior, t.generation, t.revision,
+                      t.generation, t.revision,
                       t.active_gate_id, t.latest_run_id,
                       t.title, t.executor_agent_id, t.cwd_override,
                       t.task_directory, t.execution_complexity
                FROM tasks t
-               JOIN workflow_stages s
-                 ON s.workflow_id = t.workflow_id AND s.stage_id = t.stage_id
                WHERE t.task_id = ?1 LIMIT 1"#,
             [task_id.as_str()],
             |row| {
@@ -164,23 +160,24 @@ pub(crate) fn load_task_state_tx(
                     row.get::<_, String>(0)?,
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(3)?,
                     row.get::<_, i64>(4)?,
-                    row.get::<_, i64>(5)?,
+                    row.get::<_, Option<String>>(5)?,
                     row.get::<_, Option<String>>(6)?,
-                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, String>(7)?,
                     row.get::<_, String>(8)?,
-                    row.get::<_, String>(9)?,
-                    row.get::<_, Option<String>>(10)?,
-                    row.get::<_, String>(11)?,
-                    row.get::<_, Option<String>>(12)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, String>(10)?,
+                    row.get::<_, Option<String>>(11)?,
                 ))
             },
         )
         .optional()?;
     let row = row.ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
-    let generation = positive_u64(row.4, "task.generation")?;
-    let revision = positive_u64(row.5, "task.revision")?;
+    let generation = positive_u64(row.3, "task.generation")?;
+    let revision = positive_u64(row.4, "task.revision")?;
+    let stage_id = WorkflowStageId::new(row.2).map_err(StoreError::Work)?;
+    let stage_behavior = noema_tasks::personal_stage(&stage_id)?.system_behavior;
     Ok(TaskState {
         task_id: task_id.clone(),
         workspace_id: WorkspaceId::new(row.0).map_err(StoreError::Workspace)?,
@@ -189,22 +186,22 @@ pub(crate) fn load_task_state_tx(
             .map(ProjectId::new)
             .transpose()
             .map_err(StoreError::Workspace)?,
-        stage_id: WorkflowStageId::new(row.2).map_err(StoreError::Work)?,
-        stage_behavior: WorkflowStageBehavior::from_str(&row.3).map_err(StoreError::Work)?,
+        stage_id,
+        stage_behavior,
         generation,
         revision,
         active_gate_id: row
-            .6
+            .5
             .map(noema_tasks::TaskGateId::new)
             .transpose()
             .map_err(StoreError::Work)?,
-        latest_run_id: row.7,
-        title: row.8,
-        executor_agent_id: row.9,
-        cwd_override: row.10,
-        task_directory: row.11,
+        latest_run_id: row.6,
+        title: row.7,
+        executor_agent_id: row.8,
+        cwd_override: row.9,
+        task_directory: row.10,
         execution_complexity: row
-            .12
+            .11
             .map(|value| value.parse())
             .transpose()
             .map_err(StoreError::Work)?,

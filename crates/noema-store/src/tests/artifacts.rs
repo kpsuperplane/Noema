@@ -228,7 +228,7 @@ async fn seed_task_owner(store: &crate::NoemaStore, task_id: &str, title: &str) 
     store
         .with_connection(|connection| {
             connection.execute(
-                "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES (?1, 'workspace:personal', 'workflow:personal:default', 'stage:personal:inbox', ?2, 'system', 'actor:system')",
+                "INSERT INTO tasks (task_id, workspace_id, stage_id, title, source_kind, created_by_actor_id) VALUES (?1, 'workspace:personal', 'stage:personal:inbox', ?2, 'system', 'actor:system')",
                 [task_id, title],
             )?;
             Ok(())

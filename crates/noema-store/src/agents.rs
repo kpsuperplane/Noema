@@ -615,11 +615,8 @@ fn acp_agent_is_referenced(
             SELECT EXISTS (
               SELECT 1
               FROM tasks AS task
-              JOIN workflow_stages AS stage
-                ON stage.workflow_id = task.workflow_id
-               AND stage.stage_id = task.stage_id
               WHERE task.executor_agent_id = ?1
-                AND stage.system_behavior NOT IN ('terminal_success', 'terminal_cancelled')
+                AND task.stage_id NOT IN ('stage:personal:done', 'stage:personal:cancelled')
               UNION ALL
               SELECT 1
               FROM task_recurrences

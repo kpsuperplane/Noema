@@ -24,21 +24,12 @@ pub enum WorkDomainError {
     /// A new or moved Inbox task targets an archived project.
     #[error("project is archived")]
     ProjectArchived,
-    /// An operation requires a complete current contract.
-    #[error("a complete task contract is required")]
-    ContractRequired,
-    /// Immutable contract data was changed in place.
-    #[error("task contracts are immutable")]
-    ContractImmutable,
     /// Waiting resolution did not identify the current open gate.
     #[error("the current open task gate is required")]
     GateRequired,
     /// An operation cannot proceed while a gate remains open.
     #[error("the task gate is unresolved")]
     GateUnresolved,
-    /// Completion or reopen lacked a complete approving review.
-    #[error("the latest review is not approved")]
-    ReviewNotApproved,
     /// Another automated review round would exceed the configured bound.
     #[error("the review-round limit has been reached")]
     ReviewLimitReached,
@@ -73,11 +64,8 @@ impl WorkDomainError {
             Self::InvalidTransition => "invalid_transition",
             Self::WorkflowMismatch => "workflow_mismatch",
             Self::ProjectArchived => "project_archived",
-            Self::ContractRequired => "contract_required",
-            Self::ContractImmutable => "contract_immutable",
             Self::GateRequired => "gate_required",
             Self::GateUnresolved => "gate_unresolved",
-            Self::ReviewNotApproved => "review_not_approved",
             Self::ReviewLimitReached => "review_limit_reached",
             Self::ConfigurationUnavailable => "configuration_unavailable",
             Self::RunFenced => "run_fenced",

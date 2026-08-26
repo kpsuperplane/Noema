@@ -2773,7 +2773,7 @@ mod tests {
         let root = tempfile::tempdir().expect("home");
         let store = crate::test_support::test_store().await;
         store
-            .insert_client("client:one", LOCAL_HUMAN_ID, "iPhone", [1; 32])
+            .insert_client("client:one", LOCAL_HUMAN_ID, "iPhone")
             .await
             .expect("insert client");
         store

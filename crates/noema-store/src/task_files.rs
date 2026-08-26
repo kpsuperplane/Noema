@@ -789,7 +789,7 @@ mod tests {
                     [&project_text],
                 )?;
                 connection.execute(
-                    "INSERT INTO tasks (task_id, workspace_id, project_id, workflow_id, stage_id, title, executor_agent_id, task_directory, source_kind, created_by_actor_id) VALUES ('task:files', 'workspace:personal', 'project:files', 'workflow:personal:default', 'stage:personal:queue', 'Long Task', 'agent:system:task-executor', 'long-task', 'system', 'actor:system')",
+                    "INSERT INTO tasks (task_id, workspace_id, project_id, stage_id, title, executor_agent_id, task_directory, source_kind, created_by_actor_id) VALUES ('task:files', 'workspace:personal', 'project:files', 'stage:personal:queue', 'Long Task', 'agent:system:task-executor', 'long-task', 'system', 'actor:system')",
                     [],
                 )?;
                 Ok(())
@@ -892,7 +892,7 @@ mod tests {
         store
             .with_connection(|connection| {
                 connection.execute(
-                    "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, executor_agent_id, task_directory, source_kind, created_by_actor_id) VALUES ('task:standalone-files', 'workspace:personal', 'workflow:personal:default', 'stage:personal:queue', 'Standalone', 'agent:system:task-executor', 'standalone', 'system', 'actor:system')",
+                    "INSERT INTO tasks (task_id, workspace_id, stage_id, title, executor_agent_id, task_directory, source_kind, created_by_actor_id) VALUES ('task:standalone-files', 'workspace:personal', 'stage:personal:queue', 'Standalone', 'agent:system:task-executor', 'standalone', 'system', 'actor:system')",
                     [],
                 )?;
                 Ok(())

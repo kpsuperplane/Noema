@@ -346,7 +346,6 @@ fn insert_run_snapshot_tx(
     let payload = noema_tasks::WorkEventPayload::run_queued(
         request.run_kind,
         task.generation,
-        None,
         request.attempt_index,
         request.review_round,
         request.parent_run_id.map(ToOwned::to_owned),

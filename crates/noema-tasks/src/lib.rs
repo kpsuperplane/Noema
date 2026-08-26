@@ -76,10 +76,9 @@ pub use command::{
 };
 pub use error::WorkDomainError;
 pub use event::{
-    ContractOrigin, GateResolutionKind, GateSupersessionReason, NotificationDestination,
-    NotificationKind, ProjectChangedField, RunCancellationReason, RunTerminalKind, SafeErrorCode,
-    TaskChangedField, TaskStageChangeReason, WorkEventContext, WorkEventKind, WorkEventPayload,
-    WorkEventRecord,
+    GateResolutionKind, GateSupersessionReason, NotificationDestination, NotificationKind,
+    ProjectChangedField, RunCancellationReason, RunTerminalKind, SafeErrorCode, TaskChangedField,
+    TaskStageChangeReason, WorkEventContext, WorkEventKind, WorkEventPayload, WorkEventRecord,
 };
 pub use execution::{
     AcpExecutorLaunch, ProjectRunContext, TaskExecutorBackend, TaskExecutorSelection,
@@ -89,9 +88,7 @@ pub use gate::{
     ApprovalDecision, TaskGateAnswer, TaskGateKind, TaskGateRecord, TaskGateState, TaskMessageKind,
     TaskMessageRecord, TaskRecoveryReason,
 };
-pub use ids::{
-    TaskContractId, TaskGateId, TaskId, TaskMessageId, WorkEventId, WorkflowId, WorkflowStageId,
-};
+pub use ids::{TaskGateId, TaskId, TaskMessageId, WorkEventId, WorkflowId, WorkflowStageId};
 pub use model_pool::{
     NewTaskModelPoolEntry, TaskModelPoolEntry, is_global_task_model_pool_setting_id, model_use_case,
 };
@@ -126,6 +123,6 @@ pub use transcript::{AgentRunItemKind, AgentRunItemRecord, AgentRunItemStatus, N
 pub use workflow::{
     PERSONAL_CANCELLED_STAGE_ID, PERSONAL_DOING_STAGE_ID, PERSONAL_DONE_STAGE_ID,
     PERSONAL_INBOX_STAGE_ID, PERSONAL_QUEUE_STAGE_ID, PERSONAL_WAITING_STAGE_ID,
-    PERSONAL_WORKFLOW_ID, WorkflowDefinition, WorkflowStage, WorkflowStageBehavior,
-    personal_stages,
+    PERSONAL_WORKFLOW_ID, WorkflowDefinition, WorkflowStage, WorkflowStageBehavior, personal_stage,
+    personal_stages, personal_workflow,
 };

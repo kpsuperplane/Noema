@@ -198,15 +198,14 @@ impl NoemaStore {
             conn.execute(
                 r#"
                 INSERT INTO conversations
-                  (conversation_id, title, owner_object_type, owner_object_id, primary_human_id,
+                  (conversation_id, title, owner_human_id, primary_human_id,
                    primary_agent_id, provider, model, cwd, lifecycle_status, agent_status, metadata_json)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'active', 'idle', ?10)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'active', 'idle', ?9)
                 "#,
                 params![
                     conversation_id,
                     conversation.title,
-                    conversation.owner.object_type.as_str(),
-                    conversation.owner.object_id.to_string(),
+                    conversation.owner.human_id,
                     conversation.primary_human_id,
                     conversation.primary_agent_id,
                     conversation.provider,
@@ -238,8 +237,7 @@ impl NoemaStore {
                   SELECT 1
                   FROM conversations
                   WHERE conversation_id = ?1
-                    AND owner_object_type = 'human'
-                    AND owner_object_id = ?2
+                    AND owner_human_id = ?2
                     AND primary_human_id = ?2
                     AND lifecycle_status = 'active'
                     AND deleted_at IS NULL

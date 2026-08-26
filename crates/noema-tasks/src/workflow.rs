@@ -1,4 +1,3 @@
-use noema_workspaces::WorkspaceId;
 use serde::{Deserialize, Serialize};
 
 use crate::{WorkDomainError, WorkflowId, WorkflowStageId, error::invalid_input};
@@ -66,37 +65,7 @@ impl Default for WorkflowStageBehavior {
 #[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct WorkflowDefinition {
     pub workflow_id: WorkflowId,
-    pub workspace_id: WorkspaceId,
     pub name: String,
-    pub revision: u64,
-    pub is_default: bool,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-impl WorkflowDefinition {
-    /// Validate definition-owned fields.
-    /// # Errors
-    /// Returns [`WorkDomainError`] when the name or timestamps are blank or
-    /// the optimistic revision is zero.
-    pub fn validate(&self) -> Result<(), WorkDomainError> {
-        if self.name.trim().is_empty() {
-            return Err(invalid_input("workflow.name", "name cannot be blank"));
-        }
-        if self.revision == 0 {
-            return Err(invalid_input(
-                "workflow.revision",
-                "revision must be positive",
-            ));
-        }
-        if self.created_at.trim().is_empty() || self.updated_at.trim().is_empty() {
-            return Err(invalid_input(
-                "workflow.timestamp",
-                "timestamps cannot be blank",
-            ));
-        }
-        Ok(())
-    }
 }
 
 /// Durable workflow stage definition.
@@ -140,15 +109,24 @@ impl WorkflowStage {
         Ok(())
     }
 
-    /// Validate that a task stage belongs to the supplied workflow.
+    /// Validate that a stage belongs to the one code-owned workflow.
     /// # Errors
-    /// Returns [`WorkDomainError::WorkflowMismatch`] when the workflow identities differ.
+    /// Returns [`WorkDomainError::WorkflowMismatch`] for a different identity.
     pub fn belongs_to(&self, workflow_id: &WorkflowId) -> Result<(), WorkDomainError> {
         if &self.workflow_id == workflow_id {
             Ok(())
         } else {
             Err(WorkDomainError::WorkflowMismatch)
         }
+    }
+}
+
+/// Return the fixed Personal workflow definition.
+#[must_use]
+pub fn personal_workflow() -> WorkflowDefinition {
+    WorkflowDefinition {
+        workflow_id: WorkflowId::new(PERSONAL_WORKFLOW_ID).expect("fixed workflow id"),
+        name: "Personal workflow".to_string(),
     }
 }
 
@@ -179,4 +157,19 @@ pub fn personal_stages() -> Vec<WorkflowStage> {
             },
         )
         .collect()
+}
+
+/// Resolve one code-owned Personal stage.
+/// # Errors
+/// Returns [`WorkDomainError`] when the stage is not part of the fixed workflow.
+pub fn personal_stage(stage_id: &WorkflowStageId) -> Result<WorkflowStage, WorkDomainError> {
+    personal_stages()
+        .into_iter()
+        .find(|stage| stage.stage_id == *stage_id)
+        .ok_or_else(|| {
+            invalid_input(
+                "task.stage_id",
+                "stage is not part of the Personal workflow",
+            )
+        })
 }

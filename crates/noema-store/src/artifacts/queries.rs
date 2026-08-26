@@ -135,8 +135,7 @@ impl NoemaStore {
                         AND (
                           (
                             artifact.owner_object_type = 'conversation'
-                            AND conversation.owner_object_type = 'human'
-                            AND conversation.owner_object_id = ?2
+                            AND conversation.owner_human_id = ?2
                             AND conversation.primary_human_id = ?2
                             AND conversation.lifecycle_status = 'active'
                             AND conversation.deleted_at IS NULL

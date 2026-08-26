@@ -44,7 +44,6 @@ noema_workspaces::semantic_id!(WorkDomainError, validate_id;
     WorkflowId, "workflow", "workflow:";
     WorkflowStageId, "workflow_stage", "stage:";
     TaskId, "task", "task:";
-    TaskContractId, "task_contract", "contract:";
     TaskGateId, "task_gate", "gate:";
     TaskMessageId, "task_message", "task_message:";
     TaskRecurrenceId, "task_recurrence", "recurrence:";

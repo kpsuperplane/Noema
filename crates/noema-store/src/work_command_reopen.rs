@@ -92,7 +92,6 @@ fn reopen_tx(
             next_generation,
             TaskMessageKind::HumanChangeRequest,
             None,
-            None,
         )
         .map_err(StoreError::Work)?,
     )?;
@@ -105,7 +104,7 @@ fn reopen_tx(
     append_work_event_tx(
         transaction,
         event_context.task_scope(&next_task, None),
-        WorkEventPayload::task_queued(next_revision, next_generation, None, RunKind::Executor)
+        WorkEventPayload::task_queued(next_revision, next_generation, RunKind::Executor)
             .map_err(StoreError::Work)?,
     )?;
     append_work_event_tx(

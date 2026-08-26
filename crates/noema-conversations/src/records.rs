@@ -179,12 +179,7 @@ mod tests {
             Some("/tmp/noema".to_string()),
         );
         assert_eq!(conversation.title, None);
-        assert_eq!(
-            conversation.owner.object_type,
-            crate::ConversationOwnerKind::Human
-        );
-        assert_eq!(conversation.owner.object_type.as_str(), "human");
-        assert_eq!(conversation.owner.object_id, "human:local");
+        assert_eq!(conversation.owner.human_id, "human:local");
         assert_eq!(
             conversation.primary_human_id.as_deref(),
             Some("human:local")
@@ -200,7 +195,6 @@ mod tests {
 
         let local = NewConversation::local_chat_for_provider("local_models", None, None);
         assert_eq!(local.provider, "local_models");
-        assert_eq!(local.owner.object_type.as_str(), "human");
-        assert_eq!(local.owner.object_id, "human:local");
+        assert_eq!(local.owner.human_id, "human:local");
     }
 }

@@ -11,8 +11,8 @@ use crate::{
     NoemaStore, StoreError,
     work_reads::history::decode_message,
     work_reads::rows::{
-        decode_gate, load_active_gate, load_project, load_stage, load_task, load_workflow,
-        load_workspace, validate_current_links,
+        decode_gate, load_active_gate, load_project, load_task, load_workspace,
+        validate_current_links,
     },
     work_run_context_records::{
         TaskRequestEnvironment, WORK_RUN_CONTEXT_MAX_GATES, WORK_RUN_CONTEXT_MAX_MESSAGES,
@@ -86,11 +86,11 @@ pub(super) fn load_work_run_execution_context_tx(
             message: format!("task {} project crosses workspace fence", task.task_id),
         });
     }
-    let workflow = load_workflow(transaction, &task.workflow_id)?;
-    let stage = load_stage(transaction, &task.stage_id)?;
+    let stage = noema_tasks::personal_stage(&task.stage_id).map_err(StoreError::Work)?;
     stage
-        .belongs_to(&workflow.workflow_id)
+        .belongs_to(&task.workflow_id)
         .map_err(StoreError::Work)?;
+    let workflow = noema_tasks::personal_workflow();
 
     let (workspace, project) = live_context(&workspace_row, project_row.as_ref())?;
 

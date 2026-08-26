@@ -12,7 +12,6 @@ string_enum! {
         TaskQueued => "task.queued", TaskStageChanged => "task.stage_changed",
         TaskCancelled => "task.cancelled", TaskReopened => "task.reopened",
         TaskCompleted => "task.completed", RecurrenceChanged => "recurrence.changed",
-        ContractCreated => "contract.created",
         GateOpened => "gate.opened", GateResolved => "gate.resolved",
         GateSuperseded => "gate.superseded", TaskMessageAppended => "task.message_appended",
         TaskMessageConsumed => "task.message_consumed", RunQueued => "run.queued",
@@ -20,8 +19,7 @@ string_enum! {
         RunHeartbeat => "run.heartbeat", RunCompleted => "run.completed",
         RunWaitingForApproval => "run.waiting_for_approval", RunInterrupted => "run.interrupted",
         RunFailed => "run.failed", RunCancelRequested => "run.cancel_requested",
-        RunCancelled => "run.cancelled", SubmissionCreated => "submission.created",
-        ReviewCreated => "review.created", NotificationQueued => "notification.queued",
+        RunCancelled => "run.cancelled", NotificationQueued => "notification.queued",
         NotificationDelivered => "notification.delivered", NotificationFailed => "notification.failed",
     }
 }

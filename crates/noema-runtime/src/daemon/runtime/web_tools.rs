@@ -375,41 +375,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn falls_back_when_bound_account_lacks_requested_capability() {
-        let store = test_store().await;
-        let account = store
-            .ensure_default_provider_account()
-            .await
-            .expect("codex account");
-        save_binding(
-            &store,
-            WEB_SEARCH_TOOL,
-            WEB_SEARCH_TOOL,
-            ProviderCapabilityAccountReference::persisted(account.provider_account_id.clone()),
-        )
-        .await;
-
-        let resolved = resolve_web_search_provider(&store).await.expect("resolve");
-
-        assert_eq!(
-            resolved.provider_account_id,
-            "provider_account:duckduckgo_public:system"
-        );
-        assert_eq!(
-            resolved.fallback_from.as_deref(),
-            Some(account.provider_account_id.as_str())
-        );
-        assert_eq!(
-            resolved.fallback_reason.as_deref(),
-            Some("bound provider account does not declare web.search")
-        );
-    }
-
-    #[tokio::test]
     async fn falls_back_when_bound_capability_is_not_available() {
         let store = test_store().await;
         let provider_account_id =
-            create_exa_provider_account(&store, ProviderAccountStatus::Unknown).await;
+            create_exa_provider_account(&store, ProviderAccountStatus::Authenticated).await;
         save_binding(
             &store,
             WEB_SEARCH_TOOL,
@@ -417,6 +386,15 @@ mod tests {
             ProviderCapabilityAccountReference::persisted(provider_account_id.clone()),
         )
         .await;
+        store
+            .update_provider_account_status(
+                &provider_account_id,
+                ProviderAccountStatus::Unknown,
+                None,
+                None,
+            )
+            .await
+            .expect("make Exa unavailable");
 
         let resolved = resolve_web_search_provider(&store).await.expect("resolve");
 

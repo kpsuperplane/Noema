@@ -298,19 +298,6 @@ fn special_marker(
                 error,
             )
         }
-        "task.read_submission_evidence" => named(
-            "Read submission evidence",
-            status,
-            Copy::new(
-                "Checking submission evidence",
-                outcome(
-                    "Checked submission evidence".into(),
-                    count(result, &["items"], "item"),
-                ),
-                "Could not check submission evidence",
-            ),
-            error,
-        ),
         name if is_folded(name) => {
             let identity = readable_identity(name);
             (identity.clone(), identity)

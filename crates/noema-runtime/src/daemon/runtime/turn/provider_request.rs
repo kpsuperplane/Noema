@@ -235,8 +235,7 @@ impl RuntimeActor {
         timing.mark("runtime_user_item_persisted", json!({}));
         let mut compacted_context = false;
         while initial_admission.requires_compaction() {
-            let estimated_before_compaction = initial_admission.estimated_input_tokens();
-            let shortening_active_summary = planned_context.context.active_summary.is_some()
+            let should_shorten_active_summary = planned_context.context.active_summary.is_some()
                 && !super::context_compaction::has_compactable_transcript(
                     &planned_context.context.transcript_items,
                 );
@@ -266,11 +265,14 @@ impl RuntimeActor {
                 budget: planned_context.budget,
                 mode: super::context_compaction::CompactionMode::Foreground,
             };
-            let compaction_result = if shortening_active_summary {
-                super::context_compaction::compact_active_summary_smaller(compaction_request).await
+            let compaction_result = if should_shorten_active_summary {
+                super::context_compaction::compact_active_summary_smaller(compaction_request)
+                    .await
+                    .map(|_| true)
             } else {
                 super::context_compaction::compact_context_with_retry(compaction_request).await
             };
+            let shortened_active_summary = compaction_result.as_ref().copied().unwrap_or(false);
             compaction_debug
                 .finish(
                     if compaction_result.is_ok() {
@@ -354,10 +356,7 @@ impl RuntimeActor {
                 },
             )
             .await;
-            if shortening_active_summary
-                && initial_admission.estimated_input_tokens() >= estimated_before_compaction
-                && initial_admission.requires_compaction()
-            {
+            if shortened_active_summary && initial_admission.requires_compaction() {
                 initial_admission = admit_request(
                     provider,
                     RequestContext {

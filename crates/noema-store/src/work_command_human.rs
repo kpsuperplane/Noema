@@ -102,7 +102,6 @@ async fn answer(
                     task.generation,
                     TaskMessageKind::HumanAnswer,
                     Some(gate.gate_id.clone()),
-                    None,
                 )
                 .map_err(StoreError::Work)?,
             )?;
@@ -334,7 +333,6 @@ async fn retry(
                     task.generation,
                     TaskMessageKind::RetryNote,
                     Some(gate.gate_id.clone()),
-                    None,
                 )
                 .map_err(StoreError::Work)?,
             )?;

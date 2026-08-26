@@ -56,7 +56,7 @@ fn task_delegate_tool_call(id: &str, title: &str, valid: bool) -> GenerateToolCa
     let arguments = if valid {
         json!({
             "title": title,
-            "description": format!("Complete {title} and report the result."),
+            "task_document": format!("Complete {title} and report the result."),
             "project": {"kind": "none"},
             "execution_intent": {
                 "request_markdown": format!("Complete {title} and report the result."),

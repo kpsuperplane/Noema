@@ -120,22 +120,23 @@ pub(super) async fn compact_context(
 
 pub(super) async fn compact_context_with_retry(
     request: CompactionRequest<'_>,
-) -> Result<ConversationContextSummaryRecord, RuntimeError> {
+) -> Result<bool, RuntimeError> {
     compact_context_chunk_with_retry(request).await
 }
 
 async fn compact_context_chunk_with_retry(
     request: CompactionRequest<'_>,
-) -> Result<ConversationContextSummaryRecord, RuntimeError> {
+) -> Result<bool, RuntimeError> {
     match compact_context_with_target(request.clone(), None).await {
-        Ok(Some(summary)) => Ok(summary),
-        Ok(None) => Err(no_compactable_prefix_error(request.budget)),
+        Ok(Some(_)) => Ok(false),
+        Ok(None) => compact_active_summary_smaller(request).await.map(|_| true),
         Err(error) if request.mode == CompactionMode::Foreground => {
             let retry_target = retry_summary_target(request.budget);
             match retry_target {
                 Some(target) => compact_context_with_target(request.clone(), Some(target))
                     .await?
-                    .ok_or_else(|| no_compactable_prefix_error(request.budget)),
+                    .ok_or_else(|| no_compactable_prefix_error(request.budget))
+                    .map(|_| false),
                 None => Err(error),
             }
         }
@@ -253,10 +254,7 @@ async fn compact_context_with_target(
     )
     .await
     {
-        return match request.mode {
-            CompactionMode::Background => Ok(None),
-            CompactionMode::Foreground => Err(no_compactable_prefix_error(request.budget)),
-        };
+        return Ok(None);
     }
     let target_tokens = summary_target_tokens
         .or_else(|| request.budget.compact_summary_target_tokens())

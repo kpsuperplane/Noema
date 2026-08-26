@@ -268,6 +268,17 @@ impl FakeCodexProvider {
                     request_id: None,
                 });
             }
+            FakeCodexScenario::MultipleTaskDelegation
+                if request.conversation_id.as_deref().is_some_and(|id| id.starts_with("task_run:")) =>
+            {
+                tool_calls_only(vec![GenerateToolCall {
+                    id: Some("call_task_blocked".to_string()),
+                    provider_call_id: None,
+                    provider_name: None,
+                    name: "task.report_blocked".to_string(),
+                    payload: json!({"gate_kind":"clarification","question":"Which source should this test task use?"}),
+                }])
+            }
             FakeCodexScenario::MultipleTaskDelegation => (
                 vec![
                     GenerateResponseItem::Text {

@@ -25,12 +25,11 @@ impl NoemaStore {
         client_id: &str,
         owner_human_id: &str,
         display_name: &str,
-        token_hash: [u8; 32],
     ) -> Result<ClientRecord, StoreError> {
         self.with_connection(|connection| {
             connection.execute(
-                "INSERT INTO clients (client_id, owner_human_id, display_name, token_hash, auth_kind) VALUES (?1, ?2, ?3, ?4, 'native_oauth')",
-                params![client_id, owner_human_id, display_name, token_hash.as_slice()],
+                "INSERT INTO clients (client_id, owner_human_id, display_name) VALUES (?1, ?2, ?3)",
+                params![client_id, owner_human_id, display_name],
             )?;
             load_client(connection, owner_human_id, client_id, false)?.ok_or_else(|| {
                 StoreError::InvariantViolation {
@@ -105,7 +104,7 @@ impl NoemaStore {
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 let client_ids = {
                     let mut statement = tx.prepare(
-                        "SELECT client_id FROM clients WHERE owner_human_id = ?1 AND auth_kind = 'native_oauth' AND revoked_at IS NULL",
+                        "SELECT client_id FROM clients WHERE owner_human_id = ?1 AND revoked_at IS NULL",
                     )?;
                     let rows = statement.query_map([owner_human_id], |row| row.get::<_, String>(0))?;
                     rows.collect::<Result<Vec<_>, _>>()?
@@ -224,13 +223,7 @@ mod tests {
             .await
             .expect("store");
         store
-            .with_connection(|connection| {
-                connection.execute(
-                    "INSERT INTO clients (client_id, owner_human_id, display_name, token_hash, auth_kind) VALUES ('client-one', 'human:local', 'Phone', zeroblob(32), 'native_oauth')",
-                    [],
-                )?;
-                Ok(())
-            })
+            .insert_client("client-one", "human:local", "Phone")
             .await
             .expect("insert client");
         store
@@ -266,7 +259,7 @@ mod tests {
             .expect("store");
         for (client_id, name) in [("client-one", "Phone"), ("client-two", "Desktop")] {
             store
-                .insert_client(client_id, "human:local", name, [4_u8; 32])
+                .insert_client(client_id, "human:local", name)
                 .await
                 .expect("insert client");
         }
@@ -302,7 +295,7 @@ mod tests {
             .await
             .expect("store");
         store
-            .insert_client("client-one", "human:local", "Phone", [4_u8; 32])
+            .insert_client("client-one", "human:local", "Phone")
             .await
             .expect("insert client");
         store

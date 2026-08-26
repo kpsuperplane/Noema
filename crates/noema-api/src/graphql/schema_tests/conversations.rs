@@ -35,7 +35,7 @@ async fn conversation_operations_reject_foreign_human_conversations() {
             .execute(async_graphql::Request::new(format!(
                 r#"query {{
                   conversationTranscriptPage(input: {{ conversationId: "{}" }}) {{
-                    pageInfo {{ limit }}
+                    pageInfo {{ hasMoreBefore }}
                   }}
                 }}"#,
                 conversation.conversation_id,

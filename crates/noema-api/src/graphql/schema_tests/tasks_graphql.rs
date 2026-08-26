@@ -403,7 +403,6 @@ async fn capture_task_returns_authoritative_task_projection() {
                   resultDocument
                   resultMetadata
                   reviewDocument
-                  artifacts { artifactId }
                 }
                 eventCursor
                 clientMutationId
@@ -429,7 +428,6 @@ async fn capture_task_returns_authoritative_task_projection() {
             ("/captureTask/task/resultDocument", serde_json::Value::Null),
             ("/captureTask/task/resultMetadata", json!({})),
             ("/captureTask/task/reviewDocument", serde_json::Value::Null),
-            ("/captureTask/task/artifacts", json!([])),
         ],
     );
     assert!(

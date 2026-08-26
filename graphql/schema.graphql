@@ -5019,7 +5019,7 @@ input TaskModelPoolEntryInput {
 }
 
 """
-Immutable provider/model selection captured in a contract or run.
+Immutable provider/model selection captured for a run.
 """
 type TaskModelSnapshot {
 	"""

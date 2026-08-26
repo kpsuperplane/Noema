@@ -90,7 +90,7 @@ mod tests {
     async fn client_graphql_lists_and_identifies_the_current_revocation() {
         let store = crate::test_support::test_store().await;
         store
-            .insert_client("client-one", "human:local", "Test client", [4_u8; 32])
+            .insert_client("client-one", "human:local", "Test client")
             .await
             .expect("insert client");
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
@@ -129,7 +129,7 @@ mod tests {
         let store = crate::test_support::test_store().await;
         for client_id in ["client-one", "client-two"] {
             store
-                .insert_client(client_id, "human:local", client_id, [4_u8; 32])
+                .insert_client(client_id, "human:local", client_id)
                 .await
                 .expect("insert client");
         }

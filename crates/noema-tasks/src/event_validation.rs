@@ -4,9 +4,8 @@ use serde_json::{Map, Value};
 
 use crate::gate::recovery_fields_are_valid;
 use crate::{
-    ContractOrigin, RunKind, TaskComplexity, TaskContractId, TaskGateId, TaskGateKind,
-    TaskMessageId, TaskMessageKind, TaskRecoveryReason, TaskReviewVerdict, TaskSourceKind,
-    WorkDomainError, WorkflowStageId, error::invalid_input,
+    RunKind, TaskGateId, TaskGateKind, TaskMessageId, TaskMessageKind, TaskRecoveryReason,
+    TaskSourceKind, WorkDomainError, WorkflowStageId, error::invalid_input,
 };
 
 use super::{
@@ -60,19 +59,14 @@ pub(crate) fn validate_payload(
 
 fn validate_field(field: &'static str, value: &Value) -> Result<(), WorkDomainError> {
     match field {
-        "revision"
-        | "generation"
-        | "version"
-        | "criteria_count"
-        | "review_attempt_index"
-        | "source_event_sequence"
-        | "attempt_count" => positive(value, field),
+        "revision" | "generation" | "source_event_sequence" | "attempt_count" => {
+            positive(value, field)
+        }
         "attempt_index"
         | "review_round"
         | "provider_call_count"
         | "tool_call_count"
-        | "active_milliseconds"
-        | "artifact_count" => number(value, field).map(|_| ()),
+        | "active_milliseconds" => number(value, field).map(|_| ()),
         "reason_present" | "retryable" => {
             if value.is_boolean() {
                 Ok(())
@@ -85,23 +79,13 @@ fn validate_field(field: &'static str, value: &Value) -> Result<(), WorkDomainEr
         }
         "gate_id" => nullable(value, |value| id::<TaskGateId>(value, field)).map(drop),
         "message_id" => id::<TaskMessageId>(value, field).map(drop),
-        "contract_id" | "supersedes_contract_id" => {
-            nullable(value, |value| id::<TaskContractId>(value, field)).map(drop)
-        }
-        "submission_id" => external_id(value, field, "submission:"),
-        "review_id" => external_id(value, field, "review:"),
         "notification_id" => external_id(value, field, "notification:"),
         "recurrence_id" => external_id(value, field, "recurrence:"),
         "consumed_by_run_id" => external_id(value, field, "run:"),
         "originating_run_id" | "parent_run_id" => {
             nullable(value, |value| external_id(value, field, "run:")).map(drop)
         }
-        "supersedes_review_id" => {
-            nullable(value, |value| external_id(value, field, "review:")).map(drop)
-        }
         "source_kind" => closed::<TaskSourceKind>(value, field).map(drop),
-        "origin" => closed::<ContractOrigin>(value, field).map(drop),
-        "complexity" => closed::<TaskComplexity>(value, field).map(drop),
         "gate_kind" => closed::<TaskGateKind>(value, field).map(drop),
         "recovery_reason" => {
             nullable(value, |value| closed::<TaskRecoveryReason>(value, field)).map(drop)
@@ -111,7 +95,6 @@ fn validate_field(field: &'static str, value: &Value) -> Result<(), WorkDomainEr
         "message_kind" => closed::<TaskMessageKind>(value, field).map(drop),
         "run_kind" | "next_run_kind" => closed::<RunKind>(value, field).map(drop),
         "terminal_kind" => closed::<RunTerminalKind>(value, field).map(drop),
-        "verdict" => closed::<TaskReviewVerdict>(value, field).map(drop),
         "notification_kind" => closed::<NotificationKind>(value, field).map(drop),
         "destination_kind" => closed::<NotificationDestination>(value, field).map(drop),
         "error_code" => SafeErrorCode::new(string(value, field)?).map(drop),
@@ -132,13 +115,6 @@ fn validate_invariants(
         K::TaskQueued => closed::<RunKind>(&object["next_run_kind"], "next_run_kind").map(drop),
         K::TaskStageChanged => {
             closed::<TaskStageChangeReason>(&object["reason"], "reason").map(drop)
-        }
-        K::ContractCreated | K::SubmissionCreated | K::ReviewCreated => {
-            id::<TaskContractId>(&object["contract_id"], "contract_id")?;
-            if matches!(kind, K::SubmissionCreated | K::ReviewCreated) {
-                positive(&object["review_round"], "review_round")?;
-            }
-            Ok(())
         }
         K::GateOpened => {
             id::<TaskGateId>(&object["gate_id"], "gate_id")?;

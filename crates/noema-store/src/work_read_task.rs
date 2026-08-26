@@ -1,11 +1,11 @@
-use noema_tasks::{AgentRunRecord, TaskGateRecord, TaskId, WorkflowDefinition, WorkflowStage};
+use noema_tasks::{AgentRunRecord, TaskGateRecord, TaskId, WorkflowStage};
 use noema_workspaces::{ProjectRecord, WorkspaceRecord};
 use rusqlite::Transaction;
 
 use super::history::WorkTaskHistory;
 use super::rows::{
-    derive_attention_actions, load_active_gate, load_current_run, load_project, load_stage,
-    load_task, load_workflow, load_workspace, validate_current_links,
+    derive_attention_actions, load_active_gate, load_current_run, load_project, load_task,
+    load_workspace, validate_current_links,
 };
 use crate::{StoreError, WorkTaskDetail, WorkTaskSummary};
 
@@ -32,12 +32,11 @@ pub(crate) fn load_task_facts(
         .as_ref()
         .map(|id| load_project(transaction, id))
         .transpose()?;
-    let workflow = load_workflow(transaction, &task.workflow_id)?;
-    let stage = load_stage(transaction, &task.stage_id)?;
+    let stage = noema_tasks::personal_stage(&task.stage_id).map_err(StoreError::Work)?;
     stage
-        .belongs_to(&workflow.workflow_id)
+        .belongs_to(&task.workflow_id)
         .map_err(StoreError::Work)?;
-    validate_scope_links(&task, project.as_ref(), &workflow)?;
+    validate_scope_links(&task, project.as_ref())?;
 
     let latest_run = task
         .latest_run_id
@@ -128,11 +127,8 @@ impl LoadedWorkTask {
 fn validate_scope_links(
     task: &noema_tasks::TaskRecord,
     project: Option<&ProjectRecord>,
-    workflow: &WorkflowDefinition,
 ) -> Result<(), StoreError> {
-    if project.is_some_and(|project| project.workspace_id != task.workspace_id)
-        || workflow.workspace_id != task.workspace_id
-    {
+    if project.is_some_and(|project| project.workspace_id != task.workspace_id) {
         return Err(StoreError::InvariantViolation {
             message: format!("task {} crosses a workspace scope link", task.task_id),
         });

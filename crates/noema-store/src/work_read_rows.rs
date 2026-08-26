@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use noema_tasks::{
     AgentRunRecord, GateResolutionKind, RunKind, TaskGateId, TaskGateKind, TaskGateRecord,
-    TaskGateState, TaskId, TaskProvenance, TaskRecoveryReason, TaskSourceKind, WorkflowDefinition,
-    WorkflowId, WorkflowStage, WorkflowStageBehavior, WorkflowStageId,
+    TaskGateState, TaskId, TaskProvenance, TaskRecoveryReason, TaskSourceKind, WorkflowId,
+    WorkflowStageBehavior, WorkflowStageId,
 };
 use noema_workspaces::{ProjectId, ProjectRecord, WorkspaceId, WorkspaceRecord};
 use rusqlite::{OptionalExtension, Row, Transaction, types::Type};
@@ -12,7 +12,7 @@ use super::{PROJECT_COLUMNS, decode_project_record};
 use crate::{
     StoreError, WorkTaskAttention, WorkTaskValidAction,
     sqlite::conversion_failure,
-    work_row::{invalid, optional_id, positive_u32, positive_u64, strict_bool},
+    work_row::{invalid, optional_id, positive_u64, strict_bool},
 };
 
 pub(crate) fn load_task(
@@ -21,7 +21,7 @@ pub(crate) fn load_task(
 ) -> Result<Option<noema_tasks::TaskRecord>, StoreError> {
     transaction
         .query_row(
-            "SELECT task_id, workspace_id, project_id, workflow_id, stage_id, title,
+            "SELECT task_id, workspace_id, project_id, 'workflow:personal:default', stage_id, title,
                     executor_agent_id, cwd_override,
                     authorization_context_json, source_kind,
                     source_conversation_id, source_turn_id, source_item_id, source_tool_call_id,
@@ -174,71 +174,6 @@ pub(crate) fn load_project_optional(
             decode_project_record,
         )
         .optional()?)
-}
-
-pub(crate) fn load_workflow(
-    transaction: &Transaction<'_>,
-    workflow_id: &WorkflowId,
-) -> Result<WorkflowDefinition, StoreError> {
-    let record = transaction
-        .query_row(
-            "SELECT workflow_id, workspace_id, name, revision, is_default, created_at, updated_at
-             FROM workflow_definitions WHERE workflow_id = ?1 LIMIT 1",
-            [workflow_id.as_str()],
-            |row| {
-                Ok(WorkflowDefinition {
-                    workflow_id: WorkflowId::new(row.get::<_, String>(0)?)
-                        .map_err(|e| conversion_failure(0, Type::Text, e))?,
-                    workspace_id: WorkspaceId::new(row.get::<_, String>(1)?)
-                        .map_err(|e| conversion_failure(1, Type::Text, e))?,
-                    name: row.get(2)?,
-                    revision: positive_u64(row, 3)?,
-                    is_default: strict_bool(row, 4)?,
-                    created_at: row.get(5)?,
-                    updated_at: row.get(6)?,
-                })
-            },
-        )
-        .optional()?
-        .ok_or_else(|| missing_link("workflow", workflow_id.as_str()))?;
-    record.validate().map_err(StoreError::Work)?;
-    Ok(record)
-}
-
-pub(crate) fn load_stage(
-    transaction: &Transaction<'_>,
-    stage_id: &WorkflowStageId,
-) -> Result<WorkflowStage, StoreError> {
-    let record = transaction
-        .query_row(
-            "SELECT stage_id, workflow_id, stable_key, display_name, ordinal, system_behavior,
-                    board_visible FROM workflow_stages WHERE stage_id = ?1 LIMIT 1",
-            [stage_id.as_str()],
-            |row| decode_stage_record(row, 0),
-        )
-        .optional()?
-        .ok_or_else(|| missing_link("workflow stage", stage_id.as_str()))?;
-    record.validate().map_err(StoreError::Work)?;
-    Ok(record)
-}
-
-pub(crate) fn decode_stage_record(row: &Row<'_>, offset: usize) -> rusqlite::Result<WorkflowStage> {
-    let record = WorkflowStage {
-        stage_id: WorkflowStageId::new(row.get::<_, String>(offset)?)
-            .map_err(|e| conversion_failure(offset, Type::Text, e))?,
-        workflow_id: WorkflowId::new(row.get::<_, String>(offset + 1)?)
-            .map_err(|e| conversion_failure(offset + 1, Type::Text, e))?,
-        stable_key: row.get(offset + 2)?,
-        display_name: row.get(offset + 3)?,
-        ordinal: positive_u32(row, offset + 4)?,
-        system_behavior: WorkflowStageBehavior::from_str(&row.get::<_, String>(offset + 5)?)
-            .map_err(|e| conversion_failure(offset + 5, Type::Text, e))?,
-        board_visible: strict_bool(row, offset + 6)?,
-    };
-    record
-        .validate()
-        .map_err(|e| conversion_failure(offset, Type::Text, e))?;
-    Ok(record)
 }
 
 pub(crate) fn load_current_run(

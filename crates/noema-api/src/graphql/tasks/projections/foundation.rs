@@ -60,7 +60,7 @@ impl GraphqlWorkflow {
     }
 }
 
-graphql_object_from! { "Immutable provider/model selection captured in a contract or run." => pub struct GraphqlTaskModelSnapshot("TaskModelSnapshot")
+graphql_object_from! { "Immutable provider/model selection captured for a run." => pub struct GraphqlTaskModelSnapshot("TaskModelSnapshot")
     from ProviderSelectionSnapshot as value {
     "Provider family." => provider_kind: String = value.provider_kind,
     "Provider account identity." => provider_account_id: String = value.provider_account_id,

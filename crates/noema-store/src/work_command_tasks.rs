@@ -123,19 +123,18 @@ async fn capture(
         )?;
         transaction.execute(
             r#"INSERT INTO tasks (
-                     task_id, workspace_id, project_id, workflow_id, stage_id,
+                     task_id, workspace_id, project_id, stage_id,
                      title, executor_agent_id, cwd_override, task_directory,
                      authorization_context_json, source_kind,
                      source_conversation_id, source_turn_id, source_item_id,
                      source_tool_call_id, created_by_actor_id, scheduled_for, schedule_time_zone,
                      missed_run_policy
-                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                             ?15, ?16, ?17, ?18, ?19)"#,
+                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                             ?14, ?15, ?16, ?17, ?18)"#,
             params![
                 task_id.as_str(),
                 workspace_id.as_str(),
                 command.project_id.as_ref().map(ProjectId::as_str),
-                noema_tasks::PERSONAL_WORKFLOW_ID,
                 PERSONAL_INBOX_STAGE_ID,
                 command.title,
                 executor_agent_id,
@@ -685,13 +684,9 @@ pub(crate) fn queue_task_tx(
     task.stage_id = WorkflowStageId::new(PERSONAL_QUEUE_STAGE_ID).map_err(StoreError::Work)?;
     task.stage_behavior = WorkflowStageBehavior::Dispatch;
     task.revision = revision;
-    let queued = WorkEventPayload::task_queued(
-        revision,
-        task.generation,
-        None,
-        noema_tasks::RunKind::Planner,
-    )
-    .map_err(StoreError::Work)?;
+    let queued =
+        WorkEventPayload::task_queued(revision, task.generation, noema_tasks::RunKind::Planner)
+            .map_err(StoreError::Work)?;
     append_work_event_tx(
         transaction,
         helpers::event_context(meta).task_scope(&task, None),
@@ -827,18 +822,17 @@ async fn delegate(
         )?;
         transaction.execute(
             r#"INSERT INTO tasks (
-                     task_id, workspace_id, project_id, workflow_id, stage_id,
+                     task_id, workspace_id, project_id, stage_id,
                      title, executor_agent_id, cwd_override, task_directory,
                      authorization_context_json, source_kind,
                      source_conversation_id, source_turn_id, source_item_id,
                      source_tool_call_id, created_by_actor_id, queued_at
-                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
                              strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"#,
             params![
                 task_id.as_str(),
                 workspace_id.as_str(),
                 command.project_id.as_ref().map(ProjectId::as_str),
-                noema_tasks::PERSONAL_WORKFLOW_ID,
                 PERSONAL_QUEUE_STAGE_ID,
                 command.title,
                 executor_agent_id,
@@ -889,8 +883,7 @@ async fn delegate(
         } else {
             noema_tasks::RunKind::Planner
         };
-        let queued =
-            WorkEventPayload::task_queued(1, 1, None, next_kind).map_err(StoreError::Work)?;
+        let queued = WorkEventPayload::task_queued(1, 1, next_kind).map_err(StoreError::Work)?;
         let _queued_event = append_work_event_tx(
             transaction,
             helpers::event_context(&command.meta).task_scope(&task, None),

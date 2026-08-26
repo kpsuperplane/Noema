@@ -16,7 +16,7 @@ const TASK_COLUMNS: &str = "
     task.task_id,
     task.workspace_id,
     task.project_id,
-    task.workflow_id,
+    'workflow:personal:default',
     task.stage_id,
     task.title,
     task.executor_agent_id,
@@ -46,16 +46,6 @@ const TASK_COLUMNS: &str = "
     task.task_directory,
     task.execution_complexity,
     task.current_review_decision
-";
-
-const STAGE_COLUMNS: &str = "
-    stage.stage_id,
-    stage.workflow_id,
-    stage.stable_key,
-    stage.display_name,
-    stage.ordinal,
-    stage.system_behavior,
-    stage.board_visible
 ";
 
 impl NoemaStore {
@@ -148,7 +138,16 @@ impl PreparedQuery {
         let stage_behaviors = query
             .stage_behaviors
             .iter()
-            .map(|behavior| behavior.as_str())
+            .map(|behavior| match behavior {
+                WorkflowStageBehavior::Intake => noema_tasks::PERSONAL_INBOX_STAGE_ID,
+                WorkflowStageBehavior::Dispatch => noema_tasks::PERSONAL_QUEUE_STAGE_ID,
+                WorkflowStageBehavior::Active => noema_tasks::PERSONAL_DOING_STAGE_ID,
+                WorkflowStageBehavior::HumanGate => noema_tasks::PERSONAL_WAITING_STAGE_ID,
+                WorkflowStageBehavior::TerminalSuccess => noema_tasks::PERSONAL_DONE_STAGE_ID,
+                WorkflowStageBehavior::TerminalCancelled => {
+                    noema_tasks::PERSONAL_CANCELLED_STAGE_ID
+                }
+            })
             .collect::<Vec<_>>();
         Ok(Self {
             workspace_id: query.workspace_id.into_string(),
@@ -174,10 +173,10 @@ pub(crate) fn load_connection(
     })?;
     let scope_predicate = match query.scope {
         WorkTaskScope::Active => {
-            "stage.system_behavior NOT IN ('terminal_success', 'terminal_cancelled')"
+            "task.stage_id NOT IN ('stage:personal:done', 'stage:personal:cancelled')"
         }
         WorkTaskScope::Terminal => {
-            "stage.system_behavior IN ('terminal_success', 'terminal_cancelled')"
+            "task.stage_id IN ('stage:personal:done', 'stage:personal:cancelled')"
         }
         WorkTaskScope::All => "1 = 1",
     };
@@ -195,18 +194,16 @@ pub(crate) fn load_connection(
         )
     };
     let sql = format!(
-        "SELECT {TASK_COLUMNS}, {STAGE_COLUMNS}
+        "SELECT {TASK_COLUMNS}
          FROM tasks task
-         JOIN workflow_stages stage
-           ON stage.workflow_id = task.workflow_id AND stage.stage_id = task.stage_id
          WHERE task.workspace_id = ?1
            AND (?2 IS NULL OR task.project_id = ?2)
            AND (json_array_length(?3) = 0
-                OR stage.stage_id IN (SELECT value FROM json_each(?3)))
+                OR task.stage_id IN (SELECT value FROM json_each(?3)))
            AND (json_array_length(?4) = 0
-                OR stage.system_behavior IN (SELECT value FROM json_each(?4)))
+                OR task.stage_id IN (SELECT value FROM json_each(?4)))
            AND (?5 = 0 OR (
-                (stage.system_behavior = 'human_gate' AND EXISTS (
+                (task.stage_id = 'stage:personal:waiting' AND EXISTS (
                     SELECT 1 FROM task_gates gate
                     WHERE gate.gate_id = task.active_gate_id
                       AND gate.task_id = task.task_id

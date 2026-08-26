@@ -1,9 +1,8 @@
 use serde_json::{Value, json};
 
 use crate::{
-    RunKind, TaskComplexity, TaskContractId, TaskGateId, TaskGateKind, TaskMessageId,
-    TaskMessageKind, TaskRecoveryReason, TaskReviewVerdict, TaskSourceKind, WorkDomainError,
-    WorkflowStageId, error::invalid_input,
+    RunKind, TaskGateId, TaskGateKind, TaskMessageId, TaskMessageKind, TaskRecoveryReason,
+    TaskSourceKind, WorkDomainError, WorkflowStageId, error::invalid_input,
 };
 
 #[path = "event_kind.rs"]
@@ -17,13 +16,6 @@ pub use event_kind::{SafeErrorCode, WorkEventKind};
 pub use record::{WorkEventContext, WorkEventRecord};
 
 string_enum! {
-    /// Origin recorded by historical contract-created audit events.
-    pub enum ContractOrigin, "event.contract.origin" {
-        Delegated => "delegated",
-        Planned => "planned",
-        HumanRevision => "human_revision",
-    }
-
     /// Project fields represented by `ProjectUpdated`.
     pub enum ProjectChangedField, "event.project.changed_field" {
         /// Project name.
@@ -281,24 +273,21 @@ event_payload_schema! {
     project_updated(revision: u64, changed_fields: Vec<ProjectChangedField>) => ProjectUpdated;
     task_captured(revision: u64, generation: u64, stage_id: WorkflowStageId, source_kind: TaskSourceKind) => TaskCaptured;
     task_updated(revision: u64, generation: u64, changed_fields: Vec<TaskChangedField>) => TaskUpdated;
-    task_queued(revision: u64, generation: u64, contract_id: Option<TaskContractId>, next_run_kind: RunKind) => TaskQueued;
+    task_queued(revision: u64, generation: u64, next_run_kind: RunKind) => TaskQueued;
     task_stage_changed(revision: u64, generation: u64, from_stage_id: WorkflowStageId, to_stage_id: WorkflowStageId, reason: TaskStageChangeReason) => TaskStageChanged;
     task_cancelled(revision: u64, generation: u64, reason_present: bool) => TaskCancelled;
     task_reopened(revision: u64, generation: u64, stage_id: WorkflowStageId) => TaskReopened;
     task_completed(revision: u64, generation: u64) => TaskCompleted;
     recurrence_changed(recurrence_id: String, revision: u64, reason: String) => RecurrenceChanged;
-    contract_created(contract_id: TaskContractId, version: u32, generation: u64, origin: ContractOrigin, complexity: TaskComplexity, criteria_count: u32, supersedes_contract_id: Option<TaskContractId>) => ContractCreated;
     gate_opened(gate_id: TaskGateId, generation: u64, gate_kind: TaskGateKind, originating_run_id: Option<String>, recovery_reason: Option<TaskRecoveryReason>, retry_run_kind: Option<RunKind>) => GateOpened;
     gate_resolved(gate_id: TaskGateId, generation: u64, gate_kind: TaskGateKind, message_id: TaskMessageId, resolution_kind: GateResolutionKind) => GateResolved;
     gate_superseded(gate_id: TaskGateId, generation: u64, gate_kind: TaskGateKind, reason: GateSupersessionReason) => GateSuperseded;
-    task_message_appended(message_id: TaskMessageId, generation: u64, message_kind: TaskMessageKind, gate_id: Option<TaskGateId>, contract_id: Option<TaskContractId>) => TaskMessageAppended;
+    task_message_appended(message_id: TaskMessageId, generation: u64, message_kind: TaskMessageKind, gate_id: Option<TaskGateId>) => TaskMessageAppended;
     task_message_consumed(message_id: TaskMessageId, generation: u64, consumed_by_run_id: String) => TaskMessageConsumed;
-    run_queued(run_kind: RunKind, generation: u64, contract_id: Option<TaskContractId>, attempt_index: u32, review_round: u32, parent_run_id: Option<String>) => RunQueued;
+    run_queued(run_kind: RunKind, generation: u64, attempt_index: u32, review_round: u32, parent_run_id: Option<String>) => RunQueued;
     run_heartbeat(run_kind: RunKind, generation: u64, provider_call_count: u32, tool_call_count: u32, active_milliseconds: u64) => RunHeartbeat;
     run_completed(run_kind: RunKind, generation: u64, terminal_kind: RunTerminalKind) => RunCompleted;
     run_waiting_for_approval(run_kind: RunKind, generation: u64, gate_id: TaskGateId, gate_kind: TaskGateKind) => RunWaitingForApproval;
-    submission_created(submission_id: String, contract_id: TaskContractId, review_round: u32, criteria_count: u32, artifact_count: u32) => SubmissionCreated;
-    review_created(review_id: String, submission_id: String, contract_id: TaskContractId, review_round: u32, review_attempt_index: u32, supersedes_review_id: Option<String>, verdict: TaskReviewVerdict) => ReviewCreated;
     notification_queued(notification_id: String, source_event_sequence: u64, notification_kind: NotificationKind, destination_kind: NotificationDestination) => NotificationQueued;
     notification_delivered(notification_id: String, source_event_sequence: u64, notification_kind: NotificationKind, attempt_count: u32) => NotificationDelivered;
     notification_failed(notification_id: String, source_event_sequence: u64, notification_kind: NotificationKind, attempt_count: u32, error_code: SafeErrorCode, retryable: bool) => NotificationFailed;

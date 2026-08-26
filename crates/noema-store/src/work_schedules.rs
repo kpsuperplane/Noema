@@ -30,19 +30,16 @@ impl NoemaStore {
                 .query_row(
                     "SELECT MIN(value) FROM (
                    SELECT task.scheduled_for AS value FROM tasks task
-                   JOIN workflow_stages stage
-                     ON stage.workflow_id = task.workflow_id AND stage.stage_id = task.stage_id
                    WHERE task.scheduled_for IS NOT NULL AND task.queued_at IS NULL
                      AND task.completed_at IS NULL AND task.cancelled_at IS NULL
-                     AND stage.system_behavior = 'intake'
+                     AND task.stage_id = 'stage:personal:inbox'
                    UNION ALL
                    SELECT COALESCE(recurrence.pending_coalesced_at, recurrence.next_run_at) AS value
                    FROM task_recurrences recurrence WHERE recurrence.lifecycle = 'active'
                      AND (recurrence.pending_coalesced_at IS NULL OR NOT EXISTS (
-                       SELECT 1 FROM tasks task JOIN workflow_stages stage
-                       ON stage.workflow_id = task.workflow_id AND stage.stage_id = task.stage_id
+                       SELECT 1 FROM tasks task
                        WHERE task.recurrence_id = recurrence.recurrence_id
-                         AND stage.system_behavior NOT IN ('terminal_success', 'terminal_cancelled')
+                         AND task.stage_id NOT IN ('stage:personal:done', 'stage:personal:cancelled')
                      ))
                  )",
                     [],
@@ -254,16 +251,17 @@ fn runtime_meta(id: &str) -> CommandMeta {
 }
 
 fn next_due_task_tx(transaction: &Transaction<'_>, now: i64) -> Result<Option<TaskId>, StoreError> {
-    let id = transaction.query_row(
-        "SELECT task.task_id FROM tasks task
-         JOIN workflow_stages stage ON stage.workflow_id = task.workflow_id AND stage.stage_id = task.stage_id
+    let id = transaction
+        .query_row(
+            "SELECT task.task_id FROM tasks task
          WHERE task.scheduled_for <= ?1 AND task.queued_at IS NULL
            AND task.completed_at IS NULL AND task.cancelled_at IS NULL
-           AND stage.system_behavior = 'intake'
+           AND task.stage_id = 'stage:personal:inbox'
          ORDER BY task.scheduled_for, task.task_id LIMIT 1",
-        [now],
-        |row| row.get::<_, String>(0),
-    ).optional()?;
+            [now],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
     id.map(TaskId::new).transpose().map_err(StoreError::Work)
 }
 
@@ -355,10 +353,9 @@ fn next_due_recurrence_tx(
          WHERE recurrence.lifecycle = 'active' AND (
            (recurrence.pending_coalesced_at IS NULL AND recurrence.next_run_at <= ?1) OR
            (recurrence.pending_coalesced_at <= ?1 AND NOT EXISTS (
-             SELECT 1 FROM tasks task JOIN workflow_stages stage
-             ON stage.workflow_id = task.workflow_id AND stage.stage_id = task.stage_id
+             SELECT 1 FROM tasks task
              WHERE task.recurrence_id = recurrence.recurrence_id
-               AND stage.system_behavior NOT IN ('terminal_success', 'terminal_cancelled')
+               AND task.stage_id NOT IN ('stage:personal:done', 'stage:personal:cancelled')
            ))
          )
          ORDER BY COALESCE(pending_coalesced_at, next_run_at), recurrence_id LIMIT 1",
@@ -497,7 +494,7 @@ pub(crate) fn recurrence_has_nonterminal_task_tx(
     recurrence_id: &str,
 ) -> Result<bool, StoreError> {
     Ok(transaction.query_row(
-        "SELECT EXISTS(SELECT 1 FROM tasks task JOIN workflow_stages stage ON stage.workflow_id = task.workflow_id AND stage.stage_id = task.stage_id WHERE task.recurrence_id = ?1 AND stage.system_behavior NOT IN ('terminal_success', 'terminal_cancelled'))",
+        "SELECT EXISTS(SELECT 1 FROM tasks task WHERE task.recurrence_id = ?1 AND task.stage_id NOT IN ('stage:personal:done', 'stage:personal:cancelled'))",
         [recurrence_id], |row| row.get(0),
     )?)
 }
@@ -562,9 +559,9 @@ fn materialize_occurrence_tx(
         &recurrence.title,
     )?;
     transaction.execute(
-        "INSERT INTO tasks (task_id, workspace_id, project_id, workflow_id, stage_id, title, executor_agent_id, cwd_override, task_directory, authorization_context_json, source_kind, created_by_actor_id, scheduled_for, schedule_time_zone, missed_run_policy, recurrence_id, recurrence_revision, recurrence_scheduled_for) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+        "INSERT INTO tasks (task_id, workspace_id, project_id, stage_id, title, executor_agent_id, cwd_override, task_directory, authorization_context_json, source_kind, created_by_actor_id, scheduled_for, schedule_time_zone, missed_run_policy, recurrence_id, recurrence_revision, recurrence_scheduled_for) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![task_id.as_str(), recurrence.workspace_id, recurrence.project_id,
-            noema_tasks::PERSONAL_WORKFLOW_ID, PERSONAL_INBOX_STAGE_ID, recurrence.title,
+            PERSONAL_INBOX_STAGE_ID, recurrence.title,
             recurrence.executor_agent_id, recurrence.cwd_override,
             task_directory, recurrence.authorization, TaskSourceKind::System.as_str(), meta.actor_id,
             scheduled_for, recurrence.time_zone, recurrence.missed.as_str(), recurrence_id,

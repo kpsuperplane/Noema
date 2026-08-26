@@ -32,7 +32,7 @@ mod tests {
         let environment = crate::test_support::test_environment();
         let store = crate::test_support::test_store_for_environment(&environment).await;
         store
-            .insert_client("client-one", "human:local", "Phone", [1; 32])
+            .insert_client("client-one", "human:local", "Phone")
             .await
             .expect("insert paired client");
         let coordinator = crate::graphql::NotificationCoordinator::new_with_paths(
@@ -87,7 +87,7 @@ mod tests {
                   task(taskId: "task:foreign") { taskId }
                   taskWorkspaceFile(taskId: "task:foreign", path: "TASK.md") { path }
                   conversationTranscriptPage(input: { conversationId: "conversation:foreign" }) {
-                    pageInfo { limit }
+                    pageInfo { hasMoreBefore }
                   }
                   pendingHumanInterventions { __typename }
                   acpAgents { agentId }

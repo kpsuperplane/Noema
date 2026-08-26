@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 64;
+pub const STORE_SCHEMA_VERSION: usize = 65;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1211,8 +1211,194 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(CAPABILITY_AUTH_IDENTITY_SQL),
         M::up(CAPABILITY_AUTH_IDENTITY_NULL_REPAIR_SQL),
         M::up(CAPABILITY_AUTH_IDENTITY_ACTIVE_GUARD_SQL),
+        M::up(CODE_OWNED_TASK_WORKFLOW_SQL),
     ])
 }
+
+/// Remove unused schema variants and make the fixed Task workflow code-owned.
+const CODE_OWNED_TASK_WORKFLOW_SQL: &str = r#"
+CREATE TABLE schema_floor_v65_guard (
+  valid INTEGER NOT NULL CHECK (valid = 1)
+);
+INSERT INTO schema_floor_v65_guard
+SELECT CASE WHEN EXISTS (
+  SELECT 1 FROM tasks
+  WHERE workflow_id <> 'workflow:personal:default'
+     OR stage_id NOT IN (
+       'stage:personal:inbox', 'stage:personal:queue', 'stage:personal:doing',
+       'stage:personal:waiting', 'stage:personal:done', 'stage:personal:cancelled'
+     )
+) THEN 0 ELSE 1 END;
+INSERT INTO schema_floor_v65_guard
+SELECT CASE WHEN EXISTS (
+  SELECT 1 FROM work_events
+  WHERE event_kind IN ('contract.created', 'submission.created', 'review.created')
+) THEN 0 ELSE 1 END;
+INSERT INTO schema_floor_v65_guard
+SELECT CASE WHEN EXISTS (
+  SELECT 1 FROM governed_action_approvals WHERE state = 'revoked'
+) THEN 0 ELSE 1 END;
+DROP TABLE schema_floor_v65_guard;
+
+UPDATE work_events
+SET payload_json = json_remove(payload_json, '$.contract_id')
+WHERE event_kind IN ('task.queued', 'task.message_appended', 'run.queued');
+
+DELETE FROM clients WHERE auth_kind = 'legacy_bearer';
+ALTER TABLE clients DROP COLUMN token_hash;
+ALTER TABLE clients DROP COLUMN auth_kind;
+
+ALTER TABLE conversations RENAME COLUMN owner_object_id TO owner_human_id;
+ALTER TABLE conversations DROP COLUMN owner_object_type;
+
+PRAGMA defer_foreign_keys = ON;
+PRAGMA legacy_alter_table = ON;
+DROP INDEX tasks_source_tool_call;
+DROP INDEX tasks_board;
+DROP INDEX tasks_project_active;
+DROP INDEX tasks_terminal_history;
+DROP INDEX tasks_source_conversation;
+DROP INDEX tasks_project_directory;
+DROP INDEX tasks_projectless_directory;
+DROP INDEX tasks_executor_agent;
+DROP INDEX tasks_next_scheduled;
+ALTER TABLE tasks RENAME TO tasks_v64;
+
+CREATE TABLE tasks (
+  task_id TEXT PRIMARY KEY NOT NULL CHECK (task_id GLOB 'task:*'),
+  workspace_id TEXT NOT NULL,
+  project_id TEXT,
+  stage_id TEXT NOT NULL CHECK (stage_id IN (
+    'stage:personal:inbox', 'stage:personal:queue', 'stage:personal:doing',
+    'stage:personal:waiting', 'stage:personal:done', 'stage:personal:cancelled'
+  )),
+  title TEXT NOT NULL CHECK (trim(title) <> ''),
+  authorization_context_json TEXT NOT NULL DEFAULT '{"kind":"none"}' CHECK (json_valid(authorization_context_json)),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('chat_capture', 'chat_delegate', 'work_ui', 'system')),
+  source_conversation_id TEXT,
+  source_turn_id TEXT,
+  source_item_id TEXT,
+  source_tool_call_id TEXT,
+  created_by_actor_id TEXT NOT NULL CHECK (trim(created_by_actor_id) <> ''),
+  generation INTEGER NOT NULL DEFAULT 1 CHECK (generation >= 1),
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  active_gate_id TEXT,
+  latest_run_id TEXT,
+  queued_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  completed_at TEXT,
+  cancelled_at TEXT,
+  scheduled_for INTEGER,
+  schedule_time_zone TEXT,
+  missed_run_policy TEXT CHECK (missed_run_policy IN ('skip', 'run_once')),
+  recurrence_id TEXT,
+  recurrence_revision INTEGER CHECK (recurrence_revision IS NULL OR recurrence_revision >= 1),
+  recurrence_scheduled_for INTEGER,
+  executor_agent_id TEXT NOT NULL DEFAULT 'agent:task-executor' CHECK (trim(executor_agent_id) <> ''),
+  cwd_override TEXT CHECK (cwd_override IS NULL OR trim(cwd_override) <> ''),
+  task_directory TEXT CHECK (
+    task_directory IS NULL OR (
+      trim(task_directory) <> '' AND task_directory NOT LIKE '%/%'
+      AND instr(task_directory, '\') = 0
+    )
+  ),
+  execution_complexity TEXT CHECK (
+    execution_complexity IS NULL OR execution_complexity IN ('simple', 'medium', 'difficult')
+  ),
+  current_review_decision TEXT CHECK (
+    current_review_decision IS NULL OR current_review_decision IN ('approve', 'request_changes', 'needs_human')
+  ),
+  UNIQUE (workspace_id, task_id),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, project_id)
+    REFERENCES projects(workspace_id, project_id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED
+);
+
+INSERT INTO tasks (
+  task_id, workspace_id, project_id, stage_id, title, authorization_context_json,
+  source_kind, source_conversation_id, source_turn_id, source_item_id,
+  source_tool_call_id, created_by_actor_id, generation, revision, active_gate_id,
+  latest_run_id, queued_at, created_at, updated_at, completed_at, cancelled_at,
+  scheduled_for, schedule_time_zone, missed_run_policy, recurrence_id,
+  recurrence_revision, recurrence_scheduled_for, executor_agent_id, cwd_override,
+  task_directory, execution_complexity, current_review_decision
+)
+SELECT
+  task_id, workspace_id, project_id, stage_id, title, authorization_context_json,
+  source_kind, source_conversation_id, source_turn_id, source_item_id,
+  source_tool_call_id, created_by_actor_id, generation, revision, active_gate_id,
+  latest_run_id, queued_at, created_at, updated_at, completed_at, cancelled_at,
+  scheduled_for, schedule_time_zone, missed_run_policy, recurrence_id,
+  recurrence_revision, recurrence_scheduled_for, executor_agent_id, cwd_override,
+  task_directory, execution_complexity, current_review_decision
+FROM tasks_v64;
+DROP TABLE tasks_v64;
+
+CREATE UNIQUE INDEX tasks_source_tool_call
+ON tasks(source_conversation_id, source_tool_call_id)
+WHERE source_conversation_id IS NOT NULL AND source_tool_call_id IS NOT NULL;
+CREATE INDEX tasks_board
+ON tasks(workspace_id, stage_id, project_id, updated_at DESC, task_id DESC);
+CREATE INDEX tasks_project_active
+ON tasks(workspace_id, project_id, stage_id, updated_at DESC, task_id DESC)
+WHERE completed_at IS NULL AND cancelled_at IS NULL;
+CREATE INDEX tasks_terminal_history
+ON tasks(workspace_id, COALESCE(completed_at, cancelled_at) DESC, task_id DESC)
+WHERE completed_at IS NOT NULL OR cancelled_at IS NOT NULL;
+CREATE INDEX tasks_source_conversation
+ON tasks(source_conversation_id, created_at DESC, task_id)
+WHERE source_conversation_id IS NOT NULL;
+CREATE UNIQUE INDEX tasks_project_directory
+ON tasks(project_id, task_directory) WHERE project_id IS NOT NULL;
+CREATE UNIQUE INDEX tasks_projectless_directory
+ON tasks(workspace_id, task_directory) WHERE project_id IS NULL;
+CREATE INDEX tasks_executor_agent ON tasks(executor_agent_id, stage_id, updated_at);
+CREATE INDEX tasks_next_scheduled
+ON tasks(scheduled_for, task_id)
+WHERE scheduled_for IS NOT NULL AND queued_at IS NULL
+  AND completed_at IS NULL AND cancelled_at IS NULL;
+PRAGMA legacy_alter_table = OFF;
+
+PRAGMA writable_schema = ON;
+UPDATE sqlite_schema
+SET sql = replace(
+  replace(sql, 'tasks_v64', 'tasks'),
+  'REFERENCES "tasks"', 'REFERENCES tasks'
+)
+WHERE sql LIKE '%tasks_v64%' OR sql LIKE '%REFERENCES "tasks"%';
+PRAGMA writable_schema = RESET;
+PRAGMA defer_foreign_keys = OFF;
+
+DROP TABLE workflow_stages;
+DROP TABLE workflow_definitions;
+
+ALTER TABLE governed_action_approvals RENAME TO governed_action_approvals_v64;
+CREATE TABLE governed_action_approvals (
+  action_id TEXT NOT NULL,
+  action_revision INTEGER NOT NULL CHECK (action_revision >= 1),
+  state TEXT NOT NULL CHECK (state IN ('pending', 'approved', 'declined', 'consumed', 'superseded')),
+  decided_by_human_id TEXT,
+  decided_at TEXT,
+  consumed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (action_id, action_revision),
+  FOREIGN KEY (action_id, action_revision)
+    REFERENCES governed_actions(action_id, revision) ON DELETE RESTRICT,
+  FOREIGN KEY (decided_by_human_id) REFERENCES humans(human_id) ON DELETE RESTRICT,
+  CHECK ((state = 'pending' AND decided_by_human_id IS NULL AND decided_at IS NULL AND consumed_at IS NULL)
+    OR (state IN ('approved', 'declined') AND decided_by_human_id IS NOT NULL AND decided_at IS NOT NULL AND consumed_at IS NULL)
+    OR (state = 'consumed' AND decided_by_human_id IS NOT NULL AND decided_at IS NOT NULL AND consumed_at IS NOT NULL)
+    OR (state = 'superseded' AND consumed_at IS NULL))
+);
+INSERT INTO governed_action_approvals
+SELECT * FROM governed_action_approvals_v64;
+DROP TABLE governed_action_approvals_v64;
+
+DROP INDEX conversation_items_conversation_sequence;
+DROP INDEX artifact_versions_artifact;
+DROP INDEX agent_run_items_run_sequence;
+"#;
 
 /// Reject an active version 62 row that has no recoverable adapter identity.
 const CAPABILITY_AUTH_IDENTITY_ACTIVE_GUARD_SQL: &str = r#"

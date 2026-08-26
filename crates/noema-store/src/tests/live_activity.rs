@@ -8,7 +8,7 @@ use serde_json::json;
 async fn live_activity_client_callbacks_form_a_secret_free_timeline() {
     let store = test_store().await;
     store
-        .insert_client("client:timeline", "human:local", "Phone", [1; 32])
+        .insert_client("client:timeline", "human:local", "Phone")
         .await
         .expect("insert client");
     store
@@ -80,7 +80,7 @@ async fn live_activity_client_callbacks_form_a_secret_free_timeline() {
 async fn terminal_live_activity_delivery_keeps_apns_id_for_thirty_days() {
     let store = test_store().await;
     store
-        .insert_client("client:delivery", "human:local", "Phone", [1; 32])
+        .insert_client("client:delivery", "human:local", "Phone")
         .await
         .expect("insert client");
     store
@@ -191,11 +191,11 @@ async fn terminal_live_activity_delivery_keeps_apns_id_for_thirty_days() {
 async fn live_registration_binds_to_active_client_and_redacts_tokens() {
     let store = test_store().await;
     store
-        .insert_client("client:live-one", "human:local", "Phone", [1; 32])
+        .insert_client("client:live-one", "human:local", "Phone")
         .await
         .expect("insert client");
     store
-        .insert_client("client:live-old", "human:local", "Old phone", [9; 32])
+        .insert_client("client:live-old", "human:local", "Old phone")
         .await
         .expect("insert old client");
     store
@@ -383,7 +383,7 @@ async fn live_registration_binds_to_active_client_and_redacts_tokens() {
 async fn disabling_live_activities_clears_a_dismissed_session() {
     let store = test_store().await;
     store
-        .insert_client("client:live", "human:local", "Phone", [2; 32])
+        .insert_client("client:live", "human:local", "Phone")
         .await
         .expect("insert client");
     store
@@ -486,7 +486,7 @@ async fn disabling_live_activities_clears_a_dismissed_session() {
 async fn live_activity_end_delivery_dismisses_and_allows_a_new_session() {
     let store = test_store().await;
     store
-        .insert_client("client:live", "human:local", "Phone", [2; 32])
+        .insert_client("client:live", "human:local", "Phone")
         .await
         .expect("insert client");
     store

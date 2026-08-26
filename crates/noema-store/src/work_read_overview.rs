@@ -1,17 +1,15 @@
 //! Workflow and one-transaction board-bootstrap reads.
 
-use noema_tasks::{WorkflowDefinition, WorkflowId};
 use noema_workspaces::{ProjectId, WorkspaceId};
-use rusqlite::{Row, Transaction, params, types::Type};
+use rusqlite::{Transaction, params};
 
 use super::{
     list::{PreparedQuery, load_connection},
-    rows::{decode_stage_record, load_project, load_workspace},
+    rows::{load_project, load_workspace},
 };
 use crate::{
     NoemaStore, StoreError, WorkOverview, WorkOverviewQuery, WorkStageTaskCount, WorkTaskQuery,
-    WorkTaskScope, WorkWorkflowWithStages, sqlite::conversion_failure,
-    work_row::invalid as invalid_sql,
+    WorkTaskScope, WorkWorkflowWithStages,
 };
 
 impl NoemaStore {
@@ -27,7 +25,8 @@ impl NoemaStore {
         let workspace_id = workspace_id.clone();
         self.with_connection(move |connection| {
             let transaction = connection.transaction()?;
-            load_workflows(&transaction, &workspace_id)
+            load_workspace(&transaction, &workspace_id)?;
+            Ok(vec![personal_workflow()])
         })
         .await
     }
@@ -52,8 +51,7 @@ impl NoemaStore {
                     });
                 }
             }
-            let workflows = load_workflows(&transaction, &query.workspace_id)?;
-            let default_workflow = one_default_workflow(workflows)?;
+            let default_workflow = personal_workflow();
             let board_stage_counts = load_stage_counts(
                 &transaction,
                 &query.workspace_id,
@@ -87,95 +85,11 @@ impl NoemaStore {
     }
 }
 
-fn load_workflows(
-    transaction: &Transaction<'_>,
-    workspace_id: &WorkspaceId,
-) -> Result<Vec<WorkWorkflowWithStages>, StoreError> {
-    let mut statement = transaction.prepare(
-        "SELECT workflow.workflow_id, workflow.workspace_id, workflow.name, workflow.revision,
-                workflow.is_default, workflow.created_at, workflow.updated_at,
-                stage.stage_id, stage.workflow_id, stage.stable_key, stage.display_name,
-                stage.ordinal, stage.system_behavior, stage.board_visible
-         FROM workflow_definitions workflow
-         JOIN workflow_stages stage ON stage.workflow_id = workflow.workflow_id
-         WHERE workflow.workspace_id = ?1
-         ORDER BY workflow.is_default DESC, workflow.created_at, workflow.workflow_id,
-                  stage.ordinal, stage.stage_id",
-    )?;
-    let rows = statement.query_map([workspace_id.as_str()], decode_workflow_stage)?;
-    let mut workflows = Vec::<WorkWorkflowWithStages>::new();
-    for row in rows {
-        let (workflow, stage) = row?;
-        if let Some(current) = workflows
-            .last_mut()
-            .filter(|current| current.workflow.workflow_id == workflow.workflow_id)
-        {
-            if current.workflow != workflow {
-                return Err(invariant(
-                    "workflow join produced inconsistent definition rows",
-                ));
-            }
-            current.stages.push(stage);
-        } else {
-            workflow.validate().map_err(StoreError::Work)?;
-            workflows.push(WorkWorkflowWithStages {
-                workflow,
-                stages: vec![stage],
-            });
-        }
+fn personal_workflow() -> WorkWorkflowWithStages {
+    WorkWorkflowWithStages {
+        workflow: noema_tasks::personal_workflow(),
+        stages: noema_tasks::personal_stages(),
     }
-    for workflow in &workflows {
-        if workflow.stages.is_empty()
-            || workflow
-                .stages
-                .iter()
-                .any(|stage| stage.workflow_id != workflow.workflow.workflow_id)
-        {
-            return Err(invariant("workflow has missing or foreign stages"));
-        }
-    }
-    Ok(workflows)
-}
-
-fn decode_workflow_stage(
-    row: &Row<'_>,
-) -> rusqlite::Result<(WorkflowDefinition, noema_tasks::WorkflowStage)> {
-    let revision = u64::try_from(row.get::<_, i64>(3)?)
-        .map_err(|error| conversion_failure(3, Type::Integer, error))?;
-    if revision == 0 {
-        return Err(invalid_sql(3, "workflow revision must be positive"));
-    }
-    let workflow = WorkflowDefinition {
-        workflow_id: WorkflowId::new(row.get::<_, String>(0)?)
-            .map_err(|error| conversion_failure(0, Type::Text, error))?,
-        workspace_id: WorkspaceId::new(row.get::<_, String>(1)?)
-            .map_err(|error| conversion_failure(1, Type::Text, error))?,
-        name: row.get(2)?,
-        revision,
-        is_default: match row.get::<_, i64>(4)? {
-            0 => false,
-            1 => true,
-            _ => return Err(invalid_sql(4, "workflow default flag is not boolean")),
-        },
-        created_at: row.get(5)?,
-        updated_at: row.get(6)?,
-    };
-    Ok((workflow, decode_stage_record(row, 7)?))
-}
-
-fn one_default_workflow(
-    workflows: Vec<WorkWorkflowWithStages>,
-) -> Result<WorkWorkflowWithStages, StoreError> {
-    let mut defaults = workflows
-        .into_iter()
-        .filter(|workflow| workflow.workflow.is_default);
-    let default = defaults
-        .next()
-        .ok_or_else(|| invariant("workspace has no default workflow"))?;
-    if defaults.next().is_some() {
-        return Err(invariant("workspace has multiple default workflows"));
-    }
-    Ok(default)
 }
 
 fn load_stage_counts(
@@ -186,17 +100,13 @@ fn load_stage_counts(
 ) -> Result<Vec<WorkStageTaskCount>, StoreError> {
     let mut statement = transaction.prepare(
         "SELECT stage_id, COUNT(*) FROM tasks
-         WHERE workspace_id = ?1 AND workflow_id = ?2
-           AND (?3 IS NULL OR project_id = ?3)
+         WHERE workspace_id = ?1
+           AND (?2 IS NULL OR project_id = ?2)
            AND cancelled_at IS NULL
          GROUP BY stage_id",
     )?;
     let rows = statement.query_map(
-        params![
-            workspace_id.as_str(),
-            workflow.workflow.workflow_id.as_str(),
-            project_id.map(ProjectId::as_str),
-        ],
+        params![workspace_id.as_str(), project_id.map(ProjectId::as_str),],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
     )?;
     let counts = rows.collect::<Result<std::collections::HashMap<_, _>, _>>()?;
@@ -222,12 +132,10 @@ fn load_needs_you_count(
     let count = transaction.query_row(
         "SELECT COUNT(*)
          FROM tasks task
-         JOIN workflow_stages stage
-           ON stage.workflow_id = task.workflow_id AND stage.stage_id = task.stage_id
          WHERE task.workspace_id = ?1 AND (?2 IS NULL OR task.project_id = ?2)
            AND task.completed_at IS NULL AND task.cancelled_at IS NULL
            AND (
-             (stage.system_behavior = 'human_gate' AND EXISTS (
+             (task.stage_id = 'stage:personal:waiting' AND EXISTS (
                SELECT 1 FROM task_gates gate
                WHERE gate.gate_id = task.active_gate_id AND gate.task_id = task.task_id
                  AND gate.task_generation = task.generation AND gate.gate_state = 'open'

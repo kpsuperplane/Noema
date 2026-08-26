@@ -44,12 +44,9 @@ UNION ALL
 SELECT agent_runs.provider_instance_key, 'agent_run_snapshot', agent_runs.run_id
 FROM agent_runs
 LEFT JOIN tasks ON tasks.task_id = agent_runs.task_id
-LEFT JOIN workflow_stages AS stage
-  ON stage.workflow_id = tasks.workflow_id
- AND stage.stage_id = tasks.stage_id
 WHERE agent_runs.provider_kind = 'local_models'
   AND agent_runs.task_generation = tasks.generation
-  AND stage.system_behavior NOT IN ('terminal_success', 'terminal_cancelled')
+  AND tasks.stage_id NOT IN ('stage:personal:done', 'stage:personal:cancelled')
   AND (
     agent_runs.status IN ('queued', 'leased', 'running', 'waiting_for_approval')
     OR (

@@ -83,7 +83,7 @@ impl WorkReconciliationAction {
 /// Purely derive the next safe action from durable facts.
 /// # Errors
 /// Returns [`WorkDomainError`] when the snapshot contains contradictory run,
-/// gate, review, failure, or contract facts that cannot be reconciled safely.
+/// gate, review, or failure facts that cannot be reconciled safely.
 pub fn plan_reconciliation_action(
     snapshot: WorkReconciliationSnapshot,
 ) -> Result<WorkReconciliationAction, WorkDomainError> {

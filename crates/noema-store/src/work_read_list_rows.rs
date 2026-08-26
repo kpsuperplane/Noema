@@ -12,7 +12,7 @@ use rusqlite::{Row, Transaction, types::Type};
 
 use super::{
     decode_project_record,
-    rows::{decode_gate, decode_stage_record, decode_task_record},
+    rows::{decode_gate, decode_task_record},
 };
 use crate::{
     StoreError,
@@ -29,10 +29,10 @@ pub(super) struct TaskPageRow {
 }
 
 pub(super) fn decode_task_page_row(row: &Row<'_>) -> rusqlite::Result<TaskPageRow> {
-    Ok(TaskPageRow {
-        task: decode_task_record(row)?,
-        stage: decode_stage_record(row, 33)?,
-    })
+    let task = decode_task_record(row)?;
+    let stage = noema_tasks::personal_stage(&task.stage_id)
+        .map_err(|error| conversion_failure(4, Type::Text, error))?;
+    Ok(TaskPageRow { task, stage })
 }
 
 pub(super) fn load_projects(

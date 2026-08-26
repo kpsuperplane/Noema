@@ -508,22 +508,35 @@ async fn bound_exa_web_fetch_without_secret_falls_back_to_direct_http() {
 #[tokio::test]
 async fn web_tool_result_payloads_preserve_fallback_metadata() {
     let store = crate::test_support::test_store().await;
-    let provider_account_id = ensure_provider_account_without_web_capabilities(&store).await;
+    let provider_account_id = create_exa_provider_account(
+        &store,
+        noema_providers::ProviderAccountStatus::Authenticated,
+    )
+    .await;
     insert_provider_capability_binding(&store, "web.search", provider_account_id.clone()).await;
     insert_provider_capability_binding(&store, "web.fetch", provider_account_id.clone()).await;
+    store
+        .update_provider_account_status(
+            &provider_account_id,
+            noema_providers::ProviderAccountStatus::Unknown,
+            None,
+            None,
+        )
+        .await
+        .expect("make Exa unavailable");
     let actor = test_actor_with_store(&store).await;
 
     for (name, arguments, reason, error) in [
         (
             "web.search",
             json!({"query": "   "}),
-            "bound provider account does not declare web.search",
+            "bound provider capability web.search is account_dependent",
             "query is required",
         ),
         (
             "web.fetch",
             json!({"url": ""}),
-            "bound provider account does not declare web.fetch",
+            "bound provider capability web.fetch is account_dependent",
             "url is required",
         ),
     ] {

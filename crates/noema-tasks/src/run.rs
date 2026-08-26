@@ -31,7 +31,7 @@ pub enum RunStatus, "run.status" {
     Leased => "leased",
     /// Provider/tool execution is active.
     Running => "running",
-    /// Terminal contract was accepted.
+    /// Run finished successfully.
     Completed => "completed",
     /// Paused at a safe human-gate boundary.
     WaitingForApproval => "waiting_for_approval",

@@ -433,11 +433,11 @@ async fn fixture() -> (NoemaStore, WorkCommandService) {
             connection.execute_batch(
                 r#"
                 INSERT INTO conversations (
-                  conversation_id, owner_object_type, owner_object_id, primary_human_id,
+                  conversation_id, owner_human_id, primary_human_id,
                   primary_agent_id, provider
                 ) VALUES
-                  ('conversation:capture-source', 'human', 'human:local', 'human:local', 'agent:primary', 'codex'),
-                  ('conversation:delegate-source', 'human', 'human:local', 'human:local', 'agent:primary', 'codex');
+                  ('conversation:capture-source', 'human:local', 'human:local', 'agent:primary', 'codex'),
+                  ('conversation:delegate-source', 'human:local', 'human:local', 'agent:primary', 'codex');
                 INSERT INTO conversation_turns (turn_id, conversation_id, status) VALUES
                   ('turn:capture-source', 'conversation:capture-source', 'completed'),
                   ('turn:delegate-source', 'conversation:delegate-source', 'completed');

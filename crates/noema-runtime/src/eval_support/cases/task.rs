@@ -8,8 +8,8 @@ use noema_tasks::{
     AgentRunRecord, PERSONAL_DOING_STAGE_ID, PERSONAL_WORKFLOW_ID, RunKind, RunStatus,
     TASK_EXECUTOR_AGENT_ID, TASK_REVIEWER_AGENT_ID, TaskAuthorizationContext,
     TaskAuthorizationMessage, TaskAuthorizationMessageRole, TaskComplexity, TaskExecutionPolicy,
-    TaskExecutorSelection, TaskId, TaskProvenance, TaskRecord, TaskSourceKind, WorkflowDefinition,
-    WorkflowId, WorkflowStageId, personal_stages,
+    TaskExecutorSelection, TaskId, TaskProvenance, TaskRecord, TaskSourceKind, WorkflowId,
+    WorkflowStageId, personal_stages, personal_workflow,
 };
 use noema_workspaces::WorkspaceId;
 
@@ -347,15 +347,7 @@ fn fixture_work_context(
         created_at: "2026-07-15T00:00:00Z".to_string(),
         updated_at: "2026-07-15T00:00:01Z".to_string(),
     };
-    let workflow = WorkflowDefinition {
-        workflow_id,
-        workspace_id,
-        name: "Personal".to_string(),
-        revision: 1,
-        is_default: true,
-        created_at: "2026-07-15T00:00:00Z".to_string(),
-        updated_at: "2026-07-15T00:00:00Z".to_string(),
-    };
+    let workflow = personal_workflow();
     let stage = personal_stages()
         .into_iter()
         .find(|stage| stage.stage_id == stage_id)
@@ -363,7 +355,6 @@ fn fixture_work_context(
 
     task.validate().expect("valid fixture task");
     run.validate_lineage().expect("valid fixture run lineage");
-    workflow.validate().expect("valid fixture workflow");
     stage.validate().expect("valid fixture workflow stage");
 
     WorkRunExecutionContext {

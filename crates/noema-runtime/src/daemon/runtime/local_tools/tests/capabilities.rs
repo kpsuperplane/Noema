@@ -885,7 +885,7 @@ async fn task_delegate_initializes_current_task_content() {
                 crate::daemon::task_tool::TASK_DELEGATE_TOOL,
                 json!({
                     "title": "Preserve the source account",
-                    "description": "Verify exact task delegation provenance.",
+                    "task_document": "Verify exact task delegation provenance.",
                     "project": {"kind": "none"},
                     "execution_intent": {
                         "request_markdown": "Verify exact task delegation provenance.",
@@ -1014,16 +1014,6 @@ async fn known_background_call_denied_by_role_policy_uses_binding_persistence() 
             "recovery": "stop"
         }))
     );
-}
-
-async fn ensure_provider_account_without_web_capabilities(
-    store: &noema_store::NoemaStore,
-) -> String {
-    let account = store
-        .ensure_default_provider_account()
-        .await
-        .expect("default Codex provider account");
-    account.provider_account_id
 }
 
 async fn create_exa_provider_account(

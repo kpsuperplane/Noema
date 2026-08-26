@@ -400,9 +400,9 @@ async fn seed_task_and_run_references(
                 conn.execute(
                     r#"
                     INSERT INTO tasks (
-                      task_id, workspace_id, workflow_id, stage_id, title,
+                      task_id, workspace_id, stage_id, title,
                       source_kind, created_by_actor_id
-                    ) VALUES (?1, 'workspace:personal', 'workflow:personal:default', ?2,
+                    ) VALUES (?1, 'workspace:personal', ?2,
                               'Lifecycle', 'system',
                               'actor:system')
                     "#,

@@ -109,19 +109,19 @@ impl NoemaStore {
             )?;
             let existing = tx
                 .query_row(
-                    "SELECT auth_kind, revoked_at FROM clients WHERE client_id = ?1",
+                    "SELECT revoked_at FROM clients WHERE client_id = ?1",
                     [code.client_id],
-                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+                    |row| row.get::<_, Option<String>>(0),
                 )
                 .optional()?;
             match existing {
                 None => {
                     tx.execute(
-                        "INSERT INTO clients (client_id, owner_human_id, display_name, token_hash, auth_kind) VALUES (?1, ?2, ?3, ?4, 'native_oauth')",
-                        params![code.client_id, LOCAL_HUMAN_ID, code.display_name, [0_u8; 32].as_slice()],
+                        "INSERT INTO clients (client_id, owner_human_id, display_name) VALUES (?1, ?2, ?3)",
+                        params![code.client_id, LOCAL_HUMAN_ID, code.display_name],
                     )?;
                 }
-                Some((kind, None)) if kind == "native_oauth" => {}
+                Some(None) => {}
                 Some(_) => return Err(StoreError::InvariantViolation {
                     message: "native OAuth client identity is unavailable".to_string(),
                 }),
@@ -188,7 +188,7 @@ impl NoemaStore {
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             let active = tx
                 .query_row(
-                    "SELECT 1 FROM clients WHERE client_id = ?1 AND owner_human_id = ?2 AND auth_kind = 'native_oauth' AND revoked_at IS NULL",
+                    "SELECT 1 FROM clients WHERE client_id = ?1 AND owner_human_id = ?2 AND revoked_at IS NULL",
                     params![family.client_id, LOCAL_HUMAN_ID],
                     |_| Ok(()),
                 )
@@ -356,7 +356,7 @@ impl NoemaStore {
     ) -> Result<Option<NativeOAuthAccess>, StoreError> {
         self.with_connection(|conn| {
             conn.query_row(
-                "SELECT family.client_id, min(access.expires_at, family.idle_expires_at, family.absolute_expires_at) FROM native_oauth_access_tokens AS access JOIN native_oauth_families AS family ON family.family_id = access.family_id JOIN clients ON clients.client_id = family.client_id WHERE access.token_hash = ?1 AND access.revoked_at IS NULL AND access.expires_at > ?2 AND family.revoked_at IS NULL AND family.idle_expires_at > ?2 AND family.absolute_expires_at > ?2 AND clients.revoked_at IS NULL AND clients.auth_kind = 'native_oauth'",
+                "SELECT family.client_id, min(access.expires_at, family.idle_expires_at, family.absolute_expires_at) FROM native_oauth_access_tokens AS access JOIN native_oauth_families AS family ON family.family_id = access.family_id JOIN clients ON clients.client_id = family.client_id WHERE access.token_hash = ?1 AND access.revoked_at IS NULL AND access.expires_at > ?2 AND family.revoked_at IS NULL AND family.idle_expires_at > ?2 AND family.absolute_expires_at > ?2 AND clients.revoked_at IS NULL",
                 params![access_hash.as_slice(), now],
                 |row| {
                     Ok(NativeOAuthAccess {

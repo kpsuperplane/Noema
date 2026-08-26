@@ -513,11 +513,11 @@ mod tests {
     async fn registration_transfer_removes_old_owner_and_redacts_tokens() {
         let store = test_store().await;
         store
-            .insert_client("client:one", LOCAL_HUMAN_ID, "Phone", [1; 32])
+            .insert_client("client:one", LOCAL_HUMAN_ID, "Phone")
             .await
             .expect("insert first client");
         store
-            .insert_client("client:two", LOCAL_HUMAN_ID, "Tablet", [2; 32])
+            .insert_client("client:two", LOCAL_HUMAN_ID, "Tablet")
             .await
             .expect("insert second client");
         let first = store
@@ -602,7 +602,7 @@ mod tests {
     async fn configured_fanout_inserts_apns_rows_with_transport_visibility() {
         let store = test_store().await;
         store
-            .insert_client("client:one", LOCAL_HUMAN_ID, "Phone", [1; 32])
+            .insert_client("client:one", LOCAL_HUMAN_ID, "Phone")
             .await
             .expect("insert client");
         store
@@ -751,7 +751,7 @@ mod tests {
     async fn empty_apns_claim_commits_orphan_cleanup() {
         let store = test_store().await;
         store
-            .insert_client("client:one", LOCAL_HUMAN_ID, "Phone", [1; 32])
+            .insert_client("client:one", LOCAL_HUMAN_ID, "Phone")
             .await
             .expect("insert client");
         store

@@ -412,35 +412,7 @@ async fn fresh_migrations_are_exact_idempotent_and_enforce_foreign_keys() {
             assert_eq!(count_where(conn, "humans", "human_id = 'human:local'")?, 1);
             assert_eq!(count_where(conn, "workspaces", "workspace_id = 'workspace:personal' AND name = 'Personal' AND description = '' AND is_personal = 1 AND archived_at IS NULL AND revision = 1")?, 1);
             assert_eq!(count_where(conn, "workspace_memberships", "workspace_id = 'workspace:personal' AND human_id = 'human:local' AND role = 'owner'")?, 1);
-            assert_eq!(count_where(conn, "workflow_definitions", "workflow_id = 'workflow:personal:default' AND workspace_id = 'workspace:personal' AND name = 'Personal workflow' AND is_default = 1 AND revision = 1")?, 1);
             assert_eq!(count_where(conn, "projects", "1 = 1")?, 0);
-
-            let mut statement = conn.prepare(
-                "SELECT stage_id, stable_key, display_name, ordinal, system_behavior, board_visible FROM workflow_stages WHERE workflow_id = 'workflow:personal:default' ORDER BY ordinal",
-            )?;
-            let stages = statement
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, i64>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, i64>(5)?,
-                    ))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
-            assert_eq!(
-                stages,
-                vec![
-                    stage("inbox", "Inbox", 10, "intake", 1),
-                    stage("queue", "Queue", 20, "dispatch", 1),
-                    stage("doing", "Doing", 30, "active", 1),
-                    stage("waiting", "Waiting", 40, "human_gate", 1),
-                    stage("done", "Done", 50, "terminal_success", 1),
-                    stage("cancelled", "Cancelled", 60, "terminal_cancelled", 0),
-                ]
-            );
 
             let policy = conn.query_row(
                 "SELECT max_provider_continuations, max_tool_calls, max_active_minutes, progress_audit_interval, max_automatic_retries, max_review_rounds FROM task_execution_policy WHERE policy_id = 'default'",
@@ -469,11 +441,6 @@ async fn fresh_migrations_are_exact_idempotent_and_enforce_foreign_keys() {
                     "workspace_memberships",
                     "workspace_id = 'workspace:personal'",
                     1,
-                ),
-                (
-                    "workflow_stages",
-                    "workflow_id = 'workflow:personal:default'",
-                    6,
                 ),
                 ("task_execution_policy", "policy_id = 'default'", 1),
             ] {
@@ -1398,6 +1365,143 @@ async fn hosted_search_activity_migration_repairs_only_provider_hosted_rows() {
 }
 
 #[tokio::test]
+async fn version_65_removes_legacy_schema_and_preserves_supported_rows() {
+    let upgrade_home = TempDir::new().expect("version 64 root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    let mut connection = Connection::open(&upgrade_config.path).expect("version 64 database");
+    store_migrations()
+        .to_version(&mut connection, 64)
+        .expect("construct version 64 schema");
+    insert_migration_conversation(&connection, "conversation:v65", "turn:v65");
+    connection
+        .execute_batch(&format!(
+            r#"
+            INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:v65', 'workspace:personal', 'workflow:personal:default', 'stage:personal:queue', 'Preserved Task', 'system', 'actor:system');
+            INSERT INTO work_events (event_id, event_kind, workspace_id, task_id, actor_id, correlation_id, payload_json) VALUES ('event:v65', 'task.queued', 'workspace:personal', 'task:v65', 'actor:system', 'correlation:v65', '{{"v":1,"contract_id":null}}');
+            INSERT INTO clients (client_id, owner_human_id, display_name, token_hash, auth_kind) VALUES ('client:v65', 'human:local', 'Native client', zeroblob(32), 'native_oauth');
+            INSERT INTO governed_actions (
+              action_id, revision, owner_human_id, requesting_agent_id, capability_name,
+              operation_token, review_route, arguments_json, arguments_sha256,
+              input_schema_json, authorization_context_json, safe_summary, state)
+            VALUES ('action:v65', 1, 'human:local', 'agent:primary', 'fixture.write', 'write',
+              'human_review', '{{}}', '{digest}', '{{}}', '{{}}', 'Preserved action', 'awaiting_approval');
+            INSERT INTO governed_action_approvals (action_id, action_revision, state) VALUES ('action:v65', 1, 'pending');
+            "#,
+            digest = "a".repeat(64),
+        ))
+        .expect("supported version 64 rows");
+
+    connection
+        .execute_batch(
+            r#"
+            INSERT INTO workflow_definitions (workflow_id, workspace_id, name) VALUES ('workflow:custom', 'workspace:personal', 'Custom');
+            INSERT INTO workflow_stages (stage_id, workflow_id, stable_key, display_name, ordinal, system_behavior, board_visible) VALUES ('stage:custom:inbox', 'workflow:custom', 'inbox', 'Inbox', 1, 'intake', 1);
+            INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:custom', 'workspace:personal', 'workflow:custom', 'stage:custom:inbox', 'Custom Task', 'system', 'actor:system');
+            "#,
+        )
+        .expect("custom workflow fixture");
+    assert!(store_migrations().to_latest(&mut connection).is_err());
+    connection
+        .execute_batch(
+            r#"
+            DELETE FROM tasks WHERE task_id = 'task:custom';
+            DELETE FROM workflow_stages WHERE workflow_id = 'workflow:custom';
+            DELETE FROM workflow_definitions WHERE workflow_id = 'workflow:custom';
+            INSERT INTO work_events (event_id, event_kind, workspace_id, actor_id, correlation_id)
+            VALUES ('event:legacy-contract', 'contract.created', 'workspace:personal', 'actor:system', 'correlation:legacy');
+            "#,
+        )
+        .expect("legacy event fixture");
+    assert!(store_migrations().to_latest(&mut connection).is_err());
+    connection
+        .execute_batch(
+            r#"
+            DELETE FROM work_events WHERE event_id = 'event:legacy-contract';
+            UPDATE governed_action_approvals
+            SET state = 'revoked', decided_by_human_id = 'human:local',
+                decided_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE action_id = 'action:v65';
+            "#,
+        )
+        .expect("revoked approval fixture");
+    assert!(store_migrations().to_latest(&mut connection).is_err());
+    connection
+        .execute(
+            "UPDATE governed_action_approvals SET state = 'pending', decided_by_human_id = NULL, decided_at = NULL WHERE action_id = 'action:v65'",
+            [],
+        )
+        .expect("restore supported approval");
+    store_migrations()
+        .to_latest(&mut connection)
+        .expect("upgrade supported version 64 rows");
+
+    for (table, predicate) in [
+        ("tasks", "task_id = 'task:v65'"),
+        ("clients", "client_id = 'client:v65'"),
+        (
+            "conversations",
+            "conversation_id = 'conversation:v65' AND owner_human_id = 'human:local'",
+        ),
+        (
+            "governed_action_approvals",
+            "action_id = 'action:v65' AND state = 'pending'",
+        ),
+    ] {
+        assert_eq!(count_where(&connection, table, predicate).unwrap(), 1);
+    }
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT payload_json FROM work_events WHERE event_id = 'event:v65'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+        r#"{"v":1}"#
+    );
+    for (table, removed) in [
+        ("clients", &["token_hash", "auth_kind"][..]),
+        ("conversations", &["owner_object_type", "owner_object_id"]),
+        (
+            "tasks",
+            &[
+                "workflow_id",
+                "current_contract_id",
+                "latest_submission_id",
+                "latest_review_id",
+            ],
+        ),
+    ] {
+        let columns = table_columns(&connection, table).unwrap();
+        for column in removed {
+            assert!(!columns.iter().any(|found| found == column));
+        }
+    }
+    for index in [
+        "conversation_items_conversation_sequence",
+        "artifact_versions_artifact",
+        "agent_run_items_run_sequence",
+    ] {
+        assert!(!schema_object_exists(&connection, "index", index).unwrap());
+    }
+    drop(connection);
+
+    let fresh_home = TempDir::new().expect("fresh version 65 root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(
+        NoemaStore::open(&fresh_config)
+            .await
+            .expect("fresh version 65 schema"),
+    );
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
+    );
+}
+
+#[tokio::test]
 async fn current_schema_enforces_projection_history_and_ledger_invariants() {
     let home = TempDir::new().expect("temp store root");
     let store = NoemaStore::open(&store_config(home.path()))
@@ -1407,8 +1511,8 @@ async fn current_schema_enforces_projection_history_and_ledger_invariants() {
     store
         .with_connection(|conn| {
             for table in [
-                "workspaces", "workspace_memberships", "projects", "workflow_definitions",
-                "workflow_stages", "tasks", "task_gates", "task_messages", "agent_runs",
+                "workspaces", "workspace_memberships", "projects", "tasks", "task_gates",
+                "task_messages", "agent_runs",
                 "work_events", "work_notification_outbox", "work_command_receipts",
             ] {
                 assert!(schema_object_exists(conn, "table", table)?, "missing table {table}");
@@ -1422,6 +1526,8 @@ async fn current_schema_enforces_projection_history_and_ledger_invariants() {
             }
             assert!(!schema_object_exists(conn, "table", "task_events")?);
             assert!(!schema_object_exists(conn, "table", "run_events")?);
+            assert!(!schema_object_exists(conn, "table", "workflow_definitions")?);
+            assert!(!schema_object_exists(conn, "table", "workflow_stages")?);
             for table in [
                 "task_execution_contracts", "task_contract_criteria", "task_submissions",
                 "task_submission_criteria", "task_submission_artifacts",
@@ -1442,21 +1548,19 @@ async fn current_schema_enforces_projection_history_and_ledger_invariants() {
                 INSERT INTO workspaces (workspace_id, name) VALUES ('workspace:other', 'Other');
                 INSERT INTO projects (project_id, workspace_id, name)
                 VALUES ('project:other', 'workspace:other', 'Other project');
-                INSERT INTO workflow_definitions (workflow_id, workspace_id, name)
-                VALUES ('workflow:other', 'workspace:personal', 'Other workflow');
                 "#,
             )?;
             assert!(conn.execute(
-                "INSERT INTO tasks (task_id, workspace_id, project_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:cross-project', 'workspace:personal', 'project:other', 'workflow:personal:default', 'stage:personal:inbox', 'Bad project', 'system', 'actor:system')",
+                "INSERT INTO tasks (task_id, workspace_id, project_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:cross-project', 'workspace:personal', 'project:other', 'stage:personal:inbox', 'Bad project', 'system', 'actor:system')",
                 [],
             ).is_err());
             assert!(conn.execute(
-                "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:cross-stage', 'workspace:personal', 'workflow:other', 'stage:personal:inbox', 'Bad stage', 'system', 'actor:system')",
+                "INSERT INTO tasks (task_id, workspace_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:bad-stage', 'workspace:personal', 'stage:personal:other', 'Bad stage', 'system', 'actor:system')",
                 [],
             ).is_err());
 
             conn.execute(
-                "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:valid', 'workspace:personal', 'workflow:personal:default', 'stage:personal:queue', 'Valid task', 'system', 'actor:system')",
+                "INSERT INTO tasks (task_id, workspace_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:valid', 'workspace:personal', 'stage:personal:queue', 'Valid task', 'system', 'actor:system')",
                 [],
             )?;
             conn.execute(
@@ -2803,7 +2907,7 @@ async fn v44_upgrade_preserves_passkeys_repairs_terminal_records_and_matches_fre
 }
 
 #[tokio::test]
-async fn v46_upgrade_revokes_legacy_clients_and_matches_fresh_schema() {
+async fn v46_upgrade_removes_legacy_clients_and_matches_fresh_schema() {
     let upgrade_home = TempDir::new().expect("v45 root");
     let upgrade_config = store_config(upgrade_home.path());
     fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
@@ -2827,15 +2931,12 @@ async fn v46_upgrade_revokes_legacy_clients_and_matches_fresh_schema() {
     );
     let connection = Connection::open(&upgrade_config.path).expect("upgraded database");
     assert_eq!(
-        connection
-            .query_row(
-                "SELECT auth_kind, revoked_at IS NOT NULL FROM clients WHERE client_id = 'legacy-client'",
-                [],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
-            )
-            .expect("revoked legacy client"),
-        ("legacy_bearer".to_string(), true)
+        count_where(&connection, "clients", "client_id = 'legacy-client'").unwrap(),
+        0
     );
+    let columns = table_columns(&connection, "clients").unwrap();
+    assert!(!columns.iter().any(|column| column == "token_hash"));
+    assert!(!columns.iter().any(|column| column == "auth_kind"));
     drop(connection);
 
     let fresh_home = TempDir::new().expect("fresh v46 root");
@@ -2906,23 +3007,6 @@ async fn v47_upgrade_invalidates_unbound_web_push_and_matches_fresh_schema() {
         database_snapshot(&upgrade_config.path).schema_objects,
         database_snapshot(&fresh_config.path).schema_objects
     );
-}
-
-fn stage(
-    stable_key: &str,
-    display_name: &str,
-    ordinal: i64,
-    behavior: &str,
-    board_visible: i64,
-) -> (String, String, String, i64, String, i64) {
-    (
-        format!("stage:personal:{stable_key}"),
-        stable_key.to_string(),
-        display_name.to_string(),
-        ordinal,
-        behavior.to_string(),
-        board_visible,
-    )
 }
 
 #[tokio::test]

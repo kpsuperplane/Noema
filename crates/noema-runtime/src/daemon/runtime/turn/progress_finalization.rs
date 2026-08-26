@@ -49,22 +49,9 @@ impl RuntimeActor {
         timing: &TurnTiming,
     ) -> Result<(), RuntimeError> {
         let provider = turn.provider_route.operations();
-        let instructions = build_local_tool_result_continuation_system_prompt(false);
-        let tools = turn.initial_model_tools.provider_tools();
-        let hosted_web_search = turn.initial_model_tools.hosted_web_search();
-        let tool_choice = if turn.tool_capabilities.allowed_tools
-            && turn.initial_model_tools.transport == ProviderToolTransport::Native
-            && !hosted_web_search
-        {
-            turn.initial_model_tools
-                .allowed_tool_choice(NoemaAllowedToolsMode::Auto)
-        } else {
-            NoemaToolChoice::Auto
-        };
-        let parallel_tool_calls = turn.initial_model_tools.transport
-            == ProviderToolTransport::Native
-            && turn.initial_model_tools.has_callable_tools()
-            && turn.tool_capabilities.parallel_tool_calls;
+        let instructions = build_no_tools_finalization_prompt(reason);
+        let tools = Vec::new();
+        let hosted_web_search = false;
         if !provider_session.has_active_continuation() {
             context
                 .compact_to_fit(
@@ -82,7 +69,6 @@ impl RuntimeActor {
                 .await
                 .map_err(RuntimeError::Provider)?;
         }
-        context.append_developer_message(build_no_tools_finalization_prompt(reason));
         let continuation_input =
             context.next_provider_input(turn.tool_capabilities.native_tool_results);
         let mut ignore_event = |_| {};
@@ -125,8 +111,8 @@ impl RuntimeActor {
                     },
                     tools,
                     tool_transport: turn.initial_model_tools.transport,
-                    tool_choice,
-                    parallel_tool_calls,
+                    tool_choice: NoemaToolChoice::Auto,
+                    parallel_tool_calls: false,
                 },
                 continuation_input,
                 &mut ignore_event,

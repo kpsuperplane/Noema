@@ -219,8 +219,24 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
     )));
 }
 
-#[tokio::test]
-async fn runtime_executes_every_homogeneous_delegation_and_uses_provider_handoff_narration() {
+#[test]
+fn runtime_executes_every_homogeneous_delegation_and_uses_provider_handoff_narration() {
+    let test = || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime")
+            .block_on(assert_multiple_task_delegation())
+    };
+    std::thread::Builder::new()
+        .stack_size(4 * 1024 * 1024)
+        .spawn(test)
+        .expect("test thread")
+        .join()
+        .expect("test thread result");
+}
+
+async fn assert_multiple_task_delegation() {
     let (handle, store) = test_runtime_handle_with_task_delegation(fake_provider(
         FakeCodexScenario::MultipleTaskDelegation,
     ))

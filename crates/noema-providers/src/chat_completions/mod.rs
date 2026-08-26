@@ -11,6 +11,7 @@ pub(crate) use crate::response_support::tool_names::OpenAiToolNameMap;
 pub(crate) use output::ChatCompletionResponse;
 #[cfg(feature = "adapters")]
 pub(crate) use request::{ChatCompletionRequest, ChatMessage, ChatTool};
+#[cfg(feature = "local-models")]
 pub(crate) use sse::ChatSseAccumulator;
 #[cfg(feature = "adapters")]
 pub(crate) use transport::{ChatDiagnosticContext, ChatTransport};
