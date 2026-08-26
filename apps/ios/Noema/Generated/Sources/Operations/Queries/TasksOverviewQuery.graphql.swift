@@ -102,9 +102,6 @@ nonisolated public struct TasksOverviewQuery: GraphQLQuery {
         public var description: String { __data["description"] }
         /// Whether this is the Personal workspace.
         public var isPersonal: Bool { __data["isPersonal"] }
-        /// Membership role for the authenticated owner.
-        public var membershipRole: GraphQLEnum<NoemaAPI.WorkspaceMembershipRole> { __data["membershipRole"] }
-
         public struct Fragments: FragmentContainer {
           @_spi(Unsafe) public let __data: DataDict
           @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }

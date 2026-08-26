@@ -8,8 +8,6 @@ use noema_memory::NativeMemory;
 use noema_providers::{LocalModelManager, ProviderAccountOperationsHandle, ProviderRegistryHandle};
 use noema_runtime::{RuntimeEventRegistry, RuntimeHandle};
 
-use super::local_status::GraphqlMemoryStorageStatus;
-
 macro_rules! required_service_accessors {
     ($($method:ident => $field:ident: $service:ty = $message:literal;)+) => {
         $(
@@ -39,7 +37,6 @@ pub struct GraphqlState {
     provider_registry: Option<ProviderRegistryHandle>,
     native_memory: Option<NativeMemory>,
     subscriptions: RuntimeEventRegistry,
-    memory_storage: GraphqlMemoryStorageStatus,
     notifications: Option<super::NotificationCoordinator>,
 }
 
@@ -64,7 +61,6 @@ impl GraphqlState {
             provider_registry: Some(services.provider_registry.clone()),
             native_memory: Some(services.native_memory.clone()),
             subscriptions: services.runtime_events.clone(),
-            memory_storage: GraphqlMemoryStorageStatus::Ready,
             notifications: None,
         }
     }
@@ -283,10 +279,6 @@ impl GraphqlState {
 
     pub(crate) fn subscriptions(&self) -> &RuntimeEventRegistry {
         &self.subscriptions
-    }
-
-    pub(crate) fn memory_storage(&self) -> GraphqlMemoryStorageStatus {
-        self.memory_storage
     }
 
     pub(crate) fn native_memory(&self) -> Option<&NativeMemory> {

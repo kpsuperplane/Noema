@@ -95,7 +95,6 @@ export const TasksTaskCardFields = gql`
       name
       description
       isPersonal
-      membershipRole
     }
     project {
       ...TasksProjectFields
@@ -140,7 +139,6 @@ export const TasksTaskSummaryFields = gql`
       name
       description
       isPersonal
-      membershipRole
     }
     project {
       ...TasksProjectFields

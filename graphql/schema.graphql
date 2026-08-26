@@ -919,16 +919,6 @@ enum ArtifactVersionPreviewKind {
 }
 
 """
-Assistant connection exposed to clients.
-"""
-enum AssistantConnection {
-	"""
-	The daemon is using Codex for chat.
-	"""
-	CODEX
-}
-
-"""
 Assistant text transcript item.
 """
 type AssistantText {
@@ -2190,31 +2180,9 @@ enum LocalModelSourceKind {
 }
 
 """
-Local service status shown by clients.
-"""
-enum LocalServiceStatus {
-	"""
-	The local Noema service is running.
-	"""
-	RUNNING
-}
-
-"""
 Local status returned by `Query.localStatus`.
 """
 type LocalStatus {
-	"""
-	Local service status.
-	"""
-	localService: LocalServiceStatus!
-	"""
-	Assistant connection status.
-	"""
-	assistantConnection: AssistantConnection!
-	"""
-	Memory storage status.
-	"""
-	memoryStorage: MemoryStorageStatus!
 	"""
 	Current primary agent display name, if the agent has been named.
 	"""
@@ -2462,24 +2430,6 @@ input McpStdioConfigInput {
 	Secret environment variables stored on disk.
 	"""
 	secretEnv: JSON
-}
-
-"""
-Memory storage readiness shown by clients.
-"""
-enum MemoryStorageStatus {
-	"""
-	The local Markdown memory tree is ready.
-	"""
-	READY
-	"""
-	The local Markdown memory tree is initializing.
-	"""
-	INITIALIZING
-	"""
-	Markdown memory writes and retrieval are not available yet.
-	"""
-	UNAVAILABLE
 }
 
 """
@@ -6348,17 +6298,6 @@ type Workspace {
 	Whether this is the Personal workspace.
 	"""
 	isPersonal: Boolean!
-	"""
-	Membership role for the authenticated owner.
-	"""
-	membershipRole: WorkspaceMembershipRole!
-}
-
-"""
-Membership role for the Personal workspace owner.
-"""
-enum WorkspaceMembershipRole {
-	OWNER
 }
 
 """

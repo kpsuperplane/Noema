@@ -64,9 +64,6 @@ export const WebToolBindingSettingsFields = gql`
 export const LocalStatusDocument = gql`
   query LocalStatus {
     localStatus {
-      localService
-      assistantConnection
-      memoryStorage
       primaryAgentDisplayName
     }
   }

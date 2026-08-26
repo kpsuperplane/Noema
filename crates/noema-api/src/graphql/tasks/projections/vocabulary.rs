@@ -2,13 +2,6 @@
 
 use async_graphql::Enum;
 
-/// Membership role for the Personal workspace owner.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
-#[graphql(name = "WorkspaceMembershipRole")]
-pub enum GraphqlWorkspaceMembershipRole {
-    Owner,
-}
-
 macro_rules! graphql_enum {
     (
         $(#[$meta:meta])*

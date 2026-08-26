@@ -8,7 +8,7 @@ nonisolated public struct ChatBootQuery: GraphQLQuery {
   public static let operationName: String = "ChatBoot"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"query ChatBoot { localStatus { __typename localService assistantConnection memoryStorage primaryAgentDisplayName } onboardingStatus { __typename isUserOnboarded steps { __typename id status providerKind providerAccountId accountKey displayName providerAccountStatus authMethod } } providerAccountCatalog { __typename providerKind displayName preferredAuthMethod supportedAuthMethods } providerAccounts { __typename providerAccountId providerKind accountKey displayName authMethod status isActive isDefault lastCheckedAt lastAuthenticatedAt lastErrorCode lastErrorMessage } }"#
+      #"query ChatBoot { localStatus { __typename primaryAgentDisplayName } onboardingStatus { __typename isUserOnboarded steps { __typename id status providerKind providerAccountId accountKey displayName providerAccountStatus authMethod } } providerAccountCatalog { __typename providerKind displayName preferredAuthMethod supportedAuthMethods } providerAccounts { __typename providerAccountId providerKind accountKey displayName authMethod status isActive isDefault lastCheckedAt lastAuthenticatedAt lastErrorCode lastErrorMessage } }"#
     ))
 
   public init() {}
@@ -47,21 +47,12 @@ nonisolated public struct ChatBootQuery: GraphQLQuery {
       @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.LocalStatus }
       @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
         .field("__typename", String.self),
-        .field("localService", GraphQLEnum<NoemaAPI.LocalServiceStatus>.self),
-        .field("assistantConnection", GraphQLEnum<NoemaAPI.AssistantConnection>.self),
-        .field("memoryStorage", GraphQLEnum<NoemaAPI.MemoryStorageStatus>.self),
         .field("primaryAgentDisplayName", String?.self),
       ] }
       @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
         ChatBootQuery.Data.LocalStatus.self
       ] }
 
-      /// Local service status.
-      public var localService: GraphQLEnum<NoemaAPI.LocalServiceStatus> { __data["localService"] }
-      /// Assistant connection status.
-      public var assistantConnection: GraphQLEnum<NoemaAPI.AssistantConnection> { __data["assistantConnection"] }
-      /// Memory storage status.
-      public var memoryStorage: GraphQLEnum<NoemaAPI.MemoryStorageStatus> { __data["memoryStorage"] }
       /// Current primary agent display name, if the agent has been named.
       public var primaryAgentDisplayName: String? { __data["primaryAgentDisplayName"] }
     }

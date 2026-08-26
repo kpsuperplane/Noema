@@ -1,8 +1,5 @@
 query SettingsSnapshot {
   localStatus {
-    localService
-    assistantConnection
-    memoryStorage
     primaryAgentDisplayName
   }
   agents {

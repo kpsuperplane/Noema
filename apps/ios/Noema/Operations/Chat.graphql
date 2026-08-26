@@ -69,9 +69,6 @@ fragment NativeConversationPageFields on ConversationTranscriptPage {
 
 query ChatBoot {
   localStatus {
-    localService
-    assistantConnection
-    memoryStorage
     primaryAgentDisplayName
   }
   onboardingStatus {

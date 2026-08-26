@@ -5,10 +5,7 @@ use noema_workspaces::{ProjectRecord, WorkspaceRecord};
 use crate::graphql::tasks::GraphqlTaskConnection;
 
 use super::super::GraphqlWorkflowStageBehavior;
-use super::{
-    exact_u64,
-    vocabulary::{GraphqlProviderSelectionMode, GraphqlWorkspaceMembershipRole},
-};
+use super::{exact_u64, vocabulary::GraphqlProviderSelectionMode};
 
 graphql_object_from! { "Standard connection metadata." => pub struct GraphqlPageInfo("PageInfo")
     from noema_store::WorkPageInfo as value {
@@ -22,7 +19,6 @@ graphql_object_from! { "Owner-authorized workspace projection." => pub struct Gr
     "Human-readable name." => name: String = value.name,
     "Descriptive text." => description: String = value.description,
     "Whether this is the Personal workspace." => is_personal: bool = value.is_personal,
-    "Membership role for the authenticated owner." => membership_role: GraphqlWorkspaceMembershipRole = GraphqlWorkspaceMembershipRole::Owner,
 } }
 
 graphql_object_from! { "Owner-authorized project projection." => pub struct GraphqlProject("Project")

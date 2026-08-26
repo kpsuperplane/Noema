@@ -6,7 +6,7 @@
 
 nonisolated public struct TasksWorkspaceFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksWorkspaceFields on Workspace { __typename workspaceId name description isPersonal membershipRole }"#
+    #"fragment TasksWorkspaceFields on Workspace { __typename workspaceId name description isPersonal }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -19,7 +19,6 @@ nonisolated public struct TasksWorkspaceFields: NoemaAPI.SelectionSet, Fragment 
     .field("name", String.self),
     .field("description", String.self),
     .field("isPersonal", Bool.self),
-    .field("membershipRole", GraphQLEnum<NoemaAPI.WorkspaceMembershipRole>.self),
   ] }
   @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
     TasksWorkspaceFields.self
@@ -33,6 +32,4 @@ nonisolated public struct TasksWorkspaceFields: NoemaAPI.SelectionSet, Fragment 
   public var description: String { __data["description"] }
   /// Whether this is the Personal workspace.
   public var isPersonal: Bool { __data["isPersonal"] }
-  /// Membership role for the authenticated owner.
-  public var membershipRole: GraphQLEnum<NoemaAPI.WorkspaceMembershipRole> { __data["membershipRole"] }
 }

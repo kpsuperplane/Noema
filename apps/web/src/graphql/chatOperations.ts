@@ -165,9 +165,6 @@ export const ConversationTranscriptPageFields = gql`
 export const ChatBootDocument = gql`
   query ChatBoot {
     localStatus {
-      localService
-      assistantConnection
-      memoryStorage
       primaryAgentDisplayName
     }
     onboardingStatus {

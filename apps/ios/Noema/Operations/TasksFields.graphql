@@ -20,7 +20,6 @@ fragment TasksWorkspaceFields on Workspace {
   name
   description
   isPersonal
-  membershipRole
 }
 
 fragment TasksStageFields on WorkflowStage {
