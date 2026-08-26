@@ -10,7 +10,7 @@ use noema_runtime::eval_support::{
 
 use crate::{
     comparative_judge::run_required_comparisons,
-    hosted_provider::{HostedProviderContext, HostedProviderKind, HostedProviderSpec},
+    hosted_provider::{HostedProviderContext, OpenRouterProviderSpec},
     manifest::SuiteConfig,
     matrix_manifest::EvaluationCandidate,
     matrix_report::{EvaluationMatrixReport, EvaluationRunMode},
@@ -187,15 +187,13 @@ async fn run_openrouter_candidate(
     run_root: &std::path::Path,
     report: &mut EvaluationMatrixReport,
 ) -> Result<(), String> {
-    let spec = HostedProviderSpec {
-        kind: HostedProviderKind::OpenRouter,
+    let spec = OpenRouterProviderSpec {
         model: candidate.model.clone(),
         reasoning_effort: candidate.reasoning_effort,
         timeout_seconds: suite.generation_timeout_seconds,
         base_url: candidate.base_url.clone(),
-        bridge_path: None,
     };
-    let provider = context.build_provider(&spec).map(|(_, provider)| provider);
+    let provider = context.build_provider(&spec);
     let descriptors = runtime_eval_case_descriptors_for_roles(
         &candidate.model,
         &candidate.roles,

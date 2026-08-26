@@ -3,7 +3,7 @@ use ring::digest::{SHA256, digest};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    hosted_provider::{HostedProviderContext, HostedProviderKind, HostedProviderSpec},
+    hosted_provider::{HostedProviderContext, OpenRouterProviderSpec},
     manifest::SuiteConfig,
     matrix_report::{EvaluationMatrixReport, RoleComparison},
 };
@@ -33,15 +33,13 @@ pub(crate) async fn run_required_comparisons(
     suite: &SuiteConfig,
 ) {
     let judge = report.policies.judge.clone();
-    let spec = HostedProviderSpec {
-        kind: HostedProviderKind::OpenRouter,
+    let spec = OpenRouterProviderSpec {
         model: judge.model.clone(),
         reasoning_effort: judge.reasoning_effort,
         timeout_seconds: suite.generation_timeout_seconds,
         base_url: None,
-        bridge_path: None,
     };
-    let provider = context.build_provider(&spec).map(|(_, provider)| provider);
+    let provider = context.build_provider(&spec);
     let mut pairs = Vec::new();
     for policy in &report.policies.policies {
         if policy.judge_case_ids.is_empty() {
