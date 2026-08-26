@@ -9,6 +9,11 @@ Use the closest subsystem document and current code for present contracts.
 - [Documentation audit](2026-08-16-documentation-audit.md) — complete Markdown
   disposition at its stated repository baseline.
 
+## Current engineering snapshots
+
+- [Rust crate simplicity audit](2026-08-25-rust-crate-simplicity-audit.md) —
+  current crate-by-crate findings, protected boundaries, and decision gates.
+
 ## Engineering snapshots from 2026-08-08
 
 - [Overengineering audit](2026-08-08-overengineering-audit.md) — assessment,
