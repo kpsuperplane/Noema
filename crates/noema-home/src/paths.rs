@@ -241,13 +241,6 @@ impl NoemaPaths {
         self.adapter_quarantine_dir().join("connections")
     }
 
-    /// Legacy OAuth connections retained after the clean cutover.
-    #[must_use]
-    pub fn adapter_legacy_oauth_connection_quarantine_dir(&self) -> PathBuf {
-        self.adapter_quarantine_dir()
-            .join("legacy-oauth-connections")
-    }
-
     /// OAuth grants retained after disconnect or failed reauthentication.
     #[must_use]
     pub fn adapter_oauth_grant_quarantine_dir(&self) -> PathBuf {
@@ -465,11 +458,7 @@ pub enum NoemaPathError {
 }
 
 fn validate_model_digest(value: &str) -> Result<(), NoemaPathError> {
-    if value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-    {
+    if is_lower_hex(value, 64) {
         Ok(())
     } else {
         Err(NoemaPathError::InvalidModelDigest {
@@ -479,11 +468,7 @@ fn validate_model_digest(value: &str) -> Result<(), NoemaPathError> {
 }
 
 fn validate_adapter_digest(value: &str) -> Result<(), NoemaPathError> {
-    if value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-    {
+    if is_lower_hex(value, 64) {
         Ok(())
     } else {
         Err(NoemaPathError::InvalidAdapterDigest {
@@ -493,11 +478,7 @@ fn validate_adapter_digest(value: &str) -> Result<(), NoemaPathError> {
 }
 
 fn validate_adapter_connection_id(value: &str) -> Result<(), NoemaPathError> {
-    if value.len() == 32
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-    {
+    if is_lower_hex(value, 32) {
         Ok(())
     } else {
         Err(NoemaPathError::InvalidAdapterConnectionId {
@@ -507,17 +488,20 @@ fn validate_adapter_connection_id(value: &str) -> Result<(), NoemaPathError> {
 }
 
 fn validate_adapter_object_id(value: &str) -> Result<(), NoemaPathError> {
-    if value.len() == 32
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-    {
+    if is_lower_hex(value, 32) {
         Ok(())
     } else {
         Err(NoemaPathError::InvalidAdapterObjectId {
             value: value.to_string(),
         })
     }
+}
+
+fn is_lower_hex(value: &str, length: usize) -> bool {
+    value.len() == length
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
 #[cfg(test)]

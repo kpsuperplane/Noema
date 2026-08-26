@@ -185,7 +185,6 @@ fn validate_failed_run_facts(facts: &WorkFailedRunFacts) -> Result<(), WorkDomai
 fn plan_failed_run_action(
     facts: WorkFailedRunFacts,
 ) -> Result<WorkReconciliationAction, WorkDomainError> {
-    validate_failed_run_facts(&facts)?;
     if facts.retryable && !facts.retries_exhausted {
         return Ok(WorkReconciliationAction::QueueRun {
             run_kind: facts.run_kind,

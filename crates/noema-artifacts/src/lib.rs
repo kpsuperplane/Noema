@@ -1,8 +1,7 @@
 //! Governed artifact contracts and semantic models.
 //!
-//! The default build contains only domain models and object-safe service
-//! boundaries. Governed local filesystem implementation is added by the
-//! `filesystem` feature in the next extraction checkpoint.
+//! The default build contains domain models and object-safe service boundaries.
+//! The `filesystem` feature adds governed local filesystem operations.
 
 mod domain;
 mod error;

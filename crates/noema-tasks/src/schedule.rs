@@ -148,6 +148,13 @@ pub fn next_recurrence_at_or_after(
     starts_at: i64,
 ) -> Result<i64, WorkDomainError> {
     let schedule = parse_schedule(cron_expression, time_zone)?;
+    next_schedule_at_or_after(&schedule, starts_at)
+}
+
+fn next_schedule_at_or_after(
+    schedule: &cronexpr::Crontab,
+    starts_at: i64,
+) -> Result<i64, WorkDomainError> {
     let start = jiff::Timestamp::from_second(starts_at)
         .map_err(|error| invalid_input("task.schedule.starts_at", error.to_string()))?;
     if starts_at.rem_euclid(60) == 0 && schedule.matches(start).map_err(schedule_error)? {
@@ -169,7 +176,7 @@ pub fn recurrence_preview(
     starts_at: i64,
 ) -> Result<Vec<i64>, WorkDomainError> {
     let schedule = parse_schedule(cron_expression, time_zone)?;
-    let first = next_recurrence_at_or_after(cron_expression, time_zone, starts_at)?;
+    let first = next_schedule_at_or_after(&schedule, starts_at)?;
     let mut values = vec![first];
     let mut cursor = first;
     for _ in 1..5 {

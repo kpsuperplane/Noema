@@ -1,10 +1,10 @@
 [package]
 name = "noema-workspaces"
 version = "0.1.0"
-edition = "2024"
-license = "MIT"
-repository = "https://github.com/kpsuperplane/Noema"
-rust-version = "1.96"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 
 [lints]
 workspace = true
@@ -13,8 +13,8 @@ workspace = true
 default = []
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-thiserror = "2"
+serde.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
-serde_json = "1"
+serde_json.workspace = true
