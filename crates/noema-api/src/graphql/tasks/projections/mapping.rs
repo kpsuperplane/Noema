@@ -1,6 +1,6 @@
 use noema_store::{
-    ProjectConnection, WorkConnection, WorkEdge, WorkEventConnection, WorkOverview,
-    WorkRunItemConnection, WorkTaskConnection, WorkTaskDetail, WorkTaskSummary,
+    ProjectConnection, WorkConnection, WorkEdge, WorkOverview, WorkRunItemConnection,
+    WorkTaskConnection, WorkTaskDetail, WorkTaskSummary,
 };
 
 use crate::graphql::tasks::unavailable;
@@ -244,27 +244,6 @@ pub(crate) fn task_connection(
         })
     })?;
     Ok(GraphqlTaskConnection { edges, page_info })
-}
-
-/// Map a Store event connection to GraphQL.
-pub(crate) fn event_connection(
-    value: WorkEventConnection,
-) -> async_graphql::Result<GraphqlTaskEventConnection> {
-    Ok(GraphqlTaskEventConnection {
-        edges: value
-            .edges
-            .into_iter()
-            .map(|edge| -> async_graphql::Result<_> {
-                let cursor = edge.cursor.encode();
-                let node = GraphqlTaskEvent::try_from(edge.node).map_err(|_| unavailable())?;
-                if node.cursor != cursor {
-                    return Err(unavailable());
-                }
-                Ok(GraphqlTaskEventEdge { cursor, node })
-            })
-            .collect::<async_graphql::Result<_>>()?,
-        page_info: value.page_info.into(),
-    })
 }
 
 fn map_connection<N, E>(

@@ -50,15 +50,12 @@
         let response = schema
             .execute(format!(
                 r#"{{
-                  artifact(artifactId: "{}") {{
-                    currentVersion {{ artifactVersionId downloadUrl }}
-                  }}
                   artifactVersionDetail(artifactVersionId: "{}") {{
                     previewKind markdown plainText downloadUrl mediaType
                     versions {{ artifactVersionId versionIndex }}
                   }}
                 }}"#,
-                artifact.artifact.artifact_id, second.artifact_version_id,
+                second.artifact_version_id,
             ))
             .await;
         assert!(response.errors.is_empty(), "{:?}", response.errors);
@@ -69,7 +66,6 @@
                 .map(Vec::len),
             Some(2)
         );
-        assert_eq!(data["artifact"]["currentVersion"]["artifactVersionId"], second.artifact_version_id);
         assert_eq!(data["artifactVersionDetail"]["previewKind"], "MARKDOWN");
         assert_eq!(data["artifactVersionDetail"]["markdown"], "# second\n");
         assert!(data["artifactVersionDetail"]["plainText"].is_null());
@@ -86,7 +82,7 @@
             .create_conversation(conversation_for_human("human:other"))
             .await
             .expect("foreign conversation");
-        let artifact = ArtifactMetadataStore::create_artifact_with_initial_version(
+        ArtifactMetadataStore::create_artifact_with_initial_version(
             &store,
             noema_artifacts::NewArtifact {
                 artifact_id: None,
@@ -123,15 +119,13 @@
             .execute(format!(
                 r#"query {{
                   artifacts(ownerObjectType: "conversation", ownerObjectId: "{}") {{ artifactId }}
-                  artifact(artifactId: "{}") {{ artifactId }}
                 }}"#,
-                conversation.conversation_id, artifact.artifact.artifact_id,
+                conversation.conversation_id,
             ))
             .await;
         assert!(response.errors.is_empty(), "{:?}", response.errors);
         let data = response.data.into_json().expect("query json");
         assert_eq!(data["artifacts"], serde_json::json!([]));
-        assert!(data["artifact"].is_null());
 
         let response = schema
             .execute(format!(

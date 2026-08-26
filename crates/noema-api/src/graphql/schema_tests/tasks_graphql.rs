@@ -30,7 +30,6 @@ fn tasks_schema_exposes_semantic_operations_without_task_status_aliases() {
         "tasks",
         "projects",
         "needsYou",
-        "tasksActivity",
         "taskHistory",
         "taskRunItems",
         "taskWorkspaceFile",

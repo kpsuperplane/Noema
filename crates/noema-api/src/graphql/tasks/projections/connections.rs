@@ -32,15 +32,6 @@ connection!(
     "Ordered project edges."
 );
 connection!(
-    GraphqlTaskEventEdge,
-    GraphqlTaskEventConnection,
-    GraphqlTaskEvent,
-    "TasksEventEdge",
-    "TasksEventConnection",
-    "Opaque event cursor.",
-    "Ordered event edges."
-);
-connection!(
     GraphqlTaskAttentionEdge,
     GraphqlTaskAttentionConnection,
     GraphqlTaskAttention,

@@ -1693,14 +1693,6 @@ type GraphqlNativeMemoryPageRef {
 	hash: String!
 }
 
-type GraphqlNativeMemorySearchResult {
-	id: String!
-	path: String!
-	title: String!
-	snippet: String!
-	hash: String!
-}
-
 type GraphqlNativeMemorySettings {
 	modelPreference: AgentModelPreference
 	modelOptions: [AgentModelProviderOption!]!
@@ -3631,10 +3623,6 @@ type QueryRoot {
 	"""
 	pendingHumanInterventions(conversationId: String, taskId: String, projectId: String, first: Int): [HumanIntervention!]!
 	"""
-	Return saved Tasks activity for a scope.
-	"""
-	tasksActivity(workspaceId: String!, projectId: String, taskId: String, first: Int, after: String): TasksEventConnection!
-	"""
 	Return Done and Cancelled task history through the terminal scope.
 	"""
 	taskHistory(workspaceId: String!, projectId: String, kind: TerminalTaskKind, first: Int, after: String): TaskConnection!
@@ -3703,10 +3691,6 @@ type QueryRoot {
 	"""
 	memoryPage(pageId: String!): GraphqlNativeMemoryPage
 	"""
-	Search native Markdown memory and return snippets/page references.
-	"""
-	searchMemory(query: String!, limit: Int): [GraphqlNativeMemorySearchResult!]!
-	"""
 	Return the primary conversation identity without creating it or replaying transcript.
 	"""
 	primaryConversation: PrimaryConversation
@@ -3718,10 +3702,6 @@ type QueryRoot {
 	List artifacts for one concrete owner.
 	"""
 	artifacts(ownerObjectType: String!, ownerObjectId: String!, limit: Int): [Artifact!]!
-	"""
-	Load one artifact by id.
-	"""
-	artifact(artifactId: String!): Artifact
 	"""
 	Load one artifact version detail payload for the chat detail rail.
 	"""
@@ -5818,34 +5798,6 @@ type TasksEvent {
 	Current task summary when this event has a task.
 	"""
 	task: TaskSummary
-}
-
-"""
-Bounded connection.
-"""
-type TasksEventConnection {
-	"""
-	Ordered event edges.
-	"""
-	edges: [TasksEventEdge!]!
-	"""
-	Pagination metadata.
-	"""
-	pageInfo: PageInfo!
-}
-
-"""
-Connection edge.
-"""
-type TasksEventEdge {
-	"""
-	Opaque event cursor.
-	"""
-	cursor: String!
-	"""
-	Connection node.
-	"""
-	node: TasksEvent!
 }
 
 """

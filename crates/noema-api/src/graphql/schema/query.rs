@@ -358,30 +358,6 @@ impl QueryRoot {
         .await
     }
 
-    /// Return saved Tasks activity for a scope.
-    async fn tasks_activity(
-        &self,
-        ctx: &Context<'_>,
-        workspace_id: String,
-        project_id: Option<String>,
-        task_id: Option<String>,
-        first: Option<i32>,
-        after: Option<String>,
-    ) -> Result<GraphqlTaskEventConnection> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        let principal = crate::graphql::request_principal_subject(ctx)?;
-        tasks::tasks_activity(
-            state,
-            principal,
-            workspace_id,
-            project_id,
-            task_id,
-            first,
-            after,
-        )
-        .await
-    }
-
     /// Return Done and Cancelled task history through the terminal scope.
     #[allow(
         clippy::too_many_arguments,
@@ -540,16 +516,6 @@ impl QueryRoot {
         native_memory::memory_page(ctx.data_unchecked::<GraphqlState>(), page_id).await
     }
 
-    /// Search native Markdown memory and return snippets/page references.
-    async fn search_memory(
-        &self,
-        ctx: &Context<'_>,
-        query: String,
-        limit: Option<i32>,
-    ) -> Result<Vec<GraphqlNativeMemorySearchResult>> {
-        native_memory::search_memory(ctx.data_unchecked::<GraphqlState>(), query, limit).await
-    }
-
     /// Return the primary conversation identity without creating it or replaying transcript.
     async fn primary_conversation(
         &self,
@@ -582,17 +548,6 @@ impl QueryRoot {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
         artifacts::artifacts(state, principal, owner_object_type, owner_object_id, limit).await
-    }
-
-    /// Load one artifact by id.
-    async fn artifact(
-        &self,
-        ctx: &Context<'_>,
-        artifact_id: String,
-    ) -> Result<Option<artifacts::GraphqlArtifact>> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        let principal = crate::graphql::request_principal_subject(ctx)?;
-        artifacts::artifact(state, principal, artifact_id).await
     }
 
     /// Load one artifact version detail payload for the chat detail rail.

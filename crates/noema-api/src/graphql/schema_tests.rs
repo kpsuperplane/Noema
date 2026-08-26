@@ -90,7 +90,6 @@ mod tests {
                 r#"query {
                   task(taskId: "task:foreign") { taskId }
                   taskWorkspaceFile(taskId: "task:foreign", path: "TASK.md") { path }
-                  artifact(artifactId: "artifact:foreign") { artifactId }
                   conversationTranscriptPage(input: { conversationId: "conversation:foreign" }) {
                     pageInfo { limit }
                   }
@@ -99,7 +98,7 @@ mod tests {
                 }"#,
             )
             .await;
-        assert_eq!(query_response.errors.len(), 6);
+        assert_eq!(query_response.errors.len(), 5);
         assert!(
             query_response
                 .errors

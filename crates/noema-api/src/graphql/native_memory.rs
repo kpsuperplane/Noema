@@ -84,15 +84,6 @@ pub struct GraphqlNativeMemoryUpdateStatus {
 }
 
 #[derive(Clone, Debug, SimpleObject)]
-pub struct GraphqlNativeMemorySearchResult {
-    pub id: String,
-    pub path: String,
-    pub title: String,
-    pub snippet: String,
-    pub hash: String,
-}
-
-#[derive(Clone, Debug, SimpleObject)]
 pub struct GraphqlNativeMemoryUpdateResult {
     pub accepted: bool,
     pub status: GraphqlNativeMemoryUpdateStatus,
@@ -160,31 +151,6 @@ pub async fn memory_page(
         Err(NativeMemoryError::InvalidPage(_)) => Ok(None),
         Err(error) => Err(native_error(error)),
     }
-}
-
-pub async fn search_memory(
-    state: &GraphqlState,
-    query: String,
-    limit: Option<i32>,
-) -> Result<Vec<GraphqlNativeMemorySearchResult>> {
-    let memory = state
-        .native_memory()
-        .ok_or_else(|| async_graphql::Error::new("native memory is unavailable"))?;
-    memory
-        .search(&query, limit.unwrap_or(8).clamp(1, 16) as usize)
-        .map(|results| {
-            results
-                .into_iter()
-                .map(|result| GraphqlNativeMemorySearchResult {
-                    id: result.id,
-                    path: result.path,
-                    title: result.title,
-                    snippet: result.snippet,
-                    hash: result.hash,
-                })
-                .collect()
-        })
-        .map_err(native_error)
 }
 
 pub async fn update_memory(

@@ -162,29 +162,6 @@ pub async fn artifacts(
         .collect()
 }
 
-pub async fn artifact(
-    state: &GraphqlState,
-    human_id: &str,
-    artifact_id: String,
-) -> Result<Option<GraphqlArtifact>> {
-    let store = state.store()?;
-    let Some(artifact) = store
-        .get_artifact(&artifact_id)
-        .await
-        .map_err(graphql_error)?
-    else {
-        return Ok(None);
-    };
-    if !store
-        .artifact_owner_is_authorized_for_human(&artifact.artifact.owner, human_id)
-        .await
-        .map_err(graphql_error)?
-    {
-        return Ok(None);
-    }
-    graphql_artifact_from_store(artifact).map(Some)
-}
-
 pub async fn artifact_version_detail(
     state: &GraphqlState,
     human_id: &str,

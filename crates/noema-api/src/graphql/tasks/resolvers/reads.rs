@@ -5,8 +5,8 @@ use std::{
 
 use async_graphql::Result;
 use noema_store::{
-    NoemaStore, ProjectQuery, WorkEventBeforeQuery, WorkEventCursor, WorkOverviewQuery,
-    WorkRunItemCursor, WorkRunItemOwnerScope, WorkRunItemQuery, WorkTaskCursor, WorkTaskQuery,
+    NoemaStore, ProjectQuery, WorkOverviewQuery, WorkRunItemCursor, WorkRunItemOwnerScope,
+    WorkRunItemQuery, WorkTaskCursor, WorkTaskQuery,
 };
 use noema_tasks::{TaskId, WorkflowStageId};
 
@@ -397,56 +397,6 @@ pub(in crate::graphql) async fn needs_you(
         edges,
         page_info: tasks.page_info,
     })
-}
-
-/// Resolve newest-first activity for a workspace/project/task scope.
-pub(in crate::graphql) async fn tasks_activity(
-    state: &GraphqlState,
-    principal_subject: &str,
-    workspace_id: String,
-    project_id: Option<String>,
-    task_id: Option<String>,
-    first: Option<i32>,
-    after: Option<String>,
-) -> Result<GraphqlTaskEventConnection> {
-    require_owner(principal_subject)?;
-    let workspace_id = parse_workspace_id(&workspace_id)?;
-    require_personal_workspace(&workspace_id)?;
-    let project_id = project_id.as_deref().map(parse_project_id).transpose()?;
-    let task_id = task_id.as_deref().map(parse_task_id).transpose()?;
-    if let Some(project_id) = project_id.as_ref() {
-        require_personal_project(state.store()?, project_id).await?;
-    }
-    if let Some(task_id) = task_id.as_ref() {
-        let detail = state
-            .store()?
-            .get_work_task(task_id)
-            .await
-            .map_err(task_error)?
-            .ok_or_else(unavailable)?;
-        if detail.workspace.workspace_id != workspace_id {
-            return Err(unavailable());
-        }
-        require_personal_workspace(&detail.workspace.workspace_id)?;
-    }
-    let before = after
-        .as_deref()
-        .map(WorkEventCursor::decode)
-        .transpose()
-        .map_err(cursor_error)?;
-    state
-        .store()?
-        .list_work_events_before(WorkEventBeforeQuery {
-            workspace_id,
-            project_id,
-            task_id,
-            run_id: None,
-            before,
-            first: page_size(first)?,
-        })
-        .await
-        .map_err(task_error)
-        .and_then(event_connection)
 }
 
 /// Resolve Done and Cancelled task history with a stable kind filter.
