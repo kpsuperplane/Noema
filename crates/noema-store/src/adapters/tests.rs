@@ -53,7 +53,6 @@ async fn fresh_sqlite_rebuilds_exact_definition_projection_from_files() {
         .install(
             &fixture_manifest(serde_json::json!({"kind":"none"})),
             "fixture://independent-company-a/openapi.json",
-            None,
             Some((br#"{"openapi":"3.0.3"}"#, "json")),
         )
         .expect("install");
@@ -92,7 +91,6 @@ async fn fresh_sqlite_rebuilds_connection_projection_without_secret_bytes() {
                 "request_auth":{"language":"luau","source":"return function(input) return { headers = { Authorization = 'Bearer ' .. input.credentials.token } } end"}
             })),
             "fixture://independent-company-b/openapi.json",
-            None,
             None,
         )
         .expect("definition");
