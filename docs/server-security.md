@@ -415,10 +415,13 @@ Access and refresh credentials use these rules:
 - Families have inactivity and absolute expiry.
 - Refresh cannot change the human, client, or audience.
 
-Each client serializes refresh work. The server retains one refresh response in
-a protected transient-auth file for 60 seconds. A retry of the previous token
-returns that same response while its direct successor remains active. Any later
-reuse revokes the family.
+Each client serializes refresh work. A current native client saves one random
+refresh request identifier before transmission. The server retains that exact
+response in a protected transient-auth file until its direct successor is used
+or the family expires. A retry with the same token and request identifier
+returns the same response while the direct successor remains active. A retry
+with another identifier revokes the family. Noema desktop 0.1.x retains the
+60-second legacy retry until desktop adds request-bound refresh for one release.
 
 Token responses use `Cache-Control: no-store`. Token and revocation endpoints
 must not accept browser cookies as native-client authority.
@@ -428,6 +431,10 @@ stores its complete protected profile in the operating-system credential store.
 
 Clients keep access tokens only in memory. They replace stored refresh tokens
 atomically after rotation.
+
+iOS saves refresh intent before transmission. It runs refresh only while active
+and unlocked. One client authority serializes refresh and supplies current
+access state to every transport.
 
 Native clients require HTTPS and never provide a trust-all certificate mode.
 Sign-out clears protected private caches after server revocation.

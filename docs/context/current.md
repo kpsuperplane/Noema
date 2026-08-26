@@ -113,8 +113,11 @@ slice or a net-negative reduction.
   stored bearer credentials are disabled.
 - Browser sessions survive server restarts. A protected cookie key and stored
   session digests preserve authority without placing cookie values in SQLite.
-- Native refresh rotation permits one identical response retry for 60 seconds
-  when a restart interrupts delivery. Later reuse still revokes the family.
+- Native refresh rotation binds recovery to a client-saved request identifier.
+  The exact response remains recoverable while its direct successor is active.
+  Noema desktop 0.1.x retains a 60-second retry until its request-bound release.
+- iOS runs refresh only while active. One connection service owns refresh
+  scheduling, serialization, Keychain reloads, and current transport access.
 - The Tauri app defaults to its embedded host and can connect to one remote
   HTTPS server. Rust owns OAuth, credentials, transport, and local return.
 - Interactive browser sessions belong to one conversation or task generation.

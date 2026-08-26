@@ -58,7 +58,15 @@ xcodebuild \
 
 The app stores one origin, client identifier, and rotating refresh credential
 in Keychain. It uses `WhenUnlockedThisDeviceOnly`. Access tokens remain in
-memory. Apollo stores normalized reads in a protected per-client SQLite cache.
+memory. Before refresh, the app saves a request identifier with the current
+refresh credential. An interrupted refresh reuses both saved values.
+
+One connection service owns access state, refresh timing, and refresh
+serialization. Refresh work runs only while the app is active and the Keychain
+is available. HTTP requests read the current access token. WebSocket headers
+change in place, so rotation does not rebuild Apollo or its subscriptions.
+
+Apollo stores normalized reads in a protected per-client SQLite cache.
 The cache filename includes a client-schema version, so incompatible normalized data is removed.
 The cache is excluded from backup. Mutations are disabled while disconnected.
 Subscriptions pause in the background. Foreground recovery refetches durable
