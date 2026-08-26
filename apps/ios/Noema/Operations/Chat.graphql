@@ -390,7 +390,6 @@ query PendingChatInterventions($conversationId: String, $taskId: String, $projec
         removedOperations
         authenticationChanged
         affectedConnections
-        affectedSchedules
         authenticationRequiredConnections
         consolidatedConnections
       }

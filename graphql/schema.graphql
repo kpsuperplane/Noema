@@ -274,7 +274,6 @@ type AdapterDefinitionTransition {
 	removedOperations: [String!]!
 	authenticationChanged: Boolean!
 	affectedConnections: Int!
-	affectedSchedules: Int!
 	authenticationRequiredConnections: Int!
 	consolidatedConnections: Int!
 }

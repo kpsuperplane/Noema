@@ -195,9 +195,6 @@ pub enum AdapterMigrationError {
     /// A connection descriptor could not be rebound safely.
     #[error("adapter connection migration failed: {0}")]
     Connection(#[from] crate::ConnectionStoreError),
-    /// A polling schedule could not be rebound safely.
-    #[error("adapter schedule migration failed: {0}")]
-    Schedule(#[from] crate::ScheduleError),
     /// Continuation cursors could not be quarantined safely.
     #[error("adapter cursor migration failed: {0}")]
     Cursor(#[from] crate::DurableCursorError),
@@ -314,7 +311,6 @@ pub(crate) struct AdapterCapabilityServiceInner {
     pub(crate) connections: AdapterConnectionStore,
     pub(crate) oauth_authorities: crate::OauthAuthorityStore,
     pub(crate) cursors: crate::DurableCursorStore,
-    schedules: crate::ScheduleStore,
     transitions: crate::transition::DefinitionTransitionJournalStore,
     pub(crate) oauth_callback_mode: Mutex<Option<Oauth2CallbackMode>>,
     migration_lock: Mutex<()>,
@@ -369,7 +365,6 @@ impl AdapterCapabilityService {
                 connections: AdapterConnectionStore::new(paths.clone()),
                 oauth_authorities: crate::OauthAuthorityStore::new(paths.clone()),
                 cursors: crate::DurableCursorStore::new(paths.clone()),
-                schedules: crate::ScheduleStore::new(paths.clone()),
                 transitions: crate::transition::DefinitionTransitionJournalStore::new(paths),
                 oauth_callback_mode: Mutex::new(None),
                 migration_lock: Mutex::new(()),
@@ -609,14 +604,6 @@ impl AdapterCapabilityService {
         }
         transition.consolidated_connections =
             grants.values().map(|count| count.saturating_sub(1)).sum();
-        transition.affected_schedules = self
-            .inner
-            .schedules
-            .scan()
-            .map_err(|_| AdapterManagementError::Unavailable)?
-            .iter()
-            .filter(|schedule| lineage.contains(&schedule.schedule.semantic_digest))
-            .count();
         Ok(transition)
     }
 
@@ -843,46 +830,8 @@ impl AdapterCapabilityService {
                             &reviewed.compiled,
                         )
                         .map_err(|_| AdapterManagementError::Unavailable)?;
-                    for schedule in self
-                        .inner
-                        .schedules
-                        .scan()
-                        .map_err(|_| AdapterManagementError::Unavailable)?
-                        .into_iter()
-                        .filter(|schedule| {
-                            schedule.schedule.connection_id == connection_id
-                                && schedule.schedule.semantic_digest == *replaced_digest
-                        })
-                    {
-                        self.inner
-                            .schedules
-                            .revoke(&schedule.schedule.schedule_id)
-                            .map_err(|_| AdapterManagementError::Unavailable)?;
-                    }
                     continue;
                 }
-                let unchanged_operations = current_definition
-                    .operations
-                    .iter()
-                    .filter(|operation| {
-                        reviewed.compiled.operations.iter().any(|replacement| {
-                            replacement.operation_id == operation.operation_id
-                                && replacement.operation_digest == operation.operation_digest
-                        })
-                    })
-                    .map(|operation| operation.operation_id.clone())
-                    .collect();
-                self.inner
-                    .schedules
-                    .migrate_connection_references(
-                        replaced_digest,
-                        reviewed.compiled.semantic_digest.as_str(),
-                        &connection_id,
-                        &connection_id,
-                        &unchanged_operations,
-                        &self.inner.cursors,
-                    )
-                    .map_err(|_| AdapterManagementError::Unavailable)?;
                 self.inner
                     .connections
                     .rebind_definition_descriptor(
@@ -959,11 +908,6 @@ impl AdapterCapabilityService {
                     .push(connection.descriptor.connection_id.clone());
             }
         }
-        let unchanged_operations = definition
-            .operations
-            .iter()
-            .map(|operation| operation.operation_id.clone())
-            .collect();
         for (grant_id, connection_ids) in &mut by_grant {
             connection_ids.sort();
             let Some(survivor_id) = preferred_by_grant
@@ -981,17 +925,6 @@ impl AdapterCapabilityService {
                 self.inner
                     .connections
                     .merge_oauth_connections(&survivor_id, redundant_id, definition)
-                    .map_err(|_| AdapterManagementError::Unavailable)?;
-                self.inner
-                    .schedules
-                    .migrate_connection_references(
-                        definition.semantic_digest.as_str(),
-                        definition.semantic_digest.as_str(),
-                        redundant_id,
-                        &survivor_id,
-                        &unchanged_operations,
-                        &self.inner.cursors,
-                    )
                     .map_err(|_| AdapterManagementError::Unavailable)?;
                 self.inner
                     .connections
@@ -2498,18 +2431,6 @@ impl AdapterCapabilityService {
                 "definition_has_connections",
             ));
         }
-        for definition in &family {
-            if self
-                .inner
-                .schedules
-                .references_definition(definition.compiled.semantic_digest.as_str())
-                .map_err(|_| crate::DefinitionStoreError::Integrity("schedule_scan_unavailable"))?
-            {
-                return Err(crate::DefinitionStoreError::Integrity(
-                    "definition_has_schedules",
-                ));
-            }
-        }
         for definition in family
             .iter()
             .filter(|definition| definition.compiled.semantic_digest.as_str() != current_digest)
@@ -2602,12 +2523,8 @@ impl AdapterCapabilityService {
         self.inner
             .oauth_authorities
             .install_profile(&crate::reviewed_google_oauth_profile())?;
-        self.inner.schedules.recover()?;
         let legacy_connections = self.inner.connections.quarantine_legacy_descriptors()?;
         let legacy = self.inner.definitions.legacy_definition_digests()?;
-        self.inner
-            .schedules
-            .quarantine_referencing(&legacy, &legacy_connections)?;
         if !legacy_connections.is_empty() {
             self.inner.cursors.quarantine_for_connection_cutover()?;
         }

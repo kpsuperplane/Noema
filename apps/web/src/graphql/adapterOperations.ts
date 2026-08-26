@@ -88,7 +88,6 @@ export const AdapterDefinitionFields = gql`
       removedOperations
       authenticationChanged
       affectedConnections
-      affectedSchedules
       authenticationRequiredConnections
       consolidatedConnections
     }

@@ -27,8 +27,6 @@ pub struct AdapterDefinitionTransition {
     pub authentication_changed: bool,
     /// Connections bound to the replacement lineage.
     pub affected_connections: usize,
-    /// Polling schedules bound to the replacement lineage.
-    pub affected_schedules: usize,
     /// Connections that must receive new authentication.
     pub authentication_required_connections: usize,
     /// Redundant connection records that the migration will consolidate.

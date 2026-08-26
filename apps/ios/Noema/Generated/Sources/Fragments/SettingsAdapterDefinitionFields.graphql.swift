@@ -6,7 +6,7 @@
 
 nonisolated public struct SettingsAdapterDefinitionFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment SettingsAdapterDefinitionFields on AdapterDefinition { __typename semanticDigest definitionId adapterId displayName definitionRevision sourceReference origin authenticationMode oauthProfileDigest scopes credentialSetup { __typename ...AdapterCredentialSetupFields } accountIdentityOperationId manifestJson operations { __typename operationId method path readOnly idempotent destructive openWorld argumentNames responseTransform { __typename language sourceDigest source acceptedContentTypes outputSchemaJson } } transition { __typename addedOperations changedOperations removedOperations authenticationChanged affectedConnections affectedSchedules authenticationRequiredConnections consolidatedConnections } connectionCount connections { __typename connectionId status grantId accountId connectionRevision credentialRevision grantRevision policyRevision grantedScopes allowedOperations policyConfigured operationAccess { __typename operationId status missingScopes } } reviewed superseded nextAction { __typename kind semanticDigest applicationId expectedApplicationRevision grantId expectedGrantRevision connectionId expectedConnectionRevision expectedPolicyRevision operationIds missingScopes } connectionActions { __typename kind semanticDigest applicationId expectedApplicationRevision grantId expectedGrantRevision connectionId expectedConnectionRevision expectedPolicyRevision operationIds missingScopes } }"#
+    #"fragment SettingsAdapterDefinitionFields on AdapterDefinition { __typename semanticDigest definitionId adapterId displayName definitionRevision sourceReference origin authenticationMode oauthProfileDigest scopes credentialSetup { __typename ...AdapterCredentialSetupFields } accountIdentityOperationId manifestJson operations { __typename operationId method path readOnly idempotent destructive openWorld argumentNames responseTransform { __typename language sourceDigest source acceptedContentTypes outputSchemaJson } } transition { __typename addedOperations changedOperations removedOperations authenticationChanged affectedConnections authenticationRequiredConnections consolidatedConnections } connectionCount connections { __typename connectionId status grantId accountId connectionRevision credentialRevision grantRevision policyRevision grantedScopes allowedOperations policyConfigured operationAccess { __typename operationId status missingScopes } } reviewed superseded nextAction { __typename kind semanticDigest applicationId expectedApplicationRevision grantId expectedGrantRevision connectionId expectedConnectionRevision expectedPolicyRevision operationIds missingScopes } connectionActions { __typename kind semanticDigest applicationId expectedApplicationRevision grantId expectedGrantRevision connectionId expectedConnectionRevision expectedPolicyRevision operationIds missingScopes } }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -181,7 +181,6 @@ nonisolated public struct SettingsAdapterDefinitionFields: NoemaAPI.SelectionSet
       .field("removedOperations", [String].self),
       .field("authenticationChanged", Bool.self),
       .field("affectedConnections", Int.self),
-      .field("affectedSchedules", Int.self),
       .field("authenticationRequiredConnections", Int.self),
       .field("consolidatedConnections", Int.self),
     ] }
@@ -194,7 +193,6 @@ nonisolated public struct SettingsAdapterDefinitionFields: NoemaAPI.SelectionSet
     public var removedOperations: [String] { __data["removedOperations"] }
     public var authenticationChanged: Bool { __data["authenticationChanged"] }
     public var affectedConnections: Int { __data["affectedConnections"] }
-    public var affectedSchedules: Int { __data["affectedSchedules"] }
     public var authenticationRequiredConnections: Int { __data["authenticationRequiredConnections"] }
     public var consolidatedConnections: Int { __data["consolidatedConnections"] }
   }

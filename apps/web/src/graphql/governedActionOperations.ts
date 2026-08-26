@@ -214,7 +214,6 @@ export const HumanInterventionFields = gql`
           removedOperations
           authenticationChanged
           affectedConnections
-          affectedSchedules
           authenticationRequiredConnections
           consolidatedConnections
         }

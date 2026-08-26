@@ -263,7 +263,6 @@ pub struct GraphqlAdapterDefinitionTransition {
     pub removed_operations: Vec<String>,
     pub authentication_changed: bool,
     pub affected_connections: i32,
-    pub affected_schedules: i32,
     pub authentication_required_connections: i32,
     pub consolidated_connections: i32,
 }
@@ -1257,7 +1256,6 @@ fn transition_view(
         removed_operations: transition.removed_operations,
         authentication_changed: transition.authentication_changed,
         affected_connections: i32::try_from(transition.affected_connections).unwrap_or(i32::MAX),
-        affected_schedules: i32::try_from(transition.affected_schedules).unwrap_or(i32::MAX),
         authentication_required_connections: i32::try_from(
             transition.authentication_required_connections,
         )

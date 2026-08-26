@@ -44,7 +44,6 @@ type ReviewDefinition = {
     removedOperations: readonly string[];
     authenticationChanged: boolean;
     affectedConnections: number;
-    affectedSchedules: number;
     authenticationRequiredConnections: number;
     consolidatedConnections: number;
   };
@@ -91,11 +90,6 @@ export function AdapterDefinitionReviewDetails({ definition }: { definition: Rev
           {transition.consolidatedConnections > 0 ? (
             <MetadataListItem label="Duplicates removed">
               {countLabel(transition.consolidatedConnections, "connection")}
-            </MetadataListItem>
-          ) : null}
-          {transition.affectedSchedules > 0 ? (
-            <MetadataListItem label="Schedules">
-              {countLabel(transition.affectedSchedules, "schedule")} checked during migration
             </MetadataListItem>
           ) : null}
         </MetadataList>

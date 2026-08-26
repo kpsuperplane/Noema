@@ -575,7 +575,6 @@ fragment SettingsAdapterDefinitionFields on AdapterDefinition {
       removedOperations
       authenticationChanged
       affectedConnections
-      affectedSchedules
       authenticationRequiredConnections
       consolidatedConnections
     }

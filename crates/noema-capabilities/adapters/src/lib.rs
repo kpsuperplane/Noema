@@ -34,7 +34,6 @@ mod response;
 #[cfg(test)]
 #[path = "runtime_tests.rs"]
 mod runtime_tests;
-mod schedule;
 mod service;
 mod setup;
 mod transition;
@@ -87,10 +86,6 @@ pub use openapi::{
 pub use private_fs::{
     create_private_dir, random_hex, read_bounded_regular_file, require_regular_directory,
     sync_directory, write_new_file,
-};
-pub use schedule::{
-    PollCheckpoint, PollRetryPolicy, PollSchedule, ScheduleClaim, ScheduleError, ScheduleInstall,
-    ScheduleLease, ScheduleProjection, ScheduleStore,
 };
 pub use service::{
     AdapterCapabilityService, AdapterConnectionSetupError, AdapterManagementError,
