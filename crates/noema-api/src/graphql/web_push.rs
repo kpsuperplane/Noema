@@ -105,8 +105,7 @@ struct WebPushInner {
     paths: NoemaPaths,
     public_origin: String,
     identity: noema_store::WebPushIdentity,
-    visible: Mutex<HashMap<String, usize>>,
-    client_visible: Mutex<HashMap<String, usize>>,
+    visible: Mutex<HashMap<PresenceKey, usize>>,
     apns_mutation: tokio::sync::Mutex<()>,
     live_activity_mutation: tokio::sync::Mutex<()>,
     apns_client: Client,
@@ -166,7 +165,6 @@ impl NotificationCoordinator {
                 public_origin,
                 identity,
                 visible: Mutex::new(HashMap::new()),
-                client_visible: Mutex::new(HashMap::new()),
                 apns_mutation: tokio::sync::Mutex::new(()),
                 live_activity_mutation: tokio::sync::Mutex::new(()),
                 apns_client,
@@ -258,7 +256,10 @@ impl NotificationCoordinator {
                 "Web Push subscription is unavailable",
             ));
         }
-        let lease = VisibilityLease::new(self.inner.clone(), subscription_id.clone());
+        let lease = VisibilityLease::new(
+            self.inner.clone(),
+            PresenceKey::Browser(subscription_id.clone()),
+        );
         Ok(async_stream::stream! {
             let _lease = lease;
             yield GraphqlWebPushPresenceEvent { subscription_id, ready: true };
@@ -570,7 +571,8 @@ impl NotificationCoordinator {
                 "client notification registration is unavailable",
             ));
         }
-        let lease = ClientVisibilityLease::new(self.inner.clone(), client_id.clone());
+        let lease =
+            VisibilityLease::new(self.inner.clone(), PresenceKey::Client(client_id.clone()));
         Ok(async_stream::stream! {
             let _lease = lease;
             yield GraphqlClientNotificationPresenceEvent { client_id, ready: true };
@@ -945,26 +947,41 @@ impl NotificationCoordinator {
     fn visible_subscriptions(&self) -> HashSet<String> {
         self.inner.visible.lock().map_or_else(
             |_| HashSet::new(),
-            |visible| visible.keys().cloned().collect(),
+            |visible| {
+                visible
+                    .keys()
+                    .filter_map(|key| match key {
+                        PresenceKey::Browser(id) => Some(id.clone()),
+                        PresenceKey::Client(_) => None,
+                    })
+                    .collect()
+            },
         )
     }
     fn is_visible(&self, subscription_id: &str) -> bool {
-        self.inner
-            .visible
-            .lock()
-            .is_ok_and(|visible| visible.contains_key(subscription_id))
+        self.inner.visible.lock().is_ok_and(|visible| {
+            visible.contains_key(&PresenceKey::Browser(subscription_id.to_string()))
+        })
     }
     fn visible_clients(&self) -> HashSet<String> {
-        self.inner.client_visible.lock().map_or_else(
+        self.inner.visible.lock().map_or_else(
             |_| HashSet::new(),
-            |visible| visible.keys().cloned().collect(),
+            |visible| {
+                visible
+                    .keys()
+                    .filter_map(|key| match key {
+                        PresenceKey::Browser(_) => None,
+                        PresenceKey::Client(id) => Some(id.clone()),
+                    })
+                    .collect()
+            },
         )
     }
     fn is_client_visible(&self, client_id: &str) -> bool {
         self.inner
-            .client_visible
+            .visible
             .lock()
-            .is_ok_and(|visible| visible.contains_key(client_id))
+            .is_ok_and(|visible| visible.contains_key(&PresenceKey::Client(client_id.to_string())))
     }
     async fn live_delivery_is_current(&self, delivery: &ClaimedLiveActivityDelivery) -> bool {
         let Some(activity_id) = delivery.activity_id.as_deref() else {
@@ -2140,58 +2157,34 @@ fn decode_live_token(value: &str) -> Result<Vec<u8>> {
     Ok(token)
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum PresenceKey {
+    Browser(String),
+    Client(String),
+}
+
 struct VisibilityLease {
     inner: Arc<WebPushInner>,
-    subscription_id: String,
+    key: PresenceKey,
 }
 
 impl VisibilityLease {
-    fn new(inner: Arc<WebPushInner>, subscription_id: String) -> Self {
+    fn new(inner: Arc<WebPushInner>, key: PresenceKey) -> Self {
         if let Ok(mut visible) = inner.visible.lock() {
-            *visible.entry(subscription_id.clone()).or_default() += 1;
+            *visible.entry(key.clone()).or_default() += 1;
         }
-        Self {
-            inner,
-            subscription_id,
-        }
+        Self { inner, key }
     }
 }
 
 impl Drop for VisibilityLease {
     fn drop(&mut self) {
         if let Ok(mut visible) = self.inner.visible.lock()
-            && let Some(count) = visible.get_mut(&self.subscription_id)
+            && let Some(count) = visible.get_mut(&self.key)
         {
             *count -= 1;
             if *count == 0 {
-                visible.remove(&self.subscription_id);
-            }
-        }
-    }
-}
-
-struct ClientVisibilityLease {
-    inner: Arc<WebPushInner>,
-    client_id: String,
-}
-
-impl ClientVisibilityLease {
-    fn new(inner: Arc<WebPushInner>, client_id: String) -> Self {
-        if let Ok(mut visible) = inner.client_visible.lock() {
-            *visible.entry(client_id.clone()).or_default() += 1;
-        }
-        Self { inner, client_id }
-    }
-}
-
-impl Drop for ClientVisibilityLease {
-    fn drop(&mut self) {
-        if let Ok(mut visible) = self.inner.client_visible.lock()
-            && let Some(count) = visible.get_mut(&self.client_id)
-        {
-            *count -= 1;
-            if *count == 0 {
-                visible.remove(&self.client_id);
+                visible.remove(&self.key);
             }
         }
     }
