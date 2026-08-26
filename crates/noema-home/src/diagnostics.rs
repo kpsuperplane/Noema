@@ -4,7 +4,6 @@ use std::{
     ffi::OsString,
     fs::{self, OpenOptions},
     io::Write,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::PathBuf,
     sync::Mutex,
 };
@@ -17,7 +16,7 @@ use serde_json::{Value, json};
 use thiserror::Error;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
-use crate::NoemaPaths;
+use crate::{NoemaPaths, ensure_private_dir, ensure_private_file};
 
 const MAX_LOG_BYTES: usize = 48 * 1024 * 1024;
 const MAX_EVENT_BYTES: usize = 256 * 1024;
@@ -62,7 +61,7 @@ impl SystemErrorLogger {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent).map_err(SystemErrorWriteError::CreateDirectory)?;
+            ensure_private_dir(parent).map_err(SystemErrorWriteError::CreateDirectory)?;
         }
         let line = serde_json::to_string(&event).map_err(SystemErrorWriteError::Serialize)?;
         let write_bytes = line.len().saturating_add(1);
@@ -73,14 +72,17 @@ impl SystemErrorLogger {
             });
         }
         self.rotate_if_needed(write_bytes, max_log_bytes)?;
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
+        let mut options = OpenOptions::new();
+        options.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options
             .open(&self.path)
             .map_err(SystemErrorWriteError::Open)?;
-        file.set_permissions(fs::Permissions::from_mode(0o600))
-            .map_err(SystemErrorWriteError::SetPermissions)?;
+        ensure_private_file(&self.path).map_err(SystemErrorWriteError::SetPermissions)?;
         writeln!(file, "{line}").map_err(SystemErrorWriteError::Write)
     }
 
@@ -113,8 +115,7 @@ impl SystemErrorLogger {
             Err(error) => return Err(SystemErrorWriteError::RemoveBackup(error)),
         }
         fs::rename(&self.path, &backup_path).map_err(SystemErrorWriteError::Rotate)?;
-        fs::set_permissions(&backup_path, fs::Permissions::from_mode(0o600))
-            .map_err(SystemErrorWriteError::SetPermissions)
+        ensure_private_file(&backup_path).map_err(SystemErrorWriteError::SetPermissions)
     }
 
     /// Best-effort append that never panics or masks the caller's original error.
@@ -219,6 +220,8 @@ enum SystemErrorWriteError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
 
     fn read_events(path: &Path) -> Vec<Value> {
         fs::read_to_string(path)
@@ -255,6 +258,7 @@ mod tests {
         assert_eq!(events[0]["raw"]["provider_text"], "line one\nline two");
         assert_eq!(events[1]["category"], "second_failure");
         assert_eq!(events[1]["error_chain"], json!(["outer", "inner"]));
+        #[cfg(unix)]
         assert_eq!(
             fs::metadata(logger.path())
                 .expect("error log metadata")

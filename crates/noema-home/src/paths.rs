@@ -25,10 +25,13 @@ impl NoemaPaths {
     ///
     /// # Errors
     ///
-    /// Returns [`NoemaPathError`] when neither `NOEMA_HOME` nor `HOME` can
-    /// produce a valid Noema root.
+    /// Returns [`NoemaPathError`] when no explicit or platform home directory
+    /// can produce a valid Noema root.
     pub fn from_process_env() -> Result<Self, NoemaPathError> {
-        Self::from_env_values(env::var_os(NOEMA_HOME_ENV), env::var_os("HOME"))
+        let home = env::var_os("HOME");
+        #[cfg(windows)]
+        let home = home.or_else(|| env::var_os("USERPROFILE"));
+        Self::from_env_values(env::var_os(NOEMA_HOME_ENV), home)
     }
 
     /// Resolve paths from explicit environment values.
@@ -413,8 +416,8 @@ impl NoemaPaths {
 /// Errors produced while resolving Noema paths.
 #[derive(Debug, Error)]
 pub enum NoemaPathError {
-    /// Neither `NOEMA_HOME` nor `HOME` could determine a root directory.
-    #[error("could not determine Noema directory; set NOEMA_HOME or HOME")]
+    /// No explicit or platform home directory could determine a root.
+    #[error("could not determine Noema directory; set NOEMA_HOME or a platform home directory")]
     MissingHome,
 
     /// The `NOEMA_HOME` value was present but empty.
