@@ -2,7 +2,7 @@ use super::*;
 use figment::{Figment, providers::Serialized};
 use noema_providers::{
     CodexProviderConfig, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_TIMEOUT_SECONDS,
-    DEFAULT_OPENAI_MODEL, LocalModelBackend,
+    DEFAULT_OPENAI_MODEL,
 };
 use serde_json::{Number, Value};
 use std::path::PathBuf;
@@ -121,7 +121,6 @@ reasoning_effort: medium
 provider: local_models
 model: ternary-bonsai-8b
 local_models:
-  preferred_backend: metal
   context_window_tokens: 16384
   timeout_seconds: 900
   startup_timeout_seconds: 240
@@ -136,7 +135,7 @@ local_models:
     };
     assert_eq!(config.default_model, "ternary-bonsai-8b");
     assert_eq!(config.model_path, None);
-    assert_eq!(config.preferred_backend, Some(LocalModelBackend::Metal));
+    assert_eq!(config.preferred_backend, None);
     assert_eq!(config.context_window_tokens, 16_384);
     assert_eq!(config.timeout_seconds, 900);
     assert_eq!(config.startup_timeout_seconds, 240);

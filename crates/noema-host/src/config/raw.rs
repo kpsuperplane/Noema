@@ -6,9 +6,8 @@ use noema_providers::{
     DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS, DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
     DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_TIMEOUT_SECONDS,
     DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_MODEL, DEFAULT_OPENROUTER_TIMEOUT_SECONDS,
-    DEFAULT_PROVIDER, FoundationLocalProviderConfig, LocalModelBackend, LocalModelsProviderConfig,
-    OPENAI_API_KEY_ENV, OpenAiProviderConfig, OpenRouterProviderConfig, ProviderConfig,
-    ProviderKind, ReasoningEffort,
+    DEFAULT_PROVIDER, FoundationLocalProviderConfig, LocalModelsProviderConfig, OPENAI_API_KEY_ENV,
+    OpenAiProviderConfig, OpenRouterProviderConfig, ProviderConfig, ProviderKind, ReasoningEffort,
 };
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, str::FromStr};
@@ -192,17 +191,10 @@ impl RawConfig {
             .or_else(|| non_empty_option(Some(self.local_models.default_model.as_str())))
             .unwrap_or(DEFAULT_LOCAL_MODELS_PROFILE)
             .to_string();
-        let preferred_backend = self
-            .local_models
-            .preferred_backend
-            .as_deref()
-            .map(parse_local_model_backend)
-            .transpose()?;
-
         Ok(LocalModelsProviderConfig {
             default_model,
             model_path: None,
-            preferred_backend,
+            preferred_backend: None,
             runtime_root: None,
             context_window_tokens: require_positive(
                 self.local_models.context_window_tokens,
@@ -305,7 +297,6 @@ impl Default for RawFoundationLocalConfig {
 #[serde(default, deny_unknown_fields)]
 struct RawLocalModelsConfig {
     default_model: String,
-    preferred_backend: Option<String>,
     context_window_tokens: u32,
     timeout_seconds: u64,
     startup_timeout_seconds: u64,
@@ -315,7 +306,6 @@ impl Default for RawLocalModelsConfig {
     fn default() -> Self {
         Self {
             default_model: DEFAULT_LOCAL_MODELS_PROFILE.to_string(),
-            preferred_backend: None,
             context_window_tokens: DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
             timeout_seconds: DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
             startup_timeout_seconds: DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
@@ -339,16 +329,6 @@ where
     } else {
         Ok(value)
     }
-}
-
-fn parse_local_model_backend(value: &str) -> Result<LocalModelBackend, ConfigError> {
-    value
-        .trim()
-        .to_ascii_lowercase()
-        .parse()
-        .map_err(|_| ConfigError::InvalidConfig {
-            message: format!("unsupported local_models preferred_backend `{value}`"),
-        })
 }
 
 fn validate_reasoning_config(
