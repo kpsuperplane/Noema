@@ -73,9 +73,7 @@ pub(crate) fn ready_server() -> McpControlPlaneServer {
         description: Some("Read documents".to_string()),
         input_schema: json!({"type": "object"}),
         output_schema: Some(json!({"type": "object"})),
-        annotations: json!({"readOnlyHint": true}),
         metadata_fingerprint: "fingerprint:v1".to_string(),
-        discovered_at: "now".to_string(),
     };
     let annotation = |value| McpToolHint {
         value: Some(value),

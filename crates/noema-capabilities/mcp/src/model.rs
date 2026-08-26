@@ -224,12 +224,8 @@ pub struct McpToolRecord {
     pub input_schema: Value,
     /// Optional MCP output schema.
     pub output_schema: Option<Value>,
-    /// MCP annotations captured as non-authoritative setup hints.
-    pub annotations: Value,
     /// Fingerprint of the metadata snapshot.
     pub metadata_fingerprint: String,
-    /// Discovery timestamp string.
-    pub discovered_at: String,
 }
 
 /// MCP compatibility name for one source-neutral behavior hint.

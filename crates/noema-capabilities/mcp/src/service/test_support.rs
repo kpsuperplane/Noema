@@ -691,9 +691,7 @@ fn tool_record(server_id: &str, index: usize, tool: McpDiscoveredTool) -> McpToo
         description: tool.description,
         input_schema: tool.input_schema,
         output_schema: tool.output_schema,
-        annotations: tool.annotations,
         metadata_fingerprint: tool.metadata_fingerprint,
-        discovered_at: "now".to_string(),
     }
 }
 

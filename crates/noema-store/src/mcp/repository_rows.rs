@@ -95,7 +95,7 @@ pub(super) fn invocation_snapshot_on_connection(
                 let tool = tool_record_from_row(row, 21)?.ok_or_else(|| {
                     rusqlite::Error::InvalidColumnType(21, "mcp_tool_id".to_string(), Type::Null)
                 })?;
-                let policy = tool_policy_from_row(row, 30)?;
+                let policy = tool_policy_from_row(row, 28)?;
                 Ok(McpInvocationSnapshot {
                     server,
                     tool,
@@ -180,10 +180,10 @@ fn collect_control_plane_rows(
 fn joined_control_plane_row(row: &Row<'_>) -> rusqlite::Result<JoinedControlPlaneRow> {
     let server = server_record_from_row(row)?;
     let tool = tool_record_from_row(row, 21)?;
-    let policy = tool_policy_from_row(row, 30)?;
+    let policy = tool_policy_from_row(row, 28)?;
     if tool.is_none() && policy.is_some() {
         return Err(rusqlite::Error::InvalidColumnType(
-            30,
+            28,
             "mcp_tool_id".to_string(),
             Type::Text,
         ));
@@ -261,9 +261,7 @@ fn tool_record_from_row(row: &Row<'_>, offset: usize) -> rusqlite::Result<Option
         description: row.get(offset + 3)?,
         input_schema: parse_json(row.get(offset + 4)?, offset + 4)?,
         output_schema,
-        annotations: parse_json(row.get(offset + 6)?, offset + 6)?,
-        metadata_fingerprint: row.get(offset + 7)?,
-        discovered_at: row.get(offset + 8)?,
+        metadata_fingerprint: row.get(offset + 6)?,
     }))
 }
 
@@ -337,7 +335,7 @@ macro_rules! server_record_fields {
 macro_rules! tool_and_policy_fields {
     () => {
         r#"t.mcp_tool_id, t.mcp_server_id, t.name, t.description, t.input_schema_json,
-  t.output_schema_json, t.annotations_json, t.metadata_fingerprint, t.discovered_at,
+  t.output_schema_json, t.metadata_fingerprint,
   p.mcp_tool_id, p.read_only, p.read_only_source, p.idempotent, p.idempotent_source,
   p.destructive, p.destructive_source, p.open_world, p.open_world_source,
   p.status, p.policy_revision, p.metadata_fingerprint"#
