@@ -144,7 +144,12 @@ impl OpenRouterProvider {
                 on_event,
             )
             .await?;
-        response.finalize(&names, transport, &diagnostics)
+        response.finalize(
+            &names,
+            transport,
+            &diagnostics.provider_kind,
+            &diagnostics.model,
+        )
     }
 
     async fn context_window_tokens(&self, model: Option<&str>) -> u32 {

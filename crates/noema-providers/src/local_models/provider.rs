@@ -3,25 +3,23 @@
 use std::{fmt, time::Duration};
 
 use futures_util::StreamExt;
-use serde_json::json;
+use serde::Deserialize;
+use serde_json::{Value, json};
 
 use super::{
     LlamaServerConfig, LlamaServerError, LlamaServerSupervisor, bundled_llama_server_candidates_in,
 };
 use crate::{
-    GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseItem,
-    GenerateStreamEvent, GenerateToolCall, LocalModelsProviderConfig, ModelProvider,
-    NoemaToolChoice, ProviderContextMetadata, ProviderError, ProviderTool,
-    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
-    reqwest_transport_error,
+    GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateStreamEvent,
+    LocalModelsProviderConfig, ModelProvider, NoemaToolChoice, ProviderContextMetadata,
+    ProviderError, ProviderTool, ProviderToolCapabilities, ProviderToolSchemaDialect,
+    ProviderToolTransport, chat_completions::ChatSseAccumulator, reqwest_transport_error,
 };
 use noema_capabilities::ToolSpec;
 
 use request::ChatCompletionRequest;
-use streaming::{ChatSseAccumulator, ChatStreamEvent, ChatStreamOutput, TokenizeResponse};
 
 mod request;
-mod streaming;
 
 /// Stable provider identifier for first-party local GGUF inference.
 pub const LOCAL_MODELS_PROVIDER: &str = "local_models";
@@ -135,7 +133,7 @@ impl LocalModelsProvider {
         request: &GenerateRequest,
         model: &str,
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
-    ) -> Result<ChatStreamOutput, ProviderError> {
+    ) -> Result<GenerateResponse, ProviderError> {
         let _generation_permit = self
             .supervisor
             .acquire_generation(request.options.generation_priority)
@@ -152,7 +150,7 @@ impl LocalModelsProvider {
             .map_err(|error| ProviderError::InvalidRequest {
                 message: format!("invalid local inference endpoint: {error}"),
             })?;
-        let body = ChatCompletionRequest::from_generate(request, model.to_string())?;
+        let (body, tool_names) = ChatCompletionRequest::from_generate(request, model.to_string())?;
         let response = self
             .client
             .post(url)
@@ -176,37 +174,19 @@ impl LocalModelsProvider {
         }
 
         let mut stream = response.bytes_stream();
-        let mut accumulator = ChatSseAccumulator::default();
+        let mut accumulator = ChatSseAccumulator::new();
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|source| {
                 reqwest_transport_error(LOCAL_MODELS_PROVIDER, "read_generation_stream", &source)
             })?;
-            accumulator.push_bytes(&chunk, |event| forward_stream_event(event, on_event))?;
+            accumulator.push_bytes(&chunk, on_event)?;
         }
-        accumulator.finish(|event| forward_stream_event(event, on_event))
-    }
-}
-
-fn forward_stream_event(
-    event: ChatStreamEvent,
-    on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
-) {
-    match event {
-        ChatStreamEvent::AssistantTextDelta(delta) => {
-            on_event(GenerateStreamEvent::AssistantTextDelta {
-                response_index: 0,
-                delta,
-            });
-        }
-        ChatStreamEvent::ToolCallStarted {
-            output_index,
-            provider_call_id,
-            name,
-        } => on_event(GenerateStreamEvent::ToolCallStarted {
-            output_index,
-            provider_call_id,
-            name,
-        }),
+        accumulator.finish(on_event)?.finalize(
+            &tool_names,
+            request.tool_transport,
+            LOCAL_MODELS_PROVIDER,
+            model,
+        )
     }
 }
 
@@ -391,89 +371,16 @@ impl ModelProvider for LocalModelsProvider {
         on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<GenerateResponse, ProviderError> {
         let model = self.selected_model(request.model.as_deref())?;
-        let stream = self.send_chat_stream(&request, &model, on_event).await?;
-        let tool_calls = canonicalize_tool_calls(stream.tool_calls, &request)?;
-        let responses = if stream.text.trim().is_empty() {
-            Vec::new()
-        } else {
-            vec![GenerateResponseItem::Text {
-                id: None,
-                phase: None,
-                text: stream.text,
-                citations: Vec::new(),
-            }]
-        };
-        Ok(GenerateResponse {
-            replay_items: Vec::new(),
-            responses,
-            tool_calls,
-            reasoning_items: Vec::new(),
-            hosted_web_searches: Vec::new(),
-            provider: LOCAL_MODELS_PROVIDER.to_string(),
-            model: stream.model.unwrap_or(model),
-            response_id: stream.response_id,
-            usage: stream.usage,
-        })
+        self.send_chat_stream(&request, &model, on_event).await
     }
 }
 
-fn canonicalize_tool_calls(
-    calls: Vec<GenerateToolCall>,
-    request: &GenerateRequest,
-) -> Result<Vec<GenerateToolCall>, ProviderError> {
-    let selected_tools = request_tools_for_response(request)?;
-    calls
-        .into_iter()
-        .map(|mut call| {
-            let Some(tool) = selected_tools
-                .iter()
-                .find(|tool| tool.exposed_name() == call.name)
-            else {
-                return Err(ProviderError::MalformedResponse {
-                    message: format!("local model returned an unadvertised tool `{}`", call.name),
-                });
-            };
-            call.provider_name = Some(call.name.clone());
-            call.name = tool.canonical_spec().name.as_str().to_string();
-            Ok(call)
-        })
-        .collect()
-}
-
-fn request_tools_for_response(
-    request: &GenerateRequest,
-) -> Result<Vec<&crate::ProviderTool>, ProviderError> {
-    match &request.tool_choice {
-        crate::NoemaToolChoice::None => Ok(Vec::new()),
-        crate::NoemaToolChoice::Auto | crate::NoemaToolChoice::Required => {
-            if matches!(&request.tool_choice, crate::NoemaToolChoice::Required)
-                && request.tools.is_empty()
-            {
-                return Err(ProviderError::InvalidRequest {
-                    message: "required tool choice needs a non-empty tool catalog".to_string(),
-                });
-            }
-            Ok(request.tools.iter().collect())
-        }
-        crate::NoemaToolChoice::Allowed(allowed) => {
-            let mut selected = Vec::with_capacity(allowed.tools.len());
-            for allowed_name in &allowed.tools {
-                let Some(tool) = request
-                    .tools
-                    .iter()
-                    .find(|tool| &tool.canonical_spec().name == allowed_name)
-                else {
-                    return Err(ProviderError::InvalidRequest {
-                        message: format!(
-                            "allowed tool {allowed_name} is not present in the request tool catalog"
-                        ),
-                    });
-                };
-                selected.push(tool);
-            }
-            Ok(selected)
-        }
-    }
+#[derive(Debug, Deserialize)]
+struct TokenizeResponse {
+    #[serde(default)]
+    tokens: Option<Vec<Value>>,
+    #[serde(default)]
+    count: Option<usize>,
 }
 
 #[cfg(test)]
@@ -481,7 +388,7 @@ mod tests {
     use super::*;
     use crate as noema_providers;
     use crate::{
-        GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole,
+        GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateToolCall,
         GenerateToolCallInput, GenerateToolResultInput,
     };
     use serde_json::Value;
@@ -538,7 +445,7 @@ mod tests {
         request.options.max_output_tokens = Some(321);
         request.options.temperature = Some(0.2);
 
-        let body = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+        let (body, _) = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
             .expect("chat request");
 
         assert_eq!(body.messages.len(), 5);
@@ -580,7 +487,7 @@ mod tests {
             },
         ]);
 
-        let body = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+        let (body, _) = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
             .expect("chat request");
 
         assert_eq!(body.messages.len(), 2);
@@ -599,7 +506,7 @@ mod tests {
             vec![test_tool("search_memory", serde_json::json!({}))],
             noema_providers::NoemaToolChoice::Auto,
         );
-        let body = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+        let (body, _) = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
             .expect("chat request");
         let wire = serde_json::to_value(&body).expect("wire request");
 
@@ -613,7 +520,7 @@ mod tests {
     #[test]
     fn native_tool_qualification_requests_one_required_empty_object_function() {
         let request = native_tool_qualification_request("local-8b").expect("qualification request");
-        let body = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+        let (body, _) = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
             .expect("chat request");
         let wire = serde_json::to_value(&body).expect("wire request");
 
@@ -688,7 +595,7 @@ mod tests {
             )],
             noema_providers::NoemaToolChoice::Required,
         );
-        let body = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+        let (body, _) = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
             .expect("chat request");
         let wire = serde_json::to_value(&body).expect("wire request");
 
@@ -725,7 +632,7 @@ mod tests {
                 tools: vec![first.name],
             }),
         );
-        let body = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+        let (body, _) = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
             .expect("chat request");
         let wire = serde_json::to_value(&body).expect("wire request");
 
@@ -751,7 +658,7 @@ mod tests {
         );
         let source_schema = tool.input_schema.clone();
         let request = tool_request(vec![tool], noema_providers::NoemaToolChoice::Auto);
-        let body = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+        let (body, _) = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
             .expect("chat request");
         let wire = serde_json::to_value(&body).expect("wire request");
         let title = &wire["tools"][0]["function"]["parameters"]["properties"]["title"];

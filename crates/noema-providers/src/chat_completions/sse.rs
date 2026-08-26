@@ -4,10 +4,10 @@ use crate::response_support::sse::{SseEvent, next_sse_event_boundary, parse_sse_
 use crate::{GenerateStreamEvent, ProviderError};
 use serde_json::Value;
 
+use super::ChatUsage;
 use super::output::{
     ChatChoice, ChatCompletionResponse, ChatOutputFunction, ChatOutputMessage, ChatOutputToolCall,
 };
-use super::request::ChatUsage;
 
 pub(crate) struct ChatSseAccumulator {
     pending: Vec<u8>,

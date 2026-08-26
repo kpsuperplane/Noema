@@ -218,7 +218,12 @@ fn strict_provider_output_returns_to_nested_source_form() {
     .expect("provider response");
     let diagnostics = StructuredResponseDiagnosticContext::new(None, "openrouter", "auto", None);
     let normalized = response
-        .finalize(&names, ProviderToolTransport::Native, &diagnostics)
+        .finalize(
+            &names,
+            ProviderToolTransport::Native,
+            &diagnostics.provider_kind,
+            &diagnostics.model,
+        )
         .expect("normalized response");
     assert_eq!(
         normalized.tool_calls[0].payload,
@@ -274,7 +279,12 @@ data: [DONE]
     .expect("tool names");
     let response = accumulator.finish(&mut |_| {}).expect("response");
     let normalized = response
-        .finalize(&names, ProviderToolTransport::Native, &diagnostics)
+        .finalize(
+            &names,
+            ProviderToolTransport::Native,
+            &diagnostics.provider_kind,
+            &diagnostics.model,
+        )
         .expect("normalized response");
 
     assert_eq!(normalized.assistant_text(), "Hello");
@@ -359,7 +369,12 @@ data: [DONE]
     let normalized = accumulator
         .finish(&mut |_| {})
         .expect("response")
-        .finalize(&names, ProviderToolTransport::Native, &diagnostics)
+        .finalize(
+            &names,
+            ProviderToolTransport::Native,
+            &diagnostics.provider_kind,
+            &diagnostics.model,
+        )
         .expect("normalized response");
 
     assert_eq!(normalized.hosted_web_searches.len(), 2);

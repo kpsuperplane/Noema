@@ -1,10 +1,11 @@
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::response_support::tool_names::OpenAiToolDefinition;
 use crate::{
     GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateRequest, GenerateToolCallInput,
     GenerateToolResultInput, NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice,
-    ProviderError, ProviderTool,
+    ProviderError, ProviderSchemaRequest, ProviderTool, chat_completions::OpenAiToolNameMap,
 };
 
 #[derive(Debug, Serialize)]
@@ -31,7 +32,7 @@ impl ChatCompletionRequest {
     pub(super) fn from_generate(
         request: &GenerateRequest,
         model: String,
-    ) -> Result<Self, ProviderError> {
+    ) -> Result<(Self, OpenAiToolNameMap), ProviderError> {
         let mut messages = Vec::new();
         if let Some(instructions) = request
             .instructions
@@ -47,32 +48,43 @@ impl ChatCompletionRequest {
             });
         }
         let selected_tools = selected_local_tools(request)?;
-        let tools = (!selected_tools.is_empty()).then(|| {
-            selected_tools
+        let tool_names = OpenAiToolNameMap::from_tools_with_request(
+            &selected_tools
                 .iter()
-                .map(|tool| ChatTool::from_provider_tool(tool))
+                .map(|tool| (*tool).clone())
+                .collect::<Vec<_>>(),
+            ProviderSchemaRequest::Send,
+        )?;
+        let tools = (!tool_names.definitions.is_empty()).then(|| {
+            tool_names
+                .definitions
+                .iter()
+                .map(ChatTool::from_definition)
                 .collect::<Vec<_>>()
         });
         let tool_choice = tools
             .as_ref()
             .map(|_| chat_tool_choice(&request.tool_choice));
-        Ok(Self {
-            model,
-            messages,
-            stream: true,
-            stream_options: ChatStreamOptions {
-                include_usage: true,
+        Ok((
+            Self {
+                model,
+                messages,
+                stream: true,
+                stream_options: ChatStreamOptions {
+                    include_usage: true,
+                },
+                cache_prompt: true,
+                chat_template_kwargs: ChatTemplateKwargs {
+                    enable_thinking: false,
+                },
+                max_tokens: request.options.max_output_tokens,
+                temperature: request.options.temperature,
+                parallel_tool_calls: tools.as_ref().map(|_| request.parallel_tool_calls),
+                tools,
+                tool_choice,
             },
-            cache_prompt: true,
-            chat_template_kwargs: ChatTemplateKwargs {
-                enable_thinking: false,
-            },
-            max_tokens: request.options.max_output_tokens,
-            temperature: request.options.temperature,
-            parallel_tool_calls: tools.as_ref().map(|_| request.parallel_tool_calls),
-            tools,
-            tool_choice,
-        })
+            tool_names,
+        ))
     }
 }
 
@@ -245,14 +257,14 @@ pub(super) struct ChatTool {
 }
 
 impl ChatTool {
-    fn from_provider_tool(tool: &ProviderTool) -> Self {
-        let mut parameters = tool.input_schema.as_value().clone();
+    fn from_definition(definition: &OpenAiToolDefinition) -> Self {
+        let mut parameters = definition.parameters.clone();
         normalize_llama_cpp_schema(&mut parameters);
         Self {
             kind: "function",
             function: ChatFunction {
-                name: tool.exposed_name().to_string(),
-                description: tool.description.clone(),
+                name: definition.name.clone(),
+                description: definition.description.clone(),
                 parameters,
             },
         }

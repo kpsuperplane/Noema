@@ -4,7 +4,7 @@ use crate::{
     GenerateRequest, GenerateToolCallInput, GenerateToolResultInput, NoemaToolChoice,
     ProviderError, ProviderSchemaRequestCapabilities, ProviderToolTransport, ReasoningEffort,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 
 pub(crate) use crate::response_support::tool_names::OpenAiToolNameMap;
@@ -207,32 +207,6 @@ pub(crate) struct ChatHostedWebSearchTool {
 #[derive(Debug, Clone, Copy, Serialize)]
 pub(crate) struct ChatStreamOptions {
     pub(crate) include_usage: bool,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub(crate) struct ChatUsage {
-    #[serde(default, alias = "input_tokens")]
-    pub(crate) prompt_tokens: u64,
-    #[serde(default, alias = "output_tokens")]
-    pub(crate) completion_tokens: u64,
-    #[serde(default)]
-    pub(crate) total_tokens: u64,
-    #[serde(default)]
-    pub(crate) prompt_tokens_details: Option<ChatPromptTokenDetails>,
-    #[serde(default)]
-    pub(crate) server_tool_use: Option<ChatServerToolUse>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub(crate) struct ChatPromptTokenDetails {
-    #[serde(default)]
-    pub(crate) cached_tokens: u64,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub(crate) struct ChatServerToolUse {
-    #[serde(default)]
-    pub(crate) web_search_requests: u64,
 }
 
 fn messages_from_generate(input: &GenerateInput, instructions: Option<&str>) -> Vec<ChatMessage> {

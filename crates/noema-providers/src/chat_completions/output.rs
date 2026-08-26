@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use crate::response_support::StructuredResponseDiagnosticContext;
 use crate::{
     GenerateCitation, GenerateHostedWebSearch, GenerateReasoningItem, GenerateResponse,
     GenerateResponseItem, ProviderError, ProviderToolTransport, TokenUsage,
@@ -58,7 +57,8 @@ impl ChatCompletionResponse {
         self,
         tool_names: &OpenAiToolNameMap,
         tool_transport: ProviderToolTransport,
-        diagnostics: &StructuredResponseDiagnosticContext,
+        provider: &str,
+        model: &str,
     ) -> Result<GenerateResponse, ProviderError> {
         let tool_calls = self.native_tool_calls_with_names(tool_names)?;
         if !tool_calls.is_empty() && tool_transport != ProviderToolTransport::Native {
@@ -96,8 +96,8 @@ impl ChatCompletionResponse {
             tool_calls,
             reasoning_items: self.reasoning_items(),
             hosted_web_searches: self.hosted_web_searches(),
-            provider: diagnostics.provider_kind.clone(),
-            model: self.model.unwrap_or_else(|| diagnostics.model.clone()),
+            provider: provider.to_string(),
+            model: self.model.unwrap_or_else(|| model.to_string()),
             response_id: self.id,
             usage: self.usage.map(Into::into),
         })

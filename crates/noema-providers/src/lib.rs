@@ -6,7 +6,7 @@
 /// Concrete provider adapters and provider-owned integration services.
 #[cfg(feature = "adapters")]
 mod adapters;
-#[cfg(feature = "adapters")]
+#[cfg(any(feature = "adapters", feature = "local-models"))]
 pub(crate) mod chat_completions;
 
 mod account_operations;

@@ -11,6 +11,7 @@ pub(crate) struct OpenAiToolDefinition {
     pub(crate) name: String,
     pub(crate) description: String,
     pub(crate) parameters: Value,
+    #[cfg(feature = "adapters")]
     pub(crate) strict: Option<bool>,
 }
 
@@ -18,6 +19,7 @@ pub(crate) struct OpenAiToolDefinition {
 pub(crate) struct OpenAiToolNameMap {
     pub(crate) definitions: Vec<OpenAiToolDefinition>,
     provider_to_canonical: HashMap<String, String>,
+    #[cfg(feature = "adapters")]
     canonical_to_provider: HashMap<String, String>,
     return_rules: HashMap<String, ToolReturnRules>,
 }
@@ -35,6 +37,7 @@ impl OpenAiToolNameMap {
     ) -> Result<Self, ProviderError> {
         let mut definitions = Vec::with_capacity(tools.len());
         let mut provider_to_canonical = HashMap::with_capacity(tools.len());
+        #[cfg(feature = "adapters")]
         let mut canonical_to_provider = HashMap::with_capacity(tools.len());
         let mut return_rules = HashMap::with_capacity(tools.len());
 
@@ -53,6 +56,7 @@ impl OpenAiToolNameMap {
             }
 
             provider_to_canonical.insert(provider_safe.to_string(), canonical.to_string());
+            #[cfg(feature = "adapters")]
             canonical_to_provider.insert(canonical.to_string(), provider_safe.to_string());
             let mut parameters = tool.input_schema.as_value().clone();
             let strict = if request_mode == ProviderSchemaRequest::RequestStrictWhenPossible {
@@ -82,6 +86,7 @@ impl OpenAiToolNameMap {
                 name: provider_safe.to_string(),
                 description: tool.description.clone(),
                 parameters,
+                #[cfg(feature = "adapters")]
                 strict,
             });
         }
@@ -89,6 +94,7 @@ impl OpenAiToolNameMap {
         Ok(Self {
             definitions,
             provider_to_canonical,
+            #[cfg(feature = "adapters")]
             canonical_to_provider,
             return_rules,
         })
@@ -100,6 +106,7 @@ impl OpenAiToolNameMap {
             .map(String::as_str)
     }
 
+    #[cfg(feature = "adapters")]
     pub(crate) fn provider_name(&self, canonical_name: &str) -> Option<&str> {
         self.canonical_to_provider
             .get(canonical_name)
