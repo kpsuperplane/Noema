@@ -74,8 +74,9 @@ slice or a net-negative reduction.
   current-turn action occurred.
 - An explicit human request for foreground execution overrides automatic
   delegation advice.
-- Responses WebSocket requests use the provider timeout. Request changes report
-  the changed field names without exposing field values.
+- Responses WebSocket requests use the provider timeout. Current request
+  settings can change while the earlier response identifier continues provider
+  state.
 - A full provider conversion preserves every source rule. Optional null
   placeholders are restored before policy, review, or storage.
 

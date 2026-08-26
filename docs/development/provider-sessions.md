@@ -18,9 +18,13 @@ The session opens its WebSocket connection when the first request starts. The se
 
 WebSocket requests use the provider's configured request timeout. A timeout after output does not replay the request.
 
-Incremental input requires unchanged request settings and an earlier response identifier. Changed settings use complete replay. A healthy active continuation does not compact its complete replay copy.
+Incremental input requires an earlier response identifier. Each request owns its
+current instructions, tools, and generation settings. Setting changes continue
+the same provider lineage.
 
-Progress finalization keeps the active session's instructions and tool contract. Finalization guidance enters as incremental developer input.
+A healthy active continuation does not compact its complete replay copy.
+Finalization can narrow its instructions and tool contract while it continues
+the active provider lineage.
 
 Complete Responses replay keeps ordered reasoning, hosted web actions, assistant phases, citation annotations, and tool calls.
 

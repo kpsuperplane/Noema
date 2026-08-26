@@ -196,7 +196,6 @@ impl ResponsesTransport {
             socket: None,
             unsupported: false,
             previous_response_id: None,
-            fingerprint: None,
             has_hosted_web_state: false,
             metadata: crate::ProviderGenerationMetadata::default(),
         }
@@ -233,14 +232,12 @@ pub(crate) struct ResponsesWebSocketSession {
     socket: Option<ResponsesSocket>,
     unsupported: bool,
     previous_response_id: Option<String>,
-    fingerprint: Option<Value>,
     has_hosted_web_state: bool,
     metadata: crate::ProviderGenerationMetadata,
 }
 
 pub(crate) struct PreparedResponsesRequest {
     pub(crate) body: super::ResponsesRequest,
-    fingerprint: Value,
     pub(crate) used_response_id: bool,
     input_mode: &'static str,
 }
@@ -291,22 +288,13 @@ impl ResponsesWebSocketSession {
         mut replay: super::ResponsesRequest,
         incremental: Option<super::ResponsesRequest>,
     ) -> Result<PreparedResponsesRequest, ProviderError> {
-        let fingerprint = replay.continuation_fingerprint()?;
-        let can_continue = self.fingerprint.as_ref() == Some(&fingerprint)
-            && self.previous_response_id.is_some()
-            && incremental.is_some();
+        let had_previous_response = self.previous_response_id.is_some();
+        let can_continue = had_previous_response && incremental.is_some();
         if self.has_hosted_web_state && !can_continue {
-            let reason = if let Some(previous) = &self.fingerprint {
-                if previous != &fingerprint {
-                    let changed = changed_fingerprint_fields(previous, &fingerprint);
-                    format!("request settings changed: {changed}")
-                } else if self.previous_response_id.is_none() {
-                    "the previous response identifier is absent".to_string()
-                } else {
-                    "incremental input is absent".to_string()
-                }
+            let reason = if self.previous_response_id.is_none() {
+                "the previous response identifier is absent"
             } else {
-                "the request fingerprint is absent".to_string()
+                "incremental input is absent"
             };
             return Err(ProviderError::ProtocolError {
                 provider: "responses".to_string(),
@@ -326,11 +314,10 @@ impl ResponsesWebSocketSession {
         body.use_websocket_events();
         Ok(PreparedResponsesRequest {
             body,
-            fingerprint,
             used_response_id,
             input_mode: if used_response_id {
                 "incremental"
-            } else if self.fingerprint.is_some() {
+            } else if had_previous_response {
                 "replay"
             } else {
                 "full"
@@ -393,12 +380,7 @@ impl ResponsesWebSocketSession {
         self.metadata
     }
 
-    pub(crate) fn record_response(
-        &mut self,
-        prepared: &PreparedResponsesRequest,
-        response: &ResponsesResponse,
-    ) {
-        self.fingerprint = Some(prepared.fingerprint.clone());
+    pub(crate) fn record_response(&mut self, response: &ResponsesResponse) {
         self.previous_response_id.clone_from(&response.id);
         self.has_hosted_web_state |= response.has_hosted_web_state();
     }
@@ -641,21 +623,6 @@ impl ResponsesWebSocketSession {
             ))),
         }
     }
-}
-
-fn changed_fingerprint_fields(previous: &Value, current: &Value) -> String {
-    let (Some(previous), Some(current)) = (previous.as_object(), current.as_object()) else {
-        return "request".to_string();
-    };
-    previous
-        .keys()
-        .chain(current.keys())
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .filter(|key| previous.get(*key) != current.get(*key))
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 fn install_crypto_provider() {

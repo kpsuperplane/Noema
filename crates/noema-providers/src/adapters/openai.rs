@@ -310,7 +310,7 @@ impl ProviderGenerationSession for OpenAiGenerationSession<'_> {
                         .await?
                 }
             };
-            self.responses.record_response(&prepared, &response);
+            self.responses.record_response(&response);
             response.finalize(&tool_names, tool_transport, &diagnostics)
         })
     }

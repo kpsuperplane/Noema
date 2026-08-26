@@ -272,7 +272,7 @@ async fn generate_streaming_plain_text_preserves_provider_activity() {
 }
 
 #[tokio::test]
-async fn websocket_session_uses_complete_then_incremental_requests_and_replays_changes() {
+async fn websocket_session_uses_incremental_input_with_current_request_settings() {
     let (base_url, requests_rx) = spawn_websocket_server(vec![
         vec![websocket_completed("resp_1", "one")],
         vec![websocket_completed("resp_2", "two")],
@@ -309,7 +309,7 @@ async fn websocket_session_uses_complete_then_incremental_requests_and_replays_c
             request.clone(),
             ProviderSessionInput {
                 replay: GenerateInput::Text("complete three".to_string()),
-                incremental: Some(GenerateInput::Text("unsafe incremental".to_string())),
+                incremental: Some(GenerateInput::Text("incremental three".to_string())),
             },
             &mut |_| {},
         )
@@ -336,8 +336,9 @@ async fn websocket_session_uses_complete_then_incremental_requests_and_replays_c
     assert_eq!(codex_request_text(&requests[0]), "complete one");
     assert_eq!(requests[1]["previous_response_id"], "resp_1");
     assert_eq!(codex_request_text(&requests[1]), "incremental two");
-    assert!(requests[2].get("previous_response_id").is_none());
-    assert_eq!(codex_request_text(&requests[2]), "complete three");
+    assert_eq!(requests[2]["previous_response_id"], "resp_2");
+    assert_eq!(requests[2]["instructions"], "changed rules");
+    assert_eq!(codex_request_text(&requests[2]), "incremental three");
     assert!(requests[3].get("previous_response_id").is_none());
     assert_eq!(codex_request_text(&requests[3]), "compacted complete four");
 }
@@ -419,9 +420,12 @@ async fn missing_previous_response_does_not_replay_hosted_web_state() {
 }
 
 #[tokio::test]
-async fn hosted_web_state_reports_changed_request_fields() {
-    let (base_url, requests_rx) =
-        spawn_websocket_server(vec![vec![websocket_completed_with_search("resp_1")]]).await;
+async fn hosted_web_state_continues_changed_settings_but_rejects_replay() {
+    let (base_url, requests_rx) = spawn_websocket_server(vec![
+        vec![websocket_completed_with_search("resp_1")],
+        vec![websocket_completed("resp_2", "two")],
+    ])
+    .await;
     let provider = provider_with_token(base_url);
     let mut session = provider.open_generation_session();
     let mut request = GenerateRequest::text("one");
@@ -434,9 +438,9 @@ async fn hosted_web_state_reports_changed_request_fields() {
         .await
         .expect("initial response");
     request.instructions = Some("changed instructions".to_string());
-    let error = session
+    session
         .generate(
-            request,
+            request.clone(),
             ProviderSessionInput {
                 replay: GenerateInput::Text("complete two".to_string()),
                 incremental: Some(GenerateInput::Text("incremental two".to_string())),
@@ -444,14 +448,29 @@ async fn hosted_web_state_reports_changed_request_fields() {
             &mut |_| {},
         )
         .await
-        .expect_err("changed settings must fail closed");
+        .expect("changed settings continue provider state");
+    let error = session
+        .generate(
+            request,
+            ProviderSessionInput {
+                replay: GenerateInput::Text("complete three".to_string()),
+                incremental: None,
+            },
+            &mut |_| {},
+        )
+        .await
+        .expect_err("provider-only state must not replay");
 
     assert!(matches!(
         error,
         ProviderError::ProtocolError { message, .. }
-            if message.ends_with("request settings changed: instructions")
+            if message.ends_with("incremental input is absent")
     ));
-    assert_eq!(requests_rx.await.expect("WebSocket requests").len(), 1);
+    let requests = requests_rx.await.expect("WebSocket requests");
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1]["previous_response_id"], "resp_1");
+    assert_eq!(requests[1]["instructions"], "changed instructions");
+    assert_eq!(codex_request_text(&requests[1]), "incremental two");
 }
 
 #[tokio::test]

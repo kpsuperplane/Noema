@@ -46,38 +46,17 @@ impl RuntimeActor {
                 NoemaToolChoice::Required,
             )
         };
-        let compaction_result = tokio::select! {
-            _ = request.cancellation.cancelled() => {
-                return Err(RuntimeError::Protocol("task execution cancelled".to_string()));
-            }
-            _ = tokio::time::sleep_until(deadline) => {
-                return Err(RuntimeError::Protocol(
-                    "task finalization safety deadline reached".to_string(),
-                ));
-            }
-            result = context.compact_to_fit(
-                provider,
-                request.provider_selection.model_profile.as_deref(),
-                capabilities.native_tool_results,
-                &instructions,
-                &finalization_tools,
-                false,
-                Some(8_000),
-                request.provider_selection.reasoning_effort,
-                noema_providers::GenerationPriority::Background,
-                &request.input,
-            ) => result,
-        };
-        if propagate_compaction_result(compaction_result)? {
-            append_task_files_after_compaction(
-                &self.store,
-                &request.task_id,
-                request.role,
-                context,
-            )
-            .await?;
-            let readmission = context
-                .compact_to_fit(
+        if !provider_session.has_active_continuation() {
+            let compaction_result = tokio::select! {
+                _ = request.cancellation.cancelled() => {
+                    return Err(RuntimeError::Protocol("task execution cancelled".to_string()));
+                }
+                _ = tokio::time::sleep_until(deadline) => {
+                    return Err(RuntimeError::Protocol(
+                        "task finalization safety deadline reached".to_string(),
+                    ));
+                }
+                result = context.compact_to_fit(
                     provider,
                     request.provider_selection.model_profile.as_deref(),
                     capabilities.native_tool_results,
@@ -88,11 +67,39 @@ impl RuntimeActor {
                     request.provider_selection.reasoning_effort,
                     noema_providers::GenerationPriority::Background,
                     &request.input,
+                ) => result,
+            };
+            if propagate_compaction_result(compaction_result)? {
+                append_task_files_after_compaction(
+                    &self.store,
+                    &request.task_id,
+                    request.role,
+                    context,
                 )
-                .await;
-            propagate_compaction_result(readmission)?;
+                .await?;
+                let readmission = context
+                    .compact_to_fit(
+                        provider,
+                        request.provider_selection.model_profile.as_deref(),
+                        capabilities.native_tool_results,
+                        &instructions,
+                        &finalization_tools,
+                        false,
+                        Some(8_000),
+                        request.provider_selection.reasoning_effort,
+                        noema_providers::GenerationPriority::Background,
+                        &request.input,
+                    )
+                    .await;
+                propagate_compaction_result(readmission)?;
+            }
         }
         let continuation_input = context.next_provider_input(capabilities.native_tool_results);
+        if provider_session.has_active_continuation() && continuation_input.incremental.is_none() {
+            return Err(RuntimeError::Protocol(
+                "active provider continuation has no incremental Task input".to_string(),
+            ));
+        }
         let finalization_request = GenerateRequest {
             conversation_id: Some(conversation_id.to_string()),
             model: request.provider_selection.model_profile.clone(),

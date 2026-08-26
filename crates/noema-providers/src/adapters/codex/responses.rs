@@ -398,7 +398,7 @@ impl ProviderGenerationSession for CodexGenerationSession<'_> {
                         .await?
                 }
             };
-            self.responses.record_response(&prepared, &response);
+            self.responses.record_response(&response);
             if self.responses.metadata().transport != Some("responses_websocket") {
                 self.responses.clear_response_id();
             }
