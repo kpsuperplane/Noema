@@ -24,7 +24,6 @@ pub(crate) fn reqwest_transport_error(
         ProviderTransportKind::Timeout => "transport operation timed out",
         ProviderTransportKind::Request => "request transport failed",
         ProviderTransportKind::Response => "response transport failed",
-        ProviderTransportKind::Protocol => "transport protocol failed",
         ProviderTransportKind::Unknown => "transport operation failed",
     };
 

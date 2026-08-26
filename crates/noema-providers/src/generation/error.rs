@@ -15,8 +15,6 @@ pub enum ProviderTransportKind {
     Request,
     /// A response could not be received or decoded completely.
     Response,
-    /// The remote transport violated its protocol.
-    Protocol,
     /// The adapter could not classify the transport failure more narrowly.
     Unknown,
 }
