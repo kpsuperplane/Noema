@@ -28,7 +28,7 @@ pub fn hosted_provider_from_config(
     accounts: Option<ProviderAccountPersistenceHandle>,
     account_operations: Option<ProviderAccountOperationsHandle>,
     system_errors: SystemErrorLogger,
-) -> Result<(String, ProviderHandle), ProviderError> {
+) -> Result<(ProviderKind, ProviderHandle), ProviderError> {
     match config {
         ProviderConfig::Codex(mut config) => {
             config.system_errors = Some(system_errors);
@@ -37,22 +37,19 @@ pub fn hosted_provider_from_config(
                 DEFAULT_CODEX_PROVIDER_ACCOUNT_ID,
                 credentials,
             )?;
-            Ok((
-                ProviderKind::Codex.as_str().to_string(),
-                erase_model_provider(provider),
-            ))
+            Ok((ProviderKind::Codex, erase_model_provider(provider)))
         }
         ProviderConfig::OpenAi(mut config) => {
             config.system_errors = Some(system_errors);
             Ok((
-                ProviderKind::OpenAi.as_str().to_string(),
+                ProviderKind::OpenAi,
                 erase_model_provider(OpenAiProvider::new(config)?),
             ))
         }
         ProviderConfig::OpenRouter(mut config) => {
             config.system_errors = Some(system_errors);
             Ok((
-                ProviderKind::OpenRouter.as_str().to_string(),
+                ProviderKind::OpenRouter,
                 erase_model_provider(OpenRouterProvider::new(
                     config,
                     credentials,
@@ -64,7 +61,7 @@ pub fn hosted_provider_from_config(
         ProviderConfig::FoundationLocal(mut config) => {
             config.system_errors = Some(system_errors);
             Ok((
-                ProviderKind::FoundationLocal.as_str().to_string(),
+                ProviderKind::FoundationLocal,
                 erase_model_provider(FoundationLocalProvider::new(config)?),
             ))
         }

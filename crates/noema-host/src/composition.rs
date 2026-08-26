@@ -180,13 +180,13 @@ async fn assemble_services(
                 )
             })?;
         let mut selection = ProviderSelectionSnapshot::explicit(
-            &default_provider_kind,
-            model_provider_account_id(&default_provider_kind)?,
+            default_provider_kind.as_str(),
+            model_provider_account_id(&default_provider_kind),
             configured_model_profile,
             configured_reasoning_effort,
             Some("configured_default".to_string()),
         );
-        let configured_key = if default_provider_kind == ProviderKind::LocalModels.as_str() {
+        let configured_key = if default_provider_kind == ProviderKind::LocalModels {
             let active =
                 local_model_manager
                     .installations()
@@ -204,9 +204,9 @@ async fn assemble_services(
                 None
             }
         } else {
-            let account = match default_provider_kind.as_str() {
-                "openai" => Some(store.ensure_default_openai_provider_account().await?),
-                "foundation_local" => {
+            let account = match &default_provider_kind {
+                ProviderKind::OpenAi => Some(store.ensure_default_openai_provider_account().await?),
+                ProviderKind::FoundationLocal => {
                     let mut config = configured_foundation_local.ok_or_else(|| {
                         RuntimeHostError::Composition(
                             "Foundation Local configuration disappeared during startup".to_string(),
@@ -227,12 +227,12 @@ async fn assemble_services(
                         None
                     }
                 }
-                "codex" | "openrouter" => {
+                ProviderKind::Codex | ProviderKind::OpenRouter => {
                     store
-                        .get_provider_account(model_provider_account_id(&default_provider_kind)?)
+                        .get_provider_account(model_provider_account_id(&default_provider_kind))
                         .await?
                 }
-                _ => None,
+                ProviderKind::LocalModels => None,
             };
             if let Some(account) = account {
                 store
@@ -404,9 +404,9 @@ fn registry_route_resolver(
 }
 
 type ConfiguredProviderMap = (
-    String,
+    ProviderKind,
     Option<String>,
-    std::collections::HashMap<String, ProviderHandle>,
+    Vec<(ProviderKind, ProviderHandle)>,
 );
 
 fn provider_map_from_config(
@@ -416,7 +416,7 @@ fn provider_map_from_config(
     provider_accounts: ProviderAccountPersistenceHandle,
     provider_account_operations: ProviderAccountOperationsHandle,
 ) -> Result<ConfiguredProviderMap, ProviderError> {
-    let default_provider_kind = provider_config.kind().as_str().to_string();
+    let default_provider_kind = provider_config.kind();
     let default_model_profile = match &provider_config {
         ProviderConfig::Codex(config) => Some(
             config
@@ -427,7 +427,7 @@ fn provider_map_from_config(
         ),
         _ => provider_config.model().map(str::to_string),
     };
-    let mut providers = std::collections::HashMap::new();
+    let mut providers = Vec::new();
     if !matches!(&provider_config, ProviderConfig::LocalModels(_)) {
         let (provider_kind, provider) = hosted_provider_from_config(
             provider_config,
@@ -436,7 +436,7 @@ fn provider_map_from_config(
             Some(provider_account_operations.clone()),
             system_errors.clone(),
         )?;
-        providers.insert(provider_kind, provider);
+        providers.push((provider_kind, provider));
     }
     let fallback_configs = [
         ProviderConfig::Codex(CodexProviderConfig::default()),
@@ -448,7 +448,7 @@ fn provider_map_from_config(
         ProviderConfig::OpenRouter(OpenRouterProviderConfig::default()),
     ];
     for config in fallback_configs {
-        if providers.contains_key(config.kind().as_str()) {
+        if providers.iter().any(|(kind, _)| kind == &config.kind()) {
             continue;
         }
         let (provider_kind, provider) = hosted_provider_from_config(
@@ -458,7 +458,7 @@ fn provider_map_from_config(
             Some(provider_account_operations.clone()),
             system_errors.clone(),
         )?;
-        providers.insert(provider_kind, provider);
+        providers.push((provider_kind, provider));
     }
     Ok((default_provider_kind, default_model_profile, providers))
 }
@@ -590,26 +590,23 @@ impl WebBackendResolver for HostWebBackendResolver {
 
 fn register_hosted_providers(
     registry: &ProviderRegistryHandle,
-    providers: &std::collections::HashMap<String, noema_providers::ProviderHandle>,
+    providers: &[(ProviderKind, noema_providers::ProviderHandle)],
 ) -> Result<(), RuntimeHostError> {
     for (provider_kind, provider) in providers {
-        let account_id = model_provider_account_id(provider_kind)?;
+        let account_id = model_provider_account_id(provider_kind);
         let key = provider_account_instance_key(account_id)?;
         registry.register(key, provider.clone())?;
     }
     Ok(())
 }
 
-fn model_provider_account_id(provider_kind: &str) -> Result<&'static str, RuntimeHostError> {
+const fn model_provider_account_id(provider_kind: &ProviderKind) -> &'static str {
     match provider_kind {
-        "codex" => Ok("provider_account:codex:default"),
-        "openai" => Ok("provider_account:openai:default"),
-        "openrouter" => Ok("provider_account:openrouter:default"),
-        "foundation_local" => Ok("provider_account:foundation_local:default"),
-        "local_models" => Ok(noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID),
-        other => Err(RuntimeHostError::Composition(format!(
-            "unsupported configured model provider: {other}"
-        ))),
+        ProviderKind::Codex => "provider_account:codex:default",
+        ProviderKind::OpenAi => "provider_account:openai:default",
+        ProviderKind::OpenRouter => "provider_account:openrouter:default",
+        ProviderKind::FoundationLocal => "provider_account:foundation_local:default",
+        ProviderKind::LocalModels => noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
     }
 }
 
