@@ -13,8 +13,6 @@ use noema_runtime::{RuntimeEventRegistry, RuntimeHandle};
 use noema_store::NoemaStore;
 use thiserror::Error;
 
-#[cfg(feature = "composition")]
-use crate::HostConfig;
 use crate::{OnboardingService, WebConfig};
 
 /// Narrow diagnostic contract supplied to API adapters.
@@ -86,42 +84,6 @@ impl NoemaHost {
     }
 }
 
-/// Start an application host from already resolved host configuration.
-///
-/// # Errors
-///
-/// Returns [`RuntimeHostError`] when home, store, provider, or runtime startup fails.
-#[cfg(feature = "composition")]
-pub async fn start_from_loaded_config(config: HostConfig) -> Result<NoemaHost, RuntimeHostError> {
-    crate::composition::start_from_loaded_config(config).await
-}
-
-/// Initialize the Noema home, load process configuration, and start one host.
-///
-/// # Errors
-///
-/// Returns [`RuntimeHostError`] when configuration or application startup fails.
-#[cfg(feature = "composition")]
-pub async fn start_from_process_env() -> Result<NoemaHost, RuntimeHostError> {
-    start_from_process_env_with_local_model_runtime_root(None).await
-}
-
-/// Initialize process configuration and start one host with an optional
-/// shell-packaged llama.cpp resource root.
-///
-/// # Errors
-///
-/// Returns [`RuntimeHostError`] when configuration or application startup fails.
-#[cfg(feature = "composition")]
-pub async fn start_from_process_env_with_local_model_runtime_root(
-    local_model_runtime_root: Option<std::path::PathBuf>,
-) -> Result<NoemaHost, RuntimeHostError> {
-    crate::composition::start_from_process_env_with_local_model_runtime_root(
-        local_model_runtime_root,
-    )
-    .await
-}
-
 #[cfg(feature = "composition")]
 pub(crate) struct SystemErrorArtifactDiagnostics {
     logger: SystemErrorLogger,
@@ -163,14 +125,6 @@ pub enum RuntimeHostError {
     /// Store setup failed.
     #[error("store setup failed: {0}")]
     Store(#[source] noema_store::StoreError),
-    /// Filesystem-canonical adapter definitions could not be scanned.
-    #[cfg(feature = "composition")]
-    #[error("adapter definition setup failed: {0}")]
-    AdapterDefinitions(#[from] noema_capability_adapters::DefinitionStoreError),
-    /// Filesystem-canonical adapter connections could not be scanned.
-    #[cfg(feature = "composition")]
-    #[error("adapter connection setup failed: {0}")]
-    AdapterConnections(#[from] noema_capability_adapters::ConnectionStoreError),
     /// The canonical adapter management snapshot could not be read.
     #[cfg(feature = "composition")]
     #[error("adapter management setup failed: {0}")]
@@ -222,11 +176,9 @@ impl RuntimeHostError {
             Self::Path(_) | Self::Home(_) => "Noema could not open its data folder.",
             Self::Store(_) => "Noema could not start its local memory store.",
             #[cfg(feature = "composition")]
-            Self::AdapterDefinitions(_) => "Noema could not load its adapter definitions.",
-            #[cfg(feature = "composition")]
-            Self::AdapterConnections(_)
-            | Self::AdapterManagement(_)
-            | Self::AdapterMigration(_) => "Noema could not load its adapter connections.",
+            Self::AdapterManagement(_) | Self::AdapterMigration(_) => {
+                "Noema could not load its adapter connections."
+            }
             Self::Provider(_)
             | Self::Registry(_)
             | Self::LocalModel(_)

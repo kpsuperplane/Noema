@@ -29,25 +29,14 @@ pub use runtime_host::{
     RuntimeHostError,
 };
 
-/// Run a private browser worker when the process has worker arguments.
+/// Run a private worker when the process has worker arguments.
 ///
 /// The application entrypoint must exit with the returned status.
 #[cfg(feature = "composition")]
 #[must_use]
-pub fn run_browser_worker_if_requested() -> Option<i32> {
+pub fn run_private_worker_if_requested() -> Option<i32> {
     noema_providers::run_browser_worker_if_requested()
-}
-
-/// Run the private file parser when the process has worker arguments.
-///
-/// The application entrypoint must exit with the returned status.
-#[cfg(feature = "composition")]
-#[must_use]
-pub fn run_file_parse_worker_if_requested() -> Option<i32> {
-    noema_runtime::run_file_parse_worker_if_requested()
+        .or_else(noema_runtime::run_file_parse_worker_if_requested)
 }
 #[cfg(feature = "composition")]
-pub use runtime_host::{
-    start_from_loaded_config, start_from_process_env,
-    start_from_process_env_with_local_model_runtime_root,
-};
+pub use composition::start_from_process_env_with_local_model_runtime_root;

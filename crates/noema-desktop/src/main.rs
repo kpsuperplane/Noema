@@ -14,10 +14,7 @@ mod remote_graphql;
 mod remote_oauth;
 
 fn main() {
-    if let Some(status) = noema_host::run_browser_worker_if_requested() {
-        std::process::exit(status);
-    }
-    if let Some(status) = noema_host::run_file_parse_worker_if_requested() {
+    if let Some(status) = noema_host::run_private_worker_if_requested() {
         std::process::exit(status);
     }
     let app = tauri::Builder::default()

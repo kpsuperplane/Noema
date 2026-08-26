@@ -37,7 +37,7 @@ async fn startup_entrypoint_child() {
 
     match mode.as_str() {
         "process_env" => {
-            let host = crate::start_from_process_env()
+            let host = super::start_from_process_env_with_local_model_runtime_root(None)
                 .await
                 .expect("start host from process environment");
             assert_eq!(host.web_config(), &crate::WebConfig::default());
@@ -85,7 +85,7 @@ async fn startup_entrypoint_child() {
                 web.clone(),
                 crate::McpConfig::default(),
             );
-            let host = crate::start_from_loaded_config(config)
+            let host = super::start_from_loaded_config(config)
                 .await
                 .expect("start host from loaded config");
             assert_eq!(host.web_config(), &web);

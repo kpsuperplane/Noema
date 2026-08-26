@@ -3,16 +3,12 @@
 use std::path::{Path, PathBuf};
 
 use noema_host::{
-    run_browser_worker_if_requested, run_file_parse_worker_if_requested,
-    start_from_process_env_with_local_model_runtime_root,
+    run_private_worker_if_requested, start_from_process_env_with_local_model_runtime_root,
 };
 use noema_server::run_daemon_web;
 
 fn main() {
-    if let Some(status) = run_browser_worker_if_requested() {
-        std::process::exit(status);
-    }
-    if let Some(status) = run_file_parse_worker_if_requested() {
+    if let Some(status) = run_private_worker_if_requested() {
         std::process::exit(status);
     }
     if let Err(error) = run_application() {

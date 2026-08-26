@@ -43,7 +43,12 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-pub(crate) async fn start_from_process_env_with_local_model_runtime_root(
+/// Initialize process configuration and start one host.
+///
+/// # Errors
+///
+/// Returns [`RuntimeHostError`] when configuration or application startup fails.
+pub async fn start_from_process_env_with_local_model_runtime_root(
     local_model_runtime_root: Option<std::path::PathBuf>,
 ) -> Result<NoemaHost, RuntimeHostError> {
     let paths = initialize_process_home()?;
@@ -54,6 +59,7 @@ pub(crate) async fn start_from_process_env_with_local_model_runtime_root(
     assemble(config, paths).await
 }
 
+#[cfg(test)]
 pub(crate) async fn start_from_loaded_config(
     config: HostConfig,
 ) -> Result<NoemaHost, RuntimeHostError> {
@@ -432,37 +438,25 @@ fn provider_map_from_config(
         )?;
         providers.insert(provider_kind, provider);
     }
-    if !providers.contains_key("codex") {
+    let fallback_configs = [
+        ProviderConfig::Codex(CodexProviderConfig::default()),
+        ProviderConfig::FoundationLocal(FoundationLocalProviderConfig {
+            default_profile: DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
+            bridge_path: None,
+            system_errors: None,
+        }),
+        ProviderConfig::OpenRouter(OpenRouterProviderConfig::default()),
+    ];
+    for config in fallback_configs {
+        if providers.contains_key(config.kind().as_str()) {
+            continue;
+        }
         let (provider_kind, provider) = hosted_provider_from_config(
-            ProviderConfig::Codex(CodexProviderConfig::default()),
+            config,
             provider_credentials.clone(),
             Some(provider_accounts.clone()),
             Some(provider_account_operations.clone()),
             system_errors.clone(),
-        )?;
-        providers.insert(provider_kind, provider);
-    }
-    if !providers.contains_key("foundation_local") {
-        let (provider_kind, provider) = hosted_provider_from_config(
-            ProviderConfig::FoundationLocal(FoundationLocalProviderConfig {
-                default_profile: DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
-                bridge_path: None,
-                system_errors: None,
-            }),
-            provider_credentials.clone(),
-            Some(provider_accounts.clone()),
-            Some(provider_account_operations.clone()),
-            system_errors.clone(),
-        )?;
-        providers.insert(provider_kind, provider);
-    }
-    if !providers.contains_key("openrouter") {
-        let (provider_kind, provider) = hosted_provider_from_config(
-            ProviderConfig::OpenRouter(OpenRouterProviderConfig::default()),
-            provider_credentials,
-            Some(provider_accounts),
-            Some(provider_account_operations),
-            system_errors,
         )?;
         providers.insert(provider_kind, provider);
     }
