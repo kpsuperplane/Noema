@@ -26,7 +26,6 @@ export const McpManagementRootDocument = gql`
 const McpServerSetupResultFields = gql`
   fragment McpServerSetupResultFields on McpServerSetupResult {
     setupStatus
-    discoveryStatus
     discoveredToolCount
     setupError
     auth {

@@ -755,7 +755,6 @@ fragment SettingsMcpSetupResultFields on McpServerSetupResult {
     browserOauthReauthenticationSupported
   }
   setupStatus
-  discoveryStatus
   discoveredToolCount
   setupError
   auth {

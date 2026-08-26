@@ -110,9 +110,8 @@ pub use secrets::{
 pub use service::{LocalMcpService, LocalMcpServiceConfig, LocalMcpServiceConstructionError};
 pub use setup_model::{
     AddMcpConnectionCommand, ContinueMcpServerSetupCommand, CreateMcpServerCommand,
-    McpDiscoveryStatus, McpServerSetupResult, McpSetupAuthDetails, McpSetupAuthPreference,
-    McpSetupIssue, McpSetupStatus, McpSetupTransportConfig, McpStdioSetupConfig,
-    McpStreamableHttpSetupConfig,
+    McpServerSetupResult, McpSetupAuthDetails, McpSetupAuthPreference, McpSetupIssue,
+    McpSetupStatus, McpSetupTransportConfig, McpStdioSetupConfig, McpStreamableHttpSetupConfig,
 };
 #[cfg(feature = "transport")]
 pub use stdio::StdioMcpSessionFactory;

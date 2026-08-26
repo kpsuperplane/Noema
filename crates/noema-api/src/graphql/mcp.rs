@@ -1,11 +1,10 @@
 use async_graphql::{Enum, InputObject, Json, Result, SimpleObject};
 use noema_capabilities_mcp::{
     AddMcpConnectionCommand, CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand,
-    McpDeleteServerCommand, McpDiscoveryStatus, McpOAuthSetupAttemptQuery,
-    McpOAuthSetupAttemptStatus, McpOAuthSetupAttemptView, McpOAuthSetupFailure, McpSecretMaterial,
-    McpServerRecord, McpServerSetupResult, McpSetupAuthDetails, McpSetupAuthPreference,
-    McpSetupStatus, McpTransportKind, StartMcpOAuthReauthenticationCommand,
-    StartMcpOAuthSetupCommand,
+    McpDeleteServerCommand, McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptStatus,
+    McpOAuthSetupAttemptView, McpOAuthSetupFailure, McpSecretMaterial, McpServerRecord,
+    McpServerSetupResult, McpSetupAuthDetails, McpSetupAuthPreference, McpTransportKind,
+    StartMcpOAuthReauthenticationCommand, StartMcpOAuthSetupCommand,
 };
 use serde_json::Value;
 
@@ -153,8 +152,6 @@ pub struct GraphqlMcpServerSetupResult {
     pub server: Option<GraphqlMcpServer>,
     /// Setup status.
     pub setup_status: String,
-    /// Metadata discovery status.
-    pub discovery_status: Option<String>,
     /// Number of discovered tools.
     pub discovered_tool_count: usize,
     /// Non-secret setup error, when present.
@@ -215,13 +212,9 @@ impl From<McpServerSetupResult> for GraphqlMcpServerSetupResult {
     fn from(result: McpServerSetupResult) -> Self {
         Self {
             server: result.server.map(Into::into),
-            setup_status: setup_status_label(result.setup_status).to_string(),
-            discovery_status: result
-                .discovery_status
-                .map(discovery_status_label)
-                .map(str::to_string),
+            setup_status: result.setup_status.as_str().to_string(),
             discovered_tool_count: result.discovered_tool_count,
-            setup_error: result.issue.map(|issue| issue.to_string()),
+            setup_error: result.setup_status.issue().map(|issue| issue.to_string()),
             auth: result.auth.map(Into::into),
         }
     }
@@ -276,25 +269,6 @@ fn browser_oauth_reauth_supported(server: &McpServerRecord) -> bool {
             .and_then(|refs| refs.get("oauth_credentials"))
             .and_then(Value::as_bool)
             .unwrap_or(false)
-}
-
-const fn setup_status_label(status: McpSetupStatus) -> &'static str {
-    match status {
-        McpSetupStatus::NeedsAuth => "needs_auth",
-        McpSetupStatus::AuthenticationAvailable => "authentication_available",
-        McpSetupStatus::ReadyForPolicy => "ready_for_policy",
-        McpSetupStatus::Unavailable => "unavailable",
-        McpSetupStatus::Malformed => "malformed",
-    }
-}
-
-const fn discovery_status_label(status: McpDiscoveryStatus) -> &'static str {
-    match status {
-        McpDiscoveryStatus::NeedsAuth => "needs_auth",
-        McpDiscoveryStatus::Discovered => "discovered",
-        McpDiscoveryStatus::Unavailable => "unavailable",
-        McpDiscoveryStatus::Malformed => "malformed",
-    }
 }
 
 const fn oauth_attempt_status_label(status: McpOAuthSetupAttemptStatus) -> &'static str {

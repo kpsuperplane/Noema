@@ -128,17 +128,29 @@ pub enum McpSetupStatus {
     Malformed,
 }
 
-/// Metadata discovery status exposed to control-plane consumers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum McpDiscoveryStatus {
-    /// Discovery could not begin until authentication is supplied.
-    NeedsAuth,
-    /// Discovery completed successfully.
-    Discovered,
-    /// Discovery could not reach the server.
-    Unavailable,
-    /// Discovery returned malformed or unsupported metadata.
-    Malformed,
+impl McpSetupStatus {
+    /// Return the stable client-facing status value.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NeedsAuth => "needs_auth",
+            Self::AuthenticationAvailable => "authentication_available",
+            Self::ReadyForPolicy => "ready_for_policy",
+            Self::Unavailable => "unavailable",
+            Self::Malformed => "malformed",
+        }
+    }
+
+    /// Return the fixed safe issue for a failed setup state.
+    #[must_use]
+    pub const fn issue(self) -> Option<McpSetupIssue> {
+        match self {
+            Self::NeedsAuth => Some(McpSetupIssue::AuthenticationRequired),
+            Self::Unavailable => Some(McpSetupIssue::Unavailable),
+            Self::Malformed => Some(McpSetupIssue::Malformed),
+            Self::AuthenticationAvailable | Self::ReadyForPolicy => None,
+        }
+    }
 }
 
 /// Authentication options safe to present during guided setup.
@@ -173,12 +185,8 @@ pub struct McpServerSetupResult {
     pub server: Option<McpServerRecord>,
     /// High-level setup status.
     pub setup_status: McpSetupStatus,
-    /// Discovery status, when discovery was attempted.
-    pub discovery_status: Option<McpDiscoveryStatus>,
     /// Number of tools discovered, whether or not setup has been committed yet.
     pub discovered_tool_count: usize,
-    /// Fixed safe issue text, when setup did not complete.
-    pub issue: Option<McpSetupIssue>,
     /// Authentication options detected for this setup.
     pub auth: Option<McpSetupAuthDetails>,
 }

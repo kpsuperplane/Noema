@@ -6,7 +6,7 @@
 
 nonisolated public struct SettingsMcpSetupResultFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment SettingsMcpSetupResultFields on McpServerSetupResult { __typename server { __typename mcpServerId connectionRevision policyRevision displayName transportKind healthStatus authStatus toolCount pendingToolCount browserOauthReauthenticationSupported } setupStatus discoveryStatus discoveredToolCount setupError auth { __typename oauthClientCredentialsSupported oauthAuthorizationSupported scopes } }"#
+    #"fragment SettingsMcpSetupResultFields on McpServerSetupResult { __typename server { __typename mcpServerId connectionRevision policyRevision displayName transportKind healthStatus authStatus toolCount pendingToolCount browserOauthReauthenticationSupported } setupStatus discoveredToolCount setupError auth { __typename oauthClientCredentialsSupported oauthAuthorizationSupported scopes } }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -17,7 +17,6 @@ nonisolated public struct SettingsMcpSetupResultFields: NoemaAPI.SelectionSet, F
     .field("__typename", String.self),
     .field("server", Server?.self),
     .field("setupStatus", String.self),
-    .field("discoveryStatus", String?.self),
     .field("discoveredToolCount", Int.self),
     .field("setupError", String?.self),
     .field("auth", Auth?.self),
@@ -30,8 +29,6 @@ nonisolated public struct SettingsMcpSetupResultFields: NoemaAPI.SelectionSet, F
   public var server: Server? { __data["server"] }
   /// Setup status.
   public var setupStatus: String { __data["setupStatus"] }
-  /// Metadata discovery status.
-  public var discoveryStatus: String? { __data["discoveryStatus"] }
   /// Number of discovered tools.
   public var discoveredToolCount: Int { __data["discoveredToolCount"] }
   /// Non-secret setup error, when present.

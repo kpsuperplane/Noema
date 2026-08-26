@@ -1,7 +1,7 @@
 use crate::{
-    LocalMcpService, McpClientError, McpDiscoveryStatus, McpOAuthSetupFailure, McpOperationError,
-    McpSecretMaterial, McpSecretStage, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
-    McpServerSetupResult, McpSetupAuthDetails, McpSetupIssue, McpSetupStatus, McpTransportKind,
+    LocalMcpService, McpClientError, McpOAuthSetupFailure, McpOperationError, McpSecretMaterial,
+    McpSecretStage, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
+    McpServerSetupResult, McpSetupAuthDetails, McpSetupStatus, McpTransportKind,
     service::{
         map_oauth_operation_error, map_repository_operation_error, map_secret_operation_error,
     },
@@ -32,10 +32,8 @@ impl SetupRunError {
 #[derive(Debug, Clone)]
 pub(super) struct SetupFailureProjection {
     pub(super) setup_status: McpSetupStatus,
-    pub(super) discovery_status: McpDiscoveryStatus,
     pub(super) health_status: McpServerHealthStatus,
     pub(super) auth_status: McpServerAuthStatus,
-    pub(super) issue: McpSetupIssue,
     pub(super) auth: Option<McpSetupAuthDetails>,
 }
 
@@ -179,9 +177,7 @@ pub(super) fn success_result(server: McpServerRecord, tool_count: usize) -> McpS
     McpServerSetupResult {
         server: Some(server),
         setup_status: McpSetupStatus::ReadyForPolicy,
-        discovery_status: Some(McpDiscoveryStatus::Discovered),
         discovered_tool_count: tool_count,
-        issue: None,
         auth: None,
     }
 }
@@ -190,9 +186,7 @@ pub(super) fn authentication_available_result(tool_count: usize) -> McpServerSet
     McpServerSetupResult {
         server: None,
         setup_status: McpSetupStatus::AuthenticationAvailable,
-        discovery_status: Some(McpDiscoveryStatus::Discovered),
         discovered_tool_count: tool_count,
-        issue: None,
         auth: Some(McpSetupAuthDetails {
             oauth_client_credentials_supported: true,
             oauth_authorization_supported: true,
@@ -208,9 +202,7 @@ pub(super) fn setup_failure_result(
     McpServerSetupResult {
         server,
         setup_status: projection.setup_status,
-        discovery_status: Some(projection.discovery_status),
         discovered_tool_count: 0,
-        issue: Some(projection.issue),
         auth: projection.auth,
     }
 }
@@ -222,10 +214,8 @@ pub(super) fn client_failure_projection(
     match error {
         McpClientError::AuthenticationRequired(_) => SetupFailureProjection {
             setup_status: McpSetupStatus::NeedsAuth,
-            discovery_status: McpDiscoveryStatus::NeedsAuth,
             health_status: McpServerHealthStatus::Unavailable,
             auth_status: McpServerAuthStatus::NeedsAuth,
-            issue: McpSetupIssue::AuthenticationRequired,
             auth: (transport_kind == McpTransportKind::StreamableHttp).then(|| {
                 McpSetupAuthDetails {
                     oauth_client_credentials_supported: true,
@@ -241,10 +231,8 @@ pub(super) fn client_failure_projection(
         | McpClientError::Timeout { .. }
         | McpClientError::Cancelled { .. } => SetupFailureProjection {
             setup_status: McpSetupStatus::Unavailable,
-            discovery_status: McpDiscoveryStatus::Unavailable,
             health_status: McpServerHealthStatus::Unavailable,
             auth_status: McpServerAuthStatus::Unavailable,
-            issue: McpSetupIssue::Unavailable,
             auth: None,
         },
     }
@@ -253,10 +241,8 @@ pub(super) fn client_failure_projection(
 pub(super) fn malformed_projection() -> SetupFailureProjection {
     SetupFailureProjection {
         setup_status: McpSetupStatus::Malformed,
-        discovery_status: McpDiscoveryStatus::Malformed,
         health_status: McpServerHealthStatus::Unavailable,
         auth_status: McpServerAuthStatus::Unavailable,
-        issue: McpSetupIssue::Malformed,
         auth: None,
     }
 }

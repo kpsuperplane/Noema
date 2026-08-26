@@ -7,8 +7,8 @@ use tokio::{
 
 use crate::{
     AddMcpConnectionCommand, ContinueMcpServerSetupCommand, CreateMcpServerCommand, McpClientError,
-    McpDiscoveryStatus, McpOperationError, McpOperations, McpSecretMaterial, McpSetupIssue,
-    McpSetupStatus, McpSetupTransportConfig, McpStdioSetupConfig, McpStreamableHttpSetupConfig,
+    McpOperationError, McpOperations, McpSecretMaterial, McpSetupIssue, McpSetupStatus,
+    McpSetupTransportConfig, McpStdioSetupConfig, McpStreamableHttpSetupConfig,
     service::test_support::TestHarness, test_fixture::secret_material,
 };
 
@@ -94,10 +94,6 @@ async fn setup_secret_persistence_and_compensation_contracts() {
         .expect("advertised OAuth result");
 
     assert_eq!(result.setup_status, McpSetupStatus::AuthenticationAvailable);
-    assert_eq!(
-        result.discovery_status,
-        Some(McpDiscoveryStatus::Discovered)
-    );
     assert_eq!(result.discovered_tool_count, 1);
     assert!(result.server.is_none());
     assert!(
@@ -144,8 +140,10 @@ async fn setup_secret_persistence_and_compensation_contracts() {
             .expect("authentication-required setup result");
 
     assert_eq!(result.setup_status, McpSetupStatus::NeedsAuth);
-    assert_eq!(result.discovery_status, Some(McpDiscoveryStatus::NeedsAuth));
-    assert_eq!(result.issue, Some(McpSetupIssue::AuthenticationRequired));
+    assert_eq!(
+        result.setup_status.issue(),
+        Some(McpSetupIssue::AuthenticationRequired)
+    );
     assert!(result.server.is_none());
     let auth = result.auth.as_ref().expect("typed auth projection");
     assert!(auth.oauth_client_credentials_supported);
@@ -179,10 +177,6 @@ async fn setup_secret_persistence_and_compensation_contracts() {
             .expect("create streamable HTTP server");
 
     assert_eq!(created.setup_status, McpSetupStatus::ReadyForPolicy);
-    assert_eq!(
-        created.discovery_status,
-        Some(McpDiscoveryStatus::Discovered)
-    );
     assert_eq!(created.discovered_tool_count, 1);
     let created_server = created.server.expect("created server");
     assert_eq!(created_server.mcp_server_id, "mcp:created");

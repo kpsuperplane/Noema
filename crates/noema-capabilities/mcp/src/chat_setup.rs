@@ -71,7 +71,7 @@ impl LocalMcpService {
         .await
         .map_err(map_setup_error)?;
         Ok(CapabilityOutput::success(json!({
-            "status": setup_status_label(result.setup_status),
+            "status": result.setup_status.as_str(),
             "service_url": discovered.service_url,
             "server_card_url": discovered.server_card_url,
             "display_name": discovered.display_name,
@@ -104,15 +104,9 @@ fn discovery_failure_output(service_url: &str, error: McpServiceCardError) -> Ca
 
 fn setup_result_json(result: &McpServerSetupResult) -> Value {
     json!({
-        "setup_status": setup_status_label(result.setup_status),
-        "discovery_status": result.discovery_status.map(|status| match status {
-            crate::McpDiscoveryStatus::NeedsAuth => "needs_auth",
-            crate::McpDiscoveryStatus::Discovered => "discovered",
-            crate::McpDiscoveryStatus::Unavailable => "unavailable",
-            crate::McpDiscoveryStatus::Malformed => "malformed",
-        }),
+        "setup_status": result.setup_status.as_str(),
         "discovered_tool_count": result.discovered_tool_count,
-        "setup_error": result.issue.map(|issue| issue.to_string()),
+        "setup_error": result.setup_status.issue().map(|issue| issue.to_string()),
         "auth": result.auth.as_ref().map(|auth| json!({
             "oauth_authorization_supported": auth.oauth_authorization_supported,
             "oauth_client_credentials_supported": auth.oauth_client_credentials_supported,
@@ -126,16 +120,6 @@ fn setup_result_json(result: &McpServerSetupResult) -> Value {
             "tool_count": server.tool_count,
         })),
     })
-}
-
-const fn setup_status_label(status: McpSetupStatus) -> &'static str {
-    match status {
-        McpSetupStatus::NeedsAuth => "needs_auth",
-        McpSetupStatus::AuthenticationAvailable => "authentication_available",
-        McpSetupStatus::ReadyForPolicy => "ready_for_policy",
-        McpSetupStatus::Unavailable => "unavailable",
-        McpSetupStatus::Malformed => "malformed",
-    }
 }
 
 const fn setup_next_step(status: McpSetupStatus) -> &'static str {

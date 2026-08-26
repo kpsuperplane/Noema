@@ -2374,10 +2374,6 @@ type McpServerSetupResult {
 	"""
 	setupStatus: String!
 	"""
-	Metadata discovery status.
-	"""
-	discoveryStatus: String
-	"""
 	Number of discovered tools.
 	"""
 	discoveredToolCount: Int!

@@ -87,8 +87,6 @@ nonisolated public struct SettingsMcpOauthSetupAttemptQuery: GraphQLQuery {
         public var server: Server? { __data["server"] }
         /// Setup status.
         public var setupStatus: String { __data["setupStatus"] }
-        /// Metadata discovery status.
-        public var discoveryStatus: String? { __data["discoveryStatus"] }
         /// Number of discovered tools.
         public var discoveredToolCount: Int { __data["discoveredToolCount"] }
         /// Non-secret setup error, when present.

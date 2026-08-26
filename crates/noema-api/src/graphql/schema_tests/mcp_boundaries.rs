@@ -2,13 +2,13 @@ use std::sync::{Arc, Mutex};
 
 use noema_capabilities_mcp::{
     AddMcpConnectionCommand, CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand, CreateMcpServerCommand,
-    McpDeleteServerCommand, McpDeleteServerResult, McpDiscoveryStatus, McpListToolsCommand,
+    McpDeleteServerCommand, McpDeleteServerResult, McpListToolsCommand,
     McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptStatus, McpOAuthSetupAttemptView,
     McpOperationError, McpOperationFuture, McpOperationResult, McpOperations,
     McpResetToolPolicyCommand, McpSaveConnectionLabelCommand, McpSaveProviderPolicyCommand,
     McpSaveToolOverrideCommand,
     McpServerList, McpServerRecord, McpServerSetupResult, McpSetToolEnabledCommand,
-    McpSetupAuthDetails, McpSetupIssue, McpSetupStatus, McpToolList, McpToolPolicyRecord,
+    McpSetupAuthDetails, McpSetupStatus, McpToolList, McpToolPolicyRecord,
     StartMcpOAuthReauthenticationCommand, StartMcpOAuthSetupCommand,
 };
 
@@ -30,7 +30,7 @@ async fn mcp_graphql_route_and_setup_boundaries() {
                 displayName: "Dex", transportKind: "streamable_http",
                 http: { url: "https://mcp.getdex.com/mcp" }
               }) {
-                setupStatus discoveryStatus discoveredToolCount setupError
+                setupStatus discoveredToolCount setupError
                 auth { oauthAuthorizationSupported oauthClientCredentialsSupported }
                 server { mcpServerId }
               }
@@ -43,7 +43,6 @@ async fn mcp_graphql_route_and_setup_boundaries() {
     let result = &data["createMcpServer"];
     assert_json_fields!(result,
         "/setupStatus" => "needs_auth",
-        "/discoveryStatus" => "needs_auth",
         "/discoveredToolCount" => 0,
         "/auth/oauthAuthorizationSupported" => true,
         "/auth/oauthClientCredentialsSupported" => true,
@@ -175,9 +174,7 @@ impl McpOperations for McpBoundaryOperations {
             Ok(McpServerSetupResult {
                 server: None,
                 setup_status: McpSetupStatus::NeedsAuth,
-                discovery_status: Some(McpDiscoveryStatus::NeedsAuth),
                 discovered_tool_count: 0,
-                issue: Some(McpSetupIssue::AuthenticationRequired),
                 auth: Some(McpSetupAuthDetails {
                     oauth_client_credentials_supported: true,
                     oauth_authorization_supported: true,

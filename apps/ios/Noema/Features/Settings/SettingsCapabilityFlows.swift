@@ -142,7 +142,6 @@ struct SettingsMCPServer: Hashable {
 struct SettingsMCPSetupResult: Hashable {
   let server: SettingsMCPServer?
   let setupStatus: String
-  let discoveryStatus: String?
   let discoveredToolCount: Int
   let setupError: String?
   let oauthClientCredentialsSupported: Bool
@@ -695,8 +694,8 @@ extension SettingsModel {
     SettingsMCPServer(id: id, connectionRevision: connectionRevision, policyRevision: policyRevision, displayName: displayName, transportKind: transportKind, healthStatus: healthStatus, authStatus: authStatus, toolCount: toolCount, browserOAuthReauthenticationSupported: browserOAuthReauthenticationSupported)
   }
 
-  private static func mcpSetupResult(server: SettingsMCPServer?, setupStatus: String, discoveryStatus: String?, discoveredToolCount: Int, setupError: String?, oauthClientCredentialsSupported: Bool, oauthAuthorizationSupported: Bool, scopes: [String]) -> SettingsMCPSetupResult {
-    SettingsMCPSetupResult(server: server, setupStatus: setupStatus, discoveryStatus: discoveryStatus, discoveredToolCount: discoveredToolCount, setupError: setupError, oauthClientCredentialsSupported: oauthClientCredentialsSupported, oauthAuthorizationSupported: oauthAuthorizationSupported, scopes: scopes)
+  private static func mcpSetupResult(server: SettingsMCPServer?, setupStatus: String, discoveredToolCount: Int, setupError: String?, oauthClientCredentialsSupported: Bool, oauthAuthorizationSupported: Bool, scopes: [String]) -> SettingsMCPSetupResult {
+    SettingsMCPSetupResult(server: server, setupStatus: setupStatus, discoveredToolCount: discoveredToolCount, setupError: setupError, oauthClientCredentialsSupported: oauthClientCredentialsSupported, oauthAuthorizationSupported: oauthAuthorizationSupported, scopes: scopes)
   }
 
   private static func mcpSetupResult(from value: NoemaAPI.SettingsAddMcpConnectionMutation.Data) -> SettingsMCPSetupResult {
@@ -712,7 +711,7 @@ extension SettingsModel {
   }
 
   private static func mcpSetupResult(from result: NoemaAPI.SettingsMcpSetupResultFields) -> SettingsMCPSetupResult {
-    mcpSetupResult(server: result.server.map { mcpServer(id: $0.mcpServerId, connectionRevision: $0.connectionRevision, policyRevision: $0.policyRevision, displayName: $0.displayName, transportKind: $0.transportKind, healthStatus: $0.healthStatus, authStatus: $0.authStatus, toolCount: $0.toolCount, browserOAuthReauthenticationSupported: $0.browserOauthReauthenticationSupported) }, setupStatus: result.setupStatus, discoveryStatus: result.discoveryStatus, discoveredToolCount: result.discoveredToolCount, setupError: result.setupError, oauthClientCredentialsSupported: result.auth?.oauthClientCredentialsSupported ?? false, oauthAuthorizationSupported: result.auth?.oauthAuthorizationSupported ?? false, scopes: result.auth?.scopes ?? [])
+    mcpSetupResult(server: result.server.map { mcpServer(id: $0.mcpServerId, connectionRevision: $0.connectionRevision, policyRevision: $0.policyRevision, displayName: $0.displayName, transportKind: $0.transportKind, healthStatus: $0.healthStatus, authStatus: $0.authStatus, toolCount: $0.toolCount, browserOAuthReauthenticationSupported: $0.browserOauthReauthenticationSupported) }, setupStatus: result.setupStatus, discoveredToolCount: result.discoveredToolCount, setupError: result.setupError, oauthClientCredentialsSupported: result.auth?.oauthClientCredentialsSupported ?? false, oauthAuthorizationSupported: result.auth?.oauthAuthorizationSupported ?? false, scopes: result.auth?.scopes ?? [])
   }
 
   private static func mcpAuthAttempt(from value: NoemaAPI.SettingsStartMcpServerOauthSetupMutation.Data) -> SettingsMCPAuthAttempt {
