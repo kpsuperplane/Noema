@@ -234,23 +234,7 @@ impl RuntimeHandle {
         input: String,
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), RuntimeError> {
-        self.turn_with_client_message_id(conversation_id, input, item_tx, None)
-            .await
-    }
-
-    /// Execute one primary-conversation turn with an optional idempotency key.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the runtime is stopped or turn execution fails.
-    pub async fn turn_with_client_message_id(
-        &self,
-        conversation_id: String,
-        input: String,
-        item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
-        client_message_id: Option<String>,
-    ) -> Result<(), RuntimeError> {
-        self.turn_with_client_timezone(conversation_id, input, item_tx, client_message_id, None)
+        self.turn_with_client_timezone(conversation_id, input, item_tx, None, None)
             .await
     }
 
@@ -343,29 +327,8 @@ impl RuntimeHandle {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, RuntimeError> {
-        self.send_generate_once(
-            GenerateOnceRoute::Default,
-            request,
-            GenerateOnceModelPolicy::Selection,
-        )
-        .await
-    }
-
-    /// Generate one response through the current memory-provider route.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when route resolution or provider generation fails.
-    pub async fn generate_once_with_memory_provider(
-        &self,
-        request: GenerateRequest,
-    ) -> Result<GenerateResponse, RuntimeError> {
-        self.send_generate_once(
-            GenerateOnceRoute::Memory,
-            request,
-            GenerateOnceModelPolicy::Selection,
-        )
-        .await
+        self.send_generate_once(request, GenerateOnceModelPolicy::Selection)
+            .await
     }
 
     /// Generate one response through the provider's classification-model policy.
@@ -377,12 +340,8 @@ impl RuntimeHandle {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, RuntimeError> {
-        self.send_generate_once(
-            GenerateOnceRoute::Default,
-            request,
-            GenerateOnceModelPolicy::ProviderToolClassification,
-        )
-        .await
+        self.send_generate_once(request, GenerateOnceModelPolicy::ProviderToolClassification)
+            .await
     }
 
     /// Queue one native-memory update for the local primary conversation.
@@ -424,12 +383,10 @@ impl RuntimeHandle {
 
     async fn send_generate_once(
         &self,
-        route: GenerateOnceRoute,
         request: GenerateRequest,
         model_policy: GenerateOnceModelPolicy,
     ) -> Result<GenerateResponse, RuntimeError> {
         self.request(|reply| RuntimeCommand::GenerateOnce {
-            route,
             request,
             model_policy,
             reply,
@@ -594,14 +551,9 @@ fn runtime_stopped() -> RuntimeError {
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum GenerateOnceModelPolicy {
+    #[cfg(test)]
     Selection,
     ProviderToolClassification,
-}
-
-#[derive(Debug)]
-pub(super) enum GenerateOnceRoute {
-    Default,
-    Memory,
 }
 
 #[derive(Debug)]
@@ -645,7 +597,6 @@ pub(super) enum RuntimeCommand {
         reply: oneshot::Sender<Result<(), RuntimeError>>,
     },
     GenerateOnce {
-        route: GenerateOnceRoute,
         request: GenerateRequest,
         model_policy: GenerateOnceModelPolicy,
         reply: oneshot::Sender<Result<GenerateResponse, RuntimeError>>,

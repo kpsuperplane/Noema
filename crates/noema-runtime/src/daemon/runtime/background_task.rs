@@ -32,10 +32,9 @@ use super::{
     progress_audit::ProgressAuditDecision,
     runtime_debug::RuntimeDebugSpan,
     task_continuation::{
-        add_usage, background_tool_instructions, build_task_checkpoint_prompt,
+        TASK_CHECKPOINT_PROMPT, add_usage, background_tool_instructions,
         build_task_finalization_prompt, is_task_terminal_tool, is_valid_terminal_tool,
-        render_continuation_tool_names, task_terminal_tools, task_tool_result_transcript_payload,
-        terminal_tool_instructions,
+        render_tool_names, task_terminal_tools, terminal_tool_instructions,
     },
     task_transcript::persisted_capability_arguments,
     tool_lifecycle::local_tool_calls,

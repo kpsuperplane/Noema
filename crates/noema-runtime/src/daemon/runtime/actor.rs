@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 
 use super::RuntimeSpawnConfig;
 use super::capability_auth_arguments::CapabilityAuthArgumentStore;
-use super::handle::{GenerateOnceModelPolicy, GenerateOnceRoute, RuntimeCommand};
+use super::handle::{GenerateOnceModelPolicy, RuntimeCommand};
 use super::tasks::RuntimeTaskGroup;
 use crate::daemon::{
     ConversationRuntimeEvent, TurnStreamEvent, TurnTranscriptItem, protocol::RuntimeError,
@@ -428,28 +428,20 @@ impl RuntimeActor {
                     let _ = reply.send(result);
                 }
                 RuntimeCommand::GenerateOnce {
-                    route,
                     mut request,
                     model_policy,
                     reply,
                 } => {
-                    let provider = match route {
-                        GenerateOnceRoute::Default => self
-                            .default_provider
-                            .resolve_route()
-                            .await
-                            .map_err(RuntimeError::from),
-                        GenerateOnceRoute::Memory => self.resolve_memory_provider().await,
-                    };
-                    let provider = match provider {
+                    let provider = match self.default_provider.resolve_route().await {
                         Ok(provider) => provider,
                         Err(error) => {
-                            let _ = reply.send(Err(error));
+                            let _ = reply.send(Err(error.into()));
                             continue;
                         }
                     };
                     let selection = provider.selection();
                     match model_policy {
+                        #[cfg(test)]
                         GenerateOnceModelPolicy::Selection => {
                             request.model = selection.model_profile.clone();
                             request.options.reasoning_effort = selection.reasoning_effort;

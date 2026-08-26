@@ -371,7 +371,7 @@ impl RuntimeActor {
                         correlation_id: Some(correlation_id.clone()),
                         parent_item_id: Some(tool_call_item_id.clone()),
                         content_text: Some(result.name.clone()),
-                        payload: task_tool_result_transcript_payload(&result),
+                        payload: result.transcript_payload(),
                     },
                     &run_fence,
                 )
@@ -450,7 +450,7 @@ impl RuntimeActor {
                     &format!("Task progress reached a checkpoint after {reason}."),
                 )
                 .await;
-                context.append_developer_message(build_task_checkpoint_prompt().to_string());
+                context.append_developer_message(TASK_CHECKPOINT_PROMPT.to_string());
                 progress.reset_window();
             }
             let audit_interval = usize::try_from(request.execution_policy.progress_audit_interval)
@@ -485,7 +485,7 @@ impl RuntimeActor {
                     progress.reset_window();
                     if audit.decision == ProgressAuditDecision::Checkpoint {
                         context
-                            .append_developer_message(build_task_checkpoint_prompt().to_string());
+                            .append_developer_message(TASK_CHECKPOINT_PROMPT.to_string());
                     } else if audit.decision != ProgressAuditDecision::Continue {
                         let reason = match audit.decision {
                             ProgressAuditDecision::Finalize => {
@@ -549,7 +549,7 @@ impl RuntimeActor {
                 build_role_tool_result_continuation_system_prompt(
                     &request.instructions,
                     &request.input,
-                    &render_continuation_tool_names(&model_tools),
+                    &render_tool_names(&model_tools),
                 )
             };
             let (continuation_tools, continuation_tool_choice, parallel_tool_calls) =

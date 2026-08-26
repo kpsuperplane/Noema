@@ -4,16 +4,17 @@ use crate::{
     agent_execution::ExecutionRole,
     daemon::prompts::WEB_FETCH_PROVENANCE_INSTRUCTIONS,
     daemon::task_tool::{
-        is_task_continue_execution_tool, is_task_finish_execution_tool, is_task_finish_review_tool,
-        is_task_report_blocked_tool,
+        is_task_continue_execution_tool, is_task_finish_execution_tool,
+        is_task_finish_planning_tool, is_task_finish_review_tool, is_task_report_blocked_tool,
     },
 };
 use noema_providers::{ProviderToolTransport, TokenUsage};
 
-use super::{local_tools::LocalToolResult, model_tools::ModelTools};
+use super::model_tools::ModelTools;
 
 const BACKGROUND_TERMINAL_POLICY: &str =
     "Use the role's terminal tool only when its terminal contract is satisfied.";
+pub(super) const TASK_CHECKPOINT_PROMPT: &str = "Pause new work at this checkpoint. Save all completed progress and the exact next action in TASK.md. If the next action depends on omitted values, name the support file and first value to read. Save required support files first. Then call task.continue_execution. Do not call external tools.";
 
 pub(super) fn is_valid_terminal_tool(role: ExecutionRole, name: &str) -> bool {
     match role {
@@ -58,34 +59,26 @@ pub(super) fn task_terminal_tools(tools: &ModelTools) -> Vec<noema_capabilities:
         .collect()
 }
 
-pub(super) fn render_continuation_tool_names(tools: &ModelTools) -> String {
-    render_tool_names(tools)
-}
-
 pub(super) fn terminal_tool_instructions(
     instructions: &str,
     tools: &ModelTools,
     terminal_tools: &[noema_capabilities::ToolSpec],
 ) -> String {
-    let rendered = render_specs(terminal_tools, true);
+    let rendered = render_specs(terminal_tools);
     let transport_instructions = tool_transport_instructions(tools.transport);
     format!("{instructions}\n\nRequired terminal tools:\n{rendered}{transport_instructions}")
 }
 
-fn render_specs(tools: &[noema_capabilities::ToolSpec], include_schema: bool) -> String {
+fn render_specs(tools: &[noema_capabilities::ToolSpec]) -> String {
     tools
         .iter()
         .map(|tool| {
-            if include_schema {
-                format!(
-                    "- {}: {}\n  Input JSON schema: {}",
-                    tool.name,
-                    tool.description,
-                    tool.input_schema.as_value()
-                )
-            } else {
-                format!("- {}: {}", tool.name, tool.description)
-            }
+            format!(
+                "- {}: {}\n  Input JSON schema: {}",
+                tool.name,
+                tool.description,
+                tool.input_schema.as_value()
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -100,20 +93,12 @@ fn tool_transport_instructions(transport: ProviderToolTransport) -> &'static str
     }
 }
 
-pub(super) fn task_tool_result_transcript_payload(result: &LocalToolResult) -> serde_json::Value {
-    result.transcript_payload()
-}
-
 pub(super) fn is_task_terminal_tool(name: &str) -> bool {
     is_task_finish_planning_tool(name)
         || is_task_finish_execution_tool(name)
         || is_task_continue_execution_tool(name)
         || is_task_finish_review_tool(name)
         || is_task_report_blocked_tool(name)
-}
-
-fn is_task_finish_planning_tool(name: &str) -> bool {
-    name == crate::daemon::task_tool::TASK_FINISH_PLANNING_TOOL
 }
 
 pub(super) fn build_task_finalization_prompt(
@@ -136,10 +121,6 @@ pub(super) fn build_task_finalization_prompt(
     format!(
         "The current run must stop because: {reason}.\n{terminal_instruction}\nCall exactly one role-valid terminal tool. Do not call other tools. Do not discard useful completed work.\n\nOriginal request:\n{original_input}"
     )
-}
-
-pub(super) fn build_task_checkpoint_prompt() -> &'static str {
-    "Pause new work at this checkpoint. Save all completed progress and the exact next action in TASK.md. If the next action depends on omitted values, name the support file and first value to read. Save required support files first. Then call task.continue_execution. Do not call external tools."
 }
 
 pub(super) fn add_usage(aggregate: &mut Option<TokenUsage>, usage: Option<&TokenUsage>) {
@@ -208,7 +189,7 @@ mod tests {
             output: Some(json!({"status": "review_required"})),
         });
 
-        let payload = task_tool_result_transcript_payload(&result);
+        let payload = result.transcript_payload();
 
         assert!(payload.get("arguments").is_none());
         assert_eq!(payload["payload"]["status"], "review_required");
