@@ -770,16 +770,18 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
             .header(header::CONTENT_TYPE, "application/json")
             .header(header::COOKIE, &cookie)
             .body(Body::from(
-                r#"{"query":"{ testRequestPrincipal }","extensions":{"principal":{"subjectId":"attacker"}}}"#,
+                r#"{"query":"{ task(taskId: \"task:transport\") { taskId } }","extensions":{"principal":{"subjectId":"attacker"}}}"#,
             ))
             .expect("GraphQL principal request"),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    let body = serde_json::from_slice::<serde_json::Value>(&body).expect("GraphQL JSON");
     assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&body).expect("GraphQL JSON"),
-        json!({"data": {"testRequestPrincipal": "human:local"}})
+        body.pointer("/errors/0/message")
+            .and_then(|value| value.as_str()),
+        Some("Noema store is unavailable")
     );
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -881,7 +883,7 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
                 "id": "principal",
                 "type": "subscribe",
                 "payload": {
-                    "query": "subscription { testRequestPrincipal }",
+                    "query": "subscription { tasksEvents(workspaceId: \"workspace:personal\") { cursor } }",
                     "extensions": {"principal": {"subjectId": "attacker"}}
                 }
             })
@@ -895,14 +897,12 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
         .expect("subscription timeout")
         .expect("subscription frame")
         .expect("subscription result");
+    let next = serde_json::from_str::<serde_json::Value>(next.to_text().expect("result text"))
+        .expect("result JSON");
     assert_eq!(
-        serde_json::from_str::<serde_json::Value>(next.to_text().expect("result text"))
-            .expect("result JSON"),
-        json!({
-            "id": "principal",
-            "type": "next",
-            "payload": {"data": {"testRequestPrincipal": "human:local"}}
-        })
+        next.pointer("/payload/errors/0/message")
+            .and_then(|value| value.as_str()),
+        Some("Noema store is unavailable")
     );
     let _complete = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
         .await
@@ -1004,7 +1004,7 @@ async fn client_bearer_authorizes_http_and_ws_without_browser_origin_and_revocat
         .post(&url)
         .header(reqwest::header::AUTHORIZATION, &bearer)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(r#"{"query":"{ testRequestPrincipal }"}"#)
+        .body(r#"{"query":"{ task(taskId: \"task:transport\") { taskId } }"}"#)
         .send()
         .await
         .expect("setup-barrier bearer request");
@@ -1017,17 +1017,20 @@ async fn client_bearer_authorizes_http_and_ws_without_browser_origin_and_revocat
         .post(&url)
         .header(reqwest::header::AUTHORIZATION, &bearer)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(r#"{"query":"{ testRequestPrincipal }"}"#)
+        .body(r#"{"query":"{ task(taskId: \"task:transport\") { taskId } }"}"#)
         .send()
         .await
         .expect("bearer GraphQL request");
     assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let response = response
+        .json::<serde_json::Value>()
+        .await
+        .expect("GraphQL JSON");
     assert_eq!(
         response
-            .json::<serde_json::Value>()
-            .await
-            .expect("GraphQL JSON"),
-        json!({"data": {"testRequestPrincipal": "human:local"}})
+            .pointer("/errors/0/message")
+            .and_then(|value| value.as_str()),
+        Some("Noema store is unavailable")
     );
 
     let response = client
@@ -1087,7 +1090,7 @@ async fn client_bearer_authorizes_http_and_ws_without_browser_origin_and_revocat
             json!({
                 "id": "principal",
                 "type": "subscribe",
-                "payload": {"query": "subscription { testRequestPrincipal }"}
+                "payload": {"query": "subscription { tasksEvents(workspaceId: \"workspace:personal\") { cursor } }"}
             })
             .to_string()
             .into(),

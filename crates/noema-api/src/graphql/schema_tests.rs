@@ -24,11 +24,7 @@ mod tests {
 
     #[test]
     fn schema_sdl_exposes_initial_noema_fields() {
-        let production_sdl = schema_sdl().replace("\n\ttestRequestPrincipal: String!", "");
-        assert_eq!(
-            production_sdl,
-            include_str!("../../../../graphql/schema.graphql")
-        );
+        assert_eq!(schema_sdl(), include_str!("../../../../graphql/schema.graphql"));
     }
 
     #[tokio::test]

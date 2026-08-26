@@ -143,15 +143,6 @@ impl SubscriptionRoot {
         local_models::local_model_events(state, after).await
     }
 
-    #[cfg(any(test, feature = "test-support"))]
-    async fn test_request_principal(&self, ctx: &Context<'_>) -> impl Stream<Item = String> {
-        futures_util::stream::once(std::future::ready(
-            ctx.data_unchecked::<crate::graphql::RequestPrincipal>()
-                .subject_id()
-                .to_string(),
-        ))
-    }
-
     /// Stream conversation events.
     async fn conversation_events(
         &self,

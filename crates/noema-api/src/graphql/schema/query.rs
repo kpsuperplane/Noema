@@ -97,13 +97,6 @@ impl QueryRoot {
         capability_integrations::tools(ctx.data_unchecked::<GraphqlState>(), r#ref).await
     }
 
-    #[cfg(any(test, feature = "test-support"))]
-    async fn test_request_principal(&self, ctx: &Context<'_>) -> String {
-        ctx.data_unchecked::<crate::graphql::RequestPrincipal>()
-            .subject_id()
-            .to_string()
-    }
-
     /// Return local Noema status.
     async fn local_status(&self, ctx: &Context<'_>) -> Result<GraphqlLocalStatus> {
         let state = ctx.data_unchecked::<GraphqlState>();

@@ -38,7 +38,7 @@ async fn socket_serves_local_authority_with_private_permissions_and_cleanup() {
     let mut stream = tokio::net::UnixStream::connect(&path)
         .await
         .expect("connect local GraphQL");
-    let body = r#"{"query":"{ testRequestPrincipal }"}"#;
+    let body = r#"{"query":"{ task(taskId: \"task:transport\") { taskId } }"}"#;
     stream
         .write_all(
             format!(
@@ -56,7 +56,7 @@ async fn socket_serves_local_authority_with_private_permissions_and_cleanup() {
         .expect("read local GraphQL response");
     let response = String::from_utf8(response).expect("response text");
     assert!(response.starts_with("HTTP/1.1 200 OK"));
-    assert!(response.contains("human:local"));
+    assert!(response.contains("Noema store is unavailable"));
 
     shutdown_sender.send(true).expect("shutdown");
     task.await.expect("server task").expect("server shutdown");
@@ -73,7 +73,9 @@ async fn router_has_local_authority_and_exposes_only_bounded_graphql_post() {
         .oneshot(
             Request::post("/graphql")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"query":"{ testRequestPrincipal }"}"#))
+                .body(Body::from(
+                    r#"{"query":"{ task(taskId: \"task:transport\") { taskId } }"}"#,
+                ))
                 .expect("GraphQL request"),
         )
         .await
