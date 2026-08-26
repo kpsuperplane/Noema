@@ -30,6 +30,7 @@ slice or a net-negative reduction.
   The same row stores provider text only when projection changes it.
 - Current task state is transactional. Task events support audit and
   invalidation. They do not provide a second replay authority.
+- Task stages use one code-owned personal workflow. SQLite does not store workflow definitions.
 - A successful command commits its state, audit event, notification, and
   idempotency receipt together when applicable.
 
@@ -68,8 +69,7 @@ slice or a net-negative reduction.
   Provider-hosted web state fails closed if the provider continuation expires.
 - Provider wrappers forward active-continuation state. The runtime does not
   compact replay while the inner provider session remains active.
-- Finalization keeps an active provider session's request contract. It sends
-  stop guidance as incremental input instead of changing tools or instructions.
+- Finalization makes one provider request without tools. Its instructions state the exact stop reason.
 - Historical tool results can support valid facts. They do not prove a requested
   current-turn action occurred.
 - An explicit human request for foreground execution overrides automatic
@@ -91,6 +91,7 @@ slice or a net-negative reduction.
   Fast. Durable request snapshots preserve that choice.
 - Adapter manifests use schema version 9. Definitions and OAuth objects have
   filesystem authorities. SQLite adapter projections are disposable.
+- Adapter installation is direct. No scheduler or scheduled adapter work remains.
 - An adapter definition ID identifies the service. A semantic digest identifies
   one immutable reviewed revision.
 - OAuth profiles, applications, external accounts, grants, and connections are
@@ -110,7 +111,7 @@ slice or a net-negative reduction.
   closed by default.
 - iOS and desktop use browser OAuth with S256 PKCE, passkey approval, short
   access tokens, and rotating refresh credentials. Legacy pairing routes and
-  stored bearer credentials are disabled.
+  stored bearer credential fields are absent.
 - Browser sessions survive server restarts. A protected cookie key and stored
   session digests preserve authority without placing cookie values in SQLite.
 - Native refresh rotation binds recovery to a client-saved request identifier.
@@ -163,8 +164,8 @@ slice or a net-negative reduction.
   profiles, and an APNs provider configured in browser Settings.
 - Production Tasks Live Activities also need the widget App ID in regenerated
   signing profiles.
-- Product decisions remain open for the dormant adapter scheduler, integration
-  substrates, full-parity clients, task roles, and secondary vertical systems.
+- Product decisions remain open for integration substrates, full-parity clients,
+  task roles, and secondary vertical systems.
 
 ## Validation defaults
 
