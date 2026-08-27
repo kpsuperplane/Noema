@@ -363,6 +363,7 @@ The assessment uses these current authorities:
 - The [browser contract](harness/web-browsing.md) defines interactive browsing, public downloads, document parsing, and remaining browser limits.
 - The [50-case ledger](validation/personal-agent-50-case-ledger.md) supplies dated live evidence for Gmail, Google Calendar, and Notion workflows.
 - The [14-case live ledger](validation/difficult-personal-assistant-test-ledger-2026-08-26.md) records exact acceptance evidence for every row previously marked `Test`.
+- The [100-task roadmap](plans/2026-08-27-personal-assistant-100-task-roadmap.md) sequences shared fixes, new systems, domain work, and live exit gates.
 - The [proactive-event plan](plans/2026-08-15-proactive-event-sources.md) states that implementation has not started.
 - The [current context](context/current.md) records implemented file tools and remaining live Gmail and Calendar OAuth acceptance.
 
