@@ -36,6 +36,7 @@ export function TasksSidebar({
 }) {
   const manager = useProjectManager({ projects, onUpdated });
   const [archivedExpanded, setArchivedExpanded] = React.useState(false);
+  const createButtonRef = React.useRef<HTMLButtonElement>(null);
 
   const renderedMenuLevel = withArchivedProjects(
     menuLevel,
@@ -54,20 +55,32 @@ export function TasksSidebar({
   const renderItemContent = (item: ShellMenuItem, defaultControl: ReactNode) => {
     if (item.itemId === "tasks.workspace.personal") {
       return (
-        <>
-          {defaultControl}
-          {manager.editor ? null : (
-            <IconButton
-              type="button"
-              variant="ghost"
-              size="sm"
-              label="New project"
-              icon={<Plus aria-hidden="true" size={14} />}
-              xstyle={styles.itemAction}
-              onClick={manager.openCreate}
+        <VStack gap={1} className={stylex.props(styles.personalGroup).className}>
+          <HStack align="center" gap={0} className={stylex.props(styles.personalRow).className}>
+            {defaultControl}
+            {manager.editor ? null : (
+              <IconButton
+                ref={createButtonRef}
+                type="button"
+                variant="ghost"
+                size="sm"
+                label="New project"
+                icon={<Plus aria-hidden="true" size={14} />}
+                xstyle={styles.itemAction}
+                onClick={manager.openCreate}
+              />
+            )}
+          </HStack>
+          {manager.editor?.kind === "create" ? (
+            <ProjectCreateForm
+              manager={manager}
+              onCancel={() => {
+                manager.closeEditor();
+                window.requestAnimationFrame(() => createButtonRef.current?.focus());
+              }}
             />
-          )}
-        </>
+          ) : null}
+        </VStack>
       );
     }
 
@@ -122,22 +135,53 @@ export function TasksSidebar({
           renderItemContent={renderItemContent}
         />
       </div>
-      <ProjectDialog manager={manager} />
+      <ProjectEditDialog manager={manager} />
     </div>
   );
 }
 
-function ProjectDialog({ manager }: { manager: ProjectManagerController }) {
-  if (!manager.editor) return null;
-  const isNew = manager.editor.kind === "create";
+function ProjectCreateForm({ manager, onCancel }: { manager: ProjectManagerController; onCancel: () => void }) {
   return (
-    <Dialog isOpen onOpenChange={(open) => !open && manager.closeEditor()} purpose="form" width={480} aria-label={isNew ? "New project" : "Edit project"}>
-      <Layout height="auto" header={<DialogHeader title={isNew ? "New project" : "Edit project"} subtitle="A project folder becomes the default working directory for its tasks." onOpenChange={(open) => !open && manager.closeEditor()} />} content={<LayoutContent>
+    <VStack
+      as="form"
+      aria-label="New project"
+      gap={2}
+      className={stylex.props(styles.createForm).className}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !manager.busy) onCancel();
+      }}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!manager.busy) void manager.save();
+      }}
+    >
+      <VStack as="label" gap={1} className={stylex.props(styles.field).className}>
+        <span>Name</span>
+        <input autoFocus required value={manager.name} {...stylex.props(styles.input)} onChange={(event) => manager.setName(event.currentTarget.value)} />
+      </VStack>
+      <VStack as="label" gap={1} className={stylex.props(styles.field).className}>
+        <span>Project folder (optional)</span>
+        <input value={manager.folder} placeholder="/absolute/path/to/project" {...stylex.props(styles.input)} onChange={(event) => manager.setFolder(event.currentTarget.value)} />
+      </VStack>
+      {manager.error ? <p role="alert" {...stylex.props(styles.editorError)}>{manager.error}</p> : null}
+      <HStack gap={1} justify="end">
+        <Button type="button" size="sm" variant="ghost" label="Cancel" isDisabled={manager.busy} onClick={onCancel} />
+        <Button type="submit" size="sm" variant="primary" label="Create project" isLoading={manager.busy} isDisabled={manager.busy || !manager.name.trim()} />
+      </HStack>
+    </VStack>
+  );
+}
+
+function ProjectEditDialog({ manager }: { manager: ProjectManagerController }) {
+  if (!manager.editor || manager.editor.kind !== "edit") return null;
+  return (
+    <Dialog isOpen onOpenChange={(open) => !open && manager.closeEditor()} purpose="form" width={480} aria-label="Edit project">
+      <Layout height="auto" header={<DialogHeader title="Edit project" subtitle="A project folder becomes the default working directory for its tasks." onOpenChange={(open) => !open && manager.closeEditor()} />} content={<LayoutContent>
         <VStack as="form" gap={3} onSubmit={(event) => { event.preventDefault(); void manager.save(); }}>
           <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Name</span><input data-autofocus required value={manager.name} {...stylex.props(styles.input)} onChange={(event) => manager.setName(event.currentTarget.value)} /></VStack>
           <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Project folder (optional)</span><input value={manager.folder} placeholder="/absolute/path/to/project" {...stylex.props(styles.input)} onChange={(event) => manager.setFolder(event.currentTarget.value)} /><span {...stylex.props(styles.hint)}>Must be an absolute path in the selected executor's filesystem.</span></VStack>
           {manager.error ? <p role="alert" {...stylex.props(styles.editorError)}>{manager.error}</p> : null}
-          <HStack gap={2} justify="end"><Button type="button" size="sm" variant="ghost" label="Cancel" isDisabled={manager.busy} onClick={manager.closeEditor} /><Button type="submit" size="sm" variant="primary" label={isNew ? "Create project" : "Save"} isLoading={manager.busy} isDisabled={manager.busy || !manager.name.trim()} /></HStack>
+          <HStack gap={2} justify="end"><Button type="button" size="sm" variant="ghost" label="Cancel" isDisabled={manager.busy} onClick={manager.closeEditor} /><Button type="submit" size="sm" variant="primary" label="Save" isLoading={manager.busy} isDisabled={manager.busy || !manager.name.trim()} /></HStack>
         </VStack>
       </LayoutContent>} />
     </Dialog>
@@ -155,6 +199,15 @@ const styles = stylex.create({
   navigation: {
     minHeight: 0,
     flex: 1
+  },
+  personalGroup: { width: "100%", minWidth: 0 },
+  personalRow: { width: "100%", minWidth: 0 },
+  createForm: {
+    marginInline: "var(--spacing-1)",
+    padding: "var(--spacing-2)",
+    borderLeftWidth: 2,
+    borderLeftStyle: "solid",
+    borderLeftColor: "var(--pine-300)"
   },
   itemAction: {
     minWidth: 28,

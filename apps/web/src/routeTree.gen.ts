@@ -16,6 +16,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as TasksIndexRouteImport } from './routes/tasks/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as MemoryIndexRouteImport } from './routes/memory/index'
+import { Route as TasksNewRouteImport } from './routes/tasks/new'
 import { Route as TasksTaskIdRouteImport } from './routes/tasks/$taskId'
 import { Route as SettingsModelsRouteImport } from './routes/settings/models'
 import { Route as SettingsMemoryRouteImport } from './routes/settings/memory'
@@ -73,6 +74,11 @@ const MemoryIndexRoute = MemoryIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => MemoryRoute,
+} as any)
+const TasksNewRoute = TasksNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => TasksRoute,
 } as any)
 const TasksTaskIdRoute = TasksTaskIdRouteImport.update({
   id: '/$taskId',
@@ -203,6 +209,7 @@ export interface FileRoutesByFullPath {
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/models': typeof SettingsModelsRouteWithChildren
   '/tasks/$taskId': typeof TasksTaskIdRoute
+  '/tasks/new': typeof TasksNewRoute
   '/memory/': typeof MemoryIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/tasks/': typeof TasksIndexRoute
@@ -231,6 +238,7 @@ export interface FileRoutesByTo {
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/models': typeof SettingsModelsRouteWithChildren
   '/tasks/$taskId': typeof TasksTaskIdRoute
+  '/tasks/new': typeof TasksNewRoute
   '/memory': typeof MemoryIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/tasks': typeof TasksIndexRoute
@@ -263,6 +271,7 @@ export interface FileRoutesById {
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/models': typeof SettingsModelsRouteWithChildren
   '/tasks/$taskId': typeof TasksTaskIdRoute
+  '/tasks/new': typeof TasksNewRoute
   '/memory/': typeof MemoryIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/tasks/': typeof TasksIndexRoute
@@ -296,6 +305,7 @@ export interface FileRouteTypes {
     | '/settings/memory'
     | '/settings/models'
     | '/tasks/$taskId'
+    | '/tasks/new'
     | '/memory/'
     | '/settings/'
     | '/tasks/'
@@ -324,6 +334,7 @@ export interface FileRouteTypes {
     | '/settings/memory'
     | '/settings/models'
     | '/tasks/$taskId'
+    | '/tasks/new'
     | '/memory'
     | '/settings'
     | '/tasks'
@@ -355,6 +366,7 @@ export interface FileRouteTypes {
     | '/settings/memory'
     | '/settings/models'
     | '/tasks/$taskId'
+    | '/tasks/new'
     | '/memory/'
     | '/settings/'
     | '/tasks/'
@@ -434,6 +446,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/memory/'
       preLoaderRoute: typeof MemoryIndexRouteImport
       parentRoute: typeof MemoryRoute
+    }
+    '/tasks/new': {
+      id: '/tasks/new'
+      path: '/new'
+      fullPath: '/tasks/new'
+      preLoaderRoute: typeof TasksNewRouteImport
+      parentRoute: typeof TasksRoute
     }
     '/tasks/$taskId': {
       id: '/tasks/$taskId'
@@ -667,6 +686,7 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 
 interface TasksRouteChildren {
   TasksTaskIdRoute: typeof TasksTaskIdRoute
+  TasksNewRoute: typeof TasksNewRoute
   TasksIndexRoute: typeof TasksIndexRoute
   TasksProjectsProjectIdRoute: typeof TasksProjectsProjectIdRoute
   TasksRecurrencesRecurrenceIdRoute: typeof TasksRecurrencesRecurrenceIdRoute
@@ -674,6 +694,7 @@ interface TasksRouteChildren {
 
 const TasksRouteChildren: TasksRouteChildren = {
   TasksTaskIdRoute: TasksTaskIdRoute,
+  TasksNewRoute: TasksNewRoute,
   TasksIndexRoute: TasksIndexRoute,
   TasksProjectsProjectIdRoute: TasksProjectsProjectIdRoute,
   TasksRecurrencesRecurrenceIdRoute: TasksRecurrencesRecurrenceIdRoute,

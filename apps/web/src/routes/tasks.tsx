@@ -10,6 +10,7 @@ export const Route = createFileRoute("/tasks")({
 function TasksLayoutRoute() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const newTaskMatch = useMatch({ from: "/tasks/new", shouldThrow: false });
   const taskMatch = useMatch({ from: "/tasks/$taskId", shouldThrow: false });
   const recurrenceMatch = useMatch({ from: "/tasks/recurrences/$recurrenceId", shouldThrow: false });
   const projectMatch = useMatch({ from: "/tasks/projects/$projectId", shouldThrow: false });
@@ -26,11 +27,22 @@ function TasksLayoutRoute() {
     void navigate({ to: "/tasks", search, replace: true });
   };
 
+  const openTaskCreate = () => {
+    void navigate({ to: "/tasks/new", search });
+  };
+
+  const openCreatedTask = (taskId: string) => {
+    void navigate({ to: "/tasks/$taskId", params: { taskId }, search, replace: true });
+  };
+
   return (
     <TasksSurface
       search={search}
+      creatingTask={Boolean(newTaskMatch)}
       selectedDetail={selectedDetail}
-      onCloseDetail={selectedDetail ? closeTask : undefined}
+      onCloseDetail={selectedDetail || newTaskMatch ? closeTask : undefined}
+      onNewTask={openTaskCreate}
+      onTaskCreated={openCreatedTask}
     />
   );
 }

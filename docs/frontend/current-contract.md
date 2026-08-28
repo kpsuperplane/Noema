@@ -172,6 +172,10 @@ Result previews preserve provider citations.
 
 Task and project documents use one shared Markdown viewer and Milkdown Crepe editor.
 Their surfaces keep separate save and conflict policies.
+Task creation uses the `/tasks/new` route and the normal Task detail area.
+The Tasks list remains visible beside creation when the detail layout has room.
+Project creation expands below Personal in the Tasks sidebar.
+Creation does not use a separate form dialog.
 Inbox titles and descriptions expose adjacent pencil controls and edit in place without changing the surrounding layout.
 Project and Executor editing remains in a focused settings dialog.
 For a selected project, `PROJECT.md` is the first Tasks list row.

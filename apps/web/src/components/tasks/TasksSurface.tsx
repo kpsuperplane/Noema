@@ -8,7 +8,10 @@ import { TasksEventsDocument } from "@/generated/graphql";
 import { ChatDetailRail } from "../chatDetail/ChatDetailRail";
 import type { ChatDetailTarget } from "../chatDetail/chatDetailTypes";
 import type { TasksSearch } from "./tasksTypes";
-import { CaptureTaskDialog } from "./CaptureTaskDialog";
+import {
+  CaptureTaskDetail,
+  type CaptureTaskDetailHandle
+} from "./CaptureTaskDetail";
 import { TasksToolbar } from "./TasksToolbar";
 import { TasksList } from "./TasksViews";
 import { useTasksEventCursor } from "./tasksEventCursor";
@@ -16,16 +19,26 @@ import { PERSONAL_WORKSPACE_ID } from "./tasksTypes";
 import { useTaskProjects } from "./useTaskProjects";
 import { useTasksEventInvalidation } from "./useTasksEventInvalidation";
 
-export function TasksSurface({ search, selectedDetail, onCloseDetail }: {
+export function TasksSurface({
+  search,
+  creatingTask,
+  selectedDetail,
+  onCloseDetail,
+  onNewTask,
+  onTaskCreated
+}: {
   search: TasksSearch;
+  creatingTask: boolean;
   selectedDetail?: Extract<ChatDetailTarget, { type: "task" | "recurrence" | "project" }>;
   onCloseDetail?: () => void;
+  onNewTask: () => void;
+  onTaskCreated: (taskId: string) => void;
 }) {
   const selectedTaskId = selectedDetail?.type === "task" ? selectedDetail.taskId : undefined;
   const client = useApolloClient();
   const projectsResult = useTaskProjects();
   const projects = projectsResult.projects;
-  const [captureOpen, setCaptureOpen] = React.useState(false);
+  const captureRef = React.useRef<CaptureTaskDetailHandle>(null);
   const [eventCursor, recordEventCursor] = useTasksEventCursor(PERSONAL_WORKSPACE_ID);
   const seenEventIdsRef = React.useRef(new Set<string>());
   const scheduleInvalidation = useTasksEventInvalidation({
@@ -54,14 +67,20 @@ export function TasksSurface({ search, selectedDetail, onCloseDetail }: {
     <ShellPageLayout width="fluid">
       <section aria-labelledby="tasks-page-title" {...stylex.props(styles.surface)}>
         <MasterDetailLayout
-          detailOpen={Boolean(selectedDetail)}
+          detailOpen={creatingTask || Boolean(selectedDetail)}
           detailLabel="Task and artifact details"
           onDetailOpenChange={(open) => {
             if (!open) onCloseDetail?.();
           }}
           list={
             <VStack {...stylex.props(styles.listScroller)}>
-              <TasksToolbar onNewTask={() => setCaptureOpen(true)} />
+              <TasksToolbar onNewTask={() => {
+                if (creatingTask) {
+                  captureRef.current?.focus();
+                  return;
+                }
+                onNewTask();
+              }} />
               {hasNotice ? (
                 <ShellPageTrack>
                   <div {...stylex.props(styles.notices)}>
@@ -82,7 +101,15 @@ export function TasksSurface({ search, selectedDetail, onCloseDetail }: {
               </section>
             </VStack>
           }
-          detail={selectedDetail ? (
+          detail={creatingTask ? (
+            <CaptureTaskDetail
+              ref={captureRef}
+              projects={projects}
+              initialProjectId={search.project}
+              onClose={() => onCloseDetail?.()}
+              onCreated={onTaskCreated}
+            />
+          ) : selectedDetail ? (
             <ChatDetailRail
               animateEntrance={false}
               target={selectedDetail}
@@ -95,7 +122,6 @@ export function TasksSurface({ search, selectedDetail, onCloseDetail }: {
             />
           ) : null}
         />
-        <CaptureTaskDialog key={`${search.project ?? "all"}:${captureOpen ? "open" : "closed"}`} open={captureOpen} projects={projects} initialProjectId={search.project} onOpenChange={setCaptureOpen} />
       </section>
     </ShellPageLayout>
   );

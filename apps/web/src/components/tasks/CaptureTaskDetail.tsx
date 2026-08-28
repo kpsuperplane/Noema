@@ -3,22 +3,36 @@ import { useMutation, useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
-import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
-import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { HStack } from "@astryxdesign/core/HStack";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
+import { Code2 } from "lucide-react";
+import { ChatDetailCloseButton } from "@/components/chatDetail/ChatDetailCloseButton";
+import { MarkdownInlineEditor } from "@/components/MarkdownEditor";
 import { AcpAgentsDocument, TasksCaptureTaskDocument } from "@/generated/graphql";
-import { createClientId } from "@/shared/clientId";
-import type { TasksProject } from "./tasksTypes";
 import { pwaRuntime } from "@/pwa/runtime";
 import { readTaskCaptureDraft, writeTaskCaptureDraft } from "@/pwa/storage";
+import { createClientId } from "@/shared/clientId";
 import { initialScheduleDraft, scheduleInput, ScheduleFields } from "./ScheduleFields";
+import type { TasksProject } from "./tasksTypes";
 
-export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChange }: { open: boolean; projects: readonly TasksProject[]; initialProjectId?: string; onOpenChange: (open: boolean) => void }) {
+const captureFormId = "capture-task-form";
+
+export type CaptureTaskDetailHandle = {
+  focus: () => void;
+};
+
+export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
+  projects: readonly TasksProject[];
+  initialProjectId?: string;
+  onClose: () => void;
+  onCreated: (taskId: string) => void;
+}>(function CaptureTaskDetail({ projects, initialProjectId, onClose, onCreated }, ref) {
   const [title, setTitle] = React.useState("");
   const [taskDocument, setTaskDocument] = React.useState("");
+  const [sourceMode, setSourceMode] = React.useState(false);
   const [projectId, setProjectId] = React.useState(initialProjectId ?? "");
   const [scheduling, setScheduling] = React.useState(false);
   const [executorAgentId, setExecutorAgentId] = React.useState("agent:task-executor");
@@ -26,12 +40,22 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
   const [schedule, setSchedule] = React.useState(initialScheduleDraft);
   const [capture, state] = useMutation(TasksCaptureTaskDocument);
   const acpAgents = useQuery(AcpAgentsDocument, { fetchPolicy: "cache-first" });
+  const titleRef = React.useRef<HTMLInputElement>(null);
+  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const pwa = React.useSyncExternalStore(
     pwaRuntime.subscribe,
     pwaRuntime.getSnapshot,
     pwaRuntime.getSnapshot
   );
   const restoredRef = React.useRef(!pwa.installed);
+
+  React.useImperativeHandle(ref, () => ({
+    focus: () => titleRef.current?.focus({ preventScroll: true })
+  }), []);
+
+  React.useEffect(() => {
+    titleRef.current?.focus({ preventScroll: true });
+  }, []);
 
   React.useEffect(() => {
     if (!pwa.installed) return;
@@ -66,25 +90,40 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
     );
   }, [projectId, pwa.installed, taskDocument, title]);
 
+  const validSchedule = scheduling ? scheduleInput(schedule) : null;
+
   return (
-    <Dialog isOpen={open} onOpenChange={onOpenChange} purpose="form" variant="fullscreen" aria-label="New task">
+    <section
+      aria-label="New task"
+      data-slot="task-capture-detail"
+      {...stylex.props(styles.root)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !event.defaultPrevented) onClose();
+      }}
+    >
       <Layout
         height="fill"
         header={
-          <DialogHeader
-            title="New task"
-            subtitle={scheduling ? "Runs automatically at the time you choose." : "Saved to Inbox until you queue it."}
-            onOpenChange={onOpenChange}
-          />
+          <HStack as="header" align="center" justify="between" gap={2} className={stylex.props(styles.header).className}>
+            <VStack gap={0.5}>
+              <h2 {...stylex.props(styles.heading)}>New task</h2>
+              <span {...stylex.props(styles.subtitle)}>
+                {scheduling ? "Runs automatically at the time you choose." : "Saved to Inbox until you queue it."}
+              </span>
+            </VStack>
+            <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
+          </HStack>
         }
         content={
           <LayoutContent>
             <VStack
-              id="capture-task-form"
+              id={captureFormId}
               as="form"
               gap={3}
+              className={stylex.props(styles.form).className}
               onSubmit={(event) => {
                 event.preventDefault();
+                if (state.loading) return;
                 void capture({
                   variables: {
                     input: {
@@ -92,23 +131,18 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                       projectId: projectId || null,
                       title: title.trim(),
                       taskDocument,
-                      schedule: scheduling ? scheduleInput(schedule) : null,
+                      schedule: validSchedule,
                       executorAgentId,
                       cwdOverride: cwdOverride.trim() || null,
                       clientMutationId: createClientId()
                     }
                   }
                 })
-                  .then(async () => {
-                    setTitle("");
-                    setTaskDocument("");
-                    setProjectId("");
-                    setScheduling(false);
-                    setExecutorAgentId("agent:task-executor");
-                    setCwdOverride("");
-                    setSchedule(initialScheduleDraft());
+                  .then(async (response) => {
+                    const taskId = response.data?.captureTask.task.taskId;
+                    if (!taskId) throw new Error("The created task is unavailable.");
                     await writeTaskCaptureDraft({ title: "", taskDocument: "", projectId: "" });
-                    onOpenChange(false);
+                    onCreated(taskId);
                   })
                   .catch(() => undefined);
               }}
@@ -116,35 +150,38 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
               <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}>
                 <span>Title</span>
                 <input
-                  data-autofocus
+                  ref={titleRef}
                   required
                   value={title}
                   {...stylex.props(styles.input)}
                   onChange={(event) => setTitle(event.currentTarget.value)}
                 />
               </VStack>
-              <VStack gap={1.5} className={stylex.props(styles.field).className}>
-                <span>Task document</span>
-                <MarkdownEditor value={taskDocument} onChange={setTaskDocument} label="Task document" />
+              <VStack gap={1.5} className={stylex.props(styles.documentField).className}>
+                <HStack align="center" justify="between" gap={2}>
+                  <span {...stylex.props(styles.fieldLabel)}>Task document</span>
+                  <IconButton
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    label={sourceMode ? "Use rich editor" : "Edit source"}
+                    tooltip={sourceMode ? "Use rich editor" : "Edit source"}
+                    icon={<Code2 aria-hidden="true" size={14} />}
+                    onClick={() => setSourceMode((current) => !current)}
+                  />
+                </HStack>
+                <MarkdownInlineEditor value={taskDocument} onChange={setTaskDocument} label="Task document" sourceMode={sourceMode} onSourceModeChange={setSourceMode} />
               </VStack>
               <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}>
                 <span>Project (optional)</span>
-                <select
-                  value={projectId}
-                  {...stylex.props(styles.input)}
-                  onChange={(event) => setProjectId(event.currentTarget.value)}
-                >
+                <select value={projectId} {...stylex.props(styles.input)} onChange={(event) => setProjectId(event.currentTarget.value)}>
                   <option value="">No project</option>
                   {projects.filter((project) => !project.archivedAt).map((project) => (
                     <option key={project.projectId} value={project.projectId}>{project.name}</option>
                   ))}
                 </select>
               </VStack>
-              <CheckboxInput
-                label="Schedule for later"
-                value={scheduling}
-                onChange={setScheduling}
-              />
+              <CheckboxInput label="Schedule for later" value={scheduling} onChange={setScheduling} />
               {scheduling ? <ScheduleFields value={schedule} onChange={setSchedule} /> : null}
               <Collapsible trigger="Advanced" defaultIsOpen={false}>
                 <VStack gap={2} className={stylex.props(styles.advanced).className}>
@@ -152,7 +189,9 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                     <span>Executor</span>
                     <select value={executorAgentId} {...stylex.props(styles.input)} onChange={(event) => setExecutorAgentId(event.currentTarget.value)}>
                       <option value="agent:task-executor">Built-in executor</option>
-                      {(acpAgents.data?.acpAgents ?? []).filter((agent) => agent.enabled).map((agent) => <option key={agent.agentId} value={agent.agentId}>{agent.displayName} (ACP)</option>)}
+                      {(acpAgents.data?.acpAgents ?? []).filter((agent) => agent.enabled).map((agent) => (
+                        <option key={agent.agentId} value={agent.agentId}>{agent.displayName} (ACP)</option>
+                      ))}
                     </select>
                   </VStack>
                   <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}>
@@ -166,15 +205,42 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
             </VStack>
           </LayoutContent>
         }
-        footer={<LayoutFooter><HStack gap={2} justify="end"><Button type="button" size="sm" variant="ghost" label="Cancel" onClick={() => onOpenChange(false)} /><Button form="capture-task-form" type="submit" size="sm" variant="primary" label={scheduling ? "Schedule task" : "Add to Inbox"} isLoading={state.loading} isDisabled={state.loading || !pwa.canMutate || !title.trim() || (scheduling && !scheduleInput(schedule))} /></HStack></LayoutFooter>}
+        footer={
+          <LayoutFooter>
+            <HStack gap={2} justify="end">
+              <Button type="button" size="sm" variant="ghost" label="Cancel" isDisabled={state.loading} onClick={onClose} />
+              <Button form={captureFormId} type="submit" size="sm" variant="primary" label={scheduling ? "Schedule task" : "Add to Inbox"} isLoading={state.loading} isDisabled={state.loading || !pwa.canMutate || !title.trim() || (scheduling && !validSchedule)} />
+            </HStack>
+          </LayoutFooter>
+        }
       />
-    </Dialog>
+    </section>
   );
-}
+});
 
 const styles = stylex.create({
-  field: { fontSize: 13, fontWeight: 600 },
-  input: { width: "100%", minHeight: 38, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: 8, backgroundColor: "var(--background)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-2)", color: "var(--foreground)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: 2 } },
+  root: { height: "100%", minHeight: 0, backgroundColor: "var(--noema-surface-card)" },
+  header: { minWidth: 0, paddingBlock: "var(--spacing-3)", paddingInline: "var(--spacing-4)" },
+  heading: { margin: "var(--spacing-0)", color: "var(--foreground)", fontSize: 16, fontWeight: 650, lineHeight: 1.25 },
+  subtitle: { color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.35 },
+  form: { width: "100%", maxWidth: 760, marginInline: "auto" },
+  field: { color: "var(--foreground)", fontSize: 13, fontWeight: 600 },
+  documentField: { minHeight: 260, color: "var(--foreground)" },
+  fieldLabel: { fontSize: 13, fontWeight: 600 },
+  input: {
+    width: "100%",
+    minHeight: 38,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border)",
+    borderRadius: 8,
+    backgroundColor: "var(--background)",
+    paddingBlock: "var(--spacing-2)",
+    paddingInline: "var(--spacing-2)",
+    color: "var(--foreground)",
+    font: "inherit",
+    ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: 2 }
+  },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 },
   advanced: { paddingTop: "var(--spacing-2)" },
   hint: { color: "var(--muted-foreground)", fontSize: 12, fontWeight: 400 }

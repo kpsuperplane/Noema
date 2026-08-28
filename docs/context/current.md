@@ -151,6 +151,8 @@ slice or a net-negative reduction.
 - Frontend route and interaction truth is in
   [the current frontend contract](../frontend/current-contract.md). UI changes
   follow [product design guidance](../frontend/product-design.md).
+- Task creation uses `/tasks/new` and the normal Task detail area.
+  Project creation expands below Personal in the Tasks sidebar.
 - Each web route owns one composed GraphQL root read. Shared fragments and normalized mutation payloads update the Apollo cache.
 - Apollo abstract-type metadata comes from the generated GraphQL schema. A cache
   schema version change discards incompatible installed-PWA snapshots.
