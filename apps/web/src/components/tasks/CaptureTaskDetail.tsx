@@ -383,8 +383,7 @@ const styles = stylex.create({
     fontWeight: "var(--text-heading-1-weight)",
     lineHeight: "var(--text-heading-1-leading)",
     outline: "none",
-    "::placeholder": { color: "var(--muted-foreground)", opacity: 0.72 },
-    ":focus-visible": { borderRadius: "var(--radius-inner)", boxShadow: "0 0 0 2px var(--ring)" }
+    "::placeholder": { color: "var(--muted-foreground)", opacity: 0.72 }
   },
   document: { flexGrow: 1, minHeight: "calc(var(--spacing-10) * 6)", color: "var(--foreground)", cursor: "text" },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 },
