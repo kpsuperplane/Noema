@@ -46,7 +46,7 @@ noema-capabilities = { path = "../noema-capabilities", default-features = false 
 noema-home = { path = "../noema-home", default-features = false }
 obscura-browser = { workspace = true, features = ["render", "stealth"], optional = true }
 obscura-js = { workspace = true, optional = true }
-reqwest = { workspace = true, features = ["stream"], optional = true }
+reqwest = { workspace = true, features = ["query", "stream"], optional = true }
 readabilityrs = { workspace = true, optional = true }
 ring = { workspace = true, optional = true }
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "std"], optional = true }

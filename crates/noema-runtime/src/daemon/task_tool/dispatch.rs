@@ -461,7 +461,7 @@ async fn execute_primary_inner(
             })
         }
         PROJECT_CREATE_TOOL => {
-            let input: ProjectCreateArguments = parse_arguments(&args)?;
+            let input: ProjectCreateArguments = parse_arguments(args)?;
             let committed = service
                 .execute_committed(WorkCommand::CreateProject(CreateProject {
                     meta: meta(call_id.clone()),
@@ -773,7 +773,7 @@ async fn read_project(
     workspace_id: &WorkspaceId,
     args: &Value,
 ) -> Result<Value, String> {
-    let input: ProjectReadArguments = parse_arguments(args)?;
+    let input: ProjectReadArguments = parse_arguments(args.clone())?;
     let project_id = ProjectId::new(input.project_id).map_err(|error| error.to_string())?;
     let project = store
         .get_work_project(workspace_id, &project_id)
