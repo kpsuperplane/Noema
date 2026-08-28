@@ -81,7 +81,7 @@ export function useProjectManager({
               workspaceId: "workspace:personal",
               name: nextName,
               description: "",
-              folder: folder.trim() || null,
+              folder: null,
               clientMutationId: createClientId()
             }
           }

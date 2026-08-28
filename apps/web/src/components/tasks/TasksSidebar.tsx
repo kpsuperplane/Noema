@@ -7,9 +7,9 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
-import { Archive, ArchiveRestore, Folder, MoreHorizontal, Pencil, Plus } from "lucide-react";
+import { Archive, ArchiveRestore, Check, Folder, MoreHorizontal, Pencil, Plus, X } from "lucide-react";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
-import { ShellSidebar } from "@/components/shell/ShellSidebar";
+import { ShellSidebar, shellSidebarStyles } from "@/components/shell/ShellSidebar";
 import type {
   ShellMenuEntry,
   ShellMenuItem,
@@ -22,6 +22,7 @@ import {
 import type { TasksProject } from "./tasksTypes";
 
 const ARCHIVED_PROJECTS_ITEM_ID = "tasks.projects.archived";
+const CREATE_PROJECT_ITEM_ID = "tasks.project.create";
 
 export function TasksSidebar({
   menuLevel,
@@ -38,10 +39,9 @@ export function TasksSidebar({
   const [archivedExpanded, setArchivedExpanded] = React.useState(false);
   const createButtonRef = React.useRef<HTMLButtonElement>(null);
 
-  const renderedMenuLevel = withArchivedProjects(
-    menuLevel,
-    projects,
-    archivedExpanded
+  const renderedMenuLevel = withProjectCreate(
+    withArchivedProjects(menuLevel, projects, archivedExpanded),
+    manager.editor?.kind === "create"
   );
 
   const handleSelectItem = (item: ShellMenuItem) => {
@@ -55,32 +55,33 @@ export function TasksSidebar({
   const renderItemContent = (item: ShellMenuItem, defaultControl: ReactNode) => {
     if (item.itemId === "tasks.workspace.personal") {
       return (
-        <VStack gap={1} className={stylex.props(styles.personalGroup).className}>
-          <HStack align="center" gap={0} className={stylex.props(styles.personalRow).className}>
-            {defaultControl}
-            {manager.editor ? null : (
-              <IconButton
-                ref={createButtonRef}
-                type="button"
-                variant="ghost"
-                size="sm"
-                label="New project"
-                icon={<Plus aria-hidden="true" size={14} />}
-                xstyle={styles.itemAction}
-                onClick={manager.openCreate}
-              />
-            )}
-          </HStack>
-          {manager.editor?.kind === "create" ? (
-            <ProjectCreateForm
-              manager={manager}
-              onCancel={() => {
-                manager.closeEditor();
-                window.requestAnimationFrame(() => createButtonRef.current?.focus());
-              }}
+        <>
+          {defaultControl}
+          {manager.editor ? null : (
+            <IconButton
+              ref={createButtonRef}
+              type="button"
+              variant="ghost"
+              size="sm"
+              label="New project"
+              icon={<Plus aria-hidden="true" size={14} />}
+              xstyle={styles.itemAction}
+              onClick={manager.openCreate}
             />
-          ) : null}
-        </VStack>
+          )}
+        </>
+      );
+    }
+
+    if (item.itemId === CREATE_PROJECT_ITEM_ID) {
+      return (
+        <ProjectCreateForm
+          manager={manager}
+          onCancel={() => {
+            manager.closeEditor();
+            window.requestAnimationFrame(() => createButtonRef.current?.focus());
+          }}
+        />
       );
     }
 
@@ -145,7 +146,7 @@ function ProjectCreateForm({ manager, onCancel }: { manager: ProjectManagerContr
     <VStack
       as="form"
       aria-label="New project"
-      gap={2}
+      gap={1}
       className={stylex.props(styles.createForm).className}
       onKeyDown={(event) => {
         if (event.key === "Escape" && !manager.busy) onCancel();
@@ -155,19 +156,32 @@ function ProjectCreateForm({ manager, onCancel }: { manager: ProjectManagerContr
         if (!manager.busy) void manager.save();
       }}
     >
-      <VStack as="label" gap={1} className={stylex.props(styles.field).className}>
-        <span>Name</span>
-        <input autoFocus required value={manager.name} {...stylex.props(styles.input)} onChange={(event) => manager.setName(event.currentTarget.value)} />
-      </VStack>
-      <VStack as="label" gap={1} className={stylex.props(styles.field).className}>
-        <span>Project folder (optional)</span>
-        <input value={manager.folder} placeholder="/absolute/path/to/project" {...stylex.props(styles.input)} onChange={(event) => manager.setFolder(event.currentTarget.value)} />
-      </VStack>
-      {manager.error ? <p role="alert" {...stylex.props(styles.editorError)}>{manager.error}</p> : null}
-      <HStack gap={1} justify="end">
-        <Button type="button" size="sm" variant="ghost" label="Cancel" isDisabled={manager.busy} onClick={onCancel} />
-        <Button type="submit" size="sm" variant="primary" label="Create project" isLoading={manager.busy} isDisabled={manager.busy || !manager.name.trim()} />
+      <HStack
+        align="center"
+        gap={2}
+        className={stylex.props(
+          shellSidebarStyles.menuButton,
+          shellSidebarStyles.menuButtonIndented,
+          styles.createRow
+        ).className}
+      >
+        <span aria-hidden="true" {...stylex.props(shellSidebarStyles.menuIcon)}><Folder size={16} /></span>
+        <input
+          autoFocus
+          required
+          aria-label="Project name"
+          placeholder="Project name"
+          disabled={manager.busy}
+          value={manager.name}
+          {...stylex.props(styles.createName)}
+          onChange={(event) => manager.setName(event.currentTarget.value)}
+        />
+        <HStack align="center" gap={0}>
+          <IconButton type="button" size="sm" variant="ghost" label="Cancel project creation" tooltip="Cancel" icon={<X aria-hidden="true" size={14} />} isDisabled={manager.busy} onClick={onCancel} />
+          <IconButton type="submit" size="sm" variant="ghost" label="Create project" tooltip="Create project" icon={<Check aria-hidden="true" size={14} />} isLoading={manager.busy} isDisabled={manager.busy || !manager.name.trim()} />
+        </HStack>
       </HStack>
+      {manager.error ? <p role="alert" {...stylex.props(styles.editorError)}>{manager.error}</p> : null}
     </VStack>
   );
 }
@@ -200,14 +214,27 @@ const styles = stylex.create({
     minHeight: 0,
     flex: 1
   },
-  personalGroup: { width: "100%", minWidth: 0 },
-  personalRow: { width: "100%", minWidth: 0 },
-  createForm: {
-    marginInline: "var(--spacing-1)",
-    padding: "var(--spacing-2)",
-    borderLeftWidth: 2,
-    borderLeftStyle: "solid",
-    borderLeftColor: "var(--pine-300)"
+  createForm: { width: "100%", minWidth: 0 },
+  createRow: { width: "100%", minWidth: 0 },
+  createName: {
+    minWidth: 0,
+    minHeight: 28,
+    flex: 1,
+    borderWidth: 0,
+    borderRadius: "var(--radius-element)",
+    backgroundColor: "transparent",
+    padding: "var(--spacing-0)",
+    color: "var(--foreground)",
+    font: "inherit",
+    fontSize: 14,
+    lineHeight: "20px",
+    "::placeholder": { color: "var(--muted-foreground)" },
+    ":focus-visible": {
+      outlineWidth: 2,
+      outlineStyle: "solid",
+      outlineColor: "var(--ring)",
+      outlineOffset: 1
+    }
   },
   itemAction: {
     minWidth: 28,
@@ -297,6 +324,24 @@ function withArchivedProjects(
       };
       return [toggleEntry, ...archivedEntries];
     })
+  };
+}
+
+function withProjectCreate(menuLevel: ShellMenuLevel, creating: boolean): ShellMenuLevel {
+  if (!creating) return menuLevel;
+  return {
+    ...menuLevel,
+    items: menuLevel.items.flatMap((entry) => entry.kind === "item" && entry.item.itemId === "tasks.workspace.personal"
+      ? [entry, {
+          kind: "item" as const,
+          item: {
+            itemId: CREATE_PROJECT_ITEM_ID,
+            label: "New project",
+            icon: Folder,
+            depth: 1 as const
+          }
+        }]
+      : [entry])
   };
 }
 

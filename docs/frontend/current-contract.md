@@ -174,7 +174,8 @@ Task and project documents use one shared Markdown viewer and Milkdown Crepe edi
 Their surfaces keep separate save and conflict policies.
 Task creation uses the `/tasks/new` route and the normal Task detail area.
 The Tasks list remains visible beside creation when the detail layout has room.
-Project creation expands below Personal in the Tasks sidebar.
+Project creation appears as a name-only project row below Personal.
+The human can set its folder through Edit project after creation.
 Creation does not use a separate form dialog.
 Inbox titles and descriptions expose adjacent pencil controls and edit in place without changing the surrounding layout.
 Project and Executor editing remains in a focused settings dialog.
