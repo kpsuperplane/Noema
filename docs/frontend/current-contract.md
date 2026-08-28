@@ -174,6 +174,8 @@ Task and project documents use one shared Markdown viewer, Milkdown Crepe editor
 Both use explicit edit, source, save, cancel, loading, error, and stale-reload controls.
 Task creation uses the `/tasks/new` route and the normal Task detail area.
 The Tasks list remains visible beside creation when the detail layout has room.
+Creation presents a chromeless Task title and document above one bottom options row.
+Without a schedule, the primary action runs immediately. Its attached menu can save the Task to Inbox.
 Project creation appears as a name-only project row below Personal.
 The human can set its folder through Edit project after creation.
 Creation does not use a separate form dialog.

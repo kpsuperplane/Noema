@@ -8,7 +8,7 @@ import { RenderErrorBoundary } from "@/components/errors/RenderErrorBoundary";
 export type MarkdownEditorProps = {
   value: string; onChange: (value: string) => void;
   label?: string; density?: "default" | "inline"; sourceMode?: boolean;
-  onSourceModeChange?: (sourceMode: boolean) => void; onReady?: () => void;
+  placeholder?: string; onSourceModeChange?: (sourceMode: boolean) => void; onReady?: () => void;
 };
 
 const MarkdownEditorImpl = React.lazy(() => import("./MarkdownEditorImpl"));
@@ -35,9 +35,9 @@ export function MarkdownInlineEditor({ value, onReady, ...props }: MarkdownInlin
     onReady?.();
   }, [onReady]);
   return (
-    <div {...stylex.props(styles.frame)}>
+    <div data-slot="markdown-inline-editor" {...stylex.props(styles.frame)}>
       {!ready ? <MarkdownContent density="compact" className={stylex.props(styles.preview).className}>{value}</MarkdownContent> : null}
-      <div {...stylex.props(!ready && styles.loading)}>
+      <div data-slot="markdown-inline-editor-host" {...stylex.props(!ready && styles.loading)}>
         <MarkdownEditor {...props} value={value} density="inline" onReady={markReady} />
       </div>
     </div>
@@ -49,6 +49,7 @@ function MarkdownEditorFallback({
   onChange,
   onReady,
   label = "Markdown document",
+  placeholder,
   density = "default"
 }: MarkdownEditorProps) {
   React.useLayoutEffect(() => onReady?.(), [onReady]);
@@ -62,6 +63,7 @@ function MarkdownEditorFallback({
         label={`${label} Markdown source`}
         rows={density === "inline" ? 6 : 14}
         value={value}
+        placeholder={placeholder}
         width="100%"
         onChange={onChange}
       />

@@ -280,6 +280,23 @@ a[href][data-slot="shell-sidebar-control"] {
   padding-inline: var(--spacing-2);
 }
 
+[data-slot="task-capture-document"] [data-slot="markdown-inline-editor"],
+[data-slot="task-capture-document"] [data-slot="markdown-inline-editor-host"],
+[data-slot="task-capture-document"] [data-slot="markdown-editor"],
+[data-slot="task-capture-document"] [data-slot="markdown-editor"] > div,
+[data-slot="task-capture-document"] [data-slot="markdown-editor"] .milkdown,
+[data-slot="task-capture-document"] [data-slot="markdown-editor"] .ProseMirror {
+  min-height: 100%;
+}
+
+[data-slot="task-capture-document"] [data-slot="markdown-editor"] .ProseMirror {
+  padding-inline: 0;
+}
+
+[data-slot="task-capture-document"] [data-slot="markdown-editor"] textarea {
+  min-height: 100%;
+}
+
 [data-slot="markdown-editor"][data-density="inline"] .milkdown .ProseMirror > :first-child {
   margin-block-start: 0;
 }
