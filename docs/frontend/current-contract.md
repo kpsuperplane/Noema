@@ -170,8 +170,8 @@ A completed Task opens `RESULT.md`; another Task opens `TASK.md`.
 Completion selects `RESULT.md` once when `TASK.md` was open.
 Result previews preserve provider citations.
 
-Task and project documents use one shared Markdown viewer and Milkdown Crepe editor.
-Their surfaces keep separate save and conflict policies.
+Task and project documents use one shared Markdown viewer, Milkdown Crepe editor, and inline edit behavior.
+Both use explicit edit, source, save, cancel, loading, error, and stale-reload controls.
 Task creation uses the `/tasks/new` route and the normal Task detail area.
 The Tasks list remains visible beside creation when the detail layout has room.
 Project creation appears as a name-only project row below Personal.
@@ -181,8 +181,8 @@ Inbox titles and descriptions expose adjacent pencil controls and edit in place 
 Project and Executor editing remains in a focused settings dialog.
 For a selected project, `PROJECT.md` is the first Tasks list row.
 It opens in the existing detail rail and renders Markdown before editing starts.
-Document edits autosave with revision and digest fences. Navigation waits for a pending save.
-Conflicts preserve the local draft and offer the latest stored document explicitly.
+Document saves use revision and digest fences.
+Stale saves preserve the local draft while the human reloads the latest authority and retries.
 Archived projects keep this document read-only until reopening.
 The editor includes source mode and falls back to source when rich parsing fails.
 iPhone and iPad use full-screen Markdown source editors for the same Task fields.

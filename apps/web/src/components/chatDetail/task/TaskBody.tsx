@@ -15,7 +15,7 @@ import type { TaskDetail, TaskRunItem, TaskWorkspaceFile } from "./taskTypes";
 import { taskStageLabel } from "./TaskOverview";
 import type { TaskRunLatestEntryChange } from "./TaskRunTranscript";
 import { TaskTranscript } from "./TaskTranscript";
-import { TaskDocumentInlineEditor } from "@/components/tasks/TaskDocumentInlineEditor";
+import { MarkdownDocumentInlineEditor } from "@/components/MarkdownDocumentInlineEditor";
 import type { TaskInlineEditController } from "@/components/tasks/TaskActions";
 
 const TASK_DOCUMENT_PATH = "TASK.md";
@@ -297,7 +297,7 @@ function workspaceFileButtonLabel(file: TaskWorkspaceFile): string {
 function TaskDocument({ citations = [], detail, edit, fileName, text }: { citations?: Parameters<typeof ProviderCitationMarkdown>[0]["citations"]; detail?: TaskDetail; edit?: TaskInlineEditController; fileName: string; text: string }) {
   if (detail && edit?.field === "DOCUMENT") {
     return <div data-slot="task-document" {...stylex.props(styles.taskScroller)}>
-      <TaskDocumentInlineEditor key={`${detail.taskId}:document`} className={stylex.props(styles.editorContent).className} document={detail.taskDocument} digest={edit.task.taskDocumentDigest} edit={edit} label="Task description" onSave={edit.saveDocument} />
+      <MarkdownDocumentInlineEditor key={`${detail.taskId}:document`} className={stylex.props(styles.editorContent).className} document={detail.taskDocument} digest={edit.task.taskDocumentDigest} edit={edit} label="Task description" title="Description" saveLabel="Save description" onSave={edit.saveDocument} />
       <TaskMetadata detail={detail} />
     </div>;
   }

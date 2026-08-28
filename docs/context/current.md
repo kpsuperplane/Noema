@@ -153,6 +153,8 @@ slice or a net-negative reduction.
   follow [product design guidance](../frontend/product-design.md).
 - Task creation uses `/tasks/new` and the normal Task detail area.
   Project creation uses a name-only row below Personal in the Tasks sidebar.
+- Task and project Markdown documents share explicit edit, save, cancel, source,
+  error, and stale-reload behavior.
 - Each web route owns one composed GraphQL root read. Shared fragments and normalized mutation payloads update the Apollo cache.
 - Apollo abstract-type metadata comes from the generated GraphQL schema. A cache
   schema version change discards incompatible installed-PWA snapshots.

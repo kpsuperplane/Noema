@@ -26,7 +26,7 @@ import { createClientId } from "@/shared/clientId";
 import { initialScheduleDraft, scheduleInput, ScheduleFields, type ScheduleDraft } from "./ScheduleFields";
 import { recurrenceSummary } from "./tasksModel";
 import { normalizeTasksSearch } from "./tasksTypes";
-import { TaskDocumentInlineEditor } from "./TaskDocumentInlineEditor";
+import { MarkdownDocumentInlineEditor } from "@/components/MarkdownDocumentInlineEditor";
 import { isStaleCommandError } from "./semanticCommand";
 
 type Recurrence = NonNullable<TasksTaskRecurrenceQuery["taskRecurrence"]>;
@@ -255,7 +255,7 @@ function RecurrenceDescription({ recurrence, edit }: { recurrence: Recurrence; e
     return () => window.clearTimeout(timeout);
   }, [saved]);
   const saveDocument = async (taskDocument: string) => { await edit.saveDocument(taskDocument); setSaved(true); };
-  if (edit.field === "DOCUMENT") return <TaskDocumentInlineEditor key={`${recurrence.recurrenceId}:description`} document={edit.recurrence.taskDocument} digest={edit.recurrence.taskDocumentDigest} edit={edit} label="Recurring task description" scope="Future runs only" onSave={saveDocument} />;
+  if (edit.field === "DOCUMENT") return <MarkdownDocumentInlineEditor key={`${recurrence.recurrenceId}:description`} document={edit.recurrence.taskDocument} digest={edit.recurrence.taskDocumentDigest} edit={edit} label="Recurring task description" title="Description" scope="Future runs only" saveLabel="Save description for future occurrences" onSave={saveDocument} />;
   return (
     <VStack as="section" aria-labelledby="recurrence-description-title" gap={2}>
       <RecurrenceDescriptionBar edit={edit} saved={saved} />
