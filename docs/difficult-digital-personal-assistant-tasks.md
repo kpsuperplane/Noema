@@ -367,6 +367,10 @@ The assessment uses these current authorities:
 - The [proactive-event plan](plans/2026-08-15-proactive-event-sources.md) states that implementation has not started.
 - The [current context](context/current.md) records implemented file tools and remaining live Gmail and Calendar OAuth acceptance.
 
+Named third-party services identify the tested user setup. They do not define Noema core requirements.
+
+Roadmap work targets provider-neutral behaviors. Concrete adapters retain provider authentication, mapping, pagination, and recovery.
+
 Primary chats and Tasks now have durable working directories.
 
 `file.download` stores public non-HTML resources. `file.parse` converts supported documents into bounded text.

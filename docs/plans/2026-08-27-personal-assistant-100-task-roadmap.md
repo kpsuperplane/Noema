@@ -2,6 +2,8 @@
 
 Date: 2026-08-27
 
+Revised: 2026-08-28
+
 Status: proposed product and engineering sequence
 
 ## Objective
@@ -11,6 +13,22 @@ Move all 100 tasks in the [capability assessment](../difficult-digital-personal-
 This roadmap defines dependency order and exit gates. It does not promise delivery dates.
 
 The [live test ledger](../validation/difficult-personal-assistant-test-ledger-2026-08-26.md) supplies the current evidence.
+
+## Portability premise
+
+Calendar, Gmail, and Notion are evidence sources from one user setup. They are not Noema product dependencies.
+
+Another human can use different message, event, record, file, route, or transaction services.
+
+Noema should plan from required behaviors. It should bind those behaviors to the human's reviewed tools at run time.
+
+Concrete adapters own provider authentication, pagination, field mapping, and recovery.
+
+Noema owns outcomes, permissions, provenance, source links, action requests, receipts, and restart behavior.
+
+Noema must not force every provider into one lowest-common-denominator record.
+
+Normalize only the fields required by two current production paths. Preserve provider-specific detail through source references or bounded artifacts.
 
 ## What 100/100 means
 
@@ -30,6 +48,8 @@ Each verified case must meet these conditions:
 8. Require review for consequential external actions.
 9. Save execution evidence, external receipts, and unknown outcomes.
 10. Resume correctly after a restart, expired authentication, or a human gate when the task spans those events.
+11. State required source behaviors without naming a provider.
+12. Pass a portability case with a second materially different provider setup when integrations are required.
 
 Monitoring tasks need two additional cases. One case must contain a material change. One case must contain no material change.
 
@@ -51,6 +71,8 @@ The current verified tasks are 11, 14, 31, 32, and 35.
 
 The first live suite produced five passes, eight partial results, and one failure.
 
+The existing results prove behavior in one provider setup. They do not yet prove provider portability.
+
 ## Roadmap principles
 
 - Reuse Tasks, Projects, Memory, capabilities, action requests, and object-owned files.
@@ -58,7 +80,10 @@ The first live suite produced five passes, eight partial results, and one failur
 - Build one end-to-end vertical slice at a time.
 - Add a shared abstraction only after two different production paths need it.
 - Prefer source event streams over polling.
-- Use connector operations for stable APIs. Use the browser for unsupported portal steps.
+- Describe task needs as provider-neutral behaviors. Bind them to reviewed concrete tools at run time.
+- Use adapter operations for stable APIs. Use the browser for unsupported portal steps.
+- Keep provider protocol and recovery logic inside its adapter.
+- Preserve source identity without copying provider fields into Noema authorities.
 - Keep external writes exact, reviewed, auditable, and recoverable.
 - Treat each new adapter, field, state, and background process as a cost.
 - Promote a task only after live evidence passes its exit gate.
@@ -66,14 +91,16 @@ The first live suite produced five passes, eight partial results, and one failur
 
 ## Critical path
 
-The live tests exposed six shared blockers. They should be fixed in this order.
+The live tests and portability requirement expose eight shared blockers. They should be fixed in this order.
 
 1. Delegated Tasks must receive the same approved read capabilities as primary chat.
-2. Time-based work must use a fixed request anchor and bounded review tolerance.
-3. Calendar and Gmail reads must support bounded, complete, and reliable retrieval.
-4. Projects, Tasks, people, messages, events, and Memory need evidence-backed identity links.
-5. Long runs need explicit coverage plans, evidence budgets, and stop conditions.
-6. Noema needs private file intake, structured output, and deterministic calculation before many domain tasks can pass.
+2. Tasks must state required source behaviors without naming installed services.
+3. Capability discovery must select only tools that satisfy those complete behaviors.
+4. Time-based work must use a fixed request anchor and bounded review tolerance.
+5. Message, event, and record reads must support bounded, complete, and reliable retrieval.
+6. Projects, Tasks, people, messages, events, and Memory need evidence-backed identity links.
+7. Long runs need explicit coverage plans, evidence budgets, and stop conditions.
+8. Noema needs private file intake, structured output, and deterministic calculation before many domain tasks can pass.
 
 ## Milestone 1: Make the current core reliable
 
@@ -84,24 +111,28 @@ Tasks: 1, 5, 6, 8, 11, 14, 15, 17, 19, 31, 32, 35, 75, and 98.
 ### Build and fix
 
 - Give delegated Tasks approved access to native Tasks, Repeat history, Memory, and current connections.
+- Let each Task declare required message, event, record, file, route, and transaction behaviors.
+- Resolve those requirements against the human's current reviewed capability catalog.
+- Explain missing required behavior before execution. Do not assume a named service exists.
 - Use the captured request time for planning. Do not review against a clock that moves during execution.
 - Limit correction cycles. Open one clear human gate when the same issue remains after the allowed correction.
-- Add Calendar interval reads with recurrence expansion, all-day dates, attendees, locations, and stable pagination.
-- Add an upper date bound to Calendar reads.
-- Repair Gmail continuation response conversion and complete thread retrieval.
+- Add event-source interval reads with recurrence, all-day dates, attendees, locations, and stable pagination.
+- Require lower and upper time bounds for interval event reads.
+- Repair message-source continuation conversion and complete thread retrieval.
 - Preserve source connection and account identity through delegated work.
-- Add bounded evidence plans for Calendar, Gmail, Notion, and web research.
+- Add bounded evidence plans for connected message, event, record, file, and web sources.
 - Add stable links between native Projects and native Tasks.
-- Add explicit person links across Memory, contact records, email addresses, and Calendar attendees.
+- Add explicit person links across Memory, contact records, message addresses, and event attendees.
 - Add Memory recency, replacement history, source dates, and direct editing.
-- Ingest real travel confirmations from mail and parsed attachments.
+- Ingest real travel confirmations from connected messages and parsed attachments.
+- Treat current provider failures as adapter conformance cases, not core service special cases.
 
 ### Required acceptance cases
 
-- A daily brief with non-empty Calendar, Gmail, Tasks, and Memory.
-- A seven-day Calendar audit with recurrence, all-day events, locations, and map travel time.
+- A daily brief with non-empty message, event, Task, and Memory sources.
+- A seven-day event audit with recurrence, all-day events, locations, and route travel time.
 - A daily plan with overload, preferences, breaks, and a stable time anchor.
-- A weekly review with Tasks, Repeat history, Calendar, and Gmail.
+- A weekly review with Tasks, Repeat history, event records, and messages.
 - Three audience updates from one populated Project and linked Task set.
 - A relationship brief for one safely linked person across three sources.
 - A Project status from native Projects, native Tasks, and shared artifacts.
@@ -111,6 +142,8 @@ Tasks: 1, 5, 6, 8, 11, 14, 15, 17, 19, 31, 32, 35, 75, and 98.
 ### Exit gate
 
 Each case passes in its intended surface. Cases that delegate also pass inside delegated Tasks.
+
+Each integration case passes through two materially different provider setups.
 
 No case can remain in recovery because its time anchor became stale.
 
@@ -124,14 +157,14 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
 ### Build and extend
 
-- Add source events for new mail, changed events, changed files, and Task changes.
+- Add source events for new messages, changed events, changed files, and Task changes.
 - Save source checkpoints and material-change baselines.
-- Route detected commitments into existing Tasks or Calendar records after review.
+- Route detected commitments into existing Tasks or event records after review.
 - Add Task dependencies, blockers, milestones, estimates, and explicit owners.
 - Link Project decisions to source evidence and later replacements.
 - Add stable contact records with interaction history and follow-up boundaries.
-- Add Gmail drafts, replies, sent-message reconciliation, and thread closure evidence.
-- Add Calendar free-busy, invitations, attendee responses, and negotiation support.
+- Add message drafts, replies, sent-message reconciliation, and thread closure evidence.
+- Add event free-busy, invitations, attendee responses, and negotiation support.
 - Add notification thresholds and quiet conditions for proactive work.
 - Add prior-result retrieval for recurring Tasks and monitored topics.
 - Add learner progress and assessment evidence for adaptive plans.
@@ -235,7 +268,7 @@ Tasks: 10, 53, 54, 56, 57, 59, 60, 61, 62, 63, 80, 85, 88, and 90.
 - Add urgent-routing rules that never replace clinical judgment.
 - Add multiple-human scopes, consent, roles, assignments, and revocation.
 - Add caregiver, child, traveler, and household-specific disclosure rules.
-- Add shared Calendar, transport, resource, and handoff planning.
+- Add shared event, transport, resource, and handoff planning.
 - Add workload evidence and negotiation support without imposing a hidden fairness formula.
 - Add family document packets with expiry checks and secure sharing.
 - Add qualified professional review for clinical, legal, tax, and regulated financial decisions.
@@ -259,11 +292,56 @@ Noema never presents regulated analysis as a professional decision.
 
 ## Program controls
 
+### Provider-neutral capability requirements
+
+Acceptance packages describe required behaviors, not product brands.
+
+Common behavior families include:
+
+| Source role | Example required behaviors |
+| --- | --- |
+| Message | Bounded search, item and thread reads, continuation, drafts, sends, and receipts |
+| Event | Bounded intervals, recurrence, attendees, locations, free-busy, writes, and receipts |
+| Record | Bounded queries, relations, versions, attachments, and stable source links |
+| File | List, read, download, upload, version, and export |
+| Route | Geocode, route, travel time, mode, and evidence time |
+| Transaction | Read entries, match effects, perform reviewed writes, and return receipts |
+
+A Task can require only the behaviors needed for its current path.
+
+An adapter can support a subset. Missing behavior must remain visible and non-callable.
+
+The resolver must not infer support from a provider name, authentication state, or similar operation name.
+
+Provider-specific fields remain in the source result. Noema stores only required normalized facts, provenance, and bounded references.
+
+### Adapter conformance
+
+Each adapter must prove its declared behavior against the same provider-neutral acceptance contract.
+
+Conformance covers bounds, pagination, recurrence, identifiers, timestamps, failures, receipts, and unknown outcomes where applicable.
+
+Build the first provider path concretely. Extract shared production behavior only when a second provider path needs the same contract.
+
+A deterministic adapter fixture can test failures. It does not replace the two production consumers required for shared design.
+
+### Portability gate
+
+One provider-backed pass verifies the task outcome. A second materially different pass verifies portability.
+
+The second setup can use different providers for every external source.
+
+The Task plan, completion rule, privacy policy, and Noema-owned stored-state shape must remain unchanged between setups.
+
+Only bindings, source references, and provider-specific evidence can differ.
+
 ### One ledger
 
 Extend the current 100-task assessment. Do not create a second capability score.
 
 Each row should record status, last run, evidence identifiers, failure class, and next smallest improvement.
+
+Each integration row should also record provider setups and portability evidence.
 
 ### One acceptance package per task
 
@@ -295,11 +373,13 @@ Split work when one slice crosses two unrelated domain authorities.
 ## Immediate next slices
 
 1. Fix delegated read-capability parity for Tasks, Repeat history, Memory, and connected sources.
-2. Replace moving review times with captured planning anchors and bounded tolerance.
-3. Deliver one complete Calendar interval read for Task 5.
-4. Repair Gmail continuation conversion for Task 1.
-5. Add one populated Project, Task, person, and travel acceptance fixture.
-6. Rerun the nine current `Test` rows and update the shared ledger.
+2. Define bounded provider-neutral requirements for the Task 1, 5, 6, and 8 source roles.
+3. Replace moving review times with captured planning anchors and bounded tolerance.
+4. Deliver one complete event-source interval path for Task 5 through the current adapter system.
+5. Repair message continuation conversion at the provider-neutral result boundary for Task 1.
+6. Add a second materially different provider setup for message, event, and record acceptance.
+7. Add one populated Project, Task, person, and travel acceptance fixture.
+8. Rerun the nine current `Test` rows in both setups and update the shared ledger.
 
 Do not start Milestone 2 until all Milestone 1 failures have a bounded owner and acceptance case.
 
