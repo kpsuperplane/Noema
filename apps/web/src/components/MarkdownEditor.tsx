@@ -36,7 +36,7 @@ export function MarkdownInlineEditor({ value, onReady, ...props }: MarkdownInlin
   }, [onReady]);
   return (
     <div data-slot="markdown-inline-editor" {...stylex.props(styles.frame)}>
-      {!ready ? <MarkdownContent density="compact" className={stylex.props(styles.preview).className}>{value}</MarkdownContent> : null}
+      {!ready ? <MarkdownContent density="compact">{value}</MarkdownContent> : null}
       <div data-slot="markdown-inline-editor-host" {...stylex.props(!ready && styles.loading)}>
         <MarkdownEditor {...props} value={value} density="inline" onReady={markReady} />
       </div>
@@ -74,6 +74,5 @@ function MarkdownEditorFallback({
 const styles = stylex.create({
   frame: { position: "relative", minHeight: "var(--spacing-5)" },
   loading: { position: "absolute", inset: 0, visibility: "hidden", pointerEvents: "none" },
-  preview: { paddingInline: "var(--spacing-2)" },
   notice: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.4 }
 });

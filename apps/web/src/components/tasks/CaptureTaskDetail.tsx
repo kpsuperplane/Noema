@@ -336,6 +336,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
                   type="submit"
                   size="sm"
                   variant="primary"
+                  xstyle={styles.submitPrimary}
                   label={scheduling ? "Schedule" : "Run Now"}
                   isLoading={submitting}
                   isDisabled={mainDisabled}
@@ -348,6 +349,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
                     isIconOnly: true,
                     size: "sm",
                     variant: "primary",
+                    xstyle: styles.submitMenu,
                     isDisabled: baseDisabled
                   }}
                   hasChevron={false}
@@ -387,6 +389,8 @@ const styles = stylex.create({
   document: { flexGrow: 1, minHeight: "calc(var(--spacing-10) * 6)", color: "var(--foreground)", cursor: "text" },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 },
   controlRow: { width: "100%" },
+  submitPrimary: { borderStartStartRadius: "var(--radius-element)", borderEndStartRadius: "var(--radius-element)" },
+  submitMenu: { borderStartEndRadius: "var(--radius-element)", borderEndEndRadius: "var(--radius-element)" },
   schedulePopover: { maxHeight: "calc(100vh - var(--spacing-8))", overflowY: "auto", overscrollBehavior: "contain" },
   menuHeading: { margin: "var(--spacing-0)", color: "var(--foreground)", fontSize: "var(--text-heading-4-size)", fontWeight: "var(--text-heading-4-weight)", lineHeight: "var(--text-heading-4-leading)" }
 });

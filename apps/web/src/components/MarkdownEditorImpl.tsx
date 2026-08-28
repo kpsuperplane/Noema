@@ -65,9 +65,13 @@ function MilkdownCrepe({ initialValue, inline, placeholder, onChange, onFailure,
     const crepe = new Crepe({
       root: root.current,
       defaultValue: initialValueRef.current,
-      featureConfigs: placeholder ? {
-        [Crepe.Feature.Placeholder]: { text: placeholder, mode: "doc" }
-      } : undefined,
+      featureConfigs: {
+        // Keep the native caret and avoid virtual-cursor layout work on selection changes.
+        [Crepe.Feature.Cursor]: { virtual: false },
+        ...(placeholder ? {
+          [Crepe.Feature.Placeholder]: { text: placeholder, mode: "doc" as const }
+        } : {})
+      },
       features: {
         [Crepe.Feature.AI]: false,
         [Crepe.Feature.ImageBlock]: false,
