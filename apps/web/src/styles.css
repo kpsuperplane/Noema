@@ -189,7 +189,10 @@ a[href][data-slot="shell-sidebar-control"] {
 
 .noema-markdown
   .astryx-list:is([data-list-style="disc"], [data-list-style="decimal"])
-  > .astryx-list-item {
+  > .astryx-list-item,
+[data-slot="markdown-editor"][data-density="inline"]
+  .milkdown-list-item-block
+  > .list-item:has(> .label-wrapper > .label:is(.bullet, .ordered)) {
   margin-inline-start: calc(-1 * var(--spacing-2));
   padding-inline: var(--spacing-1);
 }
@@ -376,6 +379,14 @@ a[href][data-slot="shell-sidebar-control"] {
   padding: 0;
   list-style: none;
   line-height: var(--text-body-leading);
+}
+
+[data-slot="markdown-editor"][data-density="inline"]
+  .milkdown
+  .ProseMirror
+  ul:has(> .milkdown-list-item-block > .list-item > .label-wrapper > .label.bullet),
+[data-slot="markdown-editor"][data-density="inline"] .milkdown .ProseMirror ol {
+  margin-inline: calc(-1 * var(--spacing-2));
 }
 
 [data-slot="markdown-editor"][data-density="inline"]
