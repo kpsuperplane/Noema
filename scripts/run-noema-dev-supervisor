@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+supervisor="${1:?Noema development supervisor path is required}"
+
+if [[ ! -x "${supervisor}" ]]; then
+  echo "Noema development supervisor is not executable: ${supervisor}" >&2
+  exit 1
+fi
+
+if [[ "$(uname -s)" != "Linux" ]]; then
+  exec "${supervisor}" dev
+fi
+
+child_pid=""
+stop_supervisor() {
+  trap - HUP INT TERM
+  if [[ -n "${child_pid}" ]]; then
+    kill -TERM "${child_pid}" 2>/dev/null || true
+    wait "${child_pid}" || true
+  fi
+  exit 0
+}
+trap stop_supervisor HUP INT TERM
+
+setpriv --pdeathsig TERM setsid "${supervisor}" dev &
+child_pid="$!"
+wait "${child_pid}"

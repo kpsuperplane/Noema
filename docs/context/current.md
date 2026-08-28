@@ -117,6 +117,9 @@ slice or a net-negative reduction.
 - [Server authentication and public access](../server-security.md) is the
   implemented server contract. Development and local-access features fail
   closed by default.
+- `./attach` owns the public development supervisor through one tmux session.
+  Tmux runs a guardian that gives the supervisor a parent-death signal. The
+  supervisor then stops its child watchers during session shutdown.
 - iOS and desktop use browser OAuth with S256 PKCE, passkey approval, short
   access tokens, and rotating refresh credentials. Legacy pairing routes and
   stored bearer credential fields are absent.

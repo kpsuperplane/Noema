@@ -6,7 +6,7 @@ use std::{
     env,
     ffi::OsString,
     future::Future,
-    io,
+    io::{self, Write},
     path::{Path, PathBuf},
     process::{ExitStatus, Stdio},
 };
@@ -24,6 +24,8 @@ const ROOT_WEB_ASSET_SHELL: &str = r#"umask 022; exec "$@""#;
 const WEB_SERVER_WATCH_IGNORE_GLOBS: [&str; 2] =
     ["apps/web/**", "crates/noema-server/target/web-assets/**"];
 const WATCHER_RESTART_DELAY: Duration = Duration::from_millis(250);
+#[cfg(unix)]
+const PROCESS_GROUP_SHUTDOWN_GRACE: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Error)]
 enum DevError {
@@ -133,7 +135,10 @@ where
             result = &mut shutdown_signal => {
                 match result {
                     Ok(signal) => {
-                        eprintln!("received {signal}; stopping Noema dev supervisor");
+                        let _ = writeln!(
+                            io::stderr().lock(),
+                            "received {signal}; stopping Noema dev supervisor"
+                        );
                         Ok(())
                     }
                     Err(error) => Err(error),
@@ -255,6 +260,7 @@ fn spawn_web_server_watcher(repo_root: &Path) -> Result<Child, DevError> {
 fn configure_web_server_watcher(command: &mut Command, executable: &Path) {
     command
         .arg("watch")
+        .arg("--no-process-group")
         .arg("--delay")
         .arg("1.5")
         .arg("-E")
@@ -356,18 +362,20 @@ async fn wait_for_child(label: &'static str, child: &mut Child) -> Result<(), De
 }
 
 async fn stop_child(child: &mut Child) {
+    #[cfg(unix)]
+    let process_group = child.id();
+
+    #[cfg(unix)]
+    if let Some(process_group) = process_group {
+        signal_process_group_id(process_group, "-TERM").await;
+        tokio::time::sleep(PROCESS_GROUP_SHUTDOWN_GRACE).await;
+        signal_process_group_id(process_group, "-KILL").await;
+    }
+
     if matches!(child.try_wait(), Ok(Some(_))) {
         return;
     }
 
-    #[cfg(unix)]
-    signal_process_group(child, "-TERM").await;
-    if wait_for_child_exit(child, Duration::from_secs(2)).await {
-        return;
-    }
-
-    #[cfg(unix)]
-    signal_process_group(child, "-KILL").await;
     if wait_for_child_exit(child, Duration::from_secs(1)).await {
         return;
     }
@@ -378,15 +386,6 @@ async fn stop_child(child: &mut Child) {
 
 async fn wait_for_child_exit(child: &mut Child, duration: Duration) -> bool {
     matches!(timeout(duration, child.wait()).await, Ok(Ok(_)))
-}
-
-#[cfg(unix)]
-async fn signal_process_group(child: &Child, signal: &str) {
-    let Some(pid) = child.id() else {
-        return;
-    };
-
-    signal_process_group_id(pid, signal).await;
 }
 
 #[cfg(unix)]
@@ -478,6 +477,7 @@ mod tests {
         configure_web_server_watcher(&mut command, Path::new("/workspace/noema-dev"));
 
         let arguments = command.as_std().get_args().collect::<Vec<_>>();
+        assert!(arguments.contains(&std::ffi::OsStr::new("--no-process-group")));
         assert!(arguments.windows(2).any(|pair| pair == ["--delay", "1.5"]));
         assert!(
             arguments
@@ -564,6 +564,35 @@ mod tests {
             .expect_err("watcher exit should be an error");
 
         assert_eq!(watcher_exit(&error), Some(("test watcher", process_group)));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cleanup_stops_group_after_watcher_leader_exits() {
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg("trap '' HUP; sleep 30 &")
+            .process_group(0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = command.spawn().expect("spawn exiting watcher");
+        let process_group = child.id().expect("watcher process group");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        stop_child(&mut child).await;
+
+        let status = Command::new("kill")
+            .arg("-0")
+            .arg("--")
+            .arg(format!("-{process_group}"))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .expect("inspect watcher process group");
+        assert!(!status.success(), "watcher process group survived cleanup");
     }
 
     #[cfg(unix)]

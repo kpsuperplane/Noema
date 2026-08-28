@@ -3,6 +3,8 @@ set -euo pipefail
 
 session_name="${NOEMA_TMUX_SESSION:-noema-dev}"
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+supervisor="${repo_dir}/target/noema-dev-launcher/dev-launcher/noema-dev"
+guardian="${repo_dir}/scripts/run-noema-dev-supervisor"
 
 if (( EUID == 0 )); then
   noema_home="${NOEMA_HOME:-/var/lib/noema-dev}"
@@ -16,8 +18,12 @@ if ! command -v tmux >/dev/null 2>&1; then
 fi
 
 if ! tmux has-session -t "=${session_name}" 2>/dev/null; then
-  tmux new-session -d -s "${session_name}" -c "${repo_dir}" \
-    -e "NOEMA_HOME=${noema_home}" 'exec cargo dev'
+  cargo build --manifest-path "${repo_dir}/Cargo.toml" --profile dev-launcher \
+    --target-dir "${repo_dir}/target/noema-dev-launcher" -p noema-dev
+  if ! tmux new-session -d -s "${session_name}" -c "${repo_dir}" \
+    -e "NOEMA_HOME=${noema_home}" "exec ${guardian} ${supervisor}"; then
+    tmux has-session -t "=${session_name}"
+  fi
 fi
 
 if [[ -n "${TMUX:-}" ]]; then
