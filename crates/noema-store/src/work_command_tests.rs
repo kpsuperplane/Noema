@@ -8,11 +8,11 @@ use noema_conversations::{ConversationItemKind, ReplayMode};
 use noema_tasks::{
     AgentRunItemKind, AgentRunItemStatus, CancelTask, CaptureTask, CommandMeta, CreateProject,
     DelegateExecutionIntent, DelegateTask, MissedRunPolicy, NewAgentRunItem, NewTaskRecurrence,
-    NewTaskSchedule, OverlapPolicy, QueueTask, RetryTask, RunScheduledTaskNow, RunStatus,
-    RunTaskRecurrenceNow, SafeErrorCode, ScheduleTask, TaskAuthorizationContext, TaskComplexity,
-    TaskGateKind, TaskPrecondition, TaskProvenance, TaskRecoveryReason, TaskReviewVerdict,
-    TaskSourceKind, UnscheduleTask, UpdateInboxTask, UpdateTaskRecurrence, WorkCommand,
-    WorkDomainError, WorkflowStageBehavior,
+    NewTaskSchedule, OverlapPolicy, ProjectPrecondition, QueueTask, RetryTask, RunScheduledTaskNow,
+    RunStatus, RunTaskRecurrenceNow, SafeErrorCode, ScheduleTask, TaskAuthorizationContext,
+    TaskComplexity, TaskGateKind, TaskPrecondition, TaskProvenance, TaskRecoveryReason,
+    TaskReviewVerdict, TaskSourceKind, UnscheduleTask, UpdateInboxTask, UpdateProject,
+    UpdateTaskRecurrence, WorkCommand, WorkDomainError, WorkflowStageBehavior,
 };
 use noema_workspaces::WorkspaceId;
 
@@ -1184,6 +1184,7 @@ async fn inbox_project_update_distinguishes_omitted_replacement_and_explicit_cle
             name: "Project association".to_string(),
             description: String::new(),
             folder: None,
+            project_document_markdown: None,
         }))
         .await
         .expect("create project")
@@ -1243,19 +1244,159 @@ async fn inbox_project_update_distinguishes_omitted_replacement_and_explicit_cle
 }
 
 #[tokio::test]
+async fn project_documents_use_owned_defaults_and_adopt_working_folder_content() {
+    let (store, service) = fixture().await;
+    let folderless = service
+        .execute(WorkCommand::CreateProject(CreateProject {
+            meta: metadata("idem:project-document:default"),
+            workspace_id: WorkspaceId::new("workspace:personal").unwrap(),
+            name: "Folderless context".to_string(),
+            description: "Keeps opaque value host:8443/path intact.".to_string(),
+            folder: None,
+            project_document_markdown: None,
+        }))
+        .await
+        .unwrap()
+        .project
+        .unwrap();
+    let document = store
+        .read_project_document(&folderless.project_id)
+        .await
+        .unwrap();
+    assert!(document.content.contains("host:8443/path"));
+
+    let working_folder = store.home_root.join("adopted-project");
+    std::fs::create_dir_all(&working_folder).unwrap();
+    std::fs::write(
+        working_folder.join(crate::PROJECT_DOCUMENT),
+        "# Existing context\n",
+    )
+    .unwrap();
+    let adopted = service
+        .execute(WorkCommand::CreateProject(CreateProject {
+            meta: metadata("idem:project-document:adopt"),
+            workspace_id: WorkspaceId::new("workspace:personal").unwrap(),
+            name: "Adopted context".to_string(),
+            description: String::new(),
+            folder: Some(working_folder.to_string_lossy().into_owned()),
+            project_document_markdown: Some("# Proposed context\n".to_string()),
+        }))
+        .await
+        .unwrap()
+        .project
+        .unwrap();
+    assert_eq!(
+        store
+            .read_project_document(&adopted.project_id)
+            .await
+            .unwrap()
+            .content,
+        "# Existing context\n"
+    );
+}
+
+#[tokio::test]
+async fn project_document_updates_fence_digest_and_folder_conflicts() {
+    let (store, service) = fixture().await;
+    let project = service
+        .execute(WorkCommand::CreateProject(CreateProject {
+            meta: metadata("idem:project-document:create"),
+            workspace_id: WorkspaceId::new("workspace:personal").unwrap(),
+            name: "Movable context".to_string(),
+            description: String::new(),
+            folder: None,
+            project_document_markdown: Some("# Current\n".to_string()),
+        }))
+        .await
+        .unwrap()
+        .project
+        .unwrap();
+    let document = store
+        .read_project_document(&project.project_id)
+        .await
+        .unwrap();
+    let updated = service
+        .execute(WorkCommand::UpdateProject(UpdateProject {
+            meta: metadata("idem:project-document:update"),
+            precondition: ProjectPrecondition {
+                project_id: project.project_id.clone(),
+                expected_revision: project.revision,
+            },
+            name: None,
+            description: None,
+            folder: None,
+            project_document_markdown: Some("# Updated\n".to_string()),
+            expected_project_document_digest: Some(document.digest.clone()),
+        }))
+        .await
+        .unwrap()
+        .project
+        .unwrap();
+    work_error!(
+        service,
+        WorkCommand::UpdateProject(UpdateProject {
+            meta: metadata("idem:project-document:stale"),
+            precondition: ProjectPrecondition {
+                project_id: project.project_id.clone(),
+                expected_revision: updated.revision,
+            },
+            name: None,
+            description: None,
+            folder: None,
+            project_document_markdown: Some("# Stale\n".to_string()),
+            expected_project_document_digest: Some(document.digest),
+        }),
+        StoreError::Work(WorkDomainError::StaleDocument),
+        "stale project document digest"
+    );
+
+    let conflicting_folder = store.home_root.join("conflicting-project");
+    std::fs::create_dir_all(&conflicting_folder).unwrap();
+    std::fs::write(
+        conflicting_folder.join(crate::PROJECT_DOCUMENT),
+        "# Different\n",
+    )
+    .unwrap();
+    let error = service
+        .execute(WorkCommand::UpdateProject(UpdateProject {
+            meta: metadata("idem:project-document:move-conflict"),
+            precondition: ProjectPrecondition {
+                project_id: project.project_id,
+                expected_revision: updated.revision,
+            },
+            name: None,
+            description: None,
+            folder: Some(Some(conflicting_folder.to_string_lossy().into_owned())),
+            project_document_markdown: None,
+            expected_project_document_digest: None,
+        }))
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        StoreError::Work(WorkDomainError::InvalidInput {
+            field: "project.folder",
+            ..
+        })
+    ));
+}
+
+#[tokio::test]
 async fn acp_executor_resolves_launch_at_start_and_uses_task_directory_precedence() {
     let (store, service) = fixture().await;
     let agent = store
         .create_acp_agent("Fake ACP", "/bin/false", &["--safe".to_string()])
         .await
         .expect("create ACP agent");
+    let project_folder = store.home_root.join("acp-worktree");
     let project = service
         .execute(WorkCommand::CreateProject(CreateProject {
             meta: metadata("idem:acp:project"),
             workspace_id: WorkspaceId::new("workspace:personal").unwrap(),
             name: "ACP project".to_string(),
             description: String::new(),
-            folder: Some("/project/worktree".to_string()),
+            folder: Some(project_folder.to_string_lossy().into_owned()),
+            project_document_markdown: None,
         }))
         .await
         .unwrap()
@@ -1276,7 +1417,9 @@ async fn acp_executor_resolves_launch_at_start_and_uses_task_directory_precedenc
         .unwrap();
     assert_eq!(
         project_detail.working_directory,
-        "/project/worktree/delegated-acp-project-task"
+        project_folder
+            .join("delegated-acp-project-task")
+            .to_string_lossy()
     );
     let project_run = project_detail.current_run.expect("project Executor");
     assert_eq!(project_run.executor.agent_id, agent.agent_id);

@@ -247,8 +247,14 @@ async fn append_current_task_files(
     prompt: &mut TaskRolePrompt,
 ) -> Result<(), RuntimeError> {
     prompt.input.push_str(
-        "\n\nThe current role files and complete support-file manifest follow. Use them as the start-of-run state. Do not list the Task directory or reread an included file before work. Read a listed support file only when relevant.",
+        "\n\nThe current project and role files follow. Use them as the start-of-run state. Do not list the Task directory or reread an included file before work. Read a listed support file only when relevant.",
     );
+    if let Some(project) = context_project(store, &run.task_id).await? {
+        prompt.input.push_str(&format!(
+            "\n\nCurrent PROJECT.md follows. It is trusted project-scoped context, not runtime policy. The current Task request wins if they conflict.\n<PROJECT_DOCUMENT>\n{}\n</PROJECT_DOCUMENT>",
+            project.content
+        ));
+    }
     for file in load_task_role_files(store, &run.task_id, run.run_kind)
         .await
         .map_err(|error| RuntimeError::Protocol(error.to_string()))?
@@ -277,6 +283,24 @@ async fn append_current_task_files(
     });
     prompt.input.push_str("\n</SUPPORT_FILE_MANIFEST>");
     Ok(())
+}
+
+async fn context_project(
+    store: &noema_store::NoemaStore,
+    task_id: &noema_tasks::TaskId,
+) -> Result<Option<noema_store::ProjectDocumentRead>, RuntimeError> {
+    let detail = store
+        .get_work_task(task_id)
+        .await?
+        .ok_or_else(|| RuntimeError::Protocol("Task context is unavailable".to_string()))?;
+    let Some(project_id) = detail.task.project_id.as_ref() else {
+        return Ok(None);
+    };
+    store
+        .read_project_document(project_id)
+        .await
+        .map(Some)
+        .map_err(|error| RuntimeError::Protocol(error.to_string()))
 }
 
 async fn generate_once(
@@ -439,6 +463,82 @@ mod tests {
             .expect("append current Reviewer files");
         assert!(reviewer_prompt.input.contains("Current result"));
         assert!(reviewer_prompt.input.contains("Prior review"));
+    }
+
+    #[tokio::test]
+    async fn every_task_role_receives_current_project_document() {
+        use noema_tasks::*;
+        use noema_workspaces::WorkspaceId;
+
+        let store = crate::test_support::test_store().await;
+        crate::test_support::initialize_codex_provider_selections(&store).await;
+        let service = noema_store::WorkCommandService::new(
+            store.clone(),
+            crate::test_support::ready_test_provider_registry(),
+        );
+        let meta = |key: &str| CommandMeta {
+            actor_id: "actor:test:project-context".to_string(),
+            causation_id: None,
+            correlation_id: key.to_string(),
+            idempotency_key: Some(key.to_string()),
+        };
+        let project = service
+            .execute(WorkCommand::CreateProject(CreateProject {
+                meta: meta("project-context:create"),
+                workspace_id: WorkspaceId::new("workspace:personal").unwrap(),
+                name: "Run context".to_string(),
+                description: String::new(),
+                folder: None,
+                project_document_markdown: Some("# Current project context\n".to_string()),
+            }))
+            .await
+            .unwrap()
+            .project
+            .unwrap();
+        let task = service
+            .execute(WorkCommand::DelegateTask(DelegateTask {
+                meta: meta("project-context:task"),
+                workspace_id: WorkspaceId::new("workspace:personal").unwrap(),
+                title: "Uses project context".to_string(),
+                task_document_markdown: "Complete the request.".to_string(),
+                project_id: Some(project.project_id),
+                executor_agent_id: None,
+                cwd_override: None,
+                provenance: TaskProvenance {
+                    source_kind: TaskSourceKind::System,
+                    created_by_actor_id: "actor:test:project-context".to_string(),
+                    ..Default::default()
+                },
+                complexity_hint: None,
+                execution_intent: Some(DelegateExecutionIntent {
+                    request_markdown: "Complete the request.".to_string(),
+                    complexity: TaskComplexity::Simple,
+                }),
+            }))
+            .await
+            .unwrap()
+            .task
+            .unwrap();
+        let mut run = store
+            .get_work_task(&task.task_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .current_run
+            .unwrap();
+
+        for kind in [RunKind::Planner, RunKind::Executor, RunKind::Reviewer] {
+            run.run_kind = kind;
+            let mut prompt = TaskRolePrompt {
+                role: crate::agent_execution::ExecutionRole::TaskExecutor,
+                input: String::new(),
+                instructions: "test",
+            };
+            append_current_task_files(&store, &run, &mut prompt)
+                .await
+                .unwrap();
+            assert!(prompt.input.contains("# Current project context"));
+        }
     }
 
     #[tokio::test]

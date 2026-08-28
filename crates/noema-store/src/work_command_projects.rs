@@ -110,6 +110,9 @@ async fn update(
             if command.folder.is_some() {
                 changed.push(ProjectChangedField::Folder);
             }
+            if command.project_document_markdown.is_some() {
+                changed.push(ProjectChangedField::Document);
+            }
             let payload = WorkEventPayload::project_updated(revision, changed)
                 .map_err(StoreError::Work)?;
             let event = append_work_event_tx(

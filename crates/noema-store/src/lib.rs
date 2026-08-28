@@ -36,6 +36,8 @@ mod mcp_auth_requests;
 mod native_oauth;
 mod notifications;
 mod observed_urls;
+mod project_file_migration;
+mod project_files;
 mod provider_account_port;
 mod provider_accounts;
 mod provider_capability_bindings;
@@ -120,6 +122,7 @@ pub use native_oauth::{
 pub use notifications::NotificationDeliveryOutcome;
 pub use notifications::{ApnsEnvironment, ClaimedApnsDelivery, ClientNotificationRecord};
 pub use observed_urls::ObservedUrlSource;
+pub use project_files::{PROJECT_DOCUMENT, ProjectDocumentRead, ProjectFileError, ProjectFileMove};
 pub use provider_setup_confirmation::{ProviderSetupRole, ReadyProviderSetupSelection};
 pub use runtime::{NoemaStore, StoreConfig};
 pub use runtime_debug::{

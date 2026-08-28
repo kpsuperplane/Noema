@@ -24,6 +24,8 @@ string_enum! {
         Description => "description",
         /// Server-local execution folder.
         Folder => "folder",
+        /// Project document.
+        Document => "document",
     }
 
     /// Task fields represented by `TaskUpdated`.

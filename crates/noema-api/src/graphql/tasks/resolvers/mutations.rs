@@ -109,6 +109,7 @@ pub(in crate::graphql) async fn create_project(
         name: input.name,
         description: input.description,
         folder: input.folder,
+        project_document_markdown: None,
     });
     let result = execute_command(state, command).await?;
     let project = result.result.project.ok_or_else(unavailable)?;
@@ -144,6 +145,8 @@ pub(in crate::graphql) async fn update_project(
         name: input.name,
         description: input.description,
         folder,
+        project_document_markdown: None,
+        expected_project_document_digest: None,
     });
     project_payload(client_id, execute_command(state, command).await?)
 }

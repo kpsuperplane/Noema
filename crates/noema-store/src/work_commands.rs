@@ -89,12 +89,19 @@ impl WorkCommandService {
         self.attach_current_document(&mut command).await?;
         let command = command.normalized().map_err(StoreError::Work)?;
         let task_document = task_document_seed(&command);
+        let project_document = project_document_seed(&command);
         let obsolete_recurrence = self.obsolete_recurrence(&command).await?;
+        let project_move = self.prepare_project_move(&command).await?;
         let rollback = self.replace_document_before_command(&command).await?;
         let write = match execute_normalized_command(self, command.clone()).await {
             Ok(write) => write,
             Err(error) => {
                 self.restore_document(rollback).await?;
+                if let Some(project_move) = project_move {
+                    self.store
+                        .rollback_project_document_move(project_move)
+                        .map_err(project_file_error)?;
+                }
                 return Err(error);
             }
         };
@@ -131,6 +138,15 @@ impl WorkCommandService {
                 .map_err(file_invariant)?;
         }
         let mut committed = crate::work_command_result::materialize_committed_result(write)?;
+        if let (Some(project), Some(content)) = (
+            committed.result.project.as_ref(),
+            project_document.as_deref(),
+        ) {
+            self.store
+                .ensure_project_document_from(project, content)
+                .await
+                .map_err(project_file_error)?;
+        }
         if let Some(detail) = committed.task_detail.as_mut() {
             self.store.hydrate_work_task_files(detail).await?;
         }
@@ -219,6 +235,23 @@ impl WorkCommandService {
                     current.content,
                 )))
             }
+            WorkCommand::UpdateProject(value) => {
+                let (Some(content), Some(expected)) = (
+                    value.project_document_markdown.as_deref(),
+                    value.expected_project_document_digest.as_deref(),
+                ) else {
+                    return Ok(None);
+                };
+                let previous = self
+                    .store
+                    .replace_project_document(&value.precondition.project_id, expected, content)
+                    .await
+                    .map_err(project_file_error)?;
+                Ok(Some(DocumentRollback::Project(
+                    value.precondition.project_id.clone(),
+                    previous,
+                )))
+            }
             _ => Ok(None),
         }
     }
@@ -235,8 +268,30 @@ impl WorkCommandService {
                 .write_recurrence_document(&recurrence_id, &content)
                 .await
                 .map_err(file_invariant),
+            Some(DocumentRollback::Project(project_id, content)) => self
+                .store
+                .restore_project_document(&project_id, &content)
+                .await
+                .map_err(project_file_error),
             None => Ok(()),
         }
+    }
+
+    async fn prepare_project_move(
+        &self,
+        command: &WorkCommand,
+    ) -> Result<Option<crate::ProjectFileMove>, StoreError> {
+        let WorkCommand::UpdateProject(value) = command else {
+            return Ok(None);
+        };
+        let Some(folder) = value.folder.as_ref() else {
+            return Ok(None);
+        };
+        self.store
+            .prepare_project_document_move(&value.precondition.project_id, folder.as_deref())
+            .await
+            .map(Some)
+            .map_err(project_file_error)
     }
 
     async fn task_recurrence_id(
@@ -278,6 +333,7 @@ impl WorkCommandService {
 enum DocumentRollback {
     Task(noema_tasks::TaskId, String),
     Recurrence(noema_tasks::TaskRecurrenceId, String),
+    Project(noema_workspaces::ProjectId, String),
 }
 
 fn require_document_digest(actual: &str, expected: &str) -> Result<(), StoreError> {
@@ -296,12 +352,43 @@ fn file_invariant(error: crate::TaskFileError) -> StoreError {
     }
 }
 
+fn project_file_error(error: crate::ProjectFileError) -> StoreError {
+    match error {
+        crate::ProjectFileError::StaleDigest => {
+            StoreError::Work(noema_tasks::WorkDomainError::StaleDocument)
+        }
+        crate::ProjectFileError::Conflict => {
+            StoreError::Work(noema_tasks::WorkDomainError::InvalidInput {
+                field: "project.folder",
+                message: "The destination folder contains a different PROJECT.md".to_string(),
+            })
+        }
+        error => StoreError::InvariantViolation {
+            message: error.to_string(),
+        },
+    }
+}
+
 fn task_document_seed(command: &WorkCommand) -> Option<String> {
     match command {
         WorkCommand::CaptureTask(command) => Some(command.task_document_markdown.clone()),
         WorkCommand::DelegateTask(command) => Some(command.task_document_markdown.clone()),
         _ => None,
     }
+}
+
+fn project_document_seed(command: &WorkCommand) -> Option<String> {
+    let WorkCommand::CreateProject(command) = command else {
+        return None;
+    };
+    Some(
+        command
+            .project_document_markdown
+            .clone()
+            .unwrap_or_else(|| {
+                crate::project_files::default_project_document(&command.name, &command.description)
+            }),
+    )
 }
 
 /// Return the canonical command fingerprint used by idempotency receipts.

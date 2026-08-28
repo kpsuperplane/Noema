@@ -467,6 +467,7 @@ async fn execute_primary_inner(
                     name: input.name,
                     description: input.description,
                     folder: input.folder,
+                    project_document_markdown: None,
                 })
             )
         }
@@ -478,6 +479,8 @@ async fn execute_primary_inner(
                     name: input.name,
                     description: input.description,
                     folder: if input.clear_folder { Some(None) } else { input.folder.map(Some) },
+                    project_document_markdown: None,
+                    expected_project_document_digest: None,
                 })
             )
         }

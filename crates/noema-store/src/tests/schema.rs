@@ -1365,6 +1365,35 @@ async fn hosted_search_activity_migration_repairs_only_provider_hosted_rows() {
 }
 
 #[tokio::test]
+async fn version_66_upgrade_creates_project_documents() {
+    let home = TempDir::new().expect("version 66 project root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    let mut connection = Connection::open(&config.path).expect("version 66 database");
+    store_migrations()
+        .to_version(&mut connection, 66)
+        .expect("construct version 66 schema");
+    connection
+        .execute(
+            "INSERT INTO projects (project_id, workspace_id, name, description) VALUES ('project:upgrade', 'workspace:personal', 'Upgrade context', 'Preserved context')",
+            [],
+        )
+        .expect("project fixture");
+    drop(connection);
+
+    drop(NoemaStore::open(&config).await.expect("upgrade schema"));
+
+    assert_eq!(
+        fs::read_to_string(
+            home.path()
+                .join("workspaces/personal/projects/upgrade/docs/PROJECT.md")
+        )
+        .expect("migrated PROJECT.md"),
+        "# Upgrade context\n\nPreserved context\n"
+    );
+}
+
+#[tokio::test]
 async fn versions_65_and_66_preserve_supported_rows_and_converge() {
     let upgrade_home = TempDir::new().expect("version 64 root");
     let upgrade_config = store_config(upgrade_home.path());

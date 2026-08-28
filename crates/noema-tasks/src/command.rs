@@ -190,9 +190,9 @@ work_commands! {
     /// Reopen terminal history into a fresh queued generation with new direction.
     ReopenTask => "task.reopen", "Reopen terminal history." { meta: CommandMeta, precondition: TaskPrecondition, direction: TaskReopenDirection }
     /// Create an active project container.
-    CreateProject => "project.create", "Create project." { meta: CommandMeta, workspace_id: WorkspaceId, name: String, description: String, folder: Option<String> }
+    CreateProject => "project.create", "Create project." { meta: CommandMeta, workspace_id: WorkspaceId, name: String, description: String, folder: Option<String>, project_document_markdown: Option<String> }
     /// Update an existing project name/description.
-    UpdateProject => "project.update", "Update project." { meta: CommandMeta, precondition: ProjectPrecondition, name: Option<String>, description: Option<String>, folder: Option<Option<String>> }
+    UpdateProject => "project.update", "Update project." { meta: CommandMeta, precondition: ProjectPrecondition, name: Option<String>, description: Option<String>, folder: Option<Option<String>>, project_document_markdown: Option<String>, expected_project_document_digest: Option<String> }
     /// Archive a project without changing existing task stages.
     ArchiveProject => "project.archive", "Archive project." { meta: CommandMeta, precondition: ProjectPrecondition }
     /// Reopen a previously archived project.
@@ -339,6 +339,9 @@ impl WorkCommand {
                 command.name = required(&command.name, "project.name")?;
                 command.description = command.description.trim().to_string();
                 command.folder = normalize_absolute_path(command.folder, "project.folder")?;
+                if let Some(document) = command.project_document_markdown.as_deref() {
+                    validate_document(document, "project.project_document_markdown")?;
+                }
                 Ok(Self::CreateProject(command))
             }
             Self::UpdateProject(mut command) => {
@@ -346,6 +349,7 @@ impl WorkCommand {
                 if command.name.is_none()
                     && command.description.is_none()
                     && command.folder.is_none()
+                    && command.project_document_markdown.is_none()
                 {
                     return Err(invalid_input(
                         "project.update",
@@ -361,6 +365,16 @@ impl WorkCommand {
                     .folder
                     .map(|folder| normalize_absolute_path(folder, "project.folder"))
                     .transpose()?;
+                validate_project_document_update(
+                    command.project_document_markdown.as_deref(),
+                    command.expected_project_document_digest.as_deref(),
+                )?;
+                if command.folder.is_some() && command.project_document_markdown.is_some() {
+                    return Err(invalid_input(
+                        "project.update",
+                        "folder and document changes must be separate",
+                    ));
+                }
                 Ok(Self::UpdateProject(command))
             }
             Self::ArchiveProject(command) => {
@@ -426,6 +440,34 @@ fn validate_document_update(
     }) {
         return Err(invalid_input(
             "task.expected_task_document_digest",
+            "digest must be lower-case SHA-256",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_project_document_update(
+    document: Option<&str>,
+    digest: Option<&str>,
+) -> Result<(), WorkDomainError> {
+    if document.is_some() != digest.is_some() {
+        return Err(invalid_input(
+            "project.expected_project_document_digest",
+            "document and expected digest must be present together",
+        ));
+    }
+    if let Some(document) = document {
+        validate_document(document, "project.project_document_markdown")?;
+    }
+    if digest.is_some_and(|value| {
+        value.len() != 64
+            || value != value.to_ascii_lowercase()
+            || value
+                .chars()
+                .any(|character| !character.is_ascii_hexdigit())
+    }) {
+        return Err(invalid_input(
+            "project.expected_project_document_digest",
             "digest must be lower-case SHA-256",
         ));
     }

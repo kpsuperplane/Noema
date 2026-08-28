@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 66;
+pub const STORE_SCHEMA_VERSION: usize = 67;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1248,6 +1248,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(CAPABILITY_AUTH_IDENTITY_ACTIVE_GUARD_SQL),
         M::up(CODE_OWNED_TASK_WORKFLOW_SQL),
         M::up(HOSTED_WEB_PROVIDER_ACCOUNTS_SQL),
+        M::up_with_hook("", crate::project_file_migration::create_project_documents),
     ])
 }
 
