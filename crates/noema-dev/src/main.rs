@@ -20,6 +20,7 @@ use tokio::{
 const WEB_ASSET_WATCH_SCRIPT: &str = "dev:assets";
 const DEV_ASSET_DIR_ENV: &str = "NOEMA_DEV_ASSET_DIR";
 const ROOT_DEV_ASSET_DIR: &str = "/run/noema-dev/web-assets";
+const ROOT_WEB_ASSET_SHELL: &str = r#"umask 022; exec "$@""#;
 const WEB_SERVER_WATCH_IGNORE_GLOBS: [&str; 2] =
     ["apps/web/**", "crates/noema-server/target/web-assets/**"];
 const WATCHER_RESTART_DELAY: Duration = Duration::from_millis(250);
@@ -223,9 +224,20 @@ async fn shutdown_signal() -> Result<&'static str, DevError> {
 }
 
 fn spawn_web_watcher(web_dir: &Path) -> Result<Child, DevError> {
-    let mut command = Command::new("bun");
+    let root = running_as_root();
+    let mut command = if root {
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg(ROOT_WEB_ASSET_SHELL)
+            .arg("noema-web-assets")
+            .arg("bun");
+        command
+    } else {
+        Command::new("bun")
+    };
     command.arg("run").arg(WEB_ASSET_WATCH_SCRIPT);
-    if running_as_root() {
+    if root {
         command.env(DEV_ASSET_DIR_ENV, ROOT_DEV_ASSET_DIR);
     }
 
@@ -418,6 +430,23 @@ fn running_as_root() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn root_web_assets_use_a_public_read_umask() {
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(ROOT_WEB_ASSET_SHELL)
+            .arg("noema-web-assets-test")
+            .arg("sh")
+            .arg("-c")
+            .arg("umask")
+            .output()
+            .expect("read configured umask");
+
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "0022");
+    }
 
     #[test]
     fn nested_cargo_does_not_inherit_native_compiler_wrappers() {
