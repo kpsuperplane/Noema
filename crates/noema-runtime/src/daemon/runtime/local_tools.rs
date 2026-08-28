@@ -1269,6 +1269,7 @@ fn web_backend_request(resolved: &super::web_tools::ResolvedWebProvider) -> WebB
     WebBackendRequest {
         provider_kind: resolved.provider_kind.clone(),
         provider_account_id: resolved.provider_account_id.clone(),
+        auth_method: resolved.auth_method,
         credential_revision: resolved.credential_revision,
     }
 }

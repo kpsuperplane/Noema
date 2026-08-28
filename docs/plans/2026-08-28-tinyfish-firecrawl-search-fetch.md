@@ -1,8 +1,8 @@
 # Add TinyFish and Firecrawl Through Shared Web Provider Paths
 
-- **Status:** Revised execution plan
+- **Status:** Implemented
 - **Date:** 2026-08-28
-- **Mode:** Implement in two committed units
+- **Mode:** Implemented in two committed units
 - **Provider ids:** `tinyfish` and `firecrawl`
 - **Initial scope:** Search and fetch
 - **Default:** Existing search and fetch providers remain the defaults

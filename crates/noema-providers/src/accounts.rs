@@ -10,8 +10,8 @@ use crate::capabilities::capabilities_for_provider_account;
 use crate::selection::{ProviderInstanceKey, ProviderSelectionError};
 use crate::{
     DIRECT_HTTP_PROVIDER_ACCOUNT_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ACCOUNT_ID,
-    OBSCURA_BROWSER_PROVIDER_ACCOUNT_ID, ProviderCapability, ProviderKind,
-    config::CodexOAuthConfig,
+    FIRECRAWL_KEYLESS_PROVIDER_ACCOUNT_ID, OBSCURA_BROWSER_PROVIDER_ACCOUNT_ID, ProviderCapability,
+    ProviderKind, config::CodexOAuthConfig,
 };
 
 /// Derive the immutable provider-instance identity for one hosted account.
@@ -195,6 +195,20 @@ pub fn provider_account_catalog() -> Vec<ProviderAccountCatalogEntry> {
             vec![ProviderAuthMethod::SecretInput],
             true,
         ),
+        (
+            "tinyfish",
+            "TinyFish",
+            ProviderAuthMethod::SecretInput,
+            vec![ProviderAuthMethod::SecretInput],
+            true,
+        ),
+        (
+            "firecrawl",
+            "Firecrawl",
+            ProviderAuthMethod::SecretInput,
+            vec![ProviderAuthMethod::SecretInput],
+            true,
+        ),
     ]
     .into_iter()
     .map(
@@ -221,7 +235,6 @@ pub fn provider_account_catalog() -> Vec<ProviderAccountCatalogEntry> {
     )
     .collect()
 }
-
 /// Return one user-addable provider type by exact provider kind.
 #[must_use]
 pub fn provider_account_catalog_entry(provider_kind: &str) -> Option<ProviderAccountCatalogEntry> {
@@ -242,6 +255,7 @@ pub fn is_builtin_provider_account_id(provider_account_id: &str) -> bool {
         DUCKDUCKGO_PUBLIC_PROVIDER_ACCOUNT_ID,
         DIRECT_HTTP_PROVIDER_ACCOUNT_ID,
         OBSCURA_BROWSER_PROVIDER_ACCOUNT_ID,
+        FIRECRAWL_KEYLESS_PROVIDER_ACCOUNT_ID,
     ]
     .contains(&provider_account_id)
 }

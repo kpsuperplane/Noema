@@ -1,11 +1,12 @@
 //! DuckDuckGo public search provider.
 
+use crate::adapters::web::normalize::{SearchCandidate, search_response};
 use crate::{
     BEST_EFFORT_PUBLIC_CONTRACT, DUCKDUCKGO_PUBLIC_PROVIDER_ID, WebOperationFuture,
     WebSearchBackend, WebSearchBackendHandle, WebSearchError,
 };
 use futures_util::StreamExt;
-use noema_capabilities::web::search::{SearchRequest, SearchResponse, SearchResult};
+use noema_capabilities::web::search::{SearchRequest, SearchResponse};
 use reqwest::Client;
 use scraper::{Html, Selector};
 use std::time::Duration;
@@ -100,11 +101,11 @@ fn parse_duckduckgo_html(
     let snippet_selector =
         Selector::parse(".result__snippet").map_err(|_| WebSearchError::Parse)?;
 
-    let results = document
+    let candidates = document
         .select(&result_selector)
         .filter_map(|result| {
             let title_node = result.select(&title_selector).next()?;
-            let title = normalized_text(title_node.text())?;
+            let title = title_node.text().collect::<Vec<_>>().join(" ");
             let url = title_node
                 .value()
                 .attr("href")
@@ -112,39 +113,22 @@ fn parse_duckduckgo_html(
             let snippet = result
                 .select(&snippet_selector)
                 .next()
-                .and_then(|node| normalized_text(node.text()))
+                .map(|node| node.text().collect::<Vec<_>>().join(" "))
                 .unwrap_or_default();
-            Some((title, url, snippet))
-        })
-        .take(max_results)
-        .enumerate()
-        .map(|(index, (title, url, snippet))| SearchResult {
-            rank: index + 1,
-            title,
-            url,
-            snippet,
+            Some(SearchCandidate {
+                title,
+                url,
+                snippet,
+            })
         })
         .collect::<Vec<_>>();
-
-    let summary = match results.len() {
-        0 => "No web results found".to_string(),
-        1 => "Found 1 web result".to_string(),
-        count => format!("Found {count} web results"),
-    };
-
-    Ok(SearchResponse {
-        provider: DUCKDUCKGO_PUBLIC_PROVIDER_ID.to_string(),
-        provider_contract: BEST_EFFORT_PUBLIC_CONTRACT.to_string(),
-        query: query.to_string(),
-        results,
-        summary,
-    })
-}
-
-fn normalized_text<'a>(parts: impl Iterator<Item = &'a str>) -> Option<String> {
-    let value = parts.collect::<Vec<_>>().join(" ");
-    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
-    (!normalized.is_empty()).then_some(normalized)
+    Ok(search_response(
+        DUCKDUCKGO_PUBLIC_PROVIDER_ID,
+        BEST_EFFORT_PUBLIC_CONTRACT,
+        query,
+        max_results,
+        candidates,
+    ))
 }
 
 fn normalize_result_url(value: &str) -> Option<String> {

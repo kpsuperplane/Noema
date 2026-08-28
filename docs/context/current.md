@@ -84,6 +84,9 @@ slice or a net-negative reduction.
 
 - Hosted providers, local models, MCP, native HTTP adapters, and browser tools
   keep distinct transport and security ownership.
+- Hosted web clients own typed credentials. Shared credential access supplies them without ordinary-string conversion.
+- Hosted search and fetch share URL and response normalization. Each provider owns its wire protocol and status mapping.
+- TinyFish and Firecrawl provide hosted search and fetch. Firecrawl also has a permanent credential-free account.
 - Hosted web remains the preferred page reader. `file.download` stores public
   non-HTML resources, and `file.parse` returns bounded local content.
 - File downloads use the same URL policy and action review as fetch and browser

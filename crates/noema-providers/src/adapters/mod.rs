@@ -21,9 +21,10 @@ pub use hosted::hosted_provider_from_config;
 pub use openrouter::catalog::validate_api_key as validate_openrouter_api_key;
 pub(crate) use web::run_worker_if_requested;
 pub use web::{
-    EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
-    default_web_browse_backend, default_web_fetch_backend, default_web_search_backend,
-    summarize_markdown, web_fetch_summarizer_prompt,
+    EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaWebClient, FIRECRAWL_PROVIDER_ID,
+    FirecrawlWebClient, TINYFISH_PROVIDER_ID, TinyFishWebClient, default_web_browse_backend,
+    default_web_fetch_backend, default_web_search_backend, summarize_markdown,
+    web_fetch_summarizer_prompt,
 };
 
 pub(crate) use crate::reqwest_transport_error;

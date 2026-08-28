@@ -101,6 +101,7 @@ pub fn safe_error_message(error: &FetchExecutionError) -> String {
         WebFetchError::RedirectBlocked => "redirect target is private, internal, or local",
         WebFetchError::TooManyRedirects => "too many redirects",
         WebFetchError::Timeout => "web fetch request timed out",
+        WebFetchError::RateLimited => "web fetch provider rate limited the request",
         WebFetchError::Http => "web fetch request failed",
         WebFetchError::AuthFailed => "provider account unauthenticated",
         WebFetchError::UnsupportedContentType => "content type is not supported",

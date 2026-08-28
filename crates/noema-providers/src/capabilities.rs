@@ -81,7 +81,6 @@ pub fn provider_capability_assignment_pair_is_supported(
         ("web.search", "web.search") | ("web.fetch", "web.fetch") | ("web.browse", "web.browse")
     )
 }
-
 /// Return the permanent default account id for a web capability.
 #[must_use]
 pub const fn default_web_provider_account_id(capability_id: CapabilityId) -> Option<&'static str> {
@@ -92,7 +91,6 @@ pub const fn default_web_provider_account_id(capability_id: CapabilityId) -> Opt
         CapabilityId::ModelGenerate | CapabilityId::ModelClassify => None,
     }
 }
-
 /// Return the static capabilities declared for a provider account.
 #[must_use]
 pub fn capabilities_for_provider_account(
@@ -123,6 +121,7 @@ pub fn capabilities_for_provider_account(
             ProviderCapabilityStatus::Available,
             ReliabilityContract::BestEffortPublic,
             false,
+            false,
         )],
         "direct_http" => vec![web_capability(
             provider_kind,
@@ -130,6 +129,7 @@ pub fn capabilities_for_provider_account(
             CapabilityId::WebFetch,
             ProviderCapabilityStatus::Available,
             ReliabilityContract::FirstParty,
+            false,
             false,
         )],
         "obscura" => vec![web_capability(
@@ -139,6 +139,7 @@ pub fn capabilities_for_provider_account(
             ProviderCapabilityStatus::Available,
             ReliabilityContract::FirstParty,
             false,
+            true,
         )],
         "kernel" => vec![web_capability(
             provider_kind,
@@ -147,29 +148,36 @@ pub fn capabilities_for_provider_account(
             status,
             ReliabilityContract::HostedProvider,
             false,
+            true,
         )],
-        "exa" => vec![
-            web_capability(
-                provider_kind,
-                account_key,
-                CapabilityId::WebSearch,
-                status,
-                ReliabilityContract::HostedProvider,
-                true,
-            ),
-            web_capability(
-                provider_kind,
-                account_key,
-                CapabilityId::WebFetch,
-                status,
-                ReliabilityContract::HostedProvider,
-                true,
-            ),
-        ],
+        "exa" => hosted_web_capabilities(provider_kind, account_key, status, false),
+        "tinyfish" | "firecrawl" => {
+            hosted_web_capabilities(provider_kind, account_key, status, true)
+        }
         _ => Vec::new(),
     }
 }
-
+fn hosted_web_capabilities(
+    provider_kind: &str,
+    account_key: &str,
+    status: ProviderCapabilityStatus,
+    js_fetch: bool,
+) -> Vec<ProviderCapability> {
+    [CapabilityId::WebSearch, CapabilityId::WebFetch]
+        .into_iter()
+        .map(|capability_id| {
+            web_capability(
+                provider_kind,
+                account_key,
+                capability_id,
+                status,
+                ReliabilityContract::HostedProvider,
+                true,
+                js_fetch && capability_id == CapabilityId::WebFetch,
+            )
+        })
+        .collect()
+}
 fn model_capabilities(
     provider_kind: &str,
     account_key: &str,
@@ -204,6 +212,7 @@ fn web_capability(
     status: ProviderCapabilityStatus,
     reliability_contract: ReliabilityContract,
     citations: bool,
+    js_rendering: bool,
 ) -> ProviderCapability {
     let (data_flow_class, direct_url_fetch, result_persistence) = match capability_id {
         CapabilityId::WebSearch => (
@@ -233,7 +242,7 @@ fn web_capability(
         features: CapabilityFeatures {
             citations,
             direct_url_fetch,
-            js_rendering: capability_id == CapabilityId::WebBrowse,
+            js_rendering,
             authenticated_context: capability_id == CapabilityId::WebBrowse,
             result_persistence,
         },
@@ -340,5 +349,25 @@ mod tests {
             ProviderAccountStatus::Unauthenticated,
         );
         assert_eq!(unavailable[0].status, ProviderCapabilityStatus::Unavailable);
+
+        for (provider_kind, js_fetch) in [("exa", false), ("tinyfish", true), ("firecrawl", true)] {
+            let capabilities = capabilities_for_provider_account(
+                provider_kind,
+                "account",
+                ProviderAccountStatus::Authenticated,
+            );
+            assert_eq!(capabilities.len(), 2);
+            assert!(capabilities.iter().all(|capability| {
+                capability.reliability_contract == ReliabilityContract::HostedProvider
+                    && capability.features.citations
+                    && !capability.features.authenticated_context
+            }));
+            let fetch = capabilities
+                .iter()
+                .find(|capability| capability.capability_id == CapabilityId::WebFetch)
+                .expect("fetch capability");
+            assert!(fetch.features.direct_url_fetch);
+            assert_eq!(fetch.features.js_rendering, js_fetch);
+        }
     }
 }

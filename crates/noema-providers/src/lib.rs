@@ -51,11 +51,12 @@ pub use accounts::{
 };
 #[cfg(feature = "adapters")]
 pub use adapters::{
-    EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
-    FoundationLocalProvider, ProviderAccountService, ProviderCredential, ProviderCredentialAccess,
-    ProviderCredentialAccessHandle, ProviderCredentialFuture, default_web_browse_backend,
-    default_web_fetch_backend, default_web_search_backend, hosted_provider_from_config,
-    summarize_markdown, validate_openrouter_api_key, web_fetch_summarizer_prompt,
+    EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaWebClient, FIRECRAWL_PROVIDER_ID,
+    FirecrawlWebClient, FoundationLocalProvider, ProviderAccountService, ProviderCredential,
+    ProviderCredentialAccess, ProviderCredentialAccessHandle, ProviderCredentialFuture,
+    TINYFISH_PROVIDER_ID, TinyFishWebClient, default_web_browse_backend, default_web_fetch_backend,
+    default_web_search_backend, hosted_provider_from_config, summarize_markdown,
+    validate_openrouter_api_key, web_fetch_summarizer_prompt,
 };
 pub use capabilities::{
     ProviderCapability, ProviderCapabilityAssignment, ProviderCapabilityStatus,
@@ -167,8 +168,8 @@ pub use web::public_url::{
 pub use web::{
     BEST_EFFORT_PUBLIC_CONTRACT, DIRECT_HTTP_PROVIDER_ACCOUNT_ID, DIRECT_HTTP_PROVIDER_ID,
     DUCKDUCKGO_PUBLIC_PROVIDER_ACCOUNT_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID, EXTRACTION_READABILITYRS,
-    KERNEL_BROWSER_PROVIDER_ID, OBSCURA_BROWSER_PROVIDER_ACCOUNT_ID, OBSCURA_BROWSER_PROVIDER_ID,
-    WebBrowseBackendHandle, WebBrowseError, WebBrowseOwner, WebFetchBackend, WebFetchBackendHandle,
-    WebFetchContext, WebFetchError, WebOperationFuture, WebSearchBackend, WebSearchBackendHandle,
-    WebSearchError,
+    FIRECRAWL_KEYLESS_PROVIDER_ACCOUNT_ID, KERNEL_BROWSER_PROVIDER_ID,
+    OBSCURA_BROWSER_PROVIDER_ACCOUNT_ID, OBSCURA_BROWSER_PROVIDER_ID, WebBrowseBackendHandle,
+    WebBrowseError, WebBrowseOwner, WebFetchBackend, WebFetchBackendHandle, WebFetchContext,
+    WebFetchError, WebOperationFuture, WebSearchBackend, WebSearchBackendHandle, WebSearchError,
 };

@@ -9,6 +9,8 @@ use crate::{GenerationPriority, ProviderRouteLease, ReasoningEffort};
 pub const DIRECT_HTTP_PROVIDER_ID: &str = "direct_http";
 /// Stable account id for Noema's built-in direct HTTP provider.
 pub const DIRECT_HTTP_PROVIDER_ACCOUNT_ID: &str = "provider_account:direct_http:system";
+/// Stable account id for Firecrawl's built-in credential-free service.
+pub const FIRECRAWL_KEYLESS_PROVIDER_ACCOUNT_ID: &str = "provider_account:firecrawl:public";
 /// Extraction label for the readability-based HTML backend.
 pub const EXTRACTION_READABILITYRS: &str = "readability_rs";
 
@@ -51,6 +53,9 @@ pub enum WebFetchError {
     /// The request timed out.
     #[error("fetch request timed out")]
     Timeout,
+    /// The provider rate-limited the request.
+    #[error("fetch provider rate limited the request")]
+    RateLimited,
     /// The provider transport failed.
     #[error("fetch request failed")]
     Http,

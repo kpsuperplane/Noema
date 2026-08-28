@@ -27,14 +27,15 @@ use noema_home::{NoemaPaths, SystemErrorLogger, init_noema_home};
 use noema_memory::NativeMemory;
 use noema_providers::{
     CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE, DEFAULT_OPENAI_MODEL,
-    EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
-    FoundationLocalProvider, FoundationLocalProviderConfig, LocalModelActivationPersistenceHandle,
-    LocalModelInstallationPersistenceHandle, LocalModelLifecyclePersistenceHandle,
-    LocalModelManager, OpenRouterProviderConfig, ProviderAccountOperationsHandle,
-    ProviderAccountPersistenceHandle, ProviderAccountService, ProviderConfig, ProviderCredential,
-    ProviderCredentialAccessHandle, ProviderError, ProviderHandle, ProviderKind, ProviderRegistry,
-    ProviderRegistryHandle, ProviderSelectionSnapshot, RegistryProviderRouteResolver,
-    WebBrowseBackendHandle, WebFetchBackendHandle, WebSearchBackendHandle,
+    EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaWebClient, FIRECRAWL_PROVIDER_ID,
+    FirecrawlWebClient, FoundationLocalProvider, FoundationLocalProviderConfig,
+    LocalModelActivationPersistenceHandle, LocalModelInstallationPersistenceHandle,
+    LocalModelLifecyclePersistenceHandle, LocalModelManager, OpenRouterProviderConfig,
+    ProviderAccountOperationsHandle, ProviderAccountPersistenceHandle, ProviderAccountService,
+    ProviderAuthMethod, ProviderConfig, ProviderCredential, ProviderCredentialAccessHandle,
+    ProviderError, ProviderHandle, ProviderKind, ProviderRegistry, ProviderRegistryHandle,
+    ProviderSelectionSnapshot, RegistryProviderRouteResolver, TINYFISH_PROVIDER_ID,
+    TinyFishWebClient, WebBrowseBackendHandle, WebFetchBackendHandle, WebSearchBackendHandle,
     default_web_browse_backend, default_web_fetch_backend, default_web_search_backend,
     hosted_provider_from_config, provider_account_instance_key,
 };
@@ -494,16 +495,15 @@ impl WebBackendResolver for HostWebBackendResolver {
         Box::pin(async move {
             match request.provider_kind.as_str() {
                 noema_providers::DUCKDUCKGO_PUBLIC_PROVIDER_ID => Ok(default_search),
-                EXA_SEARCH_PROVIDER_ID => {
-                    let api_key = credentials
-                        .api_key("exa", &request.provider_account_id)
-                        .await
-                        .map(ProviderCredential::into_secret)
-                        .map_err(|_| WebBackendResolverError::Unauthenticated)?;
-                    let provider = ExaSearchClient::new(api_key)
-                        .map_err(|_| WebBackendResolverError::Unavailable)?;
-                    Ok(WebSearchBackendHandle::new(provider))
-                }
+                EXA_SEARCH_PROVIDER_ID => Ok(WebSearchBackendHandle::new(
+                    exa_web_client(&credentials, &request).await?,
+                )),
+                TINYFISH_PROVIDER_ID => Ok(WebSearchBackendHandle::new(
+                    tinyfish_web_client(&credentials, &request).await?,
+                )),
+                FIRECRAWL_PROVIDER_ID => Ok(WebSearchBackendHandle::new(
+                    firecrawl_web_client(&credentials, &request).await?,
+                )),
                 _ => Err(WebBackendResolverError::Unavailable),
             }
         })
@@ -518,16 +518,15 @@ impl WebBackendResolver for HostWebBackendResolver {
         Box::pin(async move {
             match request.provider_kind.as_str() {
                 noema_providers::DIRECT_HTTP_PROVIDER_ID => Ok(default_fetch),
-                EXA_FETCH_PROVIDER_ID => {
-                    let api_key = credentials
-                        .api_key("exa", &request.provider_account_id)
-                        .await
-                        .map(ProviderCredential::into_secret)
-                        .map_err(|_| WebBackendResolverError::Unauthenticated)?;
-                    let provider = ExaFetchClient::new(api_key)
-                        .map_err(|_| WebBackendResolverError::Unavailable)?;
-                    Ok(WebFetchBackendHandle::new(provider))
-                }
+                EXA_FETCH_PROVIDER_ID => Ok(WebFetchBackendHandle::new(
+                    exa_web_client(&credentials, &request).await?,
+                )),
+                TINYFISH_PROVIDER_ID => Ok(WebFetchBackendHandle::new(
+                    tinyfish_web_client(&credentials, &request).await?,
+                )),
+                FIRECRAWL_PROVIDER_ID => Ok(WebFetchBackendHandle::new(
+                    firecrawl_web_client(&credentials, &request).await?,
+                )),
                 _ => Err(WebBackendResolverError::Unavailable),
             }
         })
@@ -587,7 +586,50 @@ impl WebBackendResolver for HostWebBackendResolver {
         })
     }
 }
-
+async fn exa_web_client(
+    credentials: &ProviderCredentialAccessHandle,
+    request: &WebBackendRequest,
+) -> Result<ExaWebClient, WebBackendResolverError> {
+    if request.auth_method != ProviderAuthMethod::SecretInput {
+        return Err(WebBackendResolverError::Unavailable);
+    }
+    let credential = required_web_credential(credentials, request, EXA_SEARCH_PROVIDER_ID).await?;
+    ExaWebClient::new(credential).map_err(|_| WebBackendResolverError::Unavailable)
+}
+async fn tinyfish_web_client(
+    credentials: &ProviderCredentialAccessHandle,
+    request: &WebBackendRequest,
+) -> Result<TinyFishWebClient, WebBackendResolverError> {
+    if request.auth_method != ProviderAuthMethod::SecretInput {
+        return Err(WebBackendResolverError::Unavailable);
+    }
+    Ok(TinyFishWebClient::new(
+        required_web_credential(credentials, request, TINYFISH_PROVIDER_ID).await?,
+    ))
+}
+async fn firecrawl_web_client(
+    credentials: &ProviderCredentialAccessHandle,
+    request: &WebBackendRequest,
+) -> Result<FirecrawlWebClient, WebBackendResolverError> {
+    let credential = match request.auth_method {
+        ProviderAuthMethod::None => None,
+        ProviderAuthMethod::SecretInput => {
+            Some(required_web_credential(credentials, request, FIRECRAWL_PROVIDER_ID).await?)
+        }
+        _ => return Err(WebBackendResolverError::Unavailable),
+    };
+    FirecrawlWebClient::new(credential).map_err(|_| WebBackendResolverError::Unavailable)
+}
+async fn required_web_credential(
+    credentials: &ProviderCredentialAccessHandle,
+    request: &WebBackendRequest,
+    provider_kind: &str,
+) -> Result<ProviderCredential, WebBackendResolverError> {
+    credentials
+        .api_key(provider_kind, &request.provider_account_id)
+        .await
+        .map_err(|_| WebBackendResolverError::Unauthenticated)
+}
 fn register_hosted_providers(
     registry: &ProviderRegistryHandle,
     providers: &[(ProviderKind, noema_providers::ProviderHandle)],

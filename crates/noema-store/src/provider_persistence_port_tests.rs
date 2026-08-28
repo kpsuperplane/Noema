@@ -85,6 +85,7 @@ async fn sqlite_provider_accounts_seed_and_list() {
         "provider_account:duckduckgo_public:system",
         "provider_account:direct_http:system",
         "provider_account:obscura:system",
+        "provider_account:firecrawl:public",
     ] {
         assert!(ids.iter().any(|id| id == expected));
     }
@@ -99,6 +100,46 @@ async fn sqlite_provider_accounts_seed_and_list() {
             provider_account_id: "provider_account:direct_http:system".to_string(),
         }
     );
+    assert_eq!(
+        ProviderAccountPersistence::delete_provider_account(
+            &store,
+            "provider_account:firecrawl:public",
+        )
+        .await
+        .expect_err("Firecrawl Keyless is permanent"),
+        ProviderPersistenceError::AccountInUse {
+            provider_account_id: "provider_account:firecrawl:public".to_string(),
+        }
+    );
+
+    for provider_kind in ["tinyfish", "firecrawl"] {
+        let account = ProviderAccountPersistence::create_provider_account(
+            &store,
+            NewProviderAccount {
+                provider_kind: provider_kind.to_string(),
+                display_name: None,
+                auth_method: ProviderAuthMethod::SecretInput,
+                status: ProviderAccountStatus::Unauthenticated,
+                metadata: json!({}),
+            },
+        )
+        .await
+        .expect("hosted web account");
+        assert!(
+            account
+                .provider_account_id
+                .starts_with(&format!("provider_account:{provider_kind}:"))
+        );
+        assert!(!account.is_default);
+        assert!(
+            ProviderAccountPersistence::delete_provider_account(
+                &store,
+                &account.provider_account_id,
+            )
+            .await
+            .expect("delete hosted web account")
+        );
+    }
 
     let missing_id = "provider_account:missing";
     let error = ProviderModelCatalogPersistence::persist_provider_model_catalog(

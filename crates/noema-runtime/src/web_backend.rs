@@ -2,7 +2,9 @@
 
 use std::{future::Future, pin::Pin, sync::Arc};
 
-use noema_providers::{WebBrowseBackendHandle, WebFetchBackendHandle, WebSearchBackendHandle};
+use noema_providers::{
+    ProviderAuthMethod, WebBrowseBackendHandle, WebFetchBackendHandle, WebSearchBackendHandle,
+};
 use thiserror::Error;
 
 /// Exact provider account selected for a web capability invocation.
@@ -12,6 +14,8 @@ pub struct WebBackendRequest {
     pub provider_kind: String,
     /// Stable provider account identifier.
     pub provider_account_id: String,
+    /// Stored authentication method for this account.
+    pub auth_method: ProviderAuthMethod,
     /// Credential revision captured with the account selection.
     pub credential_revision: u64,
 }

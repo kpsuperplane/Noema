@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 65;
+pub const STORE_SCHEMA_VERSION: usize = 66;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1139,6 +1139,41 @@ VALUES ('sqlite_store_v9', 9, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 ON CONFLICT (name) DO NOTHING;
 "#;
 
+/// Add TinyFish, Firecrawl, and Firecrawl's permanent credential-free account.
+const HOSTED_WEB_PROVIDER_ACCOUNTS_SQL: &str = r#"
+ALTER TABLE provider_accounts RENAME TO provider_accounts_v66;
+CREATE TABLE provider_accounts (
+  provider_account_id TEXT PRIMARY KEY NOT NULL,
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN (
+    'codex', 'openai', 'foundation_local', 'local_models', 'openrouter', 'exa',
+    'duckduckgo_public', 'direct_http', 'obscura', 'kernel', 'tinyfish', 'firecrawl'
+  )),
+  account_key TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  auth_method TEXT NOT NULL CHECK (auth_method IN ('oauth_device_code', 'oauth_pkce', 'secret_input', 'external_manual', 'none')),
+  is_active INTEGER NOT NULL CHECK (is_active IN (0, 1)),
+  is_default INTEGER NOT NULL CHECK (is_default IN (0, 1)),
+  status TEXT NOT NULL CHECK (status IN ('unknown', 'checking', 'authenticated', 'unauthenticated', 'unavailable')),
+  last_checked_at TEXT,
+  last_authenticated_at TEXT,
+  last_error_code TEXT,
+  last_error_message TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(provider_kind, account_key)
+);
+INSERT INTO provider_accounts SELECT * FROM provider_accounts_v66;
+DROP TABLE provider_accounts_v66;
+INSERT INTO provider_accounts (
+  provider_account_id, provider_kind, account_key, display_name, auth_method,
+  is_active, is_default, status, metadata_json
+) VALUES (
+  'provider_account:firecrawl:public', 'firecrawl', 'public', 'Firecrawl Keyless',
+  'none', 1, 1, 'authenticated', '{}'
+);
+"#;
+
 /// The first migration captures the last pre-migration schema exactly. The
 /// second replaces its custom marker table with SQLite's `user_version`, which
 /// `rusqlite_migration` owns for every later schema change.
@@ -1212,6 +1247,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(CAPABILITY_AUTH_IDENTITY_NULL_REPAIR_SQL),
         M::up(CAPABILITY_AUTH_IDENTITY_ACTIVE_GUARD_SQL),
         M::up(CODE_OWNED_TASK_WORKFLOW_SQL),
+        M::up(HOSTED_WEB_PROVIDER_ACCOUNTS_SQL),
     ])
 }
 

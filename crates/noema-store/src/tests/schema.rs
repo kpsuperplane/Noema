@@ -1365,7 +1365,7 @@ async fn hosted_search_activity_migration_repairs_only_provider_hosted_rows() {
 }
 
 #[tokio::test]
-async fn version_65_removes_legacy_schema_and_preserves_supported_rows() {
+async fn versions_65_and_66_preserve_supported_rows_and_converge() {
     let upgrade_home = TempDir::new().expect("version 64 root");
     let upgrade_config = store_config(upgrade_home.path());
     fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
@@ -1497,6 +1497,60 @@ async fn version_65_removes_legacy_schema_and_preserves_supported_rows() {
     );
     assert_eq!(
         database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
+    );
+
+    let web_home = TempDir::new().expect("version 65 web root");
+    let web_config = store_config(web_home.path());
+    fs::create_dir_all(web_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    let mut web_connection = Connection::open(&web_config.path).expect("version 65 database");
+    store_migrations()
+        .to_version(&mut web_connection, 65)
+        .expect("construct version 65 schema");
+    web_connection
+        .execute_batch(
+            r#"
+            INSERT INTO provider_accounts (
+              provider_account_id, provider_kind, account_key, display_name, auth_method,
+              is_active, is_default, status
+            ) VALUES (
+              'provider_account:exa:preserved', 'exa', 'preserved', 'Exa preserved',
+              'secret_input', 1, 0, 'authenticated'
+            );
+            INSERT INTO provider_capability_bindings (
+              binding_id, tool_name, capability_id, provider_account_id, route_position
+            ) VALUES (
+              'provider_binding:preserved', 'web.search', 'web.search',
+              'provider_account:exa:preserved', 0
+            );
+            "#,
+        )
+        .expect("version 65 provider rows");
+    store_migrations()
+        .to_latest(&mut web_connection)
+        .expect("upgrade version 65 provider rows");
+    assert_eq!(
+        count_where(
+            &web_connection,
+            "provider_accounts",
+            "provider_account_id IN ('provider_account:exa:preserved', 'provider_account:firecrawl:public')"
+        )
+        .unwrap(),
+        2
+    );
+    assert_eq!(
+        count_where(
+            &web_connection,
+            "provider_capability_bindings",
+            "binding_id = 'provider_binding:preserved'"
+        )
+        .unwrap(),
+        1
+    );
+    drop(web_connection);
+    assert_eq!(
+        database_snapshot(&web_config.path).schema_objects,
         database_snapshot(&fresh_config.path).schema_objects
     );
 }

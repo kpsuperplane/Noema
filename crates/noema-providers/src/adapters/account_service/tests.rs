@@ -450,7 +450,12 @@ async fn delete_persistence_failure_restores_quarantined_account_home() {
 
 #[tokio::test]
 async fn credential_reads_share_the_account_service_gate() {
-    for (provider_kind, secret) in [("exa", "exa-secret"), ("kernel", "kernel-secret")] {
+    for (provider_kind, secret) in [
+        ("exa", "exa-secret"),
+        ("kernel", "kernel-secret"),
+        ("tinyfish", "tiny-secret"),
+        ("firecrawl", "fire-secret"),
+    ] {
         let account = secret_account(provider_kind, "team", false);
         let fixture = ServiceFixture::with_account(account.clone());
         crate::adapters::SecretInputStore::new(

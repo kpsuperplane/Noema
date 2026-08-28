@@ -1,23 +1,18 @@
 //! Exa hosted web fetch provider.
 
-use super::super::exa_transport::ExaClient;
-use crate::{WebFetchBackend, WebFetchContext, WebFetchError, WebOperationFuture};
-use noema_capabilities::web::fetch::{
-    FetchContentKind, FetchRequest, FetchResponse, FetchSummaryStrategy, sanitized_display_url,
+use super::super::{
+    exa_transport::ExaWebClient,
+    normalize::{raw_markdown_response, validate_fetch_url},
 };
-use noema_capabilities::web::url_policy::PublicUrlError;
+use crate::{WebFetchBackend, WebFetchContext, WebFetchError, WebOperationFuture};
+use noema_capabilities::web::fetch::{FetchRequest, FetchResponse};
 use serde::Serialize;
 use serde_json::Value;
-
 /// Stable provider identifier for Exa web fetch.
 pub const EXA_FETCH_PROVIDER_ID: &str = "exa";
 /// Extraction label for Exa's hosted contents API.
 const EXA_EXTRACTION: &str = "exa_contents";
-
-/// Exa hosted contents client.
-pub type ExaFetchClient = ExaClient;
-
-impl WebFetchBackend for ExaFetchClient {
+impl WebFetchBackend for ExaWebClient {
     fn backend_id(&self) -> &str {
         EXA_FETCH_PROVIDER_ID
     }
@@ -30,19 +25,16 @@ impl WebFetchBackend for ExaFetchClient {
         Box::pin(fetch_exa(self, request))
     }
 }
-
 #[derive(Debug, Serialize)]
 struct ExaContentsRequest<'a> {
     urls: [&'a str; 1],
     text: bool,
 }
-
 async fn fetch_exa(
-    client: &ExaFetchClient,
+    client: &ExaWebClient,
     request: &FetchRequest,
 ) -> Result<FetchResponse, WebFetchError> {
-    noema_capabilities::web::url_policy::validate_public_url(&request.url)
-        .map_err(map_public_url_error)?;
+    validate_fetch_url(&request.url)?;
     let response = client
         .post("/contents")
         .json(&ExaContentsRequest {
@@ -60,6 +52,7 @@ async fn fetch_exa(
             reqwest::StatusCode::REQUEST_TIMEOUT | reqwest::StatusCode::GATEWAY_TIMEOUT => {
                 WebFetchError::Timeout
             }
+            reqwest::StatusCode::TOO_MANY_REQUESTS => WebFetchError::RateLimited,
             _ => WebFetchError::Http,
         });
     }
@@ -69,7 +62,6 @@ async fn fetch_exa(
         .map_err(|_| WebFetchError::Extraction)?;
     normalize_exa_contents_response(&request.url, request.max_chars, &value)
 }
-
 fn normalize_exa_contents_response(
     requested_url: &str,
     max_chars: usize,
@@ -80,44 +72,22 @@ fn normalize_exa_contents_response(
         .and_then(Value::as_array)
         .and_then(|items| items.first())
         .ok_or(WebFetchError::Extraction)?;
-    let final_url = result
-        .get("url")
-        .and_then(Value::as_str)
-        .map(sanitized_display_url)
-        .unwrap_or_else(|| sanitized_display_url(requested_url));
-    let title = result
-        .get("title")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string);
+    let final_url = result.get("url").and_then(Value::as_str);
+    let title = result.get("title").and_then(Value::as_str);
     let raw_content = result
         .get("text")
         .and_then(Value::as_str)
         .ok_or(WebFetchError::Extraction)?;
-    let raw_chars = raw_content.chars().count();
-    let content = raw_content.chars().take(max_chars).collect::<String>();
-    let returned_chars = content.chars().count();
-
-    Ok(FetchResponse {
-        provider: EXA_FETCH_PROVIDER_ID.to_string(),
-        url: sanitized_display_url(requested_url),
+    raw_markdown_response(
+        (EXA_FETCH_PROVIDER_ID, EXA_EXTRACTION),
+        requested_url,
         final_url,
         title,
-        links: Vec::new(),
-        format: "markdown".to_string(),
-        extraction: EXA_EXTRACTION.to_string(),
-        content_kind: FetchContentKind::RawMarkdown,
-        content,
-        raw_excerpt: None,
-        raw_chars,
-        returned_chars,
-        summary_model: None,
-        summary_strategy: FetchSummaryStrategy::NotSummarized,
-        truncated: raw_chars > returned_chars,
-    })
+        [],
+        raw_content,
+        max_chars,
+    )
 }
-
 fn map_reqwest_error(error: reqwest::Error) -> WebFetchError {
     if error.is_timeout() {
         WebFetchError::Timeout
@@ -125,58 +95,11 @@ fn map_reqwest_error(error: reqwest::Error) -> WebFetchError {
         WebFetchError::Http
     }
 }
-
-fn map_public_url_error(error: PublicUrlError) -> WebFetchError {
-    match error {
-        PublicUrlError::UnsupportedScheme => WebFetchError::UnsupportedScheme,
-        PublicUrlError::Malformed => WebFetchError::MalformedUrl,
-        PublicUrlError::BlockedTarget => WebFetchError::BlockedTarget,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::adapters::test_support::spawn_server;
     use noema_capabilities::web::fetch::FetchRequest;
-    use serde_json::json;
-
-    #[test]
-    fn normalizes_exa_contents_response() {
-        let value = json!({
-            "results": [
-                {
-                    "title": "Rust",
-                    "url": "https://www.rust-lang.org/",
-                    "text": "# Rust\nFast and reliable."
-                }
-            ]
-        });
-
-        let response = normalize_exa_contents_response("https://www.rust-lang.org/", 30, &value)
-            .expect("fetch");
-
-        assert_eq!(response.provider, "exa");
-        assert_eq!(response.url, "https://www.rust-lang.org/");
-        assert_eq!(response.final_url, "https://www.rust-lang.org/");
-        assert_eq!(response.title.as_deref(), Some("Rust"));
-        assert_eq!(response.content, "# Rust\nFast and reliable.");
-        assert_eq!(response.extraction, "exa_contents");
-        assert!(!response.truncated);
-    }
-
-    #[test]
-    fn normalizer_removes_only_credential_components_from_remote_final_url() {
-        let value = json!({
-            "results": [{
-                "url": "https://user:secret@example.com/private#token",
-                "text": "safe"
-            }]
-        });
-        let response =
-            normalize_exa_contents_response("https://example.com", 30, &value).expect("fetch");
-        assert_eq!(response.final_url, "https://example.com/private#token");
-    }
 
     #[tokio::test]
     async fn sends_contents_request_with_api_key() {
@@ -185,8 +108,11 @@ mod tests {
             r#"{"results":[{"title":"Rust","url":"https://www.rust-lang.org/","text":"Rust"}]}"#,
         )
         .await;
-        let client =
-            ExaFetchClient::with_client(base_url, "secret".to_string(), reqwest::Client::new());
+        let client = ExaWebClient::with_client(
+            base_url,
+            "secret".to_string().into(),
+            reqwest::Client::new(),
+        );
 
         let response = fetch_exa(
             &client,

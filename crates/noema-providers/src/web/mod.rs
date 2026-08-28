@@ -10,7 +10,8 @@ use std::{future::Future, pin::Pin};
 
 pub use fetch::{
     DIRECT_HTTP_PROVIDER_ACCOUNT_ID, DIRECT_HTTP_PROVIDER_ID, EXTRACTION_READABILITYRS,
-    WebFetchBackend, WebFetchBackendHandle, WebFetchContext, WebFetchError,
+    FIRECRAWL_KEYLESS_PROVIDER_ACCOUNT_ID, WebFetchBackend, WebFetchBackendHandle, WebFetchContext,
+    WebFetchError,
 };
 pub use search::{
     BEST_EFFORT_PUBLIC_CONTRACT, DUCKDUCKGO_PUBLIC_PROVIDER_ACCOUNT_ID,
