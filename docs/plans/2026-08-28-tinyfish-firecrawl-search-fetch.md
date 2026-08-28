@@ -79,7 +79,7 @@ Firecrawl Keyless must never become unauthenticated after a credential-free requ
 - Add one exact catalog lookup for account creation and secret eligibility.
 - Add a bounded catalog field for generated or fixed account identity.
 - Load default web accounts through the same stored-account path as selected accounts.
-- Add private web adapter helpers for normalization and safe error mapping.
+- Add private web adapter helpers for pure result normalization and fetch response construction.
 - Preserve typed backend failure until runtime completes account-status handling.
 
 ## Unit One: Net-negative Provider Path Consolidation
@@ -124,21 +124,21 @@ Use the size reporter with `--require-net-negative`.
 - Keep `WebSearchError` or `WebFetchError` available until runtime handles the result.
 - Store only the current safe error payload after typed account handling completes.
 - Remove `is_provider_account_unauthenticated_payload` and its English text comparison.
-- Record an authentication failure only for `AuthFailed` with a positive credential revision.
-- Fence the update with the observed credential revision.
-- Keep Firecrawl Keyless at credential revision zero.
+- Carry the stored `auth_method` through resolved web provider state.
+- Create an authentication-failure target only when that method requires a credential.
+- Use credential revision only to fence the status update against stale failures.
 - Treat a Keyless `401` or `403` as a provider HTTP failure, not `AuthFailed`.
 
 ## Unit Two: Shared Hosted Web Support and New Providers
 
 ### Shared Private Web Adapter Support
 
-Add one private support module under the existing web adapters.
+Keep shared support private under the existing web adapters.
 
-The support module must:
+Shared support must:
 
 - normalize whitespace in titles and snippets;
-- remove credential-bearing URL components;
+- reuse the existing public URL policy and URL credential sanitizer;
 - preserve ordinary URL components;
 - reject malformed, local, private, and unsupported result URLs;
 - rank accepted search results after filtering;
@@ -149,7 +149,7 @@ The support module must:
 - bound Markdown by `FetchRequest.max_chars` on character boundaries;
 - calculate raw, returned, and truncated character facts once;
 - map URL-policy failures into `WebFetchError` once;
-- map request timeouts and HTTP statuses without reading provider error prose.
+- leave timeout and HTTP status mapping in each concrete provider module.
 
 Apply the search helper to DuckDuckGo and Exa.
 Apply the raw Markdown fetch helper to Exa, TinyFish, and Firecrawl.
@@ -166,8 +166,8 @@ Use the existing search rate-limit error for hosted search status `429`.
 - Keep each provider's endpoint, headers, timeouts, and wire structures in its own module.
 - Pass `ProviderCredential` into authenticated clients without converting it to an ordinary string.
 - Let Firecrawl hold `Option<ProviderCredential>` for its two access modes.
-- Keep client debug output redacted while preserving ordinary endpoint diagnostics.
-- Do not add a configurable generic REST client.
+- Give each hosted provider one private client constructor used by both host resolver branches.
+- Keep debug output redacted. Do not add a generic provider factory or REST client.
 
 ### TinyFish Requests
 
