@@ -56,6 +56,12 @@ graphql_object! { "Project mutation payload." => pub struct GraphqlProjectComman
     "Cursor for the event committed by the command." => event_cursor: String,
     "Echoed caller idempotency key." => client_mutation_id: String,
 } }
+graphql_object! { "Project document mutation payload." => pub struct GraphqlProjectDocumentCommandPayload("ProjectDocumentCommandPayload") {
+    "Authoritative project projection." => project: GraphqlProject,
+    "Saved project document." => document: GraphqlProjectDocument,
+    "Cursor for the committed project update event." => event_cursor: String,
+    "Echoed caller idempotency key." => client_mutation_id: String,
+} }
 graphql_object! { "Task mutation payload." => pub struct GraphqlTaskCommandPayload("TaskCommandPayload") {
     "Authoritative task projection." => task: GraphqlTaskDetail,
     "Cursor for the event committed by the command." => event_cursor: String,

@@ -228,6 +228,9 @@ Participants link memories across conversations without changing ownership.
 Provenance links everything.
 ```
 
+`PROJECT.md` is the project context authority. It lives in the working folder,
+or under Noema's workspace files when the project has no folder.
+
 ## Proactivity
 
 Proactivity should be customizable and explainable.

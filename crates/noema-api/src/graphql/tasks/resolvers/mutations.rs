@@ -151,6 +151,47 @@ pub(in crate::graphql) async fn update_project(
     project_payload(client_id, execute_command(state, command).await?)
 }
 
+/// Replace PROJECT.md through project and document revision fences.
+pub(in crate::graphql) async fn update_project_document(
+    state: &GraphqlState,
+    principal_subject: &str,
+    input: GraphqlUpdateProjectDocumentInput,
+) -> Result<GraphqlProjectDocumentCommandPayload> {
+    require_owner(principal_subject)?;
+    let client_id = required_client_id(&input.client_mutation_id)?;
+    let project_id = parse_project_id(&input.project_id)?;
+    require_personal_project(state.store()?, &project_id).await?;
+    let command = WorkCommand::UpdateProject(UpdateProject {
+        meta: command_meta(principal_subject, &client_id),
+        precondition: ProjectPrecondition {
+            project_id: project_id.clone(),
+            expected_revision: positive(input.expected_revision, "expectedRevision")?,
+        },
+        name: None,
+        description: None,
+        folder: None,
+        project_document_markdown: Some(input.content),
+        expected_project_document_digest: Some(input.expected_document_digest),
+    });
+    let result = execute_command(state, command).await?;
+    let project = result.result.project.ok_or_else(unavailable)?;
+    let document = state
+        .store()?
+        .read_project_document(&project_id)
+        .await
+        .map_err(|_| unavailable())?;
+    Ok(GraphqlProjectDocumentCommandPayload {
+        project: project.try_into()?,
+        document: GraphqlProjectDocument {
+            project_id: project_id.into_string(),
+            content: document.content,
+            digest: document.digest,
+        },
+        event_cursor: event_cursor(result.result.event_sequence)?,
+        client_mutation_id: client_id,
+    })
+}
+
 simple_project_mutation!(
     /// Archive a project through the semantic command service.
     archive_project,

@@ -359,6 +359,17 @@ impl MutationRoot {
         tasks::update_project(state, principal, input).await
     }
 
+    /// Replace one project's context document with optimistic fences.
+    async fn update_project_document(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlUpdateProjectDocumentInput,
+    ) -> Result<GraphqlProjectDocumentCommandPayload> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::update_project_document(state, principal, input).await
+    }
+
     /// Archive a project through the task command service.
     async fn archive_project(
         &self,

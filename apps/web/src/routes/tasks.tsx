@@ -12,8 +12,11 @@ function TasksLayoutRoute() {
   const navigate = Route.useNavigate();
   const taskMatch = useMatch({ from: "/tasks/$taskId", shouldThrow: false });
   const recurrenceMatch = useMatch({ from: "/tasks/recurrences/$recurrenceId", shouldThrow: false });
+  const projectMatch = useMatch({ from: "/tasks/projects/$projectId", shouldThrow: false });
   const selectedTaskId = taskMatch ? taskMatch.params.taskId : undefined;
-  const selectedDetail = recurrenceMatch
+  const selectedDetail = projectMatch
+    ? { type: "project" as const, projectId: projectMatch.params.projectId }
+    : recurrenceMatch
     ? { type: "recurrence" as const, recurrenceId: recurrenceMatch.params.recurrenceId }
     : selectedTaskId
       ? { type: "task" as const, taskId: selectedTaskId }

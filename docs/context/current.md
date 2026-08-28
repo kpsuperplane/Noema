@@ -46,6 +46,8 @@ slice or a net-negative reduction.
 - Task state changes use a current-run check. Old generations and stale worker
   claims cannot change the current task.
 - `TASK.md` is the mutable Task request, plan, notes, progress, and questions authority.
+- `PROJECT.md` is the mutable project context authority. SQLite stores project metadata, but not its Markdown.
+- Every Planner, Executor, and Reviewer run reloads its linked project's current `PROJECT.md` before Task files.
 - SQLite stores Task and recurrence titles, but it stores no duplicate Task prose.
 - Recurrence templates use `${NOEMA_HOME}/recurrences/<recurrence-id-suffix>/TASK.md` and seed future occurrences exactly.
 - Human Task and template saves use transient SHA-256 fences. Stale saves preserve both the draft and current data.

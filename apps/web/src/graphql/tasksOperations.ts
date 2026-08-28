@@ -213,6 +213,28 @@ export const TasksUpdateProjectDocument = gql`
   ${TasksProjectFields}
 `;
 
+export const TasksProjectDocumentDocument = gql`
+  query TasksProjectDocument($projectId: String!) {
+    projectDocument(projectId: $projectId) {
+      projectId
+      content
+      digest
+    }
+  }
+`;
+
+export const TasksSaveProjectDocumentDocument = gql`
+  mutation TasksSaveProjectDocument($input: UpdateProjectDocumentInput!) {
+    updateProjectDocument(input: $input) {
+      project { ...TasksProjectFields }
+      document { projectId content digest }
+      eventCursor
+      clientMutationId
+    }
+  }
+  ${TasksProjectFields}
+`;
+
 export const TasksArchiveProjectDocument = gql`
   mutation TasksArchiveProject($input: ArchiveProjectInput!) {
     archiveProject(input: $input) { project { ...TasksProjectFields } eventCursor clientMutationId }

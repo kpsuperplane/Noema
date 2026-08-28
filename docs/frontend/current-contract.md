@@ -173,6 +173,11 @@ Result previews preserve provider citations.
 Web Task creation and Inbox editing use one shared Milkdown Crepe editor.
 Inbox titles and descriptions expose adjacent pencil controls and edit in place without changing the surrounding layout.
 Project and Executor editing remains in a focused settings dialog.
+For a selected project, `PROJECT.md` is the first Tasks list row.
+It opens in the existing detail rail and renders Markdown before editing starts.
+Document edits autosave with revision and digest fences. Navigation waits for a pending save.
+Conflicts preserve the local draft and offer the latest stored document explicitly.
+Archived projects keep this document read-only until reopening.
 The editor includes source mode and falls back to source when rich parsing fails.
 iPhone and iPad use full-screen Markdown source editors for the same Task fields.
 Both clients send the transient document digest with human updates.

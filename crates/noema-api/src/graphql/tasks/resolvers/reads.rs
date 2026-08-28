@@ -277,6 +277,27 @@ pub(in crate::graphql) async fn projects(
         .and_then(project_connection)
 }
 
+/// Read one exact project document.
+pub(in crate::graphql) async fn project_document(
+    state: &GraphqlState,
+    principal_subject: &str,
+    project_id: String,
+) -> Result<GraphqlProjectDocument> {
+    require_owner(principal_subject)?;
+    let project_id = parse_project_id(&project_id)?;
+    require_personal_project(state.store()?, &project_id).await?;
+    let document = state
+        .store()?
+        .read_project_document(&project_id)
+        .await
+        .map_err(|_| unavailable())?;
+    Ok(GraphqlProjectDocument {
+        project_id: project_id.into_string(),
+        content: document.content,
+        digest: document.digest,
+    })
+}
+
 /// Resolve the transactionally coherent board bootstrap.
 pub(in crate::graphql) async fn tasks_overview(
     state: &GraphqlState,

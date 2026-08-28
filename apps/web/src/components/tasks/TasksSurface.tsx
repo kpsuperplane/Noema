@@ -18,7 +18,7 @@ import { useTasksEventInvalidation } from "./useTasksEventInvalidation";
 
 export function TasksSurface({ search, selectedDetail, onCloseDetail }: {
   search: TasksSearch;
-  selectedDetail?: Extract<ChatDetailTarget, { type: "task" | "recurrence" }>;
+  selectedDetail?: Extract<ChatDetailTarget, { type: "task" | "recurrence" | "project" }>;
   onCloseDetail?: () => void;
 }) {
   const selectedTaskId = selectedDetail?.type === "task" ? selectedDetail.taskId : undefined;
@@ -73,6 +73,7 @@ export function TasksSurface({ search, selectedDetail, onCloseDetail }: {
               <section aria-label="Tasks" {...stylex.props(styles.panel)}>
                 <ShellPageTrack>
                   <TasksList
+                    project={projects.find((project) => project.projectId === search.project)}
                     projectId={search.project}
                     selectedTaskId={selectedTaskId}
                     terminal={search.terminal ?? "all"}
@@ -87,6 +88,10 @@ export function TasksSurface({ search, selectedDetail, onCloseDetail }: {
               target={selectedDetail}
               onClose={() => onCloseDetail?.()}
               showTasksLink={false}
+              project={selectedDetail.type === "project"
+                ? projects.find((project) => project.projectId === selectedDetail.projectId)
+                : undefined}
+              onProjectRefresh={projectsResult.refetch}
             />
           ) : null}
         />

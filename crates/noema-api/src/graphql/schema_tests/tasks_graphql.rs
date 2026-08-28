@@ -29,6 +29,7 @@ fn tasks_schema_exposes_semantic_operations_without_task_status_aliases() {
         "tasksOverview",
         "tasks",
         "projects",
+        "projectDocument",
         "needsYou",
         "taskHistory",
         "taskRunItems",
@@ -40,6 +41,7 @@ fn tasks_schema_exposes_semantic_operations_without_task_status_aliases() {
         "taskRecurrences",
         "taskSchedulePreview",
         "reopenTask",
+        "updateProjectDocument",
         "tasksEvents",
         "taskEvents",
     ] {
@@ -185,16 +187,17 @@ fn tasks_schema_exposes_exact_detail_attention_and_closed_vocabularies() {
 #[tokio::test]
 async fn task_reads_require_an_authenticated_owner() {
     let schema = build_schema_without_request_principal(GraphqlState::for_tests());
-    let response = schema
-        .execute(
-            r#"query {
+    for query in [
+        r#"query {
               tasks(input: { workspaceId: "workspace:personal" }) {
                 edges { node { taskId } }
               }
             }"#,
-        )
-        .await;
-    assert_single_graphql_error(&response, "request is unauthenticated");
+        r#"query { projectDocument(projectId: "project:missing") { projectId } }"#,
+    ] {
+        let response = schema.execute(query).await;
+        assert_single_graphql_error(&response, "request is unauthenticated");
+    }
 }
 
 #[tokio::test]
@@ -296,17 +299,31 @@ async fn task_mutations_require_client_idempotency_keys() {
 #[tokio::test]
 async fn project_folder_and_task_executor_cwd_round_trip_through_graphql() {
     let store = crate::test_support::test_store().await;
-    let agent = store.create_acp_agent("Fake ACP", "/bin/false", &[]).await.unwrap();
+    let agent = store
+        .create_acp_agent("Fake ACP", "/bin/false", &[])
+        .await
+        .unwrap();
     let schema = build_schema(GraphqlState::for_tests_with_store(store));
-    let project = schema.execute(r#"mutation {
-      createProject(input: {
-        workspaceId: "workspace:personal", name: "Code", folder: "/srv/code",
+    let project_folder = tempfile::tempdir().expect("project folder");
+    let project_folder = project_folder.path().to_string_lossy();
+    let project = schema
+        .execute(format!(
+            r#"mutation {{
+      createProject(input: {{
+        workspaceId: "workspace:personal", name: "Code", folder: "{project_folder}",
         clientMutationId: "acp-project"
-      }) { project { projectId folder } }
-    }"#).await;
+      }}) {{ project {{ projectId folder }} }}
+    }}"#
+        ))
+        .await;
     let project = response_json(project, "project json");
-    let project_id = project["createProject"]["project"]["projectId"].as_str().unwrap();
-    assert_eq!(project["createProject"]["project"]["folder"], "/srv/code");
+    let project_id = project["createProject"]["project"]["projectId"]
+        .as_str()
+        .unwrap();
+    assert_eq!(
+        project["createProject"]["project"]["folder"],
+        serde_json::json!(project_folder)
+    );
 
     let captured = schema.execute(format!(r#"mutation {{
       captureTask(input: {{
@@ -318,17 +335,35 @@ async fn project_folder_and_task_executor_cwd_round_trip_through_graphql() {
       }}
     }}"#, agent.agent_id)).await;
     let captured = response_json(captured, "capture json");
-    assert_json_values(&captured, &[
-        ("/captureTask/task/executorAgentId", serde_json::json!(agent.agent_id)),
-        ("/captureTask/task/executorBackend", serde_json::json!("acp")),
-        ("/captureTask/task/cwdOverride", serde_json::json!("/tmp/task-work")),
-        (
-            "/captureTask/task/effectiveCwd",
-            serde_json::json!("/tmp/task-work/use-acp"),
-        ),
-        ("/captureTask/task/effectiveCwdSource", serde_json::json!("task")),
-        ("/captureTask/task/project/folder", serde_json::json!("/srv/code")),
-    ]);
+    assert_json_values(
+        &captured,
+        &[
+            (
+                "/captureTask/task/executorAgentId",
+                serde_json::json!(agent.agent_id),
+            ),
+            (
+                "/captureTask/task/executorBackend",
+                serde_json::json!("acp"),
+            ),
+            (
+                "/captureTask/task/cwdOverride",
+                serde_json::json!("/tmp/task-work"),
+            ),
+            (
+                "/captureTask/task/effectiveCwd",
+                serde_json::json!("/tmp/task-work/use-acp"),
+            ),
+            (
+                "/captureTask/task/effectiveCwdSource",
+                serde_json::json!("task"),
+            ),
+            (
+                "/captureTask/task/project/folder",
+                serde_json::json!(project_folder),
+            ),
+        ],
+    );
 
     let listed = schema
         .execute(
@@ -352,6 +387,93 @@ async fn project_folder_and_task_executor_cwd_round_trip_through_graphql() {
                 serde_json::json!("task"),
             ),
         ],
+    );
+}
+
+#[tokio::test]
+async fn project_document_reads_saves_and_conflicts_through_graphql() {
+    let store = crate::test_support::test_store().await;
+    let schema = build_schema(GraphqlState::for_tests_with_store(store));
+    let created = response_json(
+        schema
+            .execute(
+                r#"mutation {
+                  createProject(input: {
+                    workspaceId: "workspace:personal"
+                    name: "Launch plan"
+                    description: "opaque-value-58310"
+                    clientMutationId: "project-document-create"
+                  }) { project { projectId revision } }
+                }"#,
+            )
+            .await,
+        "project creation",
+    );
+    let project = &created["createProject"]["project"];
+    let project_id = project["projectId"].as_str().expect("project id");
+    let revision = project["revision"].as_i64().expect("project revision");
+    let read = response_json(
+        schema
+            .execute(format!(
+                r#"query {{ projectDocument(projectId: "{project_id}") {{ projectId content digest }} }}"#
+            ))
+            .await,
+        "project document read",
+    );
+    assert_eq!(
+        read["projectDocument"]["content"],
+        "# Launch plan\n\nopaque-value-58310\n"
+    );
+    let digest = read["projectDocument"]["digest"]
+        .as_str()
+        .expect("document digest");
+    let saved = response_json(
+        schema
+            .execute(format!(
+                r##"mutation {{
+                  updateProjectDocument(input: {{
+                    projectId: "{project_id}"
+                    expectedRevision: {revision}
+                    expectedDocumentDigest: "{digest}"
+                    content: "# Current context\n"
+                    clientMutationId: "project-document-save"
+                  }}) {{ project {{ revision }} document {{ content digest }} eventCursor }}
+                }}"##
+            ))
+            .await,
+        "project document save",
+    );
+    assert_eq!(
+        saved["updateProjectDocument"]["project"]["revision"],
+        revision + 1
+    );
+    assert_eq!(
+        saved["updateProjectDocument"]["document"]["content"],
+        "# Current context\n"
+    );
+    assert!(
+        saved["updateProjectDocument"]["eventCursor"]
+            .as_str()
+            .is_some()
+    );
+
+    let conflict = schema
+        .execute(format!(
+            r##"mutation {{
+              updateProjectDocument(input: {{
+                projectId: "{project_id}"
+                expectedRevision: {revision}
+                expectedDocumentDigest: "{digest}"
+                content: "# Stale context\n"
+                clientMutationId: "project-document-conflict"
+              }}) {{ project {{ revision }} }}
+            }}"##
+        ))
+        .await;
+    assert_error_code(
+        &conflict,
+        "the authoritative project or task revision is stale",
+        "stale_revision",
     );
 }
 

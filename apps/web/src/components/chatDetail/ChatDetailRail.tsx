@@ -22,6 +22,8 @@ import type { ChatDetailTarget } from "./chatDetailTypes";
 import { TaskDetailQueryPanel } from "./task/TaskDetailQueryPanel";
 import type { TaskDetail } from "./task/taskTypes";
 import { TaskRecurrenceDetailPanel, type RecurrenceInlineEditController } from "../tasks/TaskRecurrenceDetailPanel";
+import { ProjectDocumentDetailPanel } from "../tasks/ProjectDocumentDetailPanel";
+import type { TasksProject } from "../tasks/tasksTypes";
 import { taskScheduleTimestampLabel } from "../tasks/tasksModel";
 import { normalizeTasksSearch } from "../tasks/tasksTypes";
 import { ChatDetailCloseButton } from "./ChatDetailCloseButton";
@@ -33,12 +35,16 @@ export function ChatDetailRail({
   target,
   onClose,
   animateEntrance = true,
-  showTasksLink = true
+  showTasksLink = true,
+  project,
+  onProjectRefresh
 }: {
   target: ChatDetailTarget;
   onClose: () => void;
   animateEntrance?: boolean;
   showTasksLink?: boolean;
+  project?: TasksProject;
+  onProjectRefresh?: () => Promise<readonly TasksProject[]>;
 }) {
   const targetKey = detailTargetKey(target);
   return (
@@ -55,6 +61,8 @@ export function ChatDetailRail({
         initialTarget={target}
         onClose={onClose}
         showTasksLink={showTasksLink}
+        project={project}
+        onProjectRefresh={onProjectRefresh}
       />
     </RenderErrorBoundary>
   );
@@ -105,12 +113,16 @@ function RoutedChatDetailRail({
   animateEntrance,
   initialTarget,
   onClose,
-  showTasksLink
+  showTasksLink,
+  project,
+  onProjectRefresh
 }: {
   animateEntrance: boolean;
   initialTarget: ChatDetailTarget;
   onClose: () => void;
   showTasksLink: boolean;
+  project?: TasksProject;
+  onProjectRefresh?: () => Promise<readonly TasksProject[]>;
 }) {
   const [history, setHistory] = React.useState<readonly ChatDetailTarget[]>([initialTarget]);
   const target = history.at(-1) ?? initialTarget;
@@ -127,6 +139,7 @@ function RoutedChatDetailRail({
   const primaryTarget = initialTarget.type === "artifact" ? null : initialTarget;
   const taskTargetId = primaryTarget?.type === "task" ? primaryTarget.taskId : null;
   const recurrenceTargetId = primaryTarget?.type === "recurrence" ? primaryTarget.recurrenceId : null;
+  const projectTargetId = primaryTarget?.type === "project" ? primaryTarget.projectId : null;
   const [taskHeaderState, setTaskHeaderState] = React.useState<{
     taskId: string;
     title: string;
@@ -156,7 +169,7 @@ function RoutedChatDetailRail({
   const recurringOccurrence = currentTaskHeader?.schedule?.recurrenceId
     ? currentTaskHeader.schedule
     : null;
-  const primaryTitle = recurrenceTargetId ? recurrenceHeader?.title ?? "Recurring task" : currentTaskHeader
+  const primaryTitle = projectTargetId ? "PROJECT.md" : recurrenceTargetId ? recurrenceHeader?.title ?? "Recurring task" : currentTaskHeader
     ? currentTaskHeader.title
     : "Task details";
   const handleTaskHeaderChange = React.useCallback((detail: Pick<TaskDetail, "title" | "schedule">, edit: TaskInlineEditController) => {
@@ -252,7 +265,7 @@ function RoutedChatDetailRail({
       data-state={isPresent ? "open" : "exiting"}
       aria-modal={isModal ? "true" : undefined}
       aria-hidden={isPresent ? undefined : "true"}
-      aria-label={target.type === "task" ? "Task details" : target.type === "recurrence" ? "Recurring task details" : "Artifact details"}
+      aria-label={target.type === "task" ? "Task details" : target.type === "recurrence" ? "Recurring task details" : target.type === "project" ? "Project context" : "Artifact details"}
       ref={railRef}
       role={isModal ? "dialog" : isContained ? "region" : "complementary"}
       inert={!isPresent}
@@ -291,7 +304,7 @@ function RoutedChatDetailRail({
             <header {...stylex.props(styles.header, styles.taskHeader)}>
               <div {...stylex.props(styles.taskTitleBar)}>
                 <div {...stylex.props(styles.taskIdentity)}>
-                  <EditableTaskTitle title={primaryTitle} edit={recurrenceTargetId ? recurrenceHeader?.edit : currentTaskHeader?.edit} />
+                  {projectTargetId ? <h2 {...stylex.props(styles.title)}>{primaryTitle}</h2> : <EditableTaskTitle title={primaryTitle} edit={recurrenceTargetId ? recurrenceHeader?.edit : currentTaskHeader?.edit} />}
                   {recurringOccurrence?.recurrenceId ? (
                     <div {...stylex.props(styles.taskSubtitle)}>
                       <span>Scheduled for {taskScheduleTimestampLabel(recurringOccurrence.scheduledFor, recurringOccurrence.timeZone)}</span>
@@ -316,7 +329,7 @@ function RoutedChatDetailRail({
               </div>
             </header>
             <div {...stylex.props(styles.body, styles.taskBody)}>
-              {taskTargetId ? <TaskDetailQueryPanel
+              {projectTargetId ? <ProjectDocumentDetailPanel project={project} onProjectRefresh={onProjectRefresh} /> : taskTargetId ? <TaskDetailQueryPanel
                 onOpenDetail={openDetail}
                 onTaskHeaderChange={handleTaskHeaderChange}
                 showTasksLink={showTasksLink}
@@ -453,6 +466,7 @@ function ArtifactRouteFrame({
 function detailTargetKey(target: ChatDetailTarget): string {
   if (target.type === "task") return `task:${target.taskId}`;
   if (target.type === "recurrence") return `recurrence:${target.recurrenceId}`;
+  if (target.type === "project") return `project:${target.projectId}`;
   return `artifact:${target.version}`;
 }
 

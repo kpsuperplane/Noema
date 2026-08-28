@@ -67,11 +67,13 @@ export function useTaskProjects({ skip = false }: { skip?: boolean } = {}) {
     failedCursorRef.current = null;
     setPagingError(null);
     try {
-      await result.refetch();
+      const response = await result.refetch();
+      setRetryGeneration((current) => current + 1);
+      return mergeProjects(response.data?.projects.edges.map((edge) => edge.node) ?? []);
     } catch (caught) {
       setPagingError(caught instanceof Error ? caught : new Error("Projects could not be refreshed."));
+      throw caught;
     }
-    setRetryGeneration((current) => current + 1);
   }, [result]);
 
   return {

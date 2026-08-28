@@ -13,7 +13,7 @@ export function useTasksEventInvalidation({
   refetchProjects
 }: {
   client: ApolloClient;
-  refetchProjects: () => Promise<void>;
+  refetchProjects: () => Promise<unknown>;
 }) {
   const timerRef = React.useRef<number | null>(null);
   const documentsRef = React.useRef(new Set<DocumentNode>());

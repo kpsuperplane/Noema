@@ -34,6 +34,12 @@ graphql_object_from! { "Owner-authorized project projection." => pub struct Grap
     "Last update timestamp." => updated_at: String = value.updated_at,
 } }
 
+graphql_object! { "Exact mutable context document for one project." => pub struct GraphqlProjectDocument("ProjectDocument") {
+    "Opaque project identity." => project_id: String,
+    "Exact UTF-8 Markdown content." => content: String,
+    "SHA-256 digest for optimistic updates." => digest: String,
+} }
+
 graphql_object_from! { "Workflow stage behavior is data-driven rather than inferred from display text." => pub struct GraphqlWorkflowStage("WorkflowStage")
     from WorkflowStage as value {
     "Opaque stage identity." => stage_id: String = value.stage_id.into_string(),

@@ -10,6 +10,10 @@ export type ChatDetailTarget =
   | {
       type: "recurrence";
       recurrenceId: string;
+    }
+  | {
+      type: "project";
+      projectId: string;
     };
 
 export function artifactDetailTarget(version: string | null | undefined): ChatDetailTarget | null {

@@ -269,6 +269,17 @@ impl QueryRoot {
         .await
     }
 
+    /// Return the exact context document for one owner-authorized project.
+    async fn project_document(
+        &self,
+        ctx: &Context<'_>,
+        project_id: String,
+    ) -> Result<GraphqlProjectDocument> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::project_document(state, principal, project_id).await
+    }
+
     /// Return one coherent Tasks overview.
     async fn tasks_overview(
         &self,

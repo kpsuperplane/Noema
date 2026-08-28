@@ -2619,6 +2619,10 @@ type MutationRoot {
 	"""
 	updateProject(input: UpdateProjectInput!): ProjectCommandPayload!
 	"""
+	Replace one project's context document with optimistic fences.
+	"""
+	updateProjectDocument(input: UpdateProjectDocumentInput!): ProjectDocumentCommandPayload!
+	"""
 	Archive a project through the task command service.
 	"""
 	archiveProject(input: ArchiveProjectInput!): ProjectCommandPayload!
@@ -3176,6 +3180,46 @@ type ProjectConnection {
 }
 
 """
+Exact mutable context document for one project.
+"""
+type ProjectDocument {
+	"""
+	Opaque project identity.
+	"""
+	projectId: String!
+	"""
+	Exact UTF-8 Markdown content.
+	"""
+	content: String!
+	"""
+	SHA-256 digest for optimistic updates.
+	"""
+	digest: String!
+}
+
+"""
+Project document mutation payload.
+"""
+type ProjectDocumentCommandPayload {
+	"""
+	Authoritative project projection.
+	"""
+	project: Project!
+	"""
+	Saved project document.
+	"""
+	document: ProjectDocument!
+	"""
+	Cursor for the committed project update event.
+	"""
+	eventCursor: String!
+	"""
+	Echoed caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
 Connection edge.
 """
 type ProjectEdge {
@@ -3557,6 +3601,10 @@ type QueryRoot {
 	List owner-authorized projects in stable update order.
 	"""
 	projects(workspaceId: String!, includeArchived: Boolean, first: Int, after: String): ProjectConnection!
+	"""
+	Return the exact context document for one owner-authorized project.
+	"""
+	projectDocument(projectId: String!): ProjectDocument!
 	"""
 	Return one coherent Tasks overview.
 	"""
@@ -5958,6 +6006,32 @@ input UpdateInboxTaskInput {
 	Explicitly clear the Task directory base override.
 	"""
 	clearCwdOverride: Boolean
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
+Project document update input.
+"""
+input UpdateProjectDocumentInput {
+	"""
+	Project target.
+	"""
+	projectId: String!
+	"""
+	Expected project revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Expected current document digest.
+	"""
+	expectedDocumentDigest: String!
+	"""
+	Replacement Markdown content.
+	"""
+	content: String!
 	"""
 	Caller idempotency key.
 	"""

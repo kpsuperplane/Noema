@@ -166,6 +166,13 @@ graphql_input! { "Existing project update input." => GraphqlUpdateProjectInput("
     "Explicitly clear the project folder." => clear_folder: Option<bool>,
     "Caller idempotency key." => client_mutation_id: String,
 } }
+graphql_input! { "Project document update input." => GraphqlUpdateProjectDocumentInput("UpdateProjectDocumentInput") {
+    "Project target." => project_id: String,
+    "Expected project revision." => expected_revision: i64,
+    "Expected current document digest." => expected_document_digest: String,
+    "Replacement Markdown content." => content: String,
+    "Caller idempotency key." => client_mutation_id: String,
+} }
 graphql_input! { "Project archive input." => GraphqlArchiveProjectInput("ArchiveProjectInput") {
     "Project target." => project_id: String,
     "Expected project revision." => expected_revision: i64,

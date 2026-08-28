@@ -20,13 +20,15 @@ import {
   type TasksOverviewQuery
 } from "@/generated/graphql";
 import { recurrenceSummary, relativeTime, taskRunLabel, timestampLabel } from "./tasksModel";
-import { normalizeTasksSearch, PERSONAL_WORKSPACE_ID, type TasksTask } from "./tasksTypes";
+import { normalizeTasksSearch, PERSONAL_WORKSPACE_ID, type TasksProject, type TasksTask } from "./tasksTypes";
 
 export function TasksList({
+  project,
   projectId,
   selectedTaskId,
   terminal
 }: {
+  project?: TasksProject;
   projectId?: string;
   selectedTaskId?: string;
   terminal: "all" | "completed" | "cancelled";
@@ -61,6 +63,7 @@ export function TasksList({
   return (
     <div {...stylex.props(styles.dashboard)}>
       <VStack aria-label="Tasks" gap={4} className={stylex.props(styles.taskList).className}>
+        {project ? <ProjectDocumentRow project={project} /> : null}
         {initialLoading ? (
           <ListMessage loading error={false} retry={() => rootResult.refetch()} label="tasks" />
         ) : (
@@ -121,6 +124,29 @@ export function TasksList({
         )}
       </VStack>
     </div>
+  );
+}
+
+function ProjectDocumentRow({ project }: { project: TasksProject }) {
+  return (
+    <VStack as="ul" gap={1.5} className={stylex.props(styles.cards).className}>
+      <li {...stylex.props(styles.cardListItem)}>
+        <ListCardLink
+          to="/tasks/projects/$projectId"
+          params={{ projectId: project.projectId }}
+          search={(current) => normalizeTasksSearch(current)}
+          activeOptions={{ exact: true, includeSearch: false }}
+          activeProps={{ selected: true, "aria-current": "page" }}
+          xstyle={styles.taskCardLayout}
+        >
+          <div {...stylex.props(styles.cardHeading)}>
+            <strong {...stylex.props(styles.cardTitle)}>PROJECT.md</strong>
+            <time dateTime={project.updatedAt} title={timestampLabel(project.updatedAt)} {...stylex.props(styles.cardTime)}>{relativeTime(project.updatedAt)}</time>
+          </div>
+          <span {...stylex.props(styles.cardPreview)}>Project context</span>
+        </ListCardLink>
+      </li>
+    </VStack>
   );
 }
 
