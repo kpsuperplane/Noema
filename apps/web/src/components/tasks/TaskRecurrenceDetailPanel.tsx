@@ -26,7 +26,7 @@ import { createClientId } from "@/shared/clientId";
 import { initialScheduleDraft, scheduleInput, ScheduleFields, type ScheduleDraft } from "./ScheduleFields";
 import { recurrenceSummary } from "./tasksModel";
 import { normalizeTasksSearch } from "./tasksTypes";
-import { TaskDocumentInlineEditor } from "./TaskMarkdownEditor";
+import { TaskDocumentInlineEditor } from "./TaskDocumentInlineEditor";
 import { isStaleCommandError } from "./semanticCommand";
 
 type Recurrence = NonNullable<TasksTaskRecurrenceQuery["taskRecurrence"]>;

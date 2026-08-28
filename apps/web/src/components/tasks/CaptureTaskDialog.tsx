@@ -4,6 +4,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
@@ -14,7 +15,6 @@ import type { TasksProject } from "./tasksTypes";
 import { pwaRuntime } from "@/pwa/runtime";
 import { readTaskCaptureDraft, writeTaskCaptureDraft } from "@/pwa/storage";
 import { initialScheduleDraft, scheduleInput, ScheduleFields } from "./ScheduleFields";
-import { TaskMarkdownEditor } from "./TaskMarkdownEditor";
 
 export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChange }: { open: boolean; projects: readonly TasksProject[]; initialProjectId?: string; onOpenChange: (open: boolean) => void }) {
   const [title, setTitle] = React.useState("");
@@ -125,7 +125,7 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
               </VStack>
               <VStack gap={1.5} className={stylex.props(styles.field).className}>
                 <span>Task document</span>
-                <TaskMarkdownEditor value={taskDocument} onChange={setTaskDocument} />
+                <MarkdownEditor value={taskDocument} onChange={setTaskDocument} label="Task document" />
               </VStack>
               <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}>
                 <span>Project (optional)</span>

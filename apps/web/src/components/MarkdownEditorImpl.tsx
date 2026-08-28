@@ -6,9 +6,9 @@ import { Crepe } from "@milkdown/crepe";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
 import * as stylex from "@stylexjs/stylex";
-import type { TaskMarkdownEditorProps } from "./TaskMarkdownEditor";
+import type { MarkdownEditorProps } from "./MarkdownEditor";
 
-export default function TaskMarkdownEditorImpl({ value, onChange, label = "Task document", density = "default", sourceMode: controlledSourceMode, onSourceModeChange, onReady }: TaskMarkdownEditorProps) {
+export default function MarkdownEditorImpl({ value, onChange, label = "Markdown document", density = "default", sourceMode: controlledSourceMode, onSourceModeChange, onReady }: MarkdownEditorProps) {
   const [internalSourceMode, setInternalSourceMode] = React.useState(false);
   const [richFailed, setRichFailed] = React.useState(false);
   const sourceMode = controlledSourceMode ?? internalSourceMode;
@@ -17,7 +17,7 @@ export default function TaskMarkdownEditorImpl({ value, onChange, label = "Task 
   const modeLabel = sourceMode ? "Use rich editor" : "Edit source";
   const modeButton = <Button type="button" size="sm" variant="ghost" label={modeLabel} isDisabled={richFailed && sourceMode} onClick={() => setSourceMode(!sourceMode)} />;
   return (
-    <section data-slot="task-markdown-editor" data-density={density} aria-label={label} {...stylex.props(styles.root, density === "inline" && styles.inlineRoot)}>
+    <section data-slot="markdown-editor" data-density={density} aria-label={label} {...stylex.props(styles.root, density === "inline" && styles.inlineRoot)}>
       {density === "default" ? <HStack justify="between" align="center" gap={2} className={stylex.props(styles.modeBar).className}>
         <span {...stylex.props(styles.modeLabel)}>{sourceMode ? "Markdown source" : "Rich text"}</span>
         {modeButton}

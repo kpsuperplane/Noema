@@ -170,7 +170,8 @@ A completed Task opens `RESULT.md`; another Task opens `TASK.md`.
 Completion selects `RESULT.md` once when `TASK.md` was open.
 Result previews preserve provider citations.
 
-Web Task creation and Inbox editing use one shared Milkdown Crepe editor.
+Task and project documents use one shared Markdown viewer and Milkdown Crepe editor.
+Their surfaces keep separate save and conflict policies.
 Inbox titles and descriptions expose adjacent pencil controls and edit in place without changing the surrounding layout.
 Project and Executor editing remains in a focused settings dialog.
 For a selected project, `PROJECT.md` is the first Tasks list row.

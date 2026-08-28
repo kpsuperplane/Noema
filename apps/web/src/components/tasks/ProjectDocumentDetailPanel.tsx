@@ -9,12 +9,12 @@ import { useBlocker } from "@tanstack/react-router";
 import { Code2, Pencil } from "lucide-react";
 import { ErrorMarker } from "@/components/ErrorMarker";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
 import {
   TasksProjectDocumentDocument,
   TasksSaveProjectDocumentDocument
 } from "@/generated/graphql";
 import { createClientId } from "@/shared/clientId";
-import { TaskMarkdownEditor } from "./TaskMarkdownEditor";
 import { isStaleCommandError } from "./semanticCommand";
 import type { TasksProject } from "./tasksTypes";
 
@@ -243,7 +243,7 @@ export function ProjectDocumentDetailPanel({
         </HStack>
       ) : null}
       {editing && !archived ? (
-        <TaskMarkdownEditor
+        <MarkdownEditor
           value={draft}
           onChange={changeDraft}
           label="Project document"

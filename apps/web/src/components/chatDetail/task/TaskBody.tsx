@@ -15,7 +15,7 @@ import type { TaskDetail, TaskRunItem, TaskWorkspaceFile } from "./taskTypes";
 import { taskStageLabel } from "./TaskOverview";
 import type { TaskRunLatestEntryChange } from "./TaskRunTranscript";
 import { TaskTranscript } from "./TaskTranscript";
-import { TaskDocumentInlineEditor } from "@/components/tasks/TaskMarkdownEditor";
+import { TaskDocumentInlineEditor } from "@/components/tasks/TaskDocumentInlineEditor";
 import type { TaskInlineEditController } from "@/components/tasks/TaskActions";
 
 const TASK_DOCUMENT_PATH = "TASK.md";
