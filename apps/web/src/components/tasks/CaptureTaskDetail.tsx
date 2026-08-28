@@ -32,6 +32,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
 }>(function CaptureTaskDetail({ projects, initialProjectId, onClose, onCreated }, ref) {
   const [title, setTitle] = React.useState("");
   const [taskDocument, setTaskDocument] = React.useState("");
+  const [draftRevision, setDraftRevision] = React.useState(0);
   const [sourceMode, setSourceMode] = React.useState(false);
   const [projectId, setProjectId] = React.useState(initialProjectId ?? "");
   const [scheduling, setScheduling] = React.useState(false);
@@ -68,6 +69,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
         setProjectId(draft.projectId);
       }
       restoredRef.current = true;
+      setDraftRevision((current) => current + 1);
     });
     return () => {
       active = false;
@@ -170,7 +172,7 @@ export const CaptureTaskDetail = React.forwardRef<CaptureTaskDetailHandle, {
                     onClick={() => setSourceMode((current) => !current)}
                   />
                 </HStack>
-                <MarkdownInlineEditor value={taskDocument} onChange={setTaskDocument} label="Task document" sourceMode={sourceMode} onSourceModeChange={setSourceMode} />
+                <MarkdownInlineEditor key={draftRevision} value={taskDocument} onChange={setTaskDocument} label="Task document" sourceMode={sourceMode} onSourceModeChange={setSourceMode} />
               </VStack>
               <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}>
                 <span>Project (optional)</span>
