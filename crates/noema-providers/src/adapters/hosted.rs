@@ -11,8 +11,6 @@ use crate::{
     ProviderError, ProviderHandle, ProviderKind, erase_model_provider,
 };
 
-const DEFAULT_CODEX_PROVIDER_ACCOUNT_ID: &str = "provider_account:codex:default";
-
 /// Construct one concrete hosted provider behind the provider operation handle.
 ///
 /// Local-model construction is deliberately rejected because its manager
@@ -34,7 +32,7 @@ pub fn hosted_provider_from_config(
             config.system_errors = Some(system_errors);
             let provider = CodexResponsesProvider::new_with_credentials(
                 config,
-                DEFAULT_CODEX_PROVIDER_ACCOUNT_ID,
+                ProviderKind::Codex.default_account_id(),
                 credentials,
             )?;
             Ok((ProviderKind::Codex, erase_model_provider(provider)))

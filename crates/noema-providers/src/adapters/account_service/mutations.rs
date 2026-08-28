@@ -13,7 +13,8 @@ use crate::adapters::{SecretInputStore, account_service::filesystem::FileSnapsho
 use crate::{
     CreateSecretProviderAccountRequest, NewProviderAccount, ProviderAccountOperationError,
     ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod, ProviderModelProfile,
-    SaveProviderAccountSecretRequest, UpdateProviderAccountRequest, provider_account_catalog,
+    SaveProviderAccountSecretRequest, UpdateProviderAccountRequest, is_builtin_provider_account_id,
+    provider_account_catalog_entry,
 };
 
 async fn compensate_failed_create_transaction<
@@ -43,9 +44,7 @@ impl ProviderAccountService {
         &self,
         request: CreateSecretProviderAccountRequest,
     ) -> Result<ProviderAccountRecord, ProviderAccountOperationError> {
-        let catalog_entry = provider_account_catalog()
-            .into_iter()
-            .find(|entry| entry.provider_kind == request.provider_kind)
+        let catalog_entry = provider_account_catalog_entry(&request.provider_kind)
             .ok_or(ProviderAccountOperationError::UnsupportedProvider)?;
         if !catalog_entry
             .supported_auth_methods
@@ -276,7 +275,7 @@ impl ProviderAccountService {
             return Ok(false);
         };
         let account = account;
-        if account.is_default {
+        if is_builtin_provider_account_id(&account.provider_account_id) {
             return Err(ProviderAccountOperationError::ProtectedAccount);
         }
 

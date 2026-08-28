@@ -2,10 +2,10 @@ use std::{env, ffi::OsString, path::Path, sync::Arc};
 
 use noema_home::SystemErrorLogger;
 use noema_providers::{
-    DEFAULT_OPENROUTER_BASE_URL, OPENROUTER_PROVIDER_ACCOUNT_ID, OpenRouterProviderConfig,
-    ProviderConfig, ProviderCredential, ProviderCredentialAccess, ProviderCredentialAccessHandle,
-    ProviderCredentialFuture, ProviderError, ProviderHandle, ReasoningEffort,
-    hosted_provider_from_config, validate_openrouter_api_key,
+    DEFAULT_OPENROUTER_BASE_URL, OpenRouterProviderConfig, ProviderConfig, ProviderCredential,
+    ProviderCredentialAccess, ProviderCredentialAccessHandle, ProviderCredentialFuture,
+    ProviderError, ProviderHandle, ProviderKind, ReasoningEffort, hosted_provider_from_config,
+    validate_openrouter_api_key,
 };
 
 const OPENROUTER_API_KEY_ENV: &str = "OPENROUTER_API_KEY";
@@ -110,7 +110,7 @@ impl ProviderCredentialAccess for OpenRouterEnvCredentials {
         provider_account_id: &'a str,
     ) -> ProviderCredentialFuture<'a> {
         let result = if provider_kind == "openrouter"
-            && provider_account_id == OPENROUTER_PROVIDER_ACCOUNT_ID
+            && provider_account_id == ProviderKind::OpenRouter.default_account_id()
         {
             Ok(self.api_key.clone())
         } else {
@@ -179,7 +179,7 @@ mod tests {
             api_key: "secret".to_string().into(),
         };
         let credential = credentials
-            .api_key("openrouter", OPENROUTER_PROVIDER_ACCOUNT_ID)
+            .api_key("openrouter", ProviderKind::OpenRouter.default_account_id())
             .await
             .expect("OpenRouter credential");
         assert_eq!(credential.expose_secret(), "secret");

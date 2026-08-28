@@ -8,7 +8,11 @@ use ts_rs::TS;
 
 use crate::capabilities::capabilities_for_provider_account;
 use crate::selection::{ProviderInstanceKey, ProviderSelectionError};
-use crate::{ProviderCapability, config::CodexOAuthConfig};
+use crate::{
+    DIRECT_HTTP_PROVIDER_ACCOUNT_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ACCOUNT_ID,
+    OBSCURA_BROWSER_PROVIDER_ACCOUNT_ID, ProviderCapability, ProviderKind,
+    config::CodexOAuthConfig,
+};
 
 /// Derive the immutable provider-instance identity for one hosted account.
 ///
@@ -135,6 +139,8 @@ pub struct ProviderAccountCatalogEntry {
     pub preferred_auth_method: ProviderAuthMethod,
     /// Authentication methods supported for newly created accounts.
     pub supported_auth_methods: Vec<ProviderAuthMethod>,
+    /// Whether account creation allocates a distinct account key.
+    pub generates_account_key: bool,
     /// Capabilities this provider type can supply after account creation.
     pub capabilities: Vec<ProviderCapability>,
 }
@@ -163,6 +169,7 @@ pub fn provider_account_catalog() -> Vec<ProviderAccountCatalogEntry> {
             "Codex",
             ProviderAuthMethod::OauthDeviceCode,
             vec![ProviderAuthMethod::OauthDeviceCode],
+            false,
         ),
         (
             "openrouter",
@@ -172,28 +179,38 @@ pub fn provider_account_catalog() -> Vec<ProviderAccountCatalogEntry> {
                 ProviderAuthMethod::OauthPkce,
                 ProviderAuthMethod::SecretInput,
             ],
+            false,
         ),
         (
             "exa",
             "Exa",
             ProviderAuthMethod::SecretInput,
             vec![ProviderAuthMethod::SecretInput],
+            true,
         ),
         (
             "kernel",
             "Kernel",
             ProviderAuthMethod::SecretInput,
             vec![ProviderAuthMethod::SecretInput],
+            true,
         ),
     ]
     .into_iter()
     .map(
-        |(provider_kind, display_name, preferred_auth_method, supported_auth_methods)| {
+        |(
+            provider_kind,
+            display_name,
+            preferred_auth_method,
+            supported_auth_methods,
+            generates_account_key,
+        )| {
             ProviderAccountCatalogEntry {
                 provider_kind: provider_kind.to_string(),
                 display_name: display_name.to_string(),
                 preferred_auth_method,
                 supported_auth_methods,
+                generates_account_key,
                 capabilities: capabilities_for_provider_account(
                     provider_kind,
                     "catalog",
@@ -203,6 +220,30 @@ pub fn provider_account_catalog() -> Vec<ProviderAccountCatalogEntry> {
         },
     )
     .collect()
+}
+
+/// Return one user-addable provider type by exact provider kind.
+#[must_use]
+pub fn provider_account_catalog_entry(provider_kind: &str) -> Option<ProviderAccountCatalogEntry> {
+    provider_account_catalog()
+        .into_iter()
+        .find(|entry| entry.provider_kind == provider_kind)
+}
+
+/// Return whether an account id belongs to a permanent built-in account.
+#[must_use]
+pub fn is_builtin_provider_account_id(provider_account_id: &str) -> bool {
+    [
+        ProviderKind::Codex.default_account_id(),
+        ProviderKind::OpenAi.default_account_id(),
+        ProviderKind::OpenRouter.default_account_id(),
+        ProviderKind::FoundationLocal.default_account_id(),
+        ProviderKind::LocalModels.default_account_id(),
+        DUCKDUCKGO_PUBLIC_PROVIDER_ACCOUNT_ID,
+        DIRECT_HTTP_PROVIDER_ACCOUNT_ID,
+        OBSCURA_BROWSER_PROVIDER_ACCOUNT_ID,
+    ]
+    .contains(&provider_account_id)
 }
 
 /// Short-lived provider auth attempt status.

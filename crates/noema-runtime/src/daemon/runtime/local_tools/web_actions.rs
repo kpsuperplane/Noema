@@ -37,13 +37,6 @@ pub(super) fn insert_web_tool_fallback_metadata(
     }
 }
 
-pub(super) fn is_provider_account_unauthenticated_payload(payload: &Value) -> bool {
-    payload
-        .get("error")
-        .and_then(Value::as_str)
-        .is_some_and(|message| message == PROVIDER_ACCOUNT_UNAUTHENTICATED)
-}
-
 impl RuntimeActor {
     pub(in crate::daemon::runtime) async fn validate_browser_call(
         &self,
@@ -115,9 +108,10 @@ impl RuntimeActor {
     ) -> CapabilityOutput {
         let result = match self.web_search_runtime_provider_resolution().await {
             Ok((provider, fallback_from, fallback_reason, auth_failure_target)) => {
-                let mut result = execute_web_search(&provider, call_id, arguments).await;
+                let (mut result, backend_error) =
+                    execute_web_search(&provider, call_id, arguments).await;
                 if let Some(target) = auth_failure_target
-                    && is_provider_account_unauthenticated_payload(&result.payload)
+                    && backend_error == Some(noema_providers::WebSearchError::AuthFailed)
                 {
                     self.mark_provider_account_unauthenticated(&target).await;
                 }
@@ -153,9 +147,10 @@ impl RuntimeActor {
     ) -> CapabilityOutput {
         let result = match self.web_fetch_runtime_execution_context(priority).await {
             Ok((provider, context, fallback_from, fallback_reason, auth_failure_target)) => {
-                let mut result = execute_web_fetch(&provider, &context, call_id, arguments).await;
+                let (mut result, backend_error) =
+                    execute_web_fetch(&provider, &context, call_id, arguments).await;
                 if let Some(target) = auth_failure_target
-                    && is_provider_account_unauthenticated_payload(&result.payload)
+                    && backend_error == Some(WebFetchError::AuthFailed)
                 {
                     self.mark_provider_account_unauthenticated(&target).await;
                 }

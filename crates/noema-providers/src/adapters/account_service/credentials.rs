@@ -119,7 +119,15 @@ impl ProviderCredentialAccessService {
         provider_kind: &str,
         provider_account_id: &str,
     ) -> Result<ProviderCredential, ProviderError> {
-        if !matches!(provider_kind, "exa" | "kernel" | "openrouter") {
+        let Some(catalog) = crate::provider_account_catalog_entry(provider_kind) else {
+            return Err(ProviderError::InvalidRequest {
+                message: "provider does not use an account API key".to_string(),
+            });
+        };
+        if !catalog
+            .supported_auth_methods
+            .contains(&ProviderAuthMethod::SecretInput)
+        {
             return Err(ProviderError::InvalidRequest {
                 message: "provider does not use an account API key".to_string(),
             });
@@ -261,7 +269,8 @@ impl AccountIdentity {
         if account.provider_account_id != requested_id
             || account.provider_kind != expected_provider
             || account.account_key.trim().is_empty()
-            || !expected_auth_method(expected_provider, account.auth_method)
+            || !crate::provider_account_catalog_entry(expected_provider)
+                .is_some_and(|entry| entry.supported_auth_methods.contains(&account.auth_method))
         {
             return Err(ProviderError::InvalidRequest {
                 message: format!(
@@ -280,17 +289,6 @@ impl AccountIdentity {
             provider_kind: account.provider_kind,
             account_key: account.account_key,
         })
-    }
-}
-
-fn expected_auth_method(provider: &str, method: ProviderAuthMethod) -> bool {
-    match provider {
-        CODEX_PROVIDER => method == ProviderAuthMethod::OauthDeviceCode,
-        "openrouter" => matches!(
-            method,
-            ProviderAuthMethod::OauthPkce | ProviderAuthMethod::SecretInput
-        ),
-        _ => method == ProviderAuthMethod::SecretInput,
     }
 }
 

@@ -6,7 +6,10 @@ use noema_capabilities::{
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::ProviderAccountStatus;
+use crate::{
+    DIRECT_HTTP_PROVIDER_ACCOUNT_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ACCOUNT_ID,
+    OBSCURA_BROWSER_PROVIDER_ACCOUNT_ID, ProviderAccountStatus,
+};
 
 /// Availability state for a capability on a concrete provider account.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -77,6 +80,17 @@ pub fn provider_capability_assignment_pair_is_supported(
         (tool_name, capability_id),
         ("web.search", "web.search") | ("web.fetch", "web.fetch") | ("web.browse", "web.browse")
     )
+}
+
+/// Return the permanent default account id for a web capability.
+#[must_use]
+pub const fn default_web_provider_account_id(capability_id: CapabilityId) -> Option<&'static str> {
+    match capability_id {
+        CapabilityId::WebSearch => Some(DUCKDUCKGO_PUBLIC_PROVIDER_ACCOUNT_ID),
+        CapabilityId::WebFetch => Some(DIRECT_HTTP_PROVIDER_ACCOUNT_ID),
+        CapabilityId::WebBrowse => Some(OBSCURA_BROWSER_PROVIDER_ACCOUNT_ID),
+        CapabilityId::ModelGenerate | CapabilityId::ModelClassify => None,
+    }
 }
 
 /// Return the static capabilities declared for a provider account.

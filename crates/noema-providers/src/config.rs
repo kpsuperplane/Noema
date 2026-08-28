@@ -87,6 +87,18 @@ impl ProviderKind {
             Self::LocalModels => "local_models",
         }
     }
+
+    /// Return the fixed provider account id for this model provider.
+    #[must_use]
+    pub const fn default_account_id(&self) -> &'static str {
+        match self {
+            Self::Codex => "provider_account:codex:default",
+            Self::OpenAi => "provider_account:openai:default",
+            Self::OpenRouter => "provider_account:openrouter:default",
+            Self::FoundationLocal => "provider_account:foundation_local:default",
+            Self::LocalModels => "provider_account:local_models:default",
+        }
+    }
 }
 
 impl fmt::Display for ProviderKind {

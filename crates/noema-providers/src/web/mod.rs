@@ -9,17 +9,17 @@ mod search;
 use std::{future::Future, pin::Pin};
 
 pub use fetch::{
-    DIRECT_HTTP_PROVIDER_ID, EXTRACTION_READABILITYRS, WebFetchBackend, WebFetchBackendHandle,
-    WebFetchContext, WebFetchError,
+    DIRECT_HTTP_PROVIDER_ACCOUNT_ID, DIRECT_HTTP_PROVIDER_ID, EXTRACTION_READABILITYRS,
+    WebFetchBackend, WebFetchBackendHandle, WebFetchContext, WebFetchError,
 };
 pub use search::{
-    BEST_EFFORT_PUBLIC_CONTRACT, DUCKDUCKGO_PUBLIC_PROVIDER_ID, WebSearchBackend,
-    WebSearchBackendHandle, WebSearchError,
+    BEST_EFFORT_PUBLIC_CONTRACT, DUCKDUCKGO_PUBLIC_PROVIDER_ACCOUNT_ID,
+    DUCKDUCKGO_PUBLIC_PROVIDER_ID, WebSearchBackend, WebSearchBackendHandle, WebSearchError,
 };
 
 /// Boxed future returned by provider-owned web backends.
 pub type WebOperationFuture<'a, T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'a>>;
 pub use browse::{
-    KERNEL_BROWSER_PROVIDER_ID, OBSCURA_BROWSER_PROVIDER_ID, WebBrowseBackendHandle,
-    WebBrowseError, WebBrowseOwner,
+    KERNEL_BROWSER_PROVIDER_ID, OBSCURA_BROWSER_PROVIDER_ACCOUNT_ID, OBSCURA_BROWSER_PROVIDER_ID,
+    WebBrowseBackendHandle, WebBrowseError, WebBrowseOwner,
 };

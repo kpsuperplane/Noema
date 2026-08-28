@@ -12,9 +12,9 @@ use super::{
 use crate::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
     ModelProvider, OpenRouterProviderConfig, ProviderAccountOperationsHandle,
-    ProviderAccountPersistenceHandle, ProviderContextMetadata, ProviderError, ProviderModelProfile,
-    ProviderResponseContinuation, ProviderToolCapabilities, ProviderToolSchemaDialect,
-    ProviderToolTransport,
+    ProviderAccountPersistenceHandle, ProviderContextMetadata, ProviderError, ProviderKind,
+    ProviderModelProfile, ProviderResponseContinuation, ProviderToolCapabilities,
+    ProviderToolSchemaDialect, ProviderToolTransport,
     chat_completions::{
         ChatCompletionRequest, ChatDiagnosticContext, ChatMessage, ChatTool, ChatTransport,
     },
@@ -22,8 +22,6 @@ use crate::{
 
 pub(crate) mod catalog;
 
-/// Stable account id used by the built-in OpenRouter integration.
-pub const OPENROUTER_PROVIDER_ACCOUNT_ID: &str = "provider_account:openrouter:default";
 const OPENROUTER_CONTEXT_WINDOW_TOKENS: u32 = 32_768;
 const OPENROUTER_OUTPUT_RESERVE_TOKENS: u32 = 8_192;
 const OPENROUTER_SUMMARY_TARGET_TOKENS: u32 = 2_048;
@@ -132,7 +130,7 @@ impl OpenRouterProvider {
         );
         let credential = self
             .credentials
-            .api_key("openrouter", OPENROUTER_PROVIDER_ACCOUNT_ID)
+            .api_key("openrouter", ProviderKind::OpenRouter.default_account_id())
             .await?;
         let response = self
             .transport
@@ -158,7 +156,7 @@ impl OpenRouterProvider {
         };
         if let Some(accounts) = &self.accounts
             && let Ok(Some(account)) = accounts
-                .provider_account(OPENROUTER_PROVIDER_ACCOUNT_ID)
+                .provider_account(ProviderKind::OpenRouter.default_account_id())
                 .await
             && let Some(tokens) = context_window_tokens_from_metadata(&account.metadata, model)
         {
@@ -171,7 +169,7 @@ impl OpenRouterProvider {
             return OPENROUTER_CONTEXT_WINDOW_TOKENS;
         };
         let Ok(account) = operations
-            .refresh_model_catalog(OPENROUTER_PROVIDER_ACCOUNT_ID)
+            .refresh_model_catalog(ProviderKind::OpenRouter.default_account_id())
             .await
         else {
             return OPENROUTER_CONTEXT_WINDOW_TOKENS;

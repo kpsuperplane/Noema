@@ -46,20 +46,21 @@ pub use account_operations::{
 pub use accounts::{
     CodexDeviceAuthRequest, NewProviderAccount, ProviderAccountCatalogEntry, ProviderAccountRecord,
     ProviderAccountStatus, ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
-    provider_account_catalog, provider_account_instance_key,
+    is_builtin_provider_account_id, provider_account_catalog, provider_account_catalog_entry,
+    provider_account_instance_key,
 };
 #[cfg(feature = "adapters")]
 pub use adapters::{
     EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
-    FoundationLocalProvider, OPENROUTER_PROVIDER_ACCOUNT_ID, ProviderAccountService,
-    ProviderCredential, ProviderCredentialAccess, ProviderCredentialAccessHandle,
-    ProviderCredentialFuture, default_web_browse_backend, default_web_fetch_backend,
-    default_web_search_backend, hosted_provider_from_config, summarize_markdown,
-    validate_openrouter_api_key, web_fetch_summarizer_prompt,
+    FoundationLocalProvider, ProviderAccountService, ProviderCredential, ProviderCredentialAccess,
+    ProviderCredentialAccessHandle, ProviderCredentialFuture, default_web_browse_backend,
+    default_web_fetch_backend, default_web_search_backend, hosted_provider_from_config,
+    summarize_markdown, validate_openrouter_api_key, web_fetch_summarizer_prompt,
 };
 pub use capabilities::{
     ProviderCapability, ProviderCapabilityAssignment, ProviderCapabilityStatus,
-    capabilities_for_provider_account, provider_capability_assignment_pair_is_supported,
+    capabilities_for_provider_account, default_web_provider_account_id,
+    provider_capability_assignment_pair_is_supported,
 };
 #[cfg(feature = "adapters")]
 pub(crate) use config::{
@@ -164,8 +165,9 @@ pub use web::public_url::{
     CheckedUrl, checked_public_http_client, validate_public_url, validate_public_url_parsed,
 };
 pub use web::{
-    BEST_EFFORT_PUBLIC_CONTRACT, DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID,
-    EXTRACTION_READABILITYRS, KERNEL_BROWSER_PROVIDER_ID, OBSCURA_BROWSER_PROVIDER_ID,
+    BEST_EFFORT_PUBLIC_CONTRACT, DIRECT_HTTP_PROVIDER_ACCOUNT_ID, DIRECT_HTTP_PROVIDER_ID,
+    DUCKDUCKGO_PUBLIC_PROVIDER_ACCOUNT_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID, EXTRACTION_READABILITYRS,
+    KERNEL_BROWSER_PROVIDER_ID, OBSCURA_BROWSER_PROVIDER_ACCOUNT_ID, OBSCURA_BROWSER_PROVIDER_ID,
     WebBrowseBackendHandle, WebBrowseError, WebBrowseOwner, WebFetchBackend, WebFetchBackendHandle,
     WebFetchContext, WebFetchError, WebOperationFuture, WebSearchBackend, WebSearchBackendHandle,
     WebSearchError,

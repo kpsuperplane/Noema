@@ -7,6 +7,8 @@ use crate::{GenerationPriority, ProviderRouteLease, ReasoningEffort};
 
 /// Stable id for Noema's checked direct-HTTP provider.
 pub const DIRECT_HTTP_PROVIDER_ID: &str = "direct_http";
+/// Stable account id for Noema's built-in direct HTTP provider.
+pub const DIRECT_HTTP_PROVIDER_ACCOUNT_ID: &str = "provider_account:direct_http:system";
 /// Extraction label for the readability-based HTML backend.
 pub const EXTRACTION_READABILITYRS: &str = "readability_rs";
 

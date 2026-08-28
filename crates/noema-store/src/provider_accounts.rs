@@ -7,7 +7,8 @@ use crate::{
 };
 use noema_providers::{
     NewProviderAccount, ProviderAccountRecord, ProviderAccountStatus, ProviderAccountStatusUpdate,
-    ProviderAuthMethod, capabilities_for_provider_account,
+    ProviderAuthMethod, capabilities_for_provider_account, is_builtin_provider_account_id,
+    provider_account_catalog_entry,
 };
 
 use super::{NoemaStore, StoreError};
@@ -172,65 +173,31 @@ impl NoemaStore {
         &self,
         input: NewProviderAccount,
     ) -> Result<ProviderAccountRecord, StoreError> {
-        let (account_key, provider_account_id, default_name, is_default) =
-            match input.provider_kind.as_str() {
-                "exa" if input.auth_method == ProviderAuthMethod::SecretInput => {
-                    let account_key = generated_account_key("exa");
-                    (
-                        account_key.clone(),
-                        format!("provider_account:exa:{account_key}"),
-                        "Exa",
-                        false,
-                    )
-                }
-                "kernel" if input.auth_method == ProviderAuthMethod::SecretInput => {
-                    let account_key = generated_account_key("kernel");
-                    (
-                        account_key.clone(),
-                        format!("provider_account:kernel:{account_key}"),
-                        "Kernel",
-                        false,
-                    )
-                }
-                "codex" if input.auth_method == ProviderAuthMethod::OauthDeviceCode => (
-                    "default".to_string(),
-                    "provider_account:codex:default".to_string(),
-                    "Codex",
-                    true,
-                ),
-                "openrouter"
-                    if matches!(
-                        input.auth_method,
-                        ProviderAuthMethod::OauthPkce | ProviderAuthMethod::SecretInput
-                    ) =>
-                {
-                    (
-                        "default".to_string(),
-                        "provider_account:openrouter:default".to_string(),
-                        "OpenRouter",
-                        true,
-                    )
-                }
-                _ => {
-                    return Err(StoreError::InvalidEnum {
-                        kind: "provider_kind_or_auth_method",
-                        value: format!("{}:{}", input.provider_kind, input.auth_method.as_str()),
-                    });
-                }
-            };
-        if input.provider_kind == "exa" && input.auth_method != ProviderAuthMethod::SecretInput {
+        let catalog = provider_account_catalog_entry(&input.provider_kind).ok_or_else(|| {
+            StoreError::InvalidEnum {
+                kind: "provider_kind",
+                value: input.provider_kind.clone(),
+            }
+        })?;
+        if !catalog.supported_auth_methods.contains(&input.auth_method) {
             return Err(StoreError::InvalidEnum {
                 kind: "provider_auth_method",
                 value: input.auth_method.as_str().to_string(),
             });
         }
+        let (account_key, is_default) = if catalog.generates_account_key {
+            (generated_account_key(&input.provider_kind), false)
+        } else {
+            ("default".to_string(), true)
+        };
+        let provider_account_id = format!("provider_account:{}:{account_key}", input.provider_kind);
 
         let display_name = input
             .display_name
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .unwrap_or(default_name)
+            .unwrap_or(&catalog.display_name)
             .to_string();
         let metadata_json = serialize_json(&input.metadata)?;
 
@@ -302,20 +269,17 @@ impl NoemaStore {
         provider_account_id: &str,
     ) -> Result<bool, StoreError> {
         self.with_immediate_transaction_retry(|transaction| {
-            let provider_kind = transaction
+            let account_id = transaction
                 .query_row(
-                    "SELECT provider_kind FROM provider_accounts WHERE provider_account_id = ?1",
+                    "SELECT provider_account_id FROM provider_accounts WHERE provider_account_id = ?1",
                     [provider_account_id],
                     |row| row.get::<_, String>(0),
                 )
                 .optional()?;
-            let Some(provider_kind) = provider_kind else {
+            let Some(account_id) = account_id else {
                 return Ok(false);
             };
-            if matches!(
-                provider_kind.as_str(),
-                "duckduckgo_public" | "direct_http" | "obscura"
-            ) {
+            if is_builtin_provider_account_id(&account_id) {
                 return Err(StoreError::ProviderAccountInUse {
                     provider_account_id: provider_account_id.to_string(),
                 });

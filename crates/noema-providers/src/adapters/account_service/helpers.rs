@@ -11,7 +11,7 @@ use super::ProviderAccountService;
 use crate::adapters::{SecretInputStore, foundation::FoundationBridgeError};
 use crate::{
     ProviderAccountOperationError, ProviderAccountRecord, ProviderAccountStatus,
-    ProviderAccountStatusUpdate, ProviderAuthMethod,
+    ProviderAccountStatusUpdate, ProviderAuthMethod, provider_account_catalog_entry,
 };
 
 static NEXT_QUARANTINE_ID: AtomicU64 = AtomicU64::new(1);
@@ -27,15 +27,18 @@ impl ProviderAccountService {
         provider_account_id: &str,
     ) -> Result<ProviderAccountRecord, ProviderAccountOperationError> {
         let account = self.require_active_account(provider_account_id).await?;
-        if !matches!(
-            account.provider_kind.as_str(),
-            "exa" | "kernel" | "openrouter"
-        ) {
+        let Some(catalog) = provider_account_catalog_entry(&account.provider_kind) else {
+            return Err(ProviderAccountOperationError::UnsupportedProvider);
+        };
+        if !catalog
+            .supported_auth_methods
+            .contains(&ProviderAuthMethod::SecretInput)
+        {
             return Err(ProviderAccountOperationError::UnsupportedProvider);
         }
-        if account.auth_method != ProviderAuthMethod::SecretInput
-            && !(account.provider_kind == "openrouter"
-                && account.auth_method == ProviderAuthMethod::OauthPkce)
+        if !catalog
+            .supported_auth_methods
+            .contains(&account.auth_method)
         {
             return Err(ProviderAccountOperationError::AuthMethodMismatch);
         }

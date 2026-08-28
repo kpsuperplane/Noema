@@ -181,7 +181,7 @@ async fn assemble_services(
             })?;
         let mut selection = ProviderSelectionSnapshot::explicit(
             default_provider_kind.as_str(),
-            model_provider_account_id(&default_provider_kind),
+            default_provider_kind.default_account_id(),
             configured_model_profile,
             configured_reasoning_effort,
             Some("configured_default".to_string()),
@@ -229,7 +229,7 @@ async fn assemble_services(
                 }
                 ProviderKind::Codex | ProviderKind::OpenRouter => {
                     store
-                        .get_provider_account(model_provider_account_id(&default_provider_kind))
+                        .get_provider_account(default_provider_kind.default_account_id())
                         .await?
                 }
                 ProviderKind::LocalModels => None,
@@ -593,21 +593,11 @@ fn register_hosted_providers(
     providers: &[(ProviderKind, noema_providers::ProviderHandle)],
 ) -> Result<(), RuntimeHostError> {
     for (provider_kind, provider) in providers {
-        let account_id = model_provider_account_id(provider_kind);
+        let account_id = provider_kind.default_account_id();
         let key = provider_account_instance_key(account_id)?;
         registry.register(key, provider.clone())?;
     }
     Ok(())
-}
-
-const fn model_provider_account_id(provider_kind: &ProviderKind) -> &'static str {
-    match provider_kind {
-        ProviderKind::Codex => "provider_account:codex:default",
-        ProviderKind::OpenAi => "provider_account:openai:default",
-        ProviderKind::OpenRouter => "provider_account:openrouter:default",
-        ProviderKind::FoundationLocal => "provider_account:foundation_local:default",
-        ProviderKind::LocalModels => noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
-    }
 }
 
 #[cfg(test)]

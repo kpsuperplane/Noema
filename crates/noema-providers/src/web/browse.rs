@@ -8,6 +8,8 @@ use crate::adapters::web::browse::{KernelBrowseBackend, ObscuraBrowseBackend};
 
 /// Stable id for Noema's Obscura browser provider.
 pub const OBSCURA_BROWSER_PROVIDER_ID: &str = "obscura";
+/// Stable account id for Noema's built-in Obscura provider.
+pub const OBSCURA_BROWSER_PROVIDER_ACCOUNT_ID: &str = "provider_account:obscura:system";
 /// Stable id for Kernel's hosted browser provider.
 pub const KERNEL_BROWSER_PROVIDER_ID: &str = "kernel";
 

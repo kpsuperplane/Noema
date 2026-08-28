@@ -58,16 +58,20 @@ pub async fn execute_web_fetch(
     context: &WebFetchContext,
     call_id: Option<String>,
     payload: &Value,
-) -> WebFetchToolResult {
-    let result = execute_web_fetch_inner(provider, context, payload)
-        .await
-        .map_err(|error| safe_error_message(&error));
-    web_tool_result(
+) -> (WebFetchToolResult, Option<WebFetchError>) {
+    let result = execute_web_fetch_inner(provider, context, payload).await;
+    let backend_error = match &result {
+        Err(FetchExecutionError::Backend(error)) => Some(error.clone()),
+        _ => None,
+    };
+    let result = result.map_err(|error| safe_error_message(&error));
+    let tool_result = web_tool_result(
         call_id,
         WEB_FETCH_TOOL,
         result,
         "fetch response serialization failed",
-    )
+    );
+    (tool_result, backend_error)
 }
 
 async fn execute_web_fetch_inner(

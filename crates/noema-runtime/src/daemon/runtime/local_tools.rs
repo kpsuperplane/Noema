@@ -53,8 +53,8 @@ use noema_capabilities::web::browse::{
 use noema_capabilities::web::fetch::WEB_FETCH_TOOL;
 use noema_providers::{
     DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID, OBSCURA_BROWSER_PROVIDER_ID,
-    WebBrowseBackendHandle, WebBrowseError, WebBrowseOwner, WebFetchBackendHandle, WebFetchContext,
-    WebFetchError, WebSearchBackendHandle,
+    ProviderAuthMethod, WebBrowseBackendHandle, WebBrowseError, WebBrowseOwner,
+    WebFetchBackendHandle, WebFetchContext, WebFetchError, WebSearchBackendHandle,
 };
 
 const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated";
@@ -757,10 +757,7 @@ impl RuntimeActor {
             .await
             .map_err(|_| "web.fetch provider binding could not be resolved".to_string())?;
         let context = self.web_fetch_runtime_context(generation_priority).await?;
-        let target = ProviderAuthFailureTarget {
-            provider_account_id: resolved.provider_account_id.clone(),
-            credential_revision: resolved.credential_revision,
-        };
+        let target = auth_failure_target(&resolved);
         match self
             .web_backends
             .resolve_fetch(web_backend_request(&resolved))
@@ -777,10 +774,18 @@ impl RuntimeActor {
                 ))
             }
             Err(WebBackendResolverError::Unauthenticated) => {
-                self.mark_provider_account_unauthenticated(&target).await;
+                if let Some(target) = target {
+                    self.mark_provider_account_unauthenticated(&target).await;
+                }
+                let fallback = super::web_tools::load_default_provider(
+                    &self.store,
+                    noema_capabilities::CapabilityId::WebFetch,
+                )
+                .await
+                .map_err(|_| "web.fetch fallback account is unavailable".to_string())?;
                 let provider = self
                     .web_backends
-                    .resolve_fetch(default_fetch_backend_request())
+                    .resolve_fetch(web_backend_request(&fallback))
                     .await
                     .map_err(|_| "web.fetch fallback provider is unavailable".to_string())?;
                 Ok((
@@ -812,10 +817,7 @@ impl RuntimeActor {
         let resolved = super::web_tools::resolve_web_search_provider(&self.store)
             .await
             .map_err(|_| "web.search provider binding could not be resolved".to_string())?;
-        let target = ProviderAuthFailureTarget {
-            provider_account_id: resolved.provider_account_id.clone(),
-            credential_revision: resolved.credential_revision,
-        };
+        let target = auth_failure_target(&resolved);
         match self
             .web_backends
             .resolve_search(web_backend_request(&resolved))
@@ -831,10 +833,18 @@ impl RuntimeActor {
                 ))
             }
             Err(WebBackendResolverError::Unauthenticated) => {
-                self.mark_provider_account_unauthenticated(&target).await;
+                if let Some(target) = target {
+                    self.mark_provider_account_unauthenticated(&target).await;
+                }
+                let fallback = super::web_tools::load_default_provider(
+                    &self.store,
+                    noema_capabilities::CapabilityId::WebSearch,
+                )
+                .await
+                .map_err(|_| "web.search fallback account is unavailable".to_string())?;
                 let provider = self
                     .web_backends
-                    .resolve_search(default_search_backend_request())
+                    .resolve_search(web_backend_request(&fallback))
                     .await
                     .map_err(|_| "web.search fallback provider is unavailable".to_string())?;
                 Ok((
@@ -875,10 +885,7 @@ impl RuntimeActor {
                 ),
             ));
         }
-        let target = ProviderAuthFailureTarget {
-            provider_account_id: resolved.provider_account_id.clone(),
-            credential_revision: resolved.credential_revision,
-        };
+        let target = auth_failure_target(resolved);
         match self
             .web_backends
             .resolve_browse(web_backend_request(resolved))
@@ -886,7 +893,9 @@ impl RuntimeActor {
         {
             Ok(provider) => Ok(provider),
             Err(WebBackendResolverError::Unauthenticated) => {
-                self.mark_provider_account_unauthenticated(&target).await;
+                if let Some(target) = target {
+                    self.mark_provider_account_unauthenticated(&target).await;
+                }
                 Err(WebBrowseError::Unauthenticated)
             }
             Err(WebBackendResolverError::Unavailable) => Err(WebBrowseError::Unavailable
@@ -1267,27 +1276,10 @@ fn web_backend_request(resolved: &super::web_tools::ResolvedWebProvider) -> WebB
 fn auth_failure_target(
     resolved: &super::web_tools::ResolvedWebProvider,
 ) -> Option<ProviderAuthFailureTarget> {
-    (resolved.credential_revision > 0).then(|| ProviderAuthFailureTarget {
+    (resolved.auth_method != ProviderAuthMethod::None).then(|| ProviderAuthFailureTarget {
         provider_account_id: resolved.provider_account_id.clone(),
         credential_revision: resolved.credential_revision,
     })
-}
-
-fn default_search_backend_request() -> WebBackendRequest {
-    WebBackendRequest {
-        provider_kind: DUCKDUCKGO_PUBLIC_PROVIDER_ID.to_string(),
-        provider_account_id: format!("provider_account:{DUCKDUCKGO_PUBLIC_PROVIDER_ID}:system"),
-        credential_revision: 0,
-    }
-}
-
-fn default_fetch_backend_request() -> WebBackendRequest {
-    let provider_kind = DIRECT_HTTP_PROVIDER_ID;
-    WebBackendRequest {
-        provider_kind: provider_kind.to_string(),
-        provider_account_id: format!("provider_account:{provider_kind}:system"),
-        credential_revision: 0,
-    }
 }
 
 struct RuntimeExecutionInvoker<'a> {

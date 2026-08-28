@@ -3,20 +3,13 @@ use noema_providers::{
     ProviderAccountRecord, ProviderCapability, ProviderCapabilityAccountReference,
     ProviderCapabilityAssignmentKey, ProviderCapabilityAssignmentPersistence,
     ProviderCapabilityStatus, ReplaceProviderCapabilityRouteRequest,
-    UpsertProviderCapabilityAssignmentRequest,
+    UpsertProviderCapabilityAssignmentRequest, default_web_provider_account_id,
 };
 
 use noema_capabilities::{CapabilityId, ToolName};
 use noema_store::NoemaStore;
 
 use super::{errors::graphql_error, schema::GraphqlState};
-
-const WEB_SEARCH_TOOL: &str = "web.search";
-const WEB_FETCH_TOOL: &str = "web.fetch";
-const WEB_BROWSE_TOOL: &str = "web.browse";
-const DUCKDUCKGO_SYSTEM_ACCOUNT_ID: &str = "provider_account:duckduckgo_public:system";
-const DIRECT_HTTP_SYSTEM_ACCOUNT_ID: &str = "provider_account:direct_http:system";
-const OBSCURA_SYSTEM_ACCOUNT_ID: &str = "provider_account:obscura:system";
 
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "WebToolSettings")]
@@ -155,7 +148,7 @@ pub(super) async fn save_web_tool_provider_binding(
 ) -> Result<GraphqlWebToolBindingSettings> {
     let store = state.store()?;
     let capability_id = parse_web_capability(&input.capability_id)?;
-    let expected_tool_name = tool_name_for_capability(capability_id);
+    let expected_tool_name = capability_id.as_str();
     if input.tool_name != expected_tool_name {
         return Err(async_graphql::Error::new(
             "tool and capability do not match",
@@ -230,7 +223,7 @@ pub(super) async fn save_browser_provider_route(
         })
         .collect::<Result<Vec<_>>>()?;
     let request = ReplaceProviderCapabilityRouteRequest::new(
-        ToolName::new(WEB_BROWSE_TOOL).map_err(graphql_error)?,
+        ToolName::new(CapabilityId::WebBrowse.as_str()).map_err(graphql_error)?,
         CapabilityId::WebBrowse,
         references,
     )
@@ -264,7 +257,7 @@ async fn binding_settings(
     use_native_default: bool,
     capability_id: CapabilityId,
 ) -> Result<GraphqlWebToolBindingSettings> {
-    let tool_name = tool_name_for_capability(capability_id);
+    let tool_name = capability_id.as_str();
     let provider_options = provider_options(accounts, native_provider, capability_id);
     let default_provider_account_id = default_provider_account_id(capability_id).to_string();
     let tool_name = ToolName::new(tool_name).map_err(graphql_error)?;
@@ -384,7 +377,7 @@ fn web_assignment_keys() -> Result<[ProviderCapabilityAssignmentKey; 2]> {
 
 fn web_assignment_key(capability_id: CapabilityId) -> Result<ProviderCapabilityAssignmentKey> {
     ProviderCapabilityAssignmentKey::new(
-        ToolName::new(tool_name_for_capability(capability_id)).map_err(graphql_error)?,
+        ToolName::new(capability_id.as_str()).map_err(graphql_error)?,
         capability_id,
     )
     .map_err(graphql_error)
@@ -427,31 +420,24 @@ fn option_from_account(
 }
 
 fn parse_web_capability(capability_id: &str) -> Result<CapabilityId> {
-    match capability_id {
-        WEB_SEARCH_TOOL => Ok(CapabilityId::WebSearch),
-        WEB_FETCH_TOOL => Ok(CapabilityId::WebFetch),
-        WEB_BROWSE_TOOL => Ok(CapabilityId::WebBrowse),
-        _ => Err(async_graphql::Error::new(
-            "capability is not a supported web tool capability",
-        )),
+    for candidate in [
+        CapabilityId::WebSearch,
+        CapabilityId::WebFetch,
+        CapabilityId::WebBrowse,
+    ] {
+        if capability_id == candidate.as_str() {
+            return Ok(candidate);
+        }
     }
-}
-
-const fn tool_name_for_capability(capability_id: CapabilityId) -> &'static str {
-    match capability_id {
-        CapabilityId::WebSearch => WEB_SEARCH_TOOL,
-        CapabilityId::WebFetch => WEB_FETCH_TOOL,
-        CapabilityId::WebBrowse => WEB_BROWSE_TOOL,
-        CapabilityId::ModelGenerate | CapabilityId::ModelClassify => unreachable!(),
-    }
+    Err(async_graphql::Error::new(
+        "capability is not a supported web tool capability",
+    ))
 }
 
 const fn default_provider_account_id(capability_id: CapabilityId) -> &'static str {
-    match capability_id {
-        CapabilityId::WebSearch => DUCKDUCKGO_SYSTEM_ACCOUNT_ID,
-        CapabilityId::WebFetch => DIRECT_HTTP_SYSTEM_ACCOUNT_ID,
-        CapabilityId::WebBrowse => OBSCURA_SYSTEM_ACCOUNT_ID,
-        CapabilityId::ModelGenerate | CapabilityId::ModelClassify => unreachable!(),
+    match default_web_provider_account_id(capability_id) {
+        Some(account_id) => account_id,
+        None => unreachable!(),
     }
 }
 
@@ -531,7 +517,7 @@ mod tests {
         save_web_tool_provider_binding(
             &state,
             GraphqlSaveWebToolProviderBindingInput {
-                tool_name: WEB_SEARCH_TOOL.to_string(),
+                tool_name: CapabilityId::WebSearch.as_str().to_string(),
                 capability_id: CapabilityId::WebSearch.as_str().to_string(),
                 provider_account_id: exa_account_id.clone(),
             },
@@ -551,7 +537,7 @@ mod tests {
         save_web_tool_provider_binding(
             &state,
             GraphqlSaveWebToolProviderBindingInput {
-                tool_name: WEB_FETCH_TOOL.to_string(),
+                tool_name: CapabilityId::WebFetch.as_str().to_string(),
                 capability_id: CapabilityId::WebFetch.as_str().to_string(),
                 provider_account_id: "provider_account:codex:default".to_string(),
             },

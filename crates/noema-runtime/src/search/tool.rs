@@ -29,16 +29,20 @@ pub(crate) async fn execute_web_search(
     provider: &WebSearchBackendHandle,
     call_id: Option<String>,
     payload: &Value,
-) -> WebSearchToolResult {
-    let result = execute_web_search_inner(provider, payload)
-        .await
-        .map_err(|error| safe_error_message(&error));
-    web_tool_result(
+) -> (WebSearchToolResult, Option<WebSearchError>) {
+    let result = execute_web_search_inner(provider, payload).await;
+    let backend_error = match &result {
+        Err(SearchExecutionError::Backend(error)) => Some(error.clone()),
+        _ => None,
+    };
+    let result = result.map_err(|error| safe_error_message(&error));
+    let tool_result = web_tool_result(
         call_id,
         WEB_SEARCH_TOOL,
         result,
         "search response serialization failed",
-    )
+    );
+    (tool_result, backend_error)
 }
 
 async fn execute_web_search_inner(

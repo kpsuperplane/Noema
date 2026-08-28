@@ -6,6 +6,8 @@ use super::WebOperationFuture;
 
 /// Stable id for Noema's default public DuckDuckGo provider.
 pub const DUCKDUCKGO_PUBLIC_PROVIDER_ID: &str = "duckduckgo_public";
+/// Stable account id for Noema's built-in public search provider.
+pub const DUCKDUCKGO_PUBLIC_PROVIDER_ACCOUNT_ID: &str = "provider_account:duckduckgo_public:system";
 /// Reliability label for providers that do not have a formal API contract.
 pub const BEST_EFFORT_PUBLIC_CONTRACT: &str = "best_effort_public";
 
