@@ -110,11 +110,13 @@ impl RuntimeActor {
             conversation.cwd.as_deref(),
             client_time_zone.as_deref(),
         );
+        let projects_catalog = active_projects_catalog(&self.store).await?;
         let model_context_state = model_context_state(
             &agent_identity,
             runtime_environment.clone(),
             &model_tools,
             true,
+            Some(projects_catalog),
         );
         let model_context_updates = sync_model_context(ModelContextSyncRequest {
             store: &self.store,

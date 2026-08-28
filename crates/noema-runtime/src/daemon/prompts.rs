@@ -63,6 +63,16 @@ Work delegation:
 - When `task.delegate` is available, delegate work likely to require more than five tool calls unless the human explicitly requests foreground execution. Keep shorter or interactive work in the foreground. Judge this semantically, not by phrase matching or a literal runtime counter.
 - Once you determine that fulfilling the request requires a new public HTTP API connector, delegate the official API research and complete pending adapter proposal as one background task when `task.delegate`, web research, `definition_template`, and `propose_definition` are available. Do not begin that research or proposal inline. Preserve the requested outcome and operation scope in the task, require the smallest supported authentication scheme, and require `propose_definition` to return `review_required`; unsupported authentication or the absence of a suitable public HTTP API is a valid evidenced task result. Keep human review, credential entry, OAuth consent, and activation in the foreground. If delegation is unavailable, continue the same connector-creation path inline.
 
+Project placement:
+- The latest projects.catalog section contains up to 100 recently updated active projects. Archived projects are excluded from automatic placement.
+- Before creating a Task, inspect likely catalog matches with `project.read`. Use `project.list` with its cursor when further discovery is necessary.
+- When exactly one active project clearly matches the request, place the Task in that project.
+- When several projects remain materially plausible, ask the human to choose before placing the Task.
+- When the request clearly starts an ongoing initiative and no project matches, create a folderless project and place the Task there.
+- Keep ordinary one-off and unmatched Tasks projectless.
+- Judge project placement and initiative creation semantically. Never use direct phrase matching as the authority.
+- PROJECT.md can contain private and ordinary project context. Never place credential material in it.
+
 Capability extension:
 - You can extend your own capabilities by connecting official hosted MCP services or by researching public HTTP APIs and creating the tools needed to fulfill the user's request. Treat these as normal solution paths, not as unavailable access.
 - When the human asks to connect a service and `mcp.connect_service` is listed in tools.visibility, use web search to identify the service's official website, then call `mcp.connect_service` with that exact website URL. It verifies the site's well-known MCP server card and starts setup inline. Do not guess an MCP endpoint.
@@ -299,6 +309,11 @@ mod tests {
                 "load its `definition_digest` and `operation_id` through `definition_template`",
                 "Direct the human to the connection in Settings",
                 "after an attempted tool call returns unavailable",
+                "latest projects.catalog section",
+                "inspect likely catalog matches with `project.read`",
+                "exactly one active project clearly matches",
+                "create a folderless project",
+                "Judge project placement and initiative creation semantically",
             ],
             &[
                 "one strict JSON object",

@@ -6,8 +6,8 @@
 use std::str::FromStr;
 
 use noema_store::{
-    NoemaStore, ProjectQuery, WorkCommandService, WorkPageSize, WorkTaskQuery, WorkTaskScope,
-    WorkTaskValidAction,
+    NoemaStore, ProjectCursor, ProjectQuery, WorkCommandService, WorkPageSize, WorkTaskQuery,
+    WorkTaskScope, WorkTaskValidAction,
 };
 use noema_tasks::{
     AnswerTask, ArchiveProject, CancelTask, CaptureTask, ChangeTaskRecurrence, CommandMeta,
@@ -23,17 +23,18 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use super::{
-    PROJECT_ARCHIVE_TOOL, PROJECT_CREATE_TOOL, PROJECT_LIST_TOOL, PROJECT_REOPEN_TOOL,
-    PROJECT_UPDATE_TOOL, TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CAPTURE_TOOL, TASK_DELEGATE_TOOL,
-    TASK_FILE_DELETE_TOOL, TASK_FILE_LIST_TOOL, TASK_FILE_READ_TOOL, TASK_FILE_WRITE_TOOL,
-    TASK_LIST_TOOL, TASK_QUEUE_TOOL, TASK_RECURRENCE_END_TOOL, TASK_RECURRENCE_PAUSE_TOOL,
-    TASK_RECURRENCE_RESUME_TOOL, TASK_RECURRENCE_SKIP_NEXT_TOOL, TASK_RECURRENCE_UPDATE_TOOL,
-    TASK_REOPEN_TOOL, TASK_RESCHEDULE_TOOL, TASK_RETRY_TOOL, TASK_RUN_RECURRENCE_NOW_TOOL,
+    PROJECT_ARCHIVE_TOOL, PROJECT_CREATE_TOOL, PROJECT_LIST_TOOL, PROJECT_READ_TOOL,
+    PROJECT_REOPEN_TOOL, PROJECT_UPDATE_TOOL, TASK_ANSWER_TOOL, TASK_CANCEL_TOOL,
+    TASK_CAPTURE_TOOL, TASK_DELEGATE_TOOL, TASK_FILE_DELETE_TOOL, TASK_FILE_LIST_TOOL,
+    TASK_FILE_READ_TOOL, TASK_FILE_WRITE_TOOL, TASK_LIST_TOOL, TASK_QUEUE_TOOL,
+    TASK_RECURRENCE_END_TOOL, TASK_RECURRENCE_PAUSE_TOOL, TASK_RECURRENCE_RESUME_TOOL,
+    TASK_RECURRENCE_SKIP_NEXT_TOOL, TASK_RECURRENCE_UPDATE_TOOL, TASK_REOPEN_TOOL,
+    TASK_RESCHEDULE_TOOL, TASK_RETRY_TOOL, TASK_RUN_RECURRENCE_NOW_TOOL,
     TASK_RUN_SCHEDULED_NOW_TOOL, TASK_SCHEDULE_TOOL, TASK_UNSCHEDULE_TOOL, TASK_UPDATE_TOOL,
     TaskDelegateRuntimeContext, TaskToolResult,
     catalog::{
         CancelArguments, CaptureArguments, DelegateArguments, DelegateProjectArguments,
-        GateArguments, ProjectCreateArguments, ProjectPreconditionArguments,
+        GateArguments, ProjectCreateArguments, ProjectPreconditionArguments, ProjectReadArguments,
         ProjectUpdateArguments, RecurrencePreconditionArguments, RecurrenceUpdateArguments,
         ReopenArguments, RetryArguments, ScheduleArguments, ScheduleFieldsArguments,
         TaskPreconditionArguments, UpdateArguments,
@@ -460,16 +461,22 @@ async fn execute_primary_inner(
             })
         }
         PROJECT_CREATE_TOOL => {
-            execute_command!(service, args, input: ProjectCreateArguments =>
-                WorkCommand::CreateProject(CreateProject {
+            let input: ProjectCreateArguments = parse_arguments(&args)?;
+            let committed = service
+                .execute_committed(WorkCommand::CreateProject(CreateProject {
                     meta: meta(call_id.clone()),
                     workspace_id,
                     name: input.name,
                     description: input.description,
                     folder: input.folder,
-                    project_document_markdown: None,
-                })
-            )
+                    project_document_markdown: input.project_document,
+                }))
+                .await
+                .map_err(|error| error.to_string())?;
+            let adopted = committed.project_document_adopted.unwrap_or(false);
+            let mut payload = command_result_payload(store, committed.result).await?;
+            payload["document_adopted"] = json!(adopted);
+            return Ok(payload);
         }
         PROJECT_UPDATE_TOOL => {
             execute_command!(service, args, input: ProjectUpdateArguments =>
@@ -504,6 +511,7 @@ async fn execute_primary_inner(
             return list_tasks(store, &context.owner_human_id, &workspace_id, &args).await;
         }
         PROJECT_LIST_TOOL => return list_projects(store, &workspace_id, &args).await,
+        PROJECT_READ_TOOL => return read_project(store, &workspace_id, &args).await,
         _ => return Err("unknown primary Work tool".to_string()),
     };
     command_result_payload(store, result).await
@@ -746,13 +754,46 @@ async fn list_projects(
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
             first: WorkPageSize::new(limit).map_err(|_| "invalid limit".to_string())?,
-            after: None,
+            after: args
+                .get("cursor")
+                .and_then(Value::as_str)
+                .map(ProjectCursor::decode)
+                .transpose()
+                .map_err(|_| "invalid project cursor".to_string())?,
         })
         .await
         .map_err(|error| error.to_string())?;
     Ok(
-        json!({"projects": connection.edges.into_iter().map(|edge| json!({"project_id":edge.node.project_id,"name":edge.node.name,"description":edge.node.description,"revision":edge.node.revision,"archived":edge.node.archived_at.is_some()})).collect::<Vec<_>>(),"has_next_page":connection.page_info.has_next_page,"end_cursor":connection.page_info.end_cursor}),
+        json!({"projects": connection.edges.into_iter().map(|edge| json!({"project_id":edge.node.project_id,"name":edge.node.name,"description":edge.node.description,"folder":edge.node.folder,"revision":edge.node.revision,"archived":edge.node.archived_at.is_some()})).collect::<Vec<_>>(),"has_next_page":connection.page_info.has_next_page,"end_cursor":connection.page_info.end_cursor}),
     )
+}
+
+async fn read_project(
+    store: &NoemaStore,
+    workspace_id: &WorkspaceId,
+    args: &Value,
+) -> Result<Value, String> {
+    let input: ProjectReadArguments = parse_arguments(args)?;
+    let project_id = ProjectId::new(input.project_id).map_err(|error| error.to_string())?;
+    let project = store
+        .get_work_project(workspace_id, &project_id)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "project is unavailable".to_string())?;
+    let document = store
+        .read_project_document(&project_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(json!({
+        "project_id": project.project_id,
+        "name": project.name,
+        "description": project.description,
+        "folder": project.folder,
+        "revision": project.revision,
+        "archived": project.archived_at.is_some(),
+        "project_document": document.content,
+        "digest": document.digest,
+    }))
 }
 
 #[cfg(test)]

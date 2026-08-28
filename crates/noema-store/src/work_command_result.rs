@@ -13,6 +13,8 @@ pub struct CommittedWorkCommandResult {
     pub result: WorkCommandResult,
     /// Full task projection from the command transaction, when task-targeting.
     pub task_detail: Option<WorkTaskDetail>,
+    /// Whether project creation adopted an existing working-folder document.
+    pub project_document_adopted: Option<bool>,
 }
 
 /// Compact response retained in receipt JSON.
@@ -92,6 +94,7 @@ pub(crate) fn materialize_committed_result(
             event_sequence: write.event_sequence,
         },
         task_detail,
+        project_document_adopted: None,
     })
 }
 

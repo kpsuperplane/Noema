@@ -9,14 +9,15 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{
-    PROJECT_ARCHIVE_TOOL, PROJECT_CREATE_TOOL, PROJECT_LIST_TOOL, PROJECT_REOPEN_TOOL,
-    PROJECT_UPDATE_TOOL, TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CAPTURE_TOOL,
-    TASK_CONTINUE_EXECUTION_TOOL, TASK_DELEGATE_TOOL, TASK_FINISH_EXECUTION_TOOL,
-    TASK_FINISH_PLANNING_TOOL, TASK_FINISH_REVIEW_TOOL, TASK_LIST_TOOL, TASK_QUEUE_TOOL,
-    TASK_RECURRENCE_END_TOOL, TASK_RECURRENCE_PAUSE_TOOL, TASK_RECURRENCE_RESUME_TOOL,
-    TASK_RECURRENCE_SKIP_NEXT_TOOL, TASK_RECURRENCE_UPDATE_TOOL, TASK_REOPEN_TOOL,
-    TASK_REPORT_BLOCKED_TOOL, TASK_RESCHEDULE_TOOL, TASK_RETRY_TOOL, TASK_RUN_RECURRENCE_NOW_TOOL,
-    TASK_RUN_SCHEDULED_NOW_TOOL, TASK_SCHEDULE_TOOL, TASK_UNSCHEDULE_TOOL, TASK_UPDATE_TOOL,
+    PROJECT_ARCHIVE_TOOL, PROJECT_CREATE_TOOL, PROJECT_LIST_TOOL, PROJECT_READ_TOOL,
+    PROJECT_REOPEN_TOOL, PROJECT_UPDATE_TOOL, TASK_ANSWER_TOOL, TASK_CANCEL_TOOL,
+    TASK_CAPTURE_TOOL, TASK_CONTINUE_EXECUTION_TOOL, TASK_DELEGATE_TOOL,
+    TASK_FINISH_EXECUTION_TOOL, TASK_FINISH_PLANNING_TOOL, TASK_FINISH_REVIEW_TOOL, TASK_LIST_TOOL,
+    TASK_QUEUE_TOOL, TASK_RECURRENCE_END_TOOL, TASK_RECURRENCE_PAUSE_TOOL,
+    TASK_RECURRENCE_RESUME_TOOL, TASK_RECURRENCE_SKIP_NEXT_TOOL, TASK_RECURRENCE_UPDATE_TOOL,
+    TASK_REOPEN_TOOL, TASK_REPORT_BLOCKED_TOOL, TASK_RESCHEDULE_TOOL, TASK_RETRY_TOOL,
+    TASK_RUN_RECURRENCE_NOW_TOOL, TASK_RUN_SCHEDULED_NOW_TOOL, TASK_SCHEDULE_TOOL,
+    TASK_UNSCHEDULE_TOOL, TASK_UPDATE_TOOL,
 };
 use noema_tasks::TaskComplexity;
 
@@ -171,6 +172,12 @@ arguments! { ProjectCreateArguments {
     description: String,
     #[serde(default)]
     folder: Option<String>,
+    #[serde(default)]
+    project_document: Option<String>,
+} }
+
+arguments! { ProjectReadArguments {
+    project_id: String,
 } }
 
 arguments! { ProjectUpdateArguments {
@@ -208,13 +215,14 @@ pub(crate) fn primary_task_tool_specs()
         (TASK_RECURRENCE_SKIP_NEXT_TOOL, "Skip the next exact recurring slot.", recurrence_fenced_schema()),
         (TASK_RECURRENCE_END_TOOL, "End all future recurrence without changing active work.", recurrence_fenced_schema()),
         (TASK_RUN_RECURRENCE_NOW_TOOL, "Create and start one extra occurrence now without advancing the next scheduled run. This is unavailable while another occurrence is nonterminal.", recurrence_fenced_schema()),
-        (TASK_DELEGATE_TOOL, "Capture and authorize one autonomous Task. Preserve the human's requested outcome, scope, and delivery depth in the title and Task document. Normally structure the Task document with `## Objective`, `## Requirements`, and `## Expected result`. Omit empty or irrelevant sections. Do not add optional deliverables. Projects are optional. Use complexity_hint only when execution_intent is omitted.", json!({"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"task_document":{"type":"string","minLength":1,"maxLength":65536},"project":{"description":"Explicit project placement. Choose none for a projectless task, or existing with an exact project_id returned by project.list.","oneOf":[{"type":"object","properties":{"kind":{"type":"string","enum":["none"]}},"required":["kind"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","enum":["existing"]},"project_id":{"type":"string","minLength":1,"maxLength":255}},"required":["kind","project_id"],"additionalProperties":false}]},"executor_agent_id":{"type":"string","minLength":1,"maxLength":255},"cwd_override":{"type":"string","minLength":1,"maxLength":4096},"complexity_hint":{"type":"string","description":"Planner selection hint. Omit when execution_intent is provided.","enum":["simple","medium","difficult"]},"execution_intent":{"type":"object","description":"Complete execution intent that skips planning. Omit complexity_hint when provided.","properties":{"request_markdown":{"type":"string","minLength":1,"maxLength":20000},"complexity":{"type":"string","enum":["simple","medium","difficult"]}},"required":["request_markdown","complexity"],"additionalProperties":false}},"required":["title","task_document","project"],"additionalProperties":false})),
+        (TASK_DELEGATE_TOOL, "Capture and authorize one autonomous Task. Preserve the human's requested outcome, scope, and delivery depth in the title and Task document. Normally structure the Task document with `## Objective`, `## Requirements`, and `## Expected result`. Omit empty or irrelevant sections. Do not add optional deliverables. Projects are optional. Use complexity_hint only when execution_intent is omitted.", json!({"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"task_document":{"type":"string","minLength":1,"maxLength":65536},"project":{"description":"Explicit project placement. Choose none for a projectless task, or existing with an exact project_id returned by projects.catalog, project.list, project.read, or project.create.","oneOf":[{"type":"object","properties":{"kind":{"type":"string","enum":["none"]}},"required":["kind"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","enum":["existing"]},"project_id":{"type":"string","minLength":1,"maxLength":255}},"required":["kind","project_id"],"additionalProperties":false}]},"executor_agent_id":{"type":"string","minLength":1,"maxLength":255},"cwd_override":{"type":"string","minLength":1,"maxLength":4096},"complexity_hint":{"type":"string","description":"Planner selection hint. Omit when execution_intent is provided.","enum":["simple","medium","difficult"]},"execution_intent":{"type":"object","description":"Complete execution intent that skips planning. Omit complexity_hint when provided.","properties":{"request_markdown":{"type":"string","minLength":1,"maxLength":20000},"complexity":{"type":"string","enum":["simple","medium","difficult"]}},"required":["request_markdown","complexity"],"additionalProperties":false}},"required":["title","task_document","project"],"additionalProperties":false})),
         (TASK_ANSWER_TOOL, "Answer the exact active_gate returned by task.list. This resolves only that occurrence and never edits future recurring authority.", json!({"type":"object","properties":{"task_id":{"type":"string"},"gate_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"answer_markdown":{"type":"string","minLength":1,"maxLength":20000},"approval_decision":{"type":"string","enum":["approved","declined"]}},"required":["task_id","gate_id","expected_revision","expected_generation","answer_markdown"],"additionalProperties":false})),
         (TASK_RETRY_TOOL, "Retry the explicitly named eligible Recovery gate.", json!({"type":"object","properties":{"task_id":{"type":"string"},"gate_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"retry_note":{"type":"string","maxLength":4000}},"required":["task_id","gate_id","expected_revision","expected_generation"],"additionalProperties":false})),
         (TASK_CANCEL_TOOL, "Cancel a nonterminal task and fence active work.", json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"reason":{"type":"string","maxLength":4000}},"required":["task_id","expected_revision","expected_generation"],"additionalProperties":false})),
         (TASK_REOPEN_TOOL, "Reopen a completed task into Queue with new direction.", json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"feedback_markdown":{"type":"string","minLength":1,"maxLength":20000},"request_markdown":{"type":"string","maxLength":20000},"complexity":{"type":"string","enum":["simple","medium","difficult"]}},"required":["task_id","expected_revision","expected_generation","feedback_markdown"],"additionalProperties":false})),
-        (PROJECT_CREATE_TOOL, "Create a Personal project container.", json!({"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","maxLength":20000},"folder":{"type":"string","minLength":1,"maxLength":4096}},"required":["name"],"additionalProperties":false})),
-        (PROJECT_LIST_TOOL, "List bounded Personal projects.", json!({"type":"object","properties":{"include_archived":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false})),
+        (PROJECT_CREATE_TOOL, "Create a Personal project container and its PROJECT.md.", json!({"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","maxLength":20000},"folder":{"type":"string","minLength":1,"maxLength":4096},"project_document":{"type":"string","maxLength":65536}},"required":["name"],"additionalProperties":false})),
+        (PROJECT_LIST_TOOL, "List bounded Personal projects.", json!({"type":"object","properties":{"include_archived":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"string","minLength":1}},"additionalProperties":false})),
+        (PROJECT_READ_TOOL, "Read exact project metadata and PROJECT.md content.", json!({"type":"object","properties":{"project_id":{"type":"string","minLength":1,"maxLength":255}},"required":["project_id"],"additionalProperties":false})),
         (PROJECT_UPDATE_TOOL, "Update a project with its revision fence.", json!({"type":"object","properties":{"project_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"name":{"type":"string","minLength":1},"description":{"type":"string"},"folder":{"type":"string","minLength":1,"maxLength":4096},"clear_folder":{"type":"boolean"}},"required":["project_id","expected_revision"],"additionalProperties":false})),
         (PROJECT_ARCHIVE_TOOL, "Archive a project without changing task stages.", project_fenced_schema()),
         (PROJECT_REOPEN_TOOL, "Reopen an archived project.", project_fenced_schema()),
@@ -386,6 +394,28 @@ mod tests {
             delegate
                 .description
                 .contains("Omit empty or irrelevant sections")
+        );
+    }
+
+    #[test]
+    fn project_tools_expose_document_discovery_and_pagination() {
+        let tools = primary_task_tool_specs().expect("primary Task tools");
+        let tool = |name: &str| {
+            tools
+                .iter()
+                .find(|tool| tool.name.as_str() == name)
+                .expect("project tool")
+        };
+
+        assert!(
+            tool(PROJECT_CREATE_TOOL).input_schema.as_value()["properties"]["project_document"]
+                .is_object()
+        );
+        assert!(
+            tool(PROJECT_LIST_TOOL).input_schema.as_value()["properties"]["cursor"].is_object()
+        );
+        assert!(
+            tool(PROJECT_READ_TOOL).input_schema.as_value()["properties"]["project_id"].is_object()
         );
     }
 

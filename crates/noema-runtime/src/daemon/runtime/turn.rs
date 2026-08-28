@@ -13,8 +13,10 @@ use noema_providers::{
     ProviderSessionInput, ProviderToolCapabilities, ProviderToolTransport, TokenUsage,
 };
 use noema_store::{
-    RuntimeDebugMetadata, RuntimeDebugScope, RuntimeDebugSpanCategory, RuntimeDebugSpanStatus,
+    ProjectQuery, RuntimeDebugMetadata, RuntimeDebugScope, RuntimeDebugSpanCategory,
+    RuntimeDebugSpanStatus, WorkPageSize,
 };
+use noema_workspaces::WorkspaceId;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
@@ -36,7 +38,8 @@ use super::{
         local_tool_artifact_reference_item, local_tool_result_action_item,
     },
     model_context::{
-        AgentIdentityContext, ModelContextState, RuntimeEnvironmentContext, ToolVisibilityContext,
+        AgentIdentityContext, ModelContextState, ProjectCatalogEntry, ProjectsCatalogContext,
+        RuntimeEnvironmentContext, ToolVisibilityContext,
     },
     model_context_ledger::{ModelContextSyncRequest, sync_model_context},
     model_tools::{ModelTools, build_model_tools},
@@ -252,6 +255,7 @@ fn model_context_state(
     runtime_environment: RuntimeEnvironmentContext,
     model_tools: &ModelTools,
     tools_enabled: bool,
+    projects_catalog: Option<ProjectsCatalogContext>,
 ) -> ModelContextState {
     let mut catalog_rows = if tools_enabled {
         model_tools.prompt_rows.clone()
@@ -259,7 +263,7 @@ fn model_context_state(
         Vec::new()
     };
     catalog_rows.extend(model_tools.unavailable_rows.iter().cloned());
-    ModelContextState::new(
+    let state = ModelContextState::new(
         AgentIdentityContext::from(agent_identity),
         runtime_environment,
         ToolVisibilityContext::new(
@@ -281,7 +285,43 @@ fn model_context_state(
             tools_enabled && model_tools.hosted_web_search(),
             catalog_rows,
         ),
-    )
+    );
+    if let Some(catalog) = projects_catalog {
+        state.with_projects_catalog(catalog)
+    } else {
+        state
+    }
+}
+
+async fn active_projects_catalog(
+    store: &noema_store::NoemaStore,
+) -> Result<ProjectsCatalogContext, RuntimeError> {
+    let workspace_id = WorkspaceId::new("workspace:personal".to_string())
+        .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
+    let connection = store
+        .list_work_projects(ProjectQuery {
+            workspace_id,
+            include_archived: false,
+            first: WorkPageSize::new(100)
+                .map_err(|error| RuntimeError::Protocol(error.to_string()))?,
+            after: None,
+        })
+        .await
+        .map_err(RuntimeError::from)?;
+    Ok(ProjectsCatalogContext {
+        projects: connection
+            .edges
+            .into_iter()
+            .map(|edge| ProjectCatalogEntry {
+                project_id: edge.node.project_id.to_string(),
+                name: edge.node.name,
+                description: edge.node.description,
+                folder: edge.node.folder,
+                revision: edge.node.revision,
+            })
+            .collect(),
+        has_more: connection.page_info.has_next_page,
+    })
 }
 
 include!("turn/startup.rs");

@@ -184,6 +184,11 @@ impl RuntimeActor {
                 turn.runtime_environment.clone(),
                 &active_continuation_model_tools,
                 !task_handoff,
+                if turn.task_id.is_none() && !task_handoff {
+                    Some(active_projects_catalog(&self.store).await?)
+                } else {
+                    None
+                },
             );
             let context_updates = sync_model_context(ModelContextSyncRequest {
                 store: &self.store,
@@ -199,16 +204,13 @@ impl RuntimeActor {
             }
             let task_delegation_available =
                 active_continuation_model_tools.has_callable_tool(TASK_DELEGATE_TOOL);
-            let continuation_instructions = build_local_tool_result_continuation_system_prompt(false);
+            let continuation_instructions =
+                build_local_tool_result_continuation_system_prompt(false);
             if !delegation_reminder_sent
-                && should_nudge_task_delegation(
-                    continuation_step_number,
-                    task_delegation_available,
-                )
+                && should_nudge_task_delegation(continuation_step_number, task_delegation_available)
             {
-                continuation_context.append_developer_message(
-                    task_delegation_continuation_reminder().to_string(),
-                );
+                continuation_context
+                    .append_developer_message(task_delegation_continuation_reminder().to_string());
                 delegation_reminder_sent = true;
             }
             let continuation_stream_suffix = if continuation_step == 0 {

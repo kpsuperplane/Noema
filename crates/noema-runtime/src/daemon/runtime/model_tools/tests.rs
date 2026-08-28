@@ -525,6 +525,7 @@ async fn complete_catalog_is_stable_for_native_transport() {
                 "task.reopen",
                 "project.create",
                 "project.list",
+                "project.read",
                 "project.update",
                 "project.archive",
                 "project.reopen",

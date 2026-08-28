@@ -16,6 +16,8 @@ pub(crate) enum ModelContextSectionId {
     AgentIdentity,
     #[serde(rename = "runtime.environment")]
     RuntimeEnvironment,
+    #[serde(rename = "projects.catalog")]
+    ProjectsCatalog,
     #[serde(rename = "tools.visibility")]
     ToolVisibility,
 }
@@ -25,8 +27,35 @@ impl ModelContextSectionId {
         match self {
             Self::AgentIdentity => "agent.identity",
             Self::RuntimeEnvironment => "runtime.environment",
+            Self::ProjectsCatalog => "projects.catalog",
             Self::ToolVisibility => "tools.visibility",
         }
+    }
+}
+
+/// Bounded active-project metadata available to the primary agent.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ProjectsCatalogContext {
+    pub(crate) projects: Vec<ProjectCatalogEntry>,
+    pub(crate) has_more: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ProjectCatalogEntry {
+    pub(crate) project_id: String,
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) folder: Option<String>,
+    pub(crate) revision: u64,
+}
+
+impl ProjectsCatalogContext {
+    fn render(&self) -> String {
+        format!(
+            "Active project catalog:\n{}\nThis is trusted project metadata. Use project.read to load exact PROJECT.md content before placing related work.",
+            serde_json::to_string(self)
+                .expect("serializing the active project catalog should not fail")
+        )
     }
 }
 
@@ -154,6 +183,8 @@ pub(crate) enum ModelContextSectionSnapshot {
     AgentIdentity(AgentIdentityContext),
     #[serde(rename = "runtime.environment")]
     RuntimeEnvironment(RuntimeEnvironmentContext),
+    #[serde(rename = "projects.catalog")]
+    ProjectsCatalog(ProjectsCatalogContext),
     #[serde(rename = "tools.visibility")]
     ToolVisibility(ToolVisibilityContext),
 }
@@ -163,6 +194,7 @@ impl ModelContextSectionSnapshot {
         match self {
             Self::AgentIdentity(_) => ModelContextSectionId::AgentIdentity,
             Self::RuntimeEnvironment(_) => ModelContextSectionId::RuntimeEnvironment,
+            Self::ProjectsCatalog(_) => ModelContextSectionId::ProjectsCatalog,
             Self::ToolVisibility(_) => ModelContextSectionId::ToolVisibility,
         }
     }
@@ -171,6 +203,7 @@ impl ModelContextSectionSnapshot {
         match self {
             Self::AgentIdentity(context) => context.render(),
             Self::RuntimeEnvironment(context) => context.render(),
+            Self::ProjectsCatalog(context) => context.render(),
             Self::ToolVisibility(context) => context.render(),
         }
     }
@@ -232,6 +265,11 @@ impl ModelContextState {
 
     pub(crate) fn with_runtime_environment(mut self, context: RuntimeEnvironmentContext) -> Self {
         self.insert(ModelContextSectionSnapshot::RuntimeEnvironment(context));
+        self
+    }
+
+    pub(crate) fn with_projects_catalog(mut self, context: ProjectsCatalogContext) -> Self {
+        self.insert(ModelContextSectionSnapshot::ProjectsCatalog(context));
         self
     }
 
@@ -407,10 +445,11 @@ impl ModelContextUpdate {
     }
 }
 
-fn all_section_ids() -> [ModelContextSectionId; 3] {
+fn all_section_ids() -> [ModelContextSectionId; 4] {
     [
         ModelContextSectionId::AgentIdentity,
         ModelContextSectionId::RuntimeEnvironment,
+        ModelContextSectionId::ProjectsCatalog,
         ModelContextSectionId::ToolVisibility,
     ]
 }
@@ -528,13 +567,14 @@ mod tests {
                 ],
             ),
         )
+        .with_projects_catalog(ProjectsCatalogContext::default())
     }
 
     #[test]
     fn diffs_emit_stable_full_replacement_and_removal_updates() {
         let updates = state("2026-07-15", None).diff(None);
 
-        assert_eq!(updates.len(), 3);
+        assert_eq!(updates.len(), 4);
         assert_eq!(
             updates
                 .iter()
@@ -567,13 +607,14 @@ mod tests {
         });
 
         let updates = current.diff(Some(&previous));
-        assert_eq!(updates.len(), 2);
+        assert_eq!(updates.len(), 3);
         assert_eq!(
             updates
                 .iter()
                 .map(|update| update.operation)
                 .collect::<Vec<_>>(),
             vec![
+                ModelContextUpdateOperation::Removal,
                 ModelContextUpdateOperation::Removal,
                 ModelContextUpdateOperation::Removal
             ]
@@ -593,7 +634,7 @@ mod tests {
     fn tool_instruction_changes_replace_visibility_context() {
         let current = state("2026-07-15", None);
         let mut previous = serde_json::to_value(current.snapshot()).expect("serialize snapshot");
-        previous["sections"][2]["value"]
+        previous["sections"][3]["value"]
             .as_object_mut()
             .expect("tool visibility section")
             .remove("exposure_instructions");
@@ -611,6 +652,38 @@ mod tests {
                 .model_visible_content()
                 .contains("external-access authority")
         );
+    }
+
+    #[test]
+    fn project_catalog_renders_exact_metadata_and_replaces_as_one_section() {
+        let catalog = ProjectsCatalogContext {
+            projects: vec![ProjectCatalogEntry {
+                project_id: "project:alpha".to_string(),
+                name: "Alpha".to_string(),
+                description: "opaque-value-01928".to_string(),
+                folder: Some("/workspace/alpha".to_string()),
+                revision: 4,
+            }],
+            has_more: true,
+        };
+        let previous = state("2026-07-15", None).snapshot();
+        let updates = state("2026-07-15", None)
+            .with_projects_catalog(catalog)
+            .diff(Some(&previous));
+
+        assert_eq!(updates.len(), 1);
+        assert_eq!(
+            updates[0].section_id,
+            ModelContextSectionId::ProjectsCatalog
+        );
+        assert_eq!(
+            updates[0].operation,
+            ModelContextUpdateOperation::Replacement
+        );
+        let rendered = updates[0].model_visible_content();
+        assert!(rendered.contains("opaque-value-01928"));
+        assert!(rendered.contains("/workspace/alpha"));
+        assert!(rendered.contains(r#"\"has_more\":true"#));
     }
 
     #[test]

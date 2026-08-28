@@ -40,6 +40,7 @@ pub(crate) const TASK_CANCEL_TOOL: &str = "task.cancel";
 pub(crate) const TASK_REOPEN_TOOL: &str = "task.reopen";
 pub(crate) const PROJECT_CREATE_TOOL: &str = "project.create";
 pub(crate) const PROJECT_LIST_TOOL: &str = "project.list";
+pub(crate) const PROJECT_READ_TOOL: &str = "project.read";
 pub(crate) const PROJECT_UPDATE_TOOL: &str = "project.update";
 pub(crate) const PROJECT_ARCHIVE_TOOL: &str = "project.archive";
 pub(crate) const PROJECT_REOPEN_TOOL: &str = "project.reopen";
@@ -99,6 +100,7 @@ pub(crate) fn is_primary_task_tool(name: &str) -> bool {
             | TASK_REOPEN_TOOL
             | PROJECT_CREATE_TOOL
             | PROJECT_LIST_TOOL
+            | PROJECT_READ_TOOL
             | PROJECT_UPDATE_TOOL
             | PROJECT_ARCHIVE_TOOL
             | PROJECT_REOPEN_TOOL

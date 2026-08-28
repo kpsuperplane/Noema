@@ -142,10 +142,12 @@ impl WorkCommandService {
             committed.result.project.as_ref(),
             project_document.as_deref(),
         ) {
-            self.store
+            let adopted = self
+                .store
                 .ensure_project_document_from(project, content)
                 .await
                 .map_err(project_file_error)?;
+            committed.project_document_adopted = Some(adopted);
         }
         if let Some(detail) = committed.task_detail.as_mut() {
             self.store.hydrate_work_task_files(detail).await?;
