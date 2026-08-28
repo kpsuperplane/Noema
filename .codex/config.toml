@@ -1,0 +1,18 @@
+default_permissions = "noema-build"
+
+[features.network_proxy]
+enabled = true
+
+[permissions.noema-build]
+description = "Build Noema with the shared sccache service inside the sandbox."
+extends = ":workspace"
+
+[permissions.noema-build.filesystem]
+"/root/.cache/sccache" = "write"
+
+[permissions.noema-build.network]
+enabled = true
+allow_local_binding = true
+
+[permissions.noema-build.network.domains]
+"127.0.0.1" = "allow"

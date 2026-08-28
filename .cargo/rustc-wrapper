@@ -6,4 +6,20 @@ if ! command -v sccache >/dev/null 2>&1; then
   exit 127
 fi
 
+if [ "${CODEX_NETWORK_ALLOW_LOCAL_BINDING:-}" = "1" ]; then
+  if ! command -v nc >/dev/null 2>&1; then
+    echo "error: netcat is required to start sccache in the Codex sandbox" >&2
+    exit 127
+  fi
+
+  if ! nc -z 127.0.0.1 4226 >/dev/null 2>&1; then
+    SCCACHE_NO_DAEMON=1 SCCACHE_START_SERVER=1 SCCACHE_IDLE_TIMEOUT=0 \
+      sccache >/dev/null 2>&1 &
+    for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+      nc -z 127.0.0.1 4226 >/dev/null 2>&1 && break
+      sleep 0.05
+    done
+  fi
+fi
+
 exec sccache "$@"

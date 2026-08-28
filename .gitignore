@@ -21,4 +21,5 @@ __pycache__/
 xcuserdata/
 *.swp
 *.swo
-.codex
+.codex/*
+!.codex/config.toml
