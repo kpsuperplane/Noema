@@ -111,6 +111,8 @@ slice or a net-negative reduction.
   action request when current policy permits enablement.
 - Connector proposals expand into one complete manifest before compilation,
   review, and persistence.
+- Native Project-to-Task reads support Project status and audience updates.
+  Task lists expose document previews, so bounded full Task document reads remain open.
 
 ### Clients and product surfaces
 

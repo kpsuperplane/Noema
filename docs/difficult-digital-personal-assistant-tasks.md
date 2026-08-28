@@ -388,13 +388,15 @@ Every row below was reassessed against the current contracts. Each row names the
 | Extend | Core primitives exist. Noema needs bounded connectors, data, rules, or reliability work. |
 | Build | A central data, authority, integration, or execution system is absent. |
 
-The live suite produced five passes, eight partial results, and one failure.
+The first live suite produced five passes, eight partial results, and one failure.
 
-At this baseline, five tasks are verified, nine need more testing, 50 need bounded extensions, and 36 need new systems.
+The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
+
+At this baseline, seven tasks are verified, seven need more testing, 50 need bounded extensions, and 36 need new systems.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend. Task 98 moved from Extend to Test.
 
-Tasks 11, 14, 31, 32, and 35 are now Verified after live acceptance.
+Tasks 11, 14, 15, 19, 31, 32, and 35 are now Verified after live acceptance.
 
 ### 1. Daily coordination and commitments
 
@@ -419,7 +421,7 @@ Tasks 11, 14, 31, 32, and 35 are now Verified after live acceptance.
 | 12 | Monitor an important conversation | Build | Implement external event sources, thread checkpoints, silence deadlines, material-change rules, and escalation controls. Repeat is not reliable event monitoring. |
 | 13 | Coordinate a multi-person meeting | Extend | Add stable contacts, current free-busy access, invitations, negotiation replies, fairness rules, and time-zone exception tests. |
 | 14 | Prepare a meeting brief and agenda | Verified | A current live case found a qualifying external meeting and produced a cited, sensitive brief. Parsed attachments and conflicting prior decisions still need a fixture. |
-| 15 | Prepare audience-specific updates | Test | The live case correctly rejected an unsupported Project narrative. No qualifying linked Project existed, so three fact-matched versions were not exercised. Add a populated Project fixture. |
+| 15 | Prepare audience-specific updates | Verified | A native Project case produced three fact-matched updates. Noema changed detail, tone, confidentiality, asks, and format for each audience. It cited evidence and reported conflicts. Task listings still expose previews only. |
 | 16 | Record decisions and close follow-ups | Extend | Task files can hold a log. Add durable ownership, source-linked status, transcript intake, event reminders, and later completion evidence. |
 | 17 | Maintain a relationship brief | Test | The live case rejected unsafe identity merges and protected private facts. No person spanned Memory, Gmail, and Calendar. Add stable contact links and Calendar attendees before retesting. |
 | 18 | Maintain a relationship follow-up plan | Extend | Memory and Repeat provide partial support. Add stable contacts, interaction history, cadence rules, reciprocity signals, and consent boundaries. |
@@ -428,7 +430,7 @@ Tasks 11, 14, 31, 32, and 35 are now Verified after live acceptance.
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 19 | Produce an evidence-based project status | Test | A strong cited status used current project-like records. Native Project-to-Task linkage was absent, and a source query limit blocked aggregates. Retest a populated native Project. |
+| 19 | Produce an evidence-based project status | Verified | A native Project case joined the Project and four linked Tasks into one cited status. It reconciled reported workstream states with native Inbox stages. Full Task document reads remain a useful improvement. |
 | 20 | Detect project risks and dependencies | Extend | Dependencies and subtasks remain excluded. Add Task dependency links, commitment ownership, weak-signal tests, and intervention rules. |
 | 21 | Maintain a decision log | Extend | Task files can hold local decisions. Add a cross-Task decision authority, replacement links, chronology, source evidence, and Project updates. |
 | 22 | Turn an ambiguous goal into a project plan | Extend | Planner and Task files cover decomposition. Add milestones, dependencies, estimates, review points, subtasks, and plan-to-Task conversion. |

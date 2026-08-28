@@ -45,10 +45,31 @@ Private source contents are not copied into this ledger.
 | 75 | Partial | Turn `turn:18cf788bed8794e6e6af` | Noema normalized a non-empty multi-zone itinerary. It found a cancellation, transfer risks, missing legs, and unsupported terms. | The fixture was supplied as text. Current mail intake, parsed confirmations, change reconciliation, and live travel connections remain untested. |
 | 98 | Partial | Turns `turn:18cf78968b0e7583e7a8` and `turn:18cf789fbd363e9fe895` | Memory page reads and targeted full-text searches worked. The audit checked hierarchy, citations, topic overlap, and retrieval relevance. | Memory lacks visible recency, replacement history, direct editing, and source-level duplicate evidence. Test repeated updates after those systems exist. |
 
+## Retest results
+
+Retest date: 2026-08-28
+
+Noema baseline: commit `f13c8f80`
+
+Fixture: Project `project:18d01c0ca430362e9c65` with four linked Tasks.
+
+The retests used only native Noema records. They made no external writes.
+
+No pending governed action or intervention remained after either case.
+
+| Task | Verdict | Live evidence | What worked | Remaining gap or required improvement |
+| ---: | --- | --- | --- | --- |
+| 15 | Pass | Turn `turn:18d01c1c553998c49e3c`; Project `project:18d01c0ca430362e9c65` | Noema produced executive, engineering, and customer updates from one evidence set. It changed detail, tone, confidentiality, asks, and format without changing the facts. It cited each source and reported conflicts. | Native Task listings expose document previews. Add full Task document reads for deeper evidence checks. This limit did not block the main path. |
+| 19 | Pass | Turn `turn:18d01c2ad82524729fc4`; Project `project:18d01c0ca430362e9c65` | Noema joined the Project and four linked Tasks into one cited status. It covered progress, reliability, budget, schedule, decisions, risks, blockers, and dependencies. It separated facts, inferences, conflicts, and missing evidence. | Native Task listings expose document previews. Add full Task document reads for deeper status evidence. This synthetic native case did not test external sources. |
+
 ## Summary
 
-- Pass: 5
-- Partial: 8
+The first suite produced five passes, eight partial results, and one failure.
+
+The accepted current results include the two 2026-08-28 retests.
+
+- Pass: 7
+- Partial: 6
 - Fail: 1
 
 The strongest paths are research, fact-checking, conflict reasoning, and meeting preparation.
@@ -57,7 +78,9 @@ The main shared failure is capability loss inside delegated Tasks.
 
 Delegated workers often lacked native Tasks, Repeat history, Calendar fields, or stable bounded reads available to the primary chat.
 
-The second shared problem is source identity. Projects, Tasks, contacts, Calendar attendees, and Memory pages do not have reliable cross-source links.
+The Task 15 and 19 retests passed with native Project-to-Task links.
+
+People, messages, event attendees, and Memory pages still lack reliable cross-source links.
 
 The third shared problem is long-run efficiency. Some delegated cases used many provider rounds before they reached a bounded result.
 
@@ -68,6 +91,6 @@ For example, one Task 5 executor run dispatched 83 tool calls. Task 14 needed tw
 1. Give delegated workers the same approved read capabilities as the primary chat.
 2. Add bounded Calendar interval reads with recurrence expansion, all-day dates, locations, attendees, and reliable pagination.
 3. Repair Gmail continuation response transformation.
-4. Add stable Project-to-Task and person-to-email-to-attendee identity links.
+4. Retain native Project-to-Task regression coverage. Add person-to-email-to-attendee identity links.
 5. Use fixed temporal anchors and tolerance windows during review.
 6. Bound evidence scans and review cycles by explicit coverage criteria.

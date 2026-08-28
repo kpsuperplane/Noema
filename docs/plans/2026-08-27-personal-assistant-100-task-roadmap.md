@@ -61,15 +61,17 @@ High-stakes tasks need a domain-specific safety case and a qualified-review boun
 
 | Status | Count |
 | --- | ---: |
-| Verified | 5 |
-| Test | 9 |
+| Verified | 7 |
+| Test | 7 |
 | Extend | 50 |
 | Build | 36 |
 | Total | 100 |
 
-The current verified tasks are 11, 14, 31, 32, and 35.
+The current verified tasks are 11, 14, 15, 19, 31, 32, and 35.
 
 The first live suite produced five passes, eight partial results, and one failure.
+
+The 2026-08-28 native Project retests promoted Tasks 15 and 19.
 
 The existing results prove behavior in one provider setup. They do not yet prove provider portability.
 
@@ -98,7 +100,7 @@ The live tests and portability requirement expose eight shared blockers. They sh
 3. Capability discovery must select only tools that satisfy those complete behaviors.
 4. Time-based work must use a fixed request anchor and bounded review tolerance.
 5. Message, event, and record reads must support bounded, complete, and reliable retrieval.
-6. Projects, Tasks, people, messages, events, and Memory need evidence-backed identity links.
+6. People, messages, events, and Memory need evidence-backed identity links. Native Project-to-Task links now have live proof.
 7. Long runs need explicit coverage plans, evidence budgets, and stop conditions.
 8. Noema needs private file intake, structured output, and deterministic calculation before many domain tasks can pass.
 
@@ -121,7 +123,7 @@ Tasks: 1, 5, 6, 8, 11, 14, 15, 17, 19, 31, 32, 35, 75, and 98.
 - Repair message-source continuation conversion and complete thread retrieval.
 - Preserve source connection and account identity through delegated work.
 - Add bounded evidence plans for connected message, event, record, file, and web sources.
-- Add stable links between native Projects and native Tasks.
+- Retain native Project-to-Task regression coverage. Expose bounded full Task document reads alongside list previews.
 - Add explicit person links across Memory, contact records, message addresses, and event attendees.
 - Add Memory recency, replacement history, source dates, and direct editing.
 - Ingest real travel confirmations from connected messages and parsed attachments.
@@ -138,6 +140,8 @@ Tasks: 1, 5, 6, 8, 11, 14, 15, 17, 19, 31, 32, 35, 75, and 98.
 - A Project status from native Projects, native Tasks, and shared artifacts.
 - A live itinerary built from actual confirmations, including one changed booking.
 - A Memory update case with a replaced fact, duplicate evidence, and later retrieval.
+
+Tasks 15 and 19 passed their native Project acceptance cases on 2026-08-28.
 
 ### Exit gate
 
@@ -378,8 +382,8 @@ Split work when one slice crosses two unrelated domain authorities.
 4. Deliver one complete event-source interval path for Task 5 through the current adapter system.
 5. Repair message continuation conversion at the provider-neutral result boundary for Task 1.
 6. Add a second materially different provider setup for message, event, and record acceptance.
-7. Add one populated Project, Task, person, and travel acceptance fixture.
-8. Rerun the nine current `Test` rows in both setups and update the shared ledger.
+7. Retain the populated Project fixture. Add person and travel acceptance fixtures.
+8. Rerun the seven current `Test` rows in both setups and update the shared ledger.
 
 Do not start Milestone 2 until all Milestone 1 failures have a bounded owner and acceptance case.
 
