@@ -187,80 +187,46 @@ a[href][data-slot="shell-sidebar-control"] {
   vertical-align: top !important;
 }
 
-.noema-markdown
-  .astryx-list:is([data-list-style="disc"], [data-list-style="decimal"])
-  > .astryx-list-item,
 [data-slot="markdown-editor"][data-density="inline"]
   .milkdown-list-item-block
   > .list-item:has(> .label-wrapper > .label:is(.bullet, .ordered)) {
-  margin-inline-start: calc(-1 * var(--spacing-2));
-  padding-inline: var(--spacing-1);
+  margin-inline-start: 0;
+  padding-inline: var(--spacing-2);
 }
 
-.noema-markdown
-  .astryx-list[data-list-style="disc"]
-  > .astryx-list-item
-  > span:first-child {
-  width: var(--spacing-2);
-}
-
-.noema-markdown
-  .astryx-list[data-list-style="disc"]
-  > .astryx-list-item
-  > span:first-child
-  > span,
 [data-slot="markdown-editor"][data-density="inline"]
   .milkdown-list-item-block
   > .list-item
   > .label-wrapper
   > .label.bullet {
-  width: var(--spacing-1);
-  height: var(--spacing-1);
+  width: var(--spacing-1-5);
+  height: var(--spacing-1-5);
   border-radius: var(--radius-full);
-  background-color: color-mix(
-    in srgb,
-    var(--noema-markdown-bullet-accent, var(--color-accent)) 72%,
-    transparent
-  );
-  box-shadow: 0 0 0 var(--spacing-0-5)
-    color-mix(
-      in srgb,
-      var(--noema-markdown-bullet-accent, var(--color-accent)) 6%,
-      transparent
-    );
+  background-color: var(--color-text-primary);
+  box-shadow: none;
   clip-path: none;
-  transform: translateY(1px);
+  transform: none;
 }
 
-.noema-markdown
-  .astryx-list[data-list-style="decimal"]
-  > .astryx-list-item
-  > span:first-child,
 [data-slot="markdown-editor"][data-density="inline"]
   .milkdown-list-item-block
   > .list-item
   > .label-wrapper
   > .label.ordered {
   display: inline-flex;
-  width: var(--spacing-5);
-  height: var(--spacing-5);
+  width: var(--spacing-4);
+  height: auto;
   align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-full);
-  background-color: color-mix(
-    in srgb,
-    var(--noema-markdown-bullet-accent, var(--color-accent)) 6%,
-    transparent
-  );
-  color: color-mix(
-    in srgb,
-    var(--noema-markdown-bullet-accent, var(--color-accent)) 72%,
-    transparent
-  );
-  font-weight: 600;
+  justify-content: flex-start;
+  border-radius: 0;
+  background-color: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--text-body-size);
+  font-weight: inherit;
   font-variant-numeric: tabular-nums;
-  line-height: 1;
-  transform: translateY(1px);
+  line-height: var(--text-body-leading);
+  text-align: start;
+  transform: none;
 }
 
 [data-slot="markdown-editor"] .milkdown {
@@ -404,7 +370,7 @@ a[href][data-slot="shell-sidebar-control"] {
   > .list-item
   > .label-wrapper:has(.label.bullet) {
   align-self: baseline;
-  width: var(--spacing-2);
+  width: var(--spacing-4);
   height: auto;
   margin-block-start: calc((1em * var(--text-body-leading) - var(--spacing-1-5)) / 2);
 }
@@ -439,8 +405,8 @@ a[href][data-slot="shell-sidebar-control"] {
   > .list-item
   > .label-wrapper:has(.label.ordered) {
   align-self: baseline;
-  width: var(--spacing-5);
-  height: var(--spacing-5);
+  width: var(--spacing-4);
+  height: auto;
 }
 
 [data-slot="markdown-editor"][data-density="inline"]
@@ -543,13 +509,6 @@ a[href][data-slot="shell-sidebar-control"] {
   font-size: var(--text-heading-6-size);
   font-weight: var(--text-heading-6-weight);
   line-height: var(--text-heading-6-leading);
-}
-
-.noema-markdown
-  .astryx-list[data-list-style="decimal"]
-  > .astryx-list-item
-  > span:first-child::before {
-  content: counter(astryx-list);
 }
 
 .astryx-date-input,
