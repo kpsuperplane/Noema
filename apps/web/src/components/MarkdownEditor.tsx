@@ -2,6 +2,7 @@ import * as React from "react";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
+import { MarkdownContent } from "@/components/MarkdownContent";
 import { RenderErrorBoundary } from "@/components/errors/RenderErrorBoundary";
 
 export type MarkdownEditorProps = {
@@ -22,6 +23,24 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         <MarkdownEditorImpl {...props} />
       </React.Suspense>
     </RenderErrorBoundary>
+  );
+}
+
+type MarkdownInlineEditorProps = Omit<MarkdownEditorProps, "density">;
+
+export function MarkdownInlineEditor({ value, onReady, ...props }: MarkdownInlineEditorProps) {
+  const [ready, setReady] = React.useState(false);
+  const markReady = React.useCallback(() => {
+    setReady(true);
+    onReady?.();
+  }, [onReady]);
+  return (
+    <div {...stylex.props(styles.frame)}>
+      {!ready ? <MarkdownContent density="compact" className={stylex.props(styles.preview).className}>{value}</MarkdownContent> : null}
+      <div {...stylex.props(!ready && styles.loading)}>
+        <MarkdownEditor {...props} value={value} density="inline" onReady={markReady} />
+      </div>
+    </div>
   );
 }
 
@@ -51,5 +70,8 @@ function MarkdownEditorFallback({
 }
 
 const styles = stylex.create({
+  frame: { position: "relative", minHeight: "var(--spacing-5)" },
+  loading: { position: "absolute", inset: 0, visibility: "hidden", pointerEvents: "none" },
+  preview: { paddingInline: "var(--spacing-2)" },
   notice: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.4 }
 });
