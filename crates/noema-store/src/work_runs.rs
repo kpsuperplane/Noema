@@ -279,6 +279,8 @@ pub struct FinishReview {
     pub decision: noema_tasks::TaskReviewVerdict,
     /// Concise feedback written to `REVIEW.md`.
     pub feedback: String,
+    /// Whether approval sends a completion update to the human.
+    pub notify_human: bool,
 }
 
 impl FinishReview {

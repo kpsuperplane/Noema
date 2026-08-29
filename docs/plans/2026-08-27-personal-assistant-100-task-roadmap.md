@@ -199,8 +199,8 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
 | Change | Why it is needed | Task coverage |
 | --- | --- | --- |
-| Add source events for new messages, changed events, changed files, and Task changes. | Monitoring cannot react promptly or reliably without source change signals. | 3, 7, 12, 33 |
-| Save source checkpoints and material-change baselines. | A monitor must distinguish new information from repeated information after restarts. | 12, 33, 38 |
+| Add source events for new messages, changed events, changed files, and Task changes. | Event-driven monitoring still needs reliable source change signals. Repeat polling already covers the bounded Task 33 case. | 3, 7, 12 |
+| Test existing Repeat history near its bounded limit before adding checkpoint storage. | Task 33 passed with prior Task reads. A longer series must prove whether dedicated stored state is necessary. | 33, 38 |
 | Route detected commitments into existing Tasks or event records after review. | Extracted promises need one durable owner and later completion evidence. | 2, 3, 9, 16 |
 | Add Task dependencies, blockers, milestones, estimates, and explicit owners. | Project planning and replanning need relationships beyond independent Task records. | 7, 20, 22 |
 | Link Project decisions to source evidence and later replacements. | A decision log must preserve history without treating an old decision as current. | 16, 21 |
@@ -210,8 +210,8 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 | Add reviewer identities, version-bound decisions, routing, quorum, and conflict handling. | One human gate and one model review cannot coordinate several independent reviewers. | 24 |
 | Add access inventories, lifecycle checks, shared ownership, and permission-safe export. | Onboarding and handoff must prove access changes without losing accountable ownership. | 26 |
 | Add job-source operations, application records, duplicate checks, and outcome history. | A long job search needs durable pipeline state and evidence from each application. | 28 |
-| Add notification thresholds and quiet conditions for proactive Tasks. | Monitors need clear rules for when to alert and when to remain silent. | 9, 12, 33 |
-| Add prior-result retrieval for recurring Tasks and monitored topics. | A repeated Task must compare with earlier results instead of starting without history. | 33, 38 |
+| Extend the Reviewer delivery decision beyond changes-only completion. | Task 33 can now suppress an approved no-change update. Deadline and escalation thresholds remain open. | 9, 12 |
+| Reuse bounded Task listing and inspection for prior Repeat results. | Task 33 passed without another recurrence-history system. Add direct history only after a failing scale case. | 33, 38 |
 | Add learner progress and assessment evidence for adaptive plans. | An adaptive plan needs measured outcomes before it can change pace or content. | 39 |
 
 ### Required acceptance cases
@@ -221,7 +221,7 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 - A monitored thread reports silence only after its agreed deadline.
 - A meeting negotiation handles time zones, working hours, and one declined option.
 - A decision log preserves the replaced decision and its source history.
-- A topic monitor suppresses repeated information and reports one material change.
+- A topic monitor suppresses repeated information and reports one material change. Passed on 2026-08-29.
 - A learning plan adapts after a failed assessment and a completed practice block.
 
 ### Exit gate

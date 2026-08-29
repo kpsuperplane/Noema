@@ -43,15 +43,30 @@ pub(super) fn replay_terminal_tx(
             None,
             None,
         ),
-        WorkRunTerminal::FinishReview(command) => replay_file_terminal_tx(
-            transaction,
-            &command.fence,
-            RunKind::Reviewer,
-            (command.decision == noema_tasks::TaskReviewVerdict::RequestChanges)
-                .then_some(RunKind::Executor),
-            None,
-            Some(command.decision.as_str()),
-        ),
+        WorkRunTerminal::FinishReview(command) => {
+            let replay = replay_file_terminal_tx(
+                transaction,
+                &command.fence,
+                RunKind::Reviewer,
+                (command.decision == noema_tasks::TaskReviewVerdict::RequestChanges)
+                    .then_some(RunKind::Executor),
+                None,
+                Some(command.decision.as_str()),
+            )?;
+            if replay.is_some()
+                && command.decision == noema_tasks::TaskReviewVerdict::Approve
+                && notification_queued_event_for_run_tx(
+                    transaction,
+                    &command.fence.run_id,
+                    noema_tasks::NotificationKind::TaskCompleted,
+                )?
+                .is_some()
+                    != command.notify_human
+            {
+                return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
+            }
+            Ok(replay)
+        }
         WorkRunTerminal::Blocked(command) => replay_blocked_tx(transaction, command),
     }
 }

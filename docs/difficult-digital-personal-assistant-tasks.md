@@ -392,11 +392,11 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-Current retests verify 14 tasks. No task remains in `Test`.
+Current retests verify 15 tasks. No task remains in `Test`.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend.
 
-Tasks 1, 5, 6, 8, 11, 14, 15, 17, 19, 31, 32, 35, 75, and 98 are now Verified.
+Tasks 1, 5, 6, 8, 11, 14, 15, 17, 19, 31, 32, 33, 35, 75, and 98 are now Verified.
 
 These results prove one provider setup. The second provider portability gate remains open.
 
@@ -451,7 +451,7 @@ These results prove one provider setup. The second provider portability gate rem
 | ---: | --- | --- | --- |
 | 31 | Compare a major product or service | Verified | The live case passed current pricing, compatibility, warranty, source disagreement, budget handling, and preference weighting. Add tax and shipping in a future regression. |
 | 32 | Produce a current research brief | Verified | The live case passed primary-source research, claim citations, uncertainty, inference separation, and recommendations. Retain citation regressions across provider changes. |
-| 33 | Monitor a topic for material changes | Extend | Repeat supplies scheduling. Add series baselines, prior-result retrieval, source checkpoints, material-change rules, and notification thresholds. |
+| 33 | Monitor a topic for material changes | Verified | A provider-neutral Repeat case kept a baseline through prior Task reads. It suppressed an unchanged update and reported one exact change after restart. Test a longer series before adding checkpoint storage. |
 | 34 | Build a literature review and evidence map | Extend | PDF parsing now works. Add scholarly-index adapters, citation management, DOI deduplication, reproducible screening, and evidence-map structures. |
 | 35 | Fact-check claims and uncertainty | Verified | The live case passed primary-source tracing, exact dates, definitions, scope limits, and explicit uncertainty. Archived historical evidence still needs a later case. |
 | 36 | Extract a structured inventory | Extend | Public PDF, Office, and Excel parsing now works. Add user and batch intake, image OCR, structured tables, deduplication, and source history. |

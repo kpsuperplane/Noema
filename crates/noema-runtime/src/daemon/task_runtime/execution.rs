@@ -238,6 +238,7 @@ fn execute_reviewer(
         fence,
         decision: parsed.decision,
         feedback: parsed.feedback,
+        notify_human: parsed.notify_human,
     }))
 }
 

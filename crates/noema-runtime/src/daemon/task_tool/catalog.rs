@@ -319,7 +319,7 @@ pub(crate) fn task_finish_review_tool_spec(
     ToolSpec::new(
         TASK_FINISH_REVIEW_TOOL,
         "Finish review and replace REVIEW.md with the current feedback.",
-        json!({"type":"object","properties":{"decision":{"type":"string","enum":["approve","request_changes","needs_human"]},"feedback":{"type":"string","minLength":1,"maxLength":20000}},"required":["decision","feedback"],"additionalProperties":false}),
+        json!({"type":"object","properties":{"decision":{"type":"string","enum":["approve","request_changes","needs_human"]},"feedback":{"type":"string","minLength":1,"maxLength":20000},"notify_human":{"type":"boolean","description":"Whether approval sends a completion update. Set false when a changes-only Task has a verified no-change result. Set true otherwise."}},"required":["decision","feedback","notify_human"],"additionalProperties":false}),
     )
 }
 
@@ -466,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn reviewer_finish_schema_contains_only_current_decision_and_feedback() {
+    fn reviewer_finish_schema_contains_current_review_and_delivery_decision() {
         let schema = task_finish_review_tool_spec(&[
             "criterion:one".to_string(),
             "criterion:two".to_string(),
@@ -478,10 +478,13 @@ mod tests {
             schema["properties"]["decision"]["enum"],
             json!(["approve", "request_changes", "needs_human"])
         );
-        assert_eq!(schema["required"], json!(["decision", "feedback"]));
+        assert_eq!(
+            schema["required"],
+            json!(["decision", "feedback", "notify_human"])
+        );
         assert_eq!(
             schema["properties"].as_object().map(|value| value.len()),
-            Some(2)
+            Some(3)
         );
     }
 

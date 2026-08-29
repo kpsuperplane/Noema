@@ -362,6 +362,7 @@ async fn task_files_carry_execution_across_continuation_and_review() {
                 fence: reviewer_fence.clone(),
                 decision: TaskReviewVerdict::Approve,
                 feedback: "The current Task result is complete.".to_string(),
+                notify_human: true,
             }),
             ACTOR,
             None,
@@ -372,9 +373,10 @@ async fn task_files_carry_execution_across_continuation_and_review() {
     let approval_replay = service
         .record_work_run_terminal(
             WorkRunTerminal::FinishReview(FinishReview {
-                fence: reviewer_fence,
+                fence: reviewer_fence.clone(),
                 decision: TaskReviewVerdict::Approve,
                 feedback: "The current Task result is complete.".to_string(),
+                notify_human: true,
             }),
             ACTOR,
             None,
@@ -383,6 +385,24 @@ async fn task_files_carry_execution_across_continuation_and_review() {
         .await
         .expect("replay Task approval");
     assert_eq!(approval_replay.run_id, approved.run_id);
+    let conflicting_replay = service
+        .record_work_run_terminal(
+            WorkRunTerminal::FinishReview(FinishReview {
+                fence: reviewer_fence,
+                decision: TaskReviewVerdict::Approve,
+                feedback: "The current Task result is complete.".to_string(),
+                notify_human: false,
+            }),
+            ACTOR,
+            None,
+            "correlation:file-lifecycle:approve-conflict",
+        )
+        .await
+        .expect_err("reject conflicting completion delivery replay");
+    assert!(matches!(
+        conflicting_replay,
+        StoreError::Work(WorkDomainError::IdempotencyConflict)
+    ));
 
     let detail = store
         .get_work_task(&task.task_id)
@@ -402,6 +422,115 @@ async fn task_files_carry_execution_across_continuation_and_review() {
         detail.stage.system_behavior,
         WorkflowStageBehavior::TerminalSuccess
     );
+}
+
+#[tokio::test]
+async fn reviewer_controls_completion_notification() {
+    for (case, notify_human, expected_notifications) in
+        [("notify", true, 1_i64), ("silent", false, 0_i64)]
+    {
+        let (store, service) = fixture().await;
+        let task = service
+            .execute(direct_delegated(
+                &format!("idem:completion-notification:{case}"),
+                case,
+            ))
+            .await
+            .expect("delegate Task")
+            .task
+            .expect("Task");
+        let executor = service
+            .claim_next_work_run(
+                &format!("worker:completion-notification:{case}:executor"),
+                60,
+                &[],
+            )
+            .await
+            .expect("claim Executor")
+            .expect("Executor");
+        let executor_check = WorkRunFence {
+            run_id: executor.run.run_id,
+            lease_token: executor.lease_token,
+            task_generation: executor.run.task_generation,
+        };
+        service
+            .start_work_run(
+                &executor_check,
+                ACTOR,
+                None,
+                &format!("correlation:completion-notification:{case}:executor"),
+            )
+            .await
+            .expect("start Executor");
+        store
+            .write_task_file(&task.task_id, crate::TASK_RESULT, "Completed result.")
+            .await
+            .expect("write result");
+        service
+            .record_work_run_terminal(
+                WorkRunTerminal::FinishExecution(FinishExecution {
+                    fence: executor_check,
+                }),
+                ACTOR,
+                None,
+                &format!("correlation:completion-notification:{case}:finish"),
+            )
+            .await
+            .expect("finish execution");
+
+        let reviewer = service
+            .claim_next_work_run(
+                &format!("worker:completion-notification:{case}:reviewer"),
+                60,
+                &[],
+            )
+            .await
+            .expect("claim Reviewer")
+            .expect("Reviewer");
+        let reviewer_check = WorkRunFence {
+            run_id: reviewer.run.run_id,
+            lease_token: reviewer.lease_token,
+            task_generation: reviewer.run.task_generation,
+        };
+        service
+            .start_work_run(
+                &reviewer_check,
+                ACTOR,
+                None,
+                &format!("correlation:completion-notification:{case}:reviewer"),
+            )
+            .await
+            .expect("start Reviewer");
+        service
+            .record_work_run_terminal(
+                WorkRunTerminal::FinishReview(FinishReview {
+                    fence: reviewer_check,
+                    decision: TaskReviewVerdict::Approve,
+                    feedback: "Approved.".to_string(),
+                    notify_human,
+                }),
+                ACTOR,
+                None,
+                &format!("correlation:completion-notification:{case}:approve"),
+            )
+            .await
+            .expect("approve Task");
+
+        let task_id = task.task_id.to_string();
+        let notification_count = store
+            .with_connection(move |connection| {
+                connection
+                    .query_row(
+                        "SELECT COUNT(*) FROM work_notification_outbox WHERE notification_kind = 'task_completed' AND json_extract(payload_json, '$.task_id') = ?1",
+                        [task_id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::Sqlite)
+            })
+            .await
+            .expect("count completion notifications");
+        assert_eq!(notification_count, expected_notifications, "{case}");
+    }
 }
 
 const ACTOR: &str = "actor:human:local";

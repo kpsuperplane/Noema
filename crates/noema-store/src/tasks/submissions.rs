@@ -445,13 +445,17 @@ fn finish_review_tx(
                 )
                 .map_err(StoreError::Work)?,
             )?;
-            let event = enqueue_work_notification_tx(
-                transaction,
-                &stage_event,
-                noema_tasks::NotificationKind::TaskCompleted,
-                &serde_json::json!({"task_id": task.task_id.as_str(), "action_needed": false}),
-            )?
-            .unwrap_or(stage_event);
+            let event = if command.notify_human {
+                enqueue_work_notification_tx(
+                    transaction,
+                    &stage_event,
+                    noema_tasks::NotificationKind::TaskCompleted,
+                    &serde_json::json!({"task_id": task.task_id.as_str(), "action_needed": false}),
+                )?
+                .unwrap_or(stage_event)
+            } else {
+                stage_event
+            };
             Ok(helpers::task_write(event, task.task_id).run(Some(run.run_id)))
         }
         TaskReviewVerdict::RequestChanges => {

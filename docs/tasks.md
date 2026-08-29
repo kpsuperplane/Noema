@@ -126,6 +126,9 @@ The normal path is:
 8. Requested changes queue another Executor, which replaces `RESULT.md`.
 9. Approval completes the Task without copying its content.
 
+The Reviewer also decides whether approval sends a completion update.
+It suppresses the update when a changes-only Task has a verified no-change result.
+
 The Executor can call `task.continue_execution` when more execution is useful.
 That call queues another Executor without human action.
 The next Executor starts immediately.
