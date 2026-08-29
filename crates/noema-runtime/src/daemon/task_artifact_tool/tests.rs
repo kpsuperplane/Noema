@@ -284,6 +284,12 @@ async fn create_linked_artifact(
             "artifact_kind": "document",
             "filename": filename,
             "media_type": "text/markdown",
+            "sources": [{
+                "source_id": fixture.read_context.task_id,
+                "source_version": "generation 1",
+                "source_owner": "human:local",
+                "disclosure_scope": "private to this Task"
+            }],
             "versions": contents
                 .iter()
                 .map(|content| json!({"content": content}))
