@@ -2,9 +2,9 @@
 
 Date: 2026-08-29
 
-Status: all 14 main paths pass in one provider setup
+Status: complete; all 14 main paths and lifecycle gates pass
 
-Portability status: open
+Portability status: waived by product decision; unproven
 
 ## Purpose
 
@@ -168,7 +168,7 @@ The same Task reached terminal success at revision 9 with no pending interventio
 | Message portability | One message provider setup passed. | Waived for Milestone 1; portability remains unproven |
 | Event portability | One event provider setup passed. | Waived for Milestone 1; portability remains unproven |
 | Record portability | Native Project and Task paths passed. | Pass for Noema-owned records |
-| Web portability | Several web providers support current research and route evidence. | Partial: repeat exact cases through another fixed route |
+| Web portability | Several web providers support current research and route evidence. | Waived for Milestone 1; exact fixed-route portability remains unproven |
 | Restart recovery | An active Executor lease expired, retried, and reached reviewer-approved terminal success. | Pass |
 | Expired authentication | The same Task completed Notion search and fetch after reconnection and explicit reopen. | Pass |
 
@@ -177,3 +177,17 @@ Milestone 2 must not depend on a provider name or this setup’s connection iden
 Milestone 1 accepts one provider setup by explicit product decision.
 
 This decision does not prove provider portability.
+
+## Completion audit
+
+The 2026-08-29 audit resolved every package requirement as passed or explicitly waived.
+
+- All 14 evidence turns remain completed in the live store.
+- All eight delegated acceptance Tasks remain terminal with completed Reviewer runs.
+- The populated Project fixture remains active with five linked Tasks.
+- The active-run restart case retains one expired run, one completed retry, and one completed Reviewer.
+- The Notion recovery Task completed search, fetch, and review after reconnection.
+- No selected acceptance Task has an open gate.
+- The global human-intervention queue is empty.
+- Notion reports `authenticated` and `healthy`.
+- Message, event, and exact fixed-route portability are waived and remain unproven.

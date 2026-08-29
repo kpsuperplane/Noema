@@ -90,9 +90,9 @@ These cases used one connected provider setup. They made no external writes.
 
 | Task | Verdict | Live evidence | What worked | Remaining gap or required improvement |
 | ---: | --- | --- | --- | --- |
-| 5 | Pass | Turn `turn:18d0245b5bcd9519346d`; Task `task:18d0245e3ce383b334c6` | Two bounded event audits reached natural ends. They preserved recurrence parents, all-day dates, attendees, locations, overlaps, and gaps. A cited route returned 640 seconds for a 900-second gap. | The route origin was a street-address proxy. A second event provider setup remains required. |
-| 17 | Pass | Turn `turn:18d0228af4cdf1b016f`; Task `task:18d0228d86e1722b1be` | One exact email safely joined Memory, messages, and events. The result preserved identity evidence, bounded coverage, privacy limits, commitments, and staleness. | Add a contact authority only when another production path needs it. A second provider setup remains required. |
-| 75 | Pass | Turn `turn:18d0215e75b196314335`; Task `task:18d021608fbeaba0437a` | Connected messages supplied two confirmations, one duplicate, and one later cancellation. The result preserved references and reported missing dates and transport. | Attachment parsing was not needed for this case. A second message provider setup remains required. |
+| 5 | Pass | Turn `turn:18d0245b5bcd9519346d`; Task `task:18d0245e3ce383b334c6` | Two bounded event audits reached natural ends. They preserved recurrence parents, all-day dates, attendees, locations, overlaps, and gaps. A cited route returned 640 seconds for a 900-second gap. | The route origin was a street-address proxy. Second-provider proof was waived on 2026-08-29. |
+| 17 | Pass | Turn `turn:18d0228af4cdf1b016f`; Task `task:18d0228d86e1722b1be` | One exact email safely joined Memory, messages, and events. The result preserved identity evidence, bounded coverage, privacy limits, commitments, and staleness. | Add a contact authority only when another production path needs it. Second-provider proof was waived on 2026-08-29. |
+| 75 | Pass | Turn `turn:18d0215e75b196314335`; Task `task:18d021608fbeaba0437a` | Connected messages supplied two confirmations, one duplicate, and one later cancellation. The result preserved references and reported missing dates and transport. | Attachment parsing was not needed. Second-provider proof was waived on 2026-08-29. |
 | 98 | Pass | Turn `turn:18d023176f3b6f6d106d`; Task `task:18d02319bfaafb6b10b4` | Normal Memory consolidation replaced one fact, kept two direct evidence items, retained superseded values, and supported later retrieval. | Direct page editing remains a separate user-interface feature. |
 
 ### Message adapter follow-up
@@ -137,13 +137,13 @@ The live runner returned reviewer-approved terminal success without an external 
 
 ### Expired-authentication follow-up
 
-The Notion connection reports `needs_auth` and `unavailable`.
+The Notion connection reports `authenticated` and `healthy`.
 
-OAuth attempt `mcp_oauth:1064a2bdb735cd1a78d6eae6e7a4ca48` waits for browser consent.
+Read-only Task `task:18d026f309e1d56c4de` reopened as generation 2 after reconnection.
 
-Read-only Task `task:18d026f309e1d56c4de` waits at gate `gate:18d026ff7d637581632`.
+Executor run `run:18d02a8b18e6bb6f8e3` completed the Notion search and exact-result fetch.
 
-The gate remains open until consent lets the same Task resume and finish.
+Reviewer run `run:18d02a9e8308c7dcb1f` approved the result. The same Task reached terminal success.
 
 ## Summary
 
