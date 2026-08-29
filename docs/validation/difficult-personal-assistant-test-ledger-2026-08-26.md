@@ -173,9 +173,11 @@ For example, one Task 5 executor run dispatched 83 tool calls. Task 14 needed tw
 
 ## Priority improvements
 
-1. Add a second materially different message and event provider setup.
-2. Repeat the provider-neutral acceptance package through that setup.
-3. Retain Task, Repeat, Project, Memory, event, and message regression coverage.
-4. Reduce repeated low-yield message searches in travel cases.
-5. Test the exact acceptance cases across restart and expired authentication.
-6. Add direct Memory page editing only when a user-facing edit path starts.
+The human waived second-provider portability testing on 2026-08-29.
+
+The current evidence verifies one provider setup. It does not prove portability.
+
+1. Retain Task, Repeat, Project, Memory, event, and message regression coverage.
+2. Reduce repeated low-yield message searches in travel cases.
+3. Retain restart and expired-authentication recovery coverage.
+4. Add direct Memory page editing only when a user-facing edit path starts.

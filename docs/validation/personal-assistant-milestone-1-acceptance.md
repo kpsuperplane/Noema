@@ -147,15 +147,15 @@ The Task reached terminal success. The live runner stayed attached throughout th
 
 ## Authentication follow-up evidence
 
-The Notion connection reports `needs_auth` and `unavailable`.
+The Notion connection reports `authenticated` and `healthy`.
 
-OAuth attempt `mcp_oauth:1064a2bdb735cd1a78d6eae6e7a4ca48` is waiting for browser consent.
+Task `task:18d026f309e1d56c4de` reopened as generation 2 after reconnection.
 
-Task `task:18d026f309e1d56c4de` is the bounded read-only recovery case.
+Executor run `run:18d02a8b18e6bb6f8e3` completed one Notion search and one exact-result fetch.
 
-It waits at gate `gate:18d026ff7d637581632` for the same Notion connection.
+Reviewer run `run:18d02a9e8308c7dcb1f` approved the cited result.
 
-After consent, answer that gate and require the same Task to finish with reviewer approval.
+The same Task reached terminal success at revision 9 with no pending intervention.
 
 ## Portability and lifecycle gate
 
@@ -165,13 +165,15 @@ After consent, answer that gate and require the same Task to finish with reviewe
 | Delegated surface | Every required delegated case finished with reviewer approval. | Pass |
 | Stable time anchor | Time-sensitive cases used fixed cutoffs. | Pass |
 | Bounded source scans | Every package has a finite coverage plan. | Pass |
-| Message portability | One message provider setup passed. | Open: second materially different provider setup required |
-| Event portability | One event provider setup passed. | Open: second materially different provider setup required |
+| Message portability | One message provider setup passed. | Waived for Milestone 1; portability remains unproven |
+| Event portability | One event provider setup passed. | Waived for Milestone 1; portability remains unproven |
 | Record portability | Native Project and Task paths passed. | Pass for Noema-owned records |
 | Web portability | Several web providers support current research and route evidence. | Partial: repeat exact cases through another fixed route |
 | Restart recovery | An active Executor lease expired, retried, and reached reviewer-approved terminal success. | Pass |
-| Expired authentication | One read-only Task and one OAuth attempt wait for the same Notion connection. | Open: browser consent and same-Task terminal success required |
+| Expired authentication | The same Task completed Notion search and fetch after reconnection and explicit reopen. | Pass |
 
 Milestone 2 must not depend on a provider name or this setup’s connection identifiers.
 
-Milestone 1 portability cannot close until another real message and event setup is available.
+Milestone 1 accepts one provider setup by explicit product decision.
+
+This decision does not prove provider portability.

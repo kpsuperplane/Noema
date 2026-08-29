@@ -49,7 +49,7 @@ Each verified case must meet these conditions:
 9. Save execution evidence, external receipts, and unknown outcomes.
 10. Resume correctly after a restart, expired authentication, or a human gate when the task spans those events.
 11. State required source behaviors without naming a provider.
-12. Pass a portability case with a second materially different provider setup when integrations are required.
+12. Record whether integration portability is proved, deferred, or waived by explicit product decision.
 
 Monitoring tasks need two additional cases. One case must contain a material change. One case must contain no material change.
 
@@ -75,7 +75,9 @@ The 2026-08-28 native Project retests promoted Tasks 15 and 19.
 
 All Milestone 1 main paths now pass in one provider setup.
 
-The results do not yet prove provider portability. This keeps the Milestone 1 portability exit gate open.
+The human waived second-provider portability for Milestone 1 on 2026-08-29.
+
+The results do not prove provider portability.
 
 ## Roadmap principles
 
@@ -113,7 +115,7 @@ Provider-neutral behavior requirements belong in acceptance packages. They do no
 
 ## Critical path
 
-The live tests and portability requirement expose eight shared blockers. They should be fixed in this order.
+The live tests exposed eight shared findings. Address current blockers in this order.
 
 | Priority | Change | Why it is needed |
 | ---: | --- | --- |
@@ -140,20 +142,20 @@ This table records the current need, result, and remaining boundary.
 | --- | --- | --- | --- |
 | Retain bounded owner-authorized Task and Repeat reads for Task Executors. | Daily planning and weekly review need other Task records. | Implemented. Tasks 6 and 8 passed. | Keep focused regression coverage. |
 | Describe required source operations in each integration acceptance package. | Provider names do not prove required behavior. | The [Milestone 1 package](../validation/personal-assistant-milestone-1-acceptance.md) defines provider-neutral contracts. | Add later tasks when their milestone starts. |
-| Check required operations through the reviewed catalog. | Catalog presence proves authority, but not result completeness. | Live message, event, route, Task, Project, Memory, and web paths passed. | Repeat with another provider setup. |
+| Check required operations through the reviewed catalog. | Catalog presence proves authority, but not result completeness. | Live message, event, route, Task, Project, Memory, and web paths passed. | Deferred unless portability proof returns. |
 | Show unavailable operations before dependent work. | Early notices prevent wasted calls and unsupported conclusions. | Runtime regression coverage proves unavailable rows remain non-callable and visible. | Add one live unavailable-operation case. |
 | Record one explicit cutoff in time-sensitive results. | A saved cutoff keeps later review stable. | Tasks 5, 6, 17, 75, and 98 used fixed cutoffs. | Retain the result contract. |
 | Limit correction cycles and open one focused human gate. | This prevents repeated disagreement from consuming every run. | Existing review bounds and recovery gates remain active. Task 6 passed without correction. | Retain policy tests. |
-| Add bounded event intervals with complete required fields. | Event audits need instances and route inputs. | A reviewed adapter operation returned recurrence, dates, attendees, locations, and continuations. | Prove the same contract with another event provider. |
+| Add bounded event intervals with complete required fields. | Event audits need instances and route inputs. | A reviewed adapter operation returned recurrence, dates, attendees, locations, and continuations. | Second-provider proof is waived. |
 | Require both event interval bounds. | One-sided reads cannot prove coverage. | The reviewed event operation requires both bounds. | Retain adapter conformance coverage. |
-| Repair message continuation conversion and complete thread retrieval. | Empty pages previously became invalid objects. | The active adapter uses an explicit JSON array. Empty and two-page cases passed live. | Prove the contract with another message provider. |
+| Repair message continuation conversion and complete thread retrieval. | Empty pages previously became invalid objects. | The active adapter uses an explicit JSON array. Empty and two-page cases passed live. | Second-provider proof is waived. |
 | Retest connection and account identity through continuations. | Long runs must keep evidence tied to one source. | Turn `turn:18d025053feeecf24706` preserved account, message, and thread identity through page two. | Repeat after restart and expired authentication. |
 | Add bounded evidence plans for connected and web sources. | Plans prevent repeated low-yield searches. | Every Milestone 1 package now defines a maximum coverage plan and stop condition. | Reduce travel-search call cost further. |
 | Retain Project-to-Task reads and full Task document reads. | List previews can omit material evidence. | Implemented. Tasks 15 and 19 passed. | Keep the populated fixture. |
 | Add evidence-backed person links across sources. | Name-only matching can merge people and disclose private information. | Task 17 passed with one exact email link stored in Memory. | Add a contact authority only when another path needs it. |
 | Preserve Memory source dates, replacement history, and later retrieval. | Current facts need freshness and traceable replacement. | Task 98 passed through claim evidence and normal Memory consolidation. | Direct page editing remains a separate user-interface feature. |
 | Ingest travel confirmations from connected messages. | Supplied text does not prove normal intake. | Task 75 used connected messages and reconciled a later cancellation. | Add attachment parsing when a live confirmation requires it. |
-| Turn provider failures into adapter conformance cases. | Provider defects belong in adapters. | Event coverage and message empty-page conversion passed live. | Add the second provider setup required for portability. |
+| Turn provider failures into adapter conformance cases. | Provider defects belong in adapters. | Event coverage and message empty-page conversion passed live. | Additional provider coverage is deferred. |
 | Keep the watched server in one process group. | A restart must stop the old server before rebinding. | A live watch restart replaced one server PID without an orphan. | Retain the watcher regression check. |
 | Retry read-only socket checks during restart downtime. | A disconnected test runner must not lose Task identity. | The live runner stayed attached through one server replacement. | Keep mutation submission single-shot. |
 
@@ -175,7 +177,7 @@ Tasks 15 and 19 passed their native Project acceptance cases on 2026-08-28.
 
 Tasks 5, 17, 75, and 98 passed their live cases on 2026-08-29.
 
-The [Milestone 1 acceptance package](../validation/personal-assistant-milestone-1-acceptance.md) records exact evidence and remaining portability work.
+The [Milestone 1 acceptance package](../validation/personal-assistant-milestone-1-acceptance.md) records exact evidence and the portability waiver.
 
 ### Exit gate
 
@@ -395,15 +397,15 @@ Build the first provider path concretely. Extract shared production behavior onl
 
 A deterministic adapter fixture can test failures. It does not replace the two production consumers required for shared design.
 
-### Portability gate
+### Portability evidence
 
-One provider-backed pass verifies the task outcome. A second materially different pass verifies portability.
+One provider-backed pass verifies the task outcome.
 
-The second setup can use different providers for every external source.
+The human waived a second materially different setup for the current roadmap.
 
-The Task plan, completion rule, privacy policy, and Noema-owned stored-state shape must remain unchanged between setups.
+Portability remains unproven. Add another setup only when the product needs that claim.
 
-Only bindings, source references, and provider-specific evidence can differ.
+When restored, keep the Task plan, completion rule, privacy policy, and Noema-owned state unchanged.
 
 ### One ledger
 
@@ -444,12 +446,9 @@ Split work when one slice crosses two unrelated domain authorities.
 
 | Priority | Slice | Why now |
 | ---: | --- | --- |
-| 1 | Add a second materially different message and event provider setup. | One live setup does not prove portability. |
-| 2 | Repeat the Milestone 1 integration packages through that setup. | The plan and completion rules must stay unchanged. |
-| 3 | Finish the waiting Notion case after browser consent. | The same read-only Task must resume and reach reviewer approval. |
-| 4 | Reduce travel evidence search cost. | Task 75 passed, but its first Executor used 109 tool calls. |
-| 5 | Retain the populated Project, person-link, travel, event, and Memory fixtures. | These fixtures now support the 14 passing main paths. |
-| 6 | Start Milestone 2 only after portability has a bounded owner. | Milestone 2 must not inherit an unnamed provider dependency. |
+| 1 | Reduce travel evidence search cost. | Task 75 passed, but its first Executor used 109 tool calls. |
+| 2 | Retain the populated Project, person-link, travel, event, and Memory fixtures. | These fixtures support the 14 passing main paths. |
+| 3 | Start Milestone 2. | Main paths and lifecycle recovery pass. Portability is explicitly waived. |
 
 Do not start Milestone 2 until all Milestone 1 failures have a bounded owner and acceptance case.
 
