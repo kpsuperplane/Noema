@@ -6,8 +6,8 @@
 use std::str::FromStr;
 
 use noema_store::{
-    NoemaStore, ProjectCursor, ProjectQuery, WorkCommandService, WorkPageSize, WorkTaskQuery,
-    WorkTaskScope, WorkTaskValidAction,
+    NoemaStore, ProjectCursor, ProjectQuery, WorkCommandService, WorkPageSize, WorkTaskCursor,
+    WorkTaskQuery, WorkTaskScope, WorkTaskValidAction,
 };
 use noema_tasks::{
     AnswerTask, ArchiveProject, CancelTask, CaptureTask, ChangeTaskRecurrence, CommandMeta,
@@ -26,7 +26,7 @@ use super::{
     PROJECT_ARCHIVE_TOOL, PROJECT_CREATE_TOOL, PROJECT_LIST_TOOL, PROJECT_READ_TOOL,
     PROJECT_REOPEN_TOOL, PROJECT_UPDATE_TOOL, TASK_ANSWER_TOOL, TASK_CANCEL_TOOL,
     TASK_CAPTURE_TOOL, TASK_DELEGATE_TOOL, TASK_FILE_DELETE_TOOL, TASK_FILE_LIST_TOOL,
-    TASK_FILE_READ_TOOL, TASK_FILE_WRITE_TOOL, TASK_LIST_TOOL, TASK_QUEUE_TOOL,
+    TASK_FILE_READ_TOOL, TASK_FILE_WRITE_TOOL, TASK_INSPECT_TOOL, TASK_LIST_TOOL, TASK_QUEUE_TOOL,
     TASK_RECURRENCE_END_TOOL, TASK_RECURRENCE_PAUSE_TOOL, TASK_RECURRENCE_RESUME_TOOL,
     TASK_RECURRENCE_SKIP_NEXT_TOOL, TASK_RECURRENCE_UPDATE_TOOL, TASK_REOPEN_TOOL,
     TASK_RESCHEDULE_TOOL, TASK_RETRY_TOOL, TASK_RUN_RECURRENCE_NOW_TOOL,
@@ -37,7 +37,7 @@ use super::{
         GateArguments, ProjectCreateArguments, ProjectPreconditionArguments, ProjectReadArguments,
         ProjectUpdateArguments, RecurrencePreconditionArguments, RecurrenceUpdateArguments,
         ReopenArguments, RetryArguments, ScheduleArguments, ScheduleFieldsArguments,
-        TaskPreconditionArguments, UpdateArguments,
+        TaskInspectArguments, TaskPreconditionArguments, UpdateArguments,
     },
 };
 
@@ -72,7 +72,7 @@ pub(crate) async fn execute_primary_task_tool(
     task_tool_result(name, call_id, result)
 }
 
-/// Inspect only the task attached to the active background run.
+/// List bounded owner-authorized Tasks in the active Task's workspace.
 pub(crate) async fn execute_scoped_task_list_tool(
     store: &NoemaStore,
     task_id: &str,
@@ -81,6 +81,17 @@ pub(crate) async fn execute_scoped_task_list_tool(
 ) -> TaskToolResult {
     let result = execute_scoped_task_list_inner(store, task_id, payload).await;
     task_tool_result(TASK_LIST_TOOL, call_id, result)
+}
+
+/// Read one owner-authorized Task in the active Task's workspace.
+pub(crate) async fn execute_scoped_task_inspect_tool(
+    store: &NoemaStore,
+    current_task_id: &str,
+    call_id: Option<String>,
+    payload: &Value,
+) -> TaskToolResult {
+    let result = execute_scoped_task_inspect_inner(store, current_task_id, payload).await;
+    task_tool_result(TASK_INSPECT_TOOL, call_id, result)
 }
 
 /// Execute one file operation for the Task attached to the active run.
@@ -184,11 +195,8 @@ async fn execute_scoped_task_list_inner(
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| payload.clone());
-    if !args.is_object() || args.as_object().is_some_and(|object| !object.is_empty()) {
-        return Err(
-            "task.list does not accept model-supplied scope filters during a background run"
-                .to_string(),
-        );
+    if !args.is_object() {
+        return Err("task.list requires an object".to_string());
     }
     let task_id = TaskId::new(task_id.trim().to_string()).map_err(|error| error.to_string())?;
     let detail = store
@@ -196,32 +204,26 @@ async fn execute_scoped_task_list_inner(
         .await
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "current task is unavailable".to_string())?;
-    let task = detail.task;
-    let recurrence_authority =
-        current_recurrence_authority(store, task.recurrence_id.as_ref()).await?;
-    Ok(json!({
-        "tasks": [json!({
-            "task_id": task.task_id,
-            "title": task.title,
-            "task_document_preview": detail.task_document.chars().take(1000).collect::<String>(),
-            "stage_id": task.stage_id,
-            "generation": task.generation,
-            "revision": task.revision,
-            "project_id": task.project_id,
-            "scheduled_for": task.scheduled_for,
-            "schedule_time_zone": task.schedule_time_zone,
-            "missed_run_policy": task.missed_run_policy,
-            "recurrence_id": task.recurrence_id,
-            "recurrence_revision": task.recurrence_revision,
-            "recurrence_scheduled_for": task.recurrence_scheduled_for,
-            "recurrence_authority": recurrence_authority,
-            "active_gate": active_gate_payload(detail.active_gate.as_ref()),
-            "attention": detail.attention.map(|attention| format!("{attention:?}").to_ascii_lowercase()),
-            "valid_actions": detail.valid_actions.into_iter().map(serialized_action).collect::<Vec<_>>(),
-        })],
-        "has_next_page": false,
-        "end_cursor": Value::Null,
-    }))
+    list_tasks(store, &detail.workspace.workspace_id, &args).await
+}
+
+async fn execute_scoped_task_inspect_inner(
+    store: &NoemaStore,
+    current_task_id: &str,
+    payload: &Value,
+) -> Result<Value, String> {
+    let args = payload
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| payload.clone());
+    let current_task_id =
+        TaskId::new(current_task_id.trim().to_string()).map_err(|error| error.to_string())?;
+    let current = store
+        .get_work_task(&current_task_id)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "current task is unavailable".to_string())?;
+    read_task(store, &current.workspace.workspace_id, &args).await
 }
 
 fn task_tool_result(
@@ -508,8 +510,9 @@ async fn execute_primary_inner(
             )
         }
         TASK_LIST_TOOL => {
-            return list_tasks(store, &context.owner_human_id, &workspace_id, &args).await;
+            return list_tasks(store, &workspace_id, &args).await;
         }
+        TASK_INSPECT_TOOL => return read_task(store, &workspace_id, &args).await,
         PROJECT_LIST_TOOL => return list_projects(store, &workspace_id, &args).await,
         PROJECT_READ_TOOL => return read_project(store, &workspace_id, &args).await,
         _ => return Err("unknown primary Work tool".to_string()),
@@ -664,7 +667,6 @@ async fn current_recurrence_authority(
 
 async fn list_tasks(
     store: &NoemaStore,
-    _owner: &str,
     workspace_id: &WorkspaceId,
     args: &Value,
 ) -> Result<Value, String> {
@@ -695,7 +697,12 @@ async fn list_tasks(
             .unwrap_or(false),
         scope: WorkTaskScope::All,
         first: WorkPageSize::new(limit).map_err(|_| "invalid limit".to_string())?,
-        after: None,
+        after: args
+            .get("cursor")
+            .and_then(Value::as_str)
+            .map(WorkTaskCursor::decode)
+            .transpose()
+            .map_err(|_| "invalid task cursor".to_string())?,
     };
     let connection = store
         .list_work_tasks(query)
@@ -726,6 +733,39 @@ async fn list_tasks(
         "tasks": tasks,
         "has_next_page": connection.page_info.has_next_page,
         "end_cursor": connection.page_info.end_cursor,
+    }))
+}
+
+async fn read_task(
+    store: &NoemaStore,
+    workspace_id: &WorkspaceId,
+    args: &Value,
+) -> Result<Value, String> {
+    let input: TaskInspectArguments = parse_arguments(args.clone())?;
+    let task_id = TaskId::new(input.task_id).map_err(|error| error.to_string())?;
+    let detail = store
+        .get_work_task(&task_id)
+        .await
+        .map_err(|error| error.to_string())?
+        .filter(|detail| detail.workspace.workspace_id == *workspace_id)
+        .ok_or_else(|| "task is unavailable".to_string())?;
+    let task = detail.task;
+    Ok(json!({
+        "task_id": task.task_id,
+        "title": task.title,
+        "task_document": detail.task_document,
+        "task_document_digest": detail.task_document_digest,
+        "result_document": detail.result_document,
+        "review_document": detail.review_document,
+        "stage_id": task.stage_id,
+        "generation": task.generation,
+        "revision": task.revision,
+        "project_id": task.project_id,
+        "scheduled_for": task.scheduled_for,
+        "schedule_time_zone": task.schedule_time_zone,
+        "recurrence_id": task.recurrence_id,
+        "recurrence_revision": task.recurrence_revision,
+        "recurrence_scheduled_for": task.recurrence_scheduled_for,
     }))
 }
 
@@ -875,5 +915,57 @@ mod tests {
         assert_eq!(payload["cron_expression"], "0 7 * * *");
         assert_eq!(payload["time_zone"], "America/Los_Angeles");
         assert_eq!(payload["lifecycle"], "active");
+    }
+
+    #[tokio::test]
+    async fn background_task_can_list_and_read_other_tasks_in_current_workspace() {
+        let store = crate::test_support::test_store().await;
+        let (current, _) = crate::test_support::seed_task(&store, "Current weekly review").await;
+        let (other, _) = crate::test_support::seed_task(&store, "Prepare launch notes").await;
+
+        let first_page = execute_scoped_task_list_inner(
+            &store,
+            current.task_id.as_str(),
+            &json!({"arguments": {"limit": 1}}),
+        )
+        .await
+        .expect("list workspace Tasks");
+        assert_eq!(first_page["has_next_page"], true);
+        let cursor = first_page["end_cursor"]
+            .as_str()
+            .expect("first page cursor");
+        let second_page = execute_scoped_task_list_inner(
+            &store,
+            current.task_id.as_str(),
+            &json!({"arguments": {"limit": 10, "cursor": cursor}}),
+        )
+        .await
+        .expect("continue workspace Tasks");
+        let task_ids = first_page["tasks"]
+            .as_array()
+            .expect("Task list")
+            .iter()
+            .chain(
+                second_page["tasks"]
+                    .as_array()
+                    .expect("continued Task list"),
+            )
+            .filter_map(|task| task["task_id"].as_str())
+            .collect::<Vec<_>>();
+        assert!(task_ids.contains(&current.task_id.as_str()));
+        assert!(task_ids.contains(&other.task_id.as_str()));
+
+        let read = execute_scoped_task_inspect_inner(
+            &store,
+            current.task_id.as_str(),
+            &json!({"arguments": {"task_id": other.task_id}}),
+        )
+        .await
+        .expect("read another Task");
+        assert_eq!(read["task_id"], other.task_id.as_str());
+        assert_eq!(
+            read["task_document"],
+            "Seeded runtime task: Prepare launch notes"
+        );
     }
 }

@@ -12,11 +12,11 @@ use super::{
     PROJECT_ARCHIVE_TOOL, PROJECT_CREATE_TOOL, PROJECT_LIST_TOOL, PROJECT_READ_TOOL,
     PROJECT_REOPEN_TOOL, PROJECT_UPDATE_TOOL, TASK_ANSWER_TOOL, TASK_CANCEL_TOOL,
     TASK_CAPTURE_TOOL, TASK_CONTINUE_EXECUTION_TOOL, TASK_DELEGATE_TOOL,
-    TASK_FINISH_EXECUTION_TOOL, TASK_FINISH_PLANNING_TOOL, TASK_FINISH_REVIEW_TOOL, TASK_LIST_TOOL,
-    TASK_QUEUE_TOOL, TASK_RECURRENCE_END_TOOL, TASK_RECURRENCE_PAUSE_TOOL,
-    TASK_RECURRENCE_RESUME_TOOL, TASK_RECURRENCE_SKIP_NEXT_TOOL, TASK_RECURRENCE_UPDATE_TOOL,
-    TASK_REOPEN_TOOL, TASK_REPORT_BLOCKED_TOOL, TASK_RESCHEDULE_TOOL, TASK_RETRY_TOOL,
-    TASK_RUN_RECURRENCE_NOW_TOOL, TASK_RUN_SCHEDULED_NOW_TOOL, TASK_SCHEDULE_TOOL,
+    TASK_FINISH_EXECUTION_TOOL, TASK_FINISH_PLANNING_TOOL, TASK_FINISH_REVIEW_TOOL,
+    TASK_INSPECT_TOOL, TASK_LIST_TOOL, TASK_QUEUE_TOOL, TASK_RECURRENCE_END_TOOL,
+    TASK_RECURRENCE_PAUSE_TOOL, TASK_RECURRENCE_RESUME_TOOL, TASK_RECURRENCE_SKIP_NEXT_TOOL,
+    TASK_RECURRENCE_UPDATE_TOOL, TASK_REOPEN_TOOL, TASK_REPORT_BLOCKED_TOOL, TASK_RESCHEDULE_TOOL,
+    TASK_RETRY_TOOL, TASK_RUN_RECURRENCE_NOW_TOOL, TASK_RUN_SCHEDULED_NOW_TOOL, TASK_SCHEDULE_TOOL,
     TASK_UNSCHEDULE_TOOL, TASK_UPDATE_TOOL,
 };
 use noema_tasks::TaskComplexity;
@@ -180,6 +180,10 @@ arguments! { ProjectReadArguments {
     project_id: String,
 } }
 
+arguments! { TaskInspectArguments {
+    task_id: String,
+} }
+
 arguments! { ProjectUpdateArguments {
     #[serde(flatten)]
     precondition: ProjectPreconditionArguments,
@@ -202,7 +206,8 @@ pub(crate) fn primary_task_tool_specs()
 -> Result<Vec<ToolSpec>, noema_capabilities::ToolContractError> {
     [
         (TASK_CAPTURE_TOOL, "Capture work in Inbox, optionally with future execution and Repeat.", json!({"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"task_document":{"type":"string","maxLength":65536},"project_id":{"type":"string","minLength":1,"maxLength":255},"executor_agent_id":{"type":"string","minLength":1,"maxLength":255},"cwd_override":{"type":"string","minLength":1,"maxLength":4096},"schedule":schedule_schema()},"required":["title"],"additionalProperties":false})),
-        (TASK_LIST_TOOL, "List bounded owner-authorized Task summaries. Each active_gate contains the exact authority for task.answer or task.retry. Each recurrence_authority contains the current future template and revision.", json!({"type":"object","properties":{"project_id":{"type":"string","minLength":1},"stage_behavior":{"type":"string","enum":["intake","dispatch","active","human_gate","terminal_success","terminal_cancelled"]},"attention_only":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false})),
+        (TASK_LIST_TOOL, "List bounded owner-authorized Task summaries. Each active_gate contains the exact authority for task.answer or task.retry. Each recurrence_authority contains the current future template and revision.", task_list_schema()),
+        (TASK_INSPECT_TOOL, "Read one exact owner-authorized Task and its current documents.", task_read_schema()),
         (TASK_UPDATE_TOOL, "Update an Inbox Task and its document with revision fences.", json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"title":{"type":"string","minLength":1,"maxLength":200},"task_document":{"type":"string","maxLength":65536},"project_id":{"type":"string","minLength":1},"clear_project":{"type":"boolean"},"executor_agent_id":{"type":"string","minLength":1,"maxLength":255},"cwd_override":{"type":"string","minLength":1,"maxLength":4096},"clear_cwd_override":{"type":"boolean"}},"required":["task_id","expected_revision","expected_generation"],"additionalProperties":false})),
         (TASK_QUEUE_TOOL, "Authorize an Inbox task for planning/execution.", task_fenced_schema()),
         (TASK_SCHEDULE_TOOL, "Schedule an ordinary Inbox task. Use exact RFC3339 instants and the user's IANA timezone; include recurrence only when Repeat is requested.", scheduled_task_schema()),
@@ -325,13 +330,25 @@ pub(crate) fn task_list_scoped_tool_spec() -> Result<ToolSpec, noema_capabilitie
 {
     ToolSpec::new(
         TASK_LIST_TOOL,
-        "Inspect the current task's bounded owner-scoped summary. The runtime supplies the task identity.",
-        json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-        }),
+        "List bounded owner-authorized Task summaries in the current Task's workspace.",
+        task_list_schema(),
     )
+}
+
+pub(crate) fn task_inspect_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
+    ToolSpec::new(
+        TASK_INSPECT_TOOL,
+        "Read one exact owner-authorized Task and its current documents.",
+        task_read_schema(),
+    )
+}
+
+fn task_list_schema() -> Value {
+    json!({"type":"object","properties":{"project_id":{"type":"string","minLength":1},"stage_behavior":{"type":"string","enum":["intake","dispatch","active","human_gate","terminal_success","terminal_cancelled"]},"attention_only":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"string","minLength":1}},"additionalProperties":false})
+}
+
+fn task_read_schema() -> Value {
+    json!({"type":"object","properties":{"task_id":{"type":"string","minLength":1,"maxLength":255}},"required":["task_id"],"additionalProperties":false})
 }
 
 pub(crate) fn task_file_list_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError>
@@ -416,6 +433,23 @@ mod tests {
         );
         assert!(
             tool(PROJECT_READ_TOOL).input_schema.as_value()["properties"]["project_id"].is_object()
+        );
+    }
+
+    #[test]
+    fn background_task_reads_are_bounded_and_exact() {
+        let list = task_list_scoped_tool_spec().expect("scoped Task list");
+        let list_properties = &list.input_schema.as_value()["properties"];
+        assert!(list_properties["stage_behavior"].is_object());
+        assert_eq!(list_properties["limit"]["maximum"], 100);
+        assert!(list_properties["cursor"].is_object());
+
+        let read = task_inspect_tool_spec().expect("Task read");
+        assert_eq!(read.name.as_str(), TASK_INSPECT_TOOL);
+        assert_eq!(read.input_schema.as_value()["required"], json!(["task_id"]));
+        assert_eq!(
+            read.input_schema.as_value()["properties"]["task_id"]["maxLength"],
+            255
         );
     }
 

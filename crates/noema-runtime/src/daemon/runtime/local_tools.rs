@@ -36,10 +36,11 @@ use crate::daemon::{
         TaskArtifactReadContext, execute_task_read_artifact, is_task_read_artifact_tool,
     },
     task_tool::{
-        TASK_LIST_TOOL, TaskDelegateRuntimeContext, execute_primary_task_tool,
-        execute_scoped_task_file_tool, execute_scoped_task_list_tool, is_primary_task_tool,
-        is_task_continue_execution_tool, is_task_file_tool, is_task_finish_execution_tool,
-        is_task_finish_planning_tool, is_task_finish_review_tool, is_task_report_blocked_tool,
+        TASK_INSPECT_TOOL, TASK_LIST_TOOL, TaskDelegateRuntimeContext, execute_primary_task_tool,
+        execute_scoped_task_file_tool, execute_scoped_task_inspect_tool,
+        execute_scoped_task_list_tool, is_primary_task_tool, is_task_continue_execution_tool,
+        is_task_file_tool, is_task_finish_execution_tool, is_task_finish_planning_tool,
+        is_task_finish_review_tool, is_task_report_blocked_tool,
     },
 };
 use crate::file_tools::{execute_file_download, execute_file_parse};
@@ -52,9 +53,8 @@ use noema_capabilities::web::browse::{
 };
 use noema_capabilities::web::fetch::WEB_FETCH_TOOL;
 use noema_providers::{
-    DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID, OBSCURA_BROWSER_PROVIDER_ID,
-    ProviderAuthMethod, WebBrowseBackendHandle, WebBrowseError, WebBrowseOwner,
-    WebFetchBackendHandle, WebFetchContext, WebFetchError, WebSearchBackendHandle,
+    OBSCURA_BROWSER_PROVIDER_ID, ProviderAuthMethod, WebBrowseBackendHandle, WebBrowseError,
+    WebBrowseOwner, WebFetchBackendHandle, WebFetchContext, WebFetchError, WebSearchBackendHandle,
 };
 
 const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated";
@@ -557,10 +557,21 @@ impl RuntimeActor {
                 result.payload,
                 true,
             )
-        } else if call.name == TASK_LIST_TOOL && turn.task_run_id.is_some() {
+        } else if matches!(call.name.as_str(), TASK_LIST_TOOL | TASK_INSPECT_TOOL)
+            && turn.task_run_id.is_some()
+        {
             let result = match turn.task_id.as_deref() {
-                Some(task_id) => {
+                Some(task_id) if call.name == TASK_LIST_TOOL => {
                     execute_scoped_task_list_tool(
+                        &self.store,
+                        task_id,
+                        call.call_id.clone(),
+                        &call.payload,
+                    )
+                    .await
+                }
+                Some(task_id) => {
+                    execute_scoped_task_inspect_tool(
                         &self.store,
                         task_id,
                         call.call_id.clone(),

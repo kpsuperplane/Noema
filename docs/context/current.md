@@ -112,7 +112,7 @@ slice or a net-negative reduction.
 - Connector proposals expand into one complete manifest before compilation,
   review, and persistence.
 - Native Project-to-Task reads support Project status and audience updates.
-  Task lists expose document previews, so bounded full Task document reads remain open.
+  Executors can list bounded workspace Tasks. Executors and Reviewers can inspect one exact Task and its current documents.
 
 ### Clients and product surfaces
 

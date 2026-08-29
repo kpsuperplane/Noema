@@ -506,6 +506,7 @@ async fn complete_catalog_is_stable_for_native_transport() {
                 "noema.present_a2ui",
                 "task.capture",
                 "task.list",
+                "task.inspect",
                 "task.update",
                 "task.queue",
                 "task.schedule",
@@ -629,13 +630,13 @@ async fn complete_catalog_is_stable_for_native_transport() {
                 .find(|tool| tool.name.as_str() == "mcp.mcp:docs.read")
                 .map(|tool| tool.exposed_name().to_string())
                 .expect("MCP tool");
-            assert_eq!(exposed_mcp_name, "read");
+            assert_eq!(exposed_mcp_name, "read_e");
             assert!(tools.exposed_tool_names().contains(&exposed_mcp_name));
             assert!(
                 tools
                     .prompt_rows
                     .iter()
-                    .any(|row| { row == "- capability\tread\tRead a document." })
+                    .any(|row| { row == "- capability\tread_e\tRead a document." })
             );
         } else {
             assert!(
@@ -889,6 +890,7 @@ async fn background_roles_expose_read_tools_and_terminals_for_native_tools() {
                 tools.tool_policy.allows_tool(TASK_LIST_TOOL),
                 role == ExecutionRole::TaskExecutor
             );
+            assert!(tools.tool_policy.allows_tool(TASK_INSPECT_TOOL));
             assert!(!tools.tool_policy.allows_tool(TASK_ANSWER_TOOL));
             assert!(!tools.tool_policy.allows_tool(PRESENT_MULTIPLE_CHOICE_TOOL));
             assert!(!tools.tool_policy.allows_tool(PRESENT_A2UI_TOOL));

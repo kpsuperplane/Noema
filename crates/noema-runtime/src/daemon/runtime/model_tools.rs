@@ -14,11 +14,11 @@ use crate::{
             TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CONTINUE_EXECUTION_TOOL,
             TASK_FILE_DELETE_TOOL, TASK_FILE_LIST_TOOL, TASK_FILE_READ_TOOL, TASK_FILE_WRITE_TOOL,
             TASK_FINISH_EXECUTION_TOOL, TASK_FINISH_PLANNING_TOOL, TASK_FINISH_REVIEW_TOOL,
-            TASK_LIST_TOOL, TASK_REPORT_BLOCKED_TOOL, primary_task_tool_specs,
+            TASK_INSPECT_TOOL, TASK_LIST_TOOL, TASK_REPORT_BLOCKED_TOOL, primary_task_tool_specs,
             task_continue_execution_tool_spec, task_file_delete_tool_spec,
             task_file_list_tool_spec, task_file_read_tool_spec, task_file_write_tool_spec,
             task_finish_execution_tool_spec, task_finish_planning_tool_spec,
-            task_finish_review_tool_spec, task_list_scoped_tool_spec,
+            task_finish_review_tool_spec, task_inspect_tool_spec, task_list_scoped_tool_spec,
             task_report_blocked_tool_spec,
         },
     },
@@ -293,6 +293,7 @@ fn role_builtin_tool_specs(
                 task_continue_execution_tool_spec()?,
                 task_report_blocked_tool_spec()?,
                 task_list_scoped_tool_spec()?,
+                task_inspect_tool_spec()?,
                 task_file_list_tool_spec()?,
                 task_file_read_tool_spec()?,
                 task_file_write_tool_spec()?,
@@ -302,6 +303,7 @@ fn role_builtin_tool_specs(
         }
         ExecutionRole::TaskReviewer => vec![
             task_finish_review_tool_spec(&[])?,
+            task_inspect_tool_spec()?,
             task_file_list_tool_spec()?,
             task_file_read_tool_spec()?,
         ],
@@ -495,6 +497,7 @@ fn builtin_tool_access_class(role: ExecutionRole, name: &str) -> ToolAccessClass
         "search_memory"
         | "read_memory_page"
         | TASK_LIST_TOOL
+        | TASK_INSPECT_TOOL
         | TASK_FILE_LIST_TOOL
         | TASK_FILE_READ_TOOL
         | TASK_READ_ARTIFACT_TOOL => ToolAccessClass::ReadOnly,

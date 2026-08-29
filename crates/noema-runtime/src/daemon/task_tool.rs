@@ -13,14 +13,16 @@ pub(crate) use catalog::{
     primary_task_tool_specs, task_continue_execution_tool_spec, task_file_delete_tool_spec,
     task_file_list_tool_spec, task_file_read_tool_spec, task_file_write_tool_spec,
     task_finish_execution_tool_spec, task_finish_planning_tool_spec, task_finish_review_tool_spec,
-    task_list_scoped_tool_spec, task_report_blocked_tool_spec,
+    task_inspect_tool_spec, task_list_scoped_tool_spec, task_report_blocked_tool_spec,
 };
 pub(crate) use dispatch::{
-    execute_primary_task_tool, execute_scoped_task_file_tool, execute_scoped_task_list_tool,
+    execute_primary_task_tool, execute_scoped_task_file_tool, execute_scoped_task_inspect_tool,
+    execute_scoped_task_list_tool,
 };
 
 pub(crate) const TASK_CAPTURE_TOOL: &str = "task.capture";
 pub(crate) const TASK_LIST_TOOL: &str = "task.list";
+pub(crate) const TASK_INSPECT_TOOL: &str = "task.inspect";
 pub(crate) const TASK_UPDATE_TOOL: &str = "task.update";
 pub(crate) const TASK_QUEUE_TOOL: &str = "task.queue";
 pub(crate) const TASK_SCHEDULE_TOOL: &str = "task.schedule";
@@ -81,6 +83,7 @@ pub(crate) fn is_primary_task_tool(name: &str) -> bool {
         name,
         TASK_CAPTURE_TOOL
             | TASK_LIST_TOOL
+            | TASK_INSPECT_TOOL
             | TASK_UPDATE_TOOL
             | TASK_QUEUE_TOOL
             | TASK_SCHEDULE_TOOL

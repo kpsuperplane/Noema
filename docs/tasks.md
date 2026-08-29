@@ -279,6 +279,8 @@ The store owns admission and transition validity.
 
 Task agents receive only their role context and authorized tools.
 They do not receive unrestricted primary-chat authority.
+Executors can list bounded owner-authorized Tasks in their current workspace.
+Executors and Reviewers can read one exact Task and its current documents.
 Agents decide how to organize long work and whether support files are useful.
 
 Task file tools are:
