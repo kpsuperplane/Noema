@@ -228,7 +228,7 @@ fn evaluate_step(
             .cloned()
             .fold(BigDecimal::from(1), |product, value| product * value),
         CalculationOperation::Divide => {
-            if operands[1] == BigDecimal::from(0) {
+            if operands[1] == 0 {
                 return Err("divide cannot use a zero divisor".to_string());
             }
             (&operands[0] / &operands[1])
