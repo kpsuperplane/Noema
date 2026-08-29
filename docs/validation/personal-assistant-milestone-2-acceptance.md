@@ -3,7 +3,7 @@
 Date: 2026-08-29
 
 Milestone 2 remains in progress.
-This record covers bounded acceptance cases for Tasks 2, 13, 21, 33, 38, and 39.
+This record covers bounded acceptance cases for Tasks 2, 7, 13, 21, 33, 38, and 39.
 
 ## Result
 
@@ -400,6 +400,72 @@ Project files can hold participant constraints, availability, and responses for 
 Existing Task reasoning can negotiate and draft without a provider-specific adapter.
 
 Connected free-busy reads, invitations, and reply handling remain separate operation concerns.
+
+## Task 7 acceptance
+
+Task 7 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d03c980cbbadac3cc4` |
+| Repeat | `recurrence:18d03c9f76aee7203d96` |
+| Source | The Project `PROJECT.md` file |
+| Changed event | `event:vendor-demo-001` |
+| Delay source | `source:delay-notice-001` |
+| Dependent work | `work:summary-002` and `work:decision-003` |
+| Fixed event | `event:fixed-review-004` |
+
+### Baseline
+
+Source revision 1 contained the original plan and no change record.
+
+Task `task:18d03c9f769d802a3d95` started from its scheduled 09:29 UTC slot.
+It preserved every interval, dependency, due time, and fixed item.
+
+It drafted no notices because no notice rule was active.
+
+Executor run `run:18d03cac9eea2a163f1c` produced the result.
+Reviewer run `run:18d03cbd54624c8e4111` approved it.
+
+### Delayed event and dependent work
+
+Source revision 2 moved the vendor demo from 14:00 to 15:00 UTC.
+The source retained one fixed review from 16:30 through 17:00 UTC.
+
+Task `task:18d03cc8df987a824248` inspected the earlier baseline.
+It made these minimum changes.
+
+- It moved the demo to 15:00 through 16:00 UTC.
+- It moved the summary to 16:00 through 16:30 UTC.
+- It preserved the fixed review at 16:30 through 17:00 UTC.
+- It moved the decision to 17:00 through 17:30 UTC.
+- It moved the decision due time from 16:00 to 17:30 UTC.
+
+The replan preserved preparation work and every item duration.
+It kept dependency order, prevented overlap, and ended at the working-hours boundary.
+
+### Required drafts
+
+The Task drafted the required demo-change notice for `contact:rowan-001`.
+It drafted the required decision-time notice for `contact:mika-001`.
+
+Both drafts contained exact old and new times.
+No message was sent, and no calendar event changed.
+
+Executor run `run:18d03cd0690d67d94333` produced the result.
+Reviewer run `run:18d03cef00d5534046af` approved it.
+
+The fixture Repeat ended after the approved controlled replan.
+
+### Reuse assessment
+
+Project files can hold bounded dependencies, fixed work, and notice rules.
+Repeat history and Task reads can replan from a controlled source change.
+
+No dependency table, calendar adapter, or message adapter was necessary for this reasoning and drafting case.
+Connected updates and send receipts remain separate operation concerns.
 
 ## Remaining Milestone 2 gates
 

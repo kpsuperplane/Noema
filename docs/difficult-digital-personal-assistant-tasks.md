@@ -392,11 +392,11 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-Current retests verify 20 tasks. No task remains in `Test`.
+Current retests verify 21 tasks. No task remains in `Test`.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend.
 
-Tasks 1, 2, 5, 6, 8, 11, 13, 14, 15, 17, 19, 21, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
+Tasks 1, 2, 5, 6, 7, 8, 11, 13, 14, 15, 17, 19, 21, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
 
 These results prove one provider setup. The second provider portability gate remains open.
 
@@ -410,7 +410,7 @@ These results prove one provider setup. The second provider portability gate rem
 | 4 | Maintain a prioritized reply and action queue | Extend | Add thread identity, relationship priority, mail drafts, reply operations, and sent-reply reconciliation. Revalidate the current Gmail connection. |
 | 5 | Audit the calendar for conflicts and hidden load | Verified | Bounded live audits reached natural ends. They preserved recurrence parents, all-day dates, attendees, locations, overlaps, gaps, and cited route time. |
 | 6 | Create a realistic daily plan | Verified | A delegated live case used a fixed cutoff, full Task reads, event evidence, preferences, breaks, and overload handling. It passed without correction. |
-| 7 | Replan after disruption | Extend | Calendar replanning passed. Add Task dependencies, travel data, simultaneous changes, and partial-write recovery. |
+| 7 | Replan after disruption | Verified | A provider-neutral Repeat case moved one delayed event and its dependent chain around fixed work. It preserved unaffected work and drafted both required notices. Connected updates remain separate. |
 | 8 | Produce a weekly preview and review | Verified | A delegated live case covered seven Repeat occurrences and full Task documents. It joined work, events, messages, Memory, deadlines, and preparation. |
 | 9 | Track deadlines, renewals, and recurring obligations | Extend | Repeat supplies scheduling. Add source-linked obligation state, portal intake, change detection, and completion reconciliation. |
 | 10 | Review personal goals and adjust the plan | Build | Add goal outcomes, measures, target dates, review history, and links to Tasks and actual time. Projects do not supply this authority. |
