@@ -193,7 +193,7 @@ No case can require an unbounded source scan.
 
 Target: 32/100 Verified.
 
-Current: 21/100 Verified.
+Current: 22/100 Verified.
 
 Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
@@ -201,7 +201,7 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
 | Change | Why it is needed | Task coverage |
 | --- | --- | --- |
-| Add source events for new messages, changed events, changed files, and Task changes. | Event-driven monitoring still needs reliable source change signals. Repeat polling already covers the bounded Task 33 case. | 3, 7, 12 |
+| Add source events for changed external data. | Tasks 7 and 12 passed bounded Project polling. Task 3 still needs event-driven capture and routing. | 3 |
 | Test existing Repeat history near its bounded limit before adding checkpoint storage. | Tasks 33, 38, and 39 passed bounded fixtures. Longer series must prove whether dedicated stored state is necessary. | 33, 38, 39 |
 | Reuse Project files for source-linked promise state. | Task 2 passed a bounded continuity and completion case. Test connected capture and longer history before adding a promise entity. | 2 |
 | Route detected commitments into existing Tasks or event records after review. | Tasks 3, 9, and 16 still need durable capture from changing external sources. | 3, 9, 16 |
@@ -215,7 +215,7 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 | Add reviewer identities, version-bound decisions, routing, quorum, and conflict handling. | One human gate and one model review cannot coordinate several independent reviewers. | 24 |
 | Add access inventories, lifecycle checks, shared ownership, and permission-safe export. | Onboarding and handoff must prove access changes without losing accountable ownership. | 26 |
 | Add job-source operations, application records, duplicate checks, and outcome history. | A long job search needs durable pipeline state and evidence from each application. | 28 |
-| Extend the Reviewer delivery decision beyond changes-only completion. | Task 33 can now suppress an approved no-change update. Deadline and escalation thresholds remain open. | 9, 12 |
+| Test additional Reviewer delivery thresholds. | Tasks 12 and 33 passed silence and no-change decisions. Deadline escalation for Task 9 remains open. | 9 |
 | Reuse bounded Task listing and inspection for prior Repeat results. | Tasks 33, 38, and 39 passed without another recurrence-history system. Add direct history only after a failing scale case. | 33, 38, 39 |
 | Test longer adaptive learning series and connected source intake. | A bounded Project fixture passed. Add dedicated learner state only after a scale or source-boundary failure. | 39 |
 
@@ -223,7 +223,7 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
 - A promise survives source changes and closes only after completion evidence. Passed on 2026-08-29.
 - A delayed event replans dependent Tasks and drafts the required notices. Passed on 2026-08-29.
-- A monitored thread reports silence only after its agreed deadline.
+- A monitored thread reports silence only after its agreed deadline. Passed on 2026-08-29.
 - A meeting negotiation handles time zones, working hours, and one declined option. Passed on 2026-08-29.
 - A decision log preserves the replaced decision and its source history. Passed on 2026-08-29.
 - A topic monitor suppresses repeated information and reports one material change. Passed on 2026-08-29.

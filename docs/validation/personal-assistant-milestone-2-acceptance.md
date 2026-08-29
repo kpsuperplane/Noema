@@ -3,7 +3,7 @@
 Date: 2026-08-29
 
 Milestone 2 remains in progress.
-This record covers bounded acceptance cases for Tasks 2, 7, 13, 21, 33, 38, and 39.
+This record covers bounded acceptance cases for Tasks 2, 7, 12, 13, 21, 33, 38, and 39.
 
 ## Result
 
@@ -467,9 +467,67 @@ Repeat history and Task reads can replan from a controlled source change.
 No dependency table, calendar adapter, or message adapter was necessary for this reasoning and drafting case.
 Connected updates and send receipts remain separate operation concerns.
 
+## Task 12 acceptance
+
+Task 12 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d03d04e8a5b7b048f1` |
+| Repeat | `recurrence:18d03d0cd49da19949cd` |
+| Source | The Project `PROJECT.md` file |
+| Thread | `thread:renewal-001` |
+| Latest message | `message:progress-003` at 09:05 UTC |
+| Silence deadline | 2026-08-29 at 09:42 UTC |
+| Required reply | Confirmation that the renewal packet is ready |
+
+### Baseline before the deadline
+
+Task `task:18d03d0cd48c112649cc` started from its scheduled 09:37 UTC slot.
+It inspected all message events at or before that cutoff.
+
+It recorded `pending_before_deadline`.
+It did not report silence or draft a reminder.
+
+Executor run `run:18d03d1bfc8dd7804b8d` produced the result.
+Reviewer run `run:18d03d28a61ac4dc4d0f` approved it.
+
+### Unchanged pre-deadline occurrence
+
+Task `task:18d03d2cb33ea6b14d6b` used a 09:38:34 UTC cutoff.
+It inspected the earlier baseline and found no new event.
+
+It kept `pending_before_deadline` and did not present the state as new information.
+Reviewer run `run:18d03d3d82c4830f4f6f` approved it with `notify_human: false`.
+
+### Post-deadline occurrence
+
+Task `task:18d03d6880e8d13a5437` used a 09:42:51 UTC cutoff.
+The same source contained no qualifying reply.
+
+It changed the outcome to `silence_deadline_passed`.
+It identified `message:progress-003` as the latest recorded message.
+
+It drafted exactly one reminder for `contact:kevin-001`.
+It did not send the reminder or change the thread.
+
+Executor run `run:18d03d6e6e8bca7754ef` produced the result.
+Reviewer run `run:18d03d7de8b3fd9f56bb` approved it.
+
+The fixture Repeat ended after acceptance.
+
+### Reuse assessment
+
+Project files can hold bounded message events and one agreed deadline.
+Repeat occurrence anchors provide the deadline evaluation time.
+
+No thread table, event stream, or message adapter was necessary for this bounded polling case.
+Connected event intake and reminder sends remain separate operation concerns.
+
 ## Remaining Milestone 2 gates
 
 - Test long promise, monitoring, decision, and learning series near the bounded history limit.
-- Verify proactive trigger, source checkpoint, and stop-condition explanations.
-- Run the remaining Milestone 2 acceptance cases.
-- Confirm restart recovery for cases that can make external actions.
+- Verify shared restart recovery for the remaining long-running cases.
+- Verify external action receipts for cases that can send or update data.
