@@ -555,6 +555,7 @@ fn format_hint(path: &str, media_type: Option<&str>) -> Option<String> {
         Some("text/csv") => Some("csv"),
         Some("text/plain") => Some("txt"),
         Some("text/markdown" | "application/markdown") => Some("md"),
+        Some("message/rfc822") => Some("eml"),
         Some("application/json") => Some("json"),
         Some("application/xml" | "text/xml") => Some("xml"),
         _ => None,
@@ -572,12 +573,17 @@ fn is_text_format(format: Option<&str>, media_type: Option<&str>) -> bool {
         return media_type.starts_with("text/")
             || matches!(
                 media_type.split(';').next(),
-                Some("application/json" | "application/xml" | "application/markdown")
+                Some(
+                    "application/json"
+                        | "application/xml"
+                        | "application/markdown"
+                        | "message/rfc822"
+                )
             );
     }
     matches!(
         format,
-        Some("csv" | "txt" | "text" | "md" | "markdown" | "json" | "xml")
+        Some("csv" | "txt" | "text" | "md" | "markdown" | "eml" | "json" | "xml")
     )
 }
 

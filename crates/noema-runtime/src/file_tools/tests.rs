@@ -14,6 +14,20 @@ async fn text_parser_bounds_utf8_without_using_anydoc() {
     assert!(response.truncated);
 }
 
+#[tokio::test]
+async fn email_source_is_available_as_bounded_text() {
+    let mut file = tempfile::tempfile().expect("file");
+    file.write_all(b"Subject: Delivery\n\nOrder 8821 delivered.")
+        .expect("write");
+    file.seek(SeekFrom::Start(0)).expect("seek");
+    let response = parse_open_file(file, "delivery.eml", Some("message/rfc822"), 1000).await;
+    assert_eq!(response.status, FileParseStatus::Converted);
+    assert_eq!(response.parser.as_deref(), Some("utf8"));
+    assert_eq!(response.format.as_deref(), Some("eml"));
+    assert_eq!(response.content_format.as_deref(), Some("text"));
+    assert!(response.content.as_deref().unwrap().contains("Order 8821"));
+}
+
 #[test]
 fn unsupported_document_has_a_bounded_result() {
     let response = convert_document_bytes(b"not a document", Some("bin"), 1000);
