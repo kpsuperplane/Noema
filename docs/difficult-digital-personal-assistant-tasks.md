@@ -392,11 +392,11 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-Current retests verify 17 tasks. No task remains in `Test`.
+Current retests verify 18 tasks. No task remains in `Test`.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend.
 
-Tasks 1, 5, 6, 8, 11, 14, 15, 17, 19, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
+Tasks 1, 5, 6, 8, 11, 14, 15, 17, 19, 21, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
 
 These results prove one provider setup. The second provider portability gate remains open.
 
@@ -434,7 +434,7 @@ These results prove one provider setup. The second provider portability gate rem
 | ---: | --- | --- | --- |
 | 19 | Produce an evidence-based project status | Verified | A native Project case joined the Project and four full Task documents. It reconciled workstream reports with native stages and conflicts. |
 | 20 | Detect project risks and dependencies | Extend | Dependencies and subtasks remain excluded. Add Task dependency links, commitment ownership, weak-signal tests, and intervention rules. |
-| 21 | Maintain a decision log | Extend | Task files can hold local decisions. Add a cross-Task decision authority, replacement links, chronology, source evidence, and Project updates. |
+| 21 | Maintain a decision log | Verified | A provider-neutral Project case retained exact source history, marked one replaced decision superseded, and linked its replacement both ways. Test normally ordered longer series before adding a dedicated decision entity. |
 | 22 | Turn an ambiguous goal into a project plan | Extend | Planner and Task files cover decomposition. Add milestones, dependencies, estimates, review points, subtasks, and plan-to-Task conversion. |
 | 23 | Assemble a deliverable from scattered material | Extend | Public downloads and PDF or Office parsing now work. Add user file intake, version comparison, and required-format export. |
 | 24 | Coordinate a multi-reviewer approval | Build | Add reviewer identities, routing, version binding, quorum, conflict resolution, and audit. Tasks supports one human gate and one model reviewer. |

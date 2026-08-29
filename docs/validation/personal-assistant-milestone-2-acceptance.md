@@ -3,7 +3,7 @@
 Date: 2026-08-29
 
 Milestone 2 remains in progress.
-This record covers bounded acceptance cases for Tasks 33, 38, and 39.
+This record covers bounded acceptance cases for Tasks 21, 33, 38, and 39.
 
 ## Result
 
@@ -232,9 +232,63 @@ Connected course intake remains a separate source concern.
 
 Test a longer learning series before adding dedicated progress state or direct recurrence history.
 
+## Task 21 acceptance
+
+Task 21 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d03b67823626aa1a60` |
+| Repeat | `recurrence:18d03b730f6d042a1ba0` |
+| Source | The Project `PROJECT.md` file |
+| Initial decision | `decision:delivery-001` |
+| Replacement decision | `decision:delivery-002` |
+| Initial source | `source:operations-review-001` |
+| Replacement source | `source:partner-requirement-002` |
+
+### Baseline
+
+Source revision 1 contained one current decision.
+It included the exact statement, date, reason, Source ID, and Source statement.
+
+Task `task:18d03b730f5b0e8e1b9f` created the baseline decision history.
+It preserved every source field and added no unsupported outcome.
+
+Executor run `run:18d03b80480a46ba1d2a` produced the result.
+Reviewer run `run:18d03b929150775a1f4d` approved it.
+
+### Replacement
+
+Source revision 2 retained the first record and added one replacement record.
+The replacement explicitly linked to `decision:delivery-001`.
+
+Task `task:18d03b9ba99bbaa3205c` produced one current entry and two history entries.
+It marked `decision:delivery-001` as superseded without changing its original source fields.
+
+It marked `decision:delivery-002` as current.
+It linked `Replaces` and `Replaced by` in both directions.
+
+Executor run `run:18d03ba2e799c2162139` produced the result.
+Reviewer run `run:18d03bc89b1227052588` approved it.
+
+The fixture Repeat ended after acceptance.
+Its final revision is 2, and it has no next run.
+
+### Scope limit
+
+The baseline retained its future scheduled slot as its occurrence anchor.
+The later manual run had an earlier anchor and correctly excluded that baseline from prior history.
+
+This case proves preservation through the Project source authority.
+It does not prove prior-Task recovery across a normally ordered series.
+
+Test a normally ordered longer series before adding a dedicated decision entity or direct recurrence history.
+
 ## Remaining Milestone 2 gates
 
-- Test long monitoring and learning series near the bounded history limit.
+- Test long monitoring, decision, and learning series near the bounded history limit.
 - Verify proactive trigger, source checkpoint, and stop-condition explanations.
 - Run the remaining Milestone 2 acceptance cases.
 - Confirm restart recovery for cases that can make external actions.

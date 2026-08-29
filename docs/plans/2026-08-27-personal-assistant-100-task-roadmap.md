@@ -193,7 +193,7 @@ No case can require an unbounded source scan.
 
 Target: 32/100 Verified.
 
-Current: 17/100 Verified.
+Current: 18/100 Verified.
 
 Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
@@ -205,7 +205,8 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 | Test existing Repeat history near its bounded limit before adding checkpoint storage. | Tasks 33, 38, and 39 passed bounded fixtures. Longer series must prove whether dedicated stored state is necessary. | 33, 38, 39 |
 | Route detected commitments into existing Tasks or event records after review. | Extracted promises need one durable owner and later completion evidence. | 2, 3, 9, 16 |
 | Add Task dependencies, blockers, milestones, estimates, and explicit owners. | Project planning and replanning need relationships beyond independent Task records. | 7, 20, 22 |
-| Link Project decisions to source evidence and later replacements. | A decision log must preserve history without treating an old decision as current. | 16, 21 |
+| Reuse Project files for source-linked decision history. | Task 21 passed a bounded replacement case. Test connected capture and longer history before adding a dedicated decision entity. | 21 |
+| Route captured decisions and follow-ups into the Project source. | Task 16 still needs durable ownership and later completion evidence after a decision is recorded. | 16 |
 | Add stable contact records with interaction history and follow-up boundaries. | Relationship work needs safe identity, recency, consent, and cadence information. | 13, 18 |
 | Add message drafts, replies, sent-message checks, and thread closure evidence. | A prepared response is not a completed communication loop. | 4, 12, 16 |
 | Add event free-busy, invitations, attendee responses, and negotiation support. | Multi-person scheduling needs availability and confirmed participant state. | 13 |
@@ -222,7 +223,7 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 - A delayed event replans dependent Tasks and drafts the required notices.
 - A monitored thread reports silence only after its agreed deadline.
 - A meeting negotiation handles time zones, working hours, and one declined option.
-- A decision log preserves the replaced decision and its source history.
+- A decision log preserves the replaced decision and its source history. Passed on 2026-08-29.
 - A topic monitor suppresses repeated information and reports one material change. Passed on 2026-08-29.
 - A learning plan adapts after a failed assessment and a completed practice block. Passed on 2026-08-29.
 
