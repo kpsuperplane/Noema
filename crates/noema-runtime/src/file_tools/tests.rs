@@ -27,6 +27,31 @@ fn unsupported_document_has_a_bounded_result() {
 }
 
 #[test]
+fn raster_images_route_to_ocr() {
+    for extension in ["bmp", "gif", "jpg", "jpeg", "png", "tif", "tiff", "webp"] {
+        assert!(is_image_format(Some(extension), None), "{extension}");
+    }
+    assert!(is_image_format(None, Some("image/png; charset=binary")));
+    assert!(!is_image_format(Some("pdf"), Some("application/pdf")));
+}
+
+#[test]
+fn worker_response_reports_the_selected_parser() {
+    let worker = WorkerResponse {
+        status: FileParseStatus::Converted,
+        format: Some("png".to_string()),
+        content: Some("Standing desk".to_string()),
+        returned_chars: 13,
+        truncated: false,
+        error: None,
+    };
+    let response = response_from_worker("label.png", 2048, "tesseract", "text", Ok(worker));
+    assert_eq!(response.parser.as_deref(), Some("tesseract"));
+    assert_eq!(response.content_format.as_deref(), Some("text"));
+    assert_eq!(response.content.as_deref(), Some("Standing desk"));
+}
+
+#[test]
 fn download_paths_reject_traversal_and_never_replace_a_destination() {
     assert!(normalized_relative_path("../outside.csv").is_err());
     assert!(normalized_relative_path("/outside.csv").is_err());

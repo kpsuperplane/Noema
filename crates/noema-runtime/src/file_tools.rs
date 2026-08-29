@@ -330,8 +330,20 @@ pub(crate) async fn parse_open_file(
     if file.seek(SeekFrom::Start(0)).is_err() || file.read_to_end(&mut bytes).is_err() {
         return failed(display_path, source_bytes, format_hint, "read_failed");
     }
-    let worker = run_document_worker(&bytes, format_hint.as_deref(), max_chars).await;
-    response_from_worker(display_path, source_bytes, worker)
+    let (parser, content_format, worker) = if is_image_format(format_hint.as_deref(), media_type) {
+        (
+            "tesseract",
+            "text",
+            run_ocr_worker(&bytes, format_hint.as_deref(), max_chars).await,
+        )
+    } else {
+        (
+            "anydoc",
+            "markdown",
+            run_document_worker(&bytes, format_hint.as_deref(), max_chars).await,
+        )
+    };
+    response_from_worker(display_path, source_bytes, parser, content_format, worker)
 }
 
 fn open_conversation_file(cwd: &str, supplied: &str) -> Result<std::fs::File, String> {
@@ -450,9 +462,56 @@ async fn run_document_worker(
     serde_json::from_slice(&output.stdout).map_err(|_| "worker_failed")
 }
 
+async fn run_ocr_worker(
+    bytes: &[u8],
+    format_hint: Option<&str>,
+    max_chars: usize,
+) -> Result<WorkerResponse, &'static str> {
+    let permit = DOCUMENT_PARSE_PERMIT
+        .get_or_init(|| Semaphore::new(1))
+        .acquire()
+        .await
+        .map_err(|_| "worker_unavailable")?;
+    let mut child = Command::new("prlimit")
+        .arg(format!("--as={WORKER_MEMORY_BYTES}"))
+        .args(["--", "tesseract", "stdin", "stdout", "-l", "eng"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|_| "ocr_unavailable")?;
+    let mut stdin = child.stdin.take().ok_or("worker_unavailable")?;
+    stdin.write_all(bytes).await.map_err(|_| "worker_failed")?;
+    stdin.shutdown().await.map_err(|_| "worker_failed")?;
+    drop(stdin);
+    let output = tokio::time::timeout(IO_TIMEOUT, child.wait_with_output())
+        .await
+        .map_err(|_| "worker_timeout")?
+        .map_err(|_| "worker_failed")?;
+    drop(permit);
+    if !output.status.success() {
+        return Err("ocr_unavailable");
+    }
+    let text = String::from_utf8(output.stdout).map_err(|_| "worker_failed")?;
+    let observed = text.chars().count();
+    let content = text.chars().take(max_chars).collect::<String>();
+    let returned_chars = content.chars().count();
+    Ok(WorkerResponse {
+        status: FileParseStatus::Converted,
+        format: format_hint.map(str::to_string),
+        content: Some(content),
+        returned_chars,
+        truncated: observed > returned_chars,
+        error: None,
+    })
+}
+
 fn response_from_worker(
     path: &str,
     source_bytes: u64,
+    parser: &str,
+    content_format: &str,
     worker: Result<WorkerResponse, &'static str>,
 ) -> FileParseResponse {
     match worker {
@@ -460,9 +519,9 @@ fn response_from_worker(
             path: path.to_string(),
             source_bytes,
             status: worker.status,
-            parser: Some("anydoc".to_string()),
+            parser: Some(parser.to_string()),
             format: worker.format,
-            content_format: worker.content.as_ref().map(|_| "markdown".to_string()),
+            content_format: worker.content.as_ref().map(|_| content_format.to_string()),
             content: worker.content,
             returned_chars: worker.returned_chars,
             truncated: worker.truncated,
@@ -520,6 +579,16 @@ fn is_text_format(format: Option<&str>, media_type: Option<&str>) -> bool {
         format,
         Some("csv" | "txt" | "text" | "md" | "markdown" | "json" | "xml")
     )
+}
+
+fn is_image_format(format: Option<&str>, media_type: Option<&str>) -> bool {
+    media_type
+        .and_then(|value| value.split(';').next())
+        .is_some_and(|value| value.trim().starts_with("image/"))
+        || matches!(
+            format,
+            Some("bmp" | "gif" | "jpg" | "jpeg" | "png" | "tif" | "tiff" | "webp")
+        )
 }
 
 fn convert_document_bytes(

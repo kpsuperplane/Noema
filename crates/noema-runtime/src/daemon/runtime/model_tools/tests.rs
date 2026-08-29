@@ -786,6 +786,7 @@ async fn planner_catalog_contains_task_file_tools() {
             .map(|tool| tool.name.as_str())
             .collect::<Vec<_>>(),
         vec![
+            "task.list_artifacts",
             "file.parse",
             "task.finish_planning",
             "task.report_blocked",
