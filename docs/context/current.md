@@ -191,10 +191,10 @@ slice or a net-negative reduction.
 - Live Gmail and Calendar OAuth acceptance still needs interactive Google
   account consent after native generation.
 - Milestone 1 portability needs a second materially different message and event provider setup.
-- Active Executor leases recovered safely in two restart trials.
-  One exact case must still finish with reviewer approval after restart.
-- One recovered case stopped at an expired Notion authentication request.
-  The same case must resume and finish after renewed authentication.
+- One active Executor lease expired during restart and retried as attempt 1.
+  The same Task reached reviewer-approved terminal success with no external write.
+- Notion reports `needs_auth`. One OAuth attempt waits for browser consent.
+  Task `task:18d026f309e1d56c4de` must resume and finish after consent.
 - Production iOS notifications need enabled entitlements, regenerated signing
   profiles, and an APNs provider configured in browser Settings.
 - Production Tasks Live Activities also need the widget App ID in regenerated

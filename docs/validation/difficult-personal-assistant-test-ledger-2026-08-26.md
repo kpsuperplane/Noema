@@ -125,6 +125,26 @@ Task `task:18d0261b98922f14b61` also recovered one expired Executor lease.
 
 It stopped at an unrelated expired Notion authentication request. The test made no external write.
 
+Task `task:18d026bb41c93fb158a` then closed the active-run recovery gate.
+
+Server PID `3692881` stopped during Executor run `run:18d026bf54a3918d5f2`.
+
+The replacement started as PID `3695703`. The expired run stopped with `lease_expired`.
+
+Executor attempt 1 wrote `ACTIVE-RESTART-OK`. Reviewer run `run:18d026dd9f687d6d27f` approved it.
+
+The live runner returned reviewer-approved terminal success without an external write.
+
+### Expired-authentication follow-up
+
+The Notion connection reports `needs_auth` and `unavailable`.
+
+OAuth attempt `mcp_oauth:1064a2bdb735cd1a78d6eae6e7a4ca48` waits for browser consent.
+
+Read-only Task `task:18d026f309e1d56c4de` waits at gate `gate:18d026ff7d637581632`.
+
+The gate remains open until consent lets the same Task resume and finish.
+
 ## Summary
 
 The first suite produced five passes, eight partial results, and one failure.

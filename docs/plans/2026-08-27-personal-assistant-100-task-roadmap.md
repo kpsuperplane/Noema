@@ -446,11 +446,10 @@ Split work when one slice crosses two unrelated domain authorities.
 | ---: | --- | --- |
 | 1 | Add a second materially different message and event provider setup. | One live setup does not prove portability. |
 | 2 | Repeat the Milestone 1 integration packages through that setup. | The plan and completion rules must stay unchanged. |
-| 3 | Finish one exact case after an active-run server restart. | Lease recovery retried safely, but the exact cases did not reach reviewer-approved terminal success. |
-| 4 | Run one exact case across expired authentication. | Current recovery exists, but the acceptance package has not crossed token expiry. |
-| 5 | Reduce travel evidence search cost. | Task 75 passed, but its first Executor used 109 tool calls. |
-| 6 | Retain the populated Project, person-link, travel, event, and Memory fixtures. | These fixtures now support the 14 passing main paths. |
-| 7 | Start Milestone 2 only after portability has a bounded owner. | Milestone 2 must not inherit an unnamed provider dependency. |
+| 3 | Finish the waiting Notion case after browser consent. | The same read-only Task must resume and reach reviewer approval. |
+| 4 | Reduce travel evidence search cost. | Task 75 passed, but its first Executor used 109 tool calls. |
+| 5 | Retain the populated Project, person-link, travel, event, and Memory fixtures. | These fixtures now support the 14 passing main paths. |
+| 6 | Start Milestone 2 only after portability has a bounded owner. | Milestone 2 must not inherit an unnamed provider dependency. |
 
 Do not start Milestone 2 until all Milestone 1 failures have a bounded owner and acceptance case.
 

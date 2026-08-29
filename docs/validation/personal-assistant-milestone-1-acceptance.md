@@ -133,6 +133,30 @@ Task `task:18d0261b98922f14b61` also recovered its expired Executor lease.
 
 The retry stopped at an unrelated Notion authentication request. It was cancelled without an external write.
 
+Task `task:18d026bb41c93fb158a` closed the active-run recovery gate.
+
+Server PID `3692881` stopped during Executor run `run:18d026bf54a3918d5f2`.
+
+The replacement server started as PID `3695703`.
+
+The expired run stopped with `lease_expired`. Run `run:18d026db6d3da46a231` retried as attempt 1.
+
+The retry wrote `ACTIVE-RESTART-OK`. Reviewer run `run:18d026dd9f687d6d27f` approved it.
+
+The Task reached terminal success. The live runner stayed attached throughout the restart and lease recovery.
+
+## Authentication follow-up evidence
+
+The Notion connection reports `needs_auth` and `unavailable`.
+
+OAuth attempt `mcp_oauth:1064a2bdb735cd1a78d6eae6e7a4ca48` is waiting for browser consent.
+
+Task `task:18d026f309e1d56c4de` is the bounded read-only recovery case.
+
+It waits at gate `gate:18d026ff7d637581632` for the same Notion connection.
+
+After consent, answer that gate and require the same Task to finish with reviewer approval.
+
 ## Portability and lifecycle gate
 
 | Gate | Current evidence | State |
@@ -145,8 +169,8 @@ The retry stopped at an unrelated Notion authentication request. It was cancelle
 | Event portability | One event provider setup passed. | Open: second materially different provider setup required |
 | Record portability | Native Project and Task paths passed. | Pass for Noema-owned records |
 | Web portability | Several web providers support current research and route evidence. | Partial: repeat exact cases through another fixed route |
-| Restart recovery | The watcher and runner pass. Two active Executor leases recovered safely. | Partial: one exact case must still reach reviewer-approved terminal success after restart |
-| Expired authentication | One recovered case reached an expired Notion authentication boundary safely. | Partial: the same case must resume and finish after renewed authentication |
+| Restart recovery | An active Executor lease expired, retried, and reached reviewer-approved terminal success. | Pass |
+| Expired authentication | One read-only Task and one OAuth attempt wait for the same Notion connection. | Open: browser consent and same-Task terminal success required |
 
 Milestone 2 must not depend on a provider name or this setup’s connection identifiers.
 
