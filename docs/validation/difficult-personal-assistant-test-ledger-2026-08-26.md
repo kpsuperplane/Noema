@@ -80,14 +80,41 @@ No pending governed action or intervention remained after these cases.
 | 6 | Pass | Turn `turn:18d01f103dec34a2e1`; Task `task:18d01f15daba1ae718d` | The delegated Task used a fixed cutoff. It listed bounded native Tasks and inspected full documents. It produced a reviewed plan without correction. | Calendar continuation failed. All-day dates, recurring instances, durations, and working-hour preferences remained unavailable. These limits reduced confidence but did not block the plan. |
 | 8 | Pass | Turn `turn:18d01f61f147ada9a50`; Task `task:18d01f67400f26d6ae9` | The delegated Task reviewed seven Repeat occurrences. It inspected full Task documents, events, Memory, projects, deadlines, and preparation needs. | Some Calendar transforms failed. Legacy Task roots later moved into private storage. An isolated follow-up returned all 22 cancelled Tasks. |
 
+### Remaining Milestone 1 retests
+
+Retest date: 2026-08-29
+
+Noema baseline: commit `627798be`, plus reviewed adapter revisions in `/var/lib/noema-dev`.
+
+These cases used one connected provider setup. They made no external writes.
+
+| Task | Verdict | Live evidence | What worked | Remaining gap or required improvement |
+| ---: | --- | --- | --- | --- |
+| 5 | Pass | Turn `turn:18d0245b5bcd9519346d`; Task `task:18d0245e3ce383b334c6` | Two bounded event audits reached natural ends. They preserved recurrence parents, all-day dates, attendees, locations, overlaps, and gaps. A cited route returned 640 seconds for a 900-second gap. | The route origin was a street-address proxy. A second event provider setup remains required. |
+| 17 | Pass | Turn `turn:18d0228af4cdf1b016f`; Task `task:18d0228d86e1722b1be` | One exact email safely joined Memory, messages, and events. The result preserved identity evidence, bounded coverage, privacy limits, commitments, and staleness. | Add a contact authority only when another production path needs it. A second provider setup remains required. |
+| 75 | Pass | Turn `turn:18d0215e75b196314335`; Task `task:18d021608fbeaba0437a` | Connected messages supplied two confirmations, one duplicate, and one later cancellation. The result preserved references and reported missing dates and transport. | Attachment parsing was not needed for this case. A second message provider setup remains required. |
+| 98 | Pass | Turn `turn:18d023176f3b6f6d106d`; Task `task:18d02319bfaafb6b10b4` | Normal Memory consolidation replaced one fact, kept two direct evidence items, retained superseded values, and supported later retrieval. | Direct page editing remains a separate user-interface feature. |
+
+### Message adapter follow-up
+
+The active message adapter previously converted an absent `messages` field into an untyped empty table.
+
+The reviewed revision now uses an explicit JSON array.
+
+Turn `turn:18d024fb180b0b1245e3` returned a successful empty `messages: []` result.
+
+Turn `turn:18d025053feeecf24706` returned two pages with stable account, message, and thread identity.
+
+The second page preserved another continuation. No external write occurred.
+
 ## Summary
 
 The first suite produced five passes, eight partial results, and one failure.
 
-The accepted current results include five retests from 2026-08-28 and 2026-08-29.
+The accepted current results include nine retests from 2026-08-28 and 2026-08-29.
 
-- Pass: 10
-- Partial: 4
+- Pass: 14
+- Partial: 0
 - Fail: 0
 
 The strongest paths are research, fact-checking, conflict reasoning, and meeting preparation.
@@ -100,17 +127,17 @@ The Task 1, 6, and 8 retests passed with bounded Task listings and full document
 
 The Task 15 and 19 retests passed with native Project-to-Task links.
 
-People, messages, event attendees, and Memory pages still lack reliable cross-source links.
+One exact email now provides a safe Memory, message, and event link for Task 17.
 
-The third shared problem is long-run efficiency. Some delegated cases used many provider rounds before they reached a bounded result.
+Long-run efficiency remains uneven. Some delegated cases used many provider rounds before reaching a bounded result.
 
 For example, one Task 5 executor run dispatched 83 tool calls. Task 14 needed two executor runs with 97 combined tool calls.
 
 ## Priority improvements
 
-1. Give delegated workers the same approved read capabilities as the primary chat.
-2. Add bounded Calendar interval reads with recurrence expansion, all-day dates, locations, attendees, and reliable pagination.
-3. Repair Gmail continuation response transformation.
-4. Retain native Project-to-Task regression coverage. Add person-to-email-to-attendee identity links.
-5. Use fixed temporal anchors and tolerance windows during review.
-6. Bound evidence scans and review cycles by explicit coverage criteria.
+1. Add a second materially different message and event provider setup.
+2. Repeat the provider-neutral acceptance package through that setup.
+3. Retain Task, Repeat, Project, Memory, event, and message regression coverage.
+4. Reduce repeated low-yield message searches in travel cases.
+5. Test the exact acceptance cases across restart and expired authentication.
+6. Add direct Memory page editing only when a user-facing edit path starts.

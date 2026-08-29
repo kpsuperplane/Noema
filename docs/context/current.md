@@ -114,6 +114,14 @@ slice or a net-negative reduction.
 - Native Project-to-Task reads support Project status and audience updates.
   Executors can list bounded workspace Tasks. Executors and Reviewers can inspect one exact Task and its current documents.
 - Delegated daily briefs, planning, and weekly reviews passed live with these reads.
+- The reviewed event adapter exposes one bounded instance operation.
+  It requires both time bounds and preserves recurrence, all-day dates, attendees, locations, and continuation.
+- The reviewed message adapter uses an explicit empty JSON array for absent message results.
+  Empty results and a two-page continuation passed live after revision.
+- All 14 Milestone 1 main paths pass in the current provider setup.
+  The provider-neutral package is `docs/validation/personal-assistant-milestone-1-acceptance.md`.
+- The `noema-dev` service owns Task roots under `/var/lib/noema-dev/tasks`.
+  Repository paths and `/root` ACLs do not grant service access.
 
 ### Clients and product surfaces
 
@@ -180,6 +188,8 @@ slice or a net-negative reduction.
   Linux can validate the authored GraphQL operations against the shared schema.
 - Live Gmail and Calendar OAuth acceptance still needs interactive Google
   account consent after native generation.
+- Milestone 1 portability needs a second materially different message and event provider setup.
+- The exact Milestone 1 cases still need restart and expired-authentication runs.
 - Production iOS notifications need enabled entitlements, regenerated signing
   profiles, and an APNs provider configured in browser Settings.
 - Production Tasks Live Activities also need the widget App ID in regenerated

@@ -392,11 +392,13 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-At this baseline, ten tasks are verified, four need more testing, 50 need bounded extensions, and 36 need new systems.
+Current retests verify 14 tasks. No task remains in `Test`.
 
-Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend. Task 98 moved from Extend to Test.
+Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend.
 
-Tasks 1, 6, 8, 11, 14, 15, 19, 31, 32, and 35 are now Verified after live acceptance.
+Tasks 1, 5, 6, 8, 11, 14, 15, 17, 19, 31, 32, 35, 75, and 98 are now Verified.
+
+These results prove one provider setup. The second provider portability gate remains open.
 
 ### 1. Daily coordination and commitments
 
@@ -406,10 +408,10 @@ Tasks 1, 6, 8, 11, 14, 15, 19, 31, 32, and 35 are now Verified after live accept
 | 2 | Maintain one trusted promise register | Extend | Tasks and working files provide a base. Add counterparties, source-linked capture, due dates, deduplication, and completion proof. |
 | 3 | Capture actions, decisions, and dates | Build | Implement external event sources and authorized routing into Tasks, Calendar, or project records. One-time extraction already passed. |
 | 4 | Maintain a prioritized reply and action queue | Extend | Add thread identity, relationship priority, mail drafts, reply operations, and sent-reply reconciliation. Revalidate the current Gmail connection. |
-| 5 | Audit the calendar for conflicts and hidden load | Test | The live audit handled time zones and recovery load. Recurrence instances, all-day dates, locations, and routes remained unavailable. Add interval-native expansion and location data. Then test map travel time. |
-| 6 | Create a realistic daily plan | Verified | A delegated live case used a fixed cutoff and full Task reads. It produced a reviewed plan without correction. Calendar completeness still limits confidence. |
+| 5 | Audit the calendar for conflicts and hidden load | Verified | Bounded live audits reached natural ends. They preserved recurrence parents, all-day dates, attendees, locations, overlaps, gaps, and cited route time. |
+| 6 | Create a realistic daily plan | Verified | A delegated live case used a fixed cutoff, full Task reads, event evidence, preferences, breaks, and overload handling. It passed without correction. |
 | 7 | Replan after disruption | Extend | Calendar replanning passed. Add Task dependencies, travel data, simultaneous changes, and partial-write recovery. |
-| 8 | Produce a weekly preview and review | Verified | A delegated live case covered seven Repeat occurrences and full Task documents. It joined current work, events, Memory, deadlines, and preparation. |
+| 8 | Produce a weekly preview and review | Verified | A delegated live case covered seven Repeat occurrences and full Task documents. It joined work, events, messages, Memory, deadlines, and preparation. |
 | 9 | Track deadlines, renewals, and recurring obligations | Extend | Repeat supplies scheduling. Add source-linked obligation state, portal intake, change detection, and completion reconciliation. |
 | 10 | Review personal goals and adjust the plan | Build | Add goal outcomes, measures, target dates, review history, and links to Tasks and actual time. Projects do not supply this authority. |
 
@@ -421,16 +423,16 @@ Tasks 1, 6, 8, 11, 14, 15, 19, 31, 32, and 35 are now Verified after live accept
 | 12 | Monitor an important conversation | Build | Implement external event sources, thread checkpoints, silence deadlines, material-change rules, and escalation controls. Repeat is not reliable event monitoring. |
 | 13 | Coordinate a multi-person meeting | Extend | Add stable contacts, current free-busy access, invitations, negotiation replies, fairness rules, and time-zone exception tests. |
 | 14 | Prepare a meeting brief and agenda | Verified | A current live case found a qualifying external meeting and produced a cited, sensitive brief. Parsed attachments and conflicting prior decisions still need a fixture. |
-| 15 | Prepare audience-specific updates | Verified | A native Project case produced three fact-matched updates. Noema changed detail, tone, confidentiality, asks, and format for each audience. It cited evidence and reported conflicts. Task listings still expose previews only. |
+| 15 | Prepare audience-specific updates | Verified | A native Project case produced three fact-matched updates. Full Task reads supported detail, tone, confidentiality, asks, citations, and conflict reporting. |
 | 16 | Record decisions and close follow-ups | Extend | Task files can hold a log. Add durable ownership, source-linked status, transcript intake, event reminders, and later completion evidence. |
-| 17 | Maintain a relationship brief | Test | The live case rejected unsafe identity merges and protected private facts. No person spanned Memory, Gmail, and Calendar. Add stable contact links and Calendar attendees before retesting. |
+| 17 | Maintain a relationship brief | Verified | One exact email safely linked Memory, messages, and events. The reviewed brief preserved source bounds, staleness, commitments, and private boundaries. |
 | 18 | Maintain a relationship follow-up plan | Extend | Memory and Repeat provide partial support. Add stable contacts, interaction history, cadence rules, reciprocity signals, and consent boundaries. |
 
 ### 3. Work, projects, and career
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 19 | Produce an evidence-based project status | Verified | A native Project case joined the Project and four linked Tasks into one cited status. It reconciled reported workstream states with native Inbox stages. Full Task document reads remain a useful improvement. |
+| 19 | Produce an evidence-based project status | Verified | A native Project case joined the Project and four full Task documents. It reconciled workstream reports with native stages and conflicts. |
 | 20 | Detect project risks and dependencies | Extend | Dependencies and subtasks remain excluded. Add Task dependency links, commitment ownership, weak-signal tests, and intervention rules. |
 | 21 | Maintain a decision log | Extend | Task files can hold local decisions. Add a cross-Task decision authority, replacement links, chronology, source evidence, and Project updates. |
 | 22 | Turn an ambiguous goal into a project plan | Extend | Planner and Task files cover decomposition. Add milestones, dependencies, estimates, review points, subtasks, and plan-to-Task conversion. |
@@ -511,7 +513,7 @@ Tasks 1, 6, 8, 11, 14, 15, 19, 31, 32, and 35 are now Verified after live accept
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 75 | Build one live itinerary | Test | The synthetic live case passed time-zone normalization, cancellation detection, transfer risks, and missing legs. Current mail intake, parsed confirmations, and change reconciliation remain untested. |
+| 75 | Build one live itinerary | Verified | Connected messages supplied two confirmations, one duplicate, and one later cancellation. The reviewed itinerary preserved references and missing evidence. |
 | 76 | Plan and book a multi-leg trip | Extend | Browser routing improves recovery. Add travel inventory, booking tools, protected payment authority, receipt reconciliation, and partial-failure tests. |
 | 77 | Monitor disruptions and prepare rebooking | Build | Implement external event sources, carrier feeds, rights rules, downstream dependency analysis, rebooking operations, and uncertain-outcome recovery. |
 | 78 | Maintain international travel readiness | Extend | Public requirement downloads and parsing now work. Add private document intake, nationality rules, source freshness, medicine checks, and Calendar validation. |
@@ -544,7 +546,7 @@ Tasks 1, 6, 8, 11, 14, 15, 19, 31, 32, and 35 are now Verified after live accept
 | 95 | Coordinate account or identity-theft recovery | Build | Add a recovery workspace, trusted-device checks, bank and bureau tools, private evidence intake, dispute tracking, and continuous monitoring. |
 | 96 | Review privacy settings and data exposure | Build | Browser routes can reach public sites, but profiles remain temporary. Add account inventory, authenticated access, deletion tracking, and reappearance monitoring. |
 | 97 | Complete device replacement and migration | Build | Add device, backup, authenticator, password-manager, migration, verification, and disposal integrations. Noema cannot control personal devices. |
-| 98 | Maintain a personal knowledge base | Test | Live page reads and targeted FTS passed. Recency, replacement history, direct editing, and source-level duplicate evidence remain absent. Test repeated updates after those systems exist. |
+| 98 | Maintain a personal knowledge base | Verified | Normal Memory consolidation replaced one fact, preserved duplicate direct evidence and superseded values, and supported later retrieval. Direct editing remains separate. |
 | 99 | Prepare a digital-legacy plan | Build | Add digital-legacy records, trusted roles, delegated access, estate scopes, platform actions, periodic review, and secure export. |
 | 100 | Make digital information accessible | Extend | Document parsing now converts supported files to Markdown. Add user file intake, OCR, accessible exports, validation, profiles, and affected-user tests. |
 
