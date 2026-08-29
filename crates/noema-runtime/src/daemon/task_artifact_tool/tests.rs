@@ -2,7 +2,10 @@ use noema_artifacts::{ArtifactOwnerRef, ArtifactSource, CreateLocalArtifactReque
 use noema_store::{WorkCommandService, WorkRunFence};
 use serde_json::json;
 
-use super::{TaskArtifactReadContext, execute_task_read_artifact};
+use super::{
+    TaskArtifactReadContext, execute_task_list_artifacts, execute_task_parse_artifact,
+    execute_task_read_artifact,
+};
 use crate::daemon::artifact_tool::{
     ArtifactToolRuntimeContext, execute_artifact_create_local_file,
 };
@@ -144,6 +147,76 @@ async fn executor_reads_task_owned_artifact_from_prior_run() {
         .expect("prior task-owned artifact must be readable");
 
     assert_eq!(artifact["content"].as_str(), Some("prior run output"));
+}
+
+#[tokio::test]
+async fn executor_lists_source_receipts_owned_by_its_task() {
+    let fixture = executor_fixture("Executor artifact receipts").await;
+    fixture
+        .artifact_operations
+        .create_local_file(CreateLocalArtifactRequest {
+            owner: ArtifactOwnerRef::task(fixture.read_context.task_id.clone()),
+            title: "Private statement".to_string(),
+            description: None,
+            artifact_kind: "source_file".to_string(),
+            filename: "statement.csv".to_string(),
+            bytes: b"item,amount\nTransit,12.50\n".to_vec(),
+            media_type: Some("text/csv".to_string()),
+            created_by_actor_id: "human:local".to_string(),
+            source: ArtifactSource::default(),
+            metadata: json!({
+                "source_id": "statement-2026-08",
+                "source_version": "1",
+                "source_owner": "Kevin",
+                "disclosure_scope": "private to Kevin and this Task"
+            }),
+        })
+        .await
+        .expect("create source artifact");
+
+    let listed = execute_task_list_artifacts(&fixture.store, &fixture.read_context, &json!({}))
+        .await
+        .expect("list artifacts");
+
+    assert_eq!(listed["artifacts"][0]["title"], "Private statement");
+    assert_eq!(
+        listed["artifacts"][0]["metadata"]["disclosure_scope"],
+        "private to Kevin and this Task"
+    );
+}
+
+#[tokio::test]
+async fn executor_parses_csv_artifact_with_source_receipt() {
+    let fixture = executor_fixture("Executor artifact parse").await;
+    let artifact = fixture
+        .artifact_operations
+        .create_local_file(CreateLocalArtifactRequest {
+            owner: ArtifactOwnerRef::task(fixture.read_context.task_id.clone()),
+            title: "Expense rows".to_string(),
+            description: None,
+            artifact_kind: "source_file".to_string(),
+            filename: "expenses.csv".to_string(),
+            bytes: b"item,amount\nTransit,12.50\n".to_vec(),
+            media_type: Some("text/csv".to_string()),
+            created_by_actor_id: "human:local".to_string(),
+            source: ArtifactSource::default(),
+            metadata: json!({"filename": "expenses.csv", "source_version": "1"}),
+        })
+        .await
+        .expect("create CSV artifact");
+
+    let parsed = execute_task_parse_artifact(
+        &fixture.store,
+        &fixture.artifact_operations,
+        &fixture.read_context,
+        &json!({"artifact_id": artifact.artifact.artifact_id}),
+    )
+    .await
+    .expect("parse artifact");
+
+    assert_eq!(parsed["metadata"]["source_version"], "1");
+    assert_eq!(parsed["parse"]["status"], "converted");
+    assert_eq!(parsed["parse"]["content"], "item,amount\nTransit,12.50\n");
 }
 
 struct ExecutorArtifactFixture {

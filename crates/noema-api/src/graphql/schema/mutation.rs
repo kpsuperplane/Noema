@@ -844,6 +844,17 @@ impl MutationRoot {
         artifacts::create_conversation_external_artifact(state, principal, input).await
     }
 
+    /// Attach one bounded private source file to an Inbox Task.
+    async fn create_task_local_artifact(
+        &self,
+        ctx: &Context<'_>,
+        input: artifacts::GraphqlCreateTaskLocalArtifactInput,
+    ) -> Result<artifacts::GraphqlTaskLocalArtifactReceipt> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        artifacts::create_task_local_artifact(state, principal, input).await
+    }
+
     /// Approve one exact pending adapter definition as the local human.
     async fn approve_adapter_definition(
         &self,

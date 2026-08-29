@@ -1,5 +1,7 @@
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use noema_artifacts::ArtifactMetadataStore;
+use ring::digest::{SHA256, digest};
 
 use super::{errors::graphql_error, schema::GraphqlState};
 
@@ -45,6 +47,10 @@ pub struct GraphqlArtifactVersion {
     pub download_url: Option<String>,
     /// Optional media type for the version payload.
     pub media_type: Option<String>,
+    /// Exact byte count when known.
+    pub byte_size: Option<i32>,
+    /// SHA-256 of local file bytes when known.
+    pub content_sha256: Option<String>,
 }
 
 /// Preview renderer selected for an artifact version detail panel.
@@ -131,6 +137,150 @@ pub struct GraphqlCreateConversationExternalArtifactInput {
     pub external_url: String,
     /// Optional media type for the external payload.
     pub media_type: Option<String>,
+}
+
+/// Input for one bounded private file attached to an Inbox Task.
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "CreateTaskLocalArtifactInput")]
+pub struct GraphqlCreateTaskLocalArtifactInput {
+    /// Task that owns this private source file.
+    pub task_id: String,
+    /// Expected Task revision.
+    pub expected_revision: i64,
+    /// Expected Task generation.
+    pub expected_generation: i64,
+    /// Human-readable source title.
+    pub title: String,
+    /// Safe single-segment filename.
+    pub filename: String,
+    /// Source media type.
+    pub media_type: String,
+    /// Base64 file bytes. The decoded file limit is 40 KiB.
+    pub content_base64: String,
+    /// Stable source identifier from the supplied packet.
+    pub source_id: String,
+    /// Exact source version or source date label.
+    pub source_version: String,
+    /// Person or organization that owns the source.
+    pub source_owner: String,
+    /// Intended audience for this source.
+    pub disclosure_scope: String,
+}
+
+/// Receipt for one immutable Task source upload.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "TaskLocalArtifactReceipt")]
+pub struct GraphqlTaskLocalArtifactReceipt {
+    /// Created artifact.
+    pub artifact: GraphqlArtifact,
+    /// Stable source identifier.
+    pub source_id: String,
+    /// Exact source version.
+    pub source_version: String,
+    /// Source owner.
+    pub source_owner: String,
+    /// Intended audience.
+    pub disclosure_scope: String,
+    /// SHA-256 of the received bytes.
+    pub content_sha256: String,
+    /// Received byte count.
+    pub byte_size: i32,
+}
+
+const MAX_TASK_UPLOAD_BYTES: usize = 40 * 1024;
+
+/// Create one immutable local artifact owned by an Inbox Task.
+pub async fn create_task_local_artifact(
+    state: &GraphqlState,
+    principal_subject: &str,
+    input: GraphqlCreateTaskLocalArtifactInput,
+) -> Result<GraphqlTaskLocalArtifactReceipt> {
+    crate::graphql::tasks::require_owner(principal_subject)?;
+    let task_id = crate::graphql::tasks::parse_task_id(&input.task_id)?;
+    let detail = state
+        .store()?
+        .get_work_task(&task_id)
+        .await
+        .map_err(|_| crate::graphql::tasks::unavailable())?
+        .ok_or_else(crate::graphql::tasks::unavailable)?;
+    crate::graphql::tasks::require_personal_workspace(&detail.workspace.workspace_id)?;
+    let expected_revision =
+        crate::graphql::tasks::positive(input.expected_revision, "expectedRevision")?;
+    let expected_generation =
+        crate::graphql::tasks::positive(input.expected_generation, "expectedGeneration")?;
+    if detail.task.revision != expected_revision
+        || detail.task.generation != expected_generation
+        || detail.stage.system_behavior != noema_tasks::WorkflowStageBehavior::Intake
+    {
+        return Err(crate::graphql::tasks::unavailable());
+    }
+    validate_upload_label(&input.title, 160, "title")?;
+    validate_upload_label(&input.media_type, 120, "mediaType")?;
+    validate_upload_label(&input.source_id, 200, "sourceId")?;
+    validate_upload_label(&input.source_version, 200, "sourceVersion")?;
+    validate_upload_label(&input.source_owner, 200, "sourceOwner")?;
+    validate_upload_label(&input.disclosure_scope, 200, "disclosureScope")?;
+    let filename = noema_artifacts::safe_artifact_filename(&input.filename)
+        .map_err(|_| crate::graphql::tasks::invalid_input_error("filename"))?
+        .to_string();
+    let bytes = BASE64_STANDARD
+        .decode(input.content_base64.as_bytes())
+        .map_err(|_| crate::graphql::tasks::invalid_input_error("contentBase64"))?;
+    if bytes.is_empty() || bytes.len() > MAX_TASK_UPLOAD_BYTES {
+        return Err(crate::graphql::tasks::invalid_input_error("contentBase64"));
+    }
+    let content_sha256 = digest(&SHA256, &bytes)
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let byte_size = i32::try_from(bytes.len())
+        .map_err(|_| crate::graphql::tasks::invalid_input_error("contentBase64"))?;
+    let metadata = serde_json::json!({
+        "source_id": &input.source_id,
+        "source_version": &input.source_version,
+        "source_owner": &input.source_owner,
+        "disclosure_scope": &input.disclosure_scope,
+        "content_sha256": &content_sha256,
+        "byte_size": byte_size,
+        "media_type": &input.media_type,
+        "filename": &filename,
+    });
+    let artifact = state
+        .artifact_operations()?
+        .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
+            owner: noema_artifacts::ArtifactOwnerRef::task(task_id.as_str()),
+            title: input.title,
+            description: Some("Private Task source file".to_string()),
+            artifact_kind: "source_file".to_string(),
+            filename,
+            bytes,
+            media_type: Some(input.media_type),
+            created_by_actor_id: principal_subject.to_string(),
+            source: noema_artifacts::ArtifactSource::default(),
+            metadata,
+        })
+        .await
+        .map_err(graphql_error)?;
+    let receipt = GraphqlTaskLocalArtifactReceipt {
+        artifact: graphql_artifact_from_store(artifact)?,
+        source_id: input.source_id,
+        source_version: input.source_version,
+        source_owner: input.source_owner,
+        disclosure_scope: input.disclosure_scope,
+        content_sha256,
+        byte_size,
+    };
+    Ok(receipt)
+}
+
+fn validate_upload_label(value: &str, max_chars: usize, field: &str) -> Result<()> {
+    let count = value.chars().count();
+    if count == 0 || count > max_chars || value.trim().is_empty() {
+        Err(crate::graphql::tasks::invalid_input_error(field))
+    } else {
+        Ok(())
+    }
 }
 
 pub async fn artifacts(
@@ -353,6 +503,11 @@ fn graphql_artifact_version_from_store(
     };
     let version_index = i32::try_from(version.version_index)
         .map_err(|_| graphql_error("artifact version index exceeds GraphQL Int range"))?;
+    let byte_size = version
+        .byte_size
+        .map(i32::try_from)
+        .transpose()
+        .map_err(|_| graphql_error("artifact byte size exceeds GraphQL Int range"))?;
     Ok(GraphqlArtifactVersion {
         artifact_version_id: version.artifact_version_id,
         artifact_id: version.artifact_id,
@@ -360,6 +515,8 @@ fn graphql_artifact_version_from_store(
         external_url,
         download_url,
         media_type: version.media_type,
+        byte_size,
+        content_sha256: version.content_sha256,
     })
 }
 

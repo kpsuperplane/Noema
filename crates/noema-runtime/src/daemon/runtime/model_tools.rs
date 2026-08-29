@@ -10,7 +10,11 @@ use crate::{
         agent_name_tool::update_own_name_tool_spec,
         artifact_tool::artifact_create_local_file_tool_spec,
         calculation_tool::{CALCULATE_TOOL, calculate_tool_spec},
-        task_artifact_tool::{TASK_READ_ARTIFACT_TOOL, task_read_artifact_tool_spec},
+        task_artifact_tool::{
+            TASK_LIST_ARTIFACTS_TOOL, TASK_PARSE_ARTIFACT_TOOL, TASK_READ_ARTIFACT_TOOL,
+            task_list_artifacts_tool_spec, task_parse_artifact_tool_spec,
+            task_read_artifact_tool_spec,
+        },
         task_tool::{
             TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CAPTURE_TOOL, TASK_CONTINUE_EXECUTION_TOOL,
             TASK_FILE_DELETE_TOOL, TASK_FILE_LIST_TOOL, TASK_FILE_READ_TOOL, TASK_FILE_WRITE_TOOL,
@@ -284,6 +288,7 @@ fn role_builtin_tool_specs(
     let mut tools = match role {
         ExecutionRole::TaskPlanner => {
             vec![
+                task_list_artifacts_tool_spec()?,
                 noema_capabilities::file::parse_tool_spec()?,
                 task_finish_planning_tool_spec()?,
                 task_report_blocked_tool_spec()?,
@@ -296,6 +301,8 @@ fn role_builtin_tool_specs(
         ExecutionRole::TaskExecutor => {
             vec![
                 calculate_tool_spec()?,
+                task_list_artifacts_tool_spec()?,
+                task_parse_artifact_tool_spec()?,
                 task_finish_execution_tool_spec(&[])?,
                 task_continue_execution_tool_spec()?,
                 task_report_blocked_tool_spec()?,
@@ -311,6 +318,8 @@ fn role_builtin_tool_specs(
         }
         ExecutionRole::TaskReviewer => vec![
             calculate_tool_spec()?,
+            task_list_artifacts_tool_spec()?,
+            task_parse_artifact_tool_spec()?,
             task_finish_review_tool_spec(&[])?,
             task_inspect_tool_spec()?,
             task_file_list_tool_spec()?,
@@ -511,6 +520,8 @@ fn builtin_tool_access_class(role: ExecutionRole, name: &str) -> ToolAccessClass
         | TASK_FILE_LIST_TOOL
         | TASK_FILE_READ_TOOL
         | TASK_READ_ARTIFACT_TOOL
+        | TASK_LIST_ARTIFACTS_TOOL
+        | TASK_PARSE_ARTIFACT_TOOL
         | CALCULATE_TOOL => ToolAccessClass::ReadOnly,
         noema_capabilities::file::FILE_PARSE_TOOL => ToolAccessClass::ReadOnly,
         noema_capabilities::file::FILE_DOWNLOAD_TOOL => ToolAccessClass::ExternalTool,

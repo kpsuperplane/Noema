@@ -34,7 +34,9 @@ use crate::daemon::{
     },
     calculation_tool::{execute_calculation, is_calculation_tool},
     task_artifact_tool::{
-        TaskArtifactReadContext, execute_task_read_artifact, is_task_read_artifact_tool,
+        TaskArtifactReadContext, execute_task_list_artifacts, execute_task_parse_artifact,
+        execute_task_read_artifact, is_task_list_artifacts_tool, is_task_parse_artifact_tool,
+        is_task_read_artifact_tool,
     },
     task_tool::{
         TASK_CAPTURE_TOOL, TASK_INSPECT_TOOL, TASK_LIST_TOOL, TaskDelegateRuntimeContext,
@@ -491,21 +493,40 @@ impl RuntimeActor {
                 result.payload,
                 true,
             )
-        } else if is_task_read_artifact_tool(&call.name) {
-            let result = match (&turn.task_id, &turn.task_run_id) {
-                (Some(task_id), Some(run_id)) => {
+        } else if is_task_list_artifacts_tool(&call.name)
+            || is_task_parse_artifact_tool(&call.name)
+            || is_task_read_artifact_tool(&call.name)
+        {
+            let context =
+                turn.task_id
+                    .as_ref()
+                    .zip(turn.task_run_id.as_ref())
+                    .map(|(task_id, run_id)| TaskArtifactReadContext {
+                        task_id: task_id.clone(),
+                        run_id: run_id.clone(),
+                    });
+            let result = if let Some(context) = context {
+                if is_task_list_artifacts_tool(&call.name) {
+                    execute_task_list_artifacts(&self.store, &context, &call.payload).await
+                } else if is_task_parse_artifact_tool(&call.name) {
+                    execute_task_parse_artifact(
+                        &self.store,
+                        &self.artifact_operations,
+                        &context,
+                        &call.payload,
+                    )
+                    .await
+                } else {
                     execute_task_read_artifact(
                         &self.store,
                         &self.artifact_operations,
-                        &TaskArtifactReadContext {
-                            task_id: task_id.clone(),
-                            run_id: run_id.clone(),
-                        },
+                        &context,
                         &call.payload,
                     )
                     .await
                 }
-                _ => Err("task artifact context is unavailable".to_string()),
+            } else {
+                Err("task artifact context is unavailable".to_string())
             };
             let (success, payload) = match result {
                 Ok(payload) => (true, payload),

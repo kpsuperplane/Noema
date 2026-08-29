@@ -140,3 +140,78 @@
             .await;
         assert_single_graphql_error(&response, "conversation is unavailable");
     }
+
+    #[tokio::test]
+    async fn inbox_task_upload_preserves_private_source_receipt() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+        let home = tempfile::TempDir::new().expect("home");
+        let environment = TestEnvironment::from_root(home.path()).expect("environment");
+        let store = crate::test_support::test_store_for_environment(&environment).await;
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_environment(
+            store.clone(),
+            environment,
+        ));
+        let capture = schema
+            .execute(
+                r#"mutation {
+                  captureTask(input: {
+                    workspaceId: "workspace:personal"
+                    title: "Private packet"
+                    clientMutationId: "capture-private-packet"
+                  }) { task { taskId revision generation } }
+                }"#,
+            )
+            .await;
+        assert!(capture.errors.is_empty(), "{:?}", capture.errors);
+        let capture = capture.data.into_json().expect("capture JSON");
+        let task = &capture["captureTask"]["task"];
+        let task_id = task["taskId"].as_str().expect("task ID");
+        let content = STANDARD.encode(b"item,amount\nTransit,12.50\n");
+        let upload = schema
+            .execute(format!(
+                r#"mutation {{
+                  createTaskLocalArtifact(input: {{
+                    taskId: "{task_id}"
+                    expectedRevision: {}
+                    expectedGeneration: {}
+                    title: "August statement"
+                    filename: "statement.csv"
+                    mediaType: "text/csv"
+                    contentBase64: "{content}"
+                    sourceId: "statement-2026-08"
+                    sourceVersion: "download-1"
+                    sourceOwner: "Kevin"
+                    disclosureScope: "private to Kevin and this Task"
+                  }}) {{
+                    artifact {{ artifactId ownerObjectType ownerObjectId currentVersion {{ contentSha256 }} }}
+                    sourceId sourceVersion sourceOwner disclosureScope contentSha256 byteSize
+                  }}
+                }}"#,
+                task["revision"].as_i64().expect("revision"),
+                task["generation"].as_i64().expect("generation"),
+            ))
+            .await;
+        assert!(upload.errors.is_empty(), "{:?}", upload.errors);
+        let upload = upload.data.into_json().expect("upload JSON");
+        let receipt = &upload["createTaskLocalArtifact"];
+        assert_eq!(receipt["artifact"]["ownerObjectType"], "task");
+        assert_eq!(receipt["artifact"]["ownerObjectId"], task_id);
+        assert_eq!(receipt["sourceVersion"], "download-1");
+        assert_eq!(receipt["disclosureScope"], "private to Kevin and this Task");
+        assert_eq!(receipt["byteSize"], 26);
+        assert_eq!(
+            receipt["contentSha256"],
+            receipt["artifact"]["currentVersion"]["contentSha256"]
+        );
+        let artifact_id = receipt["artifact"]["artifactId"]
+            .as_str()
+            .expect("artifact ID");
+        let stored = store
+            .get_artifact(artifact_id)
+            .await
+            .expect("artifact read")
+            .expect("artifact");
+        assert_eq!(stored.artifact.metadata["source_id"], "statement-2026-08");
+        assert_eq!(stored.artifact.metadata["source_owner"], "Kevin");
+    }
