@@ -204,13 +204,18 @@ fn parse_task_source_definition(value: &str) -> Option<(usize, CitationSource)> 
         .strip_suffix(']')?
         .parse::<usize>()
         .ok()?;
-    let (title, url) = definition.rsplit_once("](<")?;
-    let url = Url::parse(url.strip_suffix(">)")?).ok()?;
-    let title = title
+    let (title, url_and_locator) = definition.rsplit_once("](<")?;
+    let (url, locator) = url_and_locator.split_once(">)")?;
+    let url = Url::parse(url).ok()?;
+    let mut title = title
         .replace("\\]", "]")
         .replace("\\[", "[")
         .replace("\\\\", "\\");
-    (!title.trim().is_empty() && matches!(url.scheme(), "http" | "https")).then(|| {
+    if !locator.trim().is_empty() {
+        title.push(' ');
+        title.push_str(locator.trim());
+    }
+    (!title.trim().is_empty() && is_task_source_url(&url)).then(|| {
         (
             number,
             CitationSource {
@@ -234,7 +239,7 @@ fn encode_task_sources(text: &str, citations: &[GenerateCitation]) -> String {
         };
         let end = citation.end_index.unwrap_or(total);
         if citation.title.trim().is_empty()
-            || !matches!(url.scheme(), "http" | "https")
+            || !is_task_source_url(&url)
             || citation.start_index.is_some_and(|start| start >= end)
             || utf16_slice(text, 0, end).is_none()
         {
@@ -280,6 +285,10 @@ fn encode_task_sources(text: &str, citations: &[GenerateCitation]) -> String {
         ));
     }
     output
+}
+
+fn is_task_source_url(url: &Url) -> bool {
+    matches!(url.scheme(), "http" | "https" | "artifact")
 }
 
 fn escape_task_source_title(value: &str) -> String {
@@ -546,6 +555,21 @@ mod tests {
         assert_eq!(
             result.text,
             "Old[^noema-source-1]. New[^noema-source-1][^noema-source-2]\n\n[^note]: keep\n\n[^noema-source-1]: [Old](<https://old.example/a>)\n[^noema-source-2]: [new.example](<https://new.example/b>)\n"
+        );
+        assert_eq!(normalize_task_result(&result.text).text, result.text);
+    }
+
+    #[test]
+    fn task_result_preserves_local_artifact_source_and_locator() {
+        let input = "Desk[^noema-source-1].\n\n[^noema-source-1]: [Desk photo](<artifact:123>) — OCR text block; owner: Kevin; disclosure: private.\n";
+        let result = normalize_task_result(input);
+        assert!(result.unresolved_references.is_empty());
+        assert!(result.text.contains("Desk[^noema-source-1]."));
+        assert!(result.text.contains("artifact:123"));
+        assert!(
+            result
+                .text
+                .contains("OCR text block; owner: Kevin; disclosure: private.")
         );
         assert_eq!(normalize_task_result(&result.text).text, result.text);
     }
