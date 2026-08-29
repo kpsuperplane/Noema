@@ -3,16 +3,19 @@
 Date: 2026-08-29
 
 Milestone 2 remains in progress.
-This record covers bounded acceptance cases for Tasks 2, 3, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
+This record covers bounded acceptance cases for Tasks 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
 ## Result
 
-Tasks 20 and 22 pass their current provider-neutral live cases.
+Tasks 4, 20, and 22 pass their current provider-neutral live cases.
 
 Task 22 produced six exact native Tasks from one ambiguous goal.
 Its reconciliation run created no duplicate.
 
 Task 20 detected changed risks and stayed quiet when unchanged.
+
+Task 4 prioritized exact reply and action records.
+It reconciled exact receipts and stayed quiet when unchanged.
 
 No dependency schema, monitor table, checkpoint schema, or provider-specific adapter was necessary.
 
@@ -1373,7 +1376,125 @@ No dependency schema, risk table, capacity entity, milestone entity, or monitori
 Test a larger graph before adding native dependency fields.
 Test connected source events separately from the provider-neutral reasoning path.
 
+## Task 4 acceptance
+
+Task 4 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d048b1b65fdaa5486c` |
+| Repeat | `recurrence:18d048c39bdb88274a73` |
+| Baseline source | Source revision 1 |
+| Changed source | Source revision 2; Project revision 4 |
+| Changed digest | `40f50a8ca4c896aa1a9795022fca8766ed4bc133ab39dbbfb9be110f82a00920` |
+
+The source defined stable Thread IDs, Message IDs, sender IDs, deadlines, and explicit priority classes.
+It also defined reply requirements, action keys, closure receipts, permitted drafts, and prohibited actions.
+
+The policy ranked safety, security, legal, and regulatory work first.
+Customer blockers ranked second, executive work third, and other items fourth.
+
+Within one class, the earliest deadline controlled.
+Relationship importance could break a tie only.
+
+### Corrected baseline
+
+Task `task:18d048c39bbbcf3e4a72` used the `13:11:00Z` cutoff.
+It built four open queue items and excluded one newsletter.
+
+It drafted one factual customer reply.
+It drafted internal questions for missing legal and availability facts.
+
+It also recorded one executive action without editing a native Task.
+It sent nothing and performed no external action.
+
+The first result incorrectly said the executive record lacked a Message ID.
+The source supplied `message:exec-agenda-001`.
+
+The same Task reopened with bounded correction feedback.
+The corrected result preserved the exact Message ID everywhere.
+
+Reviewer `run:18d0491090ae79f15324` approved the corrected baseline.
+
+### Stable baseline silence
+
+Task `task:18d049262f0ab4fb5579` used the unchanged source revision 1.
+It preserved the four-item queue, exact order, evidence, drafts, and exclusion.
+
+Reviewer `run:18d0495615bf4c455aff` approved with `notify_human: false`.
+No completion notification exists for this Task.
+
+### Exact receipt reconciliation and later inbound continuity
+
+Source revision 2 added one successful customer reply receipt.
+The receipt named `message:customer-access-001` exactly.
+
+A later inbound message used `message:customer-access-002` on the same Thread ID.
+The later message required a new reply and had an earlier deadline.
+
+The source also added one successful executive action receipt.
+It named `action:prepare-beta-agenda-001` exactly.
+
+A new security decision thread added a class-one deadline.
+It lacked user approval for an authentication bypass.
+
+Task `task:18d04987e9db7e2260f5` used the `13:25:00Z` cutoff.
+It kept one current item for each open Thread ID.
+
+It closed only the earlier customer Message ID.
+It kept the later inbound Message ID open on the same thread.
+
+It closed only the exact executive action.
+It inferred no reply and claimed no send.
+
+The new order was security, legal, customer, and friend.
+The closed executive action left the open queue.
+
+The customer draft changed to the later Message ID.
+The security item produced an internal decision question only.
+
+Reviewer `run:18d049cb7d05514f68b3` approved with `notify_human: true`.
+The changed result produced completion notification `notification:18d049cdc2bae4f36900`.
+
+### Reviewer delivery correction
+
+One unchanged result correctly recorded `notify_human: false`.
+Its Reviewer still requested a completion notification.
+
+The Repeat instruction now states the Reviewer delivery decision explicitly.
+Previously reported open items do not justify another notification.
+
+This was an instruction correction.
+It added no code, schema, state variant, or provider rule.
+
+### Final quiet occurrence
+
+Task `task:18d04a2f8e2ce04d7419` used source revision 2 and recurrence revision 2.
+It compared exact prior Task `task:18d049dbb45472ba6a75`.
+
+It found no queue, order, receipt, closure, deadline, draft, or exclusion change.
+Reviewer `run:18d04a58aa8fbdc178d2` approved with `notify_human: false`.
+
+No completion notification exists for this Task.
+No governed action exists for this Task.
+
+The Repeat ended at revision 3.
+It has no next run.
+
+### Reuse assessment
+
+The Project document, Repeat history, exact identities, receipts, and Reviewer delivery control were sufficient.
+No inbox table, thread schema, priority engine, draft entity, or provider-specific adapter was necessary.
+
+Connected source intake and reviewed sending remain separate paths.
+Test them when current provider-neutral adapter operations are available.
+
 ## Remaining Milestone 2 gates
+
+The 32-task verification target is reached.
+The following items remain cross-cutting follow-ups.
 
 - Test long promise, monitoring, decision, and learning series near the bounded history limit.
 - Verify shared restart recovery for the remaining long-running cases.
