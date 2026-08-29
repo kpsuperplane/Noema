@@ -392,11 +392,11 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-Current retests verify 18 tasks. No task remains in `Test`.
+Current retests verify 19 tasks. No task remains in `Test`.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend.
 
-Tasks 1, 5, 6, 8, 11, 14, 15, 17, 19, 21, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
+Tasks 1, 2, 5, 6, 8, 11, 14, 15, 17, 19, 21, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
 
 These results prove one provider setup. The second provider portability gate remains open.
 
@@ -405,7 +405,7 @@ These results prove one provider setup. The second provider portability gate rem
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
 | 1 | Build a daily operational brief | Verified | A delegated live case used non-empty messages, Calendar results, Tasks, and Memory. It preserved bounds, identifiers, deductions, and source limits. |
-| 2 | Maintain one trusted promise register | Extend | Tasks and working files provide a base. Add counterparties, source-linked capture, due dates, deduplication, and completion proof. |
+| 2 | Maintain one trusted promise register | Verified | A provider-neutral Repeat case carried one source-linked promise through an unrelated change. It closed only after an exact completion receipt. Test longer and multi-promise series before adding dedicated state. |
 | 3 | Capture actions, decisions, and dates | Build | Implement external event sources and authorized routing into Tasks, Calendar, or project records. One-time extraction already passed. |
 | 4 | Maintain a prioritized reply and action queue | Extend | Add thread identity, relationship priority, mail drafts, reply operations, and sent-reply reconciliation. Revalidate the current Gmail connection. |
 | 5 | Audit the calendar for conflicts and hidden load | Verified | Bounded live audits reached natural ends. They preserved recurrence parents, all-day dates, attendees, locations, overlaps, gaps, and cited route time. |

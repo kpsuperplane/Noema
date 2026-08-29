@@ -193,7 +193,7 @@ No case can require an unbounded source scan.
 
 Target: 32/100 Verified.
 
-Current: 18/100 Verified.
+Current: 19/100 Verified.
 
 Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
@@ -203,7 +203,8 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 | --- | --- | --- |
 | Add source events for new messages, changed events, changed files, and Task changes. | Event-driven monitoring still needs reliable source change signals. Repeat polling already covers the bounded Task 33 case. | 3, 7, 12 |
 | Test existing Repeat history near its bounded limit before adding checkpoint storage. | Tasks 33, 38, and 39 passed bounded fixtures. Longer series must prove whether dedicated stored state is necessary. | 33, 38, 39 |
-| Route detected commitments into existing Tasks or event records after review. | Extracted promises need one durable owner and later completion evidence. | 2, 3, 9, 16 |
+| Reuse Project files for source-linked promise state. | Task 2 passed a bounded continuity and completion case. Test connected capture and longer history before adding a promise entity. | 2 |
+| Route detected commitments into existing Tasks or event records after review. | Tasks 3, 9, and 16 still need durable capture from changing external sources. | 3, 9, 16 |
 | Add Task dependencies, blockers, milestones, estimates, and explicit owners. | Project planning and replanning need relationships beyond independent Task records. | 7, 20, 22 |
 | Reuse Project files for source-linked decision history. | Task 21 passed a bounded replacement case. Test connected capture and longer history before adding a dedicated decision entity. | 21 |
 | Route captured decisions and follow-ups into the Project source. | Task 16 still needs durable ownership and later completion evidence after a decision is recorded. | 16 |
@@ -219,7 +220,7 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
 ### Required acceptance cases
 
-- A promise survives source changes and closes only after completion evidence.
+- A promise survives source changes and closes only after completion evidence. Passed on 2026-08-29.
 - A delayed event replans dependent Tasks and drafts the required notices.
 - A monitored thread reports silence only after its agreed deadline.
 - A meeting negotiation handles time zones, working hours, and one declined option.

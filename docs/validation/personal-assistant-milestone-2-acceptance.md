@@ -3,7 +3,7 @@
 Date: 2026-08-29
 
 Milestone 2 remains in progress.
-This record covers bounded acceptance cases for Tasks 21, 33, 38, and 39.
+This record covers bounded acceptance cases for Tasks 2, 21, 33, 38, and 39.
 
 ## Result
 
@@ -286,9 +286,72 @@ It does not prove prior-Task recovery across a normally ordered series.
 
 Test a normally ordered longer series before adding a dedicated decision entity or direct recurrence history.
 
+## Task 2 acceptance
+
+Task 2 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d03bdf634cc47927f6` |
+| Repeat | `recurrence:18d03be6385f129f28b4` |
+| Source | The Project `PROJECT.md` file |
+| Promise | `promise:launch-brief-001` |
+| Promise source | `source:meeting-note-001` |
+| Completion source | `source:sent-receipt-002` |
+| Completion receipt | `receipt:outbound-002` |
+
+### Baseline
+
+Source revision 1 contained one open promise and no completion evidence.
+
+Task `task:18d03be6384e8ee328b3` started from its scheduled 09:16 UTC slot.
+It kept the promise open and preserved every source field.
+
+Executor run `run:18d03bf6e10f917c2a9e` produced the result.
+Reviewer run `run:18d03c078b9d44042c9c` approved it.
+
+### Unrelated source change
+
+Source revision 2 changed only an unrelated priority label.
+The promise record remained unchanged, and completion evidence remained absent.
+
+Task `task:18d03c0debba7d212d3f` inspected the earlier baseline.
+It carried the promise forward as open and did not present it as new information.
+
+Executor run `run:18d03c13db5227c42dfb` produced the result.
+Reviewer run `run:18d03c20969aa6812f78` approved it with `notify_human: false`.
+
+### Explicit completion
+
+Source revision 3 added one receipt.
+The receipt named the Promise ID and an exact completion time.
+
+Task `task:18d03c29780b23c63081` inspected the prior open result.
+It closed only `promise:launch-brief-001` and retained both source records.
+
+It did not infer acknowledgement or satisfaction.
+
+Executor run `run:18d03c2ff87ca3b1314d` produced the result.
+Reviewer run `run:18d03c41585096903353` approved it.
+
+The fixture Repeat ended after every evidenced promise closed.
+Its final revision is 2, and it has no next run.
+
+### Reuse assessment
+
+Project files can hold source-linked promise state for this bounded case.
+Repeat history and Task reads can maintain it through changes and completion.
+
+No promise table, message connector, or provider-specific adapter was necessary.
+Connected promise capture remains a separate source concern.
+
+Test a longer series and several concurrent promises before adding dedicated promise state.
+
 ## Remaining Milestone 2 gates
 
-- Test long monitoring, decision, and learning series near the bounded history limit.
+- Test long promise, monitoring, decision, and learning series near the bounded history limit.
 - Verify proactive trigger, source checkpoint, and stop-condition explanations.
 - Run the remaining Milestone 2 acceptance cases.
 - Confirm restart recovery for cases that can make external actions.
