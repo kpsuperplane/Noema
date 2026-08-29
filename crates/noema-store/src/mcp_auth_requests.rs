@@ -313,11 +313,20 @@ impl NoemaStore {
                       ORDER BY CASE state WHEN 'authorizing' THEN 0 ELSE 1 END,
                                created_at, request_id
                     ) AS authority_rank
-                  FROM capability_auth_requests
-                  WHERE owner_human_id = ?1
-                    AND state IN ('awaiting_user', 'authorizing')
-                    AND (?2 IS NULL OR conversation_id = ?2)
-                    AND (?3 IS NULL OR task_id = ?3)
+                  FROM capability_auth_requests requests
+                  WHERE requests.owner_human_id = ?1
+                    AND requests.state IN ('awaiting_user', 'authorizing')
+                    AND (
+                      ?2 IS NULL
+                      OR requests.conversation_id = ?2
+                      OR EXISTS (
+                        SELECT 1
+                        FROM tasks
+                        WHERE tasks.task_id = requests.task_id
+                          AND tasks.source_conversation_id = ?2
+                      )
+                    )
+                    AND (?3 IS NULL OR requests.task_id = ?3)
                 )
                 {REQUEST_SELECT}
                 JOIN grouped_requests grouped ON grouped.request_id = requests.request_id

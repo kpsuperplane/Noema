@@ -1826,7 +1826,7 @@ async fn inline_governed_action_cannot_resume_a_later_task_gate() {
 }
 
 #[tokio::test]
-async fn uncertain_capability_authentication_opens_typed_recovery_gate() {
+async fn task_capability_authentication_propagates_to_source_and_opens_recovery_gate() {
     let (store, service) = fixture().await;
     crate::test_support::insert_mcp_server(&store, "mcp:auth-uncertain")
         .await
@@ -1885,6 +1885,30 @@ async fn uncertain_capability_authentication_opens_typed_recovery_gate() {
         )
         .await
         .expect("create authentication request");
+    for (conversation_id, task_id, expected) in [
+        (Some("conversation:delegate-source"), None, true),
+        (Some("conversation:capture-source"), None, false),
+        (None, Some(task.task_id.as_str()), true),
+        (None, None, true),
+    ] {
+        let pending = store
+            .list_pending_capability_authentication_requests(
+                "human:local",
+                conversation_id,
+                task_id,
+                10,
+            )
+            .await
+            .expect("list pending authentication requests");
+        assert_eq!(
+            pending
+                .iter()
+                .filter(|item| item.request_id == request.request_id)
+                .count(),
+            usize::from(expected),
+            "scope visibility must follow Task provenance without duplication"
+        );
+    }
     store
         .begin_capability_authentication(
             &request.request_id,
