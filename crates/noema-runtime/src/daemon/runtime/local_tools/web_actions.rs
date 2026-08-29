@@ -199,10 +199,12 @@ impl RuntimeActor {
             }
             Err(error) => {
                 let session = self.browser_sessions.session(&owner_key);
-                let can_switch_provider = session
-                    .as_ref()
-                    .and_then(super::next_browser_route_position)
-                    .is_some();
+                let can_switch_provider = name
+                    != noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL
+                    && session
+                        .as_ref()
+                        .and_then(super::next_browser_route_position)
+                        .is_some();
                 let snapshot_revision = session
                     .as_ref()
                     .and_then(|state| state.snapshot.as_ref())
@@ -548,6 +550,13 @@ mod hosted_search_tests {
         assert_eq!(
             uncertain.failure.unwrap().kind,
             CapabilityFailureKind::OutcomeUncertain
+        );
+
+        let capacity = browser_failure_output(WebBrowseError::Capacity, false, Some(9));
+        assert_eq!(capacity.payload["error"], "capacity_reached");
+        assert_eq!(
+            capacity.failure.unwrap().recovery,
+            CapabilityRecovery::RetryLater
         );
     }
 
