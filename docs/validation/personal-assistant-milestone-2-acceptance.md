@@ -3,7 +3,7 @@
 Date: 2026-08-29
 
 Milestone 2 remains in progress.
-This record covers bounded acceptance cases for Tasks 2, 3, 7, 9, 12, 13, 16, 18, 21, 24, 33, 38, and 39.
+This record covers bounded acceptance cases for Tasks 2, 3, 7, 9, 12, 13, 16, 18, 21, 24, 26, 33, 38, and 39.
 
 ## Result
 
@@ -958,6 +958,128 @@ No reviewer table, approval router, quorum schema, or conflict state was necessa
 
 Test connected reviewer delivery and response intake separately.
 Require execution receipts before claiming connected routing is complete.
+
+## Task 26 acceptance
+
+Task 26 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d042b5efc644d75b05` |
+| Repeat | `recurrence:18d042c325742f195c75` |
+| Handoff | `handoff:atlas-001` |
+| Departing owner | `person:avery-001` |
+| Successor | `person:jordan-001` |
+| Accountable manager | `person:casey-001` |
+
+The lifecycle required grants, verification, ownership acceptance, responsibility transfer, revocation, and package acknowledgment.
+Every step required exact evidence.
+
+Departing access could not be revoked before successor access was verified.
+The package audience contained only Jordan and Casey.
+
+The source identified one unauthorized private HR record.
+It also identified protected secret material without supplying any secret value.
+
+### Invalid early attempt
+
+Task `task:18d042c3255108cf5c74` was started before its `11:25:00Z` scheduled cutoff.
+That future cutoff made the occurrence invalid for acceptance.
+
+The Task was cancelled before it produced a result.
+It is excluded from all behavioral claims below.
+
+The Repeat then moved to normal scheduled cutoffs.
+No product change was necessary.
+
+### Incomplete baseline
+
+Task `task:18d042df99cbe2d05fb2` used the `11:23:00Z` cutoff.
+It read source revision 1 and counted zero exact receipts.
+
+It produced one package with current state, responsibilities, access, decisions, contacts, risks, and unfinished work.
+It preserved Casey as the accountable manager.
+
+It excluded the unauthorized HR contents.
+It included no credential value and prohibited credential sharing.
+
+It drafted prerequisite access and training requests only.
+It drafted no departing-owner revocation.
+
+Executor `run:18d042e79fd99cba60a7` produced the result.
+Reviewer `run:18d043191025e9c2664b` approved it.
+
+### Reviewer rejection of unsupported completion
+
+Source revision 2 supplied 20 successful receipts.
+Task `task:18d04325727e91b467b9` used the `11:28:00Z` cutoff.
+
+The first Executor incorrectly claimed exact completion.
+It also copied resource IDs that were absent from current source revision 2.
+
+Reviewer `run:18d04362cf86341b6ebf` rejected that result.
+It identified a missing distinct grant receipt for `access:atlas-docs-001`.
+
+Correction Executor `run:18d043665643bab76f2e` removed the unsupported resource IDs.
+It kept completion false and drafted one narrow evidence request.
+
+It preserved the recorded later revocations as source facts.
+It did not treat those facts as proof of the missing predecessor grant.
+
+Reviewer `run:18d04394e7c1e6267468` approved the corrected package.
+The newly identified blocking gap produced one completion notification.
+
+### Late receipt and exact completion
+
+Source revision 3 added `receipt:docs-owner-grant-audit-001`.
+The receipt was recorded at `11:36:20Z` and became available only in revision 3.
+
+It confirmed that the docs owner grant completed before verification and revocation.
+The source also supplied the four explicit access-to-resource mappings.
+
+Task `task:18d043a32d9b89fb75ea` used the `11:37:00Z` cutoff.
+It compared exact prior Task `task:18d04325727e91b467b9`.
+
+It counted 21 exact successful receipts.
+It verified every required receipt class and timestamp order.
+
+It preserved the manager accountability, observability backup, and successor ownership.
+It produced no new lifecycle draft or external action.
+
+Reviewer `run:18d043cee70882407af5` approved exact completion.
+The newly completed handoff produced one completion notification.
+
+### Quiet unchanged occurrence
+
+Task `task:18d043db0e68bfe67c29` used the `11:41:00Z` cutoff.
+It inspected exact prior Task `task:18d043a32d9b89fb75ea`.
+
+It found no source, receipt, access, responsibility, risk, exclusion, or completion change.
+It preserved the complete package and produced no draft.
+
+Reviewer `run:18d04407828ec5b98145` approved with `notify_human: false`.
+No completion notification exists for this Task.
+
+The Repeat ended after revision 3.
+It has no next run or pending coalesced occurrence.
+
+### Delivery and action evidence
+
+The missing-evidence correction and exact completion produced one completion notification each.
+The incomplete baseline and unchanged occurrence produced none.
+
+No action request exists for any occurrence.
+No access, message, credential, record, or external source changed.
+
+### Reuse assessment
+
+The Project document, Repeat history, Reviewer correction, exact receipts, and delivery control were sufficient.
+No access table, lifecycle entity, ownership schema, or export subsystem was necessary.
+
+Test connected grants, revocations, acknowledgments, and their execution receipts separately.
+Test a larger multi-person handoff before adding dedicated lifecycle storage.
 
 ## Remaining Milestone 2 gates
 
