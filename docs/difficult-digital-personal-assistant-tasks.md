@@ -392,11 +392,11 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-Current retests verify 28 tasks. No task remains in `Test`.
+Current retests verify 29 tasks. No task remains in `Test`.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend.
 
-Tasks 1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 24, 26, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
+Tasks 1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 24, 26, 28, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
 
 These results prove one provider setup. The second provider portability gate remains open.
 
@@ -441,7 +441,7 @@ These results prove one provider setup. The second provider portability gate rem
 | 25 | Build an employer expense packet | Build | Document parsing helps with statements. Add receipt uploads, image OCR, transaction matching, policy checks, expense writes, and reimbursement reconciliation. |
 | 26 | Prepare onboarding, offboarding, or handoff | Verified | A provider-neutral Repeat built an audience-bound package, protected private and secret material, enforced grant-before-revoke ordering, preserved accountable ownership, closed on exact receipts, and stayed quiet. Connected lifecycle operations remain separate. |
 | 27 | Maintain credentials and compliance obligations | Extend | Public evidence parsing now works. Add compliance records, private file intake, rule monitoring, portal uploads, fees, and renewal receipts. |
-| 28 | Run a job-search pipeline | Extend | Task workspaces improve long searches. Add job-board connectors, application state, deduplication, current mail access, and outcome learning. |
+| 28 | Run a job-search pipeline | Verified | A provider-neutral Repeat deduplicated exact listings, required application receipts, tracked outcomes and contacts, adapted from exact feedback, drafted one safe next action, and stayed quiet when unchanged. Connected job, message, and application intake remains separate. |
 | 29 | Prepare tailored application packets | Extend | Noema can parse source documents. Add user file intake, verified career records, templates, document generation, version control, and portal uploads. |
 | 30 | Compare job offers and prepare negotiation | Extend | Noema can parse downloaded benefit documents. Add private file intake, compensation normalization, location data, and deterministic calculations. |
 

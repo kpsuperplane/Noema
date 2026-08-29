@@ -3,7 +3,7 @@
 Date: 2026-08-29
 
 Milestone 2 remains in progress.
-This record covers bounded acceptance cases for Tasks 2, 3, 7, 9, 12, 13, 16, 18, 21, 24, 26, 33, 38, and 39.
+This record covers bounded acceptance cases for Tasks 2, 3, 7, 9, 12, 13, 16, 18, 21, 24, 26, 28, 33, 38, and 39.
 
 ## Result
 
@@ -1080,6 +1080,116 @@ No access table, lifecycle entity, ownership schema, or export subsystem was nec
 
 Test connected grants, revocations, acknowledgments, and their execution receipts separately.
 Test a larger multi-person handoff before adding dedicated lifecycle storage.
+
+## Task 28 acceptance
+
+Task 28 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d0443165b9f57f85e5` |
+| Repeat | `recurrence:18d0443ff4929039877b` |
+| Baseline source | Project revision 2; source revision 1 |
+| Changed source | Project revision 3; source revision 2; digest `30dad356097c8f9c52589285fcda8f36cfd37dc363b9149080050a8fcd16cb58` |
+| Canonical identity | Exact employer ID plus requisition ID |
+
+The source defined target level, work, location, compensation, industry exclusions, and three verified career claims.
+It prohibited automatic applications, messages, contact, and interview scheduling.
+
+Six baseline listings included one exact duplicate pair and one similar separate requisition.
+One unsupported applied claim lacked an application ID and submission receipt.
+One other application had an exact successful receipt.
+
+### Baseline and receipt authority
+
+Task `task:18d0443ff4825a99877a` used the `11:48:00Z` cutoff.
+It preserved six listings and produced five canonical jobs.
+
+It merged only the two ACME-77 listings.
+It kept ACME-88 separate and excluded one manager role and one expired role.
+
+It marked only Beacon applied from `receipt:beacon-submit-001`.
+It preserved `event:acme-aggregate-applied-claim-001` without promoting its unsupported claim.
+
+It ranked the eligible jobs and drafted one unsent Beacon follow-up.
+Reviewer `run:18d044633053e6098b93` approved the baseline.
+
+### First unchanged occurrence
+
+Task `task:18d04466c37e72a08bdf` used the `11:51:00Z` cutoff.
+It inspected the exact prior successful Task.
+
+It found no pipeline, receipt, outcome, contact, draft, or ranking change.
+Reviewer `run:18d0449942a31a4391a7` approved with `notify_human: false`.
+
+### Excluded stale occurrences
+
+Tasks `task:18d0449ea5900b1f924f` and `task:18d044ac9c2d4f7393fa` started before the source update.
+Both Tasks were cancelled before acceptance results.
+
+They are excluded from all behavioral claims below.
+No product change was necessary.
+
+### Outcomes and evidence-based adaptation
+
+Source revision 2 added one Echo listing and retained all earlier listing evidence.
+It added an exact ACME-77 application receipt and interview invitation.
+
+It added an exact Beacon rejection after the earlier under-review event.
+The rejection feedback identified insufficient customer-facing architecture examples.
+
+It also added a receipt for the user's ACME warm-introduction request.
+The source permitted one unsent ACME interview-preparation draft.
+
+Task `task:18d044d683e72ea298bd` used the `11:59:00Z` cutoff.
+It preserved seven listings and produced six canonical jobs.
+
+It kept both the earlier Beacon state and the later exact rejection.
+It closed the Beacon follow-up and prevented another ACME introduction draft.
+
+It marked ACME-77 applied only from `receipt:acme-77-submit-001`.
+It kept ACME-88 separate and did not infer an Echo application.
+
+It adapted the interview plan with exact Beacon feedback.
+It used only verified `profile:customer-migration-001` evidence.
+
+It produced one unsent ACME interview-preparation draft.
+It did not invent customer results, metrics, management experience, or scheduling authority.
+
+Reviewer `run:18d0451a95ad82b1a075` approved the changed result.
+The result used `notify_human: true` for the new role, exact outcomes, and supported strategy change.
+
+### Final quiet occurrence
+
+Task `task:18d0452a56320b36a222` used the `12:05:00Z` cutoff.
+It inspected exact prior Task `task:18d044d683e72ea298bd`.
+
+It found no source, receipt, outcome, contact, ranking, draft, or strategy change.
+It retained the single interview-preparation draft without creating another.
+
+Reviewer `run:18d045605bdb668ba854` approved with `notify_human: false`.
+The Repeat ended at revision 2 with no next run.
+
+### Delivery and action evidence
+
+The baseline produced one creation notification and one completion notification.
+The changed occurrence produced one completion notification.
+
+The two approved quiet occurrences produced no completion notification.
+The cancelled stale occurrences produced no completion notification.
+
+No governed action exists for any occurrence.
+No application, message, contact, interview, listing, or external source changed through Noema.
+
+### Reuse assessment
+
+The Project document, Repeat history, exact receipts, prior Task reads, and Reviewer delivery control were sufficient.
+No job table, application schema, contact system, outcome entity, or strategy engine was necessary.
+
+Test connected job intake, message intake, and reviewed external actions separately.
+Add dedicated pipeline storage only after a larger case fails bounded Project files or Task history.
 
 ## Remaining Milestone 2 gates
 
