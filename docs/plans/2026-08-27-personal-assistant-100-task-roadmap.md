@@ -193,7 +193,7 @@ No case can require an unbounded source scan.
 
 Target: 32/100 Verified.
 
-Current: 29/100 Verified.
+Current: 31/100 Verified.
 
 Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
@@ -206,7 +206,7 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 | Reuse Project files for source-linked promise state. | Task 2 passed a bounded continuity and completion case. Test connected capture and longer history before adding a promise entity. | 2 |
 | Route detected commitments into existing Tasks or event records after review. | Tasks 3, 9, and 16 passed bounded Project-source capture, exact-ID continuity, and receipt closure. Connected intake remains separate. | 3, 9, 16 |
 | Reuse Project files for bounded dependency-aware replanning. | Task 7 passed one controlled delay and fixed-item conflict. Connected Task and Calendar updates remain separate. | 7 |
-| Add Task dependencies, blockers, milestones, estimates, and explicit owners. | Tasks 20 and 22 need durable relationships that support actual Task mutation. | 20, 22 |
+| Reuse Project files and native Task documents for bounded plans and risk monitoring. | Tasks 20 and 22 passed with exact Task IDs, owners, estimates, milestones, blockers, receipts, and stop conditions. Keep dependency meaning in the Project source until another production path requires native fields. | 20, 22 |
 | Reuse Project files for source-linked decision history. | Task 21 passed a bounded replacement case. Test connected capture and longer history before adding a dedicated decision entity. | 21 |
 | Route captured decisions and follow-ups into the Project source. | Task 16 passed one replacement with owned follow-ups and later exact receipts. Test longer series before adding dedicated state. | 16 |
 | Reuse Project files for stable contact identity, interaction history, cadence, reciprocity, and consent boundaries. | Task 18 passed a bounded changing-source series. Connected interaction intake remains separate. | 18 |
@@ -235,6 +235,8 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 - A relationship plan honors reciprocity, consent, cadence, exact completion, and unchanged silence. Passed on 2026-08-29.
 - A handoff package prevents early revocation, preserves ownership, excludes protected data, and closes on exact receipts. Passed on 2026-08-29.
 - A job pipeline deduplicates listings, requires receipts, adapts from exact outcomes, and stays quiet when unchanged. Passed on 2026-08-29.
+- An ambiguous goal becomes six native Tasks with exact dependencies, milestones, authority, and stop conditions. A second run creates no duplicates. Passed on 2026-08-29.
+- A risk monitor detects changed blockers, capacity, critical path, and resolved risks. It stays quiet when unchanged. Passed on 2026-08-29.
 
 ### Exit gate
 

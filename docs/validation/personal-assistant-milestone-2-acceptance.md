@@ -3,17 +3,18 @@
 Date: 2026-08-29
 
 Milestone 2 remains in progress.
-This record covers bounded acceptance cases for Tasks 2, 3, 7, 9, 12, 13, 16, 18, 21, 24, 26, 28, 33, 38, and 39.
+This record covers bounded acceptance cases for Tasks 2, 3, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
 ## Result
 
-Task 33 passes its current live acceptance case.
+Tasks 20 and 22 pass their current provider-neutral live cases.
 
-Noema used existing Repeat history and Task reads to keep a baseline.
-It suppressed one unchanged completion update.
-It reported one controlled material change after a server restart.
+Task 22 produced six exact native Tasks from one ambiguous goal.
+Its reconciliation run created no duplicate.
 
-No dedicated monitor table, checkpoint schema, or provider-specific adapter was necessary.
+Task 20 detected changed risks and stayed quiet when unchanged.
+
+No dependency schema, monitor table, checkpoint schema, or provider-specific adapter was necessary.
 
 ## Fixture
 
@@ -1190,6 +1191,187 @@ No job table, application schema, contact system, outcome entity, or strategy en
 
 Test connected job intake, message intake, and reviewed external actions separately.
 Add dedicated pipeline storage only after a larger case fails bounded Project files or Task history.
+
+## Task 22 acceptance
+
+Task 22 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d045a0d1708134afba` |
+| Planning Task | `task:18d045b277850f6ab1ab` |
+| Reconciliation Task | `task:18d046dfd72e685c12e2` |
+| Source | The Project `PROJECT.md` file |
+| Goal | Launch a useful private beta around mid-October |
+| Reversible target | `2026-10-16` |
+| Plan size | Six Tasks, 39 hours |
+| Planned capacity | 48 hours through `2026-10-09` |
+
+The source supplied a broad goal and bounded product constraints.
+It also supplied owner capacity, required capabilities, decision gates, and prohibited actions.
+
+Noema selected a reversible target and documented its assumptions.
+It defined acceptance evidence before it created work.
+
+### Native plan
+
+The planning Task created these six canonical native Tasks.
+
+| Plan item | Task | Owner | Estimate | Target |
+| --- | --- | --- | ---: | --- |
+| Success definition | `task:18d045d3bea52f11b589` | User | 4h | `2026-09-04` |
+| Authentication decision | `task:18d045d6023229aab5cc` | User | 6h | `2026-09-11` |
+| Beta build | `task:18d045d8bc9b9427b621` | Morgan | 18h | `2026-09-25` |
+| Privacy review | `task:18d045db503ba521b677` | Sam | 4h | `2026-10-02` |
+| Invitation draft | `task:18d045dda3dfc863b6be` | User | 4h | `2026-10-02` |
+| Readiness review | `task:18d045e1fbf7714fb742` | User | 3h | `2026-10-09` |
+
+Each Task document stored its plan key and exact returned predecessor Task IDs.
+It also stored acceptance evidence, authority, and a stop condition.
+
+The documents prohibited purchases, customer contact, message sending, deployment, vendor selection, and launch.
+The final Task reserved the launch decision for the user.
+
+Reviewer `run:18d0465956b231b1445` approved the corrected plan.
+
+### Exact-repeat defect and correction
+
+One provider response emitted the same readiness `task.capture` call twice.
+The calls had distinct provider call IDs but identical names and arguments.
+
+Noema initially executed both calls.
+This created duplicate Task `task:18d045e200ce04f9b749`.
+The duplicate was cancelled and retained as audit history.
+
+The runtime now reuses the first result for an exact repeated call in one provider response.
+Each provider call ID receives a result, but only the first call executes its side effect.
+
+The rule does not compare later provider responses.
+It does not infer semantic Task identity or add a general deduplication system.
+
+A live regression used Project `project:18d046669941427d59c`.
+Both exact calls returned child Task `task:18d0467e8657d87e863`.
+Only one child Task exists.
+
+Reviewer `run:18d0468aee9497239d5` approved the live regression.
+
+### Reconciliation
+
+The reconciliation Task inspected the populated Project after the correction.
+It reused all six active canonical Tasks.
+
+It created no Task and preserved the cancelled duplicate as terminal history.
+Reviewer `run:18d0470dde40164f182c` approved the result with `notify_human: false`.
+
+No governed action exists for either accepted Task.
+No external source or plan Task changed during reconciliation.
+
+### Reuse assessment
+
+Project files and native Task documents were sufficient for this bounded plan.
+Exact Task IDs supplied durable dependency identity.
+
+No dependency columns, milestone entity, estimate schema, subtask type, or planning service was necessary.
+Add native fields only after another production path cannot use the current authorities.
+
+## Task 20 acceptance
+
+Task 20 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d045a0d1708134afba` |
+| Repeat | `recurrence:18d04723f0f78e6b1aaa` |
+| Canonical plan | The six native Tasks from Task 22 |
+| Baseline source | Source revision 1 |
+| Changed source | Source revision 2; Project revision 3 |
+| Changed digest | `86d8f3228b606384795a2a732cca51ee609258280d3c02919a34d2e8e416575e` |
+
+The monitor used each occurrence time as an inclusive evidence cutoff.
+It read Project evidence and native Task state separately.
+
+It excluded its own occurrences and the cancelled Task 22 duplicate from active plan work.
+It rebuilt the dependency graph from exact predecessor Task IDs.
+
+### Baseline and quiet result
+
+Task `task:18d04723f0b8bca01aa9` established the baseline.
+It found three blockers and two owner-capacity risks.
+
+The critical path was 35 hours.
+Total effort was 39 hours against 48 hours of stated capacity.
+
+It drafted one internal intervention and performed no external action.
+Reviewer `run:18d0476dba561c62231b` approved the baseline.
+
+Task `task:18d04775164f401123d7` used the unchanged source.
+It preserved the graph, risks, propagation, and intervention.
+
+Reviewer `run:18d047a6b721204c2997` approved with `notify_human: false`.
+No completion notification exists for this Task.
+
+### Controlled source change
+
+Source revision 2 added exact evidence with these effects.
+
+- Sam's capacity increased from two hours to four hours. This resolved one capacity risk.
+- Morgan became unavailable from September 8 through September 18.
+- The build estimate increased from 18 hours to 26 hours for risk analysis.
+- A security review prohibited the planned export component.
+- Morgan must propose a replacement before the user reviews its data-handling effect.
+- The source prohibited paid help and another worker. It retained the target and required scope.
+
+Task `task:18d047c8dea5da5f2d9a` used the `12:53:00Z` cutoff.
+The changed source was captured at `12:52:57.422Z`.
+
+It preserved the exact six-Task graph and every unchanged native stage.
+It reported a 43-hour critical path, up from 35 hours.
+
+It calculated 47 risk-adjusted hours against 48 nominal hours.
+It kept owner capacity separate from aggregate capacity.
+
+It found a 22-hour Morgan shortfall in the dependency window.
+It propagated effects only through exact downstream Task IDs.
+
+It marked the Sam risk resolved without claiming review progress.
+It proposed the smallest authorized internal decision sequence.
+
+The first review requested explicit authority labels for all six Tasks.
+The correction added those labels and changed no plan state.
+
+Reviewer `run:18d04830eaafa2023995` approved the corrected result.
+The changed result produced completion notification `notification:18d04832722f71c339ce`.
+
+### Quiet unchanged occurrence
+
+Task `task:18d04838a0b343573a57` used the `13:01:00Z` cutoff.
+It found no material source, graph, risk, propagation, capacity, gate, or intervention change.
+
+Reviewer `run:18d048755c50334b4159` approved with `notify_human: false`.
+No completion notification exists for this Task.
+
+The Repeat ended at revision 2.
+It has no next run.
+
+### Delivery and action evidence
+
+The changed occurrence produced one completion notification.
+The two accepted unchanged occurrences produced none.
+
+No governed action exists for the changed or final unchanged occurrence.
+No plan Task, external source, message, purchase, vendor, deployment, or customer record changed.
+
+### Reuse assessment
+
+The Project document, native Task documents, Repeat history, and Reviewer delivery control were sufficient.
+No dependency schema, risk table, capacity entity, milestone entity, or monitoring service was necessary.
+
+Test a larger graph before adding native dependency fields.
+Test connected source events separately from the provider-neutral reasoning path.
 
 ## Remaining Milestone 2 gates
 

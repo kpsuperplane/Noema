@@ -392,11 +392,11 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-Current retests verify 29 tasks. No task remains in `Test`.
+Current retests verify 31 tasks. No task remains in `Test`.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend.
 
-Tasks 1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 24, 26, 28, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
+Tasks 1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 26, 28, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
 
 These results prove one provider setup. The second provider portability gate remains open.
 
@@ -433,9 +433,9 @@ These results prove one provider setup. The second provider portability gate rem
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
 | 19 | Produce an evidence-based project status | Verified | A native Project case joined the Project and four full Task documents. It reconciled workstream reports with native stages and conflicts. |
-| 20 | Detect project risks and dependencies | Extend | Dependencies and subtasks remain excluded. Add Task dependency links, commitment ownership, weak-signal tests, and intervention rules. |
+| 20 | Detect project risks and dependencies | Verified | A provider-neutral Repeat reconstructed an exact six-Task dependency graph. It detected blockers, owner-specific capacity, a changed critical path, and one resolved risk. It proposed one bounded intervention and stayed quiet when unchanged. |
 | 21 | Maintain a decision log | Verified | A provider-neutral Project case retained exact source history, marked one replaced decision superseded, and linked its replacement both ways. Test normally ordered longer series before adding a dedicated decision entity. |
-| 22 | Turn an ambiguous goal into a project plan | Extend | Planner and Task files cover decomposition. Add milestones, dependencies, estimates, review points, subtasks, and plan-to-Task conversion. |
+| 22 | Turn an ambiguous goal into a project plan | Verified | A provider-neutral Project case converted an ambiguous goal into six native Tasks. Their documents preserved owners, estimates, targets, exact predecessor IDs, acceptance evidence, authority, and stop conditions. A reconciliation run reused all six. |
 | 23 | Assemble a deliverable from scattered material | Extend | Public downloads and PDF or Office parsing now work. Add user file intake, version comparison, and required-format export. |
 | 24 | Coordinate a multi-reviewer approval | Verified | A provider-neutral Repeat enforced roster membership, exact version binding, quorum, mandatory review, conflict resolution, and quiet unchanged delivery. Connected routing and response intake remain separate. |
 | 25 | Build an employer expense packet | Build | Document parsing helps with statements. Add receipt uploads, image OCR, transaction matching, policy checks, expense writes, and reimbursement reconciliation. |
