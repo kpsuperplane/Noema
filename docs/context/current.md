@@ -120,6 +120,8 @@ slice or a net-negative reduction.
   Empty results and a two-page continuation passed live after revision.
 - All 14 Milestone 1 main paths pass in the current provider setup.
   The provider-neutral package is `docs/validation/personal-assistant-milestone-1-acceptance.md`.
+- The development watcher now stops its prior server process during a file-watch restart.
+  The live acceptance runner retries read-only socket checks during restart downtime.
 - The `noema-dev` service owns Task roots under `/var/lib/noema-dev/tasks`.
   Repository paths and `/root` ACLs do not grant service access.
 
@@ -189,7 +191,10 @@ slice or a net-negative reduction.
 - Live Gmail and Calendar OAuth acceptance still needs interactive Google
   account consent after native generation.
 - Milestone 1 portability needs a second materially different message and event provider setup.
-- The exact Milestone 1 cases still need restart and expired-authentication runs.
+- Active Executor leases recovered safely in two restart trials.
+  One exact case must still finish with reviewer approval after restart.
+- One recovered case stopped at an expired Notion authentication request.
+  The same case must resume and finish after renewed authentication.
 - Production iOS notifications need enabled entitlements, regenerated signing
   profiles, and an APNs provider configured in browser Settings.
 - Production Tasks Live Activities also need the widget App ID in regenerated

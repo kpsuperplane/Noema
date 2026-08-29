@@ -260,7 +260,6 @@ fn spawn_web_server_watcher(repo_root: &Path) -> Result<Child, DevError> {
 fn configure_web_server_watcher(command: &mut Command, executable: &Path) {
     command
         .arg("watch")
-        .arg("--no-process-group")
         .arg("--delay")
         .arg("1.5")
         .arg("-E")
@@ -477,7 +476,7 @@ mod tests {
         configure_web_server_watcher(&mut command, Path::new("/workspace/noema-dev"));
 
         let arguments = command.as_std().get_args().collect::<Vec<_>>();
-        assert!(arguments.contains(&std::ffi::OsStr::new("--no-process-group")));
+        assert!(!arguments.contains(&std::ffi::OsStr::new("--no-process-group")));
         assert!(arguments.windows(2).any(|pair| pair == ["--delay", "1.5"]));
         assert!(
             arguments

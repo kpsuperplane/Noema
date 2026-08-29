@@ -170,6 +170,12 @@ async function turnIsTerminal(options: Options, turnId: string) {
   return result.runtimeDebugProfile !== null && result.runtimeDebugProfile.status !== "RUNNING";
 }
 
+function socketIsRestarting(options: Options, error: unknown) {
+  return options.socketPath !== undefined
+    && error instanceof Error
+    && error.message.startsWith("GraphQL socket request failed:");
+}
+
 async function waitForTurn(options: Options, conversationId: string, clientMessageId: string) {
   const itemIds = new Set<string>();
   let turnId: string | undefined;
@@ -186,8 +192,12 @@ async function waitForTurn(options: Options, conversationId: string, clientMessa
       },
     });
     while (Date.now() < deadline) {
-      turnId ??= await findTurnId(options, conversationId, clientMessageId);
-      if (turnId && await turnIsTerminal(options, turnId)) return { itemIds, turnId };
+      try {
+        turnId ??= await findTurnId(options, conversationId, clientMessageId);
+        if (turnId && await turnIsTerminal(options, turnId)) return { itemIds, turnId };
+      } catch (error) {
+        if (!socketIsRestarting(options, error)) throw error;
+      }
       await Bun.sleep(Math.min(2_000, deadline - Date.now()));
     }
     throw new Error(`turn timed out after ${options.timeoutMs} ms; no action was retried`);
@@ -323,8 +333,12 @@ async function waitForDelegatedTask(options: Options, taskId: string) {
   const deadline = Date.now() + options.timeoutMs;
   if (options.socketPath) {
     while (Date.now() < deadline) {
-      const state = await delegatedTaskState(options, taskId);
-      if (delegatedTaskReachedBoundary(state)) return state;
+      try {
+        const state = await delegatedTaskState(options, taskId);
+        if (delegatedTaskReachedBoundary(state)) return state;
+      } catch (error) {
+        if (!socketIsRestarting(options, error)) throw error;
+      }
       await Bun.sleep(Math.min(2_000, deadline - Date.now()));
     }
     throw new Error(`delegated task ${taskId} timed out; no action was retried`);

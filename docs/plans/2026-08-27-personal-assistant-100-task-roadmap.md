@@ -154,6 +154,8 @@ This table records the current need, result, and remaining boundary.
 | Preserve Memory source dates, replacement history, and later retrieval. | Current facts need freshness and traceable replacement. | Task 98 passed through claim evidence and normal Memory consolidation. | Direct page editing remains a separate user-interface feature. |
 | Ingest travel confirmations from connected messages. | Supplied text does not prove normal intake. | Task 75 used connected messages and reconciled a later cancellation. | Add attachment parsing when a live confirmation requires it. |
 | Turn provider failures into adapter conformance cases. | Provider defects belong in adapters. | Event coverage and message empty-page conversion passed live. | Add the second provider setup required for portability. |
+| Keep the watched server in one process group. | A restart must stop the old server before rebinding. | A live watch restart replaced one server PID without an orphan. | Retain the watcher regression check. |
+| Retry read-only socket checks during restart downtime. | A disconnected test runner must not lose Task identity. | The live runner stayed attached through one server replacement. | Keep mutation submission single-shot. |
 
 ### Required acceptance cases
 
@@ -444,7 +446,7 @@ Split work when one slice crosses two unrelated domain authorities.
 | ---: | --- | --- |
 | 1 | Add a second materially different message and event provider setup. | One live setup does not prove portability. |
 | 2 | Repeat the Milestone 1 integration packages through that setup. | The plan and completion rules must stay unchanged. |
-| 3 | Run one exact case across a server restart. | Current Tasks persist, but the acceptance package has not crossed a restart. |
+| 3 | Finish one exact case after an active-run server restart. | Lease recovery retried safely, but the exact cases did not reach reviewer-approved terminal success. |
 | 4 | Run one exact case across expired authentication. | Current recovery exists, but the acceptance package has not crossed token expiry. |
 | 5 | Reduce travel evidence search cost. | Task 75 passed, but its first Executor used 109 tool calls. |
 | 6 | Retain the populated Project, person-link, travel, event, and Memory fixtures. | These fixtures now support the 14 passing main paths. |

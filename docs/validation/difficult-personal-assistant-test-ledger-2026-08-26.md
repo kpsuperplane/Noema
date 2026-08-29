@@ -107,6 +107,24 @@ Turn `turn:18d025053feeecf24706` returned two pages with stable account, message
 
 The second page preserved another continuation. No external write occurred.
 
+### Restart follow-up
+
+The development watcher replaced PID `3691383` with PID `3691494` without an orphan.
+
+The live runner stayed attached through another replacement and returned Task `task:18d0267c633ac6cfab`.
+
+That Task reached reviewer-approved terminal success with marker `RESTART-RUNNER-OK`.
+
+The Task finished before process replacement. It does not close active-run recovery.
+
+Task `task:18d02592e7bd0d0c5665` recovered one expired Executor lease and wrote a result.
+
+It then entered an Executor continuation loop. The test stopped before reviewer approval.
+
+Task `task:18d0261b98922f14b61` also recovered one expired Executor lease.
+
+It stopped at an unrelated expired Notion authentication request. The test made no external write.
+
 ## Summary
 
 The first suite produced five passes, eight partial results, and one failure.

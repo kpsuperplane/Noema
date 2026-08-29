@@ -107,6 +107,32 @@ The active event connection uses reviewed semantic digest `65337a4aeeeff8b7b6424
 
 These values identify this setup. They are not Noema product dependencies.
 
+## Restart follow-up evidence
+
+The development watcher now keeps its child command in one process group.
+
+One live restart replaced server PID `3691383` with PID `3691494`.
+
+The old server exited before the new server bound its ports and socket.
+
+The live runner now retries read-only socket checks during restart downtime.
+
+Task `task:18d0267c633ac6cfab` finished with marker `RESTART-RUNNER-OK` and reviewer approval.
+
+The runner stayed attached while the server changed from PID `3691494` to PID `3692881`.
+
+That Task finished three seconds before the new process started. It does not prove active-run recovery.
+
+Task `task:18d02592e7bd0d0c5665` did cross an active Executor restart.
+
+Run `run:18d0259cf2c8bfe85766` expired safely. Run `run:18d025cde6dc688e273` retried and wrote the result.
+
+The Task then entered an Executor continuation loop. It was cancelled before reviewer approval.
+
+Task `task:18d0261b98922f14b61` also recovered its expired Executor lease.
+
+The retry stopped at an unrelated Notion authentication request. It was cancelled without an external write.
+
 ## Portability and lifecycle gate
 
 | Gate | Current evidence | State |
@@ -119,8 +145,8 @@ These values identify this setup. They are not Noema product dependencies.
 | Event portability | One event provider setup passed. | Open: second materially different provider setup required |
 | Record portability | Native Project and Task paths passed. | Pass for Noema-owned records |
 | Web portability | Several web providers support current research and route evidence. | Partial: repeat exact cases through another fixed route |
-| Restart recovery | Existing Task state can resume, but these exact cases did not cross a restart. | Open |
-| Expired authentication | No acceptance case crossed expired authentication. | Open |
+| Restart recovery | The watcher and runner pass. Two active Executor leases recovered safely. | Partial: one exact case must still reach reviewer-approved terminal success after restart |
+| Expired authentication | One recovered case reached an expired Notion authentication boundary safely. | Partial: the same case must resume and finish after renewed authentication |
 
 Milestone 2 must not depend on a provider name or this setup’s connection identifiers.
 
