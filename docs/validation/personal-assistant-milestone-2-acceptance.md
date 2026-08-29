@@ -3,7 +3,7 @@
 Date: 2026-08-29
 
 Milestone 2 remains in progress.
-This record covers bounded acceptance cases for Tasks 2, 3, 7, 9, 12, 13, 21, 33, 38, and 39.
+This record covers bounded acceptance cases for Tasks 2, 3, 7, 9, 12, 13, 16, 21, 33, 38, and 39.
 
 ## Result
 
@@ -678,6 +678,84 @@ No obligation table, checkpoint schema, provider adapter, or threshold state was
 
 Test a longer multi-obligation series before adding dedicated obligation storage.
 Connected portal intake and approved external sends remain separate operation concerns.
+
+## Task 16 acceptance
+
+Task 16 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d0402f5cf0b95e1241` |
+| Repeat | `recurrence:18d04039104ae20c134f` |
+| Meeting | `meeting:vendor-review-001` |
+| Decision version 1 | `decision:vendor-pilot-001` |
+| Decision version 2 | `decision:vendor-pilot-002` |
+| Follow-ups | `action:security-addendum-001`, `action:pilot-seats-001`, `action:green-terms-001` |
+
+The source also contained `discussion:future-discount-001`.
+It was explicitly discussion and supplied no decision or action authority.
+
+### Baseline
+
+Task `task:18d040391027f73e134e` used the `10:35:00Z` cutoff.
+It recorded Decision 1 as current from `transcript:vendor-review-001`.
+
+It closed `action:pilot-seats-001` on `receipt:pilot-seats-001-complete`.
+It kept `action:security-addendum-001` open and overdue.
+
+It drafted exactly one reminder for `contact:rowan-001` and did not send it.
+It did not convert the discussion record into work.
+
+Executor `run:18d0404154f47d51144c` produced the result.
+Reviewer `run:18d04058d1498a9e170b` approved it.
+
+### Replacement and complete follow-up set
+
+Source revision 2 preserved Decision 1 as superseded.
+It recorded Decision 2 as current and explicitly linked both directions.
+
+Task `task:18d0406a3306c12d18df` used the `10:37:56Z` cutoff.
+It compared the exact earlier terminal Task.
+
+It closed the overdue old-decision follow-up on `receipt:security-addendum-001-complete`.
+It preserved the already closed pilot-seat follow-up without reporting it as new.
+
+It recorded and closed `action:green-terms-001` for Decision 2.
+The receipt completed before both its due instant and the occurrence cutoff.
+
+It did not repeat the earlier reminder.
+Reviewer `run:18d04087833003311c3f` approved the met stop condition.
+
+### Quiet unchanged occurrence
+
+Task `task:18d0408d103ea07c1cc0` used the `10:40:00Z` cutoff.
+It found no source, decision, follow-up, receipt, or reminder change.
+
+It preserved both decision versions and all exact source links.
+It produced no reminder, Task capture, or external action.
+
+Reviewer `run:18d040acfa9a01342070` approved with `notify_human: false`.
+No completion notification exists for this Task.
+
+The Repeat ended after revision 7 with no next run.
+
+### Delivery and action evidence
+
+The baseline and replacement occurrences produced one completion notification each.
+The unchanged occurrence produced none.
+
+No governed external action exists for any occurrence.
+No message, Task, calendar item, or source record changed.
+
+### Reuse assessment
+
+Project files, Repeat history, prior Task reads, exact receipts, and Reviewer delivery control were sufficient.
+No decision entity, action entity, thread table, or provider rule was necessary.
+
+Test a longer multi-decision series before adding dedicated storage.
+Connected transcript intake, approved reminders, and send receipts remain separate operation concerns.
 
 ## Remaining Milestone 2 gates
 

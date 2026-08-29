@@ -193,7 +193,7 @@ No case can require an unbounded source scan.
 
 Target: 32/100 Verified.
 
-Current: 24/100 Verified.
+Current: 25/100 Verified.
 
 Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
@@ -204,13 +204,13 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 | Add source events for changed external data. | Tasks 3, 7, and 12 passed bounded Project-source cases. Connected push intake remains open for Task 3. | 3 |
 | Test existing Repeat history near its bounded limit before adding checkpoint storage. | Tasks 33, 38, and 39 passed bounded fixtures. Longer series must prove whether dedicated stored state is necessary. | 33, 38, 39 |
 | Reuse Project files for source-linked promise state. | Task 2 passed a bounded continuity and completion case. Test connected capture and longer history before adding a promise entity. | 2 |
-| Route detected commitments into existing Tasks or event records after review. | Tasks 3 and 9 passed bounded Project-source capture and exact-ID continuity. Task 16 still needs changing-source follow-up closure. | 3, 9, 16 |
+| Route detected commitments into existing Tasks or event records after review. | Tasks 3, 9, and 16 passed bounded Project-source capture, exact-ID continuity, and receipt closure. Connected intake remains separate. | 3, 9, 16 |
 | Reuse Project files for bounded dependency-aware replanning. | Task 7 passed one controlled delay and fixed-item conflict. Connected Task and Calendar updates remain separate. | 7 |
 | Add Task dependencies, blockers, milestones, estimates, and explicit owners. | Tasks 20 and 22 need durable relationships that support actual Task mutation. | 20, 22 |
 | Reuse Project files for source-linked decision history. | Task 21 passed a bounded replacement case. Test connected capture and longer history before adding a dedicated decision entity. | 21 |
-| Route captured decisions and follow-ups into the Project source. | Task 16 still needs durable ownership and later completion evidence after a decision is recorded. | 16 |
+| Route captured decisions and follow-ups into the Project source. | Task 16 passed one replacement with owned follow-ups and later exact receipts. Test longer series before adding dedicated state. | 16 |
 | Add stable contact records with interaction history and follow-up boundaries. | Task 13 passed with Project-source identities. Task 18 still needs reusable relationship state. | 18 |
-| Add message drafts, replies, sent-message checks, and thread closure evidence. | A prepared response is not a completed communication loop. | 4, 12, 16 |
+| Add message drafts, replies, sent-message checks, and thread closure evidence. | Task 16 passed draft restraint and source-receipt closure. Connected send receipts remain open for Tasks 4, 12, and 16. | 4, 12, 16 |
 | Test connected free-busy, invitation, and reply operations. | Task 13 passed provider-neutral negotiation and drafting. Live operations still need confirmation and receipts. | 13 |
 | Add reviewer identities, version-bound decisions, routing, quorum, and conflict handling. | One human gate and one model review cannot coordinate several independent reviewers. | 24 |
 | Add access inventories, lifecycle checks, shared ownership, and permission-safe export. | Onboarding and handoff must prove access changes without losing accountable ownership. | 26 |
@@ -230,6 +230,7 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 - A learning plan adapts after a failed assessment and a completed practice block. Passed on 2026-08-29.
 - One source routes an action and date into native Tasks without duplicates or external writes. Passed on 2026-08-29.
 - An obligation becomes overdue once, stays quiet when unchanged, and closes only on timely exact evidence. Passed on 2026-08-29.
+- A replaced decision preserves history while every old and new follow-up closes on exact evidence. Passed on 2026-08-29.
 
 ### Exit gate
 
