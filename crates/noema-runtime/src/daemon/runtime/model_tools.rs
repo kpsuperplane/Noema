@@ -11,15 +11,15 @@ use crate::{
         artifact_tool::artifact_create_local_file_tool_spec,
         task_artifact_tool::{TASK_READ_ARTIFACT_TOOL, task_read_artifact_tool_spec},
         task_tool::{
-            TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CONTINUE_EXECUTION_TOOL,
+            TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CAPTURE_TOOL, TASK_CONTINUE_EXECUTION_TOOL,
             TASK_FILE_DELETE_TOOL, TASK_FILE_LIST_TOOL, TASK_FILE_READ_TOOL, TASK_FILE_WRITE_TOOL,
             TASK_FINISH_EXECUTION_TOOL, TASK_FINISH_PLANNING_TOOL, TASK_FINISH_REVIEW_TOOL,
             TASK_INSPECT_TOOL, TASK_LIST_TOOL, TASK_REPORT_BLOCKED_TOOL, primary_task_tool_specs,
-            task_continue_execution_tool_spec, task_file_delete_tool_spec,
-            task_file_list_tool_spec, task_file_read_tool_spec, task_file_write_tool_spec,
-            task_finish_execution_tool_spec, task_finish_planning_tool_spec,
-            task_finish_review_tool_spec, task_inspect_tool_spec, task_list_scoped_tool_spec,
-            task_report_blocked_tool_spec,
+            task_capture_scoped_tool_spec, task_continue_execution_tool_spec,
+            task_file_delete_tool_spec, task_file_list_tool_spec, task_file_read_tool_spec,
+            task_file_write_tool_spec, task_finish_execution_tool_spec,
+            task_finish_planning_tool_spec, task_finish_review_tool_spec, task_inspect_tool_spec,
+            task_list_scoped_tool_spec, task_report_blocked_tool_spec,
         },
     },
     search::tool::web_search_tool_spec,
@@ -215,19 +215,24 @@ pub(super) async fn build_model_tools_for_role(
         if !callable && !capabilities.allowed_tools {
             continue;
         }
-        add_binding(&mut catalog, binding.clone())?;
-        prompt_kinds.insert(
-            binding.spec().name.as_str().to_string(),
-            ModelToolPromptKind::Capability,
-        );
+        let name = binding.spec().name.as_str().to_string();
+        let binding = if role == ExecutionRole::TaskExecutor
+            && binding.destination().is_some()
+            && !binding.behavior().read_only
+        {
+            binding.clone().with_llm_review()
+        } else {
+            binding.clone()
+        };
+        add_binding(&mut catalog, binding)?;
+        prompt_kinds.insert(name.clone(), ModelToolPromptKind::Capability);
         if !callable {
             continue;
         }
-        let spec = binding.spec();
         if background_connector_proposal {
-            tool_policy.allow_tool_name(spec.name.as_str());
+            tool_policy.allow_tool_name(&name);
         } else {
-            tool_policy.declare_tool(spec.name.as_str(), access_class);
+            tool_policy.declare_tool(&name, access_class);
         }
     }
 
@@ -292,6 +297,7 @@ fn role_builtin_tool_specs(
                 task_finish_execution_tool_spec(&[])?,
                 task_continue_execution_tool_spec()?,
                 task_report_blocked_tool_spec()?,
+                task_capture_scoped_tool_spec()?,
                 task_list_scoped_tool_spec()?,
                 task_inspect_tool_spec()?,
                 task_file_list_tool_spec()?,
@@ -494,6 +500,7 @@ fn builtin_tool_access_class(role: ExecutionRole, name: &str) -> ToolAccessClass
     match name {
         // This tool is read-only and can be safely used by executor/reviewer
         // roles once their scope context is supplied by the task runtime.
+        TASK_CAPTURE_TOOL => ToolAccessClass::TaskOwnedWrite,
         "search_memory"
         | "read_memory_page"
         | TASK_LIST_TOOL

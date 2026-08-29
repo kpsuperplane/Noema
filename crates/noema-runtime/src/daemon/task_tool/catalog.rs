@@ -237,6 +237,15 @@ pub(crate) fn primary_task_tool_specs()
     .collect()
 }
 
+pub(crate) fn task_capture_scoped_tool_spec()
+-> Result<ToolSpec, noema_capabilities::ToolContractError> {
+    ToolSpec::new(
+        TASK_CAPTURE_TOOL,
+        "Capture one native Task in this Task's Project. Use schedule for future execution. This tool never writes to an external service.",
+        json!({"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"task_document":{"type":"string","maxLength":65536},"schedule":schedule_schema()},"required":["title"],"additionalProperties":false}),
+    )
+}
+
 fn task_fenced_schema() -> Value {
     json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1}},"required":["task_id","expected_revision","expected_generation"],"additionalProperties":false})
 }
@@ -451,6 +460,18 @@ mod tests {
             read.input_schema.as_value()["properties"]["task_id"]["maxLength"],
             255
         );
+    }
+
+    #[test]
+    fn background_capture_inherits_scope_and_excludes_routing_fields() {
+        let capture = task_capture_scoped_tool_spec().expect("scoped Task capture");
+        let properties = &capture.input_schema.as_value()["properties"];
+
+        assert!(properties["title"].is_object());
+        assert!(properties["schedule"].is_object());
+        assert!(properties.get("project_id").is_none());
+        assert!(properties.get("executor_agent_id").is_none());
+        assert!(properties.get("cwd_override").is_none());
     }
 
     #[test]

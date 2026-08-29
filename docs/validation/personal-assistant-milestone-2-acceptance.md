@@ -3,7 +3,7 @@
 Date: 2026-08-29
 
 Milestone 2 remains in progress.
-This record covers bounded acceptance cases for Tasks 2, 7, 12, 13, 21, 33, 38, and 39.
+This record covers bounded acceptance cases for Tasks 2, 3, 7, 12, 13, 21, 33, 38, and 39.
 
 ## Result
 
@@ -525,6 +525,75 @@ Repeat occurrence anchors provide the deadline evaluation time.
 
 No thread table, event stream, or message adapter was necessary for this bounded polling case.
 Connected event intake and reminder sends remain separate operation concerns.
+
+## Task 3 acceptance
+
+Task 3 passes its current provider-neutral live case.
+
+### Demonstrated failure
+
+The first Executor lacked native `task.capture` authority.
+It used a connected Notion Tasks database despite an explicit external-write prohibition.
+
+The failed coordinator was `task:18d03dafd162c7475c22`.
+It was cancelled after the two unintended writes appeared.
+
+The connector exposed no page deletion operation.
+Both pages remain marked `REMOVE — Noema acceptance test` with status `Done`.
+
+### Implemented slice
+
+- A Task Executor can call one scoped native `task.capture` operation.
+- The runtime derives the child workspace and Project from the active Task.
+- The schema excludes Project, executor, and working-directory routing fields.
+- Valid parent conversation authority continues into the child source record.
+- A background external mutation receives at least model review.
+- Foreground behavior and external reads remain unchanged.
+
+This slice adds no persisted field, provider rule, or Task behavior manifest.
+
+### First successful run
+
+| Evidence | Value |
+| --- | --- |
+| Project | `project:18d03da84ce02dcc5b4f` |
+| Coordinator | `task:18d03ec99db2bf00bd`, generation 1 |
+| Executor | `run:18d03ed489f5fec01fc` |
+| Reviewer | `run:18d03ef64494c5cc5f2` |
+| Inbox Task | `task:18d03eeae0857f9b496` |
+| Scheduled Task | `task:18d03eeafdd268c149d` |
+| Scheduled instant | `2026-09-13T16:00:00Z`, `UTC` |
+
+Both child Tasks inherited the exact Project.
+The Inbox Task preserved `action:rollback-001`, its owner, and its due instant.
+The scheduled Task preserved `date:readiness-review-001` and `decision:beta-date-001`.
+
+The Executor used two `task.capture` calls and no external tool.
+The Reviewer approved the exact saved Tasks and receipts.
+
+### Deduplication run
+
+The coordinator reopened as generation 2.
+Executor `run:18d03efd39e948dc6ac` found and inspected both saved Tasks.
+Reviewer `run:18d03f0f0b00436e8c0` approved the no-write result.
+
+No `task.capture` or external mutation occurred in the repeat run.
+The Project still contains one Task for each routed source record.
+
+### Validation
+
+- `cargo validate test -p noema-runtime --lib daemon::task_tool::` passed 12 tests.
+- `cargo validate test -p noema-runtime --lib daemon::runtime::model_tools::tests::` passed 13 tests.
+- `cargo validate check -p noema-runtime` passed.
+- The patch adds 163 production lines and 200 test lines.
+- Three new Rust tests cover scope, scheduling, and external mutation review.
+
+### Reuse assessment
+
+Native Task routing and existing action review are enough for this bounded case.
+No behavior declaration system is necessary yet.
+
+Connected source intake and approved external delivery remain separate acceptance concerns.
 
 ## Remaining Milestone 2 gates
 

@@ -36,11 +36,11 @@ use crate::daemon::{
         TaskArtifactReadContext, execute_task_read_artifact, is_task_read_artifact_tool,
     },
     task_tool::{
-        TASK_INSPECT_TOOL, TASK_LIST_TOOL, TaskDelegateRuntimeContext, execute_primary_task_tool,
-        execute_scoped_task_file_tool, execute_scoped_task_inspect_tool,
-        execute_scoped_task_list_tool, is_primary_task_tool, is_task_continue_execution_tool,
-        is_task_file_tool, is_task_finish_execution_tool, is_task_finish_planning_tool,
-        is_task_finish_review_tool, is_task_report_blocked_tool,
+        TASK_CAPTURE_TOOL, TASK_INSPECT_TOOL, TASK_LIST_TOOL, TaskDelegateRuntimeContext,
+        execute_primary_task_tool, execute_scoped_task_capture_tool, execute_scoped_task_file_tool,
+        execute_scoped_task_inspect_tool, execute_scoped_task_list_tool, is_primary_task_tool,
+        is_task_continue_execution_tool, is_task_file_tool, is_task_finish_execution_tool,
+        is_task_finish_planning_tool, is_task_finish_review_tool, is_task_report_blocked_tool,
     },
 };
 use crate::file_tools::{execute_file_download, execute_file_parse};
@@ -593,6 +593,42 @@ impl RuntimeActor {
                 result.payload,
                 true,
             )
+        } else if call.name == TASK_CAPTURE_TOOL && turn.task_run_id.is_some() {
+            let result = match turn.task_id.as_deref() {
+                Some(task_id) => {
+                    execute_scoped_task_capture_tool(
+                        &self.store,
+                        &self.provider_registry,
+                        &TaskDelegateRuntimeContext {
+                            conversation_id: turn.conversation_id.clone(),
+                            turn_id: turn.turn_id.clone(),
+                            user_item_id: turn.user_item_id.clone(),
+                            agent_id: agent_identity.agent_id.clone(),
+                            workspace_id: "workspace:personal".to_string(),
+                            owner_human_id: "human:local".to_string(),
+                            client_time_zone: turn.runtime_environment.timezone.clone(),
+                        },
+                        task_id,
+                        call.call_id.clone(),
+                        &call.payload,
+                    )
+                    .await
+                }
+                None => crate::daemon::task_tool::TaskToolResult {
+                    call_id: call.call_id.clone(),
+                    name: call.name.clone(),
+                    success: false,
+                    payload: json!({"code": "invalid_context", "message": "background task context is unavailable"}),
+                },
+            };
+            publish_captured_task(&self.runtime_events, &result);
+            LocalToolResult::from_call(
+                call,
+                LocalToolKind::Gateway,
+                result.success,
+                result.payload,
+                true,
+            )
         } else if is_primary_task_tool(&call.name) {
             let result = execute_primary_task_tool(
                 &self.store,
@@ -611,24 +647,7 @@ impl RuntimeActor {
                 &call.payload,
             )
             .await;
-            if result.success
-                && let Some(task_id) = result
-                    .payload
-                    .get("task")
-                    .and_then(|task| task.get("task_id"))
-                    .and_then(Value::as_str)
-            {
-                self.runtime_events
-                    .publish_task(crate::daemon::TaskRuntimeEvent::Changed {
-                        task_id: task_id.to_string(),
-                        run_id: None,
-                    });
-                self.runtime_events
-                    .publish_work(crate::daemon::WorkRuntimeEvent::Committed {
-                        workspace_id: "workspace:personal".to_string(),
-                        task_id: Some(task_id.to_string()),
-                    });
-            }
+            publish_captured_task(&self.runtime_events, &result);
             LocalToolResult::from_call(
                 call,
                 LocalToolKind::Gateway,
@@ -1126,6 +1145,28 @@ impl RuntimeActor {
         self.browser_sessions
             .set_session(owner_key.to_string(), source);
         serde_json::to_value(response).map_err(|_| WebBrowseError::Unavailable)
+    }
+}
+
+fn publish_captured_task(
+    events: &crate::daemon::RuntimeEventRegistry,
+    result: &crate::daemon::task_tool::TaskToolResult,
+) {
+    if result.success
+        && let Some(task_id) = result
+            .payload
+            .get("task")
+            .and_then(|task| task.get("task_id"))
+            .and_then(Value::as_str)
+    {
+        events.publish_task(crate::daemon::TaskRuntimeEvent::Changed {
+            task_id: task_id.to_string(),
+            run_id: None,
+        });
+        events.publish_work(crate::daemon::WorkRuntimeEvent::Committed {
+            workspace_id: "workspace:personal".to_string(),
+            task_id: Some(task_id.to_string()),
+        });
     }
 }
 

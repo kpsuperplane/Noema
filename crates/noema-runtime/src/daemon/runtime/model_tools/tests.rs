@@ -264,6 +264,41 @@ fn connector_setup_source() -> CapabilityBindingSourceHandle {
     source.handle()
 }
 
+fn external_service_source() -> CapabilityBindingSourceHandle {
+    let mut builder = CapabilityCatalogBuilder::new();
+    let destination =
+        CapabilityDestination::new("mcp", "mcp:notes", None::<String>, "generation:v1")
+            .expect("destination");
+    for (name, read_only) in [("notes.search", true), ("notes.create", false)] {
+        builder
+            .add(
+                CapabilityBinding::new(
+                    ToolSpec::new(name, "Notes fixture.", json!({"type": "object"}))
+                        .expect("notes spec"),
+                    CapabilityTarget::new(InvokerKey::new("mcp"), OperationToken::new(name)),
+                    CapabilityToolBehavior {
+                        read_only,
+                        idempotent: read_only,
+                        destructive: false,
+                        open_world: false,
+                    },
+                    CapabilityExecutionDecision::ExecuteImmediately,
+                    CapabilityScope::Global,
+                    Arc::new(|_: &serde_json::Value| true),
+                    Arc::new(RedactingPayloadSanitizer),
+                )
+                .with_destination(destination.clone()),
+            )
+            .expect("unique notes binding");
+    }
+    let source = TestCapabilityBindingSource::default();
+    source.replace(CapabilityCatalogResult {
+        snapshot: builder.build(),
+        availability_notices: Vec::new(),
+    });
+    source.handle()
+}
+
 #[test]
 fn retained_catalog_never_grows_or_redirects_for_native_tools() {
     let initial = synthetic_model_tools(
@@ -890,7 +925,12 @@ async fn background_roles_expose_read_tools_and_terminals_for_native_tools() {
                 tools.tool_policy.allows_tool(TASK_LIST_TOOL),
                 role == ExecutionRole::TaskExecutor
             );
+            assert_eq!(
+                tools.tool_policy.allows_tool(TASK_CAPTURE_TOOL),
+                role == ExecutionRole::TaskExecutor
+            );
             assert!(tools.tool_policy.allows_tool(TASK_INSPECT_TOOL));
+            assert!(!tools.tool_policy.allows_tool("task.update"));
             assert!(!tools.tool_policy.allows_tool(TASK_ANSWER_TOOL));
             assert!(!tools.tool_policy.allows_tool(PRESENT_MULTIPLE_CHOICE_TOOL));
             assert!(!tools.tool_policy.allows_tool(PRESENT_A2UI_TOOL));
@@ -903,6 +943,62 @@ async fn background_roles_expose_read_tools_and_terminals_for_native_tools() {
             assert!(!tools.tool_policy.allows_tool("task.delegate"));
         }
     }
+}
+
+#[tokio::test]
+async fn task_executor_reviews_external_mutations_but_not_reads() {
+    let store = crate::test_support::test_store().await;
+    let source = external_service_source();
+    let capabilities = ProviderToolCapabilities {
+        tool_transport: ProviderToolTransport::Native,
+        native_tool_results: true,
+        ..ProviderToolCapabilities::default()
+    };
+
+    let primary = build_model_tools_for_role(
+        &store,
+        &source,
+        ExecutionRole::PrimaryConversation,
+        false,
+        capabilities,
+    )
+    .await
+    .expect("primary tools");
+    let executor = build_model_tools_for_role(
+        &store,
+        &source,
+        ExecutionRole::TaskExecutor,
+        false,
+        capabilities,
+    )
+    .await
+    .expect("executor tools");
+
+    assert_eq!(
+        primary
+            .bindings
+            .resolve("notes.create")
+            .expect("primary mutation")
+            .execution_decision(),
+        CapabilityExecutionDecision::ExecuteImmediately
+    );
+    let executor_mutation = executor
+        .bindings
+        .resolve("notes.create")
+        .expect("executor mutation");
+    assert_eq!(
+        executor_mutation.execution_decision(),
+        CapabilityExecutionDecision::LlmReview
+    );
+    assert!(executor_mutation.requires_task_checkpoint());
+    assert_eq!(
+        executor
+            .bindings
+            .resolve("notes.search")
+            .expect("executor read")
+            .execution_decision(),
+        CapabilityExecutionDecision::ExecuteImmediately
+    );
 }
 
 #[tokio::test]

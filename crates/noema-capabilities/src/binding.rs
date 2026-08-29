@@ -357,6 +357,16 @@ impl CapabilityBinding {
         self
     }
 
+    /// Require at least model review before this binding can execute.
+    #[must_use]
+    pub fn with_llm_review(mut self) -> Self {
+        if self.execution_decision == CapabilityExecutionDecision::ExecuteImmediately {
+            self.execution_decision = CapabilityExecutionDecision::LlmReview;
+            self.task_checkpoint_required = !self.behavior.read_only;
+        }
+        self
+    }
+
     /// Pin the exact non-secret destination used by this binding.
     #[must_use]
     pub fn with_destination(mut self, destination: CapabilityDestination) -> Self {

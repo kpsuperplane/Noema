@@ -392,11 +392,11 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-Current retests verify 22 tasks. No task remains in `Test`.
+Current retests verify 23 tasks. No task remains in `Test`.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend.
 
-Tasks 1, 2, 5, 6, 7, 8, 11, 12, 13, 14, 15, 17, 19, 21, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
+Tasks 1, 2, 3, 5, 6, 7, 8, 11, 12, 13, 14, 15, 17, 19, 21, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
 
 These results prove one provider setup. The second provider portability gate remains open.
 
@@ -406,7 +406,7 @@ These results prove one provider setup. The second provider portability gate rem
 | ---: | --- | --- | --- |
 | 1 | Build a daily operational brief | Verified | A delegated live case used non-empty messages, Calendar results, Tasks, and Memory. It preserved bounds, identifiers, deductions, and source limits. |
 | 2 | Maintain one trusted promise register | Verified | A provider-neutral Repeat case carried one source-linked promise through an unrelated change. It closed only after an exact completion receipt. Test longer and multi-promise series before adding dedicated state. |
-| 3 | Capture actions, decisions, and dates | Build | Implement external event sources and authorized routing into Tasks, Calendar, or project records. One-time extraction already passed. |
+| 3 | Capture actions, decisions, and dates | Verified | A provider-neutral Project case created one native Inbox Task and one scheduled Task. It preserved exact source fields and deduplicated a repeat run. Connected source intake remains separate. |
 | 4 | Maintain a prioritized reply and action queue | Extend | Add thread identity, relationship priority, mail drafts, reply operations, and sent-reply reconciliation. Revalidate the current Gmail connection. |
 | 5 | Audit the calendar for conflicts and hidden load | Verified | Bounded live audits reached natural ends. They preserved recurrence parents, all-day dates, attendees, locations, overlaps, gaps, and cited route time. |
 | 6 | Create a realistic daily plan | Verified | A delegated live case used a fixed cutoff, full Task reads, event evidence, preferences, breaks, and overload handling. It passed without correction. |

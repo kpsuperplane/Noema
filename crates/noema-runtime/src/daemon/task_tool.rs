@@ -10,14 +10,15 @@ mod catalog;
 mod dispatch;
 
 pub(crate) use catalog::{
-    primary_task_tool_specs, task_continue_execution_tool_spec, task_file_delete_tool_spec,
-    task_file_list_tool_spec, task_file_read_tool_spec, task_file_write_tool_spec,
-    task_finish_execution_tool_spec, task_finish_planning_tool_spec, task_finish_review_tool_spec,
-    task_inspect_tool_spec, task_list_scoped_tool_spec, task_report_blocked_tool_spec,
+    primary_task_tool_specs, task_capture_scoped_tool_spec, task_continue_execution_tool_spec,
+    task_file_delete_tool_spec, task_file_list_tool_spec, task_file_read_tool_spec,
+    task_file_write_tool_spec, task_finish_execution_tool_spec, task_finish_planning_tool_spec,
+    task_finish_review_tool_spec, task_inspect_tool_spec, task_list_scoped_tool_spec,
+    task_report_blocked_tool_spec,
 };
 pub(crate) use dispatch::{
-    execute_primary_task_tool, execute_scoped_task_file_tool, execute_scoped_task_inspect_tool,
-    execute_scoped_task_list_tool,
+    execute_primary_task_tool, execute_scoped_task_capture_tool, execute_scoped_task_file_tool,
+    execute_scoped_task_inspect_tool, execute_scoped_task_list_tool,
 };
 
 pub(crate) const TASK_CAPTURE_TOOL: &str = "task.capture";

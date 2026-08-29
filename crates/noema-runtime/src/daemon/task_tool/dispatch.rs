@@ -83,6 +83,27 @@ pub(crate) async fn execute_scoped_task_list_tool(
     task_tool_result(TASK_LIST_TOOL, call_id, result)
 }
 
+/// Capture one Task in the active Task's workspace and Project.
+pub(crate) async fn execute_scoped_task_capture_tool(
+    store: &NoemaStore,
+    provider_registry: &noema_providers::ProviderRegistryHandle,
+    context: &TaskDelegateRuntimeContext,
+    current_task_id: &str,
+    call_id: Option<String>,
+    payload: &Value,
+) -> TaskToolResult {
+    let result = execute_scoped_task_capture_inner(
+        store,
+        provider_registry,
+        context,
+        current_task_id,
+        call_id.clone(),
+        payload,
+    )
+    .await;
+    task_tool_result(TASK_CAPTURE_TOOL, call_id, result)
+}
+
 /// Read one owner-authorized Task in the active Task's workspace.
 pub(crate) async fn execute_scoped_task_inspect_tool(
     store: &NoemaStore,
@@ -160,6 +181,80 @@ async fn execute_scoped_task_file_inner(
         }
         _ => Err("unknown Task file operation".to_string()),
     }
+}
+
+async fn execute_scoped_task_capture_inner(
+    store: &NoemaStore,
+    provider_registry: &noema_providers::ProviderRegistryHandle,
+    context: &TaskDelegateRuntimeContext,
+    current_task_id: &str,
+    call_id: Option<String>,
+    payload: &Value,
+) -> Result<Value, String> {
+    let arguments = payload
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| payload.clone());
+    let input: CaptureArguments = parse_arguments(arguments.clone())?;
+    if input.project_id.is_some()
+        || input.executor_agent_id.is_some()
+        || input.cwd_override.is_some()
+    {
+        return Err(
+            "background task.capture inherits its Project and execution routing".to_string(),
+        );
+    }
+    let current_task_id =
+        TaskId::new(current_task_id.trim().to_string()).map_err(|error| error.to_string())?;
+    let current = store
+        .get_work_task(&current_task_id)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "current task is unavailable".to_string())?;
+    let source = &current.task.provenance;
+    let provenance = if source.conversation_id.is_some() && source.item_id.is_some() {
+        TaskProvenance {
+            source_kind: TaskSourceKind::ChatCapture,
+            conversation_id: source.conversation_id.clone(),
+            turn_id: source.turn_id.clone(),
+            item_id: source.item_id.clone(),
+            source_tool_call_id: call_id.clone(),
+            created_by_actor_id: work_actor_id(&context.agent_id),
+        }
+    } else {
+        TaskProvenance {
+            source_kind: TaskSourceKind::System,
+            conversation_id: None,
+            turn_id: Some(context.turn_id.clone()),
+            item_id: None,
+            source_tool_call_id: call_id.clone(),
+            created_by_actor_id: work_actor_id(&context.agent_id),
+        }
+    };
+    let service = WorkCommandService::new(store.clone(), provider_registry.clone());
+    let result = service
+        .execute(WorkCommand::CaptureTask(CaptureTask {
+            meta: CommandMeta {
+                actor_id: work_actor_id(&context.agent_id),
+                causation_id: None,
+                correlation_id: format!("correlation:task:{}", current.task.task_id),
+                idempotency_key: call_id,
+            },
+            workspace_id: current.task.workspace_id,
+            title: input.title,
+            task_document_markdown: input.task_document,
+            project_id: current.task.project_id,
+            provenance,
+            schedule: input
+                .schedule
+                .map(|value| schedule(value, context))
+                .transpose()?,
+            executor_agent_id: None,
+            cwd_override: None,
+        }))
+        .await
+        .map_err(|error| error.to_string())?;
+    command_result_payload(store, result).await
 }
 
 fn require_path(arguments: &Value) -> Result<(), String> {
@@ -966,6 +1061,98 @@ mod tests {
         assert_eq!(
             read["task_document"],
             "Seeded runtime task: Prepare launch notes"
+        );
+    }
+
+    #[tokio::test]
+    async fn background_capture_inherits_project_and_preserves_schedule() {
+        let store = crate::test_support::test_store().await;
+        crate::test_support::initialize_codex_provider_selections(&store).await;
+        let registry = crate::test_support::ready_test_provider_registry();
+        let context = TaskDelegateRuntimeContext {
+            conversation_id: "conversation:test".to_string(),
+            turn_id: "turn:test".to_string(),
+            user_item_id: "item:test".to_string(),
+            agent_id: "agent:test".to_string(),
+            workspace_id: "workspace:personal".to_string(),
+            owner_human_id: "human:local".to_string(),
+            client_time_zone: "America/Los_Angeles".to_string(),
+        };
+        let project = execute_primary_inner(
+            &store,
+            &registry,
+            &context,
+            PROJECT_CREATE_TOOL,
+            Some("call:project".to_string()),
+            &json!({"name": "Launch"}),
+        )
+        .await
+        .expect("create project");
+        let project_id = project["project"]["project_id"]
+            .as_str()
+            .expect("project id");
+        let service = WorkCommandService::new(store.clone(), registry.clone());
+        let current = service
+            .execute(WorkCommand::CaptureTask(CaptureTask {
+                meta: CommandMeta {
+                    actor_id: "actor:system:test".to_string(),
+                    causation_id: None,
+                    correlation_id: "correlation:test".to_string(),
+                    idempotency_key: Some("call:current".to_string()),
+                },
+                workspace_id: WorkspaceId::new("workspace:personal".to_string())
+                    .expect("workspace id"),
+                title: "Current".to_string(),
+                task_document_markdown: String::new(),
+                project_id: Some(ProjectId::new(project_id.to_string()).expect("project id")),
+                provenance: TaskProvenance {
+                    source_kind: TaskSourceKind::System,
+                    conversation_id: None,
+                    turn_id: None,
+                    item_id: None,
+                    source_tool_call_id: Some("call:current".to_string()),
+                    created_by_actor_id: "actor:system:test".to_string(),
+                },
+                schedule: None,
+                executor_agent_id: None,
+                cwd_override: None,
+            }))
+            .await
+            .expect("capture current Task");
+        let current_task_id = current.task.expect("current Task").task_id;
+
+        let child = execute_scoped_task_capture_inner(
+            &store,
+            &registry,
+            &context,
+            current_task_id.as_str(),
+            Some("call:child".to_string()),
+            &json!({
+                "title": "Readiness review",
+                "task_document": "Review the launch readiness evidence.",
+                "schedule": {
+                    "scheduled_for": "2030-09-13T16:00:00Z",
+                    "time_zone": "UTC"
+                }
+            }),
+        )
+        .await
+        .expect("capture child Task");
+
+        assert_eq!(child["task"]["project_id"], project_id);
+        assert!(child["task"]["scheduled_for"].is_number());
+        assert_eq!(child["task"]["schedule_time_zone"], "UTC");
+        assert!(
+            execute_scoped_task_capture_inner(
+                &store,
+                &registry,
+                &context,
+                current_task_id.as_str(),
+                Some("call:override".to_string()),
+                &json!({"title": "Wrong scope", "project_id": "project:other"}),
+            )
+            .await
+            .is_err()
         );
     }
 }
