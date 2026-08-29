@@ -392,17 +392,17 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-At this baseline, nine tasks are verified, five need more testing, 50 need bounded extensions, and 36 need new systems.
+At this baseline, ten tasks are verified, four need more testing, 50 need bounded extensions, and 36 need new systems.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend. Task 98 moved from Extend to Test.
 
-Tasks 6, 8, 11, 14, 15, 19, 31, 32, and 35 are now Verified after live acceptance.
+Tasks 1, 6, 8, 11, 14, 15, 19, 31, 32, and 35 are now Verified after live acceptance.
 
 ### 1. Daily coordination and commitments
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 1 | Build a daily operational brief | Test | The live case was partial. All four sources ran, but Calendar lacked a reliable bounded day view. Gmail second-page parsing failed. Add bounded Calendar reads, repair Gmail pagination, and retest with non-empty Tasks and preferences. |
+| 1 | Build a daily operational brief | Verified | A delegated live case used non-empty messages, Calendar results, Tasks, and Memory. It preserved bounds, identifiers, deductions, and source limits. |
 | 2 | Maintain one trusted promise register | Extend | Tasks and working files provide a base. Add counterparties, source-linked capture, due dates, deduplication, and completion proof. |
 | 3 | Capture actions, decisions, and dates | Build | Implement external event sources and authorized routing into Tasks, Calendar, or project records. One-time extraction already passed. |
 | 4 | Maintain a prioritized reply and action queue | Extend | Add thread identity, relationship priority, mail drafts, reply operations, and sent-reply reconciliation. Revalidate the current Gmail connection. |

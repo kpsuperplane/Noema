@@ -61,13 +61,13 @@ High-stakes tasks need a domain-specific safety case and a qualified-review boun
 
 | Status | Count |
 | --- | ---: |
-| Verified | 9 |
-| Test | 5 |
+| Verified | 10 |
+| Test | 4 |
 | Extend | 50 |
 | Build | 36 |
 | Total | 100 |
 
-The current verified tasks are 6, 8, 11, 14, 15, 19, 31, 32, and 35.
+The current verified tasks are 1, 6, 8, 11, 14, 15, 19, 31, 32, and 35.
 
 The first live suite produced five passes, eight partial results, and one failure.
 
@@ -165,7 +165,7 @@ This table separates confirmed gaps, acceptance work, live-proof needs, and reta
 - A live itinerary built from actual confirmations, including one changed booking.
 - A Memory update case with a replaced fact, duplicate evidence, and later retrieval.
 
-Tasks 6 and 8 passed their delegated planning and weekly-review cases on 2026-08-28.
+Tasks 1, 6, and 8 passed their delegated brief, planning, and weekly-review cases on 2026-08-29.
 
 Tasks 15 and 19 passed their native Project acceptance cases on 2026-08-28.
 

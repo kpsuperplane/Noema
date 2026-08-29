@@ -113,7 +113,7 @@ slice or a net-negative reduction.
   review, and persistence.
 - Native Project-to-Task reads support Project status and audience updates.
   Executors can list bounded workspace Tasks. Executors and Reviewers can inspect one exact Task and its current documents.
-- Delegated daily planning and weekly review passed live with these reads.
+- Delegated daily briefs, planning, and weekly reviews passed live with these reads.
 
 ### Clients and product surfaces
 

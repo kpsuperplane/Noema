@@ -66,27 +66,28 @@ No pending governed action or intervention remained after either case.
 
 ### Delegated Task read retests
 
-Retest date: 2026-08-28
+Retest date: 2026-08-29
 
 Noema baseline: commit `9288cec3`
 
 These retests used native Task reads, current Memory, and connected Calendar records. They made no external writes.
 
-No pending governed action or intervention remained after either case.
+No pending governed action or intervention remained after these cases.
 
 | Task | Verdict | Live evidence | What worked | Remaining gap or required improvement |
 | ---: | --- | --- | --- | --- |
+| 1 | Pass | Turn `turn:18d01ff93a8c9d2c1b6e`; Task `task:18d01ffd731ecaca1bed` | The delegated brief used non-empty message, Calendar, Task, and Memory results. It preserved identifiers, bounds, deductions, and gaps. | Calendar retrieval reached its page bound and several transforms failed. An isolated follow-up migrated legacy Task roots and returned all 22 cancelled Tasks. |
 | 6 | Pass | Turn `turn:18d01f103dec34a2e1`; Task `task:18d01f15daba1ae718d` | The delegated Task used a fixed cutoff. It listed bounded native Tasks and inspected full documents. It produced a reviewed plan without correction. | Calendar continuation failed. All-day dates, recurring instances, durations, and working-hour preferences remained unavailable. These limits reduced confidence but did not block the plan. |
-| 8 | Pass | Turn `turn:18d01f61f147ada9a50`; Task `task:18d01f67400f26d6ae9` | The delegated Task reviewed seven Repeat occurrences. It inspected full Task documents, events, Memory, projects, deadlines, and preparation needs. | Some Calendar transforms failed. Cancelled Task listing first failed because the service lacked repository access. ACL correction later returned all 19 cancelled Tasks. |
+| 8 | Pass | Turn `turn:18d01f61f147ada9a50`; Task `task:18d01f67400f26d6ae9` | The delegated Task reviewed seven Repeat occurrences. It inspected full Task documents, events, Memory, projects, deadlines, and preparation needs. | Some Calendar transforms failed. Legacy Task roots later moved into private storage. An isolated follow-up returned all 22 cancelled Tasks. |
 
 ## Summary
 
 The first suite produced five passes, eight partial results, and one failure.
 
-The accepted current results include the four 2026-08-28 retests.
+The accepted current results include five retests from 2026-08-28 and 2026-08-29.
 
-- Pass: 9
-- Partial: 5
+- Pass: 10
+- Partial: 4
 - Fail: 0
 
 The strongest paths are research, fact-checking, conflict reasoning, and meeting preparation.
@@ -95,7 +96,7 @@ Bounded native Task reads now work inside delegated Tasks.
 
 Earlier delegated workers lacked native Tasks, Repeat history, Calendar fields, or stable bounded reads available to the primary chat.
 
-The Task 6 and 8 retests passed with bounded Task listings and full document reads.
+The Task 1, 6, and 8 retests passed with bounded Task listings and full document reads.
 
 The Task 15 and 19 retests passed with native Project-to-Task links.
 
