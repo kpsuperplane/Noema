@@ -3,7 +3,7 @@
 Date: 2026-08-29
 
 Milestone 2 remains in progress.
-This record covers bounded acceptance cases for Tasks 2, 3, 7, 9, 12, 13, 16, 21, 33, 38, and 39.
+This record covers bounded acceptance cases for Tasks 2, 3, 7, 9, 12, 13, 16, 21, 24, 33, 38, and 39.
 
 ## Result
 
@@ -756,6 +756,100 @@ No decision entity, action entity, thread table, or provider rule was necessary.
 
 Test a longer multi-decision series before adding dedicated storage.
 Connected transcript intake, approved reminders, and send receipts remain separate operation concerns.
+
+## Task 24 acceptance
+
+Task 24 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d040e6622f2fb426c2` |
+| Repeat | `recurrence:18d040f391d8b8f4283a` |
+| Artifact | `artifact:release-brief-001` |
+| Reviewers | `reviewer:legal-001`, `reviewer:security-001`, `reviewer:finance-001` |
+| Initial version | Version 2, digest `sha256:brief-v2-9a61` |
+| Approved version | Version 3, digest `sha256:brief-v3-2f04` |
+
+The policy required two roster approvals and mandatory legal approval.
+It also prohibited approval while a current-version change request remained unresolved.
+
+Every response had to bind the exact artifact version and digest.
+Superseded responses remained evidence but could not count.
+
+### Blocked baseline
+
+Task `task:18d040f391c4e60d2839` used the `10:48:00Z` cutoff.
+It read source revision 1 and evaluated artifact version 2.
+
+It counted `response:security-v2` as one eligible approval.
+It preserved `response:finance-v1` but rejected it as stale.
+
+It kept `response:legal-v2` as a blocking change request.
+No exact resolution existed for `comment:liability-cap-001`.
+
+The result recorded one of two approvals and no mandatory legal approval.
+It correctly reported the artifact as not approved.
+
+It drafted routes to the owner, finance reviewer, and legal reviewer.
+It did not send them.
+
+Executor `run:18d040fe43223235297d` produced the result.
+Reviewer `run:18d0411f3e467dc22d4b` approved it.
+
+### Resolved conflict and exact quorum
+
+Source revision 2 preserved the old artifact and every old response.
+It marked version 3 as current and linked it to version 2.
+
+`resolution:liability-cap-001` resolved the exact legal comment.
+It bound the resolution to version 3 and its digest.
+
+Task `task:18d0412e8225c53c2ee9` used the `10:52:00Z` cutoff.
+It compared exact prior Task `task:18d040f391c4e60d2839`.
+
+It counted `response:legal-v3`, `response:security-v3`, and `response:finance-v3`.
+Each response bound the exact current version and digest.
+
+It reported three of two required approvals and mandatory legal approval.
+It found no unresolved current-version change request.
+
+It approved the artifact and produced no draft.
+Reviewer `run:18d0414bed9898443258` approved the changed result.
+
+### Quiet unchanged occurrences
+
+Task `task:18d041587151554a33b2` used the `10:55:00Z` cutoff.
+It found no source, response, resolution, conflict, route, or decision change.
+
+Reviewer `run:18d04176e88d40fc3740` approved with `notify_human: false`.
+No completion notification exists for this Task.
+
+Task `task:18d041825d18ae273892` had already materialized at the `10:58:00Z` cutoff.
+It also preserved the ledger and approved with `notify_human: false`.
+
+Reviewer `run:18d041a995eb40093d19` approved the second quiet result.
+No completion notification exists for this Task.
+
+The Repeat ended after revision 2.
+It has no next run or pending coalesced occurrence.
+
+### Delivery and action evidence
+
+The blocked and newly approved occurrences produced one completion notification each.
+Both unchanged occurrences produced none.
+
+No governed external action exists for any occurrence.
+No message, artifact, reviewer record, or external source changed.
+
+### Reuse assessment
+
+The Project document, Repeat history, prior Task reads, and Reviewer delivery control were sufficient.
+No reviewer table, approval router, quorum schema, or conflict state was necessary.
+
+Test connected reviewer delivery and response intake separately.
+Require execution receipts before claiming connected routing is complete.
 
 ## Remaining Milestone 2 gates
 

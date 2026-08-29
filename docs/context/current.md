@@ -191,10 +191,11 @@ slice or a net-negative reduction.
 
 ## Open loops
 
-- Milestone 2 Tasks 2, 3, 7, 9, 12, 13, 16, 21, 33, 38, and 39 passed bounded provider-neutral cases.
+- Milestone 2 Tasks 2, 3, 7, 9, 12, 13, 16, 21, 24, 33, 38, and 39 passed bounded provider-neutral cases.
   Task 3 now uses scoped current-Project `task.capture`. Background external mutations enter existing action review.
   Task 9 passed overdue, quiet, temporal-cutoff, receipt-closure, and interrupted-run recovery cases without new code.
   Task 16 passed decision replacement, owned follow-up closure, reminder restraint, and unchanged delivery without new code.
+  Task 24 passed version-bound quorum, conflict resolution, stale-response rejection, and quiet delivery without new code.
   Test longer Repeat series before adding dedicated promise, decision, checkpoint, or learner-progress storage.
 - Apollo iOS 2.3 code generation and native builds require macOS.
   Linux can validate the authored GraphQL operations against the shared schema.

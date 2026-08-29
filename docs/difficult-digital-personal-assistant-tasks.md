@@ -392,11 +392,11 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-Current retests verify 25 tasks. No task remains in `Test`.
+Current retests verify 26 tasks. No task remains in `Test`.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend.
 
-Tasks 1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 19, 21, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
+Tasks 1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 19, 21, 24, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
 
 These results prove one provider setup. The second provider portability gate remains open.
 
@@ -437,7 +437,7 @@ These results prove one provider setup. The second provider portability gate rem
 | 21 | Maintain a decision log | Verified | A provider-neutral Project case retained exact source history, marked one replaced decision superseded, and linked its replacement both ways. Test normally ordered longer series before adding a dedicated decision entity. |
 | 22 | Turn an ambiguous goal into a project plan | Extend | Planner and Task files cover decomposition. Add milestones, dependencies, estimates, review points, subtasks, and plan-to-Task conversion. |
 | 23 | Assemble a deliverable from scattered material | Extend | Public downloads and PDF or Office parsing now work. Add user file intake, version comparison, and required-format export. |
-| 24 | Coordinate a multi-reviewer approval | Build | Add reviewer identities, routing, version binding, quorum, conflict resolution, and audit. Tasks supports one human gate and one model reviewer. |
+| 24 | Coordinate a multi-reviewer approval | Verified | A provider-neutral Repeat enforced roster membership, exact version binding, quorum, mandatory review, conflict resolution, and quiet unchanged delivery. Connected routing and response intake remain separate. |
 | 25 | Build an employer expense packet | Build | Document parsing helps with statements. Add receipt uploads, image OCR, transaction matching, policy checks, expense writes, and reimbursement reconciliation. |
 | 26 | Prepare onboarding, offboarding, or handoff | Extend | Task and project files provide a stronger base. Add access inventories, shared ownership, lifecycle connectors, and permission-safe export. |
 | 27 | Maintain credentials and compliance obligations | Extend | Public evidence parsing now works. Add compliance records, private file intake, rule monitoring, portal uploads, fees, and renewal receipts. |

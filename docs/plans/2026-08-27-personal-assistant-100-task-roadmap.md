@@ -193,7 +193,7 @@ No case can require an unbounded source scan.
 
 Target: 32/100 Verified.
 
-Current: 25/100 Verified.
+Current: 26/100 Verified.
 
 Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
@@ -212,7 +212,7 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 | Add stable contact records with interaction history and follow-up boundaries. | Task 13 passed with Project-source identities. Task 18 still needs reusable relationship state. | 18 |
 | Add message drafts, replies, sent-message checks, and thread closure evidence. | Task 16 passed draft restraint and source-receipt closure. Connected send receipts remain open for Tasks 4, 12, and 16. | 4, 12, 16 |
 | Test connected free-busy, invitation, and reply operations. | Task 13 passed provider-neutral negotiation and drafting. Live operations still need confirmation and receipts. | 13 |
-| Add reviewer identities, version-bound decisions, routing, quorum, and conflict handling. | One human gate and one model review cannot coordinate several independent reviewers. | 24 |
+| Reuse Project files for reviewer identities, version-bound responses, quorum, and conflict resolution. | Task 24 passed a bounded approval series. Connected routing and response intake remain separate. | 24 |
 | Add access inventories, lifecycle checks, shared ownership, and permission-safe export. | Onboarding and handoff must prove access changes without losing accountable ownership. | 26 |
 | Add job-source operations, application records, duplicate checks, and outcome history. | A long job search needs durable pipeline state and evidence from each application. | 28 |
 | Test additional Reviewer delivery thresholds. | Tasks 9, 12, and 33 passed overdue, silence, and no-change delivery decisions. Test longer series before adding threshold state. | 9 |
@@ -231,6 +231,7 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 - One source routes an action and date into native Tasks without duplicates or external writes. Passed on 2026-08-29.
 - An obligation becomes overdue once, stays quiet when unchanged, and closes only on timely exact evidence. Passed on 2026-08-29.
 - A replaced decision preserves history while every old and new follow-up closes on exact evidence. Passed on 2026-08-29.
+- A multi-reviewer approval rejects stale responses, resolves one conflict, and stays quiet when unchanged. Passed on 2026-08-29.
 
 ### Exit gate
 
