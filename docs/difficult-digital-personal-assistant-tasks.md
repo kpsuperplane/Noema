@@ -392,11 +392,11 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-Current retests verify 16 tasks. No task remains in `Test`.
+Current retests verify 17 tasks. No task remains in `Test`.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend.
 
-Tasks 1, 5, 6, 8, 11, 14, 15, 17, 19, 31, 32, 33, 35, 38, 75, and 98 are now Verified.
+Tasks 1, 5, 6, 8, 11, 14, 15, 17, 19, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
 
 These results prove one provider setup. The second provider portability gate remains open.
 
@@ -457,7 +457,7 @@ These results prove one provider setup. The second provider portability gate rem
 | 36 | Extract a structured inventory | Extend | Public PDF, Office, and Excel parsing now works. Add user and batch intake, image OCR, structured tables, deduplication, and source history. |
 | 37 | Analyze a personal dataset | Build | CSV and Excel parsing exists. Add secure personal-data intake and a deterministic analysis engine or controlled notebook connector. |
 | 38 | Maintain a reading and newsletter digest | Verified | A provider-neutral Repeat case removed duplicate coverage, preserved links, adapted to a smaller attention budget, carried Coverage state, and suppressed a no-new-items update. Connected source intake remains separate. |
-| 39 | Maintain an adaptive learning plan | Extend | Memory, Repeat, and Calendar cover planning. Add learner progress state, course connectors, assessments, prior-result retrieval, and adaptation tests. |
+| 39 | Maintain an adaptive learning plan | Verified | A provider-neutral Repeat case preserved completed practice, used a failed assessment, and adapted the next plan to two current gaps. Test longer series before adding dedicated progress state. |
 | 40 | Compare courses, programs, or credentials | Extend | Web research and document parsing cover comparison. Add option state, education portals, aid data, enrollment operations, and deadline reconciliation. |
 
 ### 5. Money, tax, insurance, benefits, and personal administration

@@ -191,8 +191,8 @@ slice or a net-negative reduction.
 
 ## Open loops
 
-- Milestone 2 Tasks 33 and 38 passed their bounded Repeat continuity cases.
-  Test a longer Repeat series before adding dedicated checkpoint storage.
+- Milestone 2 Tasks 33, 38, and 39 passed bounded Repeat continuity cases.
+  Test longer Repeat series before adding dedicated checkpoint or learner-progress storage.
 - Apollo iOS 2.3 code generation and native builds require macOS.
   Linux can validate the authored GraphQL operations against the shared schema.
 - Live Gmail and Calendar OAuth acceptance still needs interactive Google

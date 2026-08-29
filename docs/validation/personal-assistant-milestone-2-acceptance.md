@@ -3,7 +3,7 @@
 Date: 2026-08-29
 
 Milestone 2 remains in progress.
-This record covers the first bounded slice: Task 33, topic monitoring for material changes.
+This record covers bounded acceptance cases for Tasks 33, 38, and 39.
 
 ## Result
 
@@ -162,9 +162,79 @@ The Reviewer rule now covers any no-new-information result when the Task forbids
 Task 38 required no feed table, read-state table, or provider-specific adapter for this core continuity case.
 Connected source adapters remain separate intake concerns.
 
+## Task 39 acceptance
+
+Task 39 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d03ab8235488d96df` |
+| Repeat | `recurrence:18d03ac3ce2da6c0823` |
+| Source | The Project `PROJECT.md` file |
+| Goal | Explain and safely implement Rust async cancellation by 2026-09-30 |
+| Initial capacity | Three 30-minute blocks |
+| Changed capacity | Two 30-minute blocks |
+| Completed evidence | `practice:block-1` |
+| Failed evidence | `assessment:cancel-1`, score 40 percent |
+
+### Initial plan
+
+Task `task:18d03ac3ce0f765f822` created the first plan from source revision 1.
+The source contained no completed learning or assessment evidence.
+
+The result assigned three 30-minute blocks.
+It recorded the trigger, source checkpoint, success condition, and human stop condition.
+
+Reviewer run `run:18d03ae745814f69c3b` approved the initial plan.
+
+### Evidence-driven adaptation
+
+Source revision 2 added one completed block and one failed assessment.
+The assessment named two gaps.
+
+- Exact branch-drop timing under select-style concurrency.
+- Prevention of partial state writes across an await boundary.
+
+The source also reduced capacity to two 30-minute blocks.
+
+Task `task:18d03af2e0919796d5e` preserved the completed block.
+It did not assign that topic again.
+
+It assigned one block to each demonstrated gap.
+The second block also supplies the missing practical repository exercise.
+
+The result retained the 40-percent assessment score.
+It did not infer reassessment, mastery, or exercise completion.
+
+Executor run `run:18d03afd84b8dda6e9b` produced the adapted plan.
+Reviewer run `run:18d03b1dac0dc83e1243` approved it.
+
+### Result correction
+
+The first approved result copied the current Task ID with one extra character.
+Noema reopened the same Task with bounded correction feedback.
+
+Executor run `run:18d03b27623ef9841343` removed the unnecessary identifier line.
+It preserved the evidence, plan, checkpoint, and stop condition.
+
+Reviewer run `run:18d03b46fe6019e216d8` approved the correction.
+The Task reached revision 7 and generation 2.
+
+### Reuse assessment
+
+Project files can hold explicit learner evidence for the current bounded case.
+Repeat history and Task reads can compare prior plans and adapt the next plan.
+
+No learner-progress table, course-specific connector, or provider-specific adapter was necessary.
+Connected course intake remains a separate source concern.
+
+Test a longer learning series before adding dedicated progress state or direct recurrence history.
+
 ## Remaining Milestone 2 gates
 
-- Test a long series near the bounded history limit.
+- Test long monitoring and learning series near the bounded history limit.
 - Verify proactive trigger, source checkpoint, and stop-condition explanations.
 - Run the remaining Milestone 2 acceptance cases.
 - Confirm restart recovery for cases that can make external actions.
