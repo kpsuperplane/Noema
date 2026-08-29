@@ -18,7 +18,7 @@ const PLANNER_RESEARCH_POLICY: &str = "For open-ended research, define the evide
 const PLANNER_DELIVERY_POLICY: &str = "Noema uses the current TASK.md throughout execution. Add another delivery destination only when the authenticated source request requires it.";
 const TASK_DOCUMENT_EDIT_POLICY: &str = "When you edit TASK.md, retain every requirement and constraint already present. Do not remove, narrow, or weaken an incomplete requirement. Keep it and mark its status accurately.";
 const REVIEWER_RESEARCH_LIMITATION_POLICY: &str = "For a research limitation, require the work record to identify the exact source pages read and the evidence returned from them. Search queries and result URLs alone do not prove that a source or listing was inspected.";
-const TASK_RESULT_CITATION_POLICY: &str = "Citations in RESULT.md: Do not use private provider citation markers inside Task files. Cite each supported claim with `[^noema-source-N]` and add a matching `[^noema-source-N]: [Source title](<https://exact.example/url>)` definition copied from the returned source. Preserve existing markers and definitions.";
+const TASK_RESULT_CITATION_POLICY: &str = "Citations in RESULT.md: Do not use private provider citation markers inside Task files. Cite each supported claim with `[^noema-source-N]`. For web sources, add a matching `[^noema-source-N]: [Source title](<https://exact.example/url>)` definition copied from the returned source. For Task artifacts, use the returned artifact ID in `[^noema-source-N]: [Source title](<artifact:artifact-id>) — precise locator`. Include the returned source version, owner, and disclosure scope in the title or locator. Preserve existing markers and definitions.";
 const TASK_PERSISTENCE_POLICY: &str = "Continue while a safe, authorized, in-scope action can materially improve the required output. task.continue_execution starts another Executor run immediately. Use it only when that run can make material progress now, not to wait for time or external state to change. Open a human gate when a specific answer, approval, credential, source, or scope choice can enable progress. Finish with a limitation report when the requested outcome is impossible for Noema and no human response, retry, continuation, or authorized alternate can produce it. Physical actions that require embodiment are obvious limitations and need no attempted tool call. One failed tool call, transient failure, or per-run ceiling is not a system limitation.";
 
 /// Exact role prompt and fixed instruction envelope used by production task runs.
@@ -457,6 +457,7 @@ mod tests {
         assert!(REVIEWER_RESEARCH_LIMITATION_POLICY.contains("result URLs alone do not prove"));
         assert!(TASK_RESULT_CITATION_POLICY.contains("Do not use private provider"));
         assert!(TASK_RESULT_CITATION_POLICY.contains("[^noema-source-N]"));
+        assert!(TASK_RESULT_CITATION_POLICY.contains("<artifact:artifact-id>"));
     }
 
     #[test]
