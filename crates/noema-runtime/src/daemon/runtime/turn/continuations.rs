@@ -598,6 +598,9 @@ impl RuntimeActor {
                 stream_id: None,
             };
             for call in &continuation_tool_calls {
+                let repeated_result =
+                    LocalToolResult::repeated_for_call(call, &local_tool_results);
+                let is_repeated = repeated_result.is_some();
                 let persisted_payload = continuation_turn
                     .initial_model_tools
                     .bindings
@@ -612,7 +615,7 @@ impl RuntimeActor {
                         "output_index": call.output_index,
                     }),
                 );
-                let pending_result =
+                let pending_result = if repeated_result.is_none() {
                     match Self::pending_presentation(&continuation_turn.conversation_id, call)? {
                         Some(presentation) => Some(
                             self.publish_pending_presentation(
@@ -628,7 +631,10 @@ impl RuntimeActor {
                             .await?,
                         ),
                         None => None,
-                    };
+                    }
+                } else {
+                    None
+                };
                 let call_item_id = if pending_result.is_none() {
                     self.persist_provider_tool_call_started(
                         &local_action_turn,
@@ -666,7 +672,9 @@ impl RuntimeActor {
                         "output_index": call.output_index,
                     }),
                 );
-                let result = if let Some(result) = pending_result {
+                let result = if let Some(result) = repeated_result {
+                    result
+                } else if let Some(result) = pending_result {
                     result
                 } else if continuation_batch_kind == ForegroundToolBatchKind::MixedDelegation {
                     rejected_mixed_delegation_result(
@@ -714,7 +722,8 @@ impl RuntimeActor {
                     item_tx,
                 )
                 .await?;
-                if let Some(item_id) = result
+                if !is_repeated
+                    && let Some(item_id) = result
                     .payload
                     .get("projection_item_id")
                     .and_then(serde_json::Value::as_str)
@@ -722,7 +731,7 @@ impl RuntimeActor {
                     self.emit_projection_item(&continuation_turn.conversation_id, item_id, item_tx)
                         .await?;
                 }
-                if let Some(item) = local_tool_artifact_reference_item(&result) {
+                if !is_repeated && let Some(item) = local_tool_artifact_reference_item(&result) {
                     let context = ConversationMemoryContext {
                         turn_index: continuation_turn.turn_index,
                         conversation_id: continuation_turn.conversation_id.clone(),

@@ -124,6 +124,8 @@ impl RuntimeActor {
         let mut local_tool_results = Vec::new();
         let mut waiting_for_interaction = false;
         for call in &initial_tool_calls {
+            let repeated_result = LocalToolResult::repeated_for_call(call, &local_tool_results);
+            let is_repeated = repeated_result.is_some();
             let persisted_payload = turn
                 .initial_model_tools
                 .bindings
@@ -137,7 +139,9 @@ impl RuntimeActor {
                     "output_index": call.output_index,
                 }),
             );
-            let pending_result = if initial_batch_kind != ForegroundToolBatchKind::MixedDelegation {
+            let pending_result = if repeated_result.is_none()
+                && initial_batch_kind != ForegroundToolBatchKind::MixedDelegation
+            {
                 match Self::pending_presentation(&turn.conversation_id, call)? {
                     Some(presentation) => Some(
                         self.publish_pending_presentation(
@@ -191,7 +195,9 @@ impl RuntimeActor {
                     "output_index": call.output_index,
                 }),
             );
-            let result = if let Some(result) = pending_result {
+            let result = if let Some(result) = repeated_result {
+                result
+            } else if let Some(result) = pending_result {
                 result
             } else if initial_batch_kind == ForegroundToolBatchKind::MixedDelegation {
                 rejected_mixed_delegation_result(call, &turn.initial_model_tools.bindings)
@@ -231,7 +237,8 @@ impl RuntimeActor {
                 item_tx,
             )
             .await?;
-            if let Some(item_id) = result
+            if !is_repeated
+                && let Some(item_id) = result
                 .payload
                 .get("projection_item_id")
                 .and_then(serde_json::Value::as_str)
@@ -239,7 +246,7 @@ impl RuntimeActor {
                 self.emit_projection_item(&turn.conversation_id, item_id, item_tx)
                     .await?;
             }
-            if let Some(item) = local_tool_artifact_reference_item(&result) {
+            if !is_repeated && let Some(item) = local_tool_artifact_reference_item(&result) {
                 let context = ConversationMemoryContext {
                     turn_index: turn.turn_index,
                     conversation_id: turn.conversation_id.clone(),

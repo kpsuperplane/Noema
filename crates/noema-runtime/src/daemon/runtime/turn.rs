@@ -566,6 +566,56 @@ mod delegation_batch_tests {
 }
 
 #[cfg(test)]
+mod repeated_tool_call_tests {
+    use super::*;
+
+    fn call(provider_call_id: &str, value: u64) -> LocalToolCall {
+        LocalToolCall {
+            output_index: 0,
+            call_id: None,
+            provider_call_id: Some(provider_call_id.to_string()),
+            provider_name: Some("capture".to_string()),
+            name: "task.capture".to_string(),
+            payload: json!({"value": value}),
+        }
+    }
+
+    #[test]
+    fn exact_repeat_reuses_result_for_the_new_provider_call() {
+        let first_call = call("call_1", 1);
+        let completed = LocalToolResult::from_call(
+            &first_call,
+            LocalToolKind::Gateway,
+            true,
+            json!({"task_id": "task:one"}),
+            true,
+        )
+        .with_side_effect(true);
+
+        let repeated =
+            LocalToolResult::repeated_for_call(&call("call_2", 1), &[completed]).unwrap();
+
+        assert_eq!(repeated.provider_call_id.as_deref(), Some("call_2"));
+        assert_eq!(repeated.payload, json!({"task_id": "task:one"}));
+        assert!(!repeated.side_effect);
+    }
+
+    #[test]
+    fn changed_arguments_do_not_reuse_a_result() {
+        let first_call = call("call_1", 1);
+        let completed = LocalToolResult::from_call(
+            &first_call,
+            LocalToolKind::Gateway,
+            true,
+            json!({"task_id": "task:one"}),
+            true,
+        );
+
+        assert!(LocalToolResult::repeated_for_call(&call("call_2", 2), &[completed]).is_none());
+    }
+}
+
+#[cfg(test)]
 mod provider_output_span_tests {
     use super::*;
 

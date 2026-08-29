@@ -76,6 +76,23 @@ impl LocalToolResult {
         }
     }
 
+    pub(super) fn repeated_for_call(
+        call: &super::tool_lifecycle::LocalToolCall,
+        completed: &[Self],
+    ) -> Option<Self> {
+        completed
+            .iter()
+            .find(|result| result.name == call.name && result.arguments == call.payload)
+            .cloned()
+            .map(|mut result| {
+                result.call_id = call.call_id.clone();
+                result.provider_call_id = call.provider_call_id.clone();
+                result.provider_name = call.provider_name.clone();
+                result.side_effect = false;
+                result
+            })
+    }
+
     pub(super) fn with_blocked_action_request(mut self, action_id: String, revision: u64) -> Self {
         self.blocked_action_request = Some(ActionRequestReference {
             action_id,

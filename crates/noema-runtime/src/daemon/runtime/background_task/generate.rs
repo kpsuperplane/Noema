@@ -259,6 +259,7 @@ impl RuntimeActor {
             };
             let mut results = Vec::with_capacity(calls.len());
             for (call_index, call) in calls.iter().enumerate() {
+                let repeated_result = LocalToolResult::repeated_for_call(call, &results);
                 let correlation_id = call
                     .provider_call_id
                     .clone()
@@ -289,7 +290,9 @@ impl RuntimeActor {
                             binding,
                         )
                     });
-                let result = if checkpoint_required_for_action {
+                let result = if let Some(result) = repeated_result {
+                    result
+                } else if checkpoint_required_for_action {
                     checkpoint_required_result(
                         call,
                         checkpoint_binding.expect("checkpoint requirement has a binding"),
