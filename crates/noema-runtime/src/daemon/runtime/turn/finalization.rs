@@ -678,6 +678,14 @@ fn canonical_memory_source<'a>(
     allowed_sources.get(source).or_else(|| {
         let qualified = format!("item:{source}");
         allowed_sources.get(&qualified).or_else(|| {
+            let paired_tool_result = source
+                .strip_prefix("item:")
+                .map(|suffix| format!("item:tool_result:{suffix}"));
+            if let Some(paired_tool_result) = paired_tool_result.as_ref()
+                && let Some(canonical) = allowed_sources.get(paired_tool_result)
+            {
+                return Some(canonical);
+            }
             source
                 .strip_prefix("human [")
                 .and_then(|source| source.strip_suffix(']'))
@@ -832,6 +840,29 @@ mod memory_change_set_tests {
 
         assert_eq!(changes.upserts[0].citations[0].sources, ["item:18c7c757f1f6fa3a5a7"]);
         assert_eq!(changes.upserts[0].body, "Momo has a durable preference.[^1]");
+    }
+
+    #[test]
+    fn parser_maps_a_tool_call_item_to_its_exact_persisted_result() {
+        let allowed =
+            HashSet::from(["item:tool_result:18d02236d495f3655c14".to_string()]);
+        let response = serde_json::json!({
+            "upserts": [{
+                "path": "root.md",
+                "title": "Momo",
+                "icon": "user",
+                "body": "A tool result supports this fact.[^1]",
+                "citations": [{"sources": ["item:18d02236d495f3655c14"]}]
+            }],
+            "metadata_updates": [],
+            "deletes": []
+        });
+
+        let changes = parse_memory_change_set(&response, &allowed, &[]).expect("paired result");
+        assert_eq!(
+            changes.changes.upserts[0].citations[0].sources,
+            ["item:tool_result:18d02236d495f3655c14"]
+        );
     }
 
     #[test]
