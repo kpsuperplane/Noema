@@ -241,9 +241,16 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
 ### Exit gate
 
-Each long-running case resumes after a server restart without duplicate messages or actions.
+The 32-task provider-neutral verification target was reached on 2026-08-29.
+
+The shared durable Task and Repeat path must pass one interrupted active run and one changed Repeat occurrence after restart.
+
+Run another restart case only when a task adds a different durable state path or external action path.
 
 Each proactive case explains its trigger, source checkpoint, and stop condition.
+
+Connected intake and external execution receipts remain adapter and action-path acceptance work.
+They do not require duplicate core reasoning fixtures for each provider.
 
 ## Milestone 3: Add document and decision workflows
 

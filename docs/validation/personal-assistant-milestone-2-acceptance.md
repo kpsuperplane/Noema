@@ -1491,11 +1491,12 @@ No inbox table, thread schema, priority engine, draft entity, or provider-specif
 Connected source intake and reviewed sending remain separate paths.
 Test them when current provider-neutral adapter operations are available.
 
-## Remaining Milestone 2 gates
+## Deferred Milestone 2 follow-ups
 
 The 32-task verification target is reached.
-The following items remain cross-cutting follow-ups.
+Shared active-run and changed-Repeat restart recovery already passed.
+
+The following scale and connected-operation cases do not block the provider-neutral target.
 
 - Test long promise, monitoring, decision, and learning series near the bounded history limit.
-- Verify shared restart recovery for the remaining long-running cases.
 - Verify external action receipts for cases that can send or update data.

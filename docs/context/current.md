@@ -204,6 +204,8 @@ slice or a net-negative reduction.
   Task 20 detected changed blockers, capacity, critical path, and one resolved risk. Its unchanged occurrence stayed quiet.
   Task 4 preserved exact thread identity, applied explicit priority rules, reconciled exact receipts, and kept later inbound work open.
   Its final unchanged Reviewer used `notify_human: false`. No completion notification exists for that occurrence.
+  The Milestone 2 provider-neutral target is now 32/100 Verified.
+  Shared restart recovery does not need repetition unless a task adds a different durable or external action path.
   Test longer Repeat series before adding dedicated promise, decision, checkpoint, or learner-progress storage.
 - Apollo iOS 2.3 code generation and native builds require macOS.
   Linux can validate the authored GraphQL operations against the shared schema.
