@@ -179,6 +179,7 @@ impl RuntimeActor {
     pub(super) async fn execute_web_browse_action(
         &self,
         owner_key: String,
+        task_id: Option<&str>,
         name: &str,
         arguments: &Value,
         source: &str,
@@ -188,7 +189,8 @@ impl RuntimeActor {
         } else if name == noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL {
             self.switch_browser_provider(&owner_key, arguments).await
         } else {
-            self.execute_web_browse(&owner_key, name, arguments).await
+            self.execute_web_browse(&owner_key, task_id, name, arguments)
+                .await
         };
         match result {
             Ok(payload) => {
@@ -333,6 +335,7 @@ impl RuntimeActor {
             Some(
                 self.execute_web_browse_action(
                     owner_key,
+                    action.task_id.as_deref(),
                     &action.capability_name,
                     &action.arguments,
                     &action.action_id,

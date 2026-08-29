@@ -259,7 +259,7 @@ impl KernelBrowseBackend {
                 let value = self
                     .execute_playwright(
                         &session.remote_id,
-                        interaction_script(&request.reference, request.action, request.value),
+                        interaction_script(&request)?,
                         WebBrowseError::OutcomeUncertain,
                     )
                     .await?;
@@ -770,11 +770,9 @@ fn open_script(url: &str, wait_until: BrowseWaitUntil) -> String {
 }
 
 fn interaction_script(
-    reference: &str,
-    action: BrowseInteractionAction,
-    value: Option<String>,
-) -> String {
-    let operation = match action {
+    request: &noema_capabilities::web::browse::BrowseInteractionRequest,
+) -> Result<String, WebBrowseError> {
+    let operation = match request.action {
         BrowseInteractionAction::Click => "await locator.click();",
         BrowseInteractionAction::Fill => "await locator.fill(value);",
         BrowseInteractionAction::Type => "await locator.type(value);",
@@ -782,11 +780,35 @@ fn interaction_script(
             "const keys = {enter:'Enter',backspace:'Backspace',arrowup:'ArrowUp',arrowdown:'ArrowDown',arrowleft:'ArrowLeft',arrowright:'ArrowRight',escape:'Escape',tab:'Tab',delete:'Delete',home:'Home',end:'End',pageup:'PageUp',pagedown:'PageDown'}; await locator.press(keys[value.toLowerCase()] || value);"
         }
         BrowseInteractionAction::SelectOption => "await locator.selectOption(value);",
+        BrowseInteractionAction::UploadFile => "await locator.setInputFiles(upload);",
     };
-    format!(
+    let upload = request
+        .upload
+        .as_ref()
+        .map(|upload| {
+            format!(
+                "{{name:{},mimeType:{},buffer:Buffer.from({},'base64')}}",
+                json!(upload.filename),
+                json!(
+                    upload
+                        .media_type
+                        .as_deref()
+                        .unwrap_or("application/octet-stream")
+                ),
+                json!(STANDARD.encode(&upload.bytes)),
+            )
+        })
+        .unwrap_or_else(|| "null".to_string());
+    if request.action == BrowseInteractionAction::UploadFile && request.upload.is_none() {
+        return Err(WebBrowseError::InvalidArguments {
+            detail: "file upload binding is unavailable".to_string(),
+        });
+    }
+    Ok(format!(
         r#"{REQUEST_GUARD}
 const reference = {};
 const value = {};
+const upload = {upload};
 if (!/^e\d{{1,3}}$/.test(reference)) return {{ok:false,element_found:false}};
 const selector = '[data-noema-ref="' + reference.replaceAll('"', '\\"') + '"]';
 const locator = page.locator(selector);
@@ -798,9 +820,9 @@ try {{
 }} catch (_) {{
   return {{ok:false,element_found:true}};
 }}"#,
-        json!(reference),
-        json!(value.unwrap_or_default()),
-    )
+        json!(request.reference),
+        json!(request.value.as_deref().unwrap_or_default()),
+    ))
 }
 
 fn wait_script(text: Option<&str>, reference: Option<&str>, timeout_ms: u64) -> String {
@@ -928,19 +950,42 @@ mod tests {
     use super::*;
     use crate::adapters::test_support::spawn_scripted_server;
     use noema_capabilities::web::browse::{
-        BrowseCommand, BrowseNavigationRequest, BrowseWaitUntil,
+        BrowseCommand, BrowseInteractionRequest, BrowseNavigationRequest, BrowseUploadFile,
+        BrowseWaitUntil,
     };
     use serde_json::json;
 
     #[test]
     fn scripts_encode_interaction_values() {
-        let script = interaction_script(
-            "e1",
-            BrowseInteractionAction::Fill,
-            Some("\"; globalThis.pwned = true; //".to_string()),
-        );
+        let script = interaction_script(&BrowseInteractionRequest {
+            snapshot_revision: 1,
+            reference: "e1".to_string(),
+            action: BrowseInteractionAction::Fill,
+            value: Some("\"; globalThis.pwned = true; //".to_string()),
+            artifact_id: None,
+            artifact_version_id: None,
+            upload: None,
+        })
+        .expect("interaction script");
         assert!(script.contains("\\\"; globalThis.pwned = true; //"));
         assert!(!script.contains("const value = \"\"; globalThis"));
+
+        let upload = interaction_script(&BrowseInteractionRequest {
+            snapshot_revision: 1,
+            reference: "e2".to_string(),
+            action: BrowseInteractionAction::UploadFile,
+            value: None,
+            artifact_id: Some("artifact:test".to_string()),
+            artifact_version_id: Some("artifact_version:test".to_string()),
+            upload: Some(BrowseUploadFile {
+                filename: "receipt.txt".to_string(),
+                media_type: Some("text/plain".to_string()),
+                bytes: b"exact bytes".to_vec(),
+            }),
+        })
+        .expect("upload script");
+        assert!(upload.contains("locator.setInputFiles(upload)"));
+        assert!(upload.contains("ZXhhY3QgYnl0ZXM="));
     }
 
     #[test]

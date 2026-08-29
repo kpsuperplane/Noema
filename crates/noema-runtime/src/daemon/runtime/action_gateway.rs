@@ -401,6 +401,9 @@ fn safe_action_summary(
             noema_capabilities::web::browse::BrowseInteractionAction::SelectOption => {
                 "Choose an option on the open browser page"
             }
+            noema_capabilities::web::browse::BrowseInteractionAction::UploadFile => {
+                "Upload a Task artifact to the open browser page"
+            }
         }
         .to_string();
     }

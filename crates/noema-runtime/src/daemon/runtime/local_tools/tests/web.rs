@@ -324,6 +324,7 @@ async fn browser_approval_persists_page_and_target_review_context() {
         let closed = actor
             .execute_web_browse_action(
                 owner.clone(),
+                None,
                 noema_capabilities::web::browse::WEB_BROWSE_CLOSE_TOOL,
                 &json!({}),
                 "test",

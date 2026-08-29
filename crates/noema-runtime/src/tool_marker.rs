@@ -425,6 +425,9 @@ fn browser_marker(
             "Could not close browser",
         ),
         "web.browse.interact" => match text(arguments, &[&["action"]]).as_deref() {
+            Some("upload_file") => {
+                Copy::new("Uploading file", "Uploaded file", "Could not upload file")
+            }
             Some("click") => Copy::new(
                 "Clicking page element",
                 "Clicked page element",

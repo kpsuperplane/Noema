@@ -296,14 +296,33 @@ async fn owned_task_artifact(
     ),
     String,
 > {
+    owned_task_artifact_for_task(
+        store,
+        envelope.task.task_id.as_str(),
+        artifact_id,
+        artifact_version_id,
+    )
+    .await
+}
+
+pub(crate) async fn owned_task_artifact_for_task(
+    store: &NoemaStore,
+    task_id: &str,
+    artifact_id: &str,
+    artifact_version_id: Option<&str>,
+) -> Result<
+    (
+        noema_artifacts::ArtifactRecord,
+        noema_artifacts::ArtifactVersionRecord,
+    ),
+    String,
+> {
     let artifact = store
         .get_artifact(artifact_id)
         .await
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "artifact is unavailable".to_string())?;
-    if artifact.artifact.owner
-        != noema_artifacts::ArtifactOwnerRef::task(envelope.task.task_id.as_str())
-    {
+    if artifact.artifact.owner != noema_artifacts::ArtifactOwnerRef::task(task_id) {
         return Err("artifact is not owned by the current task".to_string());
     }
     let version = artifact_version_id.map_or_else(

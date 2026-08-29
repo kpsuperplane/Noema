@@ -341,8 +341,13 @@ impl WorkerState {
             BrowseCommand::Snapshot { max_chars } => self.snapshot(max_chars).await,
             BrowseCommand::Interact(request) => {
                 self.require_revision(request.snapshot_revision)?;
-                self.interact(request.reference, request.action, request.value)
-                    .await?;
+                self.interact(
+                    request.reference,
+                    request.action,
+                    request.value,
+                    request.upload,
+                )
+                .await?;
                 self.validate_resulting_url().await?;
                 self.snapshot(noema_capabilities::web::browse::DEFAULT_SNAPSHOT_CHARS)
                     .await
@@ -466,8 +471,20 @@ impl WorkerState {
         reference: String,
         action: BrowseInteractionAction,
         value: Option<String>,
+        upload: Option<noema_capabilities::web::browse::BrowseUploadFile>,
     ) -> Result<(), WebBrowseError> {
-        let script = interaction_script(&reference, action, value.as_deref());
+        let script = if action == BrowseInteractionAction::UploadFile {
+            upload_script(
+                &reference,
+                upload
+                    .as_ref()
+                    .ok_or_else(|| WebBrowseError::InvalidArguments {
+                        detail: "file upload binding is unavailable".to_string(),
+                    })?,
+            )
+        } else {
+            interaction_script(&reference, action, value.as_deref())
+        };
         let result = self
             .page
             .evaluate_with_timeout(&script, Duration::from_millis(500));
@@ -666,11 +683,30 @@ fn interaction_script(
             emit(new Event('change', {bubbles:true}));
             "#
         }
+        BrowseInteractionAction::UploadFile => unreachable!("file upload uses its own script"),
     };
     format!(
         "(() => {{ const ref = {}; const value = {}; const element = Array.from(document.querySelectorAll('[data-noema-ref]')).find(item => item.dataset.noemaRef === ref); if (!element) return false; const emit = event => element.dispatchEvent(globalThis.__obscura_markTrusted(event)); const setValue = next => {{ globalThis.__obscura_setFieldValue(element, 'value', next); if (element.setSelectionRange) element.setSelectionRange(String(next).length, String(next).length); }}; {operation} return true; }})()",
         json!(reference),
         json!(value.unwrap_or_default()),
+    )
+}
+
+fn upload_script(
+    reference: &str,
+    upload: &noema_capabilities::web::browse::BrowseUploadFile,
+) -> String {
+    format!(
+        "(() => {{ const ref = {}; const spec = {{b64:{},name:{},type:{}}}; const element = Array.from(document.querySelectorAll('[data-noema-ref]')).find(item => item.dataset.noemaRef === ref); if (!(element instanceof HTMLInputElement) || element.type !== 'file' || typeof globalThis.__obscura_setInputFiles !== 'function') return false; globalThis.__obscura_setInputFiles(element, [spec]); return element.files && element.files.length === 1; }})()",
+        json!(reference),
+        json!(STANDARD.encode(&upload.bytes)),
+        json!(upload.filename),
+        json!(
+            upload
+                .media_type
+                .as_deref()
+                .unwrap_or("application/octet-stream")
+        ),
     )
 }
 
@@ -709,7 +745,7 @@ mod tests {
             let mut request = [0_u8; 1024];
             let _ = stream.read(&mut request).await;
             stream
-                .write_all(b"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><title>Fixture</title><body><noscript>JavaScript is disabled</noscript><label>Name<input aria-label='Name'></label><label>Role<select aria-label='Role'><option value='engineer'>Engineer</option><option value='manager'>Manager</option></select></label><button type='button' disabled>Save</button><div role='button' aria-label='Activate' tabindex='0'>Activate</div><script>const input=document.querySelector('input');const select=document.querySelector('select');const button=document.querySelector('button');const activate=document.querySelector('[role=button]');setTimeout(()=>button.disabled=false,1);input.addEventListener('input',event=>input.setAttribute('data-input-trusted',String(event.isTrusted)));input.addEventListener('change',event=>input.setAttribute('data-change-trusted',String(event.isTrusted)));input.addEventListener('keydown',event=>input.setAttribute('data-keydown-trusted',String(event.isTrusted)));input.addEventListener('keyup',event=>input.setAttribute('data-keyup-trusted',String(event.isTrusted)));select.addEventListener('input',event=>select.setAttribute('data-input-trusted',String(event.isTrusted)));select.addEventListener('change',event=>select.setAttribute('data-change-trusted',String(event.isTrusted)));button.addEventListener('click',event=>button.setAttribute('data-click-trusted',String(event.isTrusted)));activate.addEventListener('keydown',event=>{activate.setAttribute('data-key',event.key);if(event.key==='Enter')activate.setAttribute('data-enter','true')});</script></body>")
+                .write_all(b"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><title>Fixture</title><body><noscript>JavaScript is disabled</noscript><label>Name<input aria-label='Name'></label><label>File<input type='file' aria-label='File'></label><label>Role<select aria-label='Role'><option value='engineer'>Engineer</option><option value='manager'>Manager</option></select></label><button type='button' disabled>Save</button><div role='button' aria-label='Activate' tabindex='0'>Activate</div><script>const input=document.querySelector('input');const select=document.querySelector('select');const button=document.querySelector('button');const activate=document.querySelector('[role=button]');setTimeout(()=>button.disabled=false,1);input.addEventListener('input',event=>input.setAttribute('data-input-trusted',String(event.isTrusted)));input.addEventListener('change',event=>input.setAttribute('data-change-trusted',String(event.isTrusted)));input.addEventListener('keydown',event=>input.setAttribute('data-keydown-trusted',String(event.isTrusted)));input.addEventListener('keyup',event=>input.setAttribute('data-keyup-trusted',String(event.isTrusted)));select.addEventListener('input',event=>select.setAttribute('data-input-trusted',String(event.isTrusted)));select.addEventListener('change',event=>select.setAttribute('data-change-trusted',String(event.isTrusted)));button.addEventListener('click',event=>button.setAttribute('data-click-trusted',String(event.isTrusted)));activate.addEventListener('keydown',event=>{activate.setAttribute('data-key',event.key);if(event.key==='Enter')activate.setAttribute('data-enter','true')});</script></body>")
                 .await
                 .expect("write fixture");
             drop(stream);
@@ -760,6 +796,11 @@ mod tests {
             .iter()
             .find(|element| element.name == "Save")
             .expect("button reference");
+        let file = snapshot
+            .elements
+            .iter()
+            .find(|element| element.name == "File")
+            .expect("file reference");
         assert!(!button.disabled);
         let select = snapshot
             .elements
@@ -776,12 +817,20 @@ mod tests {
             reference: input.reference.clone(),
             action: BrowseInteractionAction::Fill,
             value: Some("Ada".to_string()),
+            artifact_id: None,
+            artifact_version_id: None,
+            upload: None,
         };
         state
             .require_revision(request.snapshot_revision)
             .expect("current revision");
         state
-            .interact(request.reference, request.action, request.value)
+            .interact(
+                request.reference,
+                request.action,
+                request.value,
+                request.upload,
+            )
             .await
             .expect("fill input");
         assert_eq!(
@@ -793,9 +842,30 @@ mod tests {
         );
         state
             .interact(
+                file.reference.clone(),
+                BrowseInteractionAction::UploadFile,
+                None,
+                Some(noema_capabilities::web::browse::BrowseUploadFile {
+                    filename: "receipt.txt".to_string(),
+                    media_type: Some("text/plain".to_string()),
+                    bytes: b"exact bytes".to_vec(),
+                }),
+            )
+            .await
+            .expect("upload file");
+        assert_eq!(
+            state.page.evaluate_with_timeout(
+                "(() => { const file = document.querySelector('input[type=file]').files[0]; return {name:file.name,type:file.type,size:file.size}; })()",
+                Duration::from_millis(500),
+            ),
+            json!({"name":"receipt.txt","type":"text/plain","size":11})
+        );
+        state
+            .interact(
                 input.reference.clone(),
                 BrowseInteractionAction::Type,
                 Some("!".to_string()),
+                None,
             )
             .await
             .expect("type input");
@@ -804,6 +874,7 @@ mod tests {
                 input.reference.clone(),
                 BrowseInteractionAction::PressKey,
                 Some("Backspace".to_string()),
+                None,
             )
             .await
             .expect("press input key");
@@ -819,6 +890,7 @@ mod tests {
                 select.reference.clone(),
                 BrowseInteractionAction::SelectOption,
                 Some("manager".to_string()),
+                None,
             )
             .await
             .expect("select option");
@@ -833,6 +905,7 @@ mod tests {
             .interact(
                 button.reference.clone(),
                 BrowseInteractionAction::Click,
+                None,
                 None,
             )
             .await
@@ -849,6 +922,7 @@ mod tests {
                 activate.reference.clone(),
                 BrowseInteractionAction::PressKey,
                 Some("ARROWRIGHT".to_string()),
+                None,
             )
             .await
             .expect("press named key");
@@ -870,6 +944,7 @@ mod tests {
                 activate.reference.clone(),
                 BrowseInteractionAction::PressKey,
                 Some("ENTER".to_string()),
+                None,
             )
             .await
             .expect("activate navigation");

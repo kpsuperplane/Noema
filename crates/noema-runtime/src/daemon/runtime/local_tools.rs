@@ -36,7 +36,7 @@ use crate::daemon::{
     task_artifact_tool::{
         TaskArtifactReadContext, execute_task_list_artifacts, execute_task_parse_artifact,
         execute_task_read_artifact, is_task_list_artifacts_tool, is_task_parse_artifact_tool,
-        is_task_read_artifact_tool,
+        is_task_read_artifact_tool, owned_task_artifact_for_task,
     },
     task_tool::{
         TASK_CAPTURE_TOOL, TASK_INSPECT_TOOL, TASK_LIST_TOOL, TaskDelegateRuntimeContext,
@@ -751,7 +751,13 @@ impl RuntimeActor {
             let owner_key = browse_owner_key_for_turn(turn);
             let source = call.call_id.as_deref().unwrap_or(&turn.turn_id);
             let output = self
-                .execute_web_browse_action(owner_key, &call.name, &call.payload, source)
+                .execute_web_browse_action(
+                    owner_key,
+                    turn.task_id.as_deref(),
+                    &call.name,
+                    &call.payload,
+                    source,
+                )
                 .await;
             let persisted_output_source = output.persisted_output_source().clone();
             let outcome_uncertain = output
@@ -969,6 +975,7 @@ impl RuntimeActor {
     async fn execute_web_browse(
         &self,
         owner_key: &str,
+        task_id: Option<&str>,
         name: &str,
         payload: &Value,
     ) -> Result<Value, WebBrowseError> {
@@ -976,6 +983,7 @@ impl RuntimeActor {
             parse_command(name, payload).map_err(|error| WebBrowseError::InvalidArguments {
                 detail: error.message().to_string(),
             })?;
+        let upload_receipt = self.bind_browser_upload(task_id, &mut command).await?;
         let navigation_url = match &command {
             BrowseCommand::Open(request) => Some(request.url.clone()),
             _ => None,
@@ -1058,7 +1066,75 @@ impl RuntimeActor {
         update_browser_snapshot_authority(&mut state, &mut response, public_revision);
         self.browser_sessions
             .set_session(owner_key.to_string(), state);
-        serde_json::to_value(response).map_err(|_| WebBrowseError::Unavailable)
+        let mut response =
+            serde_json::to_value(response).map_err(|_| WebBrowseError::Unavailable)?;
+        if let Some(receipt) = upload_receipt {
+            response["upload"] = receipt;
+        }
+        Ok(response)
+    }
+
+    async fn bind_browser_upload(
+        &self,
+        task_id: Option<&str>,
+        command: &mut BrowseCommand,
+    ) -> Result<Option<Value>, WebBrowseError> {
+        let BrowseCommand::Interact(request) = command else {
+            return Ok(None);
+        };
+        if request.action != noema_capabilities::web::browse::BrowseInteractionAction::UploadFile {
+            return Ok(None);
+        }
+        let unavailable = || WebBrowseError::InvalidArguments {
+            detail: "Use an exact local artifact version owned by the current Task".to_string(),
+        };
+        let task_id = task_id.ok_or_else(unavailable)?;
+        let artifact_id = request.artifact_id.as_deref().ok_or_else(unavailable)?;
+        let version_id = request
+            .artifact_version_id
+            .as_deref()
+            .ok_or_else(unavailable)?;
+        let (artifact, version) =
+            owned_task_artifact_for_task(&self.store, task_id, artifact_id, Some(version_id))
+                .await
+                .map_err(|_| unavailable())?;
+        if !matches!(
+            version.storage,
+            noema_artifacts::ArtifactVersionStorage::LocalFile { .. }
+        ) {
+            return Err(unavailable());
+        }
+        let file = self
+            .artifact_operations
+            .read_local_file(noema_artifacts::ReadLocalArtifactRequest {
+                artifact: artifact.clone(),
+                version: version.clone(),
+            })
+            .await
+            .map_err(|_| unavailable())?;
+        if file.bytes.len() > 256 * 1024 {
+            return Err(WebBrowseError::InvalidArguments {
+                detail: "Choose a Task artifact smaller than 256 KiB".to_string(),
+            });
+        }
+        request.upload = Some(noema_capabilities::web::browse::BrowseUploadFile {
+            filename: file.filename.clone(),
+            media_type: version.media_type.clone(),
+            bytes: file.bytes,
+        });
+        Ok(Some(json!({
+            "artifact_id": artifact.artifact_id,
+            "artifact_version_id": version.artifact_version_id,
+            "filename": file.filename,
+            "media_type": version.media_type,
+            "byte_size": version.byte_size,
+            "content_sha256": version.content_sha256,
+            "sources": artifact.metadata.get("sources"),
+            "source_id": artifact.metadata.get("source_id"),
+            "source_version": artifact.metadata.get("source_version"),
+            "source_owner": artifact.metadata.get("source_owner"),
+            "disclosure_scope": artifact.metadata.get("disclosure_scope"),
+        })))
     }
 
     pub(super) async fn close_browser_session(

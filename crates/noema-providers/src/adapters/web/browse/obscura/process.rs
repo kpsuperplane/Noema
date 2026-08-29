@@ -2,9 +2,9 @@ use super::WorkerState;
 use crate::WebBrowseError;
 use futures_util::StreamExt;
 use noema_capabilities::web::browse::{
-    BrowseCommand, BrowseResponse, WEB_BROWSE_CLOSE_TOOL, WEB_BROWSE_HISTORY_TOOL,
-    WEB_BROWSE_INTERACT_TOOL, WEB_BROWSE_OPEN_TOOL, WEB_BROWSE_SNAPSHOT_TOOL, WEB_BROWSE_WAIT_TOOL,
-    parse_command,
+    BrowseCommand, BrowseResponse, BrowseUploadFile, WEB_BROWSE_CLOSE_TOOL,
+    WEB_BROWSE_HISTORY_TOOL, WEB_BROWSE_INTERACT_TOOL, WEB_BROWSE_OPEN_TOOL,
+    WEB_BROWSE_SNAPSHOT_TOOL, WEB_BROWSE_WAIT_TOOL, parse_command,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -244,15 +244,22 @@ struct RequestFrame {
     version: u8,
     tool: String,
     arguments: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    upload: Option<BrowseUploadFile>,
 }
 
 impl RequestFrame {
-    fn from_command(command: BrowseCommand) -> Self {
+    fn from_command(mut command: BrowseCommand) -> Self {
+        let upload = match &mut command {
+            BrowseCommand::Interact(request) => request.upload.take(),
+            _ => None,
+        };
         let (tool, arguments) = command_parts(command);
         Self {
             version: PROTOCOL_VERSION,
             tool: tool.to_string(),
             arguments,
+            upload,
         }
     }
 }
@@ -353,7 +360,7 @@ fn command_parts(command: BrowseCommand) -> (&'static str, Value) {
         }
         BrowseCommand::Interact(request) => (
             WEB_BROWSE_INTERACT_TOOL,
-            json!({"snapshot_revision": request.snapshot_revision, "ref": request.reference, "action": request.action, "value": request.value}),
+            json!({"snapshot_revision": request.snapshot_revision, "ref": request.reference, "action": request.action, "value": request.value, "artifact_id": request.artifact_id, "artifact_version_id": request.artifact_version_id}),
         ),
         BrowseCommand::Wait(request) => {
             let condition = match (request.text, request.reference) {
@@ -478,8 +485,18 @@ async fn run_worker(generation: u64) -> Result<(), WebBrowseError> {
         if request.version != PROTOCOL_VERSION {
             return Err(WebBrowseError::Unavailable);
         }
-        let command = parse_command(&request.tool, &request.arguments)
+        let mut command = parse_command(&request.tool, &request.arguments)
             .map_err(|_| WebBrowseError::Unavailable)?;
+        match (&mut command, request.upload) {
+            (BrowseCommand::Interact(interaction), upload)
+                if interaction.action
+                    == noema_capabilities::web::browse::BrowseInteractionAction::UploadFile =>
+            {
+                interaction.upload = Some(upload.ok_or(WebBrowseError::Unavailable)?);
+            }
+            (_, Some(_)) => return Err(WebBrowseError::Unavailable),
+            _ => {}
+        }
         let closes = matches!(command, BrowseCommand::Close);
         let response = ResponseFrame::from_result(state.execute(command).await);
         write_frame(&mut output, &response).await?;
