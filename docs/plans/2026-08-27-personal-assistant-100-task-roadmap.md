@@ -193,7 +193,7 @@ No case can require an unbounded source scan.
 
 Target: 32/100 Verified.
 
-Current: 19/100 Verified.
+Current: 20/100 Verified.
 
 Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
@@ -208,9 +208,9 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 | Add Task dependencies, blockers, milestones, estimates, and explicit owners. | Project planning and replanning need relationships beyond independent Task records. | 7, 20, 22 |
 | Reuse Project files for source-linked decision history. | Task 21 passed a bounded replacement case. Test connected capture and longer history before adding a dedicated decision entity. | 21 |
 | Route captured decisions and follow-ups into the Project source. | Task 16 still needs durable ownership and later completion evidence after a decision is recorded. | 16 |
-| Add stable contact records with interaction history and follow-up boundaries. | Relationship work needs safe identity, recency, consent, and cadence information. | 13, 18 |
+| Add stable contact records with interaction history and follow-up boundaries. | Task 13 passed with Project-source identities. Task 18 still needs reusable relationship state. | 18 |
 | Add message drafts, replies, sent-message checks, and thread closure evidence. | A prepared response is not a completed communication loop. | 4, 12, 16 |
-| Add event free-busy, invitations, attendee responses, and negotiation support. | Multi-person scheduling needs availability and confirmed participant state. | 13 |
+| Test connected free-busy, invitation, and reply operations. | Task 13 passed provider-neutral negotiation and drafting. Live operations still need confirmation and receipts. | 13 |
 | Add reviewer identities, version-bound decisions, routing, quorum, and conflict handling. | One human gate and one model review cannot coordinate several independent reviewers. | 24 |
 | Add access inventories, lifecycle checks, shared ownership, and permission-safe export. | Onboarding and handoff must prove access changes without losing accountable ownership. | 26 |
 | Add job-source operations, application records, duplicate checks, and outcome history. | A long job search needs durable pipeline state and evidence from each application. | 28 |
@@ -223,7 +223,7 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 - A promise survives source changes and closes only after completion evidence. Passed on 2026-08-29.
 - A delayed event replans dependent Tasks and drafts the required notices.
 - A monitored thread reports silence only after its agreed deadline.
-- A meeting negotiation handles time zones, working hours, and one declined option.
+- A meeting negotiation handles time zones, working hours, and one declined option. Passed on 2026-08-29.
 - A decision log preserves the replaced decision and its source history. Passed on 2026-08-29.
 - A topic monitor suppresses repeated information and reports one material change. Passed on 2026-08-29.
 - A learning plan adapts after a failed assessment and a completed practice block. Passed on 2026-08-29.

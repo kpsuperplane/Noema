@@ -191,7 +191,7 @@ slice or a net-negative reduction.
 
 ## Open loops
 
-- Milestone 2 Tasks 2, 21, 33, 38, and 39 passed bounded provider-neutral cases.
+- Milestone 2 Tasks 2, 13, 21, 33, 38, and 39 passed bounded provider-neutral cases.
   Test longer Repeat series before adding dedicated promise, decision, checkpoint, or learner-progress storage.
 - Apollo iOS 2.3 code generation and native builds require macOS.
   Linux can validate the authored GraphQL operations against the shared schema.

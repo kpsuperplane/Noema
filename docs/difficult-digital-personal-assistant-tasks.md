@@ -392,11 +392,11 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-Current retests verify 19 tasks. No task remains in `Test`.
+Current retests verify 20 tasks. No task remains in `Test`.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend.
 
-Tasks 1, 2, 5, 6, 8, 11, 14, 15, 17, 19, 21, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
+Tasks 1, 2, 5, 6, 8, 11, 13, 14, 15, 17, 19, 21, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
 
 These results prove one provider setup. The second provider portability gate remains open.
 
@@ -421,7 +421,7 @@ These results prove one provider setup. The second provider portability gate rem
 | ---: | --- | --- | --- |
 | 11 | Resolve conflicting requests | Verified | The synthetic live case passed authority ranking, relationship trade-offs, escalation drafts, and safe non-action. Add a source-backed cross-system conflict case later. |
 | 12 | Monitor an important conversation | Build | Implement external event sources, thread checkpoints, silence deadlines, material-change rules, and escalation controls. Repeat is not reliable event monitoring. |
-| 13 | Coordinate a multi-person meeting | Extend | Add stable contacts, current free-busy access, invitations, negotiation replies, fairness rules, and time-zone exception tests. |
+| 13 | Coordinate a multi-person meeting | Verified | A provider-neutral Project case handled three time zones, working-hours boundaries, one decline, five options, and draft-only replies and invitation details. Connected availability and invitation operations remain separate. |
 | 14 | Prepare a meeting brief and agenda | Verified | A current live case found a qualifying external meeting and produced a cited, sensitive brief. Parsed attachments and conflicting prior decisions still need a fixture. |
 | 15 | Prepare audience-specific updates | Verified | A native Project case produced three fact-matched updates. Full Task reads supported detail, tone, confidentiality, asks, citations, and conflict reporting. |
 | 16 | Record decisions and close follow-ups | Extend | Task files can hold a log. Add durable ownership, source-linked status, transcript intake, event reminders, and later completion evidence. |

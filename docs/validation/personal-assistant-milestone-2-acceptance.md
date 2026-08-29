@@ -3,7 +3,7 @@
 Date: 2026-08-29
 
 Milestone 2 remains in progress.
-This record covers bounded acceptance cases for Tasks 2, 21, 33, 38, and 39.
+This record covers bounded acceptance cases for Tasks 2, 13, 21, 33, 38, and 39.
 
 ## Result
 
@@ -348,6 +348,58 @@ No promise table, message connector, or provider-specific adapter was necessary.
 Connected promise capture remains a separate source concern.
 
 Test a longer series and several concurrent promises before adding dedicated promise state.
+
+## Task 13 acceptance
+
+Task 13 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d03c590428f7b635d3` |
+| Source | The Project `PROJECT.md` file |
+| Task | `task:18d03c6038c920cb369e` |
+| Meeting | `meeting:launch-review-001` |
+| Duration | 30 minutes |
+| Participants | Los Angeles, New York, and London |
+| Candidates | Five |
+| Explicit decline | `option:a` from `source:rowan-reply-001` |
+
+### Candidate evaluation
+
+The Task converted every candidate to each participant's local start and end time.
+
+- It rejected `option:a` because Rowan declined it.
+- It rejected `option:b` because Kevin would start before working hours.
+- It rejected `option:c` because Mika would start and end after working hours.
+- It rejected `option:e` because Kevin would start and end before working hours.
+
+Only `option:d` remained valid.
+
+The result recommended September 4 from 16:00 through 16:30 UTC.
+It showed 09:00 PDT, 12:00 EDT, and 17:00 BST local starts.
+
+Mika's local end matched the 17:30 working-hours boundary.
+The Task treated that exact boundary as valid.
+
+### Drafts and boundaries
+
+The Task drafted one group confirmation request.
+It also drafted exact invitation fields and attendee identities.
+
+It did not infer acceptance from availability.
+It did not create an event or send a message.
+
+Executor run `run:18d03c67f8f83d36378d` produced the result.
+Reviewer run `run:18d03c83debc4f1e3ab1` approved it.
+
+### Reuse assessment
+
+Project files can hold participant constraints, availability, and responses for this bounded case.
+Existing Task reasoning can negotiate and draft without a provider-specific adapter.
+
+Connected free-busy reads, invitations, and reply handling remain separate operation concerns.
 
 ## Remaining Milestone 2 gates
 
