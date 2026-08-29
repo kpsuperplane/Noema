@@ -47,6 +47,8 @@ Private source contents are not copied into this ledger.
 
 ## Retest results
 
+### Native Project retests
+
 Retest date: 2026-08-28
 
 Noema baseline: commit `f13c8f80`
@@ -59,24 +61,41 @@ No pending governed action or intervention remained after either case.
 
 | Task | Verdict | Live evidence | What worked | Remaining gap or required improvement |
 | ---: | --- | --- | --- | --- |
-| 15 | Pass | Turn `turn:18d01c1c553998c49e3c`; Project `project:18d01c0ca430362e9c65` | Noema produced executive, engineering, and customer updates from one evidence set. It changed detail, tone, confidentiality, asks, and format without changing the facts. It cited each source and reported conflicts. | Native Task listings expose document previews. Add full Task document reads for deeper evidence checks. This limit did not block the main path. |
-| 19 | Pass | Turn `turn:18d01c2ad82524729fc4`; Project `project:18d01c0ca430362e9c65` | Noema joined the Project and four linked Tasks into one cited status. It covered progress, reliability, budget, schedule, decisions, risks, blockers, and dependencies. It separated facts, inferences, conflicts, and missing evidence. | Native Task listings expose document previews. Add full Task document reads for deeper status evidence. This synthetic native case did not test external sources. |
+| 15 | Pass | Turn `turn:18d01c1c553998c49e3c`; Project `project:18d01c0ca430362e9c65` | Noema produced executive, engineering, and customer updates from one evidence set. It changed detail, tone, confidentiality, asks, and format without changing the facts. It cited each source and reported conflicts. | Exact full Task document reads now exist. Retain the case and add a materially different source setup later. |
+| 19 | Pass | Turn `turn:18d01c2ad82524729fc4`; Project `project:18d01c0ca430362e9c65` | Noema joined the Project and four linked Tasks into one cited status. It covered progress, reliability, budget, schedule, decisions, risks, blockers, and dependencies. It separated facts, inferences, conflicts, and missing evidence. | Exact full Task document reads now exist. This synthetic native case did not test external sources. |
+
+### Delegated Task read retests
+
+Retest date: 2026-08-28
+
+Noema baseline: commit `9288cec3`
+
+These retests used native Task reads, current Memory, and connected Calendar records. They made no external writes.
+
+No pending governed action or intervention remained after either case.
+
+| Task | Verdict | Live evidence | What worked | Remaining gap or required improvement |
+| ---: | --- | --- | --- | --- |
+| 6 | Pass | Turn `turn:18d01f103dec34a2e1`; Task `task:18d01f15daba1ae718d` | The delegated Task used a fixed cutoff. It listed bounded native Tasks and inspected full documents. It produced a reviewed plan without correction. | Calendar continuation failed. All-day dates, recurring instances, durations, and working-hour preferences remained unavailable. These limits reduced confidence but did not block the plan. |
+| 8 | Pass | Turn `turn:18d01f61f147ada9a50`; Task `task:18d01f67400f26d6ae9` | The delegated Task reviewed seven Repeat occurrences. It inspected full Task documents, events, Memory, projects, deadlines, and preparation needs. | Some Calendar transforms failed. Cancelled Task listing first failed because the service lacked repository access. ACL correction later returned all 19 cancelled Tasks. |
 
 ## Summary
 
 The first suite produced five passes, eight partial results, and one failure.
 
-The accepted current results include the two 2026-08-28 retests.
+The accepted current results include the four 2026-08-28 retests.
 
-- Pass: 7
-- Partial: 6
-- Fail: 1
+- Pass: 9
+- Partial: 5
+- Fail: 0
 
 The strongest paths are research, fact-checking, conflict reasoning, and meeting preparation.
 
-The main shared failure is capability loss inside delegated Tasks.
+Bounded native Task reads now work inside delegated Tasks.
 
-Delegated workers often lacked native Tasks, Repeat history, Calendar fields, or stable bounded reads available to the primary chat.
+Earlier delegated workers lacked native Tasks, Repeat history, Calendar fields, or stable bounded reads available to the primary chat.
+
+The Task 6 and 8 retests passed with bounded Task listings and full document reads.
 
 The Task 15 and 19 retests passed with native Project-to-Task links.
 

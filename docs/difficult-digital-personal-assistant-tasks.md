@@ -392,11 +392,11 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-At this baseline, seven tasks are verified, seven need more testing, 50 need bounded extensions, and 36 need new systems.
+At this baseline, nine tasks are verified, five need more testing, 50 need bounded extensions, and 36 need new systems.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend. Task 98 moved from Extend to Test.
 
-Tasks 11, 14, 15, 19, 31, 32, and 35 are now Verified after live acceptance.
+Tasks 6, 8, 11, 14, 15, 19, 31, 32, and 35 are now Verified after live acceptance.
 
 ### 1. Daily coordination and commitments
 
@@ -407,9 +407,9 @@ Tasks 11, 14, 15, 19, 31, 32, and 35 are now Verified after live acceptance.
 | 3 | Capture actions, decisions, and dates | Build | Implement external event sources and authorized routing into Tasks, Calendar, or project records. One-time extraction already passed. |
 | 4 | Maintain a prioritized reply and action queue | Extend | Add thread identity, relationship priority, mail drafts, reply operations, and sent-reply reconciliation. Revalidate the current Gmail connection. |
 | 5 | Audit the calendar for conflicts and hidden load | Test | The live audit handled time zones and recovery load. Recurrence instances, all-day dates, locations, and routes remained unavailable. Add interval-native expansion and location data. Then test map travel time. |
-| 6 | Create a realistic daily plan | Test | The live case failed in recovery. The delegated worker lacked native Task access. A moving time anchor caused repeated review rejection. Use a fixed anchor, bounded tolerance, and delegated Task reads. |
+| 6 | Create a realistic daily plan | Verified | A delegated live case used a fixed cutoff and full Task reads. It produced a reviewed plan without correction. Calendar completeness still limits confidence. |
 | 7 | Replan after disruption | Extend | Calendar replanning passed. Add Task dependencies, travel data, simultaneous changes, and partial-write recovery. |
-| 8 | Produce a weekly preview and review | Test | The live case used Calendar and Gmail, but delegated work lacked native Tasks and Repeat history. Repair secondary Calendar transforms and expose those reads before retesting. |
+| 8 | Produce a weekly preview and review | Verified | A delegated live case covered seven Repeat occurrences and full Task documents. It joined current work, events, Memory, deadlines, and preparation. |
 | 9 | Track deadlines, renewals, and recurring obligations | Extend | Repeat supplies scheduling. Add source-linked obligation state, portal intake, change detection, and completion reconciliation. |
 | 10 | Review personal goals and adjust the plan | Build | Add goal outcomes, measures, target dates, review history, and links to Tasks and actual time. Projects do not supply this authority. |
 

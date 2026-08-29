@@ -61,13 +61,13 @@ High-stakes tasks need a domain-specific safety case and a qualified-review boun
 
 | Status | Count |
 | --- | ---: |
-| Verified | 7 |
-| Test | 7 |
+| Verified | 9 |
+| Test | 5 |
 | Extend | 50 |
 | Build | 36 |
 | Total | 100 |
 
-The current verified tasks are 11, 14, 15, 19, 31, 32, and 35.
+The current verified tasks are 6, 8, 11, 14, 15, 19, 31, 32, and 35.
 
 The first live suite produced five passes, eight partial results, and one failure.
 
@@ -99,9 +99,9 @@ They do not receive foreground control tools or unrestricted access to other Tas
 
 Task Planners and Reviewers have narrower access because their roles must not perform the outcome.
 
-The Executor's native `task.list` operation is limited to its current Task.
+The Executor can list bounded owner-authorized Tasks and inspect one full Task document in its workspace.
 
-It cannot list other owner-authorized Tasks or Repeat history. This limit affected Tasks 6 and 8.
+These reads now cover other Tasks and Repeat occurrences. Tasks 6 and 8 passed after this change.
 
 Tool presence also does not prove that an operation is complete or reliable.
 
@@ -115,7 +115,7 @@ The live tests and portability requirement expose eight shared blockers. They sh
 
 | Priority | Change | Why it is needed |
 | ---: | --- | --- |
-| 1 | Add bounded owner-authorized Task and Repeat reads for Task Executors. | The current scoped read returns only the executing Task. Tasks 6 and 8 needed other Task records. |
+| 1 | Retain bounded owner-authorized Task and Repeat reads for Task Executors. | Tasks 6 and 8 passed with bounded listings and exact full-document reads. |
 | 2 | Record provider-neutral operation requirements in each integration acceptance package. | A provider name does not prove that its operations supply the required fields or behavior. |
 | 3 | Test current catalog operations against those requirements. | Several exposed operations failed on bounds, conversion, recurrence, or pagination during live cases. |
 | 4 | Give time-sensitive outputs one explicit cutoff and review tolerance. | Task 6 entered repeated correction because review used a later moving time. |
@@ -136,7 +136,7 @@ This table separates confirmed gaps, acceptance work, live-proof needs, and reta
 
 | Change | Why it is needed | Basis |
 | --- | --- | --- |
-| Add bounded owner-authorized Task and Repeat reads for Task Executors. | The current Executor read is scoped to itself. Daily planning and weekly review need other Task records. | Confirmed by Tasks 6 and 8. |
+| Retain bounded owner-authorized Task and Repeat reads for Task Executors. | Daily planning and weekly review need other Task records. | Implemented and passed by Tasks 6 and 8. |
 | Describe required source operations in each integration acceptance package. | This makes missing fields and behavior testable without adding provider names to product logic. | Portability requirement. |
 | Check those operations through the current reviewed catalog. | Catalog presence proves exposure and authority. It does not prove complete results. | Confirmed by Tasks 1, 5, and 8. |
 | Verify that Task runs show unavailable operations before dependent work. | An early notice prevents wasted calls and unsupported conclusions. | Existing notice path needs acceptance coverage. |
@@ -164,6 +164,8 @@ This table separates confirmed gaps, acceptance work, live-proof needs, and reta
 - A Project status from native Projects, native Tasks, and shared artifacts.
 - A live itinerary built from actual confirmations, including one changed booking.
 - A Memory update case with a replaced fact, duplicate evidence, and later retrieval.
+
+Tasks 6 and 8 passed their delegated planning and weekly-review cases on 2026-08-28.
 
 Tasks 15 and 19 passed their native Project acceptance cases on 2026-08-28.
 
