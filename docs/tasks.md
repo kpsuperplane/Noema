@@ -127,7 +127,7 @@ The normal path is:
 9. Approval completes the Task without copying its content.
 
 The Reviewer also decides whether approval sends a completion update.
-It suppresses the update when a changes-only Task has a verified no-change result.
+It suppresses the update when the result has no new information and the Task forbids repeated content.
 
 The Executor can call `task.continue_execution` when more execution is useful.
 That call queues another Executor without human action.

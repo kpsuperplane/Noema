@@ -93,14 +93,74 @@ It produced one final result and one completion notification.
 
 ## Reuse assessment
 
-Task 38 can reuse Repeat history, prior Task reads, and changes-only delivery.
-It still needs a bounded digest fixture with preference changes and repeated sources.
+Task 38 reused Repeat history, prior Task reads, and no-new-information delivery.
+Its bounded digest fixture passed after one Reviewer rule clarification.
 
 Task 12 can reuse changes-only delivery.
 It still needs message events, a thread checkpoint, a silence deadline, and escalation evidence.
 
 The live Task 33 case used several earlier Task reads to recover the old value.
 Before adding checkpoint storage, test a longer series against the bounded Task list.
+
+## Task 38 acceptance
+
+Task 38 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d039fba24bccba1cf` |
+| Repeat | `recurrence:18d03a04e02ce0c62d1` |
+| Source | The Project `PROJECT.md` file |
+| Priority input | High and medium topic preferences |
+| Coverage key | Item ID and Canonical story |
+| Initial budget | Two items, at most 70 words each |
+| Changed budget | One item, at most 30 words |
+
+### Baseline
+
+Task `task:18d03a04e01a2f652d0` started from its scheduled slot.
+It selected two items in priority order and preserved both exact links.
+
+Its result stored both item IDs and Canonical story values.
+It also stated the trigger, source checkpoint, and human-controlled stop condition.
+
+Reviewer run `run:18d03a225bc4cfe7645` approved the baseline.
+
+### Duplicate and preference change
+
+Source revision 2 added three entries.
+
+- One entry repeated the earlier alpha Canonical story under a new item ID.
+- One beta entry repeated an earlier item.
+- One gamma entry was new and matched the current high priority.
+
+The attention budget also dropped to one item and 30 words.
+
+Task `task:18d03a2aecb4bc0d714` selected only gamma.
+It excluded the repeated alpha and beta coverage.
+
+It preserved the gamma link exactly and carried all four item IDs in Coverage state.
+Reviewer run `run:18d03a477965dc11a6c` approved the result.
+
+### Unchanged delivery
+
+The first unchanged run exposed a rule wording gap.
+Its Reviewer treated a no-new-items digest as a normal completion.
+
+The Reviewer rule now covers any no-new-information result when the Task forbids repeated content.
+
+| Evidence | Value |
+| --- | --- |
+| Retest Task | `task:18d03a7d8d965e9e34` |
+| Reviewer run | `run:18d03a972a4c75b1336` |
+| Outcome | No new qualifying items |
+| Reviewer delivery decision | `notify_human: false` |
+| Completion outbox rows | 0 |
+
+Task 38 required no feed table, read-state table, or provider-specific adapter for this core continuity case.
+Connected source adapters remain separate intake concerns.
 
 ## Remaining Milestone 2 gates
 

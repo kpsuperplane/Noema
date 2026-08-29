@@ -193,6 +193,8 @@ No case can require an unbounded source scan.
 
 Target: 32/100 Verified.
 
+Current: 16/100 Verified.
+
 Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
 ### Build and extend
@@ -200,7 +202,7 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 | Change | Why it is needed | Task coverage |
 | --- | --- | --- |
 | Add source events for new messages, changed events, changed files, and Task changes. | Event-driven monitoring still needs reliable source change signals. Repeat polling already covers the bounded Task 33 case. | 3, 7, 12 |
-| Test existing Repeat history near its bounded limit before adding checkpoint storage. | Task 33 passed with prior Task reads. A longer series must prove whether dedicated stored state is necessary. | 33, 38 |
+| Test existing Repeat history near its bounded limit before adding checkpoint storage. | Tasks 33 and 38 passed bounded fixtures. A longer series must prove whether dedicated stored state is necessary. | 33, 38 |
 | Route detected commitments into existing Tasks or event records after review. | Extracted promises need one durable owner and later completion evidence. | 2, 3, 9, 16 |
 | Add Task dependencies, blockers, milestones, estimates, and explicit owners. | Project planning and replanning need relationships beyond independent Task records. | 7, 20, 22 |
 | Link Project decisions to source evidence and later replacements. | A decision log must preserve history without treating an old decision as current. | 16, 21 |
@@ -211,7 +213,7 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 | Add access inventories, lifecycle checks, shared ownership, and permission-safe export. | Onboarding and handoff must prove access changes without losing accountable ownership. | 26 |
 | Add job-source operations, application records, duplicate checks, and outcome history. | A long job search needs durable pipeline state and evidence from each application. | 28 |
 | Extend the Reviewer delivery decision beyond changes-only completion. | Task 33 can now suppress an approved no-change update. Deadline and escalation thresholds remain open. | 9, 12 |
-| Reuse bounded Task listing and inspection for prior Repeat results. | Task 33 passed without another recurrence-history system. Add direct history only after a failing scale case. | 33, 38 |
+| Reuse bounded Task listing and inspection for prior Repeat results. | Tasks 33 and 38 passed without another recurrence-history system. Add direct history only after a failing scale case. | 33, 38 |
 | Add learner progress and assessment evidence for adaptive plans. | An adaptive plan needs measured outcomes before it can change pace or content. | 39 |
 
 ### Required acceptance cases

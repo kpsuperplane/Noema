@@ -319,7 +319,7 @@ pub(crate) fn task_finish_review_tool_spec(
     ToolSpec::new(
         TASK_FINISH_REVIEW_TOOL,
         "Finish review and replace REVIEW.md with the current feedback.",
-        json!({"type":"object","properties":{"decision":{"type":"string","enum":["approve","request_changes","needs_human"]},"feedback":{"type":"string","minLength":1,"maxLength":20000},"notify_human":{"type":"boolean","description":"Whether approval sends a completion update. Set false when a changes-only Task has a verified no-change result. Set true otherwise."}},"required":["decision","feedback","notify_human"],"additionalProperties":false}),
+        json!({"type":"object","properties":{"decision":{"type":"string","enum":["approve","request_changes","needs_human"]},"feedback":{"type":"string","minLength":1,"maxLength":20000},"notify_human":{"type":"boolean","description":"Whether approval sends a completion update. Set false when the approved result has no new qualifying information and the Task forbids repeated content. Set true otherwise."}},"required":["decision","feedback","notify_human"],"additionalProperties":false}),
     )
 }
 

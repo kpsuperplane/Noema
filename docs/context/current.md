@@ -64,7 +64,7 @@ slice or a net-negative reduction.
 - A final task transaction finishes active run items and open debug spans.
   Unknown external outcomes are not retried automatically.
 - Reviewer approval owns the Task completion update decision.
-  A verified no-change result suppresses that update for a changes-only Task.
+  A no-new-information result suppresses that update when the Task forbids repeated content.
 - Provider request settings do not authorize returned tool input. Every returned
   call must pass the source input check before invocation.
 - [Provider generation sessions](../development/provider-sessions.md) own transport efficiency.
@@ -191,7 +191,7 @@ slice or a net-negative reduction.
 
 ## Open loops
 
-- Milestone 2 Task 33 passed baseline, unchanged, material-change, and restart cases.
+- Milestone 2 Tasks 33 and 38 passed their bounded Repeat continuity cases.
   Test a longer Repeat series before adding dedicated checkpoint storage.
 - Apollo iOS 2.3 code generation and native builds require macOS.
   Linux can validate the authored GraphQL operations against the shared schema.
