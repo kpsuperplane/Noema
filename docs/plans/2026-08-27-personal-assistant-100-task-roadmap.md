@@ -4,7 +4,7 @@ Date: 2026-08-27
 
 Revised: 2026-08-29
 
-Status: proposed product and engineering sequence
+Status: active product and engineering sequence
 
 ## Objective
 
@@ -61,19 +61,25 @@ High-stakes tasks need a domain-specific safety case and a qualified-review boun
 
 | Status | Count |
 | --- | ---: |
-| Verified | 14 |
+| Verified | 60 |
 | Test | 0 |
-| Extend | 50 |
-| Build | 36 |
+| Extend | 12 |
+| Build | 28 |
 | Total | 100 |
 
-The current verified tasks are 1, 5, 6, 8, 11, 14, 15, 17, 19, 31, 32, 35, 75, and 98.
+Tasks 1 through 9, except 10, and Tasks 11 through 24, except 23, are verified.
+
+Tasks 26, 28, 31, 32, 33, 35, 38, 39, 75, and 98 are also verified.
 
 The first live suite produced five passes, eight partial results, and one failure.
 
 The 2026-08-28 native Project retests promoted Tasks 15 and 19.
 
 All Milestone 1 main paths now pass in one provider setup.
+
+All Milestone 2 main paths now pass in one provider setup.
+
+All Milestone 3 main paths now pass in one provider setup.
 
 The human waived second-provider portability for Milestone 1 on 2026-08-29.
 
@@ -183,7 +189,8 @@ The [Milestone 1 acceptance package](../validation/personal-assistant-milestone-
 
 Each case passes in its intended surface. Cases that delegate also pass inside delegated Tasks.
 
-Each integration case must pass through two materially different provider setups. The second setup remains open.
+The human waived the second-provider setup on 2026-08-29.
+The accepted cases do not prove provider portability.
 
 No case can remain in recovery because its time anchor became stale.
 
@@ -256,27 +263,31 @@ They do not require duplicate core reasoning fixtures for each provider.
 
 Target: 60/100 Verified.
 
+Current: 60/100 Verified.
+
 Tasks: 23, 25, 27, 29, 30, 34, 36, 37, 40, 42, 44, 49, 50, 55, 58, 64, 65, 67, 68, 72, 78, 79, 83, 84, 86, 89, 91, and 100.
 
-### Build and extend
+### Smallest tested slice
 
 | Change | Why it is needed | Task coverage |
 | --- | --- | --- |
-| Add private user file and attachment intake into object-owned storage. | Public downloads cannot receive receipts, statements, forms, or other private user records. | 23, 25, 27, 29, 30, 42, 44, 49, 50, 55, 64, 65, 78, 79, 84 |
-| Add image and scanned-document OCR while preserving source images. | Many receipts, forms, and identity records contain no machine-readable text. | 25, 36, 42, 49, 65, 84, 86 |
-| Add batch parsing, field normalization, duplicate detection, and version comparison. | Large packets need consistent records without losing source differences or newer versions. | 23, 34, 36, 37, 42, 65, 86 |
-| Add durable case, option, application, and inventory records only for active paths. | Documents alone cannot track owners, deadlines, changing status, and completion evidence. | 25, 27, 29, 40, 42, 44, 49, 50, 65, 67, 68, 72, 79, 83, 86, 89, 91 |
-| Add bounded domain lookup and action operations only for active paths. | Several tasks need current networks, quotes, listings, registrations, or service actions beyond public research. | 25, 27, 34, 40, 44, 50, 55, 58, 65, 67, 68, 72, 78, 79, 83, 86, 89, 91 |
-| Add spreadsheet generation and accessible document export. | Several tasks require a usable deliverable, not only chat text. | 23, 25, 29, 37, 42, 89, 100 |
-| Add controlled deterministic calculation for totals, dates, and scenarios. | Financial and schedule results must be reproducible from saved inputs. | 25, 30, 37, 42, 44, 68, 79 |
-| Add a controlled data-analysis path for tables and statistical checks. | Task 37 needs reproducible cleaning, analysis, and charts beyond simple totals. | 37 |
-| Add report and packet generation that preserves citations. | A final document must retain evidence links, versions, and disclosure boundaries. | 23, 25, 27, 29, 42, 50, 55, 64, 89 |
-| Add browser file uploads through reviewed action requests. | Portal workflows cannot finish while Noema can only read or download files. | 27, 49, 50, 72, 78, 79, 83, 89, 91 |
-| Add submission receipts and source-record checks. | Noema must prove what a portal accepted and detect unknown outcomes. | 27, 49, 50, 72, 79, 89, 91 |
-| Add map routes, commute calculations, and location normalization. | Travel and housing comparisons need realistic duration and consistent locations. | 58, 67, 78, 83 |
-| Collect current rules, fees, deadlines, and eligibility evidence from authoritative sources. | Administrative recommendations become unsafe when rules are stale or incomplete. | 27, 40, 49, 50, 78, 89, 91 |
-| Add qualified-review boundaries for medical, insurance, tax, and regulated conclusions. | These outputs must remain decision support and expose when professional review is required. | 42, 44, 55, 64 |
-| Add accessibility profiles, output checks, and affected-user testing. | Accessible output must match the person's needs and preserve meaning. | 86, 100 |
+| Add private Task artifact intake. | Public downloads cannot receive private records. Task-owned artifacts already provide the correct authority. | 23, 25, 30, 36, 42, 44, 50, 55, 64, 65, 72, 78, 79, 84, 100 |
+| Add raster OCR and email parsing to the current file parser. | Mixed packets often include images and saved messages. | 25, 36, 42, 49, 65, 84, 86 |
+| Add one exact decimal and date calculator. | Financial and schedule results must be reproducible from saved inputs. | 25, 30, 37, 42, 44, 68, 79, 89, 91 |
+| Preserve exact artifact sources in generated exports and citations. | A deliverable must retain its source version, owner, and disclosure scope. | 23, 25, 27, 29, 36, 42, 50, 55, 64, 89, 100 |
+| Add accessible HTML checks to artifact export. | A readable chat result does not prove a usable exported document. | 23, 25, 29, 37, 42, 89, 100 |
+| Upload exact Task artifacts through reviewed browser actions. | Portal work needs controlled file selection and disclosure. | 27, 29, 49, 50, 72, 78, 79, 89, 91 |
+| Reconcile upload receipts after an unknown browser result. | A browser failure must not cause a duplicate submission. | 27, 49, 50, 72, 79, 89, 91 |
+
+### Deferred systems
+
+The live cases did not require dedicated case, option, application, inventory, or data-analysis systems.
+
+They also did not require a general spreadsheet generator, map subsystem, or stored accessibility profile.
+
+Task files, Task artifacts, current public research, the exact calculator, and reviewed browser actions covered the bounded paths.
+
+Add a domain system only after a current path cannot continue safely without it.
 
 ### Required acceptance cases
 
@@ -291,6 +302,13 @@ Tasks: 23, 25, 27, 29, 30, 34, 36, 37, 40, 42, 44, 49, 50, 55, 58, 64, 65, 67, 6
 No generated number depends only on model arithmetic.
 
 Every uploaded or exported document retains its source, version, owner, and disclosure scope.
+
+Both exit conditions passed on 2026-08-29.
+
+The human waived affected-user review for the controlled accessibility fixture.
+This waiver does not prove usability for an affected user.
+
+The complete evidence is in the [Milestone 3 acceptance package](../validation/personal-assistant-milestone-3-acceptance.md).
 
 ## Milestone 4: Add personal operations and transaction systems
 
@@ -468,11 +486,11 @@ Split work when one slice crosses two unrelated domain authorities.
 
 | Priority | Slice | Why now |
 | ---: | --- | --- |
-| 1 | Reduce travel evidence search cost. | Task 75 passed, but its first Executor used 109 tool calls. |
-| 2 | Retain the populated Project, person-link, travel, event, and Memory fixtures. | These fixtures support the 14 passing main paths. |
-| 3 | Start Milestone 2. | Main paths and lifecycle recovery pass. Portability is explicitly waived. |
+| 1 | Retain the mixed-file, calculation, export, and portal regressions. | These paths support the Milestone 3 main outcomes. |
+| 2 | Test one bounded Milestone 4 transaction path. | The next case should prove current account state, one reviewed action, and a receipt. |
+| 3 | Test a decline note only when another live correction needs it. | The Spain case showed that a decline reason does not reach the resumed Task. |
 
-Do not start Milestone 2 until all Milestone 1 failures have a bounded owner and acceptance case.
+Do not add a general transaction system before one bounded Milestone 4 case proves the need.
 
 ## Coverage check
 

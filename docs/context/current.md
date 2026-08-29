@@ -93,6 +93,15 @@ slice or a net-negative reduction.
 - TinyFish and Firecrawl provide hosted search and fetch. Firecrawl also has a permanent credential-free account.
 - Hosted web remains the preferred page reader. `file.download` stores public
   non-HTML resources, and `file.parse` returns bounded local content.
+- Humans can upload private source files into Task-owned artifacts.
+  Each upload receipt preserves the source identity, version, owner, disclosure scope, bytes, and SHA-256 value.
+- `file.parse` returns bounded text from saved email messages and supported raster images.
+- Task Executors can use one exact decimal and date calculator.
+  Saved inputs, operations, scales, and intermediate values make each result reproducible.
+- Generated artifacts require source records.
+  Each source record includes its identity, version, owner, and disclosure scope.
+- Generated HTML artifacts receive seven automated accessibility checks.
+  Affected-user review remains a separate acceptance gate.
 - File downloads use the same URL policy and action review as fetch and browser
   open. Primary chats keep a durable working directory.
 - Each model preference owns its speed. Codex and OpenAI support Standard and
@@ -160,6 +169,10 @@ slice or a net-negative reduction.
 - Switch recovery includes the current snapshot revision when one exists.
 - Browser failures retain typed recovery and safe provider diagnostics through
   model results, persistence, governed actions, and diagnostics.
+- Reviewed browser actions can upload one exact Task artifact.
+  The action request binds its Task, artifact version, filename, byte count, and SHA-256 value.
+- Obscura cannot select local files.
+  The current browser route uses Kernel for upload actions and returns `retry_later` when that switch fails.
 - Each capability binding owns its Task checkpoint policy.
   Browser provider switches do not require a Task checkpoint.
 - One coordinator owns the active backend and public snapshot revisions.
@@ -191,22 +204,16 @@ slice or a net-negative reduction.
 
 ## Open loops
 
-- Milestone 2 Tasks 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39 passed bounded provider-neutral cases.
-  Task 3 now uses scoped current-Project `task.capture`. Background external mutations enter existing action review.
-  Task 9 passed overdue, quiet, temporal-cutoff, receipt-closure, and interrupted-run recovery cases without new code.
-  Task 16 passed decision replacement, owned follow-up closure, reminder restraint, and unchanged delivery without new code.
-  Task 18 passed identity, reciprocity, cadence, consent, exact completion, and quiet delivery without new code.
-  Task 24 passed version-bound quorum, conflict resolution, stale-response rejection, and quiet delivery without new code.
-  Task 26 passed permission-safe export, grant-before-revoke ordering, exact receipt closure, and quiet delivery without new code.
-  Task 28 passed exact deduplication, receipt-bound application state, outcome adaptation, safe drafting, and quiet delivery without new code.
-  Task 22 converted one ambiguous goal into six native Tasks with exact predecessor IDs. A reconciliation run reused all six.
-  Exact repeated tool calls within one provider response now reuse the first result and execute one side effect.
-  Task 20 detected changed blockers, capacity, critical path, and one resolved risk. Its unchanged occurrence stayed quiet.
-  Task 4 preserved exact thread identity, applied explicit priority rules, reconciled exact receipts, and kept later inbound work open.
-  Its final unchanged Reviewer used `notify_human: false`. No completion notification exists for that occurrence.
-  The Milestone 2 provider-neutral target is now 32/100 Verified.
-  Shared restart recovery does not need repetition unless a task adds a different durable or external action path.
-  Test longer Repeat series before adding dedicated promise, decision, checkpoint, or learner-progress storage.
+- All 28 Milestone 3 paths reached reviewer-approved completion.
+  The provider-neutral target is now 60/100 Verified.
+- The mixed-file, exact-calculation, source-preserving export, automated accessibility, portal receipt, and unknown-outcome paths passed.
+- The return packet received test receipt `M3-0006`.
+- The travel packet corrected one malformed source link before test receipt `M3-0007`.
+- The human waived affected-user review for the controlled accessibility fixture.
+  This waiver does not prove usability for an affected user.
+- An action decline does not carry a human reason into the resumed Task.
+  Add an optional decline note only after another current path needs direct correction without Task reopen.
+- The Milestone 3 evidence record is `docs/validation/personal-assistant-milestone-3-acceptance.md`.
 - Apollo iOS 2.3 code generation and native builds require macOS.
   Linux can validate the authored GraphQL operations against the shared schema.
 - Live Gmail and Calendar OAuth acceptance still needs interactive Google

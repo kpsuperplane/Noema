@@ -181,3 +181,53 @@ The current evidence verifies one provider setup. It does not prove portability.
 2. Reduce repeated low-yield message searches in travel cases.
 3. Retain restart and expired-authentication recovery coverage.
 4. Add direct Memory page editing only when a user-facing edit path starts.
+
+## Milestone 3 acceptance
+
+Test date: 2026-08-29
+
+Noema baseline: commits `763d1ddb` through `7cc47a47` after Milestone 2.
+
+Environment: local Noema development instance through the authenticated Unix GraphQL socket.
+
+The tests used Task-owned private fixtures, current public sources, and one controlled receipt portal.
+Private source contents are not copied into this ledger.
+
+The complete evidence record is [Personal Assistant Milestone 3 Acceptance](personal-assistant-milestone-3-acceptance.md).
+
+### Shared path results
+
+| Path | Verdict | Evidence | Result |
+| --- | --- | --- | --- |
+| Mixed file inventory | Pass | Task `task:18d05af89805675b3a5` | PDF, spreadsheet, email, and image sources produced one cited inventory. |
+| Exact calculation | Pass | Task `task:18d0596a400e480d1fa` | Saved decimal expressions reproduced every accepted job-offer total. |
+| Source-preserving export | Pass | Artifact `artifact:18d05e06e1f16232661` | The HTML export retained every source version, owner, and disclosure scope. |
+| Portal receipt | Pass | Receipts `M3-0003` through `M3-0007` | The portal matched each filename, byte count, and SHA-256 value. |
+| Unknown browser result | Pass | Task `task:18d05e1a1f272e1d87f` | A later receipt check found the first submission. Noema did not resubmit it. |
+| Automated accessibility | Pass | Artifact `artifact:18d05e06e1f16232661` | Language, title, landmark, heading, image, table, and link checks passed. |
+| Affected-user review | Waived | Same artifact | The human authorized completion because the remaining work used controlled test infrastructure. |
+
+### Grouped live cases
+
+| Tasks | Task evidence | Result |
+| --- | --- | --- |
+| 23, 25, 27, 29 | `task:18d05ed469bd6bc08eb` | Application, expense, credential, export, and receipt paths passed. |
+| 30 | `task:18d0596a400e480d1fa` | Exact offer comparison passed. |
+| 34, 37, 40 | `task:18d05ed46b18ff708ef` | Research, data audit, and program comparison passed. |
+| 36, 100 | `task:18d05af89805675b3a5` | Mixed inventory and accessible export passed automated checks. |
+| 42, 44 | `task:18d05ed4875a68788f5` | Tax and insurance packets preserved professional boundaries. |
+| 49 | `task:18d05eea67498fdcc20` | Current credential and passport plan reached receipt `M3-0004`. |
+| 50, 72 | `task:18d05eea68226e8bc24` | The exact packet reached receipt `M3-0006` and reviewer-approved completion. |
+| 55, 64 | `task:18d05ed48d5ad17b8fe` | Appointment and treatment briefs preserved conflicting evidence. |
+| 58, 83 | `task:18d05eea8c1e2ad8c33` | Provider and rental evidence passed. Dated 08:30 trips were `23:07`, `23:07`, and `39:07`. |
+| 65, 67, 68, 84, 86 | `task:18d05ed4ab303da7905` | Asset, repair, utility, move, and school paths passed. |
+| 78, 79 | `task:18d05eea8649b293c2a` | A malformed source link was corrected before receipt `M3-0007` and reviewer-approved completion. |
+| 89, 91 | `task:18d05eea8d4193d8c3a` | Scholarship and volunteer paths passed. Receipt `M3-0005` preserved the upload result. |
+
+### Current conclusion
+
+Milestone 3 is complete.
+All 28 main paths reached reviewer-approved completion.
+
+The human waived affected-user review for the controlled accessibility fixture.
+This waiver does not prove usability for an affected user.

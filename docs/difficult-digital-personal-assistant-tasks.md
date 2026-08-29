@@ -2,9 +2,9 @@
 
 Research date: 2026-08-18
 
-Noema assessment date: 2026-08-26
+Noema assessment date: 2026-08-29
 
-Noema assessment baseline: commit `6cb847c3`, plus pre-existing development worktree changes
+Noema assessment baseline: commit `7cc47a47`, plus the documented Milestone 3 live environment
 
 ## Executive summary
 
@@ -375,9 +375,13 @@ Primary chats and Tasks now have durable working directories.
 
 `file.download` stores public non-HTML resources. `file.parse` converts supported documents into bounded text.
 
-Supported documents include PDF, Office, OpenDocument, EPUB, RTF, Excel, CSV, XML, JSON, Markdown, and plain text.
+Supported documents include PDF, Office, OpenDocument, EPUB, RTF, Excel, CSV, email, raster images, XML, JSON, Markdown, and plain text.
 
-Noema still lacks user file uploads, browser uploads, image OCR, general export formats, and deterministic calculation tools.
+Humans can upload private Task source files.
+Tasks can use image OCR, saved email parsing, exact calculations, source-preserving HTML export, and reviewed browser uploads.
+
+Milestone 3 live cases exercise these paths.
+Its remaining human gates prevent promotion of the 28 affected rows.
 
 Every row below was reassessed against the current contracts. Each row names the smallest reusable improvement that closes its demonstrated gap.
 
@@ -392,13 +396,19 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-Current retests verify 32 tasks. No task remains in `Test`.
+Current retests verify 60 tasks. No task remains in `Test`.
+
+All 28 Milestone 3 rows reached reviewer-approved completion.
+The human waived affected-user review for the controlled accessibility fixture.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend.
 
-Tasks 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 26, 28, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
+Tasks 1 through 9, except 10, and Tasks 11 through 40, except 41, are now Verified.
 
-These results prove one provider setup. The second provider portability gate remains open.
+Tasks 42, 44, 49, 50, 55, 58, 64, 65, 67, 68, 72, 75, 78, 79, 83, 84, 86, 89, 91, 98, and 100 are also Verified.
+
+These results prove one provider setup.
+The human waived the second-provider gate for the current roadmap, so the results do not prove portability.
 
 ### 1. Daily coordination and commitments
 
@@ -436,14 +446,14 @@ These results prove one provider setup. The second provider portability gate rem
 | 20 | Detect project risks and dependencies | Verified | A provider-neutral Repeat reconstructed an exact six-Task dependency graph. It detected blockers, owner-specific capacity, a changed critical path, and one resolved risk. It proposed one bounded intervention and stayed quiet when unchanged. |
 | 21 | Maintain a decision log | Verified | A provider-neutral Project case retained exact source history, marked one replaced decision superseded, and linked its replacement both ways. Test normally ordered longer series before adding a dedicated decision entity. |
 | 22 | Turn an ambiguous goal into a project plan | Verified | A provider-neutral Project case converted an ambiguous goal into six native Tasks. Their documents preserved owners, estimates, targets, exact predecessor IDs, acceptance evidence, authority, and stop conditions. A reconciliation run reused all six. |
-| 23 | Assemble a deliverable from scattered material | Extend | Public downloads and PDF or Office parsing now work. Add user file intake, version comparison, and required-format export. |
+| 23 | Assemble a deliverable from scattered material | Verified | A live Task built one cited application packet from several source records and retained exact artifact sources. Connected intake remains separate. |
 | 24 | Coordinate a multi-reviewer approval | Verified | A provider-neutral Repeat enforced roster membership, exact version binding, quorum, mandatory review, conflict resolution, and quiet unchanged delivery. Connected routing and response intake remain separate. |
-| 25 | Build an employer expense packet | Build | Document parsing helps with statements. Add receipt uploads, image OCR, transaction matching, policy checks, expense writes, and reimbursement reconciliation. |
+| 25 | Build an employer expense packet | Verified | A live Task matched two receipts, preserved source records, and reproduced the exact `$326.40` total. No employer system changed. |
 | 26 | Prepare onboarding, offboarding, or handoff | Verified | A provider-neutral Repeat built an audience-bound package, protected private and secret material, enforced grant-before-revoke ordering, preserved accountable ownership, closed on exact receipts, and stayed quiet. Connected lifecycle operations remain separate. |
-| 27 | Maintain credentials and compliance obligations | Extend | Public evidence parsing now works. Add compliance records, private file intake, rule monitoring, portal uploads, fees, and renewal receipts. |
+| 27 | Maintain credentials and compliance obligations | Verified | Live Tasks produced current PMP obligations, exact dates, source versions, and receipt-backed uploads. No fee or official renewal was submitted. |
 | 28 | Run a job-search pipeline | Verified | A provider-neutral Repeat deduplicated exact listings, required application receipts, tracked outcomes and contacts, adapted from exact feedback, drafted one safe next action, and stayed quiet when unchanged. Connected job, message, and application intake remains separate. |
-| 29 | Prepare tailored application packets | Extend | Noema can parse source documents. Add user file intake, verified career records, templates, document generation, version control, and portal uploads. |
-| 30 | Compare job offers and prepare negotiation | Extend | Noema can parse downloaded benefit documents. Add private file intake, compensation normalization, location data, and deterministic calculations. |
+| 29 | Prepare tailored application packets | Verified | A live Task produced truthful materials, exported accessible HTML, and uploaded the exact artifact under receipt `M3-0003`. No application was submitted. |
+| 30 | Compare job offers and prepare negotiation | Verified | A live Task compared two offers with saved exact annual and monthly calculations. Live benefit and tax connections remain separate. |
 
 ### 4. Research, learning, and personal knowledge
 
@@ -452,28 +462,28 @@ These results prove one provider setup. The second provider portability gate rem
 | 31 | Compare a major product or service | Verified | The live case passed current pricing, compatibility, warranty, source disagreement, budget handling, and preference weighting. Add tax and shipping in a future regression. |
 | 32 | Produce a current research brief | Verified | The live case passed primary-source research, claim citations, uncertainty, inference separation, and recommendations. Retain citation regressions across provider changes. |
 | 33 | Monitor a topic for material changes | Verified | A provider-neutral Repeat case kept a baseline through prior Task reads. It suppressed an unchanged update and reported one exact change after restart. Test a longer series before adding checkpoint storage. |
-| 34 | Build a literature review and evidence map | Extend | PDF parsing now works. Add scholarly-index adapters, citation management, DOI deduplication, reproducible screening, and evidence-map structures. |
+| 34 | Build a literature review and evidence map | Verified | A live Task produced a three-source peer-reviewed evidence map with citations, limits, and gaps. A scholarly index was unnecessary for this bounded case. |
 | 35 | Fact-check claims and uncertainty | Verified | The live case passed primary-source tracing, exact dates, definitions, scope limits, and explicit uncertainty. Archived historical evidence still needs a later case. |
-| 36 | Extract a structured inventory | Extend | Public PDF, Office, and Excel parsing now works. Add user and batch intake, image OCR, structured tables, deduplication, and source history. |
-| 37 | Analyze a personal dataset | Build | CSV and Excel parsing exists. Add secure personal-data intake and a deterministic analysis engine or controlled notebook connector. |
+| 36 | Extract a structured inventory | Verified | A private live packet joined PDF, spreadsheet, email, and image sources into one deduplicated cited inventory. Complex layout OCR needs later cases. |
+| 37 | Analyze a personal dataset | Verified | A live Task audited a study log with exact totals, comparisons, and an accessible text chart. Complex statistics need another production path. |
 | 38 | Maintain a reading and newsletter digest | Verified | A provider-neutral Repeat case removed duplicate coverage, preserved links, adapted to a smaller attention budget, carried Coverage state, and suppressed a no-new-items update. Connected source intake remains separate. |
 | 39 | Maintain an adaptive learning plan | Verified | A provider-neutral Repeat case preserved completed practice, used a failed assessment, and adapted the next plan to two current gaps. Test longer series before adding dedicated progress state. |
-| 40 | Compare courses, programs, or credentials | Extend | Web research and document parsing cover comparison. Add option state, education portals, aid data, enrollment operations, and deadline reconciliation. |
+| 40 | Compare courses, programs, or credentials | Verified | A live Task compared three current programs with eligibility, costs, dates, sources, and unknowns. Enrollment remained outside the request. |
 
 ### 5. Money, tax, insurance, benefits, and personal administration
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
 | 41 | Maintain household cash flow and bills | Build | Add bank and biller connections, a cash-flow ledger, forecasting, shared-account reconciliation, and shortfall alerts. |
-| 42 | Build an annual tax-readiness packet | Build | Public document parsing is insufficient. Add private tax-file intake, classification, missing-record checks, year evidence, accountant export, and filing controls. |
+| 42 | Build an annual tax-readiness packet | Verified | A private live Task classified records, reproduced exact totals, exposed a missing W-2, and stopped at qualified accountant review. No filing occurred. |
 | 43 | Audit subscriptions | Extend | Historical receipt extraction passed. Add current mail proof, transaction feeds, a subscription register, cancellation operations, and billing-stop verification. |
-| 44 | Review insurance coverage | Build | Policy parsing now helps. Add private policy intake, insurer and quote connections, normalized coverage, household risks, and qualified-review gates. |
+| 44 | Review insurance coverage | Verified | A private live Task normalized supplied limits and household changes while retaining uncertainty and the licensed-professional boundary. No policy changed. |
 | 45 | Reconcile an insurance claim | Build | Add durable claim state, private evidence intake, insurer connections, deadlines, payment reconciliation, appeal state, and external receipts. |
 | 46 | Find and maintain benefits | Build | Add verified eligibility data, household definitions, evidence packages, portal uploads, application state, reporting duties, and recertification monitoring. |
 | 47 | Consolidate retirement records | Build | Add plan-provider connections, private statement intake, account matching, fee comparisons, transfer tracking, tax evidence, and one-shot approvals. |
 | 48 | Maintain credit and debt records | Build | Add bureau, lender, and bank connections, a debt ledger, private dispute evidence, status checks, and deadline alerts. |
-| 49 | Maintain official documents and licenses | Extend | Repeat, web research, and public parsing cover tracking. Add identity-file intake, government portal uploads, confirmation checks, and household authority. |
-| 50 | Escalate a consumer dispute | Extend | Task files, browsing, and review support a case. Add user evidence intake, complaint connections, delivery receipts, and durable case state. |
+| 49 | Maintain official documents and licenses | Verified | A live Task built current PMP and passport plans with exact dates, official sources, and receipt `M3-0004`. No official renewal occurred. |
+| 50 | Escalate a consumer dispute | Verified | A live Task built a source-preserving dispute packet and uploaded it under receipt `M3-0006`. No merchant or bank contact occurred. |
 | 51 | Maintain an affairs and estate map | Build | Task directories are not a document vault. Add private intake, estate records, beneficiary roles, emergency access, update triggers, and secure export. |
 | 52 | Administer a deceased person's accounts | Build | Add executor authority, death-certificate intake, jurisdiction rules, account and benefit connections, tax and property processes, notices, receipts, and reconciliation. |
 
@@ -483,29 +493,29 @@ These results prove one provider setup. The second provider portability gate rem
 | ---: | --- | --- | --- |
 | 53 | Consolidate a medical record | Build | Document parsing alone is insufficient. Add FHIR and portal connections, private record intake, normalization, conflict tracking, consent, and proxy access. |
 | 54 | Maintain a medication and refill plan | Build | Add a verified medication record, pharmacy connections, refill events, reconciliation evidence, safety rules, and clinician confirmation. |
-| 55 | Prepare a medical appointment brief | Extend | File parsing and synthesis support a draft. Add private health intake, portal data, symptom timelines, urgent routing, and a clinical acceptance test. |
+| 55 | Prepare a medical appointment brief | Verified | A private live Task produced a dated appointment brief and preserved conflicting evidence. It stopped at clinician diagnosis and treatment. |
 | 56 | Coordinate referrals, tests, and specialists | Build | Add referral state, insurer and provider connections, record transfer, scheduling, transport, result retrieval, and follow-up tracking. |
 | 57 | Monitor a care plan | Build | Add care-plan state, portal and device events, threshold rules, safe escalation, and loop closure. External event sources remain absent. |
-| 58 | Compare providers or care services | Extend | Web research can create a shortlist. Add current network, cost, availability, accessibility, language, phone, and booking data. |
+| 58 | Compare providers or care services | Verified | A live Task compared three accessible providers with current public evidence and explicit network and availability unknowns. No booking occurred. |
 | 59 | Compare health plans | Build | Add private plan and formulary intake, network checks, care scenarios, deterministic cost modeling, tax rules, and professional review. |
 | 60 | Build a health authorization or appeal packet | Build | Add durable case state, private denial and record intake, deadlines, portal uploads, submission receipts, status checks, and approvals. |
 | 61 | Coordinate a safe care transition | Build | Add hospital and pharmacy connections, caregiver roles, warning escalation, equipment coordination, transport, and handoff confirmation. |
 | 62 | Maintain a shared caregiver plan | Build | Add multiple humans, consent, caregiver roles, shared Tasks, assignments, handoffs, and notifications. Production still centers one local human. |
 | 63 | Summarize care-recipient changes | Build | Add authorized health logs, recipient policy, change comparison, urgent routing, recipient-specific sharing, and delivery receipts. |
-| 64 | Prepare a treatment decision brief | Extend | Research and file parsing support a draft. Add private medical intake, evidence filters, patient values, non-decision controls, and clinician review. |
+| 64 | Prepare a treatment decision brief | Verified | A private live Task preserved conflicting advice, patient constraints, and questions in a cited brief. It stopped at qualified clinical review. |
 
 ### 7. Home, household, and consumer operations
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 65 | Maintain an asset and recall inventory | Build | Document parsing helps with receipts. Add private and image intake, OCR, an asset registry, owner matching, recall feeds, and history. |
+| 65 | Maintain an asset and recall inventory | Verified | A private live Task deduplicated asset records, used image evidence, and calculated the exact `$793` inventory value. Live recall feeds remain separate. |
 | 66 | Run preventive home maintenance | Extend | Repeat supports schedules. Add an asset registry, maintenance rules, climate inputs, service history, and missed-schedule tests. |
-| 67 | Coordinate a home repair project | Extend | Projects, Task files, research, and reviewed actions provide a base. Add bid intake, vendor checks, inspections, and payment milestones. |
-| 68 | Optimize utilities and communication services | Extend | Public bill parsing can support analysis. Add private bill intake, utility tools, tariff normalization, renewal monitoring, and deterministic savings checks. |
+| 67 | Coordinate a home repair project | Verified | A live Task compared two bids, reproduced the `$90` difference, and exposed missing insurance proof. No vendor was contacted or hired. |
+| 68 | Optimize utilities and communication services | Verified | A live Task reproduced first-year totals of `$1,479` and `$1,524` and savings of `$177` and `$132`. No service changed. |
 | 69 | Maintain a meal and grocery plan | Extend | Add household food profiles, pantry state, grocery tools, nutrition constraints, allergy rules, substitutions, budgets, and attendance changes. |
 | 70 | Coordinate the vehicle lifecycle | Extend | Add vehicle-record intake, recall feeds, maintenance tools, renewal checks, and tests for consequential actions. |
 | 71 | Coordinate recurring pet care | Extend | Repeat provides scheduling. Add pet profiles, veterinary and pharmacy tools, licensing, insurer tools, medication safeguards, and caregiver handoffs. |
-| 72 | Complete a return, warranty, or repair request | Extend | Public file downloads now work. Add retailer transfers, browser uploads, shipping workflows, deadline state, and remedy verification. |
+| 72 | Complete a return, warranty, or repair request | Verified | A live Task produced the exact `$1,336.43` return packet and received portal receipt `M3-0006`. No shipping or refund occurred. |
 | 73 | Manage recurring household services | Extend | Repeat provides scheduling. Add vendor records, contacts, payments, service history, backup-provider rules, and cancellation tests. |
 | 74 | Maintain emergency readiness | Extend | Client notifications provide an alert path. Add local feeds, maps, contacts, supply inventory, private documents, reviews, and offline export. |
 
@@ -516,25 +526,25 @@ These results prove one provider setup. The second provider portability gate rem
 | 75 | Build one live itinerary | Verified | Connected messages supplied two confirmations, one duplicate, and one later cancellation. The reviewed itinerary preserved references and missing evidence. |
 | 76 | Plan and book a multi-leg trip | Extend | Browser routing improves recovery. Add travel inventory, booking tools, protected payment authority, receipt reconciliation, and partial-failure tests. |
 | 77 | Monitor disruptions and prepare rebooking | Build | Implement external event sources, carrier feeds, rights rules, downstream dependency analysis, rebooking operations, and uncertain-outcome recovery. |
-| 78 | Maintain international travel readiness | Extend | Public requirement downloads and parsing now work. Add private document intake, nationality rules, source freshness, medicine checks, and Calendar validation. |
-| 79 | Track travel credits, refunds, and claims | Extend | Task files can hold evidence. Add loyalty and insurer tools, user uploads, deadline monitoring, value reconciliation, and partial-refund tests. |
+| 78 | Maintain international travel readiness | Verified | A live Task corrected one source link, preserved current official rules and uncertainties, and uploaded the packet under receipt `M3-0007`. |
+| 79 | Track travel credits, refunds, and claims | Verified | A live Task kept refund, voucher, receipts, policy limit, and exact headroom separate under receipt `M3-0007`. No claim was filed. |
 | 80 | Coordinate group or accessible travel | Build | Add multi-human preferences, consent, conflict resolution, accessibility verification, shared approvals, and per-traveler documents. |
 | 81 | Plan a personal event | Extend | Add contacts, invitations, RSVP state, vendor and payment tools, budgets, dependencies, and guest communications. |
 | 82 | Run a move and propagate changes | Extend | Add mover, utility, bank, insurer, school, and government tools. Add private document transfer and confirmation reconciliation. |
-| 83 | Maintain a housing search | Extend | Web and lease parsing provide a base. Add listing and map tools, commute calculations, fraud checks, applications, and hard-constraint tests. |
-| 84 | Complete a trip or move closeout | Extend | Task files support a case record. Add transaction, private file, and photo intake with claim and deposit matching. |
+| 83 | Maintain a housing search | Verified | A live Task checked three homes against hard constraints and exact dated 08:30 trips of `23:07`, `23:07`, and `39:07`. |
+| 84 | Complete a trip or move closeout | Verified | A private live Task reconciled move records, tracked a deposit claim, and preserved exact source boundaries. No payment or claim occurred. |
 
 ### 9. Family, education, relationships, and community
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
 | 85 | Maintain a family schedule and transport plan | Build | Add multi-human calendars, custody rules, shared transport resources, maps, backup plans, and collaborative assignment. |
-| 86 | Turn school communications into a digest | Extend | Parsing can read supported files. Add school portal tools, private attachments, forms, child scopes, payments, event intake, and cross-source deduplication. |
+| 86 | Turn school communications into a digest | Verified | A live Task deduplicated three school notices while retaining every date and source. Connected school intake remains separate. |
 | 87 | Coordinate childcare, camps, and activities | Extend | Add provider and waitlist tools, child health scopes, private uploads, payments, transport planning, schedule changes, and refund checks. |
 | 88 | Balance household and care responsibilities | Build | Add shared ownership, workload views, consent, negotiation, and fairness controls. Collaboration and multi-user permissions remain excluded. |
-| 89 | Run an education or scholarship campaign | Extend | Parsing supports source documents. Add application records, dependencies, recommendations, portal uploads, contributor roles, and deadline reconciliation. |
+| 89 | Run an education or scholarship campaign | Verified | A live Task built a current truthful campaign packet and saved receipt `M3-0005`. No application or recommendation request was sent. |
 | 90 | Maintain family records and permission packets | Build | Add private file intake, family scopes, consent records, packet generation, expiry checks, secure sharing, and access audit. |
-| 91 | Coordinate community or volunteer participation | Extend | Public forms can be downloaded and parsed. Add uploads, training state, communications, renewal reconciliation, and current registration tests. |
+| 91 | Coordinate community or volunteer participation | Verified | A live Task found a current remote role, built a bounded schedule, and saved receipt `M3-0005`. No volunteer commitment was sent. |
 | 92 | Maintain a relationship and occasion plan | Extend | Add contact and relationship scopes, occasion data, shared duties, shopping, messaging tools, and cultural-preference tests. |
 
 ### 10. Digital life, privacy, records, and resilience
@@ -548,7 +558,7 @@ These results prove one provider setup. The second provider portability gate rem
 | 97 | Complete device replacement and migration | Build | Add device, backup, authenticator, password-manager, migration, verification, and disposal integrations. Noema cannot control personal devices. |
 | 98 | Maintain a personal knowledge base | Verified | Normal Memory consolidation replaced one fact, preserved duplicate direct evidence and superseded values, and supported later retrieval. Direct editing remains separate. |
 | 99 | Prepare a digital-legacy plan | Build | Add digital-legacy records, trusted roles, delegated access, estate scopes, platform actions, periodic review, and secure export. |
-| 100 | Make digital information accessible | Extend | Document parsing now converts supported files to Markdown. Add user file intake, OCR, accessible exports, validation, profiles, and affected-user tests. |
+| 100 | Make digital information accessible | Verified | A private live Task exported accessible HTML and passed seven automated checks. The human waived affected-user review for this controlled fixture. |
 
 ## Cross-cutting findings
 
