@@ -300,11 +300,11 @@ fn role_builtin_tool_specs(
         }
         ExecutionRole::TaskExecutor => {
             vec![
+                task_finish_execution_tool_spec(&[])?,
+                task_continue_execution_tool_spec()?,
                 calculate_tool_spec()?,
                 task_list_artifacts_tool_spec()?,
                 task_parse_artifact_tool_spec()?,
-                task_finish_execution_tool_spec(&[])?,
-                task_continue_execution_tool_spec()?,
                 task_report_blocked_tool_spec()?,
                 task_capture_scoped_tool_spec()?,
                 task_list_scoped_tool_spec()?,
@@ -317,10 +317,10 @@ fn role_builtin_tool_specs(
             ]
         }
         ExecutionRole::TaskReviewer => vec![
+            task_finish_review_tool_spec(&[])?,
             calculate_tool_spec()?,
             task_list_artifacts_tool_spec()?,
             task_parse_artifact_tool_spec()?,
-            task_finish_review_tool_spec(&[])?,
             task_inspect_tool_spec()?,
             task_file_list_tool_spec()?,
             task_file_read_tool_spec()?,
