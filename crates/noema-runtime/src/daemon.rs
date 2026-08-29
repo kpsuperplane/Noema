@@ -20,6 +20,7 @@ pub(crate) fn log_system_error(
 pub(crate) mod agent_name_tool;
 pub(crate) mod agent_onboarding;
 mod artifact_tool;
+mod calculation_tool;
 mod events;
 mod memory;
 pub(crate) mod prompts;

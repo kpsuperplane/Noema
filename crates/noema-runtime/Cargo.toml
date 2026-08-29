@@ -17,6 +17,7 @@ test-support = []
 [dependencies]
 agent-client-protocol.workspace = true
 anydoc.workspace = true
+bigdecimal.workspace = true
 cap-std.workspace = true
 futures-util.workspace = true
 jiff.workspace = true

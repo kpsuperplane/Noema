@@ -32,6 +32,7 @@ use crate::daemon::{
         ArtifactToolRuntimeContext, execute_artifact_create_local_file,
         is_artifact_create_local_file_tool,
     },
+    calculation_tool::{execute_calculation, is_calculation_tool},
     task_artifact_tool::{
         TaskArtifactReadContext, execute_task_read_artifact, is_task_read_artifact_tool,
     },
@@ -459,6 +460,13 @@ impl RuntimeActor {
                 result.payload,
                 true,
             )
+        } else if is_calculation_tool(&call.name) {
+            let result = execute_calculation(&call.payload);
+            let (success, payload) = match result {
+                Ok(payload) => (true, payload),
+                Err(error) => (false, json!({"error": error})),
+            };
+            LocalToolResult::from_call(call, LocalToolKind::Gateway, success, payload, true)
         } else if is_artifact_create_local_file_tool(&call.name) {
             let context = ArtifactToolRuntimeContext {
                 conversation_id: turn.conversation_id.clone(),
