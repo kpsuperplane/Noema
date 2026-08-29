@@ -3,7 +3,7 @@
 Date: 2026-08-29
 
 Milestone 2 remains in progress.
-This record covers bounded acceptance cases for Tasks 2, 3, 7, 12, 13, 21, 33, 38, and 39.
+This record covers bounded acceptance cases for Tasks 2, 3, 7, 9, 12, 13, 21, 33, 38, and 39.
 
 ## Result
 
@@ -594,6 +594,90 @@ Native Task routing and existing action review are enough for this bounded case.
 No behavior declaration system is necessary yet.
 
 Connected source intake and approved external delivery remain separate acceptance concerns.
+
+## Task 9 acceptance
+
+Task 9 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d03f5f88fdcacd1170` |
+| Repeat | `recurrence:18d03f69c923193d128a` |
+| Firm obligation | `obligation:domain-renewal-001` |
+| Primary source | `contract:domain-001` |
+| Duplicate source | `message:renewal-reminder-002` |
+| Soft target | `target:archive-review-001` |
+| Exact receipt | `receipt:domain-renewal-001-complete` |
+
+The firm obligation was due at `2026-08-29T09:00:00Z`.
+The source defined warning, urgent, and overdue thresholds.
+
+The duplicate source used the same exact Obligation ID.
+The soft target had no firm date or owner and could not trigger escalation.
+
+### Baseline and recovery
+
+Task `task:18d03f69c82ffb5d1289` used the `10:21:00Z` occurrence cutoff.
+It merged the duplicate and classified the firm obligation as overdue.
+
+It drafted one escalation for `contact:finops-001` and did not send it.
+It did not classify the soft target as overdue.
+
+The server stopped during Executor attempt 0.
+Run `run:18d03f734affa80813a2` became `INTERRUPTED`.
+
+Run `run:18d03f8f61721e448` resumed as attempt 1.
+Reviewer `run:18d03fa3119b8609256` approved one baseline result.
+
+### Quiet unchanged occurrence
+
+Task `task:18d03fa841df18af2c8` used the `10:24:00Z` cutoff.
+It found the earlier terminal Task and kept the same overdue level.
+
+It made no second escalation draft.
+Reviewer `run:18d03fbc542b1d40523` approved with `notify_human: false`.
+
+No completion notification exists for this Task.
+
+### Temporal receipt boundary
+
+Task `task:18d03fcc180caeab6ed` used the `10:25:00Z` cutoff.
+The current source showed a completion receipt timestamped `10:25:30Z`.
+
+The Task did not backdate closure across the 30-second boundary.
+It kept the cutoff state overdue and produced no repeated escalation.
+
+Reviewer `run:18d03fed981892acad1` approved with `notify_human: false`.
+No completion notification exists for this Task.
+
+### Exact-evidence closure
+
+Task `task:18d03ff3e458fff7b8e` used the `10:28:00Z` cutoff.
+The exact successful receipt now preceded the cutoff.
+
+It changed the state from overdue to closed.
+It preserved the receipt ID, Obligation ID, outcome, timestamp, and verifying source.
+
+Reviewer `run:18d0400c86555a4ce79` approved the closure.
+The Repeat ended at revision 7 with no next run.
+
+### Delivery and action evidence
+
+The baseline and closure produced one completion notification each.
+The two unchanged cutoffs produced none.
+
+No governed external action exists for any occurrence.
+No message, calendar item, source record, or external state changed.
+
+### Reuse assessment
+
+Project files, Repeat history, bounded Task reads, and Reviewer delivery control were sufficient.
+No obligation table, checkpoint schema, provider adapter, or threshold state was necessary.
+
+Test a longer multi-obligation series before adding dedicated obligation storage.
+Connected portal intake and approved external sends remain separate operation concerns.
 
 ## Remaining Milestone 2 gates
 
