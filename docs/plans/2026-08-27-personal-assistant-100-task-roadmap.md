@@ -193,7 +193,7 @@ No case can require an unbounded source scan.
 
 Target: 32/100 Verified.
 
-Current: 26/100 Verified.
+Current: 27/100 Verified.
 
 Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 
@@ -209,7 +209,7 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 | Add Task dependencies, blockers, milestones, estimates, and explicit owners. | Tasks 20 and 22 need durable relationships that support actual Task mutation. | 20, 22 |
 | Reuse Project files for source-linked decision history. | Task 21 passed a bounded replacement case. Test connected capture and longer history before adding a dedicated decision entity. | 21 |
 | Route captured decisions and follow-ups into the Project source. | Task 16 passed one replacement with owned follow-ups and later exact receipts. Test longer series before adding dedicated state. | 16 |
-| Add stable contact records with interaction history and follow-up boundaries. | Task 13 passed with Project-source identities. Task 18 still needs reusable relationship state. | 18 |
+| Reuse Project files for stable contact identity, interaction history, cadence, reciprocity, and consent boundaries. | Task 18 passed a bounded changing-source series. Connected interaction intake remains separate. | 18 |
 | Add message drafts, replies, sent-message checks, and thread closure evidence. | Task 16 passed draft restraint and source-receipt closure. Connected send receipts remain open for Tasks 4, 12, and 16. | 4, 12, 16 |
 | Test connected free-busy, invitation, and reply operations. | Task 13 passed provider-neutral negotiation and drafting. Live operations still need confirmation and receipts. | 13 |
 | Reuse Project files for reviewer identities, version-bound responses, quorum, and conflict resolution. | Task 24 passed a bounded approval series. Connected routing and response intake remain separate. | 24 |
@@ -232,6 +232,7 @@ Tasks: 2, 3, 4, 7, 9, 12, 13, 16, 18, 20, 21, 22, 24, 26, 28, 33, 38, and 39.
 - An obligation becomes overdue once, stays quiet when unchanged, and closes only on timely exact evidence. Passed on 2026-08-29.
 - A replaced decision preserves history while every old and new follow-up closes on exact evidence. Passed on 2026-08-29.
 - A multi-reviewer approval rejects stale responses, resolves one conflict, and stays quiet when unchanged. Passed on 2026-08-29.
+- A relationship plan honors reciprocity, consent, cadence, exact completion, and unchanged silence. Passed on 2026-08-29.
 
 ### Exit gate
 

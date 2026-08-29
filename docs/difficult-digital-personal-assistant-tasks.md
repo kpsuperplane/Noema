@@ -392,11 +392,11 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-Current retests verify 26 tasks. No task remains in `Test`.
+Current retests verify 27 tasks. No task remains in `Test`.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend.
 
-Tasks 1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 19, 21, 24, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
+Tasks 1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 24, 31, 32, 33, 35, 38, 39, 75, and 98 are now Verified.
 
 These results prove one provider setup. The second provider portability gate remains open.
 
@@ -426,7 +426,7 @@ These results prove one provider setup. The second provider portability gate rem
 | 15 | Prepare audience-specific updates | Verified | A native Project case produced three fact-matched updates. Full Task reads supported detail, tone, confidentiality, asks, citations, and conflict reporting. |
 | 16 | Record decisions and close follow-ups | Verified | A provider-neutral Repeat preserved a superseded decision, tracked three owned follow-ups, closed only on exact timely receipts, stopped reminders, and stayed quiet when unchanged. Connected transcript intake remains separate. |
 | 17 | Maintain a relationship brief | Verified | One exact email safely linked Memory, messages, and events. The reviewed brief preserved source bounds, staleness, commitments, and private boundaries. |
-| 18 | Maintain a relationship follow-up plan | Extend | Memory and Repeat provide partial support. Add stable contacts, interaction history, cadence rules, reciprocity signals, and consent boundaries. |
+| 18 | Maintain a relationship follow-up plan | Verified | A provider-neutral Repeat preserved exact identity, reciprocity, cadence, consent, unanswered limits, and one user-owned promise. It closed on exact evidence and stayed quiet when unchanged. Connected interaction intake remains separate. |
 
 ### 3. Work, projects, and career
 

@@ -3,7 +3,7 @@
 Date: 2026-08-29
 
 Milestone 2 remains in progress.
-This record covers bounded acceptance cases for Tasks 2, 3, 7, 9, 12, 13, 16, 21, 24, 33, 38, and 39.
+This record covers bounded acceptance cases for Tasks 2, 3, 7, 9, 12, 13, 16, 18, 21, 24, 33, 38, and 39.
 
 ## Result
 
@@ -756,6 +756,114 @@ No decision entity, action entity, thread table, or provider rule was necessary.
 
 Test a longer multi-decision series before adding dedicated storage.
 Connected transcript intake, approved reminders, and send receipts remain separate operation concerns.
+
+## Task 18 acceptance
+
+Task 18 passes its current provider-neutral live case.
+
+### Fixture
+
+| Item | Value |
+| --- | --- |
+| Project | `project:18d041d5c3d4dc6a41fe` |
+| Repeat | `recurrence:18d041e3759f06d2437e` |
+| Person | `person:maya-chen-001` |
+| Similar excluded person | `person:maya-cheng-002` |
+| Promise | `promise:send-talk-link-001` |
+| Resource | `resource:talk-link-001` |
+
+The source defined a 21-day cadence and weekday email window.
+It prohibited automatic sending and limited repeated unanswered outreach.
+
+It also supplied one explicit routine-contact boundary.
+Noema could not infer private dates or turn the boundary into a due date.
+
+### Overdue user-owned promise
+
+Task `task:18d041e375862a64437d` used the `11:05:00Z` cutoff.
+It read source revision 1 and preserved the exact Maya Chen identity.
+
+It did not merge the similar Maya Cheng record.
+It reconstructed one reciprocal inbound and outbound exchange.
+
+The user had promised to send one talk link.
+The promise was overdue and had no qualifying completion receipt.
+
+The cutoff was Saturday at `07:05` in `America/New_York`.
+The source allowed email only during weekday working hours.
+
+The result kept the promise open and sent nothing.
+It identified Monday at `09:00` Eastern as the next eligible time.
+
+It did not draft text because the source omitted the presentation outcome.
+It refused to invent that answer or ask Maya for work.
+
+Executor `run:18d041eadd4ebaf74466` produced the result.
+Reviewer `run:18d042080001e1b147b1` approved it.
+
+### Exact completion and changed boundary
+
+Source revision 2 added `receipt:user-send-link-001`.
+The successful receipt named the exact Promise ID and Resource ID.
+
+`interaction:maya-inbound-20260829` acknowledged the sent message.
+It reset the unanswered-outreach count to zero.
+
+Maya asked for no routine follow-up before September 4.
+The source stated that this date was only a lower boundary.
+
+Task `task:18d04229fd79194d4b56` used the `11:10:00Z` cutoff.
+It closed the exact promise and produced no follow-up draft.
+
+It calculated September 21 at `09:00` Eastern as the first eligible time.
+It correctly treated that time as an eligibility floor, not scheduled outreach.
+
+Reviewer `run:18d04258d13ac8b450a4` approved the changed result.
+The exact completion produced one completion notification.
+
+### Bounded history correction
+
+The original Repeat instruction said to compare the prior terminal occurrence.
+It did not explicitly direct a bounded Task lookup.
+
+The changed occurrence therefore omitted the existing prior Task comparison.
+Its exact source evidence still proved the completion result.
+
+The Repeat template was corrected to require one Project-scoped Task list.
+It also required inspection of the newest earlier Task from the same Repeat.
+
+This was an instruction correction only.
+No product code, schema, or new runtime state changed.
+
+### Quiet unchanged occurrence
+
+Task `task:18d0426fda6501dd5317` used the `11:15:00Z` cutoff.
+It inspected exact prior Task `task:18d04229fd79194d4b56`.
+
+It found no identity, interaction, promise, receipt, boundary, cadence, or draft change.
+It preserved the relationship plan and produced no external action.
+
+Reviewer `run:18d0428ec14b074a56ab` approved with `notify_human: false`.
+No completion notification exists for this Task.
+
+The Repeat ended after revision 3.
+It has no next run or pending coalesced occurrence.
+
+### Delivery and action evidence
+
+The overdue baseline and exact completion produced one completion notification each.
+The unchanged occurrence produced none.
+
+No action request exists for any occurrence.
+No message, contact, calendar item, or external source changed.
+
+### Reuse assessment
+
+The Project document, Repeat history, exact receipts, and Reviewer delivery control were sufficient.
+No contact table, relationship entity, cadence state, or consent schema was necessary.
+
+Test connected interaction intake and approved sending separately.
+Test a longer multi-contact series before adding dedicated relationship storage.
 
 ## Task 24 acceptance
 
