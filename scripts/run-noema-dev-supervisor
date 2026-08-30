@@ -13,15 +13,59 @@ if [[ "$(uname -s)" != "Linux" ]]; then
 fi
 
 child_pid=""
-stop_supervisor() {
-  trap - HUP INT TERM
+relay_pid=""
+readonly relay_dir="/tmp/noema-codex"
+readonly relay_socket="${relay_dir}/graphql.sock"
+readonly backend_socket="${NOEMA_HOME:-/var/lib/noema-dev}/run/graphql.sock"
+
+cleanup() {
+  trap - EXIT HUP INT TERM
   if [[ -n "${child_pid}" ]]; then
     kill -TERM "${child_pid}" 2>/dev/null || true
     wait "${child_pid}" || true
   fi
-  exit 0
+  if [[ -n "${relay_pid}" ]]; then
+    kill -TERM "${relay_pid}" 2>/dev/null || true
+    wait "${relay_pid}" || true
+  fi
+  if [[ -S "${relay_socket}" ]]; then
+    unlink -- "${relay_socket}"
+  fi
+  rmdir -- "${relay_dir}" 2>/dev/null || true
 }
-trap stop_supervisor HUP INT TERM
+trap cleanup EXIT
+trap 'exit 143' HUP INT TERM
+
+install -d -o root -g root -m 0700 -- "${relay_dir}"
+if [[ "$(stat -c '%u:%a' -- "${relay_dir}")" != "0:700" ]]; then
+  echo "${relay_dir} must be root-owned with mode 0700" >&2
+  exit 1
+fi
+if [[ -e "${relay_socket}" || -L "${relay_socket}" ]]; then
+  if [[ ! -S "${relay_socket}" ]]; then
+    echo "${relay_socket} must be a Unix socket" >&2
+    exit 1
+  fi
+  unlink -- "${relay_socket}"
+fi
+(umask 077; exec systemd-socket-activate \
+  --listen="${relay_socket}" \
+  --now \
+  /usr/lib/systemd/systemd-socket-proxyd "${backend_socket}") &
+relay_pid="$!"
+for _ in {1..50}; do
+  [[ -S "${relay_socket}" ]] && break
+  sleep 0.1
+done
+if [[ ! -S "${relay_socket}" ]]; then
+  echo "Noema development GraphQL relay did not start" >&2
+  exit 1
+fi
+chmod 0600 -- "${relay_socket}"
+if [[ "$(stat -c '%u:%a' -- "${relay_socket}")" != "0:600" ]]; then
+  echo "${relay_socket} must be root-owned with mode 0600" >&2
+  exit 1
+fi
 
 setpriv --pdeathsig TERM setsid "${supervisor}" dev &
 child_pid="$!"

@@ -195,6 +195,14 @@ curl --unix-socket /path/to/noema/run/graphql.sock \
   http://localhost/graphql
 ```
 
+On Linux, the root development supervisor also exposes a root-only relay at
+`/tmp/noema-codex/graphql.sock`.
+
+The relay supports restricted local development sessions that cannot traverse
+the `noema-dev` home. Its directory uses mode `0700`, and its socket uses mode
+`0600`. It forwards only to the existing local GraphQL socket and has no TCP
+listener. The supervisor creates and removes the relay with the server session.
+
 ## 6. Passkeys
 
 Passkeys remain the primary browser authentication method.
