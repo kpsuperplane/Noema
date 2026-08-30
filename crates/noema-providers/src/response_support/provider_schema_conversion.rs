@@ -41,12 +41,15 @@ fn lower_node(value: &mut Value, path: &str) -> Result<(), String> {
     if object.contains_key("uniqueItems") {
         return Err(format!("unsupported `uniqueItems` at {path}"));
     }
-    if let Some(additional) = object.get("additionalProperties")
-        && !additional.is_boolean()
-    {
-        return Err(format!(
-            "schema maps through `additionalProperties` at {path}"
-        ));
+    if let Some(additional) = object.get("additionalProperties") {
+        if additional == &Value::Bool(true) {
+            return Err(format!("schema is open at {path}"));
+        }
+        if !additional.is_boolean() {
+            return Err(format!(
+                "schema maps through `additionalProperties` at {path}"
+            ));
+        }
     }
     if object
         .get("pattern")
@@ -174,6 +177,7 @@ mod tests {
     fn full_conversion_rejects_map_and_uniqueness_rules() {
         for mut schema in [
             json!({"type":"object","additionalProperties":{"type":"string"}}),
+            json!({"type":"object","additionalProperties":true}),
             json!({"type":"object","uniqueItems":true}),
         ] {
             assert!(convert_schema_fully(&mut schema).is_err());

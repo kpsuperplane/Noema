@@ -22,12 +22,12 @@ pub(super) fn is_luau_run_tool(name: &str) -> bool {
 pub(super) fn luau_run_tool_spec() -> Result<ToolSpec, ToolContractError> {
     ToolSpec::new(
         LUAU_RUN_TOOL,
-        "Run bounded sandboxed Luau over read-only JSON input and return one JSON value. The sandbox has no files, network, processes, clock, modules, or random state. Read input from the global `input`. Use integer minor units for exact money. Use json.object() or json.array() for empty tables.",
+        "Run bounded sandboxed Luau over a read-only JSON object and return one JSON value. The sandbox has no files, network, processes, clock, modules, or random state. Read input from the global `input`. Use integer minor units for exact money. Use json.object() or json.array() for empty tables.",
         json!({
             "type": "object",
             "properties": {
                 "source": {"type": "string", "minLength": 1, "maxLength": MAX_SOURCE_CHARS},
-                "input": {}
+                "input": {"type": "object", "additionalProperties": true}
             },
             "required": ["source"],
             "additionalProperties": false
@@ -66,5 +66,14 @@ mod tests {
     fn rejects_unbounded_or_non_json_results() {
         assert!(execute_luau(&json!({"source": "while true do end"})).is_err());
         assert!(execute_luau(&json!({"source": "return function() end"})).is_err());
+    }
+
+    #[test]
+    fn input_schema_declares_an_open_json_object() {
+        let spec = luau_run_tool_spec().expect("Luau tool");
+        assert_eq!(
+            spec.input_schema.as_value()["properties"]["input"],
+            json!({"type": "object", "additionalProperties": true}),
+        );
     }
 }
