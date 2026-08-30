@@ -536,6 +536,7 @@ async fn complete_catalog_is_stable_for_native_transport() {
                 "file.parse",
                 "update_own_name",
                 "artifact.create_local_file",
+                "code.run_luau",
                 "file.download",
                 "noema.present_multiple_choice",
                 "noema.present_a2ui",
@@ -786,6 +787,7 @@ async fn planner_catalog_contains_task_file_tools() {
             .map(|tool| tool.name.as_str())
             .collect::<Vec<_>>(),
         vec![
+            "code.run_luau",
             "task.list_artifacts",
             "file.parse",
             "task.finish_planning",

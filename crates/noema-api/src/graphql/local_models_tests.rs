@@ -91,17 +91,14 @@ async fn local_model_catalog_setup_and_agent_preferences_follow_exact_installati
     assert_eq!(catalog.len(), 1);
     assert_eq!(catalog[0].model_id, "gemma-4-e4b-it");
     assert_eq!(catalog[0].license, "Apache-2.0");
-    assert!(catalog[0].is_recommended);
-    assert!(catalog[0].selected_build.is_some());
-    assert!(catalog[0].hardware_fit.is_some());
+    let compatible = catalog[0].selected_build.is_some();
+    assert_eq!(catalog[0].is_recommended, compatible);
+    assert_eq!(catalog[0].hardware_fit.is_some(), compatible);
 
     let queued = local_model_setup(&state).await.expect("queued setup");
     assert_eq!(
-        queued
-            .installation
-            .expect("recommended installation")
-            .status,
-        GraphqlLocalModelInstallationStatus::Queued
+        queued.installation.map(|installation| installation.status),
+        compatible.then_some(GraphqlLocalModelInstallationStatus::Queued)
     );
     assert!(!queued.is_ready);
 

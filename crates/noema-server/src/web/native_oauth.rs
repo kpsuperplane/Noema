@@ -545,15 +545,14 @@ pub(super) async fn revoke(
     let Ok(parameters) = unique_parameters(&body) else {
         return oauth_error(StatusCode::BAD_REQUEST, "invalid_request");
     };
-    if let Some(token) = parameters.get("token") {
-        if state
+    if let Some(token) = parameters.get("token")
+        && state
             .store
             .revoke_native_oauth_family(sha256(token), now())
             .await
             .is_err()
-        {
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+    {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     StatusCode::OK.into_response()
 }
@@ -953,10 +952,10 @@ fn validate_request_shape(parameters: &HashMap<String, String>) -> Result<(), ()
     {
         return Err(());
     }
-    if let Some(value) = parameters.get("scope") {
-        if value != SCOPE {
-            return Err(());
-        }
+    if let Some(value) = parameters.get("scope")
+        && value != SCOPE
+    {
+        return Err(());
     }
     if parameters.contains_key("response_type") {
         let state = parameters.get("state").ok_or(())?;
@@ -1173,15 +1172,15 @@ fn adapt_response(response: OAuthResponse) -> Response {
         },
     )));
     *output.status_mut() = status;
-    if let Some(location) = response.location {
-        if let Ok(value) = HeaderValue::from_str(location.as_str()) {
-            output.headers_mut().insert(header::LOCATION, value);
-        }
+    if let Some(location) = response.location
+        && let Ok(value) = HeaderValue::from_str(location.as_str())
+    {
+        output.headers_mut().insert(header::LOCATION, value);
     }
-    if let Some(challenge) = response.www_authenticate {
-        if let Ok(value) = HeaderValue::from_str(&challenge) {
-            output.headers_mut().insert(header::WWW_AUTHENTICATE, value);
-        }
+    if let Some(challenge) = response.www_authenticate
+        && let Ok(value) = HeaderValue::from_str(&challenge)
+    {
+        output.headers_mut().insert(header::WWW_AUTHENTICATE, value);
     }
     if json_body {
         output.headers_mut().insert(

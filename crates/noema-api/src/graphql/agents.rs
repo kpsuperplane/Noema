@@ -745,6 +745,10 @@ pub(super) async fn auxiliary_model_settings(
     })
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one preference mutation forwards the complete saved selection"
+)]
 pub(super) async fn save_auxiliary_model_preference(
     state: &GraphqlState,
     task: AuxiliaryModelTask,

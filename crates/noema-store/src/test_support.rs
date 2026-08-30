@@ -56,7 +56,7 @@ pub fn register_ready_provider(
     key: ProviderInstanceKey,
 ) -> Result<(), StoreError> {
     registry
-        .register(key, Arc::new(ReadyTestProvider::default()))
+        .register(key, Arc::new(ReadyTestProvider))
         .map(|_| ())
         .map_err(invariant)
 }

@@ -472,8 +472,8 @@ async fn project_document_reads_saves_and_conflicts_through_graphql() {
         .await;
     assert_error_code(
         &conflict,
-        "the authoritative project or task revision is stale",
-        "stale_revision",
+        "the authoritative Task document changed",
+        "stale_document",
     );
 }
 

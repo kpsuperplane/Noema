@@ -116,6 +116,7 @@ pub struct NewLiveActivityDelivery {
     pub ttl_seconds: u32,
 }
 impl NoemaStore {
+    #[doc = "# Errors\n\nReturns an error when persistence fails."]
     pub async fn client_live_activity_registration(
         &self,
         client_id: &str,
@@ -123,6 +124,7 @@ impl NoemaStore {
         self.with_connection(|connection| load_registration(connection, client_id))
             .await
     }
+    #[doc = "# Errors\n\nReturns an error when validation or persistence fails."]
     pub async fn register_client_live_activities(
         &self,
         client_id: &str,
@@ -215,6 +217,7 @@ impl NoemaStore {
         })
         .await
     }
+    #[doc = "# Errors\n\nReturns an error when validation or persistence fails."]
     pub async fn disable_client_live_activities(
         &self,
         client_id: &str,
@@ -244,6 +247,7 @@ impl NoemaStore {
         })
         .await
     }
+    #[doc = "# Errors\n\nReturns an error when persistence fails."]
     pub async fn client_task_activity(
         &self,
         client_id: &str,
@@ -251,6 +255,7 @@ impl NoemaStore {
         self.with_connection(|connection| load_activity(connection, client_id))
             .await
     }
+    #[doc = "# Errors\n\nReturns an error when validation or persistence fails."]
     pub async fn update_client_task_activity_projection(
         &self,
         client_id: &str,
@@ -282,6 +287,7 @@ impl NoemaStore {
             .await?;
         Ok(changed)
     }
+    #[doc = "# Errors\n\nReturns an error when persistence fails."]
     pub async fn ensure_client_task_activity_session(
         &self,
         client_id: &str,
@@ -297,6 +303,7 @@ impl NoemaStore {
         })
         .await
     }
+    #[doc = "# Errors\n\nReturns an error when persistence fails."]
     pub async fn mark_client_task_activity_ending(
         &self,
         client_id: &str,
@@ -311,6 +318,7 @@ impl NoemaStore {
         })
         .await
     }
+    #[doc = "# Errors\n\nReturns an error when validation or persistence fails."]
     pub async fn register_client_live_activity_update(
         &self,
         client_id: &str,
@@ -348,6 +356,7 @@ impl NoemaStore {
         })
         .await
     }
+    #[doc = "# Errors\n\nReturns an error when persistence fails."]
     pub async fn clear_client_task_activity_dismissal(
         &self,
         client_id: &str,
@@ -361,6 +370,7 @@ impl NoemaStore {
         })
         .await
     }
+    #[doc = "# Errors\n\nReturns an error when validation or persistence fails."]
     pub async fn dismiss_client_live_activity(
         &self,
         client_id: &str,
@@ -393,6 +403,7 @@ impl NoemaStore {
         })
         .await
     }
+    #[doc = "# Errors\n\nReturns an error when persistence fails."]
     pub async fn live_activity_targets(&self) -> Result<Vec<LiveActivityTarget>, StoreError> {
         self.with_connection(|connection| {
             let mut statement = connection.prepare(
@@ -415,6 +426,7 @@ impl NoemaStore {
         })
         .await
     }
+    #[doc = "# Errors\n\nReturns an error when validation or persistence fails."]
     pub async fn queue_live_activity_delivery(
         &self,
         delivery: NewLiveActivityDelivery,
@@ -452,6 +464,7 @@ impl NoemaStore {
         })
         .await
     }
+    #[doc = "# Errors\n\nReturns an error when persistence fails."]
     pub async fn claim_due_live_activity_delivery(
         &self,
     ) -> Result<Option<ClaimedLiveActivityDelivery>, StoreError> {
@@ -490,6 +503,7 @@ impl NoemaStore {
         })
         .await
     }
+    #[doc = "# Errors\n\nReturns an error when validation or persistence fails."]
     pub async fn finish_live_activity_delivery(
         &self,
         delivery: &ClaimedLiveActivityDelivery,
@@ -565,6 +579,7 @@ impl NoemaStore {
         })
         .await
     }
+    #[doc = "# Errors\n\nReturns an error when validation or persistence fails."]
     pub async fn fail_pending_live_activity_deliveries(
         &self,
         error_code: &str,
@@ -581,6 +596,7 @@ impl NoemaStore {
         })
         .await
     }
+    #[doc = "# Errors\n\nReturns an error when persistence fails."]
     pub async fn notification_task_checkpoint(&self) -> Result<u64, StoreError> {
         self.with_connection(|connection| {
             connection
@@ -593,6 +609,7 @@ impl NoemaStore {
         })
         .await
     }
+    #[doc = "# Errors\n\nReturns an error when validation or persistence fails."]
     pub async fn list_task_notification_alerts(
         &self,
         after_sequence: u64,
@@ -617,6 +634,7 @@ impl NoemaStore {
         })
         .await
     }
+    #[doc = "# Errors\n\nReturns an error when validation or persistence fails."]
     pub async fn advance_notification_task_checkpoint(
         &self,
         sequence: u64,

@@ -401,6 +401,10 @@ async fn recent_transcript_prefix_len(
     suffix_start
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "summary generation forwards one bounded provider request"
+)]
 pub(super) async fn generate_compaction_summary(
     provider: &dyn ProviderOperations,
     model_profile: Option<&str>,

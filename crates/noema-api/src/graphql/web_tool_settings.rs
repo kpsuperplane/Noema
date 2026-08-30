@@ -502,7 +502,7 @@ mod tests {
         );
         assert_eq!(
             settings.browse.active_provider_account_id,
-            OBSCURA_SYSTEM_ACCOUNT_ID
+            default_provider_account_id(CapabilityId::WebBrowse)
         );
         assert!(settings.browse.provider_options.iter().any(|option| {
             option.provider_kind == "obscura" && option.js_rendering && option.authenticated_context
@@ -531,7 +531,7 @@ mod tests {
         assert_eq!(settings.search.active_provider_account_id, exa_account_id);
         assert_eq!(
             settings.fetch.active_provider_account_id,
-            DIRECT_HTTP_SYSTEM_ACCOUNT_ID
+            default_provider_account_id(CapabilityId::WebFetch)
         );
 
         save_web_tool_provider_binding(

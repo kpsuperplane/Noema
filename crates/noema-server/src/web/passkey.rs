@@ -267,7 +267,7 @@ pub(super) async fn start_registration(
     };
     let passkeys = match deserialize_passkeys(&stored) {
         Ok(passkeys) => passkeys,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let excluded = (!passkeys.is_empty()).then(|| {
         passkeys
@@ -375,7 +375,7 @@ pub(super) async fn start_authentication(
     };
     let passkeys = match deserialize_passkeys(&credentials) {
         Ok(passkeys) => passkeys,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let (options, authentication) = match state
         .passkeys
@@ -624,16 +624,16 @@ async fn registration_start_authorized(state: &WebState, browser: &Session) -> b
 
 fn deserialize_passkeys(
     stored: &[noema_store::HumanPasskeyRecord],
-) -> Result<Vec<Passkey>, Response> {
+) -> Result<Vec<Passkey>, Box<Response>> {
     stored
         .iter()
         .map(|credential| serde_json::from_str(&credential.credential_json))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| {
-            auth_error(
+            Box::new(auth_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "authentication_unavailable",
-            )
+            ))
         })
 }
 

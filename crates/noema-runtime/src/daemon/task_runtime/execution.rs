@@ -480,11 +480,11 @@ mod tests {
         let meta = |key: &str| CommandMeta {
             actor_id: "actor:test:project-context".to_string(),
             causation_id: None,
-            correlation_id: key.to_string(),
+            correlation_id: format!("correlation:{key}"),
             idempotency_key: Some(key.to_string()),
         };
         let project = service
-            .execute(WorkCommand::CreateProject(CreateProject {
+            .execute_committed(WorkCommand::CreateProject(CreateProject {
                 meta: meta("project-context:create"),
                 workspace_id: WorkspaceId::new("workspace:personal").unwrap(),
                 name: "Run context".to_string(),
@@ -494,10 +494,14 @@ mod tests {
             }))
             .await
             .unwrap()
+            .result
             .project
             .unwrap();
+        let (conversation_id, turn_id, item_id) =
+            crate::contract_test_support::seed_authorization_source(&store, "Uses project context")
+                .await;
         let task = service
-            .execute(WorkCommand::DelegateTask(DelegateTask {
+            .execute_committed(WorkCommand::DelegateTask(DelegateTask {
                 meta: meta("project-context:task"),
                 workspace_id: WorkspaceId::new("workspace:personal").unwrap(),
                 title: "Uses project context".to_string(),
@@ -506,9 +510,12 @@ mod tests {
                 executor_agent_id: None,
                 cwd_override: None,
                 provenance: TaskProvenance {
-                    source_kind: TaskSourceKind::System,
+                    source_kind: TaskSourceKind::ChatDelegate,
+                    conversation_id: Some(conversation_id),
+                    turn_id: Some(turn_id),
+                    item_id: Some(item_id),
+                    source_tool_call_id: Some("tool_call:project-context".to_string()),
                     created_by_actor_id: "actor:test:project-context".to_string(),
-                    ..Default::default()
                 },
                 complexity_hint: None,
                 execution_intent: Some(DelegateExecutionIntent {
@@ -518,7 +525,12 @@ mod tests {
             }))
             .await
             .unwrap()
+            .result
             .task
+            .unwrap();
+        store
+            .write_task_file(&task.task_id, noema_store::TASK_RESULT, "Current result")
+            .await
             .unwrap();
         let mut run = store
             .get_work_task(&task.task_id)

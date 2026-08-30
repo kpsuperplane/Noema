@@ -148,13 +148,12 @@ async fn fresh_sqlite_rebuilds_connection_projection_without_secret_bytes() {
         .expect("connections projection");
     let before = store.adapter_connections().await.expect("connections");
     let database_bytes = std::fs::read(paths.sqlite_db_path()).expect("database bytes");
-    for secret in ["access-secret-marker"] {
-        assert!(
-            !database_bytes
-                .windows(secret.len())
-                .any(|window| window == secret.as_bytes())
-        );
-    }
+    let secret = "access-secret-marker";
+    assert!(
+        !database_bytes
+            .windows(secret.len())
+            .any(|window| window == secret.as_bytes())
+    );
     drop(store);
     remove_database_family(&paths);
 

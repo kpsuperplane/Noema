@@ -19,7 +19,11 @@ mod tests {
 
     fn assert_single_graphql_error(response: &async_graphql::Response, expected: &str) {
         assert_eq!(response.errors.len(), 1, "{:?}", response.errors);
-        assert!(response.errors[0].message.contains(expected));
+        assert!(
+            response.errors[0].message.contains(expected),
+            "expected {expected:?}, got {:?}",
+            response.errors[0].message
+        );
     }
 
     #[test]
@@ -173,8 +177,8 @@ mod tests {
                         {
                             "id": "gpt-5.6-luna",
                             "label": "GPT-5.6 Luna",
-                            "reasoning_efforts": ["low", "medium"],
-                            "default_reasoning_effort": "low"
+                            "reasoning_efforts": ["low", "medium", "high"],
+                            "default_reasoning_effort": "high"
                         }
                     ]
                 }),

@@ -335,7 +335,7 @@ async fn prompt_context_sends_prior_transcript_as_provider_messages() {
             )
         })
         .collect::<Vec<_>>();
-    assert_eq!(context_updates.len(), 3);
+    assert_eq!(context_updates.len(), 4);
     assert!(
         context_updates
             .iter()

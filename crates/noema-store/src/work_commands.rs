@@ -98,8 +98,7 @@ impl WorkCommandService {
             Err(error) => {
                 self.restore_document(rollback).await?;
                 if let Some(project_move) = project_move {
-                    self.store
-                        .rollback_project_document_move(project_move)
+                    NoemaStore::rollback_project_document_move(project_move)
                         .map_err(project_file_error)?;
                 }
                 return Err(error);

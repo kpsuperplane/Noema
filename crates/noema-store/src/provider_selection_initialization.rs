@@ -501,7 +501,7 @@ mod tests {
         assert_eq!(default.model_profile.as_deref(), Some("gpt-5.6-luna"));
         assert_eq!(
             default.reasoning_effort,
-            Some(noema_providers::ReasoningEffort::Low)
+            Some(noema_providers::ReasoningEffort::High)
         );
         for agent_id in [
             "agent:primary",

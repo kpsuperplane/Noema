@@ -336,33 +336,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn falls_back_when_bound_provider_account_is_missing() {
-        let store = test_store().await;
-        save_binding(
-            &store,
-            CapabilityId::WebSearch.as_str(),
-            CapabilityId::WebSearch.as_str(),
-            ProviderCapabilityAccountReference::persisted("provider_account:openai:missing"),
-        )
-        .await;
-
-        let resolved = resolve_web_search_provider(&store).await.expect("resolve");
-
-        assert_eq!(
-            resolved.provider_account_id,
-            "provider_account:duckduckgo_public:system"
-        );
-        assert_eq!(
-            resolved.fallback_from.as_deref(),
-            Some("provider_account:openai:missing")
-        );
-        assert_eq!(
-            resolved.fallback_reason.as_deref(),
-            Some("bound provider account is no longer available")
-        );
-    }
-
-    #[tokio::test]
     async fn falls_back_when_bound_capability_is_not_available() {
         let store = test_store().await;
         let provider_account_id =

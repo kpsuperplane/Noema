@@ -313,9 +313,11 @@ fn strip_links(text: &str, citations: &[GenerateCitation]) -> (String, Vec<Gener
     }
 
     let citation_start = |start| {
-        (start > 0 && utf16_slice(text, start - 1, start) == Some(" "))
-            .then(|| start - 1)
-            .unwrap_or(start)
+        if start > 0 && utf16_slice(text, start - 1, start) == Some(" ") {
+            start - 1
+        } else {
+            start
+        }
     };
     let mut removals = annotated_ranges
         .iter()

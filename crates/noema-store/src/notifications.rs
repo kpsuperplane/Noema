@@ -149,6 +149,7 @@ impl NoemaStore {
         .await
     }
 
+    #[doc = "Atomically fan one task alert out to eligible destinations.\n\n# Errors\nReturns an error when validation or persistence fails."]
     #[allow(
         clippy::too_many_arguments,
         reason = "task alert fan-out owns both transports"
@@ -185,6 +186,10 @@ impl NoemaStore {
         .await
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one atomic fan-out owns both transports"
+    )]
     async fn queue_notification_fanout_with_route(
         &self,
         owner_human_id: &str,

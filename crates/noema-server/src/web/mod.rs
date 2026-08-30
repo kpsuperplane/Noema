@@ -115,6 +115,20 @@ impl WebState {
     }
 }
 
+pub(super) use router::build_router;
+
+pub(super) async fn bind_listener(config: &WebConfig) -> Result<TcpListener, WebServerError> {
+    let host = authority::parse_bind_ip(&config.host).map_err(WebServerError::Protocol)?;
+    TcpListener::bind((host, config.port))
+        .await
+        .map_err(|source| {
+            WebServerError::Protocol(format!(
+                "failed to bind web UI at {}:{}: {source}",
+                config.host, config.port
+            ))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,18 +163,4 @@ mod tests {
         drop(permits);
         assert!(state.websocket_slot().is_ok());
     }
-}
-
-pub(super) use router::build_router;
-
-pub(super) async fn bind_listener(config: &WebConfig) -> Result<TcpListener, WebServerError> {
-    let host = authority::parse_bind_ip(&config.host).map_err(WebServerError::Protocol)?;
-    TcpListener::bind((host, config.port))
-        .await
-        .map_err(|source| {
-            WebServerError::Protocol(format!(
-                "failed to bind web UI at {}:{}: {source}",
-                config.host, config.port
-            ))
-        })
 }

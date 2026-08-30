@@ -193,13 +193,16 @@ async fn sqlite_provider_accounts_seed_and_list() {
     assert_eq!(updated.metadata, json!({"secretConfigured": true}));
     assert!(updated.last_authenticated_at.is_some());
 
-    assert!(
+    assert_eq!(
         ProviderAccountPersistence::delete_provider_account(
             &store,
             "provider_account:foundation_local:default",
         )
         .await
-        .expect("unreferenced canonical account can be compensated")
+        .expect_err("canonical Foundation account remains referenced"),
+        ProviderPersistenceError::AccountInUse {
+            provider_account_id: "provider_account:foundation_local:default".to_string(),
+        }
     );
 
     store.ensure_default_actors().await.expect("actors");

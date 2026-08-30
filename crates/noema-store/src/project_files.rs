@@ -63,6 +63,10 @@ static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 impl NoemaStore {
     /// Read the current project document.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the project or its document is unavailable.
     pub async fn read_project_document(
         &self,
         project_id: &ProjectId,
@@ -145,7 +149,6 @@ impl NoemaStore {
 
     /// Remove only the destination file created during move preparation.
     pub(crate) fn rollback_project_document_move(
-        &self,
         prepared: ProjectFileMove,
     ) -> Result<(), ProjectFileError> {
         if let Some(path) = prepared.created_path {
@@ -171,7 +174,7 @@ impl NoemaStore {
 pub(crate) fn default_project_document(name: &str, description: &str) -> String {
     let mut content = format!("# {}\n", name.trim());
     if !description.trim().is_empty() {
-        content.push_str("\n");
+        content.push('\n');
         content.push_str(description.trim());
         content.push('\n');
     }

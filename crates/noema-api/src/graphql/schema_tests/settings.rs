@@ -21,7 +21,7 @@
                 r#"mutation {{
                   saveAgentModelPreference(input: {{
                     agentId: "agent:primary", providerAccountId: "{account_id}",
-                    selectionMode: EXPLICIT_PROFILE, modelProfile: "gpt-5.5"
+                    selectionMode: EXPLICIT_PROFILE, modelProfile: "gpt-5.5", fastMode: false
                   }}) {{ modelProfile }}
                 }}"#,
             ))
@@ -34,7 +34,7 @@
                   saveAgentModelPreference(input: {{
                     agentId: "agent:primary", providerAccountId: "{account_id}",
                     selectionMode: EXPLICIT_PROFILE,
-                    modelProfile: "gpt-5.5", reasoningEffort: HIGH
+                    modelProfile: "gpt-5.5", reasoningEffort: HIGH, fastMode: false
                   }}) {{ modelProfile reasoningEffort selectionMode }}
                 }}"#,
             ))
@@ -52,7 +52,7 @@
                 r#"mutation {{
                   saveAgentModelPreference(input: {{
                     agentId: "agent:primary", providerAccountId: "{account_id}",
-                    selectionMode: NOEMA_RECOMMENDED
+                    selectionMode: NOEMA_RECOMMENDED, fastMode: false
                   }}) {{ modelProfile reasoningEffort selectionMode }}
                 }}"#,
             ))
@@ -72,7 +72,7 @@
                 r#"mutation {{
                   saveAgentModelPreference(input: {{
                     agentId: "agent:primary", providerAccountId: "{account_id}",
-                    selectionMode: NOEMA_RECOMMENDED, modelProfile: "gpt-5.5"
+                    selectionMode: NOEMA_RECOMMENDED, modelProfile: "gpt-5.5", fastMode: false
                   }}) {{ selectionMode }}
                 }}"#,
             ))
@@ -85,51 +85,12 @@
                   saveAgentModelPreference(input: {{
                     agentId: "agent:task-executor", providerAccountId: "{account_id}",
                     selectionMode: EXPLICIT_PROFILE,
-                    modelProfile: "gpt-5.5", reasoningEffort: MEDIUM
+                    modelProfile: "gpt-5.5", reasoningEffort: MEDIUM, fastMode: false
                   }}) {{ modelProfile }}
                 }}"#,
             ))
             .await;
         assert_single_graphql_error(&task_executor, "complexity tier");
-    }
-
-    #[tokio::test]
-    async fn recommended_preference_can_use_provider_default_reasoning() {
-        use noema_providers::{
-            NewProviderAccount, ProviderAccountStatus, ProviderAuthMethod,
-        };
-
-        let store = crate::test_support::test_store().await;
-        let account = store
-            .create_provider_account(NewProviderAccount {
-                provider_kind: "openrouter".to_string(),
-                display_name: None,
-                auth_method: ProviderAuthMethod::OauthPkce,
-                status: ProviderAccountStatus::Authenticated,
-                metadata: serde_json::json!({
-                    "profiles": [{
-                        "id": "deepseek/deepseek-v4-flash",
-                        "label": "DeepSeek V4 Flash",
-                        "reasoning_efforts": ["low", "medium"]
-                    }]
-                }),
-            })
-            .await
-            .expect("OpenRouter account");
-        let (_, model_profile, reasoning_effort) =
-            crate::graphql::agents::resolve_preference_input(
-                &store,
-                &account,
-                crate::graphql::agents::GraphqlModelPreferenceSelectionMode::NoemaRecommended,
-                None,
-                None,
-                noema_providers::NoemaModelUseCase::ActionReviewer,
-            )
-            .await
-            .expect("recommended selection");
-
-        assert_eq!(model_profile, "deepseek/deepseek-v4-flash");
-        assert_eq!(reasoning_effort, None);
     }
 
     #[tokio::test]

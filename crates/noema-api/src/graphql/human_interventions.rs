@@ -281,27 +281,27 @@ fn project_adapter_interventions(
                 .next_action
                 .as_ref()
                 .is_some_and(|action| action.kind == "import_application");
-        if needs_import {
-            if let (Some(profile_digest), Some(credential_setup)) = (
+        if needs_import
+            && let (Some(profile_digest), Some(credential_setup)) = (
                 definition.oauth_profile_digest.clone(),
                 definition.credential_setup.clone(),
-            ) {
-                let setup = client_setups
-                    .entry(profile_digest.clone())
-                    .or_insert_with(|| GraphqlAdapterOauthClientSetupIntervention {
-                        profile_digest,
-                        display_name: "OAuth client".to_string(),
-                        credential_setup,
-                        dependent_definitions: Vec::new(),
-                    });
-                setup
-                    .dependent_definitions
-                    .push(GraphqlAdapterOauthClientSetupDependency {
-                        semantic_digest: definition.semantic_digest,
-                        display_name: definition.display_name,
-                    });
-                continue;
-            }
+            )
+        {
+            let setup = client_setups
+                .entry(profile_digest.clone())
+                .or_insert_with(|| GraphqlAdapterOauthClientSetupIntervention {
+                    profile_digest,
+                    display_name: "OAuth client".to_string(),
+                    credential_setup,
+                    dependent_definitions: Vec::new(),
+                });
+            setup
+                .dependent_definitions
+                .push(GraphqlAdapterOauthClientSetupDependency {
+                    semantic_digest: definition.semantic_digest,
+                    display_name: definition.display_name,
+                });
+            continue;
         }
 
         let needs_definition_intervention = !definition.reviewed

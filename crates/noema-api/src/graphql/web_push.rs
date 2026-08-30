@@ -1599,6 +1599,10 @@ impl NotificationCoordinator {
         )
         .await
     }
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one Live Activity delivery forwards its complete APNs event"
+    )]
     async fn queue_live_delivery(
         &self,
         registration: &ClientLiveActivityRegistration,
