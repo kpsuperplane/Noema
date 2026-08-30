@@ -207,10 +207,10 @@ slice or a net-negative reduction.
 
 - All 28 Milestone 3 paths reached reviewer-approved completion.
   The provider-neutral target is now 60/100 Verified.
-- Those paths passed with the earlier Milestone 3 implementation.
 - The dedicated calculator is now bounded Luau.
   Upload source manifests and the hidden HTML validator are removed.
-- The affected calculation and artifact paths need focused live regression tests.
+- The current calculation and artifact paths passed focused live regression.
+  Task `task:18d07a17681adac7353` completed with a reviewed accessible HTML artifact.
 - The return packet received test receipt `M3-0006`.
 - The travel packet corrected one malformed source link before test receipt `M3-0007`.
 - The human waived affected-user review for the controlled accessibility fixture.

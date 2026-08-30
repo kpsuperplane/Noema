@@ -2,6 +2,8 @@
 
 Date: 2026-08-29
 
+Focused regression date: 2026-08-30
+
 Milestone 3 is complete.
 
 This record covers the 28 Tasks in Milestone 3.
@@ -55,8 +57,28 @@ Artifact IDs and immutable version IDs remain available for citations and exact 
 SHA-256 remains an internal local-file integrity check.
 It is no longer part of the new Task upload or agent-facing artifact receipts.
 
-The affected calculation and artifact cases need focused live regression tests.
-The historical results below do not prove the replacement paths.
+The focused live regression passed on 2026-08-30.
+The historical results below remain evidence for the other Milestone 3 paths.
+
+### Current replacement-path evidence
+
+Task `task:18d07a17681adac7353` received a PDF, spreadsheet, email, and image.
+The Task parsed all four files and merged duplicate records into three inventory items.
+
+| Check | Current result |
+| --- | --- |
+| General calculation | `code.run_luau` calculated `79,300` cents and returned `USD 793.00`. |
+| Private file intake | Four Task-owned source artifacts preserved the original bytes and immutable version IDs. |
+| Mixed parsing | PDF, spreadsheet, email, and image parsing completed successfully. |
+| Deduplication | The Task merged matching desk records and retained three physical items. |
+| Source citations | The result cited each source artifact and the precise parser location available for each claim. |
+| Artifact creation | Artifact `artifact:18d07aea10326162663` saved the final HTML document. |
+| Accessibility | Manual checks passed for language, title, main landmark, heading, caption, headers, image alternatives, and link names. |
+| Review | Reviewer run `run:18d07afb344139d285b` approved the result. |
+
+The first live attempts exposed an invalid provider schema for open Luau input.
+Noema now sends that open input schema without strict conversion.
+Planner attempt 5 then completed through the current provider path.
 
 ### Patch size
 
@@ -108,6 +130,9 @@ Other live cases reproduced these results:
 - Training and exam path: `$960`.
 
 No accepted generated number depends only on model arithmetic.
+
+The 2026-08-30 focused regression used `code.run_luau` instead of the removed calculator.
+It reproduced the asset total as `79,300` cents and `USD 793.00`.
 
 ### Source and disclosure preservation
 
@@ -185,6 +210,9 @@ Automated checks passed for the private inventory HTML.
 
 The human waived affected-user review because this artifact belongs to controlled test infrastructure.
 This waiver does not prove usability for an affected user.
+
+The 2026-08-30 replacement artifact also passed deliverable-specific manual checks.
+These checks covered the same semantic document requirements without a hidden global validator.
 
 ## Task evidence
 
@@ -268,6 +296,15 @@ The focused feature and regression tests passed during implementation.
 
 The direct `noema-runtime` unit run passed every Milestone 3 test.
 It also exposed the tool-order regression, which was fixed and retested.
+
+The 2026-08-30 replacement-path validation also passed:
+
+- Three focused `noema-runtime` Luau tests.
+- The focused all-features provider schema test.
+- `cargo check-workspace`.
+- `git diff --check`.
+- The live Planner, Executor, and Reviewer path.
+- The deliverable-specific accessible HTML checks.
 
 Four unrelated runtime tests remain red in the current worktree.
 They cover terminal token timing, a missing provider account fixture, Project event identifiers, and foreground prompt history.
