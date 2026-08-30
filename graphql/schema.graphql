@@ -903,6 +903,14 @@ type ArtifactVersionDetail {
 	"""
 	plainText: String
 	"""
+	HTML content when previewKind is HTML.
+	"""
+	html: String
+	"""
+	Local inline route when previewKind is IMAGE or PDF.
+	"""
+	previewUrl: String
+	"""
 	Local download route when the version is stored in Noema.
 	"""
 	downloadUrl: String
@@ -928,6 +936,18 @@ enum ArtifactVersionPreviewKind {
 	Local plain-text bytes are available as UTF-8 text.
 	"""
 	PLAIN_TEXT
+	"""
+	Local HTML is available for an isolated document preview.
+	"""
+	HTML
+	"""
+	A local raster image is available through the authorized preview route.
+	"""
+	IMAGE
+	"""
+	A local PDF is available through the authorized preview route.
+	"""
+	PDF
 	"""
 	The version exists but this first slice cannot render it inline.
 	"""

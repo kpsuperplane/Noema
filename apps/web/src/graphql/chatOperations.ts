@@ -385,6 +385,8 @@ export const ArtifactVersionDetailDocument = gql`
       previewKind
       markdown
       plainText
+      html
+      previewUrl
       downloadUrl
       externalUrl
       versions {

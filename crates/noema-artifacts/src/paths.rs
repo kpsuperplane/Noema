@@ -106,6 +106,15 @@ pub fn artifact_download_url(artifact_version_id: &str) -> String {
     format!("/artifacts/versions/{slug}/download")
 }
 
+/// Build the local inline-preview route for one artifact version.
+#[must_use]
+pub fn artifact_preview_url(artifact_version_id: &str) -> String {
+    let slug = artifact_version_id
+        .strip_prefix(ARTIFACT_VERSION_ID_PREFIX)
+        .unwrap_or(artifact_version_id);
+    format!("/artifacts/versions/{slug}/preview")
+}
+
 /// Convert a public artifact-version download slug back into a canonical id.
 #[must_use]
 pub fn artifact_version_id_from_download_slug(slug: &str) -> Option<String> {
@@ -182,6 +191,10 @@ mod tests {
         assert_eq!(
             artifact_download_url("artifact_version:18c0aa78b3e7c5e86"),
             "/artifacts/versions/18c0aa78b3e7c5e86/download"
+        );
+        assert_eq!(
+            artifact_preview_url("artifact_version:18c0aa78b3e7c5e86"),
+            "/artifacts/versions/18c0aa78b3e7c5e86/preview"
         );
         assert_eq!(
             artifact_version_id_from_download_slug("18c0aa78b3e7c5e86"),

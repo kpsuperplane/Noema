@@ -8,7 +8,7 @@ import {
   ArtifactVersionDetailDocument,
   type ArtifactVersionDetailQuery
 } from "@/generated/graphql";
-import { artifactDownloadHref } from "@/shared/artifactLinks";
+import { artifactDownloadHref, artifactPreviewHref } from "@/shared/artifactLinks";
 import { ArtifactVersionSelector } from "./ArtifactVersionSelector";
 
 export type ArtifactDetail = NonNullable<ArtifactVersionDetailQuery["artifactVersionDetail"]>;
@@ -74,21 +74,113 @@ export function ArtifactDetailPanel({
         selectedVersion={version}
         onChangeVersion={onChangeVersion}
       />
-      {detail.previewKind === "MARKDOWN" && detail.markdown ? (
-        <MarkdownContent
-          density="default"
-          headingLevelStart={1}
-          xstyle={styles.markdown}
-        >
-          {detail.markdown}
-        </MarkdownContent>
-      ) : detail.previewKind === "PLAIN_TEXT" && detail.plainText !== null ? (
-        <pre {...stylex.props(styles.plainText)}>{detail.plainText}</pre>
-      ) : (
-        <ArtifactUnavailable message="Preview unavailable" />
-      )}
+      <ArtifactPreview detail={detail} />
     </div>
   );
+}
+
+function ArtifactPreview({ detail }: { detail: ArtifactDetail }) {
+  const previewHref = artifactPreviewHref(detail.previewUrl ?? null);
+  if (detail.previewKind === "MARKDOWN" && detail.markdown) {
+    return (
+      <MarkdownContent density="default" headingLevelStart={1} xstyle={styles.markdown}>
+        {detail.markdown}
+      </MarkdownContent>
+    );
+  }
+  if (detail.previewKind === "PLAIN_TEXT" && detail.plainText !== null) {
+    return <pre {...stylex.props(styles.plainText)}>{detail.plainText}</pre>;
+  }
+  if (detail.previewKind === "IMAGE" && previewHref) {
+    return (
+      <img
+        alt={detail.title}
+        loading="lazy"
+        src={previewHref}
+        {...stylex.props(styles.imagePreview)}
+      />
+    );
+  }
+  if (detail.previewKind === "PDF" && previewHref) {
+    return (
+      <iframe
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        src={previewHref}
+        title={`${detail.title} preview`}
+        {...stylex.props(styles.documentFrame)}
+      />
+    );
+  }
+  if (detail.previewKind === "HTML" && detail.html !== null) {
+    return <IsolatedHtmlPreview html={detail.html} title={detail.title} />;
+  }
+  return <ArtifactUnavailable message="Preview unavailable" />;
+}
+
+function IsolatedHtmlPreview({ html, title }: { html: string; title: string }) {
+  const isolatedHtml = React.useMemo(() => isolateHtmlPreview(html), [html]);
+  return (
+    <iframe
+      referrerPolicy="no-referrer"
+      sandbox=""
+      srcDoc={isolatedHtml}
+      title={`${title} preview`}
+      {...stylex.props(styles.documentFrame)}
+    />
+  );
+}
+
+function isolateHtmlPreview(source: string): string {
+  const document = new DOMParser().parseFromString(source, "text/html");
+  for (const element of document.querySelectorAll(
+    "script, iframe, object, embed, form, base, link, template, meta[http-equiv]"
+  )) {
+    element.remove();
+  }
+  for (const element of document.querySelectorAll("*")) {
+    for (const attribute of Array.from(element.attributes)) {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value.trim();
+      if (
+        name.startsWith("on") ||
+        [
+          "href",
+          "xlink:href",
+          "srcset",
+          "srcdoc",
+          "action",
+          "formaction",
+          "poster",
+          "ping",
+          "background"
+        ].includes(name) ||
+        unsafeCss(value)
+      ) {
+        element.removeAttribute(attribute.name);
+        continue;
+      }
+      if (name === "src" && !/^data:image\/(?:png|jpeg|gif|webp|avif);base64,/i.test(value)) {
+        element.removeAttribute(attribute.name);
+        continue;
+      }
+    }
+  }
+  for (const style of document.querySelectorAll("style")) {
+    if (unsafeCss(style.textContent ?? "")) {
+      style.remove();
+    }
+  }
+  const policy = document.createElement("meta");
+  policy.httpEquiv = "Content-Security-Policy";
+  policy.content =
+    "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'";
+  document.head.prepend(policy);
+  return `<!doctype html>${document.documentElement.outerHTML}`;
+}
+
+function unsafeCss(value: string): boolean {
+  return /url\s*\(|@import|expression\s*\(|behavior\s*:/i.test(value);
 }
 
 export function ArtifactDownloadAction({ detail }: { detail: ArtifactDetail | null }) {
@@ -184,6 +276,27 @@ const styles = stylex.create({
     lineHeight: 1.55,
     overflowWrap: "anywhere",
     whiteSpace: "pre-wrap"
+  },
+  imagePreview: {
+    display: "block",
+    width: "100%",
+    maxHeight: "70vh",
+    objectFit: "contain",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--noema-border-subtle)",
+    borderRadius: "var(--radius-element)",
+    backgroundColor: "var(--noema-surface-sunken)"
+  },
+  documentFrame: {
+    display: "block",
+    width: "100%",
+    height: "70vh",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--noema-border-subtle)",
+    borderRadius: "var(--radius-element)",
+    backgroundColor: "var(--noema-surface-card)"
   },
   empty: {
     display: "grid",

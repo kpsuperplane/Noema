@@ -25,8 +25,8 @@ pub use operations::{
     ReadLocalArtifactRequest,
 };
 pub use paths::{
-    artifact_download_url, artifact_version_dir, artifact_version_id_from_download_slug,
-    owner_artifacts_dir, safe_artifact_filename,
+    artifact_download_url, artifact_preview_url, artifact_version_dir,
+    artifact_version_id_from_download_slug, owner_artifacts_dir, safe_artifact_filename,
 };
 pub use ports::{
     ArtifactAppendTarget, ArtifactFuture, ArtifactMetadataStore, ArtifactMetadataStoreHandle,

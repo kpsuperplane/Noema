@@ -28,6 +28,19 @@ async fn email_source_is_available_as_bounded_text() {
     assert!(response.content.as_deref().unwrap().contains("Order 8821"));
 }
 
+#[tokio::test]
+async fn artifact_preview_reuses_bounded_email_parsing() {
+    let response = parse_artifact_preview(
+        b"Subject: Delivery\n\nOrder 8821 delivered.",
+        "delivery.eml",
+        Some("message/rfc822"),
+    )
+    .await;
+    assert_eq!(response.status, FileParseStatus::Converted);
+    assert_eq!(response.content_format.as_deref(), Some("text"));
+    assert!(response.content.as_deref().unwrap().contains("Order 8821"));
+}
+
 #[test]
 fn unsupported_document_has_a_bounded_result() {
     let response = convert_document_bytes(b"not a document", Some("bin"), 1000);

@@ -20,6 +20,21 @@ export function artifactDownloadHref(
   return trustedLocalDownloadHref(downloadUrl);
 }
 
+export function artifactPreviewHref(
+  previewUrl: string | null,
+  options: ArtifactLinkOptions = {}
+): string | null {
+  if (options.isDesktop ?? isTauriRuntime()) {
+    return null;
+  }
+  if (!previewUrl || previewUrl.startsWith("http://") || previewUrl.startsWith("https://")) {
+    return null;
+  }
+  return /^\/artifacts\/versions\/[^/:]+\/preview(?:[?#].*)?$/.test(previewUrl)
+    ? previewUrl
+    : null;
+}
+
 export function resolveArtifactReferenceLink(
   downloadUrl: string | null,
   externalUrl: string | null,

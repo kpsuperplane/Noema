@@ -346,6 +346,38 @@ pub(crate) async fn parse_open_file(
     response_from_worker(display_path, source_bytes, parser, content_format, worker)
 }
 
+/// Parse bounded artifact bytes for an authorized human preview.
+///
+/// This uses the same text and isolated document parsers as the model file tool.
+pub async fn parse_artifact_preview(
+    bytes: &[u8],
+    display_path: &str,
+    media_type: Option<&str>,
+) -> FileParseResponse {
+    let source_bytes = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    let format_hint = format_hint(display_path, media_type);
+    if is_text_format(format_hint.as_deref(), media_type) {
+        return text_response(
+            bytes,
+            display_path,
+            source_bytes,
+            format_hint,
+            HARD_MAX_CHARS,
+            false,
+        );
+    }
+    if source_bytes > MAX_DOCUMENT_BYTES {
+        return failed(display_path, source_bytes, format_hint, "source_too_large");
+    }
+    response_from_worker(
+        display_path,
+        source_bytes,
+        "anydoc",
+        "markdown",
+        run_document_worker(bytes, format_hint.as_deref(), HARD_MAX_CHARS).await,
+    )
+}
+
 fn open_conversation_file(cwd: &str, supplied: &str) -> Result<std::fs::File, String> {
     let relative = normalized_relative_path(supplied)?;
     let root = Dir::open_ambient_dir(cwd, ambient_authority())
@@ -392,7 +424,25 @@ fn parse_text(
         return failed(path, source_bytes, format, "read_failed");
     }
     let source_has_more = source_bytes > bytes.len() as u64;
-    let text = match std::str::from_utf8(&bytes) {
+    text_response(
+        &bytes,
+        path,
+        source_bytes,
+        format,
+        max_chars,
+        source_has_more,
+    )
+}
+
+fn text_response(
+    bytes: &[u8],
+    path: &str,
+    source_bytes: u64,
+    format: Option<String>,
+    max_chars: usize,
+    source_has_more: bool,
+) -> FileParseResponse {
+    let text = match std::str::from_utf8(bytes) {
         Ok(text) => text,
         Err(error) if error.error_len().is_none() && source_has_more => {
             match std::str::from_utf8(&bytes[..error.valid_up_to()]) {

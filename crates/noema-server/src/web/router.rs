@@ -119,6 +119,10 @@ pub(crate) fn build_router(state: WebState) -> Router {
             "/artifacts/versions/{artifact_version_slug}/download",
             get_only!(download_artifact_slug),
         )
+        .route(
+            "/artifacts/versions/{artifact_version_slug}/preview",
+            get_only!(preview_artifact_slug),
+        )
         .route("/favicons/{hostname}", get_only!(favicon))
         .fallback(asset_or_not_found);
     #[cfg(test)]
@@ -574,6 +578,34 @@ async fn download_artifact_slug(
     download_artifact(&state, &principal, &artifact_version_id).await
 }
 
+async fn preview_artifact_slug(
+    State(state): State<WebState>,
+    session_value: Session,
+    principal: Option<Extension<noema_api::RequestPrincipal>>,
+    Path(artifact_version_slug): Path<String>,
+) -> Response {
+    let Some(principal) = authenticated_principal(&state, &session_value, principal).await else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let Some(artifact_version_id) =
+        noema_artifacts::artifact_version_id_from_download_slug(&artifact_version_slug)
+    else {
+        return not_found();
+    };
+    let download = match noema_api::graphql::authorized_artifact_download(
+        &state.graphql_state,
+        &principal,
+        &artifact_version_id,
+    )
+    .await
+    {
+        Ok(Some(download)) => download,
+        Ok(None) => return not_found(),
+        Err(_) => return internal_error(),
+    };
+    artifact_preview_response(download)
+}
+
 async fn download_artifact(
     state: &WebState,
     principal: &noema_api::RequestPrincipal,
@@ -606,6 +638,36 @@ fn artifact_download_response(
     response
         .headers_mut()
         .insert(header::CONTENT_DISPOSITION, content_disposition);
+    response
+}
+
+fn artifact_preview_response(download: noema_api::graphql::AuthorizedArtifactDownload) -> Response {
+    let media_type = download
+        .media_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if !matches!(
+        media_type.as_str(),
+        "application/pdf" | "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "image/avif"
+    ) {
+        return plain_response(StatusCode::UNSUPPORTED_MEDIA_TYPE, "preview unavailable");
+    }
+    let mut response = Body::from(download.bytes).into_response();
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, safe_header_value(&media_type));
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        safe_header_value(&inline_content_disposition(&download.filename)),
+    );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'",
+        ),
+    );
     response
 }
 
@@ -660,6 +722,14 @@ fn safe_header_value(value: &str) -> HeaderValue {
 }
 
 fn attachment_content_disposition(filename: &str) -> String {
+    content_disposition("attachment", filename)
+}
+
+fn inline_content_disposition(filename: &str) -> String {
+    content_disposition("inline", filename)
+}
+
+fn content_disposition(disposition: &str, filename: &str) -> String {
     let escaped = filename
         .chars()
         .map(|character| match character {
@@ -669,7 +739,7 @@ fn attachment_content_disposition(filename: &str) -> String {
             _ => character.to_string(),
         })
         .collect::<String>();
-    format!("attachment; filename=\"{escaped}\"")
+    format!("{disposition}; filename=\"{escaped}\"")
 }
 
 #[cfg(test)]

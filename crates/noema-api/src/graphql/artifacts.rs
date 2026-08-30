@@ -58,6 +58,12 @@ pub enum GraphqlArtifactVersionPreviewKind {
     Markdown,
     /// Local plain-text bytes are available as UTF-8 text.
     PlainText,
+    /// Local HTML is available for an isolated document preview.
+    Html,
+    /// A local raster image is available through the authorized preview route.
+    Image,
+    /// A local PDF is available through the authorized preview route.
+    Pdf,
     /// The version exists but this first slice cannot render it inline.
     Unsupported,
     /// The version points at an external URL.
@@ -88,6 +94,10 @@ pub struct GraphqlArtifactVersionDetail {
     pub markdown: Option<String>,
     /// Literal text content when previewKind is PLAIN_TEXT.
     pub plain_text: Option<String>,
+    /// HTML content when previewKind is HTML.
+    pub html: Option<String>,
+    /// Local inline route when previewKind is IMAGE or PDF.
+    pub preview_url: Option<String>,
     /// Local download route when the version is stored in Noema.
     pub download_url: Option<String>,
     /// External durable URL when the version is externally hosted.
@@ -297,22 +307,43 @@ pub async fn artifact_version_detail(
         .map(graphql_artifact_version_from_store)
         .collect::<Result<Vec<_>>>()?;
 
-    let (preview_kind, markdown, plain_text, download_url, external_url) = match &version.storage {
-        noema_artifacts::ArtifactVersionStorage::ExternalUrl { url } => (
-            GraphqlArtifactVersionPreviewKind::External,
-            None,
-            None,
-            None,
-            Some(url.clone()),
-        ),
-        noema_artifacts::ArtifactVersionStorage::LocalFile { .. } => {
-            let download_url = Some(noema_artifacts::artifact_download_url(
-                &version.artifact_version_id,
-            ));
-            let (preview_kind, markdown, plain_text) =
-                match text_preview_kind(media_type.as_deref()) {
-                    None => (GraphqlArtifactVersionPreviewKind::Unsupported, None, None),
-                    Some(preview_kind) => {
+    let (preview_kind, markdown, plain_text, html, preview_url, download_url, external_url) =
+        match &version.storage {
+            noema_artifacts::ArtifactVersionStorage::ExternalUrl { url } => (
+                GraphqlArtifactVersionPreviewKind::External,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(url.clone()),
+            ),
+            noema_artifacts::ArtifactVersionStorage::LocalFile { .. } => {
+                let download_url = Some(noema_artifacts::artifact_download_url(
+                    &version.artifact_version_id,
+                ));
+                match local_preview_source(media_type.as_deref()) {
+                    LocalPreviewSource::Unsupported => (
+                        GraphqlArtifactVersionPreviewKind::Unsupported,
+                        None,
+                        None,
+                        None,
+                        None,
+                        download_url,
+                        None,
+                    ),
+                    LocalPreviewSource::Route(preview_kind) => (
+                        preview_kind,
+                        None,
+                        None,
+                        None,
+                        Some(noema_artifacts::artifact_preview_url(
+                            &version.artifact_version_id,
+                        )),
+                        download_url,
+                        None,
+                    ),
+                    source => {
                         let file = state
                             .artifact_operations()?
                             .read_local_file(noema_artifacts::ReadLocalArtifactRequest {
@@ -321,28 +352,66 @@ pub async fn artifact_version_detail(
                             })
                             .await
                             .map_err(graphql_error)?;
-                        let content = String::from_utf8(file.bytes).map_err(|error| {
-                            graphql_error(format!(
-                                "artifact text content is not valid UTF-8: {error}"
-                            ))
-                        })?;
-                        match preview_kind {
-                            GraphqlArtifactVersionPreviewKind::Markdown => {
-                                (preview_kind, Some(content), None)
+                        let (preview_kind, content) = match source {
+                            LocalPreviewSource::Direct(preview_kind) => {
+                                let content = String::from_utf8(file.bytes).map_err(|error| {
+                                    graphql_error(format!(
+                                        "artifact text content is not valid UTF-8: {error}"
+                                    ))
+                                })?;
+                                (preview_kind, Some(content))
                             }
-                            GraphqlArtifactVersionPreviewKind::PlainText => {
-                                (preview_kind, None, Some(content))
+                            LocalPreviewSource::Parsed => {
+                                let parsed = noema_runtime::parse_artifact_preview(
+                                    &file.bytes,
+                                    &file.filename,
+                                    media_type.as_deref(),
+                                )
+                                .await;
+                                if parsed.status
+                                    != noema_capabilities::file::FileParseStatus::Converted
+                                {
+                                    (GraphqlArtifactVersionPreviewKind::Unsupported, None)
+                                } else {
+                                    let preview_kind =
+                                        if parsed.content_format.as_deref() == Some("markdown") {
+                                            GraphqlArtifactVersionPreviewKind::Markdown
+                                        } else {
+                                            GraphqlArtifactVersionPreviewKind::PlainText
+                                        };
+                                    (preview_kind, parsed.content)
+                                }
                             }
-                            GraphqlArtifactVersionPreviewKind::Unsupported
+                            LocalPreviewSource::Route(_) | LocalPreviewSource::Unsupported => {
+                                unreachable!(
+                                    "route and unsupported previews return before file reads"
+                                )
+                            }
+                        };
+                        let (markdown, plain_text, html) = match preview_kind {
+                            GraphqlArtifactVersionPreviewKind::Markdown => (content, None, None),
+                            GraphqlArtifactVersionPreviewKind::PlainText => (None, content, None),
+                            GraphqlArtifactVersionPreviewKind::Html => (None, None, content),
+                            GraphqlArtifactVersionPreviewKind::Unsupported => (None, None, None),
+                            GraphqlArtifactVersionPreviewKind::Image
+                            | GraphqlArtifactVersionPreviewKind::Pdf
                             | GraphqlArtifactVersionPreviewKind::External => {
-                                unreachable!("only local text preview kinds reach content decoding")
+                                unreachable!("binary and external previews do not expose text")
                             }
-                        }
+                        };
+                        (
+                            preview_kind,
+                            markdown,
+                            plain_text,
+                            html,
+                            None,
+                            download_url,
+                            None,
+                        )
                     }
-                };
-            (preview_kind, markdown, plain_text, download_url, None)
-        }
-    };
+                }
+            }
+        };
     Ok(Some(GraphqlArtifactVersionDetail {
         artifact_version_id: version.artifact_version_id,
         artifact_id: version.artifact_id,
@@ -354,6 +423,8 @@ pub async fn artifact_version_detail(
         preview_kind,
         markdown,
         plain_text,
+        html,
+        preview_url,
         download_url,
         external_url,
         versions,
@@ -461,17 +532,40 @@ fn graphql_artifact_version_from_store(
     })
 }
 
-fn text_preview_kind(media_type: Option<&str>) -> Option<GraphqlArtifactVersionPreviewKind> {
-    let normalized = media_type?
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LocalPreviewSource {
+    Direct(GraphqlArtifactVersionPreviewKind),
+    Parsed,
+    Route(GraphqlArtifactVersionPreviewKind),
+    Unsupported,
+}
+
+fn local_preview_source(media_type: Option<&str>) -> LocalPreviewSource {
+    let Some(media_type) = media_type else {
+        return LocalPreviewSource::Unsupported;
+    };
+    let normalized = media_type
         .split(';')
         .next()
         .unwrap_or_default()
         .trim()
         .to_ascii_lowercase();
     match normalized.as_str() {
-        "text/markdown" | "text/x-markdown" => Some(GraphqlArtifactVersionPreviewKind::Markdown),
-        "text/plain" => Some(GraphqlArtifactVersionPreviewKind::PlainText),
-        _ => None,
+        "text/markdown" | "text/x-markdown" => {
+            LocalPreviewSource::Direct(GraphqlArtifactVersionPreviewKind::Markdown)
+        }
+        "text/plain" | "message/rfc822" => {
+            LocalPreviewSource::Direct(GraphqlArtifactVersionPreviewKind::PlainText)
+        }
+        "text/html" => LocalPreviewSource::Direct(GraphqlArtifactVersionPreviewKind::Html),
+        "application/pdf" => LocalPreviewSource::Route(GraphqlArtifactVersionPreviewKind::Pdf),
+        "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "image/avif" => {
+            LocalPreviewSource::Route(GraphqlArtifactVersionPreviewKind::Image)
+        }
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        | "application/vnd.ms-excel"
+        | "application/vnd.oasis.opendocument.spreadsheet" => LocalPreviewSource::Parsed,
+        _ => LocalPreviewSource::Unsupported,
     }
 }
 
@@ -479,6 +573,42 @@ fn text_preview_kind(media_type: Option<&str>) -> Option<GraphqlArtifactVersionP
 mod tests {
     use super::*;
     use crate::test_support::TestEnvironment;
+
+    #[test]
+    fn milestone_three_formats_select_safe_preview_paths() {
+        for (media_type, expected) in [
+            (
+                "application/pdf",
+                LocalPreviewSource::Route(GraphqlArtifactVersionPreviewKind::Pdf),
+            ),
+            (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                LocalPreviewSource::Parsed,
+            ),
+            (
+                "message/rfc822",
+                LocalPreviewSource::Direct(GraphqlArtifactVersionPreviewKind::PlainText),
+            ),
+            (
+                "image/png",
+                LocalPreviewSource::Route(GraphqlArtifactVersionPreviewKind::Image),
+            ),
+            (
+                "text/html",
+                LocalPreviewSource::Direct(GraphqlArtifactVersionPreviewKind::Html),
+            ),
+        ] {
+            assert_eq!(
+                local_preview_source(Some(media_type)),
+                expected,
+                "{media_type}"
+            );
+        }
+        assert_eq!(
+            local_preview_source(Some("image/svg+xml")),
+            LocalPreviewSource::Unsupported
+        );
+    }
 
     #[derive(Debug)]
     enum TestArtifactDownloadRepository {

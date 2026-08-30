@@ -745,6 +745,7 @@ async fn private_and_network_endpoints_remain_excluded_from_http_caches() {
         "/auth/status",
         "/auth/recovery",
         "/artifacts/versions/missing/download",
+        "/artifacts/versions/missing/preview",
     ] {
         let (_, headers, _) = request(
             test_router_without_auth().await,
@@ -1240,6 +1241,7 @@ async fn router_preserves_oauth_and_plain_text_not_found_responses() {
         (Method::PUT, "/mcp/oauth/callback"),
         (Method::PUT, "/adapter/oauth/callback"),
         (Method::HEAD, "/artifacts/versions/missing/download"),
+        (Method::HEAD, "/artifacts/versions/missing/preview"),
         (Method::PUT, "/memory"),
     ] {
         let (status, headers, body) =
@@ -1261,6 +1263,34 @@ async fn router_preserves_oauth_and_plain_text_not_found_responses() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert!(body.is_empty());
+}
+
+#[tokio::test]
+async fn artifact_preview_adapter_allows_only_inert_browser_formats() {
+    let response = artifact_preview_response(noema_api::graphql::AuthorizedArtifactDownload {
+        filename: "label.png".to_owned(),
+        media_type: "image/png".to_owned(),
+        bytes: b"png".to_vec(),
+    });
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CONTENT_TYPE], "image/png");
+    assert_eq!(
+        response.headers()[header::CONTENT_DISPOSITION],
+        "inline; filename=\"label.png\""
+    );
+    assert_eq!(
+        response.headers()[header::CONTENT_SECURITY_POLICY],
+        "default-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
+    );
+
+    for media_type in ["image/svg+xml", "text/html"] {
+        let response = artifact_preview_response(noema_api::graphql::AuthorizedArtifactDownload {
+            filename: "unsafe".to_owned(),
+            media_type: media_type.to_owned(),
+            bytes: Vec::new(),
+        });
+        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    }
 }
 
 #[tokio::test]

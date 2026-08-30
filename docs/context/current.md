@@ -100,6 +100,8 @@ slice or a net-negative reduction.
   The sandbox has no file, network, process, module, clock, or random access.
 - Generated artifacts keep their owner, creation scope, and immutable version IDs.
   Task results cite an artifact ID and a precise locator when the artifact supports a claim.
+- Artifact detail previews PDF, spreadsheet, email, raster image, and isolated HTML artifacts.
+  Binary previews use authorized inline routes. SVG remains download-only.
 - Artifact creation does not apply a hidden HTML accessibility gate.
   A Task or standard renderer must own accessibility requirements for its deliverable.
 - File downloads use the same URL policy and action review as fetch and browser

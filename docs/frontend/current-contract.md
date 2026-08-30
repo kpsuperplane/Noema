@@ -170,6 +170,11 @@ A completed Task opens `RESULT.md`; another Task opens `TASK.md`.
 Completion selects `RESULT.md` once when `TASK.md` was open.
 Result previews preserve provider citations.
 
+Artifact detail previews Markdown and plain text directly. It uses the shared
+file parser for supported spreadsheets. Raster images and PDFs use authorized
+inline routes. HTML runs only in a sandbox after Noema removes active elements,
+navigation, event handlers, and external resources. SVG remains download-only.
+
 Task and project documents use one shared Markdown viewer, Milkdown Crepe editor, and inline edit behavior.
 Both use explicit edit, source, save, cancel, loading, error, and stale-reload controls.
 Task creation uses the `/tasks/new` route and the normal Task detail area.
