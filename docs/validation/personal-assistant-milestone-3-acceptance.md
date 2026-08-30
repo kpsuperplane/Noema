@@ -49,6 +49,7 @@ Two changes replaced parts of that implementation on 2026-08-30.
 | --- | --- | --- |
 | `f09efacb` | Replace the dedicated calculator with bounded Luau. | Agents can run general deterministic code over read-only JSON input. |
 | `3216bb1e` | Simplify Task artifact contracts. | Uploads and exports no longer require manual source manifests or hidden HTML checks. |
+| `648a20ba` | Keep artifact digests internal. | Human and agent contracts use immutable version IDs instead of content hashes. |
 
 Artifact IDs and immutable version IDs remain available for citations and exact file selection.
 SHA-256 remains an internal local-file integrity check.

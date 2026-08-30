@@ -4,7 +4,7 @@ Research date: 2026-08-18
 
 Noema assessment date: 2026-08-30
 
-Noema assessment baseline: commit `3216bb1e`, plus the documented Milestone 3 live environment
+Noema assessment baseline: commit `648a20ba`, plus the documented Milestone 3 live environment
 
 ## Executive summary
 
