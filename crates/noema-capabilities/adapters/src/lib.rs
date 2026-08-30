@@ -69,6 +69,7 @@ pub use definition_store::{
     DefinitionScan, DefinitionScanDiagnostic, DefinitionStoreError, StoredAdapterDefinition,
 };
 pub use digest::{OperationDigest, SemanticDigest, SourceDigest};
+pub use luau::{MAX_SANDBOXED_LUAU_SOURCE_BYTES, SandboxedLuauError, run_sandboxed_luau};
 pub use oauth_authority::{
     AuthorizationGrantStatus, AuthorizationGrantV1, ExternalAccountV1,
     OauthApplicationCredentialV1, OauthApplicationStatus, OauthApplicationV1, OauthGrantTokenV1,

@@ -9,7 +9,7 @@ use crate::{
     daemon::{
         agent_name_tool::update_own_name_tool_spec,
         artifact_tool::artifact_create_local_file_tool_spec,
-        calculation_tool::{CALCULATE_TOOL, calculate_tool_spec},
+        luau_tool::{LUAU_RUN_TOOL, luau_run_tool_spec},
         task_artifact_tool::{
             TASK_LIST_ARTIFACTS_TOOL, TASK_PARSE_ARTIFACT_TOOL, TASK_READ_ARTIFACT_TOOL,
             task_list_artifacts_tool_spec, task_parse_artifact_tool_spec,
@@ -288,6 +288,7 @@ fn role_builtin_tool_specs(
     let mut tools = match role {
         ExecutionRole::TaskPlanner => {
             vec![
+                luau_run_tool_spec()?,
                 task_list_artifacts_tool_spec()?,
                 noema_capabilities::file::parse_tool_spec()?,
                 task_finish_planning_tool_spec()?,
@@ -302,7 +303,7 @@ fn role_builtin_tool_specs(
             vec![
                 task_finish_execution_tool_spec(&[])?,
                 task_continue_execution_tool_spec()?,
-                calculate_tool_spec()?,
+                luau_run_tool_spec()?,
                 task_list_artifacts_tool_spec()?,
                 task_parse_artifact_tool_spec()?,
                 task_report_blocked_tool_spec()?,
@@ -318,7 +319,7 @@ fn role_builtin_tool_specs(
         }
         ExecutionRole::TaskReviewer => vec![
             task_finish_review_tool_spec(&[])?,
-            calculate_tool_spec()?,
+            luau_run_tool_spec()?,
             task_list_artifacts_tool_spec()?,
             task_parse_artifact_tool_spec()?,
             task_inspect_tool_spec()?,
@@ -331,6 +332,7 @@ fn role_builtin_tool_specs(
         tools.extend(builtin_tool_specs(include_agent_name_tool)?);
     }
     if role == ExecutionRole::PrimaryConversation {
+        tools.push(luau_run_tool_spec()?);
         tools.push(noema_capabilities::file::download_tool_spec()?);
         tools.push(present_multiple_choice_tool_spec()?);
         tools.push(present_a2ui_tool_spec()?);
@@ -522,7 +524,7 @@ fn builtin_tool_access_class(role: ExecutionRole, name: &str) -> ToolAccessClass
         | TASK_READ_ARTIFACT_TOOL
         | TASK_LIST_ARTIFACTS_TOOL
         | TASK_PARSE_ARTIFACT_TOOL
-        | CALCULATE_TOOL => ToolAccessClass::ReadOnly,
+        | LUAU_RUN_TOOL => ToolAccessClass::ReadOnly,
         noema_capabilities::file::FILE_PARSE_TOOL => ToolAccessClass::ReadOnly,
         noema_capabilities::file::FILE_DOWNLOAD_TOOL => ToolAccessClass::ExternalTool,
         TASK_FILE_WRITE_TOOL | TASK_FILE_DELETE_TOOL => ToolAccessClass::TaskOwnedWrite,

@@ -23,6 +23,24 @@ const OUTPUT_LIMIT: usize = 1024 * 1024;
 const INTERRUPT_LIMIT: u64 = 1_000_000;
 const DEADLINE: Duration = Duration::from_millis(250);
 
+/// Maximum source size accepted by the agent Luau sandbox.
+pub const MAX_SANDBOXED_LUAU_SOURCE_BYTES: usize = 64 * 1024;
+
+/// Safe failure from one agent Luau execution.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("sandboxed Luau execution failed: {message}")]
+pub struct SandboxedLuauError {
+    message: String,
+}
+
+impl SandboxedLuauError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("adapter response transform is invalid")]
 pub(crate) struct LuauError;
@@ -86,6 +104,59 @@ enum SandboxProfile {
     Response,
     Credential,
     RequestAuth,
+    Agent,
+}
+
+/// Run one bounded Luau chunk over read-only JSON input.
+///
+/// The chunk reads the global `input` value and must return one JSON-compatible
+/// value. Empty arrays and objects use `json.array()` and `json.object()`.
+///
+/// # Errors
+///
+/// Returns an error for invalid source, sandbox limits, or a non-JSON result.
+pub fn run_sandboxed_luau(source: &str, input: &Value) -> Result<Value, SandboxedLuauError> {
+    if source.trim().is_empty() {
+        return Err(SandboxedLuauError::new("source is empty"));
+    }
+    if source.len() > MAX_SANDBOXED_LUAU_SOURCE_BYTES {
+        return Err(SandboxedLuauError::new("source exceeds its size limit"));
+    }
+    if !crate::json_limits::validate_json_shape(input) {
+        return Err(SandboxedLuauError::new("input exceeds its JSON limits"));
+    }
+    let (lua, table_kinds) = sandbox(SandboxProfile::Agent)
+        .map_err(|error| SandboxedLuauError::new(error.to_string()))?;
+    let input = json_to_readonly_lua(&lua, input)
+        .map_err(|error| SandboxedLuauError::new(error.to_string()))?;
+    lua.globals()
+        .set("input", input)
+        .map_err(|error| SandboxedLuauError::new(error.to_string()))?;
+    let values = lua
+        .load(source)
+        .set_name("agent_code")
+        .eval::<MultiValue>()
+        .map_err(|error| SandboxedLuauError::new(error.to_string()))?;
+    if values.len() != 1 {
+        return Err(SandboxedLuauError::new(
+            "source must return exactly one value",
+        ));
+    }
+    let output = lua_to_json(
+        values.into_iter().next().expect("one value checked"),
+        &table_kinds,
+        0,
+        &mut 0,
+        &mut BTreeSet::new(),
+    )
+    .map_err(|error| SandboxedLuauError::new(error.to_string()))?;
+    let output_size = serde_json::to_vec(&output)
+        .map_err(|error| SandboxedLuauError::new(error.to_string()))?
+        .len();
+    if output_size > OUTPUT_LIMIT {
+        return Err(SandboxedLuauError::new("output exceeds its size limit"));
+    }
+    Ok(output)
 }
 
 pub(crate) fn normalize_credential(source: &str, input: &Value) -> Result<Value, LuauError> {
@@ -607,6 +678,32 @@ mod tests {
             )
             .is_err()
         );
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn agent_code_reads_json_and_has_no_ambient_authority() {
+        assert_eq!(
+            run_sandboxed_luau(
+                "return { total = input.quantity * input.price, os = os ~= nil, random = math.random ~= nil }",
+                &serde_json::json!({"quantity": 4, "price": 125}),
+            )
+            .expect("agent code"),
+            serde_json::json!({"total": 500, "os": false, "random": false})
+        );
+    }
+
+    #[test]
+    fn agent_code_cannot_mutate_input_or_run_forever() {
+        assert!(
+            run_sandboxed_luau(
+                "input.value = 2 return input",
+                &serde_json::json!({"value": 1})
+            )
+            .is_err()
+        );
+        let started = Instant::now();
+        assert!(run_sandboxed_luau("while true do end", &Value::Null).is_err());
         assert!(started.elapsed() < Duration::from_secs(2));
     }
 
