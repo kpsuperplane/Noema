@@ -392,23 +392,49 @@ Target: 100/100 Verified.
 
 Tasks: 10, 53, 54, 56, 57, 59, 60, 61, 62, 63, 80, 85, 88, and 90.
 
-### Build and extend
+### Audit result
+
+The 2026-08-30 audit found that most single-owner cases should use current general capabilities first.
+
+Projects, Tasks, Repeat history, artifacts, Luau, adapters, browser actions, and action requests cover their main mechanics.
+Earlier milestones already proved private clinical briefs, professional boundaries, exact packets, calculations, uploads, receipts, and changing obligations.
+
+Do not add goal, health-record, medication, referral, claim, caregiver, family, or fairness systems before those paths fail a controlled case.
+
+The certain platform gap is authenticated multi-human authority.
+Production still has one built-in administrator, although workspace membership and membership-based artifact reads already exist.
+
+The complete evidence and per-task decisions are in the [Milestone 5 audit](../validation/personal-assistant-milestone-5-audit.md).
+
+### Immediate focus
 
 | Change | Why it is needed | Task coverage |
 | --- | --- | --- |
-| Add goal outcomes, measures, review history, and links to actual time and Tasks. | Goal review needs evidence of results and effort, not only a project plan. | 10 |
-| Add authorized health-record intake and bounded FHIR or portal connections. | Health tasks need current private clinical records from governed sources. | 53, 54, 56, 57, 59, 60, 61, 63 |
-| Add a source-preserving health record with conflict, consent, and proxy state. | Clinical sources can disagree, and each person needs explicit access authority. | 53, 62, 63 |
-| Add medication, referral, test, result, authorization, appeal, and care-transition records. | These workflows need durable state across providers, deadlines, and handoffs. | 54, 56, 57, 60, 61 |
-| Add pharmacy, provider, insurer, device-event, scheduling, and result operations for active health paths. | Records alone cannot refill, transfer, schedule, monitor, or close care loops. | 54, 56, 57, 60, 61 |
-| Add deterministic health-plan scenario calculations from saved plan and care inputs. | Task 59 needs reproducible premiums, cost sharing, tax effects, and worst-case exposure. | 59 |
-| Add urgent-routing rules that never replace clinical judgment. | Some evidence needs prompt escalation, while Noema must not make clinical decisions. | 54, 57, 61, 63 |
-| Add multiple-human scopes, consent, roles, assignments, and revocation. | Shared work needs explicit authority for each person and a way to withdraw it. | 62, 80, 85, 88, 90 |
-| Add recipient-specific disclosure rules for caregivers, children, travelers, and households. | Authorized access for one relationship does not authorize disclosure to every participant. | 62, 63, 80, 85, 90 |
-| Add shared event, transport, resource, and handoff planning. | Multi-person coordination needs assignments and shared constraints beyond one human's Tasks. | 62, 80, 85, 88 |
-| Add workload evidence and negotiation support without a hidden fairness formula. | Humans need transparent evidence and control over value-based allocation decisions. | 88 |
-| Add family document packets with expiry checks and secure sharing. | Family workflows need current documents delivered only to authorized recipients. | 90 |
-| Add qualified professional review for clinical, legal, tax, and regulated financial decisions. | High-stakes synthesis must stop before it becomes unauthorized professional judgment. | 53, 54, 56, 57, 59, 60, 61 |
+| Test one goal review through current Project, Task, event, and Memory paths. | No live failure justifies a separate goal authority. | 10 |
+| Test one combined private-record case with files, mock portals, conflicts, deadlines, and later status checks. | One case can test the shared record and case path before any health-specific state exists. | 53, 54, 56, 60 |
+| Test health-plan calculations through saved Luau inputs and results. | The calculation system already exists and needs domain acceptance, not another calculator. | 59 |
+| Test source-defined warnings, urgent routes, and professional stop boundaries. | Noema must preserve source rules and request qualified guidance when a rule is absent. | 54, 57, 61, 63 |
+| Test local-coordinator family and group plans with current sources. | Planning quality can be separated from shared application authority. | 61, 80, 85, 88, 90 |
+| Activate one invited human in one shared workspace. | The full milestone cannot pass while every request authenticates as `human:local`. | 62, 63, 80, 85, 88, 90 |
+| Recheck recipient and resource authority before private egress. | Exact action review does not yet prove that another person authorized the disclosure. | 62, 63, 80, 85, 90 |
+
+### Audit disposition of earlier proposals
+
+| Earlier proposal | Audit decision | Task coverage |
+| --- | --- | --- |
+| Add goal outcomes and measures. | Test Project and Task sources first. Add stored fields only after a repeated enforced query needs them. | 10 |
+| Add FHIR and portal connections. | Use reviewed adapters or the browser. Keep provider protocols inside each adapter. | 53, 54, 56, 57, 59, 60, 61, 63 |
+| Add a normalized health record. | Do not build yet. Preserve conflicts and source facts in the current case result and artifacts. | 53, 62, 63 |
+| Add health workflow records. | Do not build yet. Use one Project, Tasks, artifacts, and Repeat history in controlled cases. | 54, 56, 57, 60, 61 |
+| Add health service operations. | Use current adapters and browser actions. Add only missing provider-neutral operation behavior. | 54, 56, 57, 60, 61 |
+| Add a health-plan calculator. | Reuse bounded Luau and saved artifacts. | 59 |
+| Add urgent-routing rules. | Use explicit source thresholds. Request qualified guidance when a required rule is absent. | 54, 57, 61, 63 |
+| Add multi-human authority. | Build one invited-human workspace slice by extending current human and membership authorities. | 62, 80, 85, 88, 90 |
+| Add recipient disclosure policy. | Add one recipient and resource check after the shared-workspace slice proves its required fields. | 62, 63, 80, 85, 90 |
+| Add shared planning state. | Keep roles and handoffs in Project sources until two live paths need enforced shared fields. | 62, 80, 85, 88 |
+| Add workload balancing. | Test transparent evidence. Keep allocation decisions with humans. | 88 |
+| Add family packet state. | Reuse artifacts, Repeat expiry checks, exact action review, and current delivery operations. | 90 |
+| Add qualified professional review. | Reuse explicit Task boundaries and source-recorded review. Do not make Noema certify professionals. | 53, 54, 56, 57, 59, 60, 61 |
 
 ### Required acceptance cases
 
