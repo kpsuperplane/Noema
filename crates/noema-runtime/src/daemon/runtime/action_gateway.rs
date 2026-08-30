@@ -174,6 +174,7 @@ impl RuntimeActor {
                 "ref": request.reference,
                 "role": element.map(|element| element.role.as_str()),
                 "name": element.map(|element| element.name.as_str()),
+                "submission": element.and_then(|element| element.submission.as_ref()),
             },
         }))
     }

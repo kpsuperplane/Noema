@@ -121,6 +121,8 @@ Client import occurs only when a structured API connection action requires it.
 
 Chat presents one pending human intervention at a time with queue navigation.
 Tasks and dedicated queue surfaces can show the complete pending list.
+Browser submission approvals show the declared destination, method, and visible
+submitted values before the decision controls. Hidden, password, and file values remain omitted.
 An agent request to enable a disabled tool uses the existing action request
 card. The primary action says `Enable tool` because approval changes persistent
 tool policy. Chat omits the related internal `enable.*` call and result markers.

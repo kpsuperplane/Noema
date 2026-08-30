@@ -351,6 +351,10 @@ impl RuntimeActor {
 }
 
 fn browser_capability_output(payload: Value) -> CapabilityOutput {
+    if payload.get("state").and_then(Value::as_str) == Some("outcome_uncertain") {
+        return browser_failure_output(WebBrowseError::OutcomeUncertain, false, None)
+            .with_persisted_output_source(payload);
+    }
     if payload.get("screenshot").is_none() {
         return CapabilityOutput::success(payload);
     }
@@ -515,6 +519,25 @@ mod hosted_search_tests {
         assert_eq!(
             output.persisted_output_source()["screenshot"]["data"],
             "cG5n"
+        );
+    }
+
+    #[test]
+    fn structured_http_failure_blocks_as_outcome_uncertain() {
+        let output = browser_capability_output(json!({
+            "state":"outcome_uncertain",
+            "snapshot":{"url":"https://example.com/failed"}
+        }));
+
+        assert!(!output.success);
+        assert_eq!(output.payload["error"], "outcome_uncertain");
+        assert_eq!(
+            output.failure.expect("failure").kind,
+            CapabilityFailureKind::OutcomeUncertain
+        );
+        assert_eq!(
+            output.persisted_output_source()["state"],
+            "outcome_uncertain"
         );
     }
 

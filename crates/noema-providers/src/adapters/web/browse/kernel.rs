@@ -23,7 +23,10 @@ use tokio::{
 
 use crate::web::public_url::validate_public_url as validate_public_url_with_dns;
 
-use super::{map_resulting_url_error, map_url_error, public_display_url, truncate_chars};
+use super::{
+    RawSubmissionContext, map_resulting_url_error, map_url_error, public_display_url,
+    submission_context, truncate_chars,
+};
 
 const KERNEL_API_BASE_URL: &str = "https://api.onkernel.com";
 const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -98,6 +101,8 @@ struct CommandResult {
     element_found: Option<bool>,
     #[serde(default)]
     history_available: Option<bool>,
+    #[serde(default)]
+    main_document_status: Option<u16>,
 }
 
 #[derive(Deserialize)]
@@ -122,6 +127,8 @@ struct RawElement {
     name: String,
     href: Option<String>,
     disabled: bool,
+    #[serde(default)]
+    submission: Option<RawSubmissionContext>,
 }
 
 impl KernelBrowseBackend {
@@ -272,8 +279,16 @@ impl KernelBrowseBackend {
                     };
                 }
                 let snapshot = result.snapshot.ok_or(WebBrowseError::OutcomeUncertain)?;
-                self.finish_snapshot(session, snapshot, MAX_DEFAULT_SNAPSHOT_CHARS)
-                    .await
+                let mut response = self
+                    .finish_snapshot(session, snapshot, MAX_DEFAULT_SNAPSHOT_CHARS)
+                    .await?;
+                if result
+                    .main_document_status
+                    .is_some_and(|status| status >= 500)
+                {
+                    response.state = "outcome_uncertain".to_string();
+                }
+                Ok(response)
             }
             BrowseCommand::Wait(request) => {
                 let value = self
@@ -379,6 +394,7 @@ impl KernelBrowseBackend {
                     name: truncate_chars(element.name, 500).0,
                     href: element.href.and_then(public_display_url),
                     disabled: element.disabled,
+                    submission: submission_context(element.submission),
                 },
             )
             .collect();
@@ -455,8 +471,24 @@ impl KernelBrowseBackend {
             .timeout(COMMAND_TIMEOUT)
             .send()
             .await
-            .map_err(map_request_error)?;
-        let value = response_json(response, WebBrowseError::SessionNotFound).await?;
+            .map_err(|error| {
+                if failure == WebBrowseError::OutcomeUncertain {
+                    WebBrowseError::OutcomeUncertain
+                } else {
+                    map_request_error(error)
+                }
+            })?;
+        let value = response_json(response, WebBrowseError::SessionNotFound)
+            .await
+            .map_err(|error| {
+                if failure == WebBrowseError::OutcomeUncertain
+                    && matches!(error, WebBrowseError::Timeout | WebBrowseError::Unavailable)
+                {
+                    WebBrowseError::OutcomeUncertain
+                } else {
+                    error
+                }
+            })?;
         let execution: ExecutePlaywrightResponse = serde_json::from_value(value.clone())
             .map_err(|_| provider_execution_failure(failure.clone(), "invalid_response", value))?;
         if !execution.success {
@@ -813,15 +845,24 @@ if (!/^e\d{{1,3}}$/.test(reference)) return {{ok:false,element_found:false}};
 const selector = '[data-noema-ref="' + reference.replaceAll('"', '\\"') + '"]';
 const locator = page.locator(selector);
 if (await locator.count() !== 1) return {{ok:false,element_found:false}};
+let mainDocumentStatus = null;
+const recordMainDocument = response => {{
+  const request = response.request();
+  if (request.isNavigationRequest() && request.frame() === page.mainFrame()) mainDocumentStatus = response.status();
+}};
+page.on('response', recordMainDocument);
 try {{
   {operation}
   await page.waitForTimeout({POST_NAVIGATION_SETTLE_MS});
-  {SNAPSHOT_SCRIPT}
 }} catch (_) {{
   return {{ok:false,element_found:true}};
-}}"#,
+}} finally {{
+  page.off('response', recordMainDocument);
+}}
+{snapshot}"#,
         json!(request.reference),
         json!(request.value.as_deref().unwrap_or_default()),
+        snapshot = SNAPSHOT_SCRIPT,
     ))
 }
 
@@ -925,7 +966,33 @@ const collectSnapshot = async () => {
           const ref = `e${index + 1}`;
           element.dataset.noemaRef = ref;
           const name = element.getAttribute('aria-label') || element.innerText || element.value || element.getAttribute('placeholder') || '';
-          return {ref, role: element.getAttribute('role') || element.tagName.toLowerCase(), name: String(name).trim(), href: element.href || null, disabled: Boolean(element.disabled || element.getAttribute('aria-disabled') === 'true')};
+          const form = element.form || (element.closest && element.closest('form'));
+          let submission = null;
+          if (form && !['button', 'reset'].includes(String(element.type || '').toLowerCase())) {
+            const fields = [];
+            let omittedControlCount = 0;
+            for (const control of Array.from(form.elements)) {
+              const fieldName = String(control.name || '');
+              if (!fieldName || control.disabled) continue;
+              const type = String(control.type || '').toLowerCase();
+              if (['hidden', 'password', 'file'].includes(type)) { omittedControlCount += 1; continue; }
+              if (['button', 'reset'].includes(type)) continue;
+              if ((type === 'checkbox' || type === 'radio') && !control.checked) continue;
+              if ((control.tagName === 'BUTTON' || type === 'submit' || type === 'image') && control !== element) continue;
+              const values = control.tagName === 'SELECT' && control.multiple
+                ? Array.from(control.selectedOptions).map(option => option.value)
+                : [control.value];
+              for (const value of values) fields.push({name:fieldName, value:String(value || '')});
+            }
+            submission = {
+              destination: String(element.formAction || form.action || window.location.href),
+              method: String(element.formMethod || form.method || 'get'),
+              fields: fields.slice(0, 64),
+              omitted_control_count: omittedControlCount,
+              truncated: fields.length > 64,
+            };
+          }
+          return {ref, role: element.getAttribute('role') || element.tagName.toLowerCase(), name: String(name).trim(), href: element.href || null, disabled: Boolean(element.disabled || element.getAttribute('aria-disabled') === 'true'), submission};
         });
         return {url: window.location.href, title: String(document.title), text: String(body ? body.innerText : ''), elements, width: Number(window.innerWidth) || 0, height: Number(window.innerHeight) || 0};
       });
@@ -940,7 +1007,7 @@ const collectSnapshot = async () => {
   try { screenshot = (await page.screenshot({type:'png'})).toString('base64'); } catch (_) {}
   return {...snapshot, screenshot};
 };
-return {ok:true,snapshot:await collectSnapshot()};
+return {ok:true,snapshot:await collectSnapshot(),main_document_status:typeof mainDocumentStatus === 'number' ? mainDocumentStatus : null};
 "#;
 
 const MAX_DEFAULT_SNAPSHOT_CHARS: usize = noema_capabilities::web::browse::DEFAULT_SNAPSHOT_CHARS;
@@ -969,6 +1036,9 @@ mod tests {
         .expect("interaction script");
         assert!(script.contains("\\\"; globalThis.pwned = true; //"));
         assert!(!script.contains("const value = \"\"; globalThis"));
+        assert!(script.contains("recordMainDocument"));
+        assert!(script.contains("main_document_status"));
+        assert!(script.contains("'hidden', 'password', 'file'"));
 
         let upload = interaction_script(&BrowseInteractionRequest {
             snapshot_revision: 1,
@@ -1122,5 +1192,134 @@ mod tests {
         assert!(message.contains("[REDACTED]"));
         assert!(!message.contains("remove-me"));
         assert!(!message.contains("kernel-secret"));
+    }
+
+    #[tokio::test]
+    async fn interaction_http_failure_preserves_session_and_review_values() {
+        let page = |submission: bool| {
+            json!({
+                "url": "https://example.com/form",
+                "title": "Transfer",
+                "text": "Transfer form",
+                "elements": if submission { json!([{
+                    "ref": "e1",
+                    "role": "button",
+                    "name": "Submit",
+                    "href": null,
+                    "disabled": false,
+                    "submission": {
+                        "destination": "https://example.com/transfer",
+                        "method": "post",
+                        "fields": [{"name":"amount","value":"125.00"}],
+                        "omitted_control_count": 2,
+                        "truncated": false
+                    }
+                }]) } else { json!([]) },
+                "screenshot": null,
+                "width": 1280,
+                "height": 720
+            })
+        };
+        let (base_url, _requests) = spawn_scripted_server([
+            (200, json!({"session_id": "browser-submit"}).to_string()),
+            (200, json!({"success":true,"result":{"ok":true,"snapshot":page(false)}}).to_string()),
+            (200, json!({"success":true,"result":{"ok":true,"snapshot":page(true),"main_document_status":502}}).to_string()),
+        ])
+        .await;
+        let backend = KernelBrowseBackend::with_base_url("key".to_string(), 1, base_url);
+        let owner = WebBrowseOwner::new("task:submit");
+        backend
+            .execute(
+                &owner,
+                BrowseCommand::Open(BrowseNavigationRequest {
+                    url: "https://example.com/form".to_string(),
+                    reason: None,
+                    wait_until: BrowseWaitUntil::Load,
+                }),
+            )
+            .await
+            .expect("open");
+
+        let response = backend
+            .execute(
+                &owner,
+                BrowseCommand::Interact(BrowseInteractionRequest {
+                    snapshot_revision: 1,
+                    reference: "e1".to_string(),
+                    action: BrowseInteractionAction::Click,
+                    value: None,
+                    artifact_id: None,
+                    artifact_version_id: None,
+                    upload: None,
+                }),
+            )
+            .await
+            .expect("structured uncertain response");
+
+        assert_eq!(response.state, "outcome_uncertain");
+        let snapshot = response.snapshot.expect("snapshot");
+        let submission = snapshot.elements[0]
+            .submission
+            .as_ref()
+            .expect("submission context");
+        assert_eq!(submission.destination, "https://example.com/transfer");
+        assert_eq!(submission.fields[0].value, "125.00");
+        assert_eq!(submission.omitted_control_count, 2);
+        assert!(backend.has_session(&owner).await);
+    }
+
+    #[tokio::test]
+    async fn interaction_control_plane_failure_is_outcome_uncertain() {
+        let snapshot = json!({
+            "url":"https://example.com/form",
+            "title":"Form",
+            "text":"Form",
+            "elements":[],
+            "screenshot":null,
+            "width":1280,
+            "height":720
+        });
+        let (base_url, _requests) = spawn_scripted_server([
+            (200, json!({"session_id":"browser-transport"}).to_string()),
+            (
+                200,
+                json!({"success":true,"result":{"ok":true,"snapshot":snapshot}}).to_string(),
+            ),
+            (503, "{}".to_string()),
+            (204, String::new()),
+        ])
+        .await;
+        let backend = KernelBrowseBackend::with_base_url("key".to_string(), 1, base_url);
+        let owner = WebBrowseOwner::new("task:transport");
+        backend
+            .execute(
+                &owner,
+                BrowseCommand::Open(BrowseNavigationRequest {
+                    url: "https://example.com/form".to_string(),
+                    reason: None,
+                    wait_until: BrowseWaitUntil::Load,
+                }),
+            )
+            .await
+            .expect("open");
+
+        let error = backend
+            .execute(
+                &owner,
+                BrowseCommand::Interact(BrowseInteractionRequest {
+                    snapshot_revision: 1,
+                    reference: "e1".to_string(),
+                    action: BrowseInteractionAction::Click,
+                    value: None,
+                    artifact_id: None,
+                    artifact_version_id: None,
+                    upload: None,
+                }),
+            )
+            .await
+            .expect_err("uncertain interaction");
+
+        assert_eq!(error, WebBrowseError::OutcomeUncertain);
+        assert!(!backend.has_session(&owner).await);
     }
 }

@@ -337,13 +337,13 @@ Do not build bank, airline, or merchant-specific product systems before this sli
 
 ### Immediate focus
 
-| Change | Why it is needed | Task coverage |
-| --- | --- | --- |
-| Bind final submit actions to the current form values and destination. | A button reference does not identify the exact reviewed transaction. | 41, 43, 45, 48, 73, 76, 77, 81, 87 |
-| Convert post-submit transport or HTTP failures into `outcome_uncertain`. | The existing replay guard needs a typed unknown outcome. | 41, 43, 45, 48, 73, 76, 77 |
-| Make the existing Task Reviewer check every explicit requirement. | The Reviewer approved a result that stated it skipped the required status check. | All Milestone 4 Tasks |
-| Resume an active Task browser with `web.browse.snapshot` before opening a URL. | Reopening a POST-generated URL with GET loses form and session state. | All browser Tasks |
-| Rerun bank, flight, and cancellation fixtures after these fixes. | The first generation must reconcile its own result without human correction. | 41, 43, 73, 76, 77 |
+| Change | Why it is needed | Status | Task coverage |
+| --- | --- | --- | --- |
+| Bind final submit actions to the current form values and destination. | A button reference does not identify the exact reviewed transaction. | Implemented. Live retest remains. | 41, 43, 45, 48, 73, 76, 77, 81, 87 |
+| Convert post-submit transport or HTTP failures into `outcome_uncertain`. | The existing replay guard needs a typed unknown outcome. | Implemented. Live retest remains. | 41, 43, 45, 48, 73, 76, 77 |
+| Make the existing Task Reviewer check every explicit requirement. | The Reviewer approved a result that stated it skipped the required status check. | Implemented. Live retest remains. | All Milestone 4 Tasks |
+| Resume an active Task browser with `web.browse.snapshot` before opening a URL. | Reopening a POST-generated URL with GET loses form and session state. | Implemented. Live retest remains. | All browser Tasks |
+| Rerun bank, flight, and cancellation fixtures after these fixes. | The first generation must reconcile its own result without human correction. | Pending. | 41, 43, 73, 76, 77 |
 
 ### Build and extend
 

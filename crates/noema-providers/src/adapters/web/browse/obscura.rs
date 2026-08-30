@@ -24,7 +24,10 @@ use tokio::time::Instant;
 
 use crate::web::public_url::validate_public_url as validate_public_url_with_dns;
 
-use super::{map_resulting_url_error, map_url_error, public_display_url, truncate_chars};
+use super::{
+    RawSubmissionContext, map_resulting_url_error, map_url_error, public_display_url,
+    submission_context, truncate_chars,
+};
 
 const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const POST_NAVIGATION_SETTLE_MS: u64 = 250;
@@ -341,11 +344,17 @@ impl WorkerState {
             BrowseCommand::Snapshot { max_chars } => self.snapshot(max_chars).await,
             BrowseCommand::Interact(request) => {
                 self.require_revision(request.snapshot_revision)?;
-                self.interact(request.reference, request.action, request.value)
+                let main_document_status = self
+                    .interact(request.reference, request.action, request.value)
                     .await?;
                 self.validate_resulting_url().await?;
-                self.snapshot(noema_capabilities::web::browse::DEFAULT_SNAPSHOT_CHARS)
-                    .await
+                let mut response = self
+                    .snapshot(noema_capabilities::web::browse::DEFAULT_SNAPSHOT_CHARS)
+                    .await?;
+                if main_document_status.is_some_and(|status| status >= 500) {
+                    response.state = "outcome_uncertain".to_string();
+                }
+                Ok(response)
             }
             BrowseCommand::Wait(request) => {
                 self.wait(request.text, request.reference, request.timeout_ms)
@@ -425,6 +434,7 @@ impl WorkerState {
                 name: truncate_chars(element.name, 500).0,
                 href: element.href.and_then(public_display_url),
                 disabled: element.disabled,
+                submission: submission_context(element.submission),
             })
             .collect();
         let screenshot = self.screenshot().await;
@@ -466,7 +476,7 @@ impl WorkerState {
         reference: String,
         action: BrowseInteractionAction,
         value: Option<String>,
-    ) -> Result<(), WebBrowseError> {
+    ) -> Result<Option<u16>, WebBrowseError> {
         if action == BrowseInteractionAction::UploadFile {
             return Err(WebBrowseError::Unavailable.with_provider_detail(
                 crate::OBSCURA_BROWSER_PROVIDER_ID,
@@ -474,6 +484,13 @@ impl WorkerState {
                 "file upload requires a later browser provider",
             ));
         }
+        let main_document_request = self
+            .page
+            .network_events
+            .iter()
+            .rev()
+            .find(|event| event.resource_type == "Document")
+            .map(|event| event.request_id.clone());
         let script = interaction_script(&reference, action, value.as_deref());
         let result = self
             .page
@@ -490,7 +507,16 @@ impl WorkerState {
         {
             self.page.settle(POST_NAVIGATION_SETTLE_MS).await;
         }
-        Ok(())
+        Ok(self
+            .page
+            .network_events
+            .iter()
+            .rev()
+            .find(|event| {
+                event.resource_type == "Document"
+                    && Some(&event.request_id) != main_document_request.as_ref()
+            })
+            .map(|event| event.status))
     }
 
     async fn wait(
@@ -573,6 +599,8 @@ struct RawElement {
     name: String,
     href: Option<String>,
     disabled: bool,
+    #[serde(default)]
+    submission: Option<RawSubmissionContext>,
 }
 
 const SNAPSHOT_SCRIPT: &str = r#"(() => {
@@ -584,7 +612,33 @@ const SNAPSHOT_SCRIPT: &str = r#"(() => {
     const ref = `e${index + 1}`;
     element.dataset.noemaRef = ref;
     const name = element.getAttribute('aria-label') || element.innerText || element.value || element.getAttribute('placeholder') || '';
-    return {ref, role: element.getAttribute('role') || element.tagName.toLowerCase(), name: String(name).trim(), href: element.href || null, disabled: Boolean(element.disabled || element.getAttribute('aria-disabled') === 'true')};
+    const form = element.form || (element.closest && element.closest('form'));
+    let submission = null;
+    if (form && !['button', 'reset'].includes(String(element.type || '').toLowerCase())) {
+      const fields = [];
+      let omittedControlCount = 0;
+      for (const control of Array.from(form.elements)) {
+        const fieldName = String(control.name || '');
+        if (!fieldName || control.disabled) continue;
+        const type = String(control.type || '').toLowerCase();
+        if (['hidden', 'password', 'file'].includes(type)) { omittedControlCount += 1; continue; }
+        if (['button', 'reset'].includes(type)) continue;
+        if ((type === 'checkbox' || type === 'radio') && !control.checked) continue;
+        if ((control.tagName === 'BUTTON' || type === 'submit' || type === 'image') && control !== element) continue;
+        const values = control.tagName === 'SELECT' && control.multiple
+          ? Array.from(control.selectedOptions).map(option => option.value)
+          : [control.value];
+        for (const value of values) fields.push({name:fieldName, value:String(value || '')});
+      }
+      submission = {
+        destination: String(element.formAction || form.action || window.location.href),
+        method: String(element.formMethod || form.method || 'get'),
+        fields: fields.slice(0, 64),
+        omitted_control_count: omittedControlCount,
+        truncated: fields.length > 64,
+      };
+    }
+    return {ref, role: element.getAttribute('role') || element.tagName.toLowerCase(), name: String(name).trim(), href: element.href || null, disabled: Boolean(element.disabled || element.getAttribute('aria-disabled') === 'true'), submission};
   });
   return {text: String(body ? body.innerText : ''), elements};
 })()"#;
@@ -717,14 +771,14 @@ mod tests {
             let mut request = [0_u8; 1024];
             let _ = stream.read(&mut request).await;
             stream
-                .write_all(b"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><title>Fixture</title><body><noscript>JavaScript is disabled</noscript><label>Name<input aria-label='Name'></label><label>File<input type='file' aria-label='File'></label><label>Role<select aria-label='Role'><option value='engineer'>Engineer</option><option value='manager'>Manager</option></select></label><button type='button' disabled>Save</button><div role='button' aria-label='Activate' tabindex='0'>Activate</div><script>const input=document.querySelector('input');const select=document.querySelector('select');const button=document.querySelector('button');const activate=document.querySelector('[role=button]');setTimeout(()=>button.disabled=false,1);input.addEventListener('input',event=>input.setAttribute('data-input-trusted',String(event.isTrusted)));input.addEventListener('change',event=>input.setAttribute('data-change-trusted',String(event.isTrusted)));input.addEventListener('keydown',event=>input.setAttribute('data-keydown-trusted',String(event.isTrusted)));input.addEventListener('keyup',event=>input.setAttribute('data-keyup-trusted',String(event.isTrusted)));select.addEventListener('input',event=>select.setAttribute('data-input-trusted',String(event.isTrusted)));select.addEventListener('change',event=>select.setAttribute('data-change-trusted',String(event.isTrusted)));button.addEventListener('click',event=>button.setAttribute('data-click-trusted',String(event.isTrusted)));activate.addEventListener('keydown',event=>{activate.setAttribute('data-key',event.key);if(event.key==='Enter')activate.setAttribute('data-enter','true')});</script></body>")
+                .write_all(b"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><title>Fixture</title><body><noscript>JavaScript is disabled</noscript><label>Name<input aria-label='Name'></label><label>File<input type='file' aria-label='File'></label><label>Role<select aria-label='Role'><option value='engineer'>Engineer</option><option value='manager'>Manager</option></select></label><button type='button' disabled>Save</button><div role='button' aria-label='Activate' tabindex='0'>Activate</div><form action='https://example.com/confirmed' method='post'><input name='amount' value='125.00'><input type='hidden' name='csrf' value='hidden-secret'><input type='password' name='pin' value='password-secret'><button name='confirm' value='yes'>Submit form</button></form><script>const input=document.querySelector('input');const select=document.querySelector('select');const button=document.querySelector('button');const activate=document.querySelector('[role=button]');setTimeout(()=>button.disabled=false,1);input.addEventListener('input',event=>input.setAttribute('data-input-trusted',String(event.isTrusted)));input.addEventListener('change',event=>input.setAttribute('data-change-trusted',String(event.isTrusted)));input.addEventListener('keydown',event=>input.setAttribute('data-keydown-trusted',String(event.isTrusted)));input.addEventListener('keyup',event=>input.setAttribute('data-keyup-trusted',String(event.isTrusted)));select.addEventListener('input',event=>select.setAttribute('data-input-trusted',String(event.isTrusted)));select.addEventListener('change',event=>select.setAttribute('data-change-trusted',String(event.isTrusted)));button.addEventListener('click',event=>button.setAttribute('data-click-trusted',String(event.isTrusted)));activate.addEventListener('keydown',event=>{activate.setAttribute('data-key',event.key);if(event.key==='Enter')activate.setAttribute('data-enter','true')});</script></body>")
                 .await
                 .expect("write fixture");
             drop(stream);
             let (mut stream, _) = listener.accept().await.expect("accept navigation");
             let _ = stream.read(&mut request).await;
             stream
-                .write_all(b"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><title>Confirmed</title>")
+                .write_all(b"HTTP/1.0 502 Bad Gateway\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!doctype html><title>Confirmed</title>")
                 .await
                 .expect("write navigation");
         });
@@ -784,6 +838,20 @@ mod tests {
             .iter()
             .find(|element| element.name == "Activate")
             .expect("role button reference");
+        let submission = snapshot
+            .elements
+            .iter()
+            .find(|element| element.name == "Submit form")
+            .and_then(|element| element.submission.as_ref())
+            .expect("submission context");
+        assert_eq!(submission.method, "POST");
+        assert_eq!(submission.omitted_control_count, 2);
+        assert_eq!(submission.fields[0].value, "125.00");
+        assert!(
+            !serde_json::to_string(submission)
+                .expect("serialize submission")
+                .contains("secret")
+        );
         let request = BrowseInteractionRequest {
             snapshot_revision: snapshot.snapshot_revision,
             reference: input.reference.clone(),
@@ -888,7 +956,7 @@ mod tests {
                 "document.querySelector('[role=button]').addEventListener('keydown',event=>{if(event.key==='Enter')location.assign('/confirmed')})",
                 Duration::from_millis(500),
             );
-        state
+        let status = state
             .interact(
                 activate.reference.clone(),
                 BrowseInteractionAction::PressKey,
@@ -896,6 +964,7 @@ mod tests {
             )
             .await
             .expect("activate navigation");
+        assert_eq!(status, Some(502));
         assert_eq!(state.page.title, "Confirmed");
         state.snapshot(2_000).await.expect("updated snapshot");
         assert_eq!(

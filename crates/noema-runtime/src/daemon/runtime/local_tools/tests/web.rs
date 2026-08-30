@@ -24,6 +24,21 @@ async fn set_browser_snapshot_for_test(
     role: &str,
     name: &str,
 ) {
+    set_browser_snapshot_with_submission_for_test(
+        actor, owner, revision, reference, role, name, None,
+    )
+    .await;
+}
+
+async fn set_browser_snapshot_with_submission_for_test(
+    actor: &RuntimeActor,
+    owner: &str,
+    revision: u64,
+    reference: &str,
+    role: &str,
+    name: &str,
+    submission: Option<noema_capabilities::web::browse::BrowseSubmissionContext>,
+) {
     let route = crate::daemon::runtime::web_tools::resolve_web_browse_route(&actor.store)
         .await
         .expect("browser route");
@@ -34,6 +49,7 @@ async fn set_browser_snapshot_for_test(
         name: name.to_string(),
         href: None,
         disabled: false,
+        submission,
     };
     actor.browser_sessions.set_session(
         owner.to_string(),
@@ -60,6 +76,61 @@ fn browser_public_revisions_do_not_repeat_after_session_removal() {
     assert_eq!(coordinator.next_revision("conversation:revision"), 1);
     coordinator.remove("conversation:revision");
     assert_eq!(coordinator.next_revision("conversation:revision"), 2);
+}
+
+#[tokio::test]
+async fn browser_review_values_stay_out_of_tool_results() {
+    let actor = test_actor().await;
+    let route = crate::daemon::runtime::web_tools::resolve_web_browse_route(&actor.store)
+        .await
+        .expect("browser route");
+    let submission = noema_capabilities::web::browse::BrowseSubmissionContext {
+        destination: "https://example.com/submit".to_string(),
+        method: "POST".to_string(),
+        fields: vec![noema_capabilities::web::browse::BrowseSubmissionField {
+            name: "amount".to_string(),
+            value: "125.00".to_string(),
+        }],
+        omitted_control_count: 0,
+        truncated: false,
+    };
+    let mut response = noema_capabilities::web::browse::BrowseResponse {
+        provider: "obscura".to_string(),
+        state: "open".to_string(),
+        snapshot: Some(noema_capabilities::web::browse::BrowseSnapshot {
+            url: "https://example.com/form".to_string(),
+            title: "Form".to_string(),
+            text: "Form".to_string(),
+            snapshot_revision: 3,
+            elements: vec![noema_capabilities::web::browse::BrowseInteractiveElement {
+                reference: "e1".to_string(),
+                role: "button".to_string(),
+                name: "Submit".to_string(),
+                href: None,
+                disabled: false,
+                submission: Some(submission.clone()),
+            }],
+            truncated: false,
+        }),
+        screenshot: None,
+    };
+    let mut state = crate::daemon::runtime::actor::BrowserSessionState {
+        route,
+        active_position: 0,
+        backend: noema_providers::WebBrowseBackendHandle::obscura(1, 64),
+        last_navigation_url: Some("https://example.com/form".to_string()),
+        public_revision: 0,
+        backend_revision: 0,
+        snapshot: None,
+    };
+
+    super::update_browser_snapshot_authority(&mut state, &mut response, 7);
+
+    assert_eq!(response.snapshot.expect("result snapshot").elements[0].submission, None);
+    assert_eq!(
+        state.snapshot.expect("review snapshot").elements["e1"].submission,
+        Some(submission)
+    );
 }
 
 #[tokio::test]
@@ -260,7 +331,25 @@ async fn browser_approval_persists_page_and_target_review_context() {
     turn.user_item_id = item_id;
     turn.initial_model_tools = test_governed_web_browse_model_tools();
     let owner = super::browse_owner_key_for_turn(&turn);
-    set_browser_snapshot_for_test(&actor, &owner, 3, "e8", "button", "Submit").await;
+    set_browser_snapshot_with_submission_for_test(
+        &actor,
+        &owner,
+        3,
+        "e8",
+        "button",
+        "Submit",
+        Some(noema_capabilities::web::browse::BrowseSubmissionContext {
+            destination: "https://example.com/submit".to_string(),
+            method: "POST".to_string(),
+            fields: vec![noema_capabilities::web::browse::BrowseSubmissionField {
+                name: "amount".to_string(),
+                value: "125.00".to_string(),
+            }],
+            omitted_control_count: 1,
+            truncated: false,
+        }),
+    )
+    .await;
 
     let call = test_tool_call(
         noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
@@ -303,7 +392,18 @@ async fn browser_approval_persists_page_and_target_review_context() {
         json!({
             "kind": "browser_interaction",
             "page": {"url":"https://example.com/form","title":"Newsletter"},
-            "target": {"ref":"e8","role":"button","name":"Submit"}
+            "target": {
+                "ref":"e8",
+                "role":"button",
+                "name":"Submit",
+                "submission": {
+                    "destination":"https://example.com/submit",
+                    "method":"POST",
+                    "fields":[{"name":"amount","value":"125.00"}],
+                    "omitted_control_count":1,
+                    "truncated":false
+                }
+            }
         })
     );
     let resolved = actor

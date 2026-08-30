@@ -1357,16 +1357,20 @@ fn update_browser_snapshot_authority(
     state.backend_revision = snapshot.snapshot_revision;
     state.public_revision = public_revision;
     snapshot.snapshot_revision = public_revision;
+    let elements = snapshot
+        .elements
+        .iter()
+        .cloned()
+        .map(|element| (element.reference.clone(), element))
+        .collect();
+    for element in &mut snapshot.elements {
+        element.submission = None;
+    }
     state.snapshot = Some(BrowserSnapshotContext {
         url: snapshot.url.clone(),
         title: snapshot.title.clone(),
         revision: snapshot.snapshot_revision,
-        elements: snapshot
-            .elements
-            .iter()
-            .cloned()
-            .map(|element| (element.reference.clone(), element))
-            .collect(),
+        elements,
     });
 }
 

@@ -13,6 +13,11 @@ not model-visible. Snapshots expose bounded untrusted page text and bounded
 element references. An interaction or history operation must present the latest
 snapshot revision; a stale revision fails before acting.
 
+The browser also captures a submit control's current visible form values,
+declared method, and declared destination. This context stays outside ordinary
+tool results. Noema uses it only for action review. Password, hidden, and file
+controls are omitted, and the context records their count.
+
 The human configures an ordered provider route. Obscura is the default route.
 The agent can use `switch_provider` when the active provider cannot continue.
 Noema does not classify CAPTCHAs or other access challenges.
@@ -113,9 +118,12 @@ Each capability binding owns its Task checkpoint policy. Reviewed state changes
 require a current checkpoint by default. `switch_provider` changes only the
 ephemeral browser session, so it does not require a Task checkpoint.
 Ownership and revision are revalidated after approval. Worker loss after a
-reused `open` or mutating dispatch has an uncertain outcome and is never replayed.
+reused `open` or mutating dispatch has an uncertain outcome. Noema never replays
+that action. A main-document 5xx response after an interaction also produces
+`outcome_uncertain`. The current snapshot stays available when the provider returned it.
 Each reviewed interaction durably retains bounded page URL/title and target
-reference/role/name context beside its exact arguments. That page-authored
+reference/role/name context beside its exact arguments. A submit target also
+retains the bounded form review context. That page-authored
 context is descriptive, untrusted evidence rather than authorization. Human
 review surfaces show it with the reviewer's authorization, risk, reason codes,
 and explanation. The reviewer also receives trusted runtime facts that state
@@ -147,3 +155,7 @@ failures can also include safe `provider`, `stage`, and `detail` fields. These
 fields remain available to the model, transcript, action result, and diagnostic
 path. Noema does not infer failure meaning from message text. An
 `outcome_uncertain` failure stops automatic continuation and replay.
+
+If `TASK.md` records an active browser session, the Executor snapshots it before
+opening another URL. A missing session permits a new open. This order preserves
+POST results, page state, and filled forms across Task continuations.

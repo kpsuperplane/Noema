@@ -289,7 +289,20 @@ type BrowserActionPreview = {
   value?: string;
   snapshotRevision: number;
   page?: { url: string; title: string };
-  target: { reference: string; role?: string; name?: string };
+  target: {
+    reference: string;
+    role?: string;
+    name?: string;
+    submission?: BrowserSubmissionPreview;
+  };
+};
+
+type BrowserSubmissionPreview = {
+  destination: string;
+  method: string;
+  fields: Array<{ name: string; value: string }>;
+  omittedControlCount: number;
+  truncated: boolean;
 };
 
 function BrowserInteractionDetails({
@@ -319,6 +332,29 @@ function BrowserInteractionDetails({
           <MetadataListItem label={valueLabel}>
             <pre {...stylex.props(styles.previewValue)}>{preview.value}</pre>
           </MetadataListItem>
+        ) : null}
+        {preview.target.submission ? (
+          <>
+            <MetadataListItem label="Submit to">
+              <VStack gap={0.5}>
+                <span {...stylex.props(styles.pageTitle)}>{preview.target.submission.method}</span>
+                <span {...stylex.props(styles.pageUrl)}>{preview.target.submission.destination}</span>
+              </VStack>
+            </MetadataListItem>
+            <MetadataListItem label="Submitted values">
+              <VStack gap={0.5}>
+                <pre {...stylex.props(styles.previewValue)}>
+                  {formatSubmissionFields(preview.target.submission)}
+                </pre>
+                {preview.target.submission.omittedControlCount > 0 ? (
+                  <span>
+                    {preview.target.submission.omittedControlCount} hidden, password, or file values stay in the browser.
+                  </span>
+                ) : null}
+                {preview.target.submission.truncated ? <span>Additional values are not shown.</span> : null}
+              </VStack>
+            </MetadataListItem>
+          </>
         ) : null}
       </MetadataList>
       <details {...stylex.props(styles.details)}>
@@ -350,9 +386,34 @@ function parseBrowserActionPreview(value: unknown): BrowserActionPreview | null 
     target: {
       reference: target.ref,
       role: typeof target.role === "string" ? target.role : undefined,
-      name: typeof target.name === "string" ? target.name : undefined
+      name: typeof target.name === "string" ? target.name : undefined,
+      submission: parseBrowserSubmissionPreview(target.submission)
     }
   };
+}
+
+function parseBrowserSubmissionPreview(value: unknown): BrowserSubmissionPreview | undefined {
+  if (!isRecord(value)) return undefined;
+  if (typeof value.destination !== "string" || typeof value.method !== "string") return undefined;
+  if (!Array.isArray(value.fields) || typeof value.omitted_control_count !== "number") return undefined;
+  const fields = value.fields.flatMap((field) => (
+    isRecord(field) && typeof field.name === "string" && typeof field.value === "string"
+      ? [{ name: field.name, value: field.value }]
+      : []
+  ));
+  if (fields.length !== value.fields.length) return undefined;
+  return {
+    destination: value.destination,
+    method: value.method,
+    fields,
+    omittedControlCount: value.omitted_control_count,
+    truncated: value.truncated === true
+  };
+}
+
+function formatSubmissionFields(submission: BrowserSubmissionPreview) {
+  if (submission.fields.length === 0) return "No visible named values";
+  return submission.fields.map((field) => `${field.name}: ${field.value}`).join("\n");
 }
 
 function browserActionTitle(preview: BrowserActionPreview) {

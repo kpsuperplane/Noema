@@ -142,6 +142,23 @@ pub struct BrowseInteractiveElement {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub href: Option<String>,
     pub disabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submission: Option<BrowseSubmissionContext>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowseSubmissionContext {
+    pub destination: String,
+    pub method: String,
+    pub fields: Vec<BrowseSubmissionField>,
+    pub omitted_control_count: usize,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowseSubmissionField {
+    pub name: String,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Error, PartialEq, Eq)]

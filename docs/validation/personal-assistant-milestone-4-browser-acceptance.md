@@ -173,6 +173,19 @@ This is a test-infrastructure fix only.
 These improvements are independent of banks, airlines, or named providers.
 They apply to purchases, claims, cancellations, returns, applications, and account changes.
 
+## Implementation follow-up
+
+Noema implemented the four shared fixes on 2026-08-30.
+
+- Submit review now binds visible submitted values, method, and declared destination.
+- A post-interaction main-document 5xx response now becomes `outcome_uncertain`.
+- The Reviewer now checks every explicit Task requirement against current evidence.
+- The Executor now snapshots a recorded active browser session before any reopen.
+
+Focused unit acceptance passed for Obscura, Kernel, action review, outcome
+handling, and Task role prompts. This result does not replace the required live
+bank, flight, and cancellation retest.
+
 ## Exit decision
 
 The browser is a viable general transaction executor.

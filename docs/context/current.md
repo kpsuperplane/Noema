@@ -171,6 +171,12 @@ slice or a net-negative reduction.
 - Switch recovery includes the current snapshot revision when one exists.
 - Browser failures retain typed recovery and safe provider diagnostics through
   model results, persistence, governed actions, and diagnostics.
+- Reviewed form actions bind visible submitted values, method, and declared destination.
+  Password, hidden, and file controls stay outside review context.
+- A main-document 5xx response after browser interaction becomes `outcome_uncertain`.
+  A returned uncertain snapshot remains available for reconciliation.
+- A continued Executor snapshots a recorded active browser session before reopening a URL.
+- The Task Reviewer checks every explicit requirement against current evidence.
 - Reviewed browser actions can upload one exact Task artifact.
   The action request binds its Task, artifact version, filename, and byte count.
   The artifact store verifies the file digest internally.
@@ -224,6 +230,8 @@ slice or a net-negative reduction.
   The bank path passed with one receipt and one commit.
 - The flight path avoided replay after HTTP 502, but its first run skipped status reconciliation.
   The Reviewer approved that omission. A human correction recovered `CONFIRMED` with one commit.
+- The four shared browser and review gaps now have focused unit acceptance.
+  Live bank, flight, and cancellation retests remain open.
 - The Milestone 4 evidence record is `docs/validation/personal-assistant-milestone-4-browser-acceptance.md`.
 - Apollo iOS 2.3 code generation and native builds require macOS.
   Linux can validate the authored GraphQL operations against the shared schema.
