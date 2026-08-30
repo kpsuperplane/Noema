@@ -48,8 +48,6 @@ pub struct GraphqlArtifactVersion {
     pub media_type: Option<String>,
     /// Exact byte count when known.
     pub byte_size: Option<i32>,
-    /// SHA-256 of local file bytes when known.
-    pub content_sha256: Option<String>,
 }
 
 /// Preview renderer selected for an artifact version detail panel.
@@ -460,7 +458,6 @@ fn graphql_artifact_version_from_store(
         download_url,
         media_type: version.media_type,
         byte_size,
-        content_sha256: version.content_sha256,
     })
 }
 

@@ -856,10 +856,6 @@ type ArtifactVersion {
 	Exact byte count when known.
 	"""
 	byteSize: Int
-	"""
-	SHA-256 of local file bytes when known.
-	"""
-	contentSha256: String
 }
 
 """
