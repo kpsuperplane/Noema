@@ -93,15 +93,15 @@ slice or a net-negative reduction.
 - TinyFish and Firecrawl provide hosted search and fetch. Firecrawl also has a permanent credential-free account.
 - Hosted web remains the preferred page reader. `file.download` stores public
   non-HTML resources, and `file.parse` returns bounded local content.
-- Humans can upload private source files into Task-owned artifacts.
-  Each upload receipt preserves the source identity, version, owner, disclosure scope, bytes, and SHA-256 value.
+- Humans can upload private files into Task-owned artifacts.
+  The artifact store assigns the owner, immutable version, byte size, and internal integrity digest.
 - `file.parse` returns bounded text from saved email messages and supported raster images.
-- Task Executors can use one exact decimal and date calculator.
-  Saved inputs, operations, scales, and intermediate values make each result reproducible.
-- Generated artifacts require source records.
-  Each source record includes its identity, version, owner, and disclosure scope.
-- Generated HTML artifacts receive seven automated accessibility checks.
-  Affected-user review remains a separate acceptance gate.
+- Agents can run bounded Luau over read-only JSON input.
+  The sandbox has no file, network, process, module, clock, or random access.
+- Generated artifacts keep their owner, creation scope, and immutable version IDs.
+  Task results cite an artifact ID and a precise locator when the artifact supports a claim.
+- Artifact creation does not apply a hidden HTML accessibility gate.
+  A Task or standard renderer must own accessibility requirements for its deliverable.
 - File downloads use the same URL policy and action review as fetch and browser
   open. Primary chats keep a durable working directory.
 - Each model preference owns its speed. Codex and OpenAI support Standard and
@@ -170,7 +170,8 @@ slice or a net-negative reduction.
 - Browser failures retain typed recovery and safe provider diagnostics through
   model results, persistence, governed actions, and diagnostics.
 - Reviewed browser actions can upload one exact Task artifact.
-  The action request binds its Task, artifact version, filename, byte count, and SHA-256 value.
+  The action request binds its Task, artifact version, filename, and byte count.
+  The artifact store verifies the file digest internally.
 - Obscura cannot select local files.
   The current browser route uses Kernel for upload actions and returns `retry_later` when that switch fails.
 - Each capability binding owns its Task checkpoint policy.
@@ -206,7 +207,10 @@ slice or a net-negative reduction.
 
 - All 28 Milestone 3 paths reached reviewer-approved completion.
   The provider-neutral target is now 60/100 Verified.
-- The mixed-file, exact-calculation, source-preserving export, automated accessibility, portal receipt, and unknown-outcome paths passed.
+- Those paths passed with the earlier Milestone 3 implementation.
+- The dedicated calculator is now bounded Luau.
+  Upload source manifests and the hidden HTML validator are removed.
+- The affected calculation and artifact paths need focused live regression tests.
 - The return packet received test receipt `M3-0006`.
 - The travel packet corrected one malformed source link before test receipt `M3-0007`.
 - The human waived affected-user review for the controlled accessibility fixture.

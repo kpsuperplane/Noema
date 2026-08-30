@@ -2,9 +2,9 @@
 
 Research date: 2026-08-18
 
-Noema assessment date: 2026-08-29
+Noema assessment date: 2026-08-30
 
-Noema assessment baseline: commit `7cc47a47`, plus the documented Milestone 3 live environment
+Noema assessment baseline: commit `3216bb1e`, plus the documented Milestone 3 live environment
 
 ## Executive summary
 
@@ -378,10 +378,10 @@ Primary chats and Tasks now have durable working directories.
 Supported documents include PDF, Office, OpenDocument, EPUB, RTF, Excel, CSV, email, raster images, XML, JSON, Markdown, and plain text.
 
 Humans can upload private Task source files.
-Tasks can use image OCR, saved email parsing, exact calculations, source-preserving HTML export, and reviewed browser uploads.
+Tasks can use image OCR, saved email parsing, bounded Luau, local artifact export, and reviewed browser uploads.
 
-Milestone 3 live cases exercise these paths.
-Its remaining human gates prevent promotion of the 28 affected rows.
+Milestone 3 live cases exercised the earlier calculator and artifact paths.
+The bounded Luau and simplified artifact paths need focused live regression tests.
 
 Every row below was reassessed against the current contracts. Each row names the smallest reusable improvement that closes its demonstrated gap.
 
@@ -398,7 +398,7 @@ The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases 
 
 Current retests verify 60 tasks. No task remains in `Test`.
 
-All 28 Milestone 3 rows reached reviewer-approved completion.
+All 28 Milestone 3 rows reached reviewer-approved completion with the earlier implementation.
 The human waived affected-user review for the controlled accessibility fixture.
 
 Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend.

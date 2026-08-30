@@ -39,6 +39,24 @@ This authorization waives affected-user review for the controlled accessibility 
 The slice adds no case, option, application, inventory, or domain-specific record system.
 Task files and artifacts remain the current authorities for these bounded cases.
 
+## Post-acceptance simplification
+
+The 2026-08-29 evidence below records the implementation that ran at that time.
+
+Two changes replaced parts of that implementation on 2026-08-30.
+
+| Commit | Change | Current result |
+| --- | --- | --- |
+| `f09efacb` | Replace the dedicated calculator with bounded Luau. | Agents can run general deterministic code over read-only JSON input. |
+| `3216bb1e` | Simplify Task artifact contracts. | Uploads and exports no longer require manual source manifests or hidden HTML checks. |
+
+Artifact IDs and immutable version IDs remain available for citations and exact file selection.
+SHA-256 remains an internal local-file integrity check.
+It is no longer part of the new Task upload or agent-facing artifact receipts.
+
+The affected calculation and artifact cases need focused live regression tests.
+The historical results below do not prove the replacement paths.
+
 ### Patch size
 
 The implementation changed Rust code against Milestone 2 commit `51f89e2f`.
@@ -257,7 +275,7 @@ The temporary portal service is stopped.
 Its seven receipt records remain under `/var/lib/noema-dev/test-fixtures/milestone-3-portal/`.
 The public test route was removed from Caddy.
 
-## Exit result
+## Historical exit result
 
 - No accepted generated number depends only on model arithmetic.
 - Every uploaded or exported document retains its source, version, owner, and disclosure scope.

@@ -2,7 +2,7 @@
 
 Date: 2026-08-27
 
-Revised: 2026-08-29
+Revised: 2026-08-30
 
 Status: active product and engineering sequence
 
@@ -24,7 +24,9 @@ Acceptance packages should state required behaviors. Noema should use reviewed t
 
 Concrete adapters own provider authentication, pagination, field mapping, and recovery.
 
-Noema owns outcomes, permissions, provenance, source links, action requests, receipts, and restart behavior.
+Noema owns outcomes, permissions, required evidence links, action requests, receipts, and restart behavior.
+
+Noema does not require a manual owner or disclosure manifest for each file.
 
 Noema must not force every provider into one lowest-common-denominator record.
 
@@ -273,9 +275,9 @@ Tasks: 23, 25, 27, 29, 30, 34, 36, 37, 40, 42, 44, 49, 50, 55, 58, 64, 65, 67, 6
 | --- | --- | --- |
 | Add private Task artifact intake. | Public downloads cannot receive private records. Task-owned artifacts already provide the correct authority. | 23, 25, 30, 36, 42, 44, 50, 55, 64, 65, 72, 78, 79, 84, 100 |
 | Add raster OCR and email parsing to the current file parser. | Mixed packets often include images and saved messages. | 25, 36, 42, 49, 65, 84, 86 |
-| Add one exact decimal and date calculator. | Financial and schedule results must be reproducible from saved inputs. | 25, 30, 37, 42, 44, 68, 79, 89, 91 |
-| Preserve exact artifact sources in generated exports and citations. | A deliverable must retain its source version, owner, and disclosure scope. | 23, 25, 27, 29, 36, 42, 50, 55, 64, 89, 100 |
-| Add accessible HTML checks to artifact export. | A readable chat result does not prove a usable exported document. | 23, 25, 29, 37, 42, 89, 100 |
+| Let agents run bounded Luau over read-only JSON. | Calculations and transformations need a general deterministic execution path. | 25, 30, 37, 42, 44, 68, 79, 89, 91 |
+| Keep exact artifact and version IDs in exports and citations. | A result needs stable evidence links without a separate provenance manifest. | 23, 25, 27, 29, 36, 42, 50, 55, 64, 89, 100 |
+| Test accessibility at the requested deliverable boundary. | One hidden HTML gate cannot validate every format, renderer, or user need. | 23, 25, 29, 37, 42, 89, 100 |
 | Upload exact Task artifacts through reviewed browser actions. | Portal work needs controlled file selection and disclosure. | 27, 29, 49, 50, 72, 78, 79, 89, 91 |
 | Reconcile upload receipts after an unknown browser result. | A browser failure must not cause a duplicate submission. | 27, 49, 50, 72, 79, 89, 91 |
 
@@ -285,25 +287,26 @@ The live cases did not require dedicated case, option, application, inventory, o
 
 They also did not require a general spreadsheet generator, map subsystem, or stored accessibility profile.
 
-Task files, Task artifacts, current public research, the exact calculator, and reviewed browser actions covered the bounded paths.
+Task files, Task artifacts, current public research, bounded Luau, and reviewed browser actions cover the bounded paths.
 
 Add a domain system only after a current path cannot continue safely without it.
 
 ### Required acceptance cases
 
 - A mixed PDF, image, spreadsheet, and email packet produces one cited inventory.
-- A calculation case reproduces every total from saved inputs.
-- A generated packet preserves source versions and private disclosure boundaries.
+- A calculation case reproduces every total with saved Luau input and output.
+- A generated packet cites each supporting artifact with an exact artifact ID and locator.
 - A portal upload returns a receipt and survives an unknown browser outcome.
-- An accessible export passes automated checks and review by an affected user.
+- An accessible export passes checks selected for its format and target users.
 
 ### Exit gate
 
-No generated number depends only on model arithmetic.
+No accepted generated number depends only on model arithmetic.
 
-Every uploaded or exported document retains its source, version, owner, and disclosure scope.
+Every cited local document has an exact artifact ID and locator.
 
-Both exit conditions passed on 2026-08-29.
+The earlier Milestone 3 exit conditions passed on 2026-08-29.
+The simplified Luau and artifact paths need focused live regression tests.
 
 The human waived affected-user review for the controlled accessibility fixture.
 This waiver does not prove usability for an affected user.
@@ -421,7 +424,7 @@ An adapter can support a subset. Missing behavior must remain visible and non-ca
 
 Noema must not infer support from a provider name, authentication state, or similar operation name.
 
-Provider-specific fields remain in the source result. Noema stores only required normalized facts, provenance, and bounded references.
+Provider-specific fields remain in the source result. Noema stores only required normalized facts and bounded references.
 
 The current roadmap requires acceptance metadata, not a new Task field or separate runtime resolver.
 
