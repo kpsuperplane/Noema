@@ -319,6 +319,32 @@ Target: 86/100 Verified.
 
 Tasks: 41, 43, 45, 46, 47, 48, 51, 52, 66, 69, 70, 71, 73, 74, 76, 77, 81, 82, 87, 92, 93, 94, 95, 96, 97, and 99.
 
+### Browser acceptance result
+
+The first browser transaction slice ran on 2026-08-30.
+
+The mock bank case passed with one reviewed receipt and no duplicate commit.
+The mock flight case submitted once and avoided replay after HTTP 502.
+
+The flight case did not reconcile status until a human correction reopened the Task.
+The first Reviewer approved the incomplete result.
+A continuation also reopened a POST-generated page with GET and lost its state.
+
+The complete evidence is in the [Milestone 4 browser acceptance package](../validation/personal-assistant-milestone-4-browser-acceptance.md).
+
+Use the browser as the first general transaction system.
+Do not build bank, airline, or merchant-specific product systems before this slice passes.
+
+### Immediate focus
+
+| Change | Why it is needed | Task coverage |
+| --- | --- | --- |
+| Bind final submit actions to the current form values and destination. | A button reference does not identify the exact reviewed transaction. | 41, 43, 45, 48, 73, 76, 77, 81, 87 |
+| Convert post-submit transport or HTTP failures into `outcome_uncertain`. | The existing replay guard needs a typed unknown outcome. | 41, 43, 45, 48, 73, 76, 77 |
+| Make the existing Task Reviewer check every explicit requirement. | The Reviewer approved a result that stated it skipped the required status check. | All Milestone 4 Tasks |
+| Resume an active Task browser with `web.browse.snapshot` before opening a URL. | Reopening a POST-generated URL with GET loses form and session state. | All browser Tasks |
+| Rerun bank, flight, and cancellation fixtures after these fixes. | The first generation must reconcile its own result without human correction. | 41, 43, 73, 76, 77 |
+
 ### Build and extend
 
 | Change | Why it is needed | Task coverage |

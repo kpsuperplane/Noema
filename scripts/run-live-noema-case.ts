@@ -321,7 +321,7 @@ async function delegatedTaskState(options: Options, taskId: string) {
 
 function delegatedTaskReachedBoundary(state: DelegatedTaskState) {
   return state.task === null
-    || state.task.completedAt !== null
+    || state.task.stage.behavior.startsWith("TERMINAL_")
     || state.task.activeGate !== null
     || state.pendingHumanInterventions.length > 0;
 }
