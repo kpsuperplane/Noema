@@ -1128,12 +1128,6 @@ impl RuntimeActor {
             "filename": file.filename,
             "media_type": version.media_type,
             "byte_size": version.byte_size,
-            "content_sha256": version.content_sha256,
-            "sources": artifact.metadata.get("sources"),
-            "source_id": artifact.metadata.get("source_id"),
-            "source_version": artifact.metadata.get("source_version"),
-            "source_owner": artifact.metadata.get("source_owner"),
-            "disclosure_scope": artifact.metadata.get("disclosure_scope"),
         })))
     }
 

@@ -80,7 +80,7 @@ pub(crate) fn task_list_artifacts_tool_spec()
 -> Result<ToolSpec, noema_capabilities::ToolContractError> {
     ToolSpec::new(
         TASK_LIST_ARTIFACTS_TOOL,
-        "List bounded artifact receipts owned by the current Task, including source, version, owner, disclosure, media type, digest, and size metadata.",
+        "List bounded artifacts owned by the current Task, including exact version, media type, and size.",
         json!({"type": "object", "properties": {}, "additionalProperties": false}),
     )
 }
@@ -89,7 +89,7 @@ pub(crate) fn task_parse_artifact_tool_spec()
 -> Result<ToolSpec, noema_capabilities::ToolContractError> {
     ToolSpec::new(
         TASK_PARSE_ARTIFACT_TOOL,
-        "Parse one supported local source artifact owned by the current Task. Preserve the returned artifact and source metadata when citing extracted content.",
+        "Parse one supported local artifact owned by the current Task. Preserve its artifact and version IDs when citing extracted content.",
         json!({
             "type": "object",
             "properties": {
@@ -130,7 +130,6 @@ pub(crate) async fn execute_task_list_artifacts(
                 "version_index": version.version_index,
                 "media_type": version.media_type,
                 "byte_size": version.byte_size,
-                "content_sha256": version.content_sha256,
             })
         }).collect::<Vec<_>>()
     }))
@@ -195,7 +194,6 @@ pub(crate) async fn execute_task_parse_artifact(
         "artifact_kind": artifact.artifact_kind,
         "metadata": artifact.metadata,
         "media_type": version.media_type,
-        "content_sha256": version.content_sha256,
         "parse": parsed,
     }))
 }
@@ -237,7 +235,6 @@ pub(crate) async fn execute_task_read_artifact(
         "metadata": artifact.metadata,
         "version_index": version.version_index,
         "version_metadata": version.metadata,
-        "content_sha256": version.content_sha256,
         "media_type": version.media_type,
         "content": text,
     }))

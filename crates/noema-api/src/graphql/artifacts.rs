@@ -1,7 +1,6 @@
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use noema_artifacts::ArtifactMetadataStore;
-use ring::digest::{SHA256, digest};
 
 use super::{errors::graphql_error, schema::GraphqlState};
 
@@ -157,34 +156,6 @@ pub struct GraphqlCreateTaskLocalArtifactInput {
     pub media_type: String,
     /// Base64 file bytes. The decoded file limit is 40 KiB.
     pub content_base64: String,
-    /// Stable source identifier from the supplied packet.
-    pub source_id: String,
-    /// Exact source version or source date label.
-    pub source_version: String,
-    /// Person or organization that owns the source.
-    pub source_owner: String,
-    /// Intended audience for this source.
-    pub disclosure_scope: String,
-}
-
-/// Receipt for one immutable Task source upload.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "TaskLocalArtifactReceipt")]
-pub struct GraphqlTaskLocalArtifactReceipt {
-    /// Created artifact.
-    pub artifact: GraphqlArtifact,
-    /// Stable source identifier.
-    pub source_id: String,
-    /// Exact source version.
-    pub source_version: String,
-    /// Source owner.
-    pub source_owner: String,
-    /// Intended audience.
-    pub disclosure_scope: String,
-    /// SHA-256 of the received bytes.
-    pub content_sha256: String,
-    /// Received byte count.
-    pub byte_size: i32,
 }
 
 const MAX_TASK_UPLOAD_BYTES: usize = 40 * 1024;
@@ -194,7 +165,7 @@ pub async fn create_task_local_artifact(
     state: &GraphqlState,
     principal_subject: &str,
     input: GraphqlCreateTaskLocalArtifactInput,
-) -> Result<GraphqlTaskLocalArtifactReceipt> {
+) -> Result<GraphqlArtifact> {
     crate::graphql::tasks::require_owner(principal_subject)?;
     let task_id = crate::graphql::tasks::parse_task_id(&input.task_id)?;
     let detail = state
@@ -216,10 +187,6 @@ pub async fn create_task_local_artifact(
     }
     validate_upload_label(&input.title, 160, "title")?;
     validate_upload_label(&input.media_type, 120, "mediaType")?;
-    validate_upload_label(&input.source_id, 200, "sourceId")?;
-    validate_upload_label(&input.source_version, 200, "sourceVersion")?;
-    validate_upload_label(&input.source_owner, 200, "sourceOwner")?;
-    validate_upload_label(&input.disclosure_scope, 200, "disclosureScope")?;
     let filename = noema_artifacts::safe_artifact_filename(&input.filename)
         .map_err(|_| crate::graphql::tasks::invalid_input_error("filename"))?
         .to_string();
@@ -229,21 +196,7 @@ pub async fn create_task_local_artifact(
     if bytes.is_empty() || bytes.len() > MAX_TASK_UPLOAD_BYTES {
         return Err(crate::graphql::tasks::invalid_input_error("contentBase64"));
     }
-    let content_sha256 = digest(&SHA256, &bytes)
-        .as_ref()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    let byte_size = i32::try_from(bytes.len())
-        .map_err(|_| crate::graphql::tasks::invalid_input_error("contentBase64"))?;
     let metadata = serde_json::json!({
-        "source_id": &input.source_id,
-        "source_version": &input.source_version,
-        "source_owner": &input.source_owner,
-        "disclosure_scope": &input.disclosure_scope,
-        "content_sha256": &content_sha256,
-        "byte_size": byte_size,
-        "media_type": &input.media_type,
         "filename": &filename,
     });
     let artifact = state
@@ -262,16 +215,7 @@ pub async fn create_task_local_artifact(
         })
         .await
         .map_err(graphql_error)?;
-    let receipt = GraphqlTaskLocalArtifactReceipt {
-        artifact: graphql_artifact_from_store(artifact)?,
-        source_id: input.source_id,
-        source_version: input.source_version,
-        source_owner: input.source_owner,
-        disclosure_scope: input.disclosure_scope,
-        content_sha256,
-        byte_size,
-    };
-    Ok(receipt)
+    graphql_artifact_from_store(artifact)
 }
 
 fn validate_upload_label(value: &str, max_chars: usize, field: &str) -> Result<()> {

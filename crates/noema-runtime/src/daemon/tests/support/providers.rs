@@ -383,12 +383,6 @@ impl FakeCodexProvider {
                                 "artifact_kind": "note",
                                 "filename": "note.md",
                                 "media_type": "text/markdown",
-                                "sources": [{
-                                    "source_id": "test-user-item",
-                                    "source_version": "1",
-                                    "source_owner": "human:local",
-                                    "disclosure_scope": "this conversation"
-                                }],
                                 "versions": [
                                     {"title": "Draft", "content": "First version"},
                                     {"title": "Final", "content": "Second version"}

@@ -34,7 +34,6 @@ noema-workspaces = { path = "../noema-workspaces", default-features = false }
 ring.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 rmcp = { workspace = true, features = ["server", "transport-io"] }
-scraper.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

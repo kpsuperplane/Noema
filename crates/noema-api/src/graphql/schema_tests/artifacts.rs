@@ -142,7 +142,7 @@
     }
 
     #[tokio::test]
-    async fn inbox_task_upload_preserves_private_source_receipt() {
+    async fn inbox_task_upload_creates_one_task_owned_version() {
         use base64::{Engine as _, engine::general_purpose::STANDARD};
 
         let home = tempfile::TempDir::new().expect("home");
@@ -179,13 +179,9 @@
                     filename: "statement.csv"
                     mediaType: "text/csv"
                     contentBase64: "{content}"
-                    sourceId: "statement-2026-08"
-                    sourceVersion: "download-1"
-                    sourceOwner: "Kevin"
-                    disclosureScope: "private to Kevin and this Task"
                   }}) {{
-                    artifact {{ artifactId ownerObjectType ownerObjectId currentVersion {{ contentSha256 }} }}
-                    sourceId sourceVersion sourceOwner disclosureScope contentSha256 byteSize
+                    artifactId ownerObjectType ownerObjectId
+                    currentVersion {{ artifactVersionId byteSize }}
                   }}
                 }}"#,
                 task["revision"].as_i64().expect("revision"),
@@ -194,17 +190,12 @@
             .await;
         assert!(upload.errors.is_empty(), "{:?}", upload.errors);
         let upload = upload.data.into_json().expect("upload JSON");
-        let receipt = &upload["createTaskLocalArtifact"];
-        assert_eq!(receipt["artifact"]["ownerObjectType"], "task");
-        assert_eq!(receipt["artifact"]["ownerObjectId"], task_id);
-        assert_eq!(receipt["sourceVersion"], "download-1");
-        assert_eq!(receipt["disclosureScope"], "private to Kevin and this Task");
-        assert_eq!(receipt["byteSize"], 26);
-        assert_eq!(
-            receipt["contentSha256"],
-            receipt["artifact"]["currentVersion"]["contentSha256"]
-        );
-        let artifact_id = receipt["artifact"]["artifactId"]
+        let artifact = &upload["createTaskLocalArtifact"];
+        assert_eq!(artifact["ownerObjectType"], "task");
+        assert_eq!(artifact["ownerObjectId"], task_id);
+        assert_eq!(artifact["currentVersion"]["byteSize"], 26);
+        assert!(artifact["currentVersion"]["artifactVersionId"].is_string());
+        let artifact_id = artifact["artifactId"]
             .as_str()
             .expect("artifact ID");
         let stored = store
@@ -212,6 +203,5 @@
             .await
             .expect("artifact read")
             .expect("artifact");
-        assert_eq!(stored.artifact.metadata["source_id"], "statement-2026-08");
-        assert_eq!(stored.artifact.metadata["source_owner"], "Kevin");
+        assert_eq!(stored.artifact.metadata, serde_json::json!({"filename": "statement.csv"}));
     }

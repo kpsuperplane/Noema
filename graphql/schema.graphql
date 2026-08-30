@@ -1492,22 +1492,6 @@ input CreateTaskLocalArtifactInput {
 	Base64 file bytes. The decoded file limit is 40 KiB.
 	"""
 	contentBase64: String!
-	"""
-	Stable source identifier from the supplied packet.
-	"""
-	sourceId: String!
-	"""
-	Exact source version or source date label.
-	"""
-	sourceVersion: String!
-	"""
-	Person or organization that owns the source.
-	"""
-	sourceOwner: String!
-	"""
-	Intended audience for this source.
-	"""
-	disclosureScope: String!
 }
 
 """
@@ -2863,7 +2847,7 @@ type MutationRoot {
 	"""
 	Attach one bounded private source file to an Inbox Task.
 	"""
-	createTaskLocalArtifact(input: CreateTaskLocalArtifactInput!): TaskLocalArtifactReceipt!
+	createTaskLocalArtifact(input: CreateTaskLocalArtifactInput!): Artifact!
 	"""
 	Approve one exact pending adapter definition as the local human.
 	"""
@@ -5020,40 +5004,6 @@ input TaskListInput {
 	Active, terminal, or combined scope.
 	"""
 	scope: TaskScope! = ACTIVE
-}
-
-"""
-Receipt for one immutable Task source upload.
-"""
-type TaskLocalArtifactReceipt {
-	"""
-	Created artifact.
-	"""
-	artifact: Artifact!
-	"""
-	Stable source identifier.
-	"""
-	sourceId: String!
-	"""
-	Exact source version.
-	"""
-	sourceVersion: String!
-	"""
-	Source owner.
-	"""
-	sourceOwner: String!
-	"""
-	Intended audience.
-	"""
-	disclosureScope: String!
-	"""
-	SHA-256 of the received bytes.
-	"""
-	contentSha256: String!
-	"""
-	Received byte count.
-	"""
-	byteSize: Int!
 }
 
 """

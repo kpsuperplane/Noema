@@ -150,7 +150,7 @@ async fn executor_reads_task_owned_artifact_from_prior_run() {
 }
 
 #[tokio::test]
-async fn executor_lists_source_receipts_owned_by_its_task() {
+async fn executor_lists_versions_owned_by_its_task() {
     let fixture = executor_fixture("Executor artifact receipts").await;
     fixture
         .artifact_operations
@@ -164,12 +164,7 @@ async fn executor_lists_source_receipts_owned_by_its_task() {
             media_type: Some("text/csv".to_string()),
             created_by_actor_id: "human:local".to_string(),
             source: ArtifactSource::default(),
-            metadata: json!({
-                "source_id": "statement-2026-08",
-                "source_version": "1",
-                "source_owner": "Kevin",
-                "disclosure_scope": "private to Kevin and this Task"
-            }),
+            metadata: json!({"filename": "statement.csv"}),
         })
         .await
         .expect("create source artifact");
@@ -179,14 +174,12 @@ async fn executor_lists_source_receipts_owned_by_its_task() {
         .expect("list artifacts");
 
     assert_eq!(listed["artifacts"][0]["title"], "Private statement");
-    assert_eq!(
-        listed["artifacts"][0]["metadata"]["disclosure_scope"],
-        "private to Kevin and this Task"
-    );
+    assert_eq!(listed["artifacts"][0]["byte_size"], 26);
+    assert!(listed["artifacts"][0]["artifact_version_id"].is_string());
 }
 
 #[tokio::test]
-async fn executor_parses_csv_artifact_with_source_receipt() {
+async fn executor_parses_csv_artifact() {
     let fixture = executor_fixture("Executor artifact parse").await;
     let artifact = fixture
         .artifact_operations
@@ -200,7 +193,7 @@ async fn executor_parses_csv_artifact_with_source_receipt() {
             media_type: Some("text/csv".to_string()),
             created_by_actor_id: "human:local".to_string(),
             source: ArtifactSource::default(),
-            metadata: json!({"filename": "expenses.csv", "source_version": "1"}),
+            metadata: json!({"filename": "expenses.csv"}),
         })
         .await
         .expect("create CSV artifact");
@@ -214,7 +207,7 @@ async fn executor_parses_csv_artifact_with_source_receipt() {
     .await
     .expect("parse artifact");
 
-    assert_eq!(parsed["metadata"]["source_version"], "1");
+    assert_eq!(parsed["metadata"]["filename"], "expenses.csv");
     assert_eq!(parsed["parse"]["status"], "converted");
     assert_eq!(parsed["parse"]["content"], "item,amount\nTransit,12.50\n");
 }
@@ -284,12 +277,6 @@ async fn create_linked_artifact(
             "artifact_kind": "document",
             "filename": filename,
             "media_type": "text/markdown",
-            "sources": [{
-                "source_id": fixture.read_context.task_id,
-                "source_version": "generation 1",
-                "source_owner": "human:local",
-                "disclosure_scope": "private to this Task"
-            }],
             "versions": contents
                 .iter()
                 .map(|content| json!({"content": content}))

@@ -6,8 +6,7 @@ use noema_artifacts::{
     ArtifactOperationsHandle, ArtifactOwnerRef, ArtifactSource, CreateLocalArtifactRequest,
     artifact_download_url, safe_artifact_filename,
 };
-use scraper::{ElementRef, Html, Selector};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 pub(super) const ARTIFACT_CREATE_LOCAL_FILE_TOOL: &str = "artifact.create_local_file";
@@ -16,11 +15,6 @@ const MAX_ARTIFACT_DESCRIPTION_CHARS: usize = 1_000;
 const MAX_ARTIFACT_KIND_CHARS: usize = 80;
 const MAX_ARTIFACT_VERSIONS: usize = 5;
 const MAX_ARTIFACT_VERSION_CHARS: usize = 200_000;
-const MAX_ARTIFACT_SOURCES: usize = 50;
-const MAX_SOURCE_ID_CHARS: usize = 500;
-const MAX_SOURCE_VERSION_CHARS: usize = 200;
-const MAX_SOURCE_OWNER_CHARS: usize = 160;
-const MAX_DISCLOSURE_SCOPE_CHARS: usize = 500;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ArtifactToolRuntimeContext {
@@ -62,17 +56,7 @@ struct CreateLocalFileArtifactArguments {
     filename: String,
     #[serde(default)]
     media_type: Option<String>,
-    sources: Vec<CreateLocalFileArtifactSourceArguments>,
     versions: Vec<CreateLocalFileArtifactVersionArguments>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct CreateLocalFileArtifactSourceArguments {
-    source_id: String,
-    source_version: String,
-    source_owner: String,
-    disclosure_scope: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,47 +108,6 @@ pub(super) fn artifact_create_local_file_tool_spec() -> Result<ToolSpec, ToolCon
                     "maxLength": 120,
                     "description": "Optional media type such as text/markdown, text/plain, application/json, or text/csv."
                 },
-                "sources": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": MAX_ARTIFACT_SOURCES,
-                    "description": "Exact provider-neutral source records retained with every artifact version.",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "source_id": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": MAX_SOURCE_ID_CHARS,
-                                "pattern": ".*\\S.*",
-                                "description": "Stable source identity, such as an artifact, message, record, file, or URL."
-                            },
-                            "source_version": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": MAX_SOURCE_VERSION_CHARS,
-                                "pattern": ".*\\S.*",
-                                "description": "Exact source version, revision, date, or retrieval cutoff."
-                            },
-                            "source_owner": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": MAX_SOURCE_OWNER_CHARS,
-                                "pattern": ".*\\S.*",
-                                "description": "Person or organization that owns the source."
-                            },
-                            "disclosure_scope": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": MAX_DISCLOSURE_SCOPE_CHARS,
-                                "pattern": ".*\\S.*",
-                                "description": "Audience allowed to receive information from this source."
-                            }
-                        },
-                        "required": ["source_id", "source_version", "source_owner", "disclosure_scope"],
-                        "additionalProperties": false
-                    }
-                },
                 "versions": {
                     "type": "array",
                     "minItems": 1,
@@ -189,7 +132,7 @@ pub(super) fn artifact_create_local_file_tool_spec() -> Result<ToolSpec, ToolCon
                     }
                 }
             },
-            "required": ["title", "artifact_kind", "filename", "sources", "versions"],
+            "required": ["title", "artifact_kind", "filename", "versions"],
             "additionalProperties": false
         }),
     )
@@ -273,37 +216,9 @@ async fn execute_artifact_create_local_file_inner(
             item_id: task.provenance.item_id.clone(),
         },
     );
-    let version_metadata = arguments
-        .versions
-        .iter()
-        .map(|version| {
-            version_metadata(
-                &arguments.sources,
-                arguments.media_type.as_deref(),
-                &arguments.filename,
-                &version.content,
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let accessibility = version_metadata
-        .iter()
-        .enumerate()
-        .filter_map(|(index, metadata)| {
-            metadata.get("accessibility").map(|report| {
-                json!({
-                    "version_index": index + 1,
-                    "report": report,
-                })
-            })
-        })
-        .collect::<Vec<_>>();
-    let mut version_metadata = version_metadata.into_iter();
     let mut versions = arguments.versions.into_iter();
     let first_version = versions.next().ok_or_else(|| {
         ArtifactToolError::InvalidArguments("versions must include at least one item".to_string())
-    })?;
-    version_metadata.next().ok_or_else(|| {
-        ArtifactToolError::InvalidArguments("version metadata is unavailable".to_string())
     })?;
     let owner = task.as_ref().map_or_else(
         || ArtifactOwnerRef::conversation(&context.conversation_id),
@@ -313,8 +228,6 @@ async fn execute_artifact_create_local_file_inner(
         || {
             json!({
                 "created_by_tool": ARTIFACT_CREATE_LOCAL_FILE_TOOL,
-                "sources": arguments.sources,
-                "version_accessibility": accessibility,
             })
         },
         |task| {
@@ -322,8 +235,6 @@ async fn execute_artifact_create_local_file_inner(
                 "created_by_tool": ARTIFACT_CREATE_LOCAL_FILE_TOOL,
                 "task_id": task.task_id,
                 "task_run_id": context.task_run_id,
-                "sources": arguments.sources,
-                "version_accessibility": accessibility,
             })
         },
     );
@@ -343,7 +254,7 @@ async fn execute_artifact_create_local_file_inner(
         .await?;
 
     let artifact_id = artifact.artifact.artifact_id.clone();
-    for (version, metadata) in versions.zip(version_metadata) {
+    for version in versions {
         artifact_operations
             .append_local_file_version(AppendLocalArtifactVersionRequest {
                 artifact_id: artifact_id.clone(),
@@ -353,7 +264,7 @@ async fn execute_artifact_create_local_file_inner(
                 media_type: arguments.media_type.clone(),
                 created_by_actor_id: context.created_by_actor_id.clone(),
                 source: source.clone(),
-                metadata,
+                metadata: json!({}),
             })
             .await?;
     }
@@ -373,8 +284,6 @@ async fn execute_artifact_create_local_file_inner(
         "current_version_index": artifact.current_version.version_index,
         "download_url": artifact_download_url(&artifact.current_version.artifact_version_id),
         "media_type": artifact.current_version.media_type,
-        "sources": artifact.artifact.metadata["sources"],
-        "accessibility": artifact.artifact.metadata["version_accessibility"],
         "versions": artifact.versions.iter().map(|version| {
             json!({
                 "artifact_version_id": version.artifact_version_id,
@@ -382,8 +291,6 @@ async fn execute_artifact_create_local_file_inner(
                 "download_url": artifact_download_url(&version.artifact_version_id),
                 "media_type": version.media_type,
                 "byte_size": version.byte_size,
-                "content_sha256": version.content_sha256,
-                "sources": artifact.artifact.metadata["sources"],
                 "metadata": version.metadata,
             })
         }).collect::<Vec<_>>(),
@@ -414,38 +321,6 @@ fn parse_arguments(payload: &Value) -> Result<CreateLocalFileArtifactArguments, 
         MAX_ARTIFACT_KIND_CHARS,
     )?;
     arguments.media_type = trim_optional(arguments.media_type, "media_type", 120)?;
-    if arguments.sources.is_empty() {
-        return Err(ArtifactToolError::InvalidArguments(
-            "sources must include at least one item".to_string(),
-        ));
-    }
-    if arguments.sources.len() > MAX_ARTIFACT_SOURCES {
-        return Err(ArtifactToolError::InvalidArguments(format!(
-            "sources must include {MAX_ARTIFACT_SOURCES} items or fewer"
-        )));
-    }
-    for source in &mut arguments.sources {
-        source.source_id = trim_required(
-            std::mem::take(&mut source.source_id),
-            "source.source_id",
-            MAX_SOURCE_ID_CHARS,
-        )?;
-        source.source_version = trim_required(
-            std::mem::take(&mut source.source_version),
-            "source.source_version",
-            MAX_SOURCE_VERSION_CHARS,
-        )?;
-        source.source_owner = trim_required(
-            std::mem::take(&mut source.source_owner),
-            "source.source_owner",
-            MAX_SOURCE_OWNER_CHARS,
-        )?;
-        source.disclosure_scope = trim_required(
-            std::mem::take(&mut source.disclosure_scope),
-            "source.disclosure_scope",
-            MAX_DISCLOSURE_SCOPE_CHARS,
-        )?;
-    }
     if arguments.versions.is_empty() {
         return Err(ArtifactToolError::InvalidArguments(
             "versions must include at least one item".to_string(),
@@ -475,114 +350,6 @@ fn parse_arguments(payload: &Value) -> Result<CreateLocalFileArtifactArguments, 
     }
     safe_artifact_filename(&arguments.filename)?;
     Ok(arguments)
-}
-
-fn version_metadata(
-    sources: &[CreateLocalFileArtifactSourceArguments],
-    media_type: Option<&str>,
-    filename: &str,
-    content: &str,
-) -> Result<Value, ArtifactToolError> {
-    let mut metadata = json!({
-        "created_by_tool": ARTIFACT_CREATE_LOCAL_FILE_TOOL,
-        "sources": sources,
-    });
-    let html_media_type = media_type
-        .and_then(|value| value.split(';').next())
-        .is_some_and(|value| {
-            value.trim().eq_ignore_ascii_case("text/html")
-                || value.trim().eq_ignore_ascii_case("application/xhtml+xml")
-        });
-    let html_filename = std::path::Path::new(filename)
-        .extension()
-        .and_then(std::ffi::OsStr::to_str)
-        .is_some_and(|extension| {
-            matches!(
-                extension.to_ascii_lowercase().as_str(),
-                "htm" | "html" | "xhtml"
-            )
-        });
-    if html_media_type || html_filename {
-        metadata["accessibility"] = check_accessible_html(content)?;
-    }
-    Ok(metadata)
-}
-
-fn check_accessible_html(content: &str) -> Result<Value, ArtifactToolError> {
-    let document = Html::parse_document(content);
-    let mut issues = Vec::new();
-    if document
-        .select(&selector("html"))
-        .next()
-        .and_then(|element| element.value().attr("lang"))
-        .is_none_or(|lang| lang.trim().is_empty())
-    {
-        issues.push("the document language is missing");
-    }
-    if !document.select(&selector("title")).any(has_text) {
-        issues.push("the document title is missing");
-    }
-    if document.select(&selector("main")).count() != 1 {
-        issues.push("the document must contain one main landmark");
-    }
-    if document
-        .select(&selector("h1"))
-        .filter(|element| has_text(*element))
-        .count()
-        != 1
-    {
-        issues.push("the document must contain one nonempty h1");
-    }
-    if document
-        .select(&selector("img"))
-        .any(|image| image.value().attr("alt").is_none())
-    {
-        issues.push("each image must have an alt attribute");
-    }
-    let caption = selector("caption");
-    let header = selector("th");
-    if document
-        .select(&selector("table"))
-        .any(|table| !table.select(&caption).any(has_text) || !table.select(&header).any(has_text))
-    {
-        issues.push("each table must have a caption and a nonempty header cell");
-    }
-    if document.select(&selector("a[href]")).any(|link| {
-        !has_text(link)
-            && link
-                .value()
-                .attr("aria-label")
-                .is_none_or(|label| label.trim().is_empty())
-    }) {
-        issues.push("each link must have a text or aria-label name");
-    }
-    if !issues.is_empty() {
-        return Err(ArtifactToolError::InvalidArguments(format!(
-            "HTML accessibility check failed: {}",
-            issues.join("; ")
-        )));
-    }
-    Ok(json!({
-        "standard": "Noema accessible HTML baseline 1",
-        "passed": true,
-        "checks": [
-            "document_language",
-            "document_title",
-            "main_landmark",
-            "single_primary_heading",
-            "image_text_alternatives",
-            "table_structure",
-            "link_names"
-        ]
-    }))
-}
-
-fn selector(value: &str) -> Selector {
-    Selector::parse(value).expect("static accessibility selector")
-}
-
-fn has_text(element: ElementRef<'_>) -> bool {
-    element.text().any(|text| !text.trim().is_empty())
 }
 
 fn reject_nested_outer_fields(payload: &Value) -> Result<(), ArtifactToolError> {
@@ -653,7 +420,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn creates_all_requested_versions_in_conversation_scope() {
+    async fn creates_html_versions_without_a_source_manifest_or_hidden_validator() {
         let store = crate::test_support::test_store().await;
         store.ensure_default_actors().await.expect("actors");
         let conversation = store
@@ -680,17 +447,11 @@ mod tests {
             &json!({
                 "title": "Agent note",
                 "artifact_kind": "document",
-                "filename": "agent-note.md",
-                "media_type": "text/markdown",
-                "sources": [{
-                    "source_id": "item:test",
-                    "source_version": "turn:test",
-                    "source_owner": "human:local",
-                    "disclosure_scope": "this conversation"
-                }],
+                "filename": "agent-note.html",
+                "media_type": "text/html",
                 "versions": [
-                    {"title": "Draft", "content": "version one"},
-                    {"title": "Revision", "content": "version two"}
+                    {"title": "Draft", "content": "<p>version one</p>"},
+                    {"title": "Revision", "content": "<p>version two</p>"}
                 ]
             }),
         )
@@ -699,7 +460,6 @@ mod tests {
         assert!(result.success, "{}", result.payload);
         assert_eq!(result.payload["current_version_index"], 2);
         assert_eq!(result.payload["versions"].as_array().map(Vec::len), Some(2));
-        assert_eq!(result.payload["sources"][0]["source_id"], "item:test");
         let artifacts = store
             .list_artifacts_for_owner(
                 noema_artifacts::ArtifactOwnerRef::conversation(&conversation.conversation_id),
@@ -710,60 +470,9 @@ mod tests {
         assert_eq!(artifacts.len(), 1);
         assert_eq!(artifacts[0].versions.len(), 2);
         assert_eq!(
-            artifacts[0].artifact.metadata["sources"][0]["source_version"],
-            "turn:test"
+            artifacts[0].artifact.metadata["created_by_tool"],
+            ARTIFACT_CREATE_LOCAL_FILE_TOOL
         );
-        assert_eq!(
-            artifacts[0].versions[1].metadata["sources"][0]["source_owner"],
-            "human:local"
-        );
-    }
-
-    #[test]
-    fn source_records_are_required() {
-        let error = parse_arguments(&json!({
-            "title": "No sources",
-            "artifact_kind": "document",
-            "filename": "no-sources.md",
-            "sources": [],
-            "versions": [{"content": "body"}]
-        }))
-        .expect_err("missing sources must fail");
-        assert!(error.to_string().contains("at least one item"));
-    }
-
-    #[test]
-    fn accessible_html_check_rejects_missing_structure() {
-        let error = check_accessible_html("<html><body><img src='x.png'></body></html>")
-            .expect_err("inaccessible HTML must fail");
-        let message = error.to_string();
-        assert!(message.contains("document language"));
-        assert!(message.contains("document title"));
-        assert!(message.contains("main landmark"));
-        assert!(message.contains("alt attribute"));
-    }
-
-    #[test]
-    fn accessible_html_check_returns_a_complete_receipt() {
-        let content = "<!doctype html><html lang='en'><head><title>Move inventory</title></head>\
-             <body><main><h1>Move inventory</h1><img src='desk.png' alt='Desk label'>\
-             <table><caption>Assets</caption><tr><th>Item</th></tr></table>\
-             <a href='sources.html'>Sources</a></main></body></html>";
-        let report = check_accessible_html(content).expect("accessible HTML");
-        assert_eq!(report["passed"], true);
-        assert_eq!(report["checks"].as_array().map(Vec::len), Some(7));
-        let metadata = version_metadata(
-            &[CreateLocalFileArtifactSourceArguments {
-                source_id: "source:1".to_string(),
-                source_version: "1".to_string(),
-                source_owner: "Kevin".to_string(),
-                disclosure_scope: "private".to_string(),
-            }],
-            None,
-            "inventory.html",
-            content,
-        )
-        .expect("filename-routed check");
-        assert_eq!(metadata["accessibility"]["passed"], true);
+        assert_eq!(artifacts[0].versions[1].metadata, json!({}));
     }
 }

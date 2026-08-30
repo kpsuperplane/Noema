@@ -849,7 +849,7 @@ impl MutationRoot {
         &self,
         ctx: &Context<'_>,
         input: artifacts::GraphqlCreateTaskLocalArtifactInput,
-    ) -> Result<artifacts::GraphqlTaskLocalArtifactReceipt> {
+    ) -> Result<artifacts::GraphqlArtifact> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
         artifacts::create_task_local_artifact(state, principal, input).await
