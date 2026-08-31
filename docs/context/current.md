@@ -216,7 +216,7 @@ slice or a net-negative reduction.
 ## Open loops
 
 - All 28 Milestone 3 paths reached reviewer-approved completion.
-  Later acceptance raised the provider-neutral score to 79/100 Verified.
+  Later acceptance raised the provider-neutral score to 80/100 Verified.
 - The dedicated calculator is now bounded Luau.
   Upload source manifests and the hidden HTML validator are removed.
 - The current calculation and artifact paths passed focused live regression.
@@ -246,9 +246,12 @@ slice or a net-negative reduction.
 - All 14 Milestone 5 tasks now pass current controlled main paths.
   Follow-up records closed the four partial paths and ten missing lifecycle checks.
 - The Milestone 5 evidence record is `docs/validation/personal-assistant-milestone-5-audit.md`.
-- The 100-task roadmap now records 79 Verified, 11 Extend, and 10 Build tasks.
-  The remaining 21 tasks need complete operational main paths.
+- The six uncertain Build cases reached reviewer-approved terminal success.
+  Task 96 passed. Tasks 46, 47, 48, 51, and 94 now have Extend gaps.
+- The 100-task roadmap now records 80 Verified, 16 Extend, and 4 Build tasks.
+  The remaining 20 tasks need complete operational main paths.
 - The consolidated follow-up evidence is `docs/validation/personal-assistant-remaining-acceptance-2026-08-31.md`.
+- The uncertain Build evidence is `docs/validation/personal-assistant-uncertain-build-acceptance-2026-08-31.md`.
 - Apollo iOS 2.3 code generation and native builds require macOS.
   Linux can validate the authored GraphQL operations against the shared schema.
 - Live Gmail and Calendar OAuth acceptance still needs interactive Google

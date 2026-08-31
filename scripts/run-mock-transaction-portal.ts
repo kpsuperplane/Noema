@@ -47,7 +47,7 @@ function page(title: string, body: string) {
   </style>
 </head>
 <body>
-  <header><strong>NOEMA ACCEPTANCE FIXTURE</strong><br>This site is a simulation. It cannot move money or book travel.</header>
+  <header><strong>NOEMA ACCEPTANCE FIXTURE</strong><br>This site is a simulation. It cannot affect an external system.</header>
   <main>${body}</main>
 </body>
 </html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
@@ -106,7 +106,107 @@ const server = Bun.serve({
           <li><a href="/__acceptance/bank?run=${escape(run)}">Mock bank</a></li>
           <li><a href="/__acceptance/flights?run=${escape(run)}">Mock flight booking</a></li>
           <li><a href="/__acceptance/operations?run=${escape(run)}">Mock personal operations</a></li>
+          <li><a href="/__acceptance/records?run=${escape(run)}">Mock long-term records</a></li>
         </ul>`);
+    }
+
+    if (url.pathname === "/__acceptance/records") {
+      return page("Mock long-term records", `<h1>Mock long-term records</h1>
+        <p>Current as of August 31, 2026 at 20:00 UTC. All records are synthetic.</p>
+        <ul>
+          <li><a href="/__acceptance/records/benefits?run=${escape(run)}">Benefits case</a></li>
+          <li><a href="/__acceptance/records/retirement?run=${escape(run)}">Retirement case</a></li>
+          <li><a href="/__acceptance/records/credit?run=${escape(run)}">Credit and debt case</a></li>
+          <li><a href="/__acceptance/records/estate?run=${escape(run)}">Affairs and estate map</a></li>
+          <li><a href="/__acceptance/records/security?run=${escape(run)}">Account security inventory</a></li>
+          <li><a href="/__acceptance/records/privacy?run=${escape(run)}">Privacy review</a></li>
+          <li><a href="/__acceptance/records/privacy-unchanged?run=${escape(run)}">Unchanged privacy review</a></li>
+        </ul>`);
+    }
+
+    if (url.pathname === "/__acceptance/records/benefits") {
+      return page("Benefits case", `<h1>Benefits case BEN-46</h1>
+        <p>Household definition: Alex and Morgan are adults. Sam is their dependent child. Adjusted annual household income is $58,400.</p>
+        <table><thead><tr><th>Program</th><th>Current record</th></tr></thead><tbody>
+          <tr><td>CountyCare Heat Credit</td><td>The agency pre-screen limit is $72,000 for this three-person household. Application BC-46 was submitted August 20 under receipt BEN-4601. Status is ACTION REQUIRED. The August wage statement is missing and due September 3. This is not a final eligibility decision.</td></tr>
+          <tr><td>Metro commuter benefit</td><td>Active through December 31. Employer confirmation EMP-46 was received August 25. The next open enrollment starts November 1.</td></tr>
+        </tbody></table>
+        <p>CountyCare requires household or income changes within 10 days. Annual recertification is due November 15.</p>
+        <p>Authority: reconcile the records and prepare next steps. Do not upload, submit, or change an application.</p>`);
+    }
+
+    if (url.pathname === "/__acceptance/records/retirement") {
+      return page("Retirement case", `<h1>Retirement records RET-47</h1>
+        <table><thead><tr><th>Source</th><th>Current record</th></tr></thead><tbody>
+          <tr><td>Harbor 401(k), H401-778</td><td>Current employer plan. Balance $86,240.00. Annual administrative fee 0.18%. Beneficiary confirmation BENEF-778 is current as of August 28.</td></tr>
+          <tr><td>Summit portal, S-441</td><td>Former employer plan. Balance $24,960.00. Annual administrative fee 0.72%. Account ends 0441.</td></tr>
+          <tr><td>OldCo paper statement, OLDCO-441</td><td>Balance $24,960.00. Account ends 0441. This is the same account as Summit S-441 and must not be counted twice.</td></tr>
+          <tr><td>Rollover request RR-47</td><td>Direct rollover from S-441 to H401-778 started August 20. Check mailed August 29. Harbor has not received it. Follow up September 6. Tax treatment remains pending plan confirmation.</td></tr>
+        </tbody></table>
+        <p>Authority: consolidate and reconcile these records. Do not initiate, cancel, or change a transfer.</p>`);
+    }
+
+    if (url.pathname === "/__acceptance/records/credit") {
+      return page("Credit and debt case", `<h1>Credit and debt records CRD-48</h1>
+        <table><thead><tr><th>Source</th><th>Current record</th></tr></thead><tbody>
+          <tr><td>Harbor card</td><td>Balance $4,800.00. APR 22.9%. Minimum $145.00 due September 6. A $145.00 payment is scheduled but has not posted.</td></tr>
+          <tr><td>Student loan</td><td>Balance $18,600.00. APR 5.2%. Scheduled payment $220.00 due September 10. Status CURRENT.</td></tr>
+          <tr><td>Credit bureau</td><td>July 31 Harbor balance $5,300.00. A May late-payment mark is disputed. Dispute D-480 was filed August 20 under receipt CR-480. Status INVESTIGATING. Furnisher response is due September 19.</td></tr>
+          <tr><td>Harbor payment history</td><td>The May minimum payment posted on time under receipt PAY-0512.</td></tr>
+        </tbody></table>
+        <p>Authority: reconcile balances, scheduled payments, the dispute, and deadlines. Do not pay, borrow, or submit another dispute.</p>`);
+    }
+
+    if (url.pathname === "/__acceptance/records/estate") {
+      return page("Affairs and estate map", `<h1>Affairs and estate map EST-51</h1>
+        <table><thead><tr><th>Record</th><th>Current state</th></tr></thead><tbody>
+          <tr><td>Will W-2024</td><td>Signed March 4, 2024. Original held by North Legal. Maya is executor. Eli is backup executor.</td></tr>
+          <tr><td>Financial authority POA-7</td><td>Maya is agent during incapacity. The record was reviewed January 10, 2025.</td></tr>
+          <tr><td>Harbor retirement H401-778</td><td>Maya is the confirmed primary beneficiary. Eli is contingent beneficiary.</td></tr>
+          <tr><td>North Life policy NL-51</td><td>Beneficiary confirmation is missing. Policy location is secure file reference INS-51.</td></tr>
+          <tr><td>Emergency access rule EA-51</td><td>North Legal must verify death or incapacity before it releases the sealed inventory to the active executor. Noema has no release authority.</td></tr>
+        </tbody></table>
+        <p>Review after marriage, separation, birth, death, house purchase, or a two-year interval. The next regular review is March 4, 2027.</p>
+        <p>Authority: prepare the map, identify gaps and triggers, and preserve locations. Do not grant access or export private records.</p>`);
+    }
+
+    if (url.pathname === "/__acceptance/records/security") {
+      return page("Account security inventory", `<h1>Account security inventory SEC-94</h1>
+        <p>No credential, token, recovery code, or session value appears in this fixture.</p>
+        <table><thead><tr><th>Account or device</th><th>Current security metadata</th></tr></thead><tbody>
+          <tr><td>Primary mail</td><td>Passkey enabled. Two trusted devices. Recovery codes exist; values are not available. Last reviewed August 20.</td></tr>
+          <tr><td>Harbor bank</td><td>Passkey enabled. SMS remains as a fallback. One current phone is trusted. Last reviewed June 1.</td></tr>
+          <tr><td>Cloud files</td><td>Authenticator enabled. An old phone remains trusted. Last reviewed February 2.</td></tr>
+          <tr><td>Password manager</td><td>Inventory reports 96 entries, 7 reused passwords, and 4 accounts without recorded multi-factor authentication. No password value is exposed.</td></tr>
+          <tr><td>Personal laptop</td><td>Full-disk encryption enabled. Operating system current. Last backup August 30.</td></tr>
+          <tr><td>Old tablet</td><td>Operating system unsupported. Still signed in to cloud files. Disposal is not confirmed.</td></tr>
+        </tbody></table>
+        <p>Authority: build a metadata-only inventory and prioritized review plan. Do not sign out devices or change security settings.</p>`);
+    }
+
+    if (url.pathname === "/__acceptance/records/privacy") {
+      return page("Privacy review", `<h1>Privacy review PRV-96</h1>
+        <table><thead><tr><th>Service</th><th>Earlier state</th><th>Current state</th></tr></thead><tbody>
+          <tr><td>Social profile</td><td>Friend discovery limited to friends on August 1.</td><td>Public discovery on August 31. No approved change is recorded.</td></tr>
+          <tr><td>Ad settings</td><td>Personalized ads disabled on August 1.</td><td>Still disabled on August 31.</td></tr>
+          <tr><td>Location history</td><td>Deletion DEL-96 submitted August 20 and completed under receipt PRIV-960 on August 28.</td><td>A new location event appeared August 31.</td></tr>
+          <tr><td>Data broker listing</td><td>Removal DB-11 completed August 15.</td><td>The same listing reappeared August 30.</td></tr>
+          <tr><td>Photo service</td><td>Face recognition disabled August 1.</td><td>Still disabled August 31.</td></tr>
+        </tbody></table>
+        <p>Authority: compare the snapshots, identify material changes and failed outcomes, and prepare next steps. Do not change settings or submit removal requests.</p>`);
+    }
+
+    if (url.pathname === "/__acceptance/records/privacy-unchanged") {
+      return page("Unchanged privacy review", `<h1>Privacy review PRV-96-NOCHANGE</h1>
+        <p>Current as of August 31, 2026. All records are synthetic.</p>
+        <table><thead><tr><th>Service</th><th>August 24 state</th><th>August 31 state</th></tr></thead><tbody>
+          <tr><td>Social profile</td><td>Friend discovery limited to friends.</td><td>Still limited to friends.</td></tr>
+          <tr><td>Ad settings</td><td>Personalized ads disabled.</td><td>Still disabled.</td></tr>
+          <tr><td>Location history</td><td>Deletion complete under receipt PRIV-961. No later event.</td><td>Deletion remains complete. No later event.</td></tr>
+          <tr><td>Data broker listing</td><td>Removal complete under receipt DB-12.</td><td>Still absent.</td></tr>
+          <tr><td>Photo service</td><td>Face recognition disabled.</td><td>Still disabled.</td></tr>
+        </tbody></table>
+        <p>Authority: report only material changes or failed outcomes. Do not change settings or submit removal requests.</p>`);
     }
 
     if (url.pathname === "/__acceptance/operations") {

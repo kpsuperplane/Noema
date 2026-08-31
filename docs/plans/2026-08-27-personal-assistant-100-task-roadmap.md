@@ -63,15 +63,15 @@ High-stakes tasks need a domain-specific safety case and a qualified-review boun
 
 | Status | Count |
 | --- | ---: |
-| Verified | 79 |
+| Verified | 80 |
 | Test | 0 |
-| Extend | 11 |
-| Build | 10 |
+| Extend | 16 |
+| Build | 4 |
 | Total | 100 |
 
 Tasks 1 through 45 are verified.
 
-Tasks 49, 50, 53 through 65, 67, 68, 72, 75, 77 through 80, 83 through 86, 88 through 91, 95, 98, and 100 are also verified.
+Tasks 49, 50, 53 through 65, 67, 68, 72, 75, 77 through 80, 83 through 86, 88 through 91, 95, 96, 98, and 100 are also verified.
 
 The first live suite produced five passes, eight partial results, and one failure.
 
@@ -85,7 +85,7 @@ All Milestone 3 main paths now pass in one provider setup.
 
 All Milestone 5 main paths now pass in controlled provider-neutral cases.
 
-The remaining 21 tasks are Milestone 4 operational paths.
+The remaining 20 tasks are Milestone 4 operational paths.
 
 The human waived second-provider portability for Milestone 1 on 2026-08-29.
 
@@ -321,9 +321,9 @@ The complete evidence is in the [Milestone 3 acceptance package](../validation/p
 
 Target: 100/100 Verified after the already completed Milestone 5 paths.
 
-Current: 79/100 Verified.
+Current: 80/100 Verified.
 
-Remaining tasks: 46, 47, 48, 51, 52, 66, 69, 70, 71, 73, 74, 76, 81, 82, 87, 92, 93, 94, 96, 97, and 99.
+Remaining tasks: 46, 47, 48, 51, 52, 66, 69, 70, 71, 73, 74, 76, 81, 82, 87, 92, 93, 94, 97, and 99.
 
 ### Browser acceptance result
 
@@ -346,6 +346,18 @@ The dated evidence is in the [remaining acceptance package](../validation/person
 
 The complete evidence is in the [Milestone 4 browser acceptance package](../validation/personal-assistant-milestone-4-browser-acceptance.md).
 
+The six uncertain Build cases ran on August 31.
+
+All six Tasks reached reviewer-approved terminal success without an external action.
+
+Task 96 passed the complete read-only monitoring contract and moved to Verified.
+
+Tasks 46, 47, 48, 51, and 94 moved to Extend.
+
+Their core paths work, but their remaining lifecycle or action evidence is incomplete.
+
+The dated evidence is in the [uncertain Build acceptance package](../validation/personal-assistant-uncertain-build-acceptance-2026-08-31.md).
+
 Use the browser as the first general transaction system.
 Do not build bank, airline, or merchant-specific product systems before this slice passes.
 
@@ -366,8 +378,9 @@ Do not build bank, airline, or merchant-specific product systems before this sli
 | --- | --- | --- |
 | Add bounded bank, biller, merchant, insurer, loyalty, and plan-provider paths. | These tasks need current account state and exact provider actions. Research alone cannot complete them. | 46, 47, 48, 73, 76 |
 | Add purchase matching and external receipt checks. | Payments, refunds, and claims need proof that source records and external effects agree. | 48, 73 |
-| Add benefit, retirement, and debt ledgers with bounded calculations. | These tasks need balances, eligibility, deadlines, and changing case state. | 46, 47, 48 |
-| Add obligation records for benefits, retirement, and debt. | Long-lived duties need dates, owners, state, evidence, and closure rules. | 46, 47, 48 |
+| Keep benefits, retirement, debt, estate, and security facts in current Project or Task sources first. | The controlled cases did not prove a need for dedicated ledgers or registries. | 46, 47, 48, 51, 94 |
+| Require Luau evidence for generated financial totals before Reviewer approval. | Two accurate results used model arithmetic without the required calculation evidence. | 47, 48 |
+| Add later lifecycle and reviewed-action cases only where the outcome needs them. | Read-only reconciliation passed, but submission, transfer, dispute, export, and security changes remain unproved. | 46, 47, 48, 51, 94 |
 | Add domain records only through active asset, vehicle, pet, vendor, account, or document paths. | These tasks need durable state, but speculative universal registries would add unused complexity. | 51, 66, 69, 70, 71, 73, 74, 94, 99 |
 | Add household profiles for food, events, emergency needs, care, and relationships. | Planning needs preferences, restrictions, contacts, supplies, shared duties, and changing attendance. | 69, 74, 81, 87, 92 |
 | Add bounded service operations for active household and lifecycle paths. | Research cannot place orders, manage vendors, coordinate care, or verify service changes. | 66, 69, 70, 71, 73, 74, 81, 82, 87, 92 |
@@ -379,7 +392,6 @@ Do not build bank, airline, or merchant-specific product systems before this sli
 | Add childcare availability, waitlist, payment, transport, and refund operations. | Childcare coordination needs current provider state and child-specific authority. | 87 |
 | Add device, backup, authenticator, migration, verification, and disposal paths. | Device replacement cannot finish through document records or browser research alone. | 97 |
 | Add account metadata and password-manager or device-security status without credential values. | Security review needs account state while secrets remain outside model context. | 94, 97 |
-| Add service-specific privacy reviews, deletion requests, and reappearance checks. | A deletion request can fail or later data collection can recreate the exposure. | 96 |
 | Add digital-legacy records, trusted roles, review dates, and approved exports. | Legacy plans need durable authority and periodic review without exposing credentials. | 51, 52, 99 |
 | Add executor authority, jurisdiction rules, notices, and estate case reconciliation. | Administering a deceased person's accounts requires legal authority and proof across institutions. | 52 |
 

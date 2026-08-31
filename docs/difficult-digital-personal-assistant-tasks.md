@@ -4,7 +4,7 @@ Research date: 2026-08-18
 
 Noema assessment date: 2026-08-31
 
-Noema assessment baseline: commit `fef24880`, plus the documented August 31 live acceptance environment
+Noema assessment baseline: commit `40f8b857`, plus the documented August 31 live acceptance environment
 
 ## Executive summary
 
@@ -396,7 +396,7 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-Current retests verify 79 tasks. No task remains in `Test`.
+Current retests verify 80 tasks. No task remains in `Test`.
 
 All 28 Milestone 3 rows reached reviewer-approved completion with the earlier implementation.
 The human waived affected-user review for the controlled accessibility fixture.
@@ -409,7 +409,7 @@ Tasks 49 and 50 are Verified.
 
 Tasks 53 through 65 are Verified.
 
-Tasks 67, 68, 72, 75, 77 through 80, 83 through 86, 88 through 91, 95, 98, and 100 are also Verified.
+Tasks 67, 68, 72, 75, 77 through 80, 83 through 86, 88 through 91, 95, 96, 98, and 100 are also Verified.
 
 These results prove one provider setup.
 The human waived the second-provider gate for the current roadmap, so the results do not prove portability.
@@ -483,12 +483,12 @@ The human waived the second-provider gate for the current roadmap, so the result
 | 43 | Audit subscriptions | Verified | A reviewed synthetic cancellation recorded one request, one receipt, the final permitted charge, and stopped future billing. |
 | 44 | Review insurance coverage | Verified | A private live Task normalized supplied limits and household changes while retaining uncertainty and the licensed-professional boundary. No policy changed. |
 | 45 | Reconcile an insurance claim | Verified | A current claim case preserved missing evidence, a partial payment, the disputed balance, the appeal deadline, and the no-submit boundary. |
-| 46 | Find and maintain benefits | Build | Add verified eligibility data, household definitions, evidence packages, portal uploads, application state, reporting duties, and recertification monitoring. |
-| 47 | Consolidate retirement records | Build | Add plan-provider connections, private statement intake, account matching, fee comparisons, transfer tracking, tax evidence, and one-shot approvals. |
-| 48 | Maintain credit and debt records | Build | Add bureau, lender, and bank connections, a debt ledger, private dispute evidence, status checks, and deadline alerts. |
+| 46 | Find and maintain benefits | Extend | A current case reconciled household definitions, application receipt and status, missing evidence, reporting duties, and recertification dates. Upload and later recertification evidence remain. |
+| 47 | Consolidate retirement records | Extend | A current case matched a duplicate account and tracked an active rollover. Its generated total lacked Luau evidence, and later transfer receipt remains unproved. |
+| 48 | Maintain credit and debt records | Extend | A current case reconciled debts, payment state, conflicting evidence, a dispute receipt, and deadlines. Its generated difference lacked Luau evidence, and later outcomes remain. |
 | 49 | Maintain official documents and licenses | Verified | A live Task built current PMP and passport plans with exact dates, official sources, and receipt `M3-0004`. No official renewal occurred. |
 | 50 | Escalate a consumer dispute | Verified | A live Task built a source-preserving dispute packet and uploaded it under receipt `M3-0006`. No merchant or bank contact occurred. |
-| 51 | Maintain an affairs and estate map | Build | Task directories are not a document vault. Add private intake, estate records, beneficiary roles, emergency access, update triggers, and secure export. |
+| 51 | Maintain an affairs and estate map | Extend | A current Task produced an accurate role, record, location, trigger, and gap map. Project-backed changes and controlled access or export remain unproved. |
 | 52 | Administer a deceased person's accounts | Build | Add executor authority, death-certificate intake, jurisdiction rules, account and benefit connections, tax and property processes, notices, receipts, and reconciliation. |
 
 ### 6. Health and caregiving
@@ -556,9 +556,9 @@ The human waived the second-provider gate for the current roadmap, so the result
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
 | 93 | Organize and preserve files, email, and photos | Build | Working directories and public downloads are not an archive. Add private and cloud intake, photo support, deduplication, migration, backups, and restore checks. |
-| 94 | Maintain an account and security inventory | Build | Add account metadata, password-manager status, and device-security integrations. Keep credentials outside model context and verify each change. |
+| 94 | Maintain an account and security inventory | Extend | A metadata-only case preserved credentials, inventoried accounts and devices, and prioritized gaps. A later change and reviewed security action remain unproved. |
 | 95 | Coordinate account or identity-theft recovery | Verified | A synthetic case locked one account, revoked sessions, coordinated bank and bureau follow-ups, protected credentials, and avoided duplicate actions. |
-| 96 | Review privacy settings and data exposure | Build | Browser routes can reach public sites, but profiles remain temporary. Add account inventory, authenticated access, deletion tracking, and reappearance monitoring. |
+| 96 | Review privacy settings and data exposure | Verified | A current case found one unauthorized setting change, two failed outcomes, and two unchanged controls. It linked deletion receipts to later reappearance without external action. |
 | 97 | Complete device replacement and migration | Build | Add device, backup, authenticator, password-manager, migration, verification, and disposal integrations. Noema cannot control personal devices. |
 | 98 | Maintain a personal knowledge base | Verified | Normal Memory consolidation replaced one fact, preserved duplicate direct evidence and superseded values, and supported later retrieval. Direct editing remains separate. |
 | 99 | Prepare a digital-legacy plan | Build | Add digital-legacy records, trusted roles, delegated access, estate scopes, platform actions, periodic review, and secure export. |
