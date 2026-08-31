@@ -500,7 +500,7 @@ async fn declined_browser_effect_cannot_return_with_a_new_snapshot() {
 
     let first_call = test_tool_call(
         noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
-        json!({"snapshot_revision": 3, "ref": "e8", "action": "click"}),
+        json!({"snapshot_revision": 3, "ref": "e8", "action": "click", "value": ""}),
     );
     let binding = turn
         .initial_model_tools

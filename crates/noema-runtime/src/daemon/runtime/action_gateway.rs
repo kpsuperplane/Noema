@@ -209,7 +209,7 @@ fn browser_action_effect(
     arguments: &serde_json::Value,
     review_context: Option<&serde_json::Value>,
 ) -> Option<serde_json::Value> {
-    let noema_capabilities::web::browse::BrowseCommand::Interact(_) =
+    let noema_capabilities::web::browse::BrowseCommand::Interact(request) =
         noema_capabilities::web::browse::parse_command(
             noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
             arguments,
@@ -218,9 +218,20 @@ fn browser_action_effect(
     else {
         return None;
     };
-    let mut operation = arguments.as_object()?.clone();
-    operation.remove("snapshot_revision");
-    operation.remove("ref");
+    let operation = match request.action {
+        noema_capabilities::web::browse::BrowseInteractionAction::Click => {
+            serde_json::json!({"action": request.action})
+        }
+        noema_capabilities::web::browse::BrowseInteractionAction::UploadFile => serde_json::json!({
+            "action": request.action,
+            "artifact_id": request.artifact_id,
+            "artifact_version_id": request.artifact_version_id,
+        }),
+        _ => serde_json::json!({
+            "action": request.action,
+            "value": request.value,
+        }),
+    };
     let review_context = review_context?;
     Some(serde_json::json!({
         "operation": operation,

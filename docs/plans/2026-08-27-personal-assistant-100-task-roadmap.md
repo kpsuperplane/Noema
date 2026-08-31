@@ -407,15 +407,14 @@ Other people participate through current external source records and reviewed ex
 
 The complete evidence and per-task decisions are in the [Milestone 5 audit](../validation/personal-assistant-milestone-5-audit.md).
 
-The controlled task result is nine passes, four partial results, and one failure.
-Tasks 10, 53, 54, 56, 59, 60, 61, 63, and 88 passed their controlled main paths.
+The controlled task result is ten passes, four partial results, and no failures.
+Tasks 10, 53, 54, 56, 59, 60, 61, 63, 88, and 90 passed their controlled main paths.
 Tasks 57, 62, 80, and 85 need another bounded case.
-Task 90 failed the withdrawal boundary.
 
 One simulated disclosure ran under the current reviewer policy and recorded a receipt.
-In the withdrawal case, three equivalent sends were declined.
-A fourth equivalent send then ran automatically.
-The fixture rejected that attempt and recorded zero deliveries.
+The withdrawal retest produced one human decision for the final send.
+After the decline, Noema blocked the unchanged retry before a second action request.
+The fixture recorded zero attempts and zero deliveries.
 
 ### Immediate focus
 
@@ -428,8 +427,7 @@ The fixture rejected that attempt and recorded zero deliveries.
 | Add complete appointment, trip, and participant response facts. | Missing source facts prevented one feasible final plan and later acknowledgment. | Partial. | 62, 80, 85 |
 | Retain transparent workload evidence and human allocation. | The current path showed capacity without a fairness score. | Passed. | 88 |
 | Retain current reviewer policy for authorized writes. | The action reviewer already decides whether an action needs the human. | Passed. | 63 |
-| Stop equivalent browser effects after a human decline. | New snapshots previously allowed the same submit to return. | Implemented with focused acceptance. | Task browser writes |
-| Rerun the withdrawn disclosure case. | Live evidence must show zero equivalent attempts after the decline. | Pending. | 90 |
+| Stop equivalent browser effects after a human decline. | New snapshots and empty optional fields previously allowed the same submit to return. | Passed live acceptance. | 90 and Task browser writes |
 
 ### Audit disposition of earlier proposals
 
@@ -562,7 +560,7 @@ Split work when one slice crosses two unrelated domain authorities.
 | ---: | --- | --- |
 | 1 | Retain the mixed-file, calculation, export, and portal regressions. | These paths support the Milestone 3 main outcomes. |
 | 2 | Test one bounded Milestone 4 transaction path. | The next case should prove current account state, one reviewed action, and a receipt. |
-| 3 | Rerun the Milestone 5 withdrawal case. | Focused tests now block equivalent browser effects after a decline. |
+| 3 | Test one later Milestone 5 follow-up change. | Task 57 still needs a later measurement and closure. |
 
 Do not add a general transaction system before one bounded Milestone 4 case proves the need.
 
