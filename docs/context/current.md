@@ -216,7 +216,7 @@ slice or a net-negative reduction.
 ## Open loops
 
 - All 28 Milestone 3 paths reached reviewer-approved completion.
-  The provider-neutral target is now 60/100 Verified.
+  Later acceptance raised the provider-neutral score to 79/100 Verified.
 - The dedicated calculator is now bounded Luau.
   Upload source manifests and the hidden HTML validator are removed.
 - The current calculation and artifact paths passed focused live regression.
@@ -236,17 +236,19 @@ slice or a net-negative reduction.
 - The Milestone 3 evidence record is `docs/validation/personal-assistant-milestone-3-acceptance.md`.
 - The first Milestone 4 browser acceptance slice used controlled bank and flight fixtures.
   The bank path passed with one receipt and one commit.
-- The flight path avoided replay after HTTP 502, but its first run skipped status reconciliation.
-  The Reviewer approved that omission. A human correction recovered `CONFIRMED` with one commit.
-- The four shared browser and review gaps now have focused unit acceptance.
-  Live bank and cancellation retests passed. The flight retest confirmed one commit after human recovery.
-  Automatic read-only flight reconciliation needs a live retest.
+- Task `task:18d0fabfeac8347e2c05` passed automatic flight reconciliation.
+  It observed `PROCESSING`, used read-only checks, and reached `CONFIRMED` with one commit.
+- All six Milestone 4 acceptance families pass their shared gates.
+  Tasks 41, 43, 45, 77, and 95 now have complete current main paths.
 - The Milestone 4 evidence record is `docs/validation/personal-assistant-milestone-4-browser-acceptance.md`.
 - Milestone 5 excludes shared Noema workspaces and secondary Noema human accounts.
   Multi-person cases use local-owner Tasks, external participant records, and reviewed external actions.
-- The Milestone 5 audit now records ten passes, four partial results, and no failures.
-  Task 90 passed without a new consent or recipient policy system.
+- All 14 Milestone 5 tasks now pass current controlled main paths.
+  Follow-up records closed the four partial paths and ten missing lifecycle checks.
 - The Milestone 5 evidence record is `docs/validation/personal-assistant-milestone-5-audit.md`.
+- The 100-task roadmap now records 79 Verified, 11 Extend, and 10 Build tasks.
+  The remaining 21 tasks need complete operational main paths.
+- The consolidated follow-up evidence is `docs/validation/personal-assistant-remaining-acceptance-2026-08-31.md`.
 - Apollo iOS 2.3 code generation and native builds require macOS.
   Linux can validate the authored GraphQL operations against the shared schema.
 - Live Gmail and Calendar OAuth acceptance still needs interactive Google

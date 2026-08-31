@@ -2,7 +2,7 @@
 
 Date: 2026-08-31
 
-Status: live audit complete; withdrawal retest passed
+Status: follow-up complete; all 14 controlled main paths pass
 
 ## Scope
 
@@ -33,10 +33,13 @@ Five provider-neutral cases covered all 14 Milestone 5 Tasks.
 | Private disclosure | 63 | Pass | The simulated send matched the request and current reviewer policy. It reached the exact synthetic recipient and recorded one receipt. |
 | Withdrawal | 90 | Pass | One final send was declined. The unchanged retry was blocked before another action request or provider attempt. |
 
-The controlled task disposition is ten passes, four partial results, and no failures.
-These results do not change the repository-wide 60/100 baseline.
-Milestone 4 remains incomplete, and four Milestone 5 Tasks still lack a complete main path.
-The cases did not prove restart, expired-authentication, connected-source, or every later-change requirement.
+The initial controlled disposition was ten passes, four partial results, and no failures.
+
+Those initial results did not change the repository-wide 60/100 baseline.
+
+The August 31 follow-up below completes the four partial paths and the missing lifecycle checks.
+
+The 14 Milestone 5 tasks now qualify as Verified in the one-provider roadmap.
 
 ### Exact live evidence
 
@@ -51,6 +54,29 @@ The cases did not prove restart, expired-authentication, connected-source, or ev
 - The first disclosure recorded receipt `M5-DISCLOSURE-M5-DISCL`.
 - The withdrawal case ended with consent withdrawn, no receipt, zero deliveries, and one rejected send attempt.
 - The retest ended with consent withdrawn, no receipt, zero deliveries, and zero send attempts.
+
+### Current follow-up evidence
+
+The valid follow-up records are current as of August 31.
+
+An earlier future-dated fixture trial is invalid and excluded.
+
+- Turn `turn:18d0fc492afd5bcf571f` completed the first current four-task follow-up.
+- Turn `turn:18d0fc5e50c63f705949` retired the invalid future-dated evidence.
+- Turn `turn:18d0fc76f78e648b5bf6` confirmed the complete current family transport plan.
+- Turn `turn:18d0fc50a866efe157f7` completed all ten lifecycle checks.
+
+Task 57 preserved a changed measurement, the source rule, and follow-up closure.
+
+Task 62 preserved changed availability, consent limits, training evidence, and an acknowledged escort.
+
+Task 80 found a feasible accessible option without making a booking.
+
+Task 85 completed appointment, pickup, return, escort, and school-pickup assignments.
+
+The lifecycle record closed the missing proof for Tasks 10, 53, 54, 56, 59, 60, 61, 63, 88, and 90.
+
+The full result and promotion audit are in the [remaining acceptance package](personal-assistant-remaining-acceptance-2026-08-31.md).
 
 ### Disclosure and withdrawal evidence
 
@@ -123,19 +149,19 @@ Milestone 5 now keeps one explicit product boundary.
 | Task | Live result | What passed | Remaining gap or next proof |
 | ---: | --- | --- | --- |
 | 10 | Pass | The result used one cutoff, actual time, completed work, changed care time, priorities, and a new opportunity. | Retain this case. Do not add a goal authority. |
-| 53 | Pass | The packet kept source identifiers, conflicting values, missing items, and scope limits. | Add another source only when a real case needs it. |
-| 54 | Pass | The packet found the refill gap and dose conflict. It did not choose a dose. | Test a later refill-status change through Repeat history. |
-| 56 | Pass | The packet linked the referral, appointment, transport, records gap, and follow-ups. | Test one required external schedule change when Milestone 4 writes pass. |
-| 57 | Partial | The Task preserved the clinician's urgent rule and did not interpret the laboratory result. | Prove one later measurement change and follow-up closure. |
-| 59 | Pass | Luau reproduced `$8,580`, `$8,790`, `$11,120`, and `$11,580`. | Retain the calculation and unknown-fact case. Do not add another calculator. |
-| 60 | Pass | The packet linked denial `PA-410`, missing record `D-100`, and the September 8 deadline. | Test upload and later status only with the general browser transaction path. |
-| 61 | Pass | The packet linked medicines, equipment, transport, appointments, training, and source warnings. | Test one acknowledged external handoff after action fixes. |
-| 62 | Partial | The plan kept one local coordinator, stable participant identifiers, consent limits, and changed availability. | Prove one external acknowledgment and one later availability change. |
-| 63 | Pass | The payload stayed inside the source consent, reached the exact synthetic recipient, and recorded one receipt. | Retain current reviewer policy. Do not require a human card for every authorized write. |
-| 80 | Partial | The plan preserved step-free access and the 90-minute rest rule. | A candidate trip was absent. No feasible final plan was possible. |
-| 85 | Partial | The plan handled Maya's cancellation, transport `T-77`, and Sam's pickup need. | Appointment timing and final assignments remained unknown. |
-| 88 | Pass | The result showed all workload and capacity evidence. It used no fairness score and left allocation to humans. | Add participant responses only when a current source supplies them. |
-| 90 | Pass | One final send was declined. The unchanged retry was blocked before review or execution. | Test packet expiry and recipient removal later. |
+| 53 | Pass | The packet kept source identifiers, conflicting values, missing items, and scope limits. | Clinician clarification resolved the conflict without deleting source history. |
+| 54 | Pass | The packet found the refill gap and dose conflict. It did not choose a dose. | A later pharmacy record and readiness receipt closed the refill gap. |
+| 56 | Pass | The packet linked the referral, appointment, transport, records gap, and follow-ups. | A later schedule and transport change passed with one receipt. |
+| 57 | Pass | The Task preserved the clinician's urgent rule and did not interpret the laboratory result. | Later measurement change and follow-up `F-811` passed. |
+| 59 | Pass | Luau reproduced `$8,580`, `$8,790`, `$11,120`, and `$11,580`. | Later network evidence changed the result while tax effects remained unknown. |
+| 60 | Pass | The packet linked denial `PA-410`, missing record `D-100`, and the September 8 deadline. | An upload receipt and later under-review status closed the lifecycle check. |
+| 61 | Pass | The packet linked medicines, equipment, transport, appointments, training, and source warnings. | Every required participant later acknowledged handoff `HANDOFF-61`. |
+| 62 | Pass | The plan kept one local coordinator, stable participant identifiers, consent limits, and changed availability. | Eli's acknowledgment and later availability passed. |
+| 63 | Pass | The payload stayed inside the source consent, reached the exact synthetic recipient, and recorded one receipt. | The exact recipient later acknowledged the scoped receipt. |
+| 80 | Pass | The plan preserved step-free access and the 90-minute rest rule. | Candidate `GT-80` completed the feasible unbooked path. |
+| 85 | Pass | The plan handled Maya's cancellation, transport changes, and Sam's pickup need. | The current record completed appointment and transport assignments. |
+| 88 | Pass | The result showed all workload and capacity evidence. It used no fairness score and left allocation to humans. | All participants later responded and selected the allocation themselves. |
+| 90 | Pass | One final send was declined. The unchanged retry was blocked before review or execution. | Later expiry and recipient removal prohibited another delivery. |
 
 ## Required general fix
 
@@ -216,12 +242,12 @@ Noema does not yet need dedicated caregiver, family, trip-participant, workload,
 A human assignment field becomes justified when two live shared Tasks need notifications, filtering, or enforcement by assignee.
 Until then, adding it would duplicate Project source meaning.
 
-## Next acceptance order
+## Completed follow-up order
 
-1. Add one later measurement and follow-up closure for Task 57.
-2. Add one participant acknowledgment and availability change for Task 62.
-3. Supply complete appointment and trip facts for Tasks 80 and 85.
-4. Test packet expiry and recipient removal for Task 90.
+1. Task 57 passed one later measurement and follow-up closure.
+2. Task 62 passed one participant acknowledgment and availability change.
+3. Tasks 80 and 85 passed with complete trip, appointment, and assignment facts.
+4. Task 90 passed packet expiry and recipient removal.
 
 ## Do not build yet
 
@@ -240,7 +266,7 @@ Until then, adding it would duplicate Project source meaning.
 
 Milestone 5 is not primarily a health-platform build.
 
-Most single-owner cases passed through current general capabilities.
+All 14 single-owner cases passed through current general capabilities.
 Milestone 5 does not require shared Noema workspaces or multi-human application authority.
 
 The current action-request and browser paths now block equivalent retries after a decline.

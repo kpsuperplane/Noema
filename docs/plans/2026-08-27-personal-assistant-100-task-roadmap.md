@@ -63,15 +63,15 @@ High-stakes tasks need a domain-specific safety case and a qualified-review boun
 
 | Status | Count |
 | --- | ---: |
-| Verified | 60 |
+| Verified | 79 |
 | Test | 0 |
-| Extend | 12 |
-| Build | 28 |
+| Extend | 11 |
+| Build | 10 |
 | Total | 100 |
 
-Tasks 1 through 9, except 10, and Tasks 11 through 24, except 23, are verified.
+Tasks 1 through 45 are verified.
 
-Tasks 26, 28, 31, 32, 33, 35, 38, 39, 75, and 98 are also verified.
+Tasks 49, 50, 53 through 65, 67, 68, 72, 75, 77 through 80, 83 through 86, 88 through 91, 95, 98, and 100 are also verified.
 
 The first live suite produced five passes, eight partial results, and one failure.
 
@@ -82,6 +82,10 @@ All Milestone 1 main paths now pass in one provider setup.
 All Milestone 2 main paths now pass in one provider setup.
 
 All Milestone 3 main paths now pass in one provider setup.
+
+All Milestone 5 main paths now pass in controlled provider-neutral cases.
+
+The remaining 21 tasks are Milestone 4 operational paths.
 
 The human waived second-provider portability for Milestone 1 on 2026-08-29.
 
@@ -315,9 +319,11 @@ The complete evidence is in the [Milestone 3 acceptance package](../validation/p
 
 ## Milestone 4: Add personal operations and transaction systems
 
-Target: 86/100 Verified.
+Target: 100/100 Verified after the already completed Milestone 5 paths.
 
-Tasks: 41, 43, 45, 46, 47, 48, 51, 52, 66, 69, 70, 71, 73, 74, 76, 77, 81, 82, 87, 92, 93, 94, 95, 96, 97, and 99.
+Current: 79/100 Verified.
+
+Remaining tasks: 46, 47, 48, 51, 52, 66, 69, 70, 71, 73, 74, 76, 81, 82, 87, 92, 93, 94, 96, 97, and 99.
 
 ### Browser acceptance result
 
@@ -330,6 +336,14 @@ The flight case did not reconcile status until a human correction reopened the T
 The first Reviewer approved the incomplete result.
 A continuation also reopened a POST-generated page with GET and lost its state.
 
+The August 31 rerun closed these shared gaps.
+
+The flight Executor submitted once, observed `PROCESSING`, and reached `CONFIRMED` through read-only checks.
+
+All six required Milestone 4 acceptance families passed.
+
+The dated evidence is in the [remaining acceptance package](../validation/personal-assistant-remaining-acceptance-2026-08-31.md).
+
 The complete evidence is in the [Milestone 4 browser acceptance package](../validation/personal-assistant-milestone-4-browser-acceptance.md).
 
 Use the browser as the first general transaction system.
@@ -339,35 +353,32 @@ Do not build bank, airline, or merchant-specific product systems before this sli
 
 | Change | Why it is needed | Status | Task coverage |
 | --- | --- | --- | --- |
-| Bind final submit actions to the current form values and destination. | A button reference does not identify the exact reviewed transaction. | Implemented. Live retest remains. | 41, 43, 45, 48, 73, 76, 77, 81, 87 |
-| Convert post-submit transport or HTTP failures into `outcome_uncertain`. | The existing replay guard needs a typed unknown outcome. | Implemented. Live retest remains. | 41, 43, 45, 48, 73, 76, 77 |
-| Return uncertain actions to the Executor for status checks. | The Executor must inspect current status before Noema requests human help. | Implemented. Live flight retest remains. | 41, 43, 45, 48, 73, 76, 77 |
-| Make the existing Task Reviewer check every explicit requirement. | The Reviewer approved a result that stated it skipped the required status check. | Implemented. Live retest remains. | All Milestone 4 Tasks |
-| Resume an active Task browser with `web.browse.snapshot` before opening a URL. | Reopening a POST-generated URL with GET loses form and session state. | Implemented. Live retest remains. | All browser Tasks |
-| Rerun bank, flight, and cancellation fixtures after these fixes. | The first generation must reconcile its own result without human correction. | Bank and cancellation passed. Flight remains. | 41, 43, 73, 76, 77 |
+| Bind final submit actions to the current form values and destination. | A button reference does not identify the exact reviewed transaction. | Passed live acceptance. | 41, 43, 45, 48, 73, 76, 77, 81, 87 |
+| Convert post-submit transport or HTTP failures into `outcome_uncertain`. | The existing replay guard needs a typed unknown outcome. | Passed live acceptance. | 41, 43, 45, 48, 73, 76, 77 |
+| Return uncertain actions to the Executor for status checks. | The Executor must inspect current status before Noema requests human help. | Passed live flight acceptance. | 41, 43, 45, 48, 73, 76, 77 |
+| Make the existing Task Reviewer check every explicit requirement. | The Reviewer approved a result that stated it skipped the required status check. | Passed live acceptance. | All Milestone 4 Tasks |
+| Resume an active Task browser with `web.browse.snapshot` before opening a URL. | Reopening a POST-generated URL with GET loses form and session state. | Passed live acceptance. | All browser Tasks |
+| Rerun bank, flight, and cancellation fixtures after these fixes. | The first generation must reconcile its own result without human correction. | Passed. | 41, 43, 73, 76, 77 |
 
 ### Build and extend
 
 | Change | Why it is needed | Task coverage |
 | --- | --- | --- |
-| Add bounded bank, biller, merchant, insurer, loyalty, and plan-provider paths. | These tasks need current account state and exact provider actions. Research alone cannot complete them. | 41, 43, 45, 46, 47, 48, 73, 76 |
-| Add purchase matching and external receipt checks. | Payments, refunds, and claims need proof that source records and external effects agree. | 41, 43, 45, 48, 73 |
-| Add cash-flow, debt, claim, benefit, and retirement ledgers with bounded calculations. | These tasks need forecasts, balances, eligibility, deadlines, and changing case state. | 41, 45, 46, 47, 48 |
-| Add obligation records for bills, renewals, refunds, credits, claims, and notices. | Long-lived duties need dates, owners, state, evidence, and closure rules. | 41, 43, 45, 46, 47, 48 |
-| Add domain records only through active asset, vehicle, pet, subscription, vendor, account, or document paths. | These tasks need durable state, but speculative universal registries would add unused complexity. | 43, 51, 66, 69, 70, 71, 73, 74, 94, 99 |
+| Add bounded bank, biller, merchant, insurer, loyalty, and plan-provider paths. | These tasks need current account state and exact provider actions. Research alone cannot complete them. | 46, 47, 48, 73, 76 |
+| Add purchase matching and external receipt checks. | Payments, refunds, and claims need proof that source records and external effects agree. | 48, 73 |
+| Add benefit, retirement, and debt ledgers with bounded calculations. | These tasks need balances, eligibility, deadlines, and changing case state. | 46, 47, 48 |
+| Add obligation records for benefits, retirement, and debt. | Long-lived duties need dates, owners, state, evidence, and closure rules. | 46, 47, 48 |
+| Add domain records only through active asset, vehicle, pet, vendor, account, or document paths. | These tasks need durable state, but speculative universal registries would add unused complexity. | 51, 66, 69, 70, 71, 73, 74, 94, 99 |
 | Add household profiles for food, events, emergency needs, care, and relationships. | Planning needs preferences, restrictions, contacts, supplies, shared duties, and changing attendance. | 69, 74, 81, 87, 92 |
 | Add bounded service operations for active household and lifecycle paths. | Research cannot place orders, manage vendors, coordinate care, or verify service changes. | 66, 69, 70, 71, 73, 74, 81, 82, 87, 92 |
 | Add item history, change evidence, expiry rules, and verification checks. | Maintenance and renewal work must detect changed facts and confirm completion. | 66, 70, 71, 73, 74, 94 |
-| Add travel records, disruption events, dependency checks, and reviewed rebooking. | A changed leg can invalidate several later reservations and actions. | 76, 77 |
-| Add carrier event feeds, current passenger-rights evidence, and unknown-outcome recovery. | Disruption monitoring and rebooking need live changes, applicable rules, and safe retry boundaries. | 77 |
-| Add return, shipping, refund, cancellation, and claim status operations. | Initiating a request does not prove delivery, refund, cancellation, or claim closure. | 43, 45, 72, 79 |
+| Add multi-leg travel records, dependency checks, and reviewed booking. | One itinerary can contain several linked reservations and actions. | 76 |
 | Add archive import, duplicate detection, backup checks, restore checks, and secure export. | An archive is trustworthy only when content can be restored and checked. | 93, 97 |
 | Add move records, change routing, private document transfer, and confirmation checks. | A move affects many services, and each address or account change needs proof. | 82 |
 | Add invitation, response, budget, vendor, and guest-communication state. | A personal event needs one current plan across people, payments, and changes. | 81 |
 | Add childcare availability, waitlist, payment, transport, and refund operations. | Childcare coordination needs current provider state and child-specific authority. | 87 |
 | Add device, backup, authenticator, migration, verification, and disposal paths. | Device replacement cannot finish through document records or browser research alone. | 97 |
-| Add account metadata and password-manager or device-security status without credential values. | Security review needs account state while secrets remain outside model context. | 94, 95, 97 |
-| Add recovery workspaces for account compromise and identity theft. | Recovery spans many institutions, deadlines, evidence items, and credential-safe actions. | 94, 95 |
+| Add account metadata and password-manager or device-security status without credential values. | Security review needs account state while secrets remain outside model context. | 94, 97 |
 | Add service-specific privacy reviews, deletion requests, and reappearance checks. | A deletion request can fail or later data collection can recreate the exposure. | 96 |
 | Add digital-legacy records, trusted roles, review dates, and approved exports. | Legacy plans need durable authority and periodic review without exposing credentials. | 51, 52, 99 |
 | Add executor authority, jurisdiction rules, notices, and estate case reconciliation. | Administering a deceased person's accounts requires legal authority and proof across institutions. | 52 |
@@ -381,6 +392,12 @@ Do not build bank, airline, or merchant-specific product systems before this sli
 - A backup case restores sampled files and reports missing content.
 - An account recovery case protects credentials while it coordinates external steps.
 
+All six cases passed on 2026-08-31.
+
+These cases promoted Tasks 41, 43, 45, 77, and 95.
+
+The backup case passed its shared gate, but Task 93 still needs its complete archive path.
+
 ### Exit gate
 
 Every consequential financial or account write uses an exact reviewed request.
@@ -390,6 +407,8 @@ Every external change has a receipt, later verification, or an explicit unknown 
 ## Milestone 5: Add goals, regulated work, and multi-person coordination
 
 Target: 100/100 Verified.
+
+Current: all 14 Milestone 5 tasks are Verified.
 
 Tasks: 10, 53, 54, 56, 57, 59, 60, 61, 62, 63, 80, 85, 88, and 90.
 
@@ -408,9 +427,11 @@ Other people participate through current external source records and reviewed ex
 
 The complete evidence and per-task decisions are in the [Milestone 5 audit](../validation/personal-assistant-milestone-5-audit.md).
 
-The controlled task result is ten passes, four partial results, and no failures.
-Tasks 10, 53, 54, 56, 59, 60, 61, 63, 88, and 90 passed their controlled main paths.
-Tasks 57, 62, 80, and 85 need another bounded case.
+The first controlled result had ten passes, four partial results, and no failures.
+
+Current August 31 follow-up records completed Tasks 57, 62, 80, and 85.
+
+Later-state evidence closed the missing lifecycle checks for the other ten tasks.
 
 One simulated disclosure ran under the current reviewer policy and recorded a receipt.
 The withdrawal retest produced one human decision for the final send.
@@ -424,8 +445,8 @@ The fixture recorded zero attempts and zero deliveries.
 | Retain the goal-review case. | The current Task path produced a useful adjustment from actual time and priorities. | Passed. | 10 |
 | Retain the combined private-record case. | The current path preserved conflicts, deadlines, missing evidence, and professional boundaries. | Passed. | 53, 54, 56, 60, 61 |
 | Retain the saved Luau plan comparison. | The calculation system reproduced exact expected and worst-case totals. | Passed. | 59 |
-| Add one later measurement and follow-up closure. | The source warning rule passed, but long-term monitoring did not run. | Partial. | 57 |
-| Add complete appointment, trip, and participant response facts. | Missing source facts prevented one feasible final plan and later acknowledgment. | Partial. | 62, 80, 85 |
+| Add one later measurement and follow-up closure. | The source warning rule passed, but long-term monitoring did not run. | Passed. | 57 |
+| Add complete appointment, trip, and participant response facts. | Missing source facts prevented one feasible final plan and later acknowledgment. | Passed. | 62, 80, 85 |
 | Retain transparent workload evidence and human allocation. | The current path showed capacity without a fairness score. | Passed. | 88 |
 | Retain current reviewer policy for authorized writes. | The action reviewer already decides whether an action needs the human. | Passed. | 63 |
 | Stop equivalent browser effects after a human decline. | New snapshots and empty optional fields previously allowed the same submit to return. | Passed live acceptance. | 90 and Task browser writes |

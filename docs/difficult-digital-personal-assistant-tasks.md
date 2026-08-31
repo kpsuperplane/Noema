@@ -2,9 +2,9 @@
 
 Research date: 2026-08-18
 
-Noema assessment date: 2026-08-30
+Noema assessment date: 2026-08-31
 
-Noema assessment baseline: commit `648a20ba`, plus the documented Milestone 3 live environment
+Noema assessment baseline: commit `fef24880`, plus the documented August 31 live acceptance environment
 
 ## Executive summary
 
@@ -396,16 +396,20 @@ The first live suite produced five passes, eight partial results, and one failur
 
 The 2026-08-28 retests promoted Tasks 15 and 19 after both native Project cases passed.
 
-Current retests verify 60 tasks. No task remains in `Test`.
+Current retests verify 79 tasks. No task remains in `Test`.
 
 All 28 Milestone 3 rows reached reviewer-approved completion with the earlier implementation.
 The human waived affected-user review for the controlled accessibility fixture.
 
-Since 2026-08-18, Tasks 36 and 100 moved from Build to Extend.
+Tasks 36 and 100 later reached Verified through Milestone 3 acceptance.
 
-Tasks 1 through 9, except 10, and Tasks 11 through 40, except 41, are now Verified.
+Tasks 1 through 45 are Verified.
 
-Tasks 42, 44, 49, 50, 55, 58, 64, 65, 67, 68, 72, 75, 78, 79, 83, 84, 86, 89, 91, 98, and 100 are also Verified.
+Tasks 49 and 50 are Verified.
+
+Tasks 53 through 65 are Verified.
+
+Tasks 67, 68, 72, 75, 77 through 80, 83 through 86, 88 through 91, 95, 98, and 100 are also Verified.
 
 These results prove one provider setup.
 The human waived the second-provider gate for the current roadmap, so the results do not prove portability.
@@ -423,7 +427,7 @@ The human waived the second-provider gate for the current roadmap, so the result
 | 7 | Replan after disruption | Verified | A provider-neutral Repeat case moved one delayed event and its dependent chain around fixed work. It preserved unaffected work and drafted both required notices. Connected updates remain separate. |
 | 8 | Produce a weekly preview and review | Verified | A delegated live case covered seven Repeat occurrences and full Task documents. It joined work, events, messages, Memory, deadlines, and preparation. |
 | 9 | Track deadlines, renewals, and recurring obligations | Verified | A provider-neutral Repeat merged duplicate source mentions, excluded a soft target, emitted one overdue draft, stayed quiet twice, and closed only after timely exact evidence. Connected intake remains separate. |
-| 10 | Review personal goals and adjust the plan | Build | Add goal outcomes, measures, target dates, review history, and links to Tasks and actual time. Projects do not supply this authority. |
+| 10 | Review personal goals and adjust the plan | Verified | Two current reviews used actual time, completed work, changed constraints, priorities, and a declined lower-priority opportunity. |
 
 ### 2. Communication and relationships
 
@@ -474,11 +478,11 @@ The human waived the second-provider gate for the current roadmap, so the result
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 41 | Maintain household cash flow and bills | Build | Add bank and biller connections, a cash-flow ledger, forecasting, shared-account reconciliation, and shortfall alerts. |
+| 41 | Maintain household cash flow and bills | Verified | A current fixture reconciled a changed bill, one failed payment, expected income, due dates, and the required cash buffer. |
 | 42 | Build an annual tax-readiness packet | Verified | A private live Task classified records, reproduced exact totals, exposed a missing W-2, and stopped at qualified accountant review. No filing occurred. |
-| 43 | Audit subscriptions | Extend | Historical receipt extraction passed. Add current mail proof, transaction feeds, a subscription register, cancellation operations, and billing-stop verification. |
+| 43 | Audit subscriptions | Verified | A reviewed synthetic cancellation recorded one request, one receipt, the final permitted charge, and stopped future billing. |
 | 44 | Review insurance coverage | Verified | A private live Task normalized supplied limits and household changes while retaining uncertainty and the licensed-professional boundary. No policy changed. |
-| 45 | Reconcile an insurance claim | Build | Add durable claim state, private evidence intake, insurer connections, deadlines, payment reconciliation, appeal state, and external receipts. |
+| 45 | Reconcile an insurance claim | Verified | A current claim case preserved missing evidence, a partial payment, the disputed balance, the appeal deadline, and the no-submit boundary. |
 | 46 | Find and maintain benefits | Build | Add verified eligibility data, household definitions, evidence packages, portal uploads, application state, reporting duties, and recertification monitoring. |
 | 47 | Consolidate retirement records | Build | Add plan-provider connections, private statement intake, account matching, fee comparisons, transfer tracking, tax evidence, and one-shot approvals. |
 | 48 | Maintain credit and debt records | Build | Add bureau, lender, and bank connections, a debt ledger, private dispute evidence, status checks, and deadline alerts. |
@@ -491,17 +495,17 @@ The human waived the second-provider gate for the current roadmap, so the result
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 53 | Consolidate a medical record | Build | Document parsing alone is insufficient. Add FHIR and portal connections, private record intake, normalization, conflict tracking, consent, and proxy access. |
-| 54 | Maintain a medication and refill plan | Build | Add a verified medication record, pharmacy connections, refill events, reconciliation evidence, safety rules, and clinician confirmation. |
+| 53 | Consolidate a medical record | Verified | Current synthetic records preserved conflicting doses until clinician clarification superseded one record without deleting its source history. |
+| 54 | Maintain a medication and refill plan | Verified | The case found a refill gap and dose conflict, avoided dose selection, then closed the gap with clinician and pharmacy evidence. |
 | 55 | Prepare a medical appointment brief | Verified | A private live Task produced a dated appointment brief and preserved conflicting evidence. It stopped at clinician diagnosis and treatment. |
-| 56 | Coordinate referrals, tests, and specialists | Build | Add referral state, insurer and provider connections, record transfer, scheduling, transport, result retrieval, and follow-up tracking. |
-| 57 | Monitor a care plan | Build | Add care-plan state, portal and device events, threshold rules, safe escalation, and loop closure. External event sources remain absent. |
+| 56 | Coordinate referrals, tests, and specialists | Verified | The case linked referral, records, schedule, transport, and follow-up, then reconciled one appointment change with a receipt. |
+| 57 | Monitor a care plan | Verified | A later measurement changed, follow-up `F-811` closed the loop, and Noema retained the source-supplied emergency rule without interpretation. |
 | 58 | Compare providers or care services | Verified | A live Task compared three accessible providers with current public evidence and explicit network and availability unknowns. No booking occurred. |
-| 59 | Compare health plans | Build | Add private plan and formulary intake, network checks, care scenarios, deterministic cost modeling, tax rules, and professional review. |
-| 60 | Build a health authorization or appeal packet | Build | Add durable case state, private denial and record intake, deadlines, portal uploads, submission receipts, status checks, and approvals. |
-| 61 | Coordinate a safe care transition | Build | Add hospital and pharmacy connections, caregiver roles, warning escalation, equipment coordination, transport, and handoff confirmation. |
-| 62 | Maintain a shared caregiver plan | Build | Add multiple humans, consent, caregiver roles, shared Tasks, assignments, handoffs, and notifications. Production still centers one local human. |
-| 63 | Summarize care-recipient changes | Build | Add authorized health logs, recipient policy, change comparison, urgent routing, recipient-specific sharing, and delivery receipts. |
+| 59 | Compare health plans | Verified | Sandboxed Luau reproduced expected and worst-case costs. Later network evidence changed the comparison while tax effects remained unknown. |
+| 60 | Build a health authorization or appeal packet | Verified | The case preserved denial evidence and deadline, then reconciled upload receipt `UPLOAD-60` and the later under-review status. |
+| 61 | Coordinate a safe care transition | Verified | The case linked medicines, equipment, transport, appointments, training, warnings, and later acknowledgments from every required party. |
+| 62 | Maintain a shared caregiver plan | Verified | One local coordinator preserved consent limits, changed availability, stable participant identity, training evidence, and an acknowledged handoff. |
+| 63 | Summarize care-recipient changes | Verified | A scoped synthetic disclosure used the exact recipient and allowed payload. The recipient later acknowledged its receipt. |
 | 64 | Prepare a treatment decision brief | Verified | A private live Task preserved conflicting advice, patient constraints, and questions in a cited brief. It stopped at qualified clinical review. |
 
 ### 7. Home, household, and consumer operations
@@ -525,10 +529,10 @@ The human waived the second-provider gate for the current roadmap, so the result
 | ---: | --- | --- | --- |
 | 75 | Build one live itinerary | Verified | Connected messages supplied two confirmations, one duplicate, and one later cancellation. The reviewed itinerary preserved references and missing evidence. |
 | 76 | Plan and book a multi-leg trip | Extend | Browser routing improves recovery. Add travel inventory, booking tools, protected payment authority, receipt reconciliation, and partial-failure tests. |
-| 77 | Monitor disruptions and prepare rebooking | Build | Implement external event sources, carrier feeds, rights rules, downstream dependency analysis, rebooking operations, and uncertain-outcome recovery. |
+| 77 | Monitor disruptions and prepare rebooking | Verified | One reviewed recovery updated the replacement flight, hotel, and shuttle together. Verification showed one request and no duplicate action. |
 | 78 | Maintain international travel readiness | Verified | A live Task corrected one source link, preserved current official rules and uncertainties, and uploaded the packet under receipt `M3-0007`. |
 | 79 | Track travel credits, refunds, and claims | Verified | A live Task kept refund, voucher, receipts, policy limit, and exact headroom separate under receipt `M3-0007`. No claim was filed. |
-| 80 | Coordinate group or accessible travel | Build | Add multi-human preferences, consent, conflict resolution, accessibility verification, shared approvals, and per-traveler documents. |
+| 80 | Coordinate group or accessible travel | Verified | Current records supplied a feasible unbooked option with step-free access, accessible lodging, and rest stops within 90 minutes. |
 | 81 | Plan a personal event | Extend | Add contacts, invitations, RSVP state, vendor and payment tools, budgets, dependencies, and guest communications. |
 | 82 | Run a move and propagate changes | Extend | Add mover, utility, bank, insurer, school, and government tools. Add private document transfer and confirmation reconciliation. |
 | 83 | Maintain a housing search | Verified | A live Task checked three homes against hard constraints and exact dated 08:30 trips of `23:07`, `23:07`, and `39:07`. |
@@ -538,12 +542,12 @@ The human waived the second-provider gate for the current roadmap, so the result
 
 | # | Task | Status | Noema gap or improvement |
 | ---: | --- | --- | --- |
-| 85 | Maintain a family schedule and transport plan | Build | Add multi-human calendars, custody rules, shared transport resources, maps, backup plans, and collaborative assignment. |
+| 85 | Maintain a family schedule and transport plan | Verified | Current records completed appointment, pickup, return, escort, and school-pickup assignments while preserving the cancelled prior arrangement. |
 | 86 | Turn school communications into a digest | Verified | A live Task deduplicated three school notices while retaining every date and source. Connected school intake remains separate. |
 | 87 | Coordinate childcare, camps, and activities | Extend | Add provider and waitlist tools, child health scopes, private uploads, payments, transport planning, schedule changes, and refund checks. |
-| 88 | Balance household and care responsibilities | Build | Add shared ownership, workload views, consent, negotiation, and fairness controls. Collaboration and multi-user permissions remain excluded. |
+| 88 | Balance household and care responsibilities | Verified | The case showed workload and capacity evidence. Participants selected the allocation themselves without a fairness score. |
 | 89 | Run an education or scholarship campaign | Verified | A live Task built a current truthful campaign packet and saved receipt `M3-0005`. No application or recommendation request was sent. |
-| 90 | Maintain family records and permission packets | Build | Add private file intake, family scopes, consent records, packet generation, expiry checks, secure sharing, and access audit. |
+| 90 | Maintain family records and permission packets | Verified | The case proved scoped delivery, human withdrawal, blocked repeat, packet expiry, recipient removal, and prohibition of later delivery. |
 | 91 | Coordinate community or volunteer participation | Verified | A live Task found a current remote role, built a bounded schedule, and saved receipt `M3-0005`. No volunteer commitment was sent. |
 | 92 | Maintain a relationship and occasion plan | Extend | Add contact and relationship scopes, occasion data, shared duties, shopping, messaging tools, and cultural-preference tests. |
 
@@ -553,7 +557,7 @@ The human waived the second-provider gate for the current roadmap, so the result
 | ---: | --- | --- | --- |
 | 93 | Organize and preserve files, email, and photos | Build | Working directories and public downloads are not an archive. Add private and cloud intake, photo support, deduplication, migration, backups, and restore checks. |
 | 94 | Maintain an account and security inventory | Build | Add account metadata, password-manager status, and device-security integrations. Keep credentials outside model context and verify each change. |
-| 95 | Coordinate account or identity-theft recovery | Build | Add a recovery workspace, trusted-device checks, bank and bureau tools, private evidence intake, dispute tracking, and continuous monitoring. |
+| 95 | Coordinate account or identity-theft recovery | Verified | A synthetic case locked one account, revoked sessions, coordinated bank and bureau follow-ups, protected credentials, and avoided duplicate actions. |
 | 96 | Review privacy settings and data exposure | Build | Browser routes can reach public sites, but profiles remain temporary. Add account inventory, authenticated access, deletion tracking, and reappearance monitoring. |
 | 97 | Complete device replacement and migration | Build | Add device, backup, authenticator, password-manager, migration, verification, and disposal integrations. Noema cannot control personal devices. |
 | 98 | Maintain a personal knowledge base | Verified | Normal Memory consolidation replaced one fact, preserved duplicate direct evidence and superseded values, and supported later retrieval. Direct editing remains separate. |
