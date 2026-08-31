@@ -233,6 +233,8 @@ slice or a net-negative reduction.
 - The four shared browser and review gaps now have focused unit acceptance.
   Live bank, flight, and cancellation retests remain open.
 - The Milestone 4 evidence record is `docs/validation/personal-assistant-milestone-4-browser-acceptance.md`.
+- Milestone 5 excludes shared Noema workspaces and secondary Noema human accounts.
+  Multi-person cases use local-owner Tasks, external participant records, and reviewed external actions.
 - Apollo iOS 2.3 code generation and native builds require macOS.
   Linux can validate the authored GraphQL operations against the shared schema.
 - Live Gmail and Calendar OAuth acceptance still needs interactive Google

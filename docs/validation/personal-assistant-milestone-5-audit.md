@@ -36,22 +36,19 @@ Earlier acceptance provides useful evidence.
 - Tasks 9 and 16 used Projects and Repeat history for changing obligations and follow-up closure.
 - Milestone 3 proved private packets, deterministic calculations, browser uploads, and receipt checks.
 
-Noema has one clear structural blocker.
+Milestone 5 now keeps one explicit product boundary.
 
 - Production authentication supports only `human:local`.
-- Workspace membership rows exist, and artifact reads already use them.
-- Task GraphQL operations still require the local owner and the Personal workspace.
-- Memory belongs only to the local human.
-- No second human can sign in, inspect shared authority, approve an action, or revoke access.
-
-Therefore, Noema cannot pass the full Milestone 5 multi-human exit gate today.
+- The local human owns each Milestone 5 Project, Task, artifact, and action request.
+- Other people remain external participants represented by current source records.
+- Participant input, consent, refusals, and receipts come from connected services or reviewed files.
+- Shared Noema workspaces and secondary Noema human accounts are outside this milestone.
 
 ### Evidence inspected
 
 - [Server authentication](../server-security.md) defines the single built-in human.
 - [Action governance](../harness/action-governance.md) defines exact review, destinations, approvals, and execution rechecks.
-- [Artifact queries](../../crates/noema-store/src/artifacts/queries.rs) already authorize Task artifacts through workspace membership.
-- [Task authorization](../../crates/noema-api/src/graphql/tasks/resolvers/support.rs) still limits product operations to the local owner.
+- [Task authorization](../../crates/noema-api/src/graphql/tasks/resolvers/support.rs) limits current product operations to the local owner.
 - [Milestone 2 acceptance](personal-assistant-milestone-2-acceptance.md) proves Project-backed changing obligations and exact reviewer response tracking.
 - [Milestone 3 acceptance](personal-assistant-milestone-3-acceptance.md) proves private clinical briefs, calculations, packets, uploads, and receipts.
 - [Milestone 4 browser acceptance](personal-assistant-milestone-4-browser-acceptance.md) proves reviewed portal transactions and unknown-outcome recovery.
@@ -67,13 +64,13 @@ Therefore, Noema cannot pass the full Milestone 5 multi-human exit gate today.
 | 57 | Use Repeat history, current portal or device records, source-defined thresholds, Tasks, and reviewed messages. | Connected event intake and urgent escalation have no live health case. | Test first with explicit fixture thresholds. |
 | 59 | Parse plan files, fetch current network and formulary facts, and run saved Luau calculations. | No health-plan scenario proves all assumptions and outputs are reproducible. | Test first. Do not add a health calculator service. |
 | 60 | Use a Project case, private artifacts, deadlines, browser upload, receipts, and later status checks. | No health appeal case proves exact evidence coverage and closure. | Test first. Reuse the packet path. |
-| 61 | Use one Project, Tasks, artifacts, events, routes, source warning rules, and reviewed external actions. | A single owner can coordinate the case, but shared caregiver authority is absent. | Test the single-owner path first. |
-| 62 | Existing Project files can describe a plan, but other caregivers cannot authenticate or control their authority. | Multi-human identity, consent, inspection, and revocation are absent. | Build one shared-workspace authority slice. |
-| 63 | Current tools can compare records and draft recipient-specific messages. | Noema cannot prove the care recipient authorized each recipient or let them revoke access. | Build recipient-bound authority after the shared-workspace slice. |
-| 80 | A local coordinator can collect constraints and produce a feasible plan with current tools. | Participants cannot inspect shared data or approve their own disclosures inside Noema. | Test the coordinator path, then reuse multi-human authority. |
-| 85 | Event, route, Task, and Project sources can produce a family schedule and backup plan. | Human assignments, custody authority, and revocation are not enforced by Noema. | Test planning first, then reuse multi-human authority. |
-| 88 | Project sources and Luau can show workload evidence without a hidden fairness score. | No collaborative decision surface or authenticated participant response exists. | Test evidence quality first. Keep allocation human-owned. |
-| 90 | Artifacts, Repeat checks, exact action review, and secure connector delivery cover packet mechanics. | Shared access, recipient authority, and revocation are absent. | Test packet mechanics, then reuse multi-human authority. |
+| 61 | Use one Project, Tasks, artifacts, events, routes, source warning rules, and reviewed external actions. | No live case proves every external handoff, acknowledgment, and follow-up. | Test the local-coordinator path. |
+| 62 | Use current caregiver source records, one Project, event and Task sources, and reviewed messages. | No live case proves current consent, handoff acknowledgment, and changed availability. | Test with one local coordinator. Do not add shared access. |
+| 63 | Compare current records, preserve an exact authorized-recipient list, and send one reviewed private update. | No live case proves recipient, payload, purpose, consent evidence, and receipt together. | Test exact external disclosure. |
+| 80 | A local coordinator can collect participant constraints and produce a feasible plan with current tools. | No live case verifies each material constraint and later participant response. | Test through external participant sources. |
+| 85 | Event, route, Task, and Project sources can produce a family schedule and backup plan. | No live case proves custody constraints, assignments, cancellation, and acknowledgment together. | Test with one local coordinator. |
+| 88 | Project sources and Luau can show workload evidence without a hidden fairness score. | No live case preserves participant responses and the final human-owned allocation. | Test evidence quality first. Keep allocation human-owned. |
+| 90 | Artifacts, Repeat checks, exact action review, and secure external delivery cover packet mechanics. | No live case proves current consent, exact recipients, expiry, delivery, and later withdrawal. | Test external packet delivery. |
 
 ## General solution opportunities
 
@@ -109,34 +106,25 @@ The Reviewer should reject a result that silently fills the gap.
 
 Do not add phrase matching, a generic urgency engine, or a professional-certification registry.
 
-### 4. Activate one real multi-human authority slice
+### 4. Treat other people as external participants
 
-This is the first justified shared production build.
+The local human remains the only Noema principal in this milestone.
+Calendars, messages, records, files, and forms supply participant constraints and responses.
 
-The smallest useful slice is one invited human in one non-Personal workspace.
-That human must be able to:
+Keep stable external identifiers when the source provides them.
+Do not infer identity from names alone.
+Do not add Noema accounts, workspace membership flows, or shared approval surfaces.
 
-- authenticate with their own credential;
-- read one shared Project, Task, and artifact;
-- see why access exists;
-- approve or decline their own pending action when applicable;
-- leave the workspace or have membership revoked;
-- lose access immediately after revocation.
-
-Reuse the existing `humans`, `workspace_memberships`, artifact membership checks, passkey, and session authorities.
-Do not add groups, relationship scopes, household types, or role inheritance in this slice.
-
-### 5. Bind private egress to the authorized recipient
-
-After the shared-workspace slice passes, add one recipient-bound disclosure case.
+### 5. Use exact human review for private external disclosure
 
 The action request already binds exact arguments and a destination.
-The missing check is whether the current person or workspace authority covers that recipient and resource.
+Configure human review for Milestone 5 operations that disclose another person's private information.
 
-Execution must recheck that authority after approval and before sending.
-Revocation must supersede a pending action.
+The approval must show the exact recipient and payload.
+The Task must cite current consent or proxy evidence from a current source record.
+A later receipt, response, or refusal must remain linked to the Task result.
 
-Do not add a separate consent ledger before the shared membership path demonstrates its exact missing fields.
+Test one withdrawal before adding consent storage or a recipient policy system.
 
 ### 6. Delay collaboration entities until a live case needs them
 
@@ -153,9 +141,8 @@ Until then, adding it would duplicate Project source meaning.
 3. Run Task 59 with saved Luau inputs and outputs.
 4. Run Task 61 as a single-owner care-transition case.
 5. Run Tasks 80, 85, 88, and 90 as local-coordinator cases.
-6. Build and test one second-human workspace membership path.
-7. Add and test one recipient-bound disclosure with revocation.
-8. Rerun Tasks 62 and 63 through the new multi-human path.
+6. Run Tasks 62 and 63 through external caregiver records and reviewed messages.
+7. Test one consent withdrawal that makes the local human decline a pending disclosure.
 
 ## Do not build yet
 
@@ -167,13 +154,15 @@ Until then, adding it would duplicate Project source meaning.
 - Caregiver, household, family, or traveler domain models.
 - A fairness score or automatic workload allocator.
 - A second approval or review system.
+- Shared Noema workspaces for family or caregiver coordination.
+- Secondary Noema human accounts or participant approval surfaces.
 
 ## Audit conclusion
 
 Milestone 5 is not primarily a health-platform build.
 
 Most single-owner cases should first run through current general capabilities.
-The audit found one certain platform gap: authenticated multi-human authority with revocation.
+Milestone 5 does not require shared Noema workspaces or multi-human application authority.
 
 The next work should maximize evidence before architecture.
-Run the single-owner cases first, then build the smallest shared-workspace slice that the remaining failures require.
+Run the local-coordinator and external-participant cases before adding new production state.

@@ -386,7 +386,7 @@ Every consequential financial or account write uses an exact reviewed request.
 
 Every external change has a receipt, later verification, or an explicit unknown outcome.
 
-## Milestone 5: Add goals, regulated work, and multi-human coordination
+## Milestone 5: Add goals, regulated work, and multi-person coordination
 
 Target: 100/100 Verified.
 
@@ -401,8 +401,9 @@ Earlier milestones already proved private clinical briefs, professional boundari
 
 Do not add goal, health-record, medication, referral, claim, caregiver, family, or fairness systems before those paths fail a controlled case.
 
-The certain platform gap is authenticated multi-human authority.
-Production still has one built-in administrator, although workspace membership and membership-based artifact reads already exist.
+Milestone 5 excludes shared Noema workspaces and secondary Noema human accounts.
+The local human owns each Project, Task, artifact, and action request.
+Other people participate through current external source records and reviewed external actions.
 
 The complete evidence and per-task decisions are in the [Milestone 5 audit](../validation/personal-assistant-milestone-5-audit.md).
 
@@ -414,9 +415,9 @@ The complete evidence and per-task decisions are in the [Milestone 5 audit](../v
 | Test one combined private-record case with files, mock portals, conflicts, deadlines, and later status checks. | One case can test the shared record and case path before any health-specific state exists. | 53, 54, 56, 60 |
 | Test health-plan calculations through saved Luau inputs and results. | The calculation system already exists and needs domain acceptance, not another calculator. | 59 |
 | Test source-defined warnings, urgent routes, and professional stop boundaries. | Noema must preserve source rules and request qualified guidance when a rule is absent. | 54, 57, 61, 63 |
-| Test local-coordinator family and group plans with current sources. | Planning quality can be separated from shared application authority. | 61, 80, 85, 88, 90 |
-| Activate one invited human in one shared workspace. | The full milestone cannot pass while every request authenticates as `human:local`. | 62, 63, 80, 85, 88, 90 |
-| Recheck recipient and resource authority before private egress. | Exact action review does not yet prove that another person authorized the disclosure. | 62, 63, 80, 85, 90 |
+| Test local-coordinator family and group plans with current sources. | External records can supply participant constraints, decisions, and acknowledgments. | 61, 62, 80, 85, 88, 90 |
+| Test exact private disclosure with human review. | The decision must show the recipient and payload and retain current consent or proxy evidence. | 62, 63, 80, 85, 90 |
+| Test one consent withdrawal before disclosure. | A current refusal must make the local human decline or supersede the pending external action. | 62, 63, 90 |
 
 ### Audit disposition of earlier proposals
 
@@ -429,8 +430,8 @@ The complete evidence and per-task decisions are in the [Milestone 5 audit](../v
 | Add health service operations. | Use current adapters and browser actions. Add only missing provider-neutral operation behavior. | 54, 56, 57, 60, 61 |
 | Add a health-plan calculator. | Reuse bounded Luau and saved artifacts. | 59 |
 | Add urgent-routing rules. | Use explicit source thresholds. Request qualified guidance when a required rule is absent. | 54, 57, 61, 63 |
-| Add multi-human authority. | Build one invited-human workspace slice by extending current human and membership authorities. | 62, 80, 85, 88, 90 |
-| Add recipient disclosure policy. | Add one recipient and resource check after the shared-workspace slice proves its required fields. | 62, 63, 80, 85, 90 |
+| Add multi-human authority. | Out of scope. Use one local coordinator and external participant records. | 62, 80, 85, 88, 90 |
+| Add recipient disclosure policy. | Reuse exact action requests and human review. Add stored policy only after a live failure proves it necessary. | 62, 63, 80, 85, 90 |
 | Add shared planning state. | Keep roles and handoffs in Project sources until two live paths need enforced shared fields. | 62, 80, 85, 88 |
 | Add workload balancing. | Test transparent evidence. Keep allocation decisions with humans. | 88 |
 | Add family packet state. | Reuse artifacts, Repeat expiry checks, exact action review, and current delivery operations. | 90 |
@@ -447,11 +448,17 @@ The complete evidence and per-task decisions are in the [Milestone 5 audit](../v
 
 ### Exit gate
 
-Every person can inspect and revoke their applicable authority.
+The local human owns every Noema Task and action decision.
+
+Every material participant input, consent, refusal, and acknowledgment has a current source record.
 
 No private information crosses a person or relationship boundary without an authorized purpose.
 
+Each private disclosure binds its exact recipient, payload, purpose, human decision, and later receipt when available.
+
 Noema never presents regulated analysis as a professional decision.
+
+No shared Noema workspace or secondary Noema human account is required.
 
 ## Program controls
 
@@ -555,6 +562,6 @@ Do not add a general transaction system before one bounded Milestone 4 case prov
 | 2. Communication and work loops | 18 | 32 |
 | 3. Document and decision workflows | 28 | 60 |
 | 4. Personal operations and transactions | 26 | 86 |
-| 5. Goals, regulated work, and multi-human coordination | 14 | 100 |
+| 5. Goals, regulated work, and multi-person coordination | 14 | 100 |
 
 The milestone task lists cover each task number from 1 through 100 exactly once.
