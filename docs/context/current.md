@@ -223,8 +223,13 @@ slice or a net-negative reduction.
 - The travel packet corrected one malformed source link before test receipt `M3-0007`.
 - The human waived affected-user review for the controlled accessibility fixture.
   This waiver does not prove usability for an affected user.
-- An action decline does not carry a human reason into the resumed Task.
-  Add an optional decline note only after another current path needs direct correction without Task reopen.
+- The Milestone 5 withdrawal case proved that an action decline needs stronger authority.
+  Three declined equivalent submits returned with new browser snapshots.
+  A fourth equivalent submit then ran automatically with stale consent evidence.
+- Add one-way mandatory human review for one exact action request.
+  Stop equivalent retries after decline and pass the decision into the resumed Task.
+- Recheck named mutable source conditions after a human wait.
+  Do not add a general consent registry before the two disclosure retests pass.
 - The Milestone 3 evidence record is `docs/validation/personal-assistant-milestone-3-acceptance.md`.
 - The first Milestone 4 browser acceptance slice used controlled bank and flight fixtures.
   The bank path passed with one receipt and one commit.
@@ -235,6 +240,9 @@ slice or a net-negative reduction.
 - The Milestone 4 evidence record is `docs/validation/personal-assistant-milestone-4-browser-acceptance.md`.
 - Milestone 5 excludes shared Noema workspaces and secondary Noema human accounts.
   Multi-person cases use local-owner Tasks, external participant records, and reviewed external actions.
+- The Milestone 5 live audit produced eight passes, four partial results, and two failures.
+  Tasks 63 and 90 failed the required private-disclosure boundary.
+- The Milestone 5 evidence record is `docs/validation/personal-assistant-milestone-5-audit.md`.
 - Apollo iOS 2.3 code generation and native builds require macOS.
   Linux can validate the authored GraphQL operations against the shared schema.
 - Live Gmail and Calendar OAuth acceptance still needs interactive Google
