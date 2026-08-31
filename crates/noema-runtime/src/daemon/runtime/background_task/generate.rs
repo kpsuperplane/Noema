@@ -400,18 +400,12 @@ impl RuntimeActor {
             progress.observe_results(&results);
             context.append_results(&results);
             context.finish_round();
-            if should_stop_after_tool_results(&results) {
-                return Err(RuntimeError::OutcomeUncertain);
-            }
             if invalid_terminal_attempts >= 2 {
                 return Err(RuntimeError::TaskTerminalInvalid(
                     "terminal payload remained invalid after one repair".to_string(),
                 ));
             }
-            if !results
-                .iter()
-                .any(|result| result.requires_provider_continuation)
-            {
+            if !task_results_require_provider_continuation(&results) {
                 response.usage = aggregate_usage;
                 return Ok(BackgroundTaskGenerateResult { response });
             }

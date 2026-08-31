@@ -2549,7 +2549,7 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
     assert_eq!(declined.state, GovernedActionState::Declined);
     assert!(
         store
-            .list_declined_action_requests(
+            .list_nonrepeatable_action_requests(
                 captured.task_id.as_str(),
                 fence.task_generation + 1,
                 "mcp.example.write",

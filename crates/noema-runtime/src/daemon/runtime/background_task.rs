@@ -115,8 +115,10 @@ fn task_initial_provider_input(
 include!("background_task/generate.rs");
 include!("background_task/finalize.rs");
 
-fn should_stop_after_tool_results(results: &[LocalToolResult]) -> bool {
-    results.iter().any(|result| result.has_uncertain_outcome())
+fn task_results_require_provider_continuation(results: &[LocalToolResult]) -> bool {
+    results
+        .iter()
+        .any(|result| result.requires_provider_continuation || result.has_uncertain_outcome())
 }
 
 fn propagate_compaction_result(result: Result<bool, ProviderError>) -> Result<bool, RuntimeError> {
@@ -322,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn uncertain_tool_results_stop_background_model_continuation() {
+    fn uncertain_tool_results_continue_background_model() {
         let result = LocalToolResult {
             call_id: None,
             provider_call_id: None,
@@ -343,7 +345,7 @@ mod tests {
             kind: LocalToolKind::Gateway,
         };
 
-        assert!(should_stop_after_tool_results(&[result]));
+        assert!(task_results_require_provider_continuation(&[result]));
     }
 
     #[test]

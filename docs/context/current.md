@@ -62,7 +62,8 @@ slice or a net-negative reduction.
 - Every Task role run receives a fresh current clock.
   Captured request time remains separate data for interpreting the original request.
 - A final task transaction finishes active run items and open debug spans.
-  Unknown external outcomes are not retried automatically.
+  An uncertain external action returns to an Executor for status checks.
+  An equivalent action request cannot run again.
 - Reviewer approval owns the Task completion update decision.
   A no-new-information result suppresses that update when the Task forbids repeated content.
 - Provider request settings do not authorize returned tool input. Every returned
@@ -175,6 +176,7 @@ slice or a net-negative reduction.
   Password, hidden, and file controls stay outside review context.
 - A main-document 5xx response after browser interaction becomes `outcome_uncertain`.
   A returned uncertain snapshot remains available for reconciliation.
+- An uncertain Task action keeps normal read tools available before Noema requests human help.
 - A continued Executor snapshots a recorded active browser session before reopening a URL.
 - The Task Reviewer checks every explicit requirement against current evidence.
 - Reviewed browser actions can upload one exact Task artifact.
@@ -238,7 +240,7 @@ slice or a net-negative reduction.
   The Reviewer approved that omission. A human correction recovered `CONFIRMED` with one commit.
 - The four shared browser and review gaps now have focused unit acceptance.
   Live bank and cancellation retests passed. The flight retest confirmed one commit after human recovery.
-  Automatic read-only flight reconciliation remains open.
+  Automatic read-only flight reconciliation needs a live retest.
 - The Milestone 4 evidence record is `docs/validation/personal-assistant-milestone-4-browser-acceptance.md`.
 - Milestone 5 excludes shared Noema workspaces and secondary Noema human accounts.
   Multi-person cases use local-owner Tasks, external participant records, and reviewed external actions.

@@ -186,6 +186,11 @@ Focused unit acceptance passed for Obscura, Kernel, action review, outcome
 handling, and Task role prompts. This result does not replace the required live
 bank, flight, and cancellation retest.
 
+On 2026-08-31, uncertain Task actions began returning to an Executor for status checks.
+The existing action request blocks an equivalent repeat.
+Noema uses normal read tools for reconciliation and requests human help only when status remains unknown.
+The flight path still needs a live retest of this behavior.
+
 ## Exit decision
 
 The browser is a viable general transaction executor.

@@ -437,7 +437,7 @@ async fn browser_approval_persists_page_and_target_review_context() {
 }
 
 #[tokio::test]
-async fn declined_browser_effect_cannot_return_with_a_new_snapshot() {
+async fn nonrepeatable_browser_effect_cannot_return_with_a_new_snapshot() {
     let actor = test_actor().await;
     let (task, _) = crate::test_support::seed_task(&actor.store, "Submit the form.").await;
     let service = noema_store::WorkCommandService::new(
@@ -476,6 +476,10 @@ async fn declined_browser_effect_cannot_return_with_a_new_snapshot() {
     turn.task_run_id = Some(fence.run_id.clone());
     turn.task_run_fence = Some(fence.clone());
     turn.initial_model_tools = test_governed_web_browse_model_tools();
+    let agent_identity = AgentPromptIdentity {
+        agent_id: "agent:primary".to_string(),
+        display_name: None,
+    };
     let owner = super::browse_owner_key_for_turn(&turn);
     let submission = noema_capabilities::web::browse::BrowseSubmissionContext {
         destination: "https://example.com/submit".to_string(),
@@ -510,10 +514,7 @@ async fn declined_browser_effect_cannot_return_with_a_new_snapshot() {
     let first = actor
         .prepare_reviewed_action(
             &turn,
-            &AgentPromptIdentity {
-                agent_id: "agent:primary".to_string(),
-                display_name: None,
-            },
+            &agent_identity,
             &first_call,
             binding,
         )
@@ -533,7 +534,7 @@ async fn declined_browser_effect_cannot_return_with_a_new_snapshot() {
         )
         .await
         .expect("decline action");
-    service
+    let _ = service
         .resume_after_governed_action(
             &action.action_id,
             action.revision,
@@ -581,10 +582,7 @@ async fn declined_browser_effect_cannot_return_with_a_new_snapshot() {
     let retry = actor
         .prepare_reviewed_action(
             &turn,
-            &AgentPromptIdentity {
-                agent_id: "agent:primary".to_string(),
-                display_name: None,
-            },
+            &agent_identity,
             &retry_call,
             binding,
         )
@@ -592,9 +590,9 @@ async fn declined_browser_effect_cannot_return_with_a_new_snapshot() {
         .expect("retry review");
     assert!(matches!(
         retry,
-        super::super::action_gateway::ReviewedActionPreparation::DeclinedEquivalent(
-            declined_action_id
-        ) if declined_action_id == action.action_id
+        super::super::action_gateway::ReviewedActionPreparation::NonrepeatableEquivalent(
+            blocked
+        ) if blocked.action_id == action.action_id
     ));
 
     let mut changed_submission = submission;
@@ -606,7 +604,7 @@ async fn declined_browser_effect_cannot_return_with_a_new_snapshot() {
         "e20",
         "button",
         "Submit",
-        Some(changed_submission),
+        Some(changed_submission.clone()),
     )
     .await;
     let changed_call = test_tool_call(
@@ -616,18 +614,119 @@ async fn declined_browser_effect_cannot_return_with_a_new_snapshot() {
     let changed = actor
         .prepare_reviewed_action(
             &turn,
-            &AgentPromptIdentity {
-                agent_id: "agent:primary".to_string(),
-                display_name: None,
-            },
+            &agent_identity,
             &changed_call,
             binding,
         )
         .await
         .expect("changed effect review");
+    let super::super::action_gateway::ReviewedActionPreparation::AwaitingApproval(
+        uncertain_action,
+    ) = changed
+    else {
+        panic!("changed effect must create a new action request");
+    };
+    actor
+        .store
+        .decide_governed_action(
+            &uncertain_action.action_id,
+            uncertain_action.revision,
+            "human:local",
+            noema_store::GovernedActionDecision::Approve,
+        )
+        .await
+        .expect("approve changed effect");
+    actor
+        .store
+        .claim_governed_action_execution(
+            &uncertain_action.action_id,
+            uncertain_action.revision,
+            None,
+        )
+        .await
+        .expect("claim changed effect");
+    actor
+        .store
+        .finish_governed_action_execution(
+            &uncertain_action.action_id,
+            uncertain_action.revision,
+            noema_store::GovernedExecutionOutcome::OutcomeUncertain,
+            None,
+            Some("outcome_uncertain"),
+        )
+        .await
+        .expect("record uncertain effect");
+    let _ = service
+        .resume_after_governed_action(
+            &uncertain_action.action_id,
+            uncertain_action.revision,
+            "actor:test:runtime",
+        )
+        .await
+        .expect("resume uncertain effect")
+        .expect("reconciliation run");
+    let claimed = service
+        .claim_next_work_run("worker:uncertain-browser-effect-continuation", 60, &[])
+        .await
+        .expect("claim reconciliation run")
+        .expect("reconciliation run");
+    let reconciliation_fence = noema_store::WorkRunFence {
+        run_id: claimed.run.run_id.clone(),
+        lease_token: claimed.lease_token,
+        task_generation: claimed.run.task_generation,
+    };
+    service
+        .start_work_run(
+            &reconciliation_fence,
+            "actor:test:runtime",
+            None,
+            "correlation:uncertain-browser-effect-continuation",
+        )
+        .await
+        .expect("start reconciliation run");
+    let admitted = service
+        .admit_work_run_execution_context(
+            &reconciliation_fence,
+            "actor:test:runtime",
+            None,
+            "correlation:uncertain-browser-effect-admit",
+        )
+        .await
+        .expect("admit uncertain action result");
+    assert!(admitted.context.lineage.iter().any(|item| {
+        item.payload["governed_action"]["state"] == "outcome_uncertain"
+    }));
+    turn.task_run_id = Some(reconciliation_fence.run_id.clone());
+    turn.task_run_fence = Some(reconciliation_fence);
+
+    set_browser_snapshot_with_submission_for_test(
+        &actor,
+        &owner,
+        11,
+        "e21",
+        "button",
+        "Submit",
+        Some(changed_submission),
+    )
+    .await;
+    let uncertain_retry_call = test_tool_call(
+        noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
+        json!({"snapshot_revision": 11, "ref": "e21", "action": "click"}),
+    );
+    let uncertain_retry = actor
+        .prepare_reviewed_action(
+            &turn,
+            &agent_identity,
+            &uncertain_retry_call,
+            binding,
+        )
+        .await
+        .expect("uncertain effect retry review");
     assert!(matches!(
-        changed,
-        super::super::action_gateway::ReviewedActionPreparation::AwaitingApproval(_)
+        uncertain_retry,
+        super::super::action_gateway::ReviewedActionPreparation::NonrepeatableEquivalent(
+            blocked
+        ) if blocked.action_id == uncertain_action.action_id
     ));
 }
 

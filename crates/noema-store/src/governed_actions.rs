@@ -804,12 +804,12 @@ impl NoemaStore {
             .await
     }
 
-    /// List declined action requests for one capability in the current Task generation.
+    /// List action requests that an Executor must not repeat in the current Task generation.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError`] when the read fails or stored action data is invalid.
-    pub async fn list_declined_action_requests(
+    pub async fn list_nonrepeatable_action_requests(
         &self,
         task_id: &str,
         task_generation: u64,
@@ -825,7 +825,7 @@ impl NoemaStore {
                     FROM governed_actions
                     WHERE task_id = ?1
                       AND capability_name = ?2
-                      AND state = 'declined'
+                      AND state IN ('declined', 'outcome_uncertain')
                       AND json_extract(authorization_context_json, '$.task_generation') = ?3
                     ORDER BY created_at DESC, action_id DESC
                     LIMIT 100
@@ -840,7 +840,7 @@ impl NoemaStore {
                     let revision =
                         u64::try_from(revision).map_err(|_| action_conflict("invalid revision"))?;
                     action_from_tx(connection, &action_id, revision)?.ok_or_else(|| {
-                        action_conflict("declined action request disappeared during read")
+                        action_conflict("nonrepeatable action request disappeared during read")
                     })
                 })
                 .collect()

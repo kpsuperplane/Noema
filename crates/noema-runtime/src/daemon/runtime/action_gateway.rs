@@ -21,7 +21,7 @@ use crate::daemon::agent_onboarding::AgentPromptIdentity;
 pub(super) enum ReviewedActionPreparation {
     NotRequired,
     AwaitingApproval(GovernedActionRecord),
-    DeclinedEquivalent(String),
+    NonrepeatableEquivalent(GovernedActionRecord),
     Authorized {
         action: Option<GovernedActionRecord>,
         authorization: ReviewedCapabilityAuthorization,
@@ -74,27 +74,31 @@ impl RuntimeActor {
                 .expect("authorization context is an object")
                 .insert("browser_review_context".to_string(), context.clone());
         }
-        if let (Some(task_id), Some(task_generation), Some(current_effect)) = (
+        if let (Some(task_id), Some(task_generation)) = (
             turn.task_id.as_deref(),
             authorization_context
                 .get("task_generation")
                 .and_then(serde_json::Value::as_u64),
-            browser_action_effect(&call.payload, browser_review_context.as_ref()),
         ) {
-            let declined = self
+            let current_browser_effect =
+                browser_action_effect(&call.payload, browser_review_context.as_ref());
+            let nonrepeatable = self
                 .store
-                .list_declined_action_requests(task_id, task_generation, &call.name)
+                .list_nonrepeatable_action_requests(task_id, task_generation, &call.name)
                 .await?;
-            if let Some(action) = declined.into_iter().find(|action| {
-                browser_action_effect(
-                    &action.arguments,
-                    action.authorization_context.get("browser_review_context"),
-                )
-                .is_some_and(|effect| effect == current_effect)
+            if let Some(action) = nonrepeatable.into_iter().find(|action| {
+                action.arguments == call.payload
+                    || current_browser_effect
+                        .as_ref()
+                        .is_some_and(|current_effect| {
+                            browser_action_effect(
+                                &action.arguments,
+                                action.authorization_context.get("browser_review_context"),
+                            )
+                            .is_some_and(|effect| &effect == current_effect)
+                        })
             }) {
-                return Ok(ReviewedActionPreparation::DeclinedEquivalent(
-                    action.action_id,
-                ));
+                return Ok(ReviewedActionPreparation::NonrepeatableEquivalent(action));
             }
         }
         let action = self
@@ -518,21 +522,24 @@ pub(super) fn action_store_failure_result(call: &LocalToolCall) -> LocalToolResu
     )
 }
 
-pub(super) fn declined_equivalent_action_result(
+pub(super) fn nonrepeatable_equivalent_action_result(
     call: &LocalToolCall,
-    declined_action_id: &str,
+    action: &GovernedActionRecord,
 ) -> LocalToolResult {
-    LocalToolResult::from_call(
-        call,
-        LocalToolKind::Gateway,
-        false,
+    let payload = if action.state == GovernedActionState::Declined {
         serde_json::json!({
             "code": "human_declined_equivalent_action",
             "message": "A human declined an equivalent action in this Task generation. Do not retry it.",
-            "declined_action_id": declined_action_id,
-        }),
-        true,
-    )
+            "declined_action_id": action.action_id,
+        })
+    } else {
+        serde_json::json!({
+            "code": "equivalent_action_outcome_uncertain",
+            "message": "An equivalent action already has an uncertain outcome. Do not retry it. Check its status with read-only tools.",
+            "action_id": action.action_id,
+        })
+    };
+    LocalToolResult::from_call(call, LocalToolKind::Gateway, false, payload, true)
 }
 
 pub(super) fn capability_failure_code(error: &CapabilityError) -> &'static str {
