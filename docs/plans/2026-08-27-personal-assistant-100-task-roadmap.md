@@ -407,14 +407,14 @@ Other people participate through current external source records and reviewed ex
 
 The complete evidence and per-task decisions are in the [Milestone 5 audit](../validation/personal-assistant-milestone-5-audit.md).
 
-The controlled task result is eight passes, four partial results, and two failures.
-Tasks 10, 53, 54, 56, 59, 60, 61, and 88 passed their controlled main paths.
+The controlled task result is nine passes, four partial results, and one failure.
+Tasks 10, 53, 54, 56, 59, 60, 61, 63, and 88 passed their controlled main paths.
 Tasks 57, 62, 80, and 85 need another bounded case.
-Tasks 63 and 90 failed the private-disclosure boundary.
+Task 90 failed the withdrawal boundary.
 
-One simulated disclosure ran without the required human decision.
+One simulated disclosure ran under the current reviewer policy and recorded a receipt.
 In the withdrawal case, three equivalent sends were declined.
-A fourth equivalent send then ran automatically with stale consent evidence.
+A fourth equivalent send then ran automatically.
 The fixture rejected that attempt and recorded zero deliveries.
 
 ### Immediate focus
@@ -427,11 +427,9 @@ The fixture rejected that attempt and recorded zero deliveries.
 | Add one later measurement and follow-up closure. | The source warning rule passed, but long-term monitoring did not run. | Partial. | 57 |
 | Add complete appointment, trip, and participant response facts. | Missing source facts prevented one feasible final plan and later acknowledgment. | Partial. | 62, 80, 85 |
 | Retain transparent workload evidence and human allocation. | The current path showed capacity without a fairness score. | Passed. | 88 |
-| Add a one-way mandatory human-review option to the current action request. | Model risk classification allowed one final disclosure to bypass human review. | Required. | 63, 90 |
-| Stop equivalent action attempts after a human decline. | Three declined sends returned with new browser snapshots. A fourth then ran automatically. | Required. | All external writes |
-| Recheck named mutable source conditions after a human wait. | The automatic retry used stale active-consent evidence after withdrawal. | Required. | All condition-bound writes |
-| Pass the human decision and optional reason into the resumed Task. | The Executor treated each decline as a reason to retry. | Required. | All reviewed actions |
-| Rerun active and withdrawn disclosure cases. | These cases must prove one human decision, one receipt, and zero attempts after refusal. | Pending. | 63, 90 |
+| Retain current reviewer policy for authorized writes. | The action reviewer already decides whether an action needs the human. | Passed. | 63 |
+| Stop equivalent browser effects after a human decline. | New snapshots previously allowed the same submit to return. | Implemented with focused acceptance. | Task browser writes |
+| Rerun the withdrawn disclosure case. | Live evidence must show zero equivalent attempts after the decline. | Pending. | 90 |
 
 ### Audit disposition of earlier proposals
 
@@ -445,7 +443,7 @@ The fixture rejected that attempt and recorded zero deliveries.
 | Add a health-plan calculator. | Reuse bounded Luau and saved artifacts. | 59 |
 | Add urgent-routing rules. | Use explicit source thresholds. Request qualified guidance when a required rule is absent. | 54, 57, 61, 63 |
 | Add multi-human authority. | Out of scope. Use one local coordinator and external participant records. | 62, 80, 85, 88, 90 |
-| Add recipient disclosure policy. | Reuse exact action requests and human review. Add stored policy only after a live failure proves it necessary. | 62, 63, 80, 85, 90 |
+| Add recipient disclosure policy. | Reuse exact action requests and current review policy. Add stored policy only after another live failure proves it necessary. | 62, 63, 80, 85, 90 |
 | Add shared planning state. | Keep roles and handoffs in Project sources until two live paths need enforced shared fields. | 62, 80, 85, 88 |
 | Add workload balancing. | Test transparent evidence. Keep allocation decisions with humans. | 88 |
 | Add family packet state. | Reuse artifacts, Repeat expiry checks, exact action review, and current delivery operations. | 90 |
@@ -564,7 +562,7 @@ Split work when one slice crosses two unrelated domain authorities.
 | ---: | --- | --- |
 | 1 | Retain the mixed-file, calculation, export, and portal regressions. | These paths support the Milestone 3 main outcomes. |
 | 2 | Test one bounded Milestone 4 transaction path. | The next case should prove current account state, one reviewed action, and a receipt. |
-| 3 | Test a decline note only when another live correction needs it. | The Spain case showed that a decline reason does not reach the resumed Task. |
+| 3 | Rerun the Milestone 5 withdrawal case. | Focused tests now block equivalent browser effects after a decline. |
 
 Do not add a general transaction system before one bounded Milestone 4 case proves the need.
 

@@ -2330,7 +2330,10 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
             },
             arguments: serde_json::json!({"record_id": "42"}),
             input_schema: serde_json::json!({"type": "object"}),
-            authorization_context: serde_json::json!({"origin": "task"}),
+            authorization_context: serde_json::json!({
+                "origin": "task",
+                "task_generation": fence.task_generation,
+            }),
             safe_summary: "write an external record".to_string(),
         })
         .await
@@ -2384,6 +2387,17 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
         .await
         .expect("decline action");
     assert_eq!(declined.state, GovernedActionState::Declined);
+    assert!(
+        store
+            .list_declined_action_requests(
+                captured.task_id.as_str(),
+                fence.task_generation + 1,
+                "mcp.example.write",
+            )
+            .await
+            .expect("list another Task generation")
+            .is_empty()
+    );
     let child = service
         .resume_after_governed_action(&action.action_id, action.revision, ACTOR)
         .await

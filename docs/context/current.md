@@ -223,13 +223,14 @@ slice or a net-negative reduction.
 - The travel packet corrected one malformed source link before test receipt `M3-0007`.
 - The human waived affected-user review for the controlled accessibility fixture.
   This waiver does not prove usability for an affected user.
-- The Milestone 5 withdrawal case proved that an action decline needs stronger authority.
-  Three declined equivalent submits returned with new browser snapshots.
-  A fourth equivalent submit then ran automatically with stale consent evidence.
-- Add one-way mandatory human review for one exact action request.
-  Stop equivalent retries after decline and pass the decision into the resumed Task.
-- Recheck named mutable source conditions after a human wait.
-  Do not add a general consent registry before the two disclosure retests pass.
+- The Milestone 5 withdrawal case proved that a decline must block an equivalent retry.
+  Three declined submits returned with new snapshots before a fourth submit ran.
+- Browser review now compares the intended effect across snapshots.
+  An equivalent decline blocks another action request in the same Task generation.
+- Focused store, comparison, and continued-Task tests pass.
+  The controlled withdrawal case still needs a live retest.
+- Current reviewer policy can execute an authorized medium-risk write.
+  Do not add mandatory review, decline notes, or a general consent registry now.
 - The Milestone 3 evidence record is `docs/validation/personal-assistant-milestone-3-acceptance.md`.
 - The first Milestone 4 browser acceptance slice used controlled bank and flight fixtures.
   The bank path passed with one receipt and one commit.
@@ -240,8 +241,8 @@ slice or a net-negative reduction.
 - The Milestone 4 evidence record is `docs/validation/personal-assistant-milestone-4-browser-acceptance.md`.
 - Milestone 5 excludes shared Noema workspaces and secondary Noema human accounts.
   Multi-person cases use local-owner Tasks, external participant records, and reviewed external actions.
-- The Milestone 5 live audit produced eight passes, four partial results, and two failures.
-  Tasks 63 and 90 failed the required private-disclosure boundary.
+- The Milestone 5 audit now records nine passes, four partial results, and one failure.
+  Task 63 matches current reviewer policy. Task 90 still needs a live withdrawal retest.
 - The Milestone 5 evidence record is `docs/validation/personal-assistant-milestone-5-audit.md`.
 - Apollo iOS 2.3 code generation and native builds require macOS.
   Linux can validate the authored GraphQL operations against the shared schema.

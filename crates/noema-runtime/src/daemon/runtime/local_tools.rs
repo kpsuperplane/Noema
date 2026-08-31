@@ -16,7 +16,7 @@ use super::presentation_tools::{
 use super::{
     action_gateway::{
         ReviewedActionPreparation, action_store_failure_result, awaiting_approval_result,
-        capability_execution_outcome, capability_failure_code,
+        capability_execution_outcome, capability_failure_code, declined_equivalent_action_result,
     },
     actor::{BrowserSessionState, BrowserSnapshotContext, RuntimeActor},
     tool_lifecycle::LocalToolCall,
@@ -154,6 +154,9 @@ impl RuntimeActor {
             ReviewedActionPreparation::NotRequired => None,
             ReviewedActionPreparation::AwaitingApproval(action) => {
                 return awaiting_approval_result(call, &action);
+            }
+            ReviewedActionPreparation::DeclinedEquivalent(action_id) => {
+                return declined_equivalent_action_result(call, &action_id);
             }
             ReviewedActionPreparation::Authorized {
                 action,

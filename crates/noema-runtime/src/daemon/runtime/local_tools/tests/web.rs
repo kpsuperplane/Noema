@@ -396,6 +396,7 @@ async fn browser_approval_persists_page_and_target_review_context() {
                 "ref":"e8",
                 "role":"button",
                 "name":"Submit",
+                "href":null,
                 "submission": {
                     "destination":"https://example.com/submit",
                     "method":"POST",
@@ -433,6 +434,201 @@ async fn browser_approval_persists_page_and_target_review_context() {
         assert!(closed.success);
     }
     assert!(actor.browser_sessions.session(&owner).is_none());
+}
+
+#[tokio::test]
+async fn declined_browser_effect_cannot_return_with_a_new_snapshot() {
+    let actor = test_actor().await;
+    let (task, _) = crate::test_support::seed_task(&actor.store, "Submit the form.").await;
+    let service = noema_store::WorkCommandService::new(
+        actor.store.clone(),
+        actor.provider_registry.clone(),
+    );
+    let claimed = service
+        .claim_next_work_run("worker:declined-browser-effect", 60, &[])
+        .await
+        .expect("claim Task run")
+        .expect("Task run");
+    let fence = noema_store::WorkRunFence {
+        run_id: claimed.run.run_id.clone(),
+        lease_token: claimed.lease_token,
+        task_generation: claimed.run.task_generation,
+    };
+    service
+        .start_work_run(
+            &fence,
+            "actor:test:runtime",
+            None,
+            "correlation:declined-browser-effect",
+        )
+        .await
+        .expect("start Task run");
+
+    let current_route = actor
+        .resolve_primary_provider()
+        .await
+        .expect("primary route");
+    let mut turn = test_turn();
+    turn.provider_kind = current_route.selection().provider_kind.clone();
+    turn.model = current_route.selection().model_profile.clone();
+    turn.provider_route = Arc::new(current_route);
+    turn.task_id = Some(task.task_id.to_string());
+    turn.task_run_id = Some(fence.run_id.clone());
+    turn.task_run_fence = Some(fence.clone());
+    turn.initial_model_tools = test_governed_web_browse_model_tools();
+    let owner = super::browse_owner_key_for_turn(&turn);
+    let submission = noema_capabilities::web::browse::BrowseSubmissionContext {
+        destination: "https://example.com/submit".to_string(),
+        method: "POST".to_string(),
+        fields: vec![noema_capabilities::web::browse::BrowseSubmissionField {
+            name: "amount".to_string(),
+            value: "125.00".to_string(),
+        }],
+        omitted_control_count: 0,
+        truncated: false,
+    };
+    set_browser_snapshot_with_submission_for_test(
+        &actor,
+        &owner,
+        3,
+        "e8",
+        "button",
+        "Submit",
+        Some(submission.clone()),
+    )
+    .await;
+
+    let first_call = test_tool_call(
+        noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
+        json!({"snapshot_revision": 3, "ref": "e8", "action": "click"}),
+    );
+    let binding = turn
+        .initial_model_tools
+        .bindings
+        .resolve(&first_call.name)
+        .expect("browser interaction binding");
+    let first = actor
+        .prepare_reviewed_action(
+            &turn,
+            &AgentPromptIdentity {
+                agent_id: "agent:primary".to_string(),
+                display_name: None,
+            },
+            &first_call,
+            binding,
+        )
+        .await
+        .expect("first review");
+    let super::super::action_gateway::ReviewedActionPreparation::AwaitingApproval(action) = first
+    else {
+        panic!("first action must await approval");
+    };
+    actor
+        .store
+        .decide_governed_action(
+            &action.action_id,
+            action.revision,
+            "human:local",
+            noema_store::GovernedActionDecision::Decline,
+        )
+        .await
+        .expect("decline action");
+    service
+        .resume_after_governed_action(
+            &action.action_id,
+            action.revision,
+            "actor:test:runtime",
+        )
+        .await
+        .expect("resume Task")
+        .expect("continuation run");
+    let claimed = service
+        .claim_next_work_run("worker:declined-browser-effect-continuation", 60, &[])
+        .await
+        .expect("claim continuation")
+        .expect("continuation");
+    let continuation_fence = noema_store::WorkRunFence {
+        run_id: claimed.run.run_id.clone(),
+        lease_token: claimed.lease_token,
+        task_generation: claimed.run.task_generation,
+    };
+    service
+        .start_work_run(
+            &continuation_fence,
+            "actor:test:runtime",
+            None,
+            "correlation:declined-browser-effect-continuation",
+        )
+        .await
+        .expect("start continuation");
+    turn.task_run_id = Some(continuation_fence.run_id.clone());
+    turn.task_run_fence = Some(continuation_fence);
+
+    set_browser_snapshot_with_submission_for_test(
+        &actor,
+        &owner,
+        9,
+        "e19",
+        "button",
+        "Submit",
+        Some(submission.clone()),
+    )
+    .await;
+    let retry_call = test_tool_call(
+        noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
+        json!({"snapshot_revision": 9, "ref": "e19", "action": "click"}),
+    );
+    let retry = actor
+        .prepare_reviewed_action(
+            &turn,
+            &AgentPromptIdentity {
+                agent_id: "agent:primary".to_string(),
+                display_name: None,
+            },
+            &retry_call,
+            binding,
+        )
+        .await
+        .expect("retry review");
+    assert!(matches!(
+        retry,
+        super::super::action_gateway::ReviewedActionPreparation::DeclinedEquivalent(
+            declined_action_id
+        ) if declined_action_id == action.action_id
+    ));
+
+    let mut changed_submission = submission;
+    changed_submission.fields[0].value = "130.00".to_string();
+    set_browser_snapshot_with_submission_for_test(
+        &actor,
+        &owner,
+        10,
+        "e20",
+        "button",
+        "Submit",
+        Some(changed_submission),
+    )
+    .await;
+    let changed_call = test_tool_call(
+        noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
+        json!({"snapshot_revision": 10, "ref": "e20", "action": "click"}),
+    );
+    let changed = actor
+        .prepare_reviewed_action(
+            &turn,
+            &AgentPromptIdentity {
+                agent_id: "agent:primary".to_string(),
+                display_name: None,
+            },
+            &changed_call,
+            binding,
+        )
+        .await
+        .expect("changed effect review");
+    assert!(matches!(
+        changed,
+        super::super::action_gateway::ReviewedActionPreparation::AwaitingApproval(_)
+    ));
 }
 
 #[tokio::test]
