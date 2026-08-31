@@ -25,14 +25,14 @@ use super::{
     actor::RuntimeActor,
     context_window::{ContextAdmission, RequestContext, admit_request, hard_overflow_error},
     continuation_context::ContinuationContext,
-    local_tool_results::{LocalToolKind, LocalToolResult},
+    local_tool_results::LocalToolResult,
     model_context::RuntimeEnvironmentContext,
     model_tools::{ModelTools, build_model_tools_for_role},
     progress::{ContinuationProgressTracker, DeterministicProgressStop},
     progress_audit::ProgressAuditDecision,
     runtime_debug::RuntimeDebugSpan,
     task_continuation::{
-        TASK_CHECKPOINT_PROMPT, add_usage, background_tool_instructions,
+        TASK_CONTINUATION_PROMPT, add_usage, background_tool_instructions,
         build_task_finalization_prompt, is_task_terminal_tool, is_valid_terminal_tool,
         render_tool_names, task_terminal_tools, terminal_tool_instructions,
     },
@@ -41,7 +41,6 @@ use super::{
     turn::{SuccessfulProviderTurn, current_runtime_environment},
 };
 use crate::daemon::prompts::build_role_tool_result_continuation_system_prompt;
-use crate::daemon::task_tool::{TASK_FILE_WRITE_TOOL, is_task_continue_execution_tool};
 use tokio_util::sync::CancellationToken;
 
 /// Provider request for one background Planner, Executor, or Reviewer run.
@@ -118,45 +117,6 @@ include!("background_task/finalize.rs");
 
 fn should_stop_after_tool_results(results: &[LocalToolResult]) -> bool {
     results.iter().any(|result| result.has_uncertain_outcome())
-}
-
-fn checkpoint_after_result(
-    current: bool,
-    call: &super::tool_lifecycle::LocalToolCall,
-    result: &LocalToolResult,
-) -> bool {
-    if call.name == TASK_FILE_WRITE_TOOL && result.success {
-        return result
-            .payload
-            .get("path")
-            .and_then(serde_json::Value::as_str)
-            == Some(noema_store::TASK_DOCUMENT);
-    }
-    if is_task_terminal_tool(&call.name) {
-        current
-    } else {
-        false
-    }
-}
-
-fn requires_task_checkpoint_before_action(
-    role: ExecutionRole,
-    checkpoint_current: bool,
-    binding: &noema_capabilities::CapabilityBinding,
-) -> bool {
-    role == ExecutionRole::TaskExecutor && !checkpoint_current && binding.requires_task_checkpoint()
-}
-
-fn checkpoint_required_result(
-    call: &super::tool_lifecycle::LocalToolCall,
-    binding: &noema_capabilities::CapabilityBinding,
-) -> LocalToolResult {
-    let payload = serde_json::json!({
-        "code": "task_checkpoint_required",
-        "message": "Save completed progress and the exact planned action in TASK.md before this reviewed state change. Reconsider the action if it is not required.",
-    });
-    LocalToolResult::from_call(call, LocalToolKind::Gateway, false, payload.clone(), true)
-        .with_persisted(binding.persisted_payload(&call.payload, &payload))
 }
 
 fn propagate_compaction_result(result: Result<bool, ProviderError>) -> Result<bool, RuntimeError> {
@@ -384,110 +344,6 @@ mod tests {
         };
 
         assert!(should_stop_after_tool_results(&[result]));
-    }
-
-    #[test]
-    fn continuation_checkpoint_requires_task_document_as_last_tool_action() {
-        let call = |name: &str, path: &str| super::super::tool_lifecycle::LocalToolCall {
-            output_index: 0,
-            call_id: None,
-            provider_call_id: None,
-            provider_name: None,
-            name: name.to_string(),
-            payload: serde_json::json!({"path": path}),
-        };
-        let result = |call: &super::super::tool_lifecycle::LocalToolCall, path: &str| {
-            LocalToolResult::from_call(
-                call,
-                LocalToolKind::Gateway,
-                true,
-                serde_json::json!({"path": path}),
-                true,
-            )
-        };
-
-        let support = call(TASK_FILE_WRITE_TOOL, "outcomes.md");
-        assert!(!checkpoint_after_result(
-            true,
-            &support,
-            &result(&support, "outcomes.md")
-        ));
-        let task = call(TASK_FILE_WRITE_TOOL, noema_store::TASK_DOCUMENT);
-        assert!(checkpoint_after_result(
-            false,
-            &task,
-            &result(&task, noema_store::TASK_DOCUMENT)
-        ));
-        let read = call("task.files.read", "ranking.md");
-        assert!(!checkpoint_after_result(
-            true,
-            &read,
-            &result(&read, "ranking.md")
-        ));
-    }
-
-    #[tokio::test]
-    async fn executor_checkpoints_before_a_reviewed_state_change() {
-        let store = crate::test_support::test_store().await;
-        let mut specs = noema_capabilities::web::browse::tool_specs()
-            .expect("browser tools")
-            .into_iter();
-        let interact = super::super::model_tools::native_web_binding(
-            &store,
-            specs
-                .find(|spec| {
-                    spec.name.as_str() == noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
-                })
-                .expect("interact tool"),
-        )
-        .await
-        .expect("interact binding");
-        let switch = super::super::model_tools::native_web_binding(
-            &store,
-            specs
-                .find(|spec| {
-                    spec.name.as_str()
-                        == noema_capabilities::web::browse::WEB_BROWSE_SWITCH_PROVIDER_TOOL
-                })
-                .expect("switch tool"),
-        )
-        .await
-        .expect("switch binding");
-
-        assert!(requires_task_checkpoint_before_action(
-            ExecutionRole::TaskExecutor,
-            false,
-            &interact,
-        ));
-        assert!(!requires_task_checkpoint_before_action(
-            ExecutionRole::TaskExecutor,
-            false,
-            &switch,
-        ));
-
-        let call = super::super::tool_lifecycle::LocalToolCall {
-            output_index: 0,
-            call_id: None,
-            provider_call_id: None,
-            provider_name: None,
-            name: noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL.to_string(),
-            payload: serde_json::json!({
-                "snapshot_revision": 3,
-                "ref": "e2",
-                "action": "click",
-                "api_key": "remove-me"
-            }),
-        };
-        let result = checkpoint_required_result(&call, &interact);
-        assert_eq!(result.persisted.arguments.as_ref().unwrap()["ref"], "e2");
-        assert_eq!(
-            result.persisted.arguments.as_ref().unwrap()["api_key"],
-            "[REDACTED]"
-        );
-        assert_eq!(
-            result.persisted.output.as_ref().unwrap()["code"],
-            "task_checkpoint_required"
-        );
     }
 
     #[test]

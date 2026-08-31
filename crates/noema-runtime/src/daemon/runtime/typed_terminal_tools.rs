@@ -78,7 +78,7 @@ pub(crate) fn progress_audit_tool_spec() -> Result<ToolSpec, ToolContractError> 
         json!({
             "type": "object",
             "properties": {
-                "decision": {"type": "string", "enum": ["continue", "finalize", "ask_human", "checkpoint"]},
+                "decision": {"type": "string", "enum": ["continue", "finalize", "ask_human", "pause"]},
                 "user_summary": {"type": "string", "minLength": 1, "maxLength": 4000},
                 "next_goal": {"type": ["string", "null"], "maxLength": 4000}
             },

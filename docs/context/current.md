@@ -55,8 +55,8 @@ slice or a net-negative reduction.
   `REVIEW.md` contains current Reviewer feedback when feedback exists.
 - Planner, Executor, and Reviewer handoffs use current Task files.
   Noema does not store content snapshots for those handoffs.
-- A Task continuation requires `TASK.md` to be the last completed tool action.
-  Progress-audit checkpoints keep file tools available until that write succeeds.
+- An Executor continuation receives bounded tool actions after the latest successful `TASK.md` save.
+  A tool call without a result has an uncertain outcome.
 - An Executor can submit an honest limitation report for an impossible outcome.
   Human-resolvable blocks and per-run ceilings do not qualify as system limitations.
 - Every Task role run receives a fresh current clock.
@@ -182,8 +182,8 @@ slice or a net-negative reduction.
   The artifact store verifies the file digest internally.
 - Obscura cannot select local files.
   The current browser route uses Kernel for upload actions and returns `retry_later` when that switch fails.
-- Each capability binding owns its Task checkpoint policy.
-  Browser provider switches do not require a Task checkpoint.
+- Reviewed actions do not require a Task document save.
+  Review and approval remain the action safety boundaries.
 - One coordinator owns the active backend and public snapshot revisions.
   Every navigation reruns network and SSRF checks.
 - Browser worker commands have a 30-second deadline. A timed-out worker is discarded.
@@ -237,7 +237,8 @@ slice or a net-negative reduction.
 - The flight path avoided replay after HTTP 502, but its first run skipped status reconciliation.
   The Reviewer approved that omission. A human correction recovered `CONFIRMED` with one commit.
 - The four shared browser and review gaps now have focused unit acceptance.
-  Live bank, flight, and cancellation retests remain open.
+  Live bank and cancellation retests passed. The flight retest confirmed one commit after human recovery.
+  Automatic read-only flight reconciliation remains open.
 - The Milestone 4 evidence record is `docs/validation/personal-assistant-milestone-4-browser-acceptance.md`.
 - Milestone 5 excludes shared Noema workspaces and secondary Noema human accounts.
   Multi-person cases use local-owner Tasks, external participant records, and reviewed external actions.

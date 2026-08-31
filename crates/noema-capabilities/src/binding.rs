@@ -196,7 +196,6 @@ pub struct CapabilityBinding {
     target: CapabilityTarget,
     behavior: CapabilityToolBehavior,
     execution_decision: CapabilityExecutionDecision,
-    task_checkpoint_required: bool,
     scope: CapabilityScope,
     destination: Option<CapabilityDestination>,
     service_context: Option<CapabilityServiceContext>,
@@ -315,7 +314,6 @@ impl std::fmt::Debug for CapabilityBinding {
             .field("target", &self.target)
             .field("behavior", &self.behavior)
             .field("execution_decision", &self.execution_decision)
-            .field("task_checkpoint_required", &self.task_checkpoint_required)
             .field("scope", &self.scope)
             .field("destination", &self.destination)
             .field("service_context", &self.service_context)
@@ -335,13 +333,11 @@ impl CapabilityBinding {
         input_check: Arc<dyn ToolInputCheck>,
         sanitizer: Arc<dyn PayloadSanitizer>,
     ) -> Self {
-        let task_checkpoint_required = execution_decision.requires_review() && !behavior.read_only;
         Self {
             spec,
             target,
             behavior,
             execution_decision,
-            task_checkpoint_required,
             scope,
             destination: None,
             service_context: None,
@@ -350,19 +346,11 @@ impl CapabilityBinding {
         }
     }
 
-    /// Override whether a Task Executor must save current progress before invocation.
-    #[must_use]
-    pub fn with_task_checkpoint_required(mut self, required: bool) -> Self {
-        self.task_checkpoint_required = required;
-        self
-    }
-
     /// Require at least model review before this binding can execute.
     #[must_use]
     pub fn with_llm_review(mut self) -> Self {
         if self.execution_decision == CapabilityExecutionDecision::ExecuteImmediately {
             self.execution_decision = CapabilityExecutionDecision::LlmReview;
-            self.task_checkpoint_required = !self.behavior.read_only;
         }
         self
     }
@@ -403,12 +391,6 @@ impl CapabilityBinding {
     #[must_use]
     pub const fn execution_decision(&self) -> CapabilityExecutionDecision {
         self.execution_decision
-    }
-
-    /// Return whether a Task Executor needs a current progress checkpoint.
-    #[must_use]
-    pub const fn requires_task_checkpoint(&self) -> bool {
-        self.task_checkpoint_required
     }
 
     /// Return the ownership scope used only for role access.

@@ -50,7 +50,7 @@ pub struct WorkRunExecutionContext {
     pub relevant_gates: Vec<TaskGateRecord>,
     /// Human answers, change requests, and retry notes in causal order.
     pub messages: Vec<TaskMessageRecord>,
-    /// Bounded parent-run records used by Executors and Reviewers.
+    /// Bounded Executor actions after the latest successful `TASK.md` save.
     pub lineage: Vec<AgentRunItemRecord>,
 }
 

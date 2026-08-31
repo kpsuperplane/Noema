@@ -88,7 +88,6 @@ impl RuntimeActor {
                 && capabilities.parallel_tool_calls,
         };
         admit_uncompacted_request(provider, &initial_request).await?;
-        let mut checkpoint_current = true;
         let mut next_provider_round = 0;
         let initial_response = self
             .generate_task_provider_round(
@@ -282,32 +281,8 @@ impl RuntimeActor {
                     },
                 )
                 .await;
-                let checkpoint_binding = model_tools.bindings.resolve(&call.name);
-                let checkpoint_required_for_action = checkpoint_binding.is_some_and(|binding| {
-                        requires_task_checkpoint_before_action(
-                            request.role,
-                            checkpoint_current,
-                            binding,
-                        )
-                    });
                 let result = if let Some(result) = repeated_result {
                     result
-                } else if checkpoint_required_for_action {
-                    checkpoint_required_result(
-                        call,
-                        checkpoint_binding.expect("checkpoint requirement has a binding"),
-                    )
-                } else if is_task_continue_execution_tool(&call.name) && !checkpoint_current {
-                    LocalToolResult::from_call(
-                        call,
-                        LocalToolKind::Gateway,
-                        false,
-                        serde_json::json!({
-                            "code": "task_checkpoint_required",
-                            "message": "Save completed progress and the exact next action in TASK.md before continuing execution.",
-                        }),
-                        true,
-                    )
                 } else {
                     tokio::select! {
                         _ = request.cancellation.cancelled() => {
@@ -344,7 +319,6 @@ impl RuntimeActor {
                         ) => result,
                     }
                 };
-                checkpoint_current = checkpoint_after_result(checkpoint_current, call, &result);
                 tool_debug_span
                     .finish(
                         if result.success {
@@ -450,10 +424,10 @@ impl RuntimeActor {
                 };
                 self.persist_progress_notice(
                     &request,
-                    &format!("Task progress reached a checkpoint after {reason}."),
+                    &format!("Task run paused after {reason}."),
                 )
                 .await;
-                context.append_developer_message(TASK_CHECKPOINT_PROMPT.to_string());
+                context.append_developer_message(TASK_CONTINUATION_PROMPT.to_string());
                 progress.reset_window();
             }
             let audit_interval = usize::try_from(request.execution_policy.progress_audit_interval)
@@ -486,9 +460,9 @@ impl RuntimeActor {
                         .await;
                     progress.update_current_goal(audit.next_goal);
                     progress.reset_window();
-                    if audit.decision == ProgressAuditDecision::Checkpoint {
+                    if audit.decision == ProgressAuditDecision::Pause {
                         context
-                            .append_developer_message(TASK_CHECKPOINT_PROMPT.to_string());
+                            .append_developer_message(TASK_CONTINUATION_PROMPT.to_string());
                     } else if audit.decision != ProgressAuditDecision::Continue {
                         let reason = match audit.decision {
                             ProgressAuditDecision::Finalize => {
@@ -497,7 +471,7 @@ impl RuntimeActor {
                             ProgressAuditDecision::AskHuman => {
                                 "progress audit requires human input"
                             }
-                            ProgressAuditDecision::Checkpoint => unreachable!(),
+                            ProgressAuditDecision::Pause => unreachable!(),
                             ProgressAuditDecision::Continue => unreachable!(),
                         };
                         return self
