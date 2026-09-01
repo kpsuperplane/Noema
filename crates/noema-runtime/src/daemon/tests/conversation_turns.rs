@@ -291,7 +291,7 @@ async fn primary_agent_preferences_route_model_and_reasoning_by_provider_kind() 
             "default",
             Some(noema_providers::ReasoningEffort::Medium),
         ),
-        ("codex", "gpt-5.6-luna", None),
+        ("codex", "gpt-5.6-terra", None),
     ] {
         assert_primary_preference_routes(provider_kind, model_profile, reasoning_effort).await;
     }
@@ -392,8 +392,8 @@ async fn assert_primary_preference_routes(
         Some(model_profile)
     );
     let expected_reasoning_effort = reasoning_effort.or_else(|| {
-        (provider_kind == "codex" && model_profile == "gpt-5.6-luna")
-            .then_some(noema_providers::ReasoningEffort::High)
+        (provider_kind == "codex" && model_profile == "gpt-5.6-terra")
+            .then_some(noema_providers::ReasoningEffort::Medium)
     });
     assert_eq!(
         requests

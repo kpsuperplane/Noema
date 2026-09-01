@@ -12,7 +12,7 @@ pub const DEFAULT_PROVIDER: &str = "openai";
 /// Product default reasoning effort shared by hosted model providers.
 pub const DEFAULT_HOSTED_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::Medium;
 /// Default `OpenAI` model used when no model override is supplied.
-pub const DEFAULT_OPENAI_MODEL: &str = "gpt-5.6-luna";
+pub const DEFAULT_OPENAI_MODEL: &str = "gpt-5.6-terra";
 /// Default `OpenAI` API base URL.
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 /// Default request timeout for `OpenAI` calls.

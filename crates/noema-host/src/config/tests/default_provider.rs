@@ -12,7 +12,7 @@ fn provider_resolution_precedence_and_secrecy_contracts() {
     let ProviderConfig::OpenAi(openai) = resolved.provider else {
         panic!("expected OpenAI config");
     };
-    assert_eq!(openai.default_model, "gpt-5.6-luna");
+    assert_eq!(openai.default_model, "gpt-5.6-terra");
     assert_eq!(
         openai.reasoning_effort,
         Some(noema_providers::ReasoningEffort::Medium)

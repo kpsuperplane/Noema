@@ -83,24 +83,24 @@ macro_rules! recommendations {
 /// Stable shipped recommendation table used by both runtime lookup and eval verification.
 #[rustfmt::skip]
 pub static NOEMA_MODEL_RECOMMENDATIONS: &[NoemaModelRecommendationCell] = recommendations![
-    (Codex, Primary, "gpt-5.6-luna", high),
-    (Codex, TaskSimple, "gpt-5.6-luna", low),
-    (Codex, TaskMedium, "gpt-5.6-luna", low),
+    (Codex, Primary, "gpt-5.6-terra", medium),
+    (Codex, TaskSimple, "gpt-5.6-luna", medium),
+    (Codex, TaskMedium, "gpt-5.6-luna", xhigh),
     (Codex, TaskDifficult, "gpt-5.6-sol", medium),
-    (Codex, TaskReviewer, "gpt-5.6-luna", low),
+    (Codex, TaskReviewer, "gpt-5.6-luna", medium),
     (Codex, WebFetchSummarizer, "gpt-5.6-luna", low),
     (Codex, ToolProgressAudit, "gpt-5.6-luna", low),
     (Codex, ActionReviewer, "gpt-5.6-luna", low),
-    (Codex, MemoryConsolidation, "gpt-5.6-luna", low),
-    (OpenAi, Primary, "gpt-5.6-luna", high),
-    (OpenAi, TaskSimple, "gpt-5.6-luna", low),
-    (OpenAi, TaskMedium, "gpt-5.6-luna", low),
+    (Codex, MemoryConsolidation, "gpt-5.6-luna", medium),
+    (OpenAi, Primary, "gpt-5.6-terra", medium),
+    (OpenAi, TaskSimple, "gpt-5.6-luna", medium),
+    (OpenAi, TaskMedium, "gpt-5.6-luna", xhigh),
     (OpenAi, TaskDifficult, "gpt-5.6-sol", medium),
-    (OpenAi, TaskReviewer, "gpt-5.6-luna", low),
+    (OpenAi, TaskReviewer, "gpt-5.6-luna", medium),
     (OpenAi, WebFetchSummarizer, "gpt-5.6-luna", low),
     (OpenAi, ToolProgressAudit, "gpt-5.6-luna", low),
     (OpenAi, ActionReviewer, "gpt-5.6-luna", low),
-    (OpenAi, MemoryConsolidation, "gpt-5.6-luna", low),
+    (OpenAi, MemoryConsolidation, "gpt-5.6-luna", medium),
     (OpenRouter, Primary, "openai/gpt-5.6-luna", high),
     (OpenRouter, TaskSimple, "openai/gpt-5.6-luna", low),
     (OpenRouter, TaskMedium, "openai/gpt-5.6-luna", low),
@@ -157,12 +157,24 @@ mod tests {
             for use_case in NoemaModelUseCase::ALL {
                 let expected = match use_case {
                     NoemaModelUseCase::Primary => {
-                        recommendation("gpt-5.6-luna", Some(ReasoningEffort::High))
+                        recommendation("gpt-5.6-terra", Some(ReasoningEffort::Medium))
+                    }
+                    NoemaModelUseCase::TaskSimple
+                    | NoemaModelUseCase::TaskReviewer
+                    | NoemaModelUseCase::MemoryConsolidation => {
+                        recommendation("gpt-5.6-luna", Some(ReasoningEffort::Medium))
+                    }
+                    NoemaModelUseCase::TaskMedium => {
+                        recommendation("gpt-5.6-luna", Some(ReasoningEffort::XHigh))
                     }
                     NoemaModelUseCase::TaskDifficult => {
                         recommendation("gpt-5.6-sol", Some(ReasoningEffort::Medium))
                     }
-                    _ => recommendation("gpt-5.6-luna", Some(ReasoningEffort::Low)),
+                    NoemaModelUseCase::WebFetchSummarizer
+                    | NoemaModelUseCase::ToolProgressAudit
+                    | NoemaModelUseCase::ActionReviewer => {
+                        recommendation("gpt-5.6-luna", Some(ReasoningEffort::Low))
+                    }
                 };
                 assert_eq!(
                     noema_model_recommendation(provider.clone(), use_case),

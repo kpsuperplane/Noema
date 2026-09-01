@@ -498,10 +498,10 @@ mod tests {
 
         let default = store.default_provider_selection().await.expect("default");
         assert_eq!(default.provider_instance_key, Some(expected_key.clone()));
-        assert_eq!(default.model_profile.as_deref(), Some("gpt-5.6-luna"));
+        assert_eq!(default.model_profile.as_deref(), Some("gpt-5.6-terra"));
         assert_eq!(
             default.reasoning_effort,
-            Some(noema_providers::ReasoningEffort::High)
+            Some(noema_providers::ReasoningEffort::Medium)
         );
         for agent_id in [
             "agent:primary",
