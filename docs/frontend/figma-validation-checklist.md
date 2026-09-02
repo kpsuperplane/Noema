@@ -18,11 +18,11 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | --- | --- | --- |
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
-| Screen-sized product raster fills | Pass | 0. Twelve smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.26. The median is 3.07. The highest remaining value is 6.55. |
-| Component library | Pass | 308 local components in 48 component sets. |
+| Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.24. The median is 3.07. The highest remaining value is 6.40. |
+| Component library | Pass | 309 local components in 48 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
-| Variables and styles | Pass | 203 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
+| Variables and styles | Pass | 204 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
 | Interactive target sizes | Pass | 0 prototype targets below 24 px on web or 44 pt on iOS. |
 | Text contrast | Open | 61 automated candidates require manual classification. Disabled controls and placeholders account for most candidates. |
@@ -33,20 +33,24 @@ The structural audit passes. Human review and exception approval remain open.
 
 The measured repair pass corrected fifty-one individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
-The pass also added thirteen reusable components, two component sets, and one dedicated web scrim token.
+The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
+
+The shared identity repair rebuilt the Beam avatar from the current Swift source. It also replaced both web onboarding marks with the current PWA asset. It improved 38 of 41 affected comparisons and regressed none.
+
+The pass also added fourteen reusable components and two component sets. It added dedicated web scrim and avatar-background tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
-| iOS Chat conversation | 8.36 to 6.55 |
+| iOS Chat conversation | 8.36 to 6.40 |
 | iOS Settings agents | 8.36 to 4.90 |
 | iOS Settings providers | 8.00 to 4.55 |
 | iOS Adapter credential sheet | 7.89 to 5.75 |
-| iOS Chat inline intervention | 7.84 to 5.97 |
+| iOS Chat inline intervention | 7.84 to 5.89 |
 | iOS MCP setup sheet | 7.83 to 4.52 |
-| Web-mobile onboarding welcome | 7.77 to 2.46 |
+| Web-mobile onboarding welcome | 7.77 to 2.18 |
 | Web-mobile advanced GGUF import | 7.88 to 5.07 |
 | Web-mobile routed chat | 8.09 to 4.65 |
-| iOS Chat intervention sheet | 7.73 to 5.95 |
+| iOS Chat intervention sheet | 7.73 to 5.83 |
 | iOS Task detail workspace | 6.54 to 2.96 |
 | iOS Task detail transcript | 6.04 to 2.46 |
 | iOS Task recurrence workspace | 7.69 to 4.10 |
@@ -81,6 +85,8 @@ The pass also added thirteen reusable components, two component sets, and one de
 | Shared iOS status component across 53 comparisons | 48 improved; mean change -0.14 |
 | Shared iOS detail shell across 5 comparisons | 5 improved; mean change -0.21 |
 | Shared provider-choice cards across 2 comparisons | 2 improved; no regression |
+| Shared iOS Lucide navigation icons across 53 comparisons | 34 improved; mean change -0.015; no regression |
+| Shared Beam avatar and web onboarding app icon across 41 comparisons | 38 improved; mean change -0.024; no regression |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
