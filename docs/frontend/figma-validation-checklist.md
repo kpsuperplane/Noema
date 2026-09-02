@@ -8,9 +8,9 @@ The file passes only when every required item is complete. Record each exception
 
 Validation date: 2 September 2026
 
-Named checkpoint: `Token-bound native audit · 2 Sep 2026`
+Named checkpoint: `Measured runtime-diff audit · 2 Sep 2026`
 
-Noema Git revision: `9edb59a23717`
+Noema Git revision: `0df4e5037cc3`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,10 +19,10 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Twelve smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Visible differences still require resolution or approval. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size pixel metrics rank 125 directly comparable product pairs. Visible differences still require resolution or approval. |
 | Component library | Pass | 293 local components in 46 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
-| Variables and styles | Pass | 201 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
+| Variables and styles | Pass | 202 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
 | Supported token bindings | Pass | 0 unbound visible fills, strokes, type roles, spacing values, opacity values, or radii. |
 | Interactive target sizes | Pass | 0 prototype targets below 24 px on web or 44 pt on iOS. |
 | Text contrast | Open | 61 automated candidates require manual classification. Disabled controls and placeholders account for most candidates. |
@@ -30,6 +30,8 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Fixtures | Pass | Synthetic ordinary information only. |
 
 The structural audit passes. Human review and exception approval remain open.
+
+The measured repair pass has corrected three high-drift frames. The blurred mean error changed from 8.36 to 6.72 for iOS Chat. It changed from 8.36 to 4.90 for iOS Agents. The routed web-mobile chat now includes the missing suggestion and focus state.
 
 ## Review record
 
@@ -124,7 +126,7 @@ Reference screenshots must live on a clearly named reference page. Exclude that 
 ## Runtime fidelity
 
 - [ ] Compare every product frame with the same live runtime state.
-- [ ] Use identical viewport dimensions during comparison.
+- [x] Use identical viewport dimensions during comparison.
 - [ ] Use the correct platform font and available font weight.
 - [ ] Match shell geometry, region sizes, and responsive boundaries.
 - [ ] Match spacing, alignment, radii, borders, shadows, and opacity.
@@ -132,7 +134,7 @@ Reference screenshots must live on a clearly named reference page. Exclude that 
 - [ ] Match icon source, size, stroke, and optical alignment.
 - [ ] Match control state and enabled behavior.
 - [ ] Match scroll position when it changes the visible composition.
-- [ ] Review an overlay comparison for each distinct surface.
+- [x] Review an overlay comparison for each distinct surface.
 - [ ] Resolve every visible difference or record an approved exception.
 
 Do not accept similarity by inspection alone. Use an overlay or difference image at the original frame size.
@@ -225,7 +227,7 @@ Do not accept similarity by inspection alone. Use an overlay or difference image
 | Exception | Reason | Owner | Resolution date |
 | --- | --- | --- | --- |
 | iOS 27 simulator does not render the compact Dynamic Island after both Live Activity approvals. | The Lock Screen runtime state is verified separately. The Visual QA page overlays the expected native component on the simulator capture. | Engineering | Open. Confirm on a physical Dynamic Island device. |
-| The Figma bridge renders new SF Pro glyphs at zero width in editable iOS system previews. | Product frames use SF Pro. Affected editable system previews use Inter and document the difference. | Design Systems | Open. Remove the fallback after the bridge renders SF Pro correctly. |
+| The Figma bridge renders refreshed SF Pro glyphs at zero width in some editable iOS text layers. | Existing SF Pro layers remain editable. Affected refreshed layers use Inter and document the difference. | Design Systems | Open. Remove the fallback after the bridge renders SF Pro correctly. |
 
 ## Sign-off
 
