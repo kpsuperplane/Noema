@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `4f6849235502d7d200f135160616163e53df8314`
+Noema Git revision: `ed6769c1f82217bdcea08814e12089589ace9dba`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Twelve smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.97. The median is 4.07. The highest remaining value is 7.06. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.88. The median is 4.01. The highest remaining value is 6.85. |
 | Component library | Pass | 300 local components in 47 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 202 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
@@ -31,7 +31,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected nineteen product states. It also added five reusable components and one component set.
+The measured repair pass corrected twenty-one product states. It also added five reusable components and one component set.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
@@ -45,15 +45,17 @@ The measured repair pass corrected nineteen product states. It also added five r
 | Web-mobile advanced GGUF import | 7.88 to 6.20 |
 | Web-mobile routed chat | 8.09 to 4.65 |
 | iOS Chat intervention sheet | 7.73 to 6.08 |
-| iOS Task detail workspace | 6.54 to 5.93 |
-| iOS Task detail transcript | 6.04 to 5.43 |
-| iOS Task recurrence workspace | 7.69 to 7.06 |
+| iOS Task detail workspace | 6.54 to 2.96 |
+| iOS Task detail transcript | 6.04 to 2.46 |
+| iOS Task recurrence workspace | 7.69 to 4.10 |
 | Web-desktop project editing | 2.29 to 1.92 |
 | Web-mobile project editing | 7.15 to 4.23 |
 | iOS MCP connection sheet | 7.13 to 2.76 |
 | iOS Memory root | 6.91 to 4.89 |
 | Web-mobile Clients | Current 2.96 |
 | Web-mobile Pair client sheet | 7.09 to 6.19 |
+| Web-mobile Notifications | Current 2.75 |
+| Web-mobile Configure APNs sheet | 6.85 to 5.16 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
