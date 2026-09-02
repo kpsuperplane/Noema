@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `b9b428bbd16d4d3cd346de7b9a04e4766d26cadd`
+Noema Git revision: `9042899a5f49ae7f47d6224f28d36c8935de03c8`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Twelve smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.28. The median is 3.10. The highest remaining value is 6.55. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.27. The median is 3.07. The highest remaining value is 6.55. |
 | Component library | Pass | 307 local components in 48 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 203 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
@@ -31,7 +31,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected forty-eight individually rebuilt product states. The web scrim token improved 18 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected forty-nine individually rebuilt product states. The web scrim token improved 18 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The pass also added twelve reusable components, two component sets, and one dedicated web scrim token.
 
@@ -71,11 +71,13 @@ The pass also added twelve reusable components, two component sets, and one dedi
 | Web-mobile Chat conversation | 5.77 to 4.66 |
 | Web-mobile Settings Web tools | 5.68 to 3.06 |
 | Web-mobile Task detail documents | 5.51 to 2.86 |
+| iOS Revoke Client sheet | 5.20 to 4.96 |
 | Web-desktop Memory article | 5.68 to 1.83 |
 | Web-desktop Memory index through the shared status component | 2.56 to 2.32 |
 | iOS Memory article | 5.68 to 3.56 |
 | Shared web scrim token across 18 overlay states | Mean 4.97 to 3.12 |
 | Shared iOS status component across 53 comparisons | 48 improved; mean change -0.14 |
+| Shared iOS detail shell across 5 comparisons | 5 improved; mean change -0.21 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
