@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.18. The median is 3.07. The highest remaining value is 5.63. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.18. The median is 3.07. The highest remaining value is 5.41. |
 | Component library | Pass | 310 local components in 48 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 204 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
@@ -47,7 +47,7 @@ The pass also added fifteen reusable components and two component sets. It added
 | iOS Settings agents | 8.36 to 4.90 |
 | iOS Settings providers | 8.00 to 4.55 |
 | iOS Adapter credential sheet | 7.89 to 4.62 |
-| iOS Chat inline intervention | 7.84 to 5.63 |
+| iOS Chat inline intervention | 7.84 to 5.41 |
 | iOS MCP setup sheet | 7.83 to 4.52 |
 | Web-mobile onboarding welcome | 7.77 to 2.18 |
 | Web-mobile advanced GGUF import | 7.88 to 5.07 |
@@ -94,6 +94,8 @@ The pass also added fifteen reusable components and two component sets. It added
 | iOS Tool Activity row | 5.36 to 5.34 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
+
+The inline-intervention human bubble records one Figma limitation. Figma cannot bind a variable to each individual gradient stop.
 
 ## Review record
 
