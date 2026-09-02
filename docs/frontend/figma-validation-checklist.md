@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `4f46bfc16076825dbd0883d2a0eb0832e1933d40`
+Noema Git revision: `d3d69c0e5556a12e7bf7d88b1f46ab0562275c1c`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -31,7 +31,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected fifty individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected fifty-one individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The pass also added thirteen reusable components, two component sets, and one dedicated web scrim token.
 
@@ -71,6 +71,7 @@ The pass also added thirteen reusable components, two component sets, and one de
 | Web-mobile Chat conversation | 5.77 to 4.66 |
 | Web-mobile Settings Web tools | 5.68 to 3.06 |
 | Web-mobile Task detail documents | 5.51 to 2.86 |
+| iOS onboarding provider choice | 5.30 to 5.18 |
 | iOS Revoke Client sheet | 5.20 to 4.96 |
 | Web-mobile recurrence detail | 5.18 to 3.66 |
 | Web-desktop Memory article | 5.68 to 1.83 |
@@ -79,6 +80,7 @@ The pass also added thirteen reusable components, two component sets, and one de
 | Shared web scrim token across 19 overlay states | Mean 4.98 to 3.15 |
 | Shared iOS status component across 53 comparisons | 48 improved; mean change -0.14 |
 | Shared iOS detail shell across 5 comparisons | 5 improved; mean change -0.21 |
+| Shared provider-choice cards across 2 comparisons | 2 improved; no regression |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
