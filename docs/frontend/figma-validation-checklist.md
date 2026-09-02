@@ -19,8 +19,8 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.15. The median is 3.07. The highest remaining value is 5.41. |
-| Component library | Pass | 310 local components in 48 component sets. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.11. The median is 3.06. The highest remaining value is 5.41. |
+| Component library | Pass | 311 local components in 48 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 207 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
@@ -41,7 +41,11 @@ The later geometry pass corrected chat text insets, task-reference symbols, and 
 
 The shared onboarding repair corrected the iOS heading font, disabled-state opacity, card borders, and model selectors. It improved all four onboarding comparisons.
 
-The pass also added fifteen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
+The current web-mobile repair corrected the task dock, GGUF dialog, Memory article, and Providers catalog.
+
+The Providers catalog now uses one responsive component for all five rows.
+
+The pass also added sixteen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
@@ -52,7 +56,7 @@ The pass also added fifteen reusable components and two component sets. It added
 | iOS Chat inline intervention | 7.84 to 5.41 |
 | iOS MCP setup sheet | 7.83 to 4.52 |
 | Web-mobile onboarding welcome | 7.77 to 2.18 |
-| Web-mobile advanced GGUF import | 7.88 to 5.07 |
+| Web-mobile advanced GGUF import | 7.88 to 4.62 |
 | Web-mobile routed chat | 8.09 to 4.63 |
 | iOS Chat intervention sheet | 7.73 to 4.41 |
 | iOS Task detail workspace | 6.54 to 2.96 |
@@ -79,6 +83,9 @@ The pass also added fifteen reusable components and two component sets. It added
 | Web-mobile Chat conversation | 5.77 to 4.66 |
 | Web-mobile Settings Web tools | 5.68 to 3.06 |
 | Web-mobile Task detail documents | 5.51 to 2.86 |
+| Web-mobile Task detail transcript | 5.06 to 4.38 |
+| Web-mobile Settings Providers | 5.04 to 3.65 |
+| Web-mobile Memory article | 5.00 to 2.57 |
 | iOS onboarding provider choice | 5.30 to 4.97 |
 | iOS onboarding provider authentication | 5.25 to 3.91 |
 | iOS onboarding local model download | 5.10 to 3.90 |
