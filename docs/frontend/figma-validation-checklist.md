@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `2ef12c3c5d011c2da1c10b8c65f4dd5e4d0589de`
+Noema Git revision: `ae96db5ad25ccbeb12102c5d33033dc60d6158fa`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Twelve smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.76. The median is 3.95. The highest remaining value is 6.72. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.73. The median is 3.79. The highest remaining value is 6.72. |
 | Component library | Pass | 301 local components in 47 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 202 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
@@ -31,7 +31,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected twenty-nine product states. It also added six reusable components and one component set.
+The measured repair pass corrected thirty product states. It also added six reusable components and one component set.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
@@ -64,6 +64,7 @@ The measured repair pass corrected twenty-nine product states. It also added six
 | iOS MCP reauthentication sheet | 6.26 to 3.55 |
 | iOS Settings Execution | 6.16 to 4.75 |
 | Web-mobile cancel-task sheet | 6.02 to 5.50 |
+| Web-mobile Provider detail | 6.00 to 1.96 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
