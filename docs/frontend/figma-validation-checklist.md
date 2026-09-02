@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `ed6769c1f82217bdcea08814e12089589ace9dba`
+Noema Git revision: `166cb55444aea385853749fffe67eec1b33d3c33`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,8 +19,8 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Twelve smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.88. The median is 4.01. The highest remaining value is 6.85. |
-| Component library | Pass | 300 local components in 47 component sets. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.86. The median is 4.01. The highest remaining value is 6.72. |
+| Component library | Pass | 301 local components in 47 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 202 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
@@ -31,7 +31,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected twenty-one product states. It also added five reusable components and one component set.
+The measured repair pass corrected twenty-two product states. It also added six reusable components and one component set.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
@@ -56,6 +56,7 @@ The measured repair pass corrected twenty-one product states. It also added five
 | Web-mobile Pair client sheet | 7.09 to 6.19 |
 | Web-mobile Notifications | Current 2.75 |
 | Web-mobile Configure APNs sheet | 6.85 to 5.16 |
+| iOS Settings Web | 6.85 to 4.69 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
