@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.11. The median is 3.06. The highest remaining value is 5.41. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.05. The median is 3.04. The highest remaining value is 5.07. |
 | Component library | Pass | 311 local components in 48 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 207 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
@@ -45,15 +45,19 @@ The current web-mobile repair corrected the task dock, GGUF dialog, Memory artic
 
 The Providers catalog now uses one responsive component for all five rows.
 
+The recovery repair restored current text, field help, focus treatment, and disabled actions on both web viewports.
+
+The later iOS repair corrected the shared keyboard shift symbol, device corners, the Chat empty state, and the Agents selector.
+
 The pass also added sixteen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
 | iOS Chat conversation | 8.36 to 4.51 |
-| iOS Settings agents | 8.36 to 4.90 |
+| iOS Settings agents | 8.36 to 4.42 |
 | iOS Settings providers | 8.00 to 4.55 |
 | iOS Adapter credential sheet | 7.89 to 4.62 |
-| iOS Chat inline intervention | 7.84 to 5.41 |
+| iOS Chat inline intervention | 7.84 to 5.07 |
 | iOS MCP setup sheet | 7.83 to 4.52 |
 | Web-mobile onboarding welcome | 7.77 to 2.18 |
 | Web-mobile advanced GGUF import | 7.88 to 4.62 |
@@ -86,11 +90,14 @@ The pass also added sixteen reusable components and two component sets. It added
 | Web-mobile Task detail transcript | 5.06 to 4.38 |
 | Web-mobile Settings Providers | 5.04 to 3.65 |
 | Web-mobile Memory article | 5.00 to 2.57 |
+| Web-desktop onboarding recovery | 1.41 to 0.29 |
+| Web-mobile onboarding recovery | 4.87 to 1.47 |
+| iOS Chat empty | 4.73 to 3.17 |
 | iOS onboarding provider choice | 5.30 to 4.97 |
 | iOS onboarding provider authentication | 5.25 to 3.91 |
 | iOS onboarding local model download | 5.10 to 3.90 |
 | iOS onboarding model confirmation | 5.08 to 4.03 |
-| iOS Revoke Client sheet | 5.20 to 4.96 |
+| iOS Revoke Client sheet | 5.20 to 4.92 |
 | Web-mobile recurrence detail | 5.18 to 3.66 |
 | Web-desktop Memory article | 5.68 to 1.83 |
 | Web-desktop Memory index through the shared status component | 2.56 to 2.32 |
@@ -103,7 +110,8 @@ The pass also added sixteen reusable components and two component sets. It added
 | Shared Beam avatar and web onboarding app icon across 41 comparisons | 38 improved; mean change -0.024; no regression |
 | iOS Runtime debug sheet | 5.36 to 3.94 |
 | iOS Discard task sheet | 5.61 to 4.04 |
-| iOS Tool Activity row | 5.36 to 5.34 |
+| Shared iOS keyboard and device corners across 3 chat comparisons | 3 improved; mean change -0.24 |
+| iOS Tool Activity row | 5.36 to 4.91 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
