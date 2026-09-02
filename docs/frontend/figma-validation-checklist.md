@@ -8,9 +8,9 @@ The file passes only when every required item is complete. Record each exception
 
 Validation date: 2 September 2026
 
-Named checkpoint: `Measured runtime-diff audit · 2 Sep 2026`
+Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `7f05123e2fb7`
+Noema Git revision: `4f6849235502d7d200f135160616163e53df8314`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,8 +19,8 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Twelve smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size pixel metrics rank 125 directly comparable product pairs. Visible differences still require resolution or approval. |
-| Component library | Pass | 298 local components in 47 component sets. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.97. The median is 4.07. The highest remaining value is 7.06. |
+| Component library | Pass | 300 local components in 47 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 202 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
@@ -31,7 +31,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected nine high-drift frames. It also added three reusable components and one component set.
+The measured repair pass corrected nineteen product states. It also added five reusable components and one component set.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
@@ -42,10 +42,20 @@ The measured repair pass corrected nine high-drift frames. It also added three r
 | iOS Chat inline intervention | 7.84 to 6.11 |
 | iOS MCP setup sheet | 7.83 to 4.52 |
 | Web-mobile onboarding welcome | 7.77 to 2.46 |
-| Web-mobile advanced GGUF import | 7.88 to 7.80 |
-| Web-mobile routed chat | 8.09 to 7.80 |
+| Web-mobile advanced GGUF import | 7.88 to 6.20 |
+| Web-mobile routed chat | 8.09 to 4.65 |
+| iOS Chat intervention sheet | 7.73 to 6.08 |
+| iOS Task detail workspace | 6.54 to 5.93 |
+| iOS Task detail transcript | 6.04 to 5.43 |
+| iOS Task recurrence workspace | 7.69 to 7.06 |
+| Web-desktop project editing | 2.29 to 1.92 |
+| Web-mobile project editing | 7.15 to 4.23 |
+| iOS MCP connection sheet | 7.13 to 2.76 |
+| iOS Memory root | 6.91 to 4.89 |
+| Web-mobile Clients | Current 2.96 |
+| Web-mobile Pair client sheet | 7.09 to 6.19 |
 
-The routed chat now includes the missing suggestion and focus state. Runtime fidelity remains open for unresolved visible differences.
+The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
 ## Review record
 
