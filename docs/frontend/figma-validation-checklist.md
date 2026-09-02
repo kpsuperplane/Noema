@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `b24c2ab44c87e8cc4861ec7b677a4771859f2391`
+Noema Git revision: `f56baf5703e3ac1530d0d70a7ec6188934f675da`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Twelve smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.80. The median is 4.00. The highest remaining value is 6.72. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.78. The median is 3.95. The highest remaining value is 6.72. |
 | Component library | Pass | 301 local components in 47 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 202 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
@@ -31,7 +31,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected twenty-six product states. It also added six reusable components and one component set.
+The measured repair pass corrected twenty-seven product states. It also added six reusable components and one component set.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
@@ -61,6 +61,7 @@ The measured repair pass corrected twenty-six product states. It also added six 
 | Web-mobile Settings Agents | 6.55 to 4.57 |
 | iOS API connection sheet | 6.49 to 4.35 |
 | iOS Settings Provider detail | 6.30 to 3.67 |
+| iOS MCP reauthentication sheet | 6.26 to 3.55 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
