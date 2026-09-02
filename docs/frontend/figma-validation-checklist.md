@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `9538045e778a647b39bc6a2975340efdba36d258`
+Noema Git revision: `3fca9d39b1f89c7b7c2d5d004fad39ff268c9c33`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,8 +19,8 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Twelve smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.32. The median is 3.17. The highest remaining value is 6.55. |
-| Component library | Pass | 301 local components in 47 component sets. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.30. The median is 3.14. The highest remaining value is 6.55. |
+| Component library | Pass | 303 local components in 47 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 203 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
@@ -31,9 +31,9 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected forty-six individually rebuilt product states. The web scrim token improved 18 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected forty-seven individually rebuilt product states. The web scrim token improved 18 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
-The pass also added six reusable components, one component set, and one dedicated web scrim token.
+The pass also added eight reusable components, one component set, and one dedicated web scrim token.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
@@ -69,6 +69,7 @@ The pass also added six reusable components, one component set, and one dedicate
 | Web-mobile Provider detail | 6.00 to 1.94 |
 | Web-mobile Settings Execution | 5.94 to 3.14 |
 | Web-mobile Chat conversation | 5.77 to 4.66 |
+| Web-mobile Settings Web tools | 5.68 to 3.06 |
 | Web-desktop Memory article | 5.68 to 1.83 |
 | Web-desktop Memory index through the shared status component | 2.56 to 2.32 |
 | iOS Memory article | 5.68 to 3.56 |
