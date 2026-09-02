@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `f1a24e95f1bc0636e77a02ff7b72b4dc6075d918`
+Noema Git revision: `305a0169459b109d903ca72d8698659c52edb33f`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Twelve smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.44. The median is 3.37. The highest remaining value is 6.72. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.38. The median is 3.26. The highest remaining value is 6.55. |
 | Component library | Pass | 301 local components in 47 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 203 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
@@ -31,20 +31,22 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected forty-three product states. It also added six reusable components, one component set, and one dedicated web scrim token.
+The measured repair pass corrected forty-three individually rebuilt product states. The web scrim token improved 18 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+
+The pass also added six reusable components, one component set, and one dedicated web scrim token.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
-| iOS Chat conversation | 8.36 to 6.72 |
+| iOS Chat conversation | 8.36 to 6.55 |
 | iOS Settings agents | 8.36 to 4.90 |
 | iOS Settings providers | 8.00 to 4.55 |
-| iOS Adapter credential sheet | 7.89 to 5.86 |
-| iOS Chat inline intervention | 7.84 to 6.11 |
+| iOS Adapter credential sheet | 7.89 to 5.75 |
+| iOS Chat inline intervention | 7.84 to 5.97 |
 | iOS MCP setup sheet | 7.83 to 4.52 |
 | Web-mobile onboarding welcome | 7.77 to 2.46 |
 | Web-mobile advanced GGUF import | 7.88 to 5.07 |
 | Web-mobile routed chat | 8.09 to 4.65 |
-| iOS Chat intervention sheet | 7.73 to 6.08 |
+| iOS Chat intervention sheet | 7.73 to 5.95 |
 | iOS Task detail workspace | 6.54 to 2.96 |
 | iOS Task detail transcript | 6.04 to 2.46 |
 | iOS Task recurrence workspace | 7.69 to 4.10 |
@@ -56,17 +58,18 @@ The measured repair pass corrected forty-three product states. It also added six
 | Web-mobile Pair client sheet | 7.09 to 3.82 |
 | Web-mobile Notifications | Current 2.75 |
 | Web-mobile Configure APNs sheet | 6.85 to 3.93 |
-| iOS Settings Web | 6.85 to 4.69 |
+| iOS Settings Web | 6.85 to 4.52 |
 | Web-mobile provider setup sheet | 6.64 to 4.35 |
 | Web-mobile Settings Agents | 6.55 to 4.57 |
 | iOS API connection sheet | 6.49 to 4.35 |
-| iOS Settings Provider detail | 6.30 to 3.67 |
-| iOS MCP reauthentication sheet | 6.26 to 3.55 |
-| iOS Settings Execution | 6.16 to 4.75 |
+| iOS Settings Provider detail | 6.30 to 3.54 |
+| iOS MCP reauthentication sheet | 6.26 to 3.42 |
+| iOS Settings Execution | 6.16 to 4.58 |
 | Web-mobile cancel-task sheet | 6.02 to 3.70 |
 | Web-mobile Provider detail | 6.00 to 1.94 |
 | Web-mobile Settings Execution | 5.94 to 3.14 |
 | Shared web scrim token across 18 overlay states | Mean 4.97 to 3.12 |
+| Shared iOS status component across 53 comparisons | 48 improved; mean change -0.14 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
