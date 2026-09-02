@@ -4,13 +4,37 @@ Use this checklist before Noema treats a Figma file as a design source of truth.
 
 The file passes only when every required item is complete. Record each exception with an owner and resolution date.
 
+## Current validation state
+
+Validation date: 2 September 2026
+
+Named checkpoint: `Token-bound native audit · 2 Sep 2026`
+
+Noema Git revision: `9edb59a23717`
+
+Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
+
+| Mechanical gate | Current result | Evidence |
+| --- | --- | --- |
+| Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
+| Product frames without instances | Pass | 0 of 129 frames. |
+| Screen-sized product raster fills | Pass | 0. Twelve smaller raster nodes are product assets. |
+| Runtime comparisons | Pass with exception | 128 direct overlays and 1 documented iOS 27 simulator exception. |
+| Component library | Pass | 292 local components in 46 component sets. |
+| Component descriptions | Pass | 0 missing component or component-set descriptions. |
+| Variables and styles | Pass | 201 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
+| Prototype connections | Pass | 454 links across native screens and current flows. |
+| Fixtures | Pass | Synthetic ordinary information only. |
+
+The structural audit passes. Human review and exception approval remain open.
+
 ## Review record
 
-- [ ] Record the Figma file URL.
-- [ ] Record the Figma version or named checkpoint.
-- [ ] Record the Noema Git revision.
+- [x] Record the Figma file URL.
+- [x] Record the Figma version or named checkpoint.
+- [x] Record the Noema Git revision.
 - [ ] Record the reviewer and review date.
-- [ ] Record the tested web and iOS builds.
+- [x] Record the tested web and iOS builds.
 
 ## Immediate failure conditions
 
@@ -197,7 +221,8 @@ Do not accept similarity by inspection alone. Use an overlay or difference image
 
 | Exception | Reason | Owner | Resolution date |
 | --- | --- | --- | --- |
-| None |  |  |  |
+| iOS 27 simulator does not render the compact Dynamic Island after both Live Activity approvals. | The Lock Screen runtime state is verified separately. The Visual QA page overlays the expected native component on the simulator capture. | Engineering | Open. Confirm on a physical Dynamic Island device. |
+| The Figma bridge renders new SF Pro glyphs at zero width in editable iOS system previews. | Product frames use SF Pro. Affected editable system previews use Inter and document the difference. | Design Systems | Open. Remove the fallback after the bridge renders SF Pro correctly. |
 
 ## Sign-off
 
