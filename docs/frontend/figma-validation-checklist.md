@@ -19,10 +19,10 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.18. The median is 3.07. The highest remaining value is 5.41. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.15. The median is 3.07. The highest remaining value is 5.41. |
 | Component library | Pass | 310 local components in 48 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
-| Variables and styles | Pass | 204 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
+| Variables and styles | Pass | 207 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
 | Interactive target sizes | Pass | 0 prototype targets below 24 px on web or 44 pt on iOS. |
 | Text contrast | Open | 61 automated candidates require manual classification. Disabled controls and placeholders account for most candidates. |
@@ -39,7 +39,9 @@ The shared identity repair rebuilt the Beam avatar from the current Swift source
 
 The later geometry pass corrected chat text insets, task-reference symbols, and three sheet heights. It reduced seven high-error iOS comparisons by 7.71 points in total.
 
-The pass also added fifteen reusable components and two component sets. It added dedicated web scrim and avatar-background tokens.
+The shared onboarding repair corrected the iOS heading font, disabled-state opacity, card borders, and model selectors. It improved all four onboarding comparisons.
+
+The pass also added fifteen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
@@ -77,7 +79,10 @@ The pass also added fifteen reusable components and two component sets. It added
 | Web-mobile Chat conversation | 5.77 to 4.66 |
 | Web-mobile Settings Web tools | 5.68 to 3.06 |
 | Web-mobile Task detail documents | 5.51 to 2.86 |
-| iOS onboarding provider choice | 5.30 to 5.18 |
+| iOS onboarding provider choice | 5.30 to 4.97 |
+| iOS onboarding provider authentication | 5.25 to 3.91 |
+| iOS onboarding local model download | 5.10 to 3.90 |
+| iOS onboarding model confirmation | 5.08 to 4.03 |
 | iOS Revoke Client sheet | 5.20 to 4.96 |
 | Web-mobile recurrence detail | 5.18 to 3.66 |
 | Web-desktop Memory article | 5.68 to 1.83 |
