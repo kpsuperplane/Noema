@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `c78f0352bf2807c634d0d61f168ed4684ad9f87c`
+Noema Git revision: `f1a24e95f1bc0636e77a02ff7b72b4dc6075d918`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,10 +19,10 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Twelve smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.71. The median is 3.76. The highest remaining value is 6.72. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.44. The median is 3.37. The highest remaining value is 6.72. |
 | Component library | Pass | 301 local components in 47 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
-| Variables and styles | Pass | 202 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
+| Variables and styles | Pass | 203 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
 | Interactive target sizes | Pass | 0 prototype targets below 24 px on web or 44 pt on iOS. |
 | Text contrast | Open | 61 automated candidates require manual classification. Disabled controls and placeholders account for most candidates. |
@@ -31,7 +31,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected thirty-one product states. It also added six reusable components and one component set.
+The measured repair pass corrected forty-three product states. It also added six reusable components, one component set, and one dedicated web scrim token.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
@@ -42,7 +42,7 @@ The measured repair pass corrected thirty-one product states. It also added six 
 | iOS Chat inline intervention | 7.84 to 6.11 |
 | iOS MCP setup sheet | 7.83 to 4.52 |
 | Web-mobile onboarding welcome | 7.77 to 2.46 |
-| Web-mobile advanced GGUF import | 7.88 to 6.20 |
+| Web-mobile advanced GGUF import | 7.88 to 5.07 |
 | Web-mobile routed chat | 8.09 to 4.65 |
 | iOS Chat intervention sheet | 7.73 to 6.08 |
 | iOS Task detail workspace | 6.54 to 2.96 |
@@ -53,19 +53,20 @@ The measured repair pass corrected thirty-one product states. It also added six 
 | iOS MCP connection sheet | 7.13 to 2.76 |
 | iOS Memory root | 6.91 to 4.89 |
 | Web-mobile Clients | Current 2.96 |
-| Web-mobile Pair client sheet | 7.09 to 6.19 |
+| Web-mobile Pair client sheet | 7.09 to 3.82 |
 | Web-mobile Notifications | Current 2.75 |
-| Web-mobile Configure APNs sheet | 6.85 to 5.16 |
+| Web-mobile Configure APNs sheet | 6.85 to 3.93 |
 | iOS Settings Web | 6.85 to 4.69 |
-| Web-mobile provider setup sheet | 6.64 to 5.84 |
+| Web-mobile provider setup sheet | 6.64 to 4.35 |
 | Web-mobile Settings Agents | 6.55 to 4.57 |
 | iOS API connection sheet | 6.49 to 4.35 |
 | iOS Settings Provider detail | 6.30 to 3.67 |
 | iOS MCP reauthentication sheet | 6.26 to 3.55 |
 | iOS Settings Execution | 6.16 to 4.75 |
-| Web-mobile cancel-task sheet | 6.02 to 5.50 |
-| Web-mobile Provider detail | 6.00 to 1.96 |
+| Web-mobile cancel-task sheet | 6.02 to 3.70 |
+| Web-mobile Provider detail | 6.00 to 1.94 |
 | Web-mobile Settings Execution | 5.94 to 3.14 |
+| Shared web scrim token across 18 overlay states | Mean 4.97 to 3.12 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
