@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff audit · 2 Sep 2026`
 
-Noema Git revision: `0df4e5037cc3`
+Noema Git revision: `7f05123e2fb7`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -20,10 +20,10 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Twelve smaller raster nodes are product assets. |
 | Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size pixel metrics rank 125 directly comparable product pairs. Visible differences still require resolution or approval. |
-| Component library | Pass | 293 local components in 46 component sets. |
+| Component library | Pass | 298 local components in 47 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 202 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
-| Supported token bindings | Pass | 0 unbound visible fills, strokes, type roles, spacing values, opacity values, or radii. |
+| Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
 | Interactive target sizes | Pass | 0 prototype targets below 24 px on web or 44 pt on iOS. |
 | Text contrast | Open | 61 automated candidates require manual classification. Disabled controls and placeholders account for most candidates. |
 | Prototype connections | Pass | 454 links across native screens and current flows. |
@@ -31,7 +31,21 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass has corrected three high-drift frames. The blurred mean error changed from 8.36 to 6.72 for iOS Chat. It changed from 8.36 to 4.90 for iOS Agents. The routed web-mobile chat now includes the missing suggestion and focus state.
+The measured repair pass corrected nine high-drift frames. It also added three reusable components and one component set.
+
+| Repaired surface | Blurred mean error |
+| --- | --- |
+| iOS Chat conversation | 8.36 to 6.72 |
+| iOS Settings agents | 8.36 to 4.90 |
+| iOS Settings providers | 8.00 to 4.55 |
+| iOS Adapter credential sheet | 7.89 to 5.86 |
+| iOS Chat inline intervention | 7.84 to 6.11 |
+| iOS MCP setup sheet | 7.83 to 4.52 |
+| Web-mobile onboarding welcome | 7.77 to 2.46 |
+| Web-mobile advanced GGUF import | 7.88 to 7.80 |
+| Web-mobile routed chat | 8.09 to 7.80 |
+
+The routed chat now includes the missing suggestion and focus state. Runtime fidelity remains open for unresolved visible differences.
 
 ## Review record
 
