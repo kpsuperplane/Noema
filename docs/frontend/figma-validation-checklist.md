@@ -19,8 +19,8 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.24. The median is 3.07. The highest remaining value is 6.40. |
-| Component library | Pass | 309 local components in 48 component sets. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.18. The median is 3.07. The highest remaining value is 5.63. |
+| Component library | Pass | 310 local components in 48 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 204 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
@@ -37,20 +37,22 @@ The shared navigation repair replaced three obsolete iOS glyphs with the reposit
 
 The shared identity repair rebuilt the Beam avatar from the current Swift source. It also replaced both web onboarding marks with the current PWA asset. It improved 38 of 41 affected comparisons and regressed none.
 
-The pass also added fourteen reusable components and two component sets. It added dedicated web scrim and avatar-background tokens.
+The later geometry pass corrected chat text insets, task-reference symbols, and three sheet heights. It reduced seven high-error iOS comparisons by 7.71 points in total.
+
+The pass also added fifteen reusable components and two component sets. It added dedicated web scrim and avatar-background tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
-| iOS Chat conversation | 8.36 to 6.40 |
+| iOS Chat conversation | 8.36 to 4.51 |
 | iOS Settings agents | 8.36 to 4.90 |
 | iOS Settings providers | 8.00 to 4.55 |
-| iOS Adapter credential sheet | 7.89 to 5.75 |
-| iOS Chat inline intervention | 7.84 to 5.89 |
+| iOS Adapter credential sheet | 7.89 to 4.62 |
+| iOS Chat inline intervention | 7.84 to 5.63 |
 | iOS MCP setup sheet | 7.83 to 4.52 |
 | Web-mobile onboarding welcome | 7.77 to 2.18 |
 | Web-mobile advanced GGUF import | 7.88 to 5.07 |
-| Web-mobile routed chat | 8.09 to 4.65 |
-| iOS Chat intervention sheet | 7.73 to 5.83 |
+| Web-mobile routed chat | 8.09 to 4.63 |
+| iOS Chat intervention sheet | 7.73 to 4.41 |
 | iOS Task detail workspace | 6.54 to 2.96 |
 | iOS Task detail transcript | 6.04 to 2.46 |
 | iOS Task recurrence workspace | 7.69 to 4.10 |
@@ -87,6 +89,9 @@ The pass also added fourteen reusable components and two component sets. It adde
 | Shared provider-choice cards across 2 comparisons | 2 improved; no regression |
 | Shared iOS Lucide navigation icons across 53 comparisons | 34 improved; mean change -0.015; no regression |
 | Shared Beam avatar and web onboarding app icon across 41 comparisons | 38 improved; mean change -0.024; no regression |
+| iOS Runtime debug sheet | 5.36 to 3.94 |
+| iOS Discard task sheet | 5.61 to 4.04 |
+| iOS Tool Activity row | 5.36 to 5.34 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
