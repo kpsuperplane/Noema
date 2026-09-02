@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `305a0169459b109d903ca72d8698659c52edb33f`
+Noema Git revision: `951d64c3e9cd68a3689b286ad3e23eb169081276`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Twelve smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.38. The median is 3.26. The highest remaining value is 6.55. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.37. The median is 3.26. The highest remaining value is 6.55. |
 | Component library | Pass | 301 local components in 47 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 203 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
@@ -31,7 +31,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected forty-three individually rebuilt product states. The web scrim token improved 18 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected forty-four individually rebuilt product states. The web scrim token improved 18 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The pass also added six reusable components, one component set, and one dedicated web scrim token.
 
@@ -68,6 +68,7 @@ The pass also added six reusable components, one component set, and one dedicate
 | Web-mobile cancel-task sheet | 6.02 to 3.70 |
 | Web-mobile Provider detail | 6.00 to 1.94 |
 | Web-mobile Settings Execution | 5.94 to 3.14 |
+| Web-mobile Chat conversation | 5.77 to 4.66 |
 | Shared web scrim token across 18 overlay states | Mean 4.97 to 3.12 |
 | Shared iOS status component across 53 comparisons | 48 improved; mean change -0.14 |
 
