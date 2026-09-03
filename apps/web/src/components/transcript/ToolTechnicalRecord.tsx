@@ -1,7 +1,7 @@
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
-import { Code2Icon } from "lucide-react";
+import { InfoIcon } from "lucide-react";
 import { useState } from "react";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { toolDetailRows, toolMarkerSummary } from "./markerModel";
@@ -23,7 +23,7 @@ export function ToolTechnicalRecord({ marker }: { marker: ToolMarkerGroup }) {
         variant="ghost"
         label={`View technical record for ${toolMarkerSummary(marker)}`}
         tooltip="Technical record"
-        icon={<Code2Icon aria-hidden="true" size={14} />}
+        icon={<InfoIcon aria-hidden="true" size={14} />}
         onClick={() => setOpen(true)}
       />
       <Dialog
