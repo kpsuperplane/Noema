@@ -8,9 +8,9 @@ The file passes only when every required item is complete. Record each exception
 
 Validation date: 2 September 2026
 
-Named checkpoint: `Onboarding model-facts repair audit · 2 Sep 2026`
+Named checkpoint: `iOS API-connection repair audit · 2 Sep 2026`
 
-Noema Git revision: `1a7fe4076536ff017e051903dd9f4dd9836e8989`
+Noema Git revision: `a5db1f91dae4fe2101ded655b25d9ab5475db3e5`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.40. The median is 2.38. The highest remaining value is 3.99. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.39. The median is 2.38. The highest remaining value is 3.99. |
 | Component library | Pass | 339 local components in 51 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Component section overlaps | Pass | 0 overlaps across the 10 product-library sections. |
@@ -32,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected eighty-eight individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected eighty-nine individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -166,6 +166,8 @@ The Provider Authentication repair matches the current onboarding heading rhythm
 
 The onboarding model-facts repair replaces combined proportional copy with four native monospaced roles across downloading and disabled cards.
 
+The API-connection repair restores the live Cable symbol, card height, action rhythm, and token-bound warning treatment.
+
 The pass also added thirty-eight reusable components and five component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, native-drag-indicator, native-action-opacity, composer-focus, shell-elevation, web-navigation, and detail-shell-underlay tokens.
 
 | Repaired surface | Blurred mean error |
@@ -197,7 +199,7 @@ The pass also added thirty-eight reusable components and five component sets. It
 | iOS Settings Web | 6.85 to 3.39 |
 | Web-mobile provider setup sheet | 6.64 to 3.08 |
 | Web-mobile Settings Agents | 6.55 to 3.68 |
-| iOS API connection sheet | 6.49 to 3.75 |
+| iOS API connection sheet | 6.49 to 2.90 |
 | iOS Settings Provider detail | 6.30 to 3.12 |
 | iOS MCP reauthentication sheet | 6.26 to 2.96 |
 | iOS Settings Execution | 6.16 to 1.89 |
