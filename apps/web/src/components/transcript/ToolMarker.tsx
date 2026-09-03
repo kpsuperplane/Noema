@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { Badge } from "@astryxdesign/core/Badge";
 import { HStack } from "@astryxdesign/core/HStack";
-import { CheckIcon, ChevronDownIcon, CircleSlash2Icon, ClockIcon, Globe2Icon, Loader2Icon, SearchIcon, WrenchIcon, XIcon } from "lucide-react";
+import { ChevronDownIcon, CircleSlash2Icon, ClockIcon, Globe2Icon, Loader2Icon, SearchIcon, WrenchIcon, XIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { FaviconImage } from "@/components/FaviconImage";
 import { RollingText } from "@/components/RollingText";
@@ -115,9 +115,6 @@ const styles = stylex.create({
     "@media (prefers-reduced-motion: reduce)": {
       animationName: "none"
     }
-  },
-  complete: {
-    color: "var(--noema-pine-600)"
   },
   error: {
     color: "var(--noema-red-700)"
@@ -379,6 +376,9 @@ function ToolTypeIcon({ faviconHost, kind }: { faviconHost?: string; kind?: Tool
 }
 
 function ToolStatusIcon({ status }: { status: ToolMarkerCallStatus }) {
+  if (status === "complete") {
+    return null;
+  }
   const label = toolStatusLabel(status);
   if (status === "running") {
     return (
@@ -408,11 +408,7 @@ function ToolStatusIcon({ status }: { status: ToolMarkerCallStatus }) {
       </span>
     );
   }
-  return (
-    <span {...stylex.props(styles.statusIcon, styles.complete)} role="img" aria-label={label}>
-      <CheckIcon aria-hidden="true" size={14} strokeWidth={2} />
-    </span>
-  );
+  return null;
 }
 
 function toolMarkerCalls(data: ToolMarkerData): ToolMarkerCall[] {
