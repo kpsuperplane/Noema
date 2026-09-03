@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.00. The median is 2.98. The highest remaining value is 4.97. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.99. The median is 2.98. The highest remaining value is 4.97. |
 | Component library | Pass | 312 local components in 48 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 207 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
@@ -59,18 +59,22 @@ The latest iOS repair corrected the adapter credential roles, password keyboard 
 
 The latest task repair replaced the obsolete beige task type with the current neutral control token across seven mobile-web states.
 
+The latest setup repair corrected iOS MCP labels, placeholders, disabled actions, and the stored system time.
+
+The latest Agents repair aligned iOS type roles, disabled selectors, disclosure icons, and ACP action placement.
+
 The pass also added seventeen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
 | iOS Chat conversation | 8.36 to 4.38 |
-| iOS Settings agents | 8.36 to 4.42 |
+| iOS Settings agents | 8.36 to 4.41 |
 | iOS Settings providers | 8.00 to 4.55 |
 | iOS Adapter credential sheet | 7.89 to 4.38 |
 | iOS Chat inline intervention | 7.84 to 4.97 |
-| iOS MCP setup sheet | 7.83 to 4.52 |
+| iOS MCP setup sheet | 7.83 to 3.74 |
 | Web-mobile onboarding welcome | 7.77 to 2.18 |
-| Web-mobile advanced GGUF import | 7.88 to 4.61 |
+| Web-mobile advanced GGUF import | 7.88 to 4.60 |
 | Web-mobile routed chat | 8.09 to 4.20 |
 | iOS Chat intervention sheet | 7.73 to 4.37 |
 | iOS Task detail workspace | 6.54 to 2.96 |
@@ -102,7 +106,7 @@ The pass also added seventeen reusable components and two component sets. It add
 | Web-mobile Memory article | 5.00 to 2.55 |
 | Web-desktop onboarding recovery | 1.41 to 0.29 |
 | Web-mobile onboarding recovery | 4.87 to 1.47 |
-| iOS Chat empty | 4.73 to 3.17 |
+| iOS Chat empty | 4.73 to 3.16 |
 | iOS onboarding provider choice | 5.30 to 4.97 |
 | iOS onboarding provider authentication | 5.25 to 3.91 |
 | iOS onboarding local model download | 5.10 to 3.90 |
