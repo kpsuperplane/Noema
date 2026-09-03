@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Structure-weighted native-surface repair audit · 2 Sep 2026`
 
-Noema Git revision: `42a166fe62ceceb5dd11d2092a5bdbda792bbf5f`
+Noema Git revision: `e964da10be8407b9ca9fbe94efa7ead2e45ca1e5`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,8 +19,8 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.54. The median is 2.41. The highest remaining value is 4.67. |
-| Component library | Pass | 327 local components in 51 component sets. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.53. The median is 2.41. The highest remaining value is 4.67. |
+| Component library | Pass | 328 local components in 51 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Component section overlaps | Pass | 0 overlaps across the 10 product-library sections. |
 | Variables and styles | Pass | 210 variables, 191 text styles, 6 paint styles, and 10 effect styles. |
@@ -32,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected sixty-three individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected sixty-four individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -126,7 +126,9 @@ The latest pairing repair aligned the shared mobile dialog heading, muted copy, 
 
 The latest GGUF repair replaced its detached background with the current mobile Models surface. It also restored the live heading, field, and button roles.
 
-The pass also added thirty-two reusable components and five component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, composer-focus, shell-elevation, web-navigation, and detail-shell-underlay tokens.
+The latest project-editor repair restored the pine task shell and native inset detail surface. It also aligned title, tab, task-content, disabled-action, and icon states.
+
+The pass also added thirty-three reusable components and five component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, composer-focus, shell-elevation, web-navigation, and detail-shell-underlay tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
@@ -144,7 +146,7 @@ The pass also added thirty-two reusable components and five component sets. It a
 | iOS Task detail transcript | 6.04 to 2.16 |
 | iOS Task recurrence workspace | 7.69 to 1.25 |
 | Web-desktop project editing | 2.29 to 1.92 |
-| Web-mobile project editing | 7.15 to 4.15 |
+| Web-mobile project editing | 7.15 to 2.48 |
 | iOS MCP connection sheet | 7.13 to 2.13 |
 | iOS Memory root | 6.91 to 1.32 |
 | Web-mobile Clients | Current 2.85 |
