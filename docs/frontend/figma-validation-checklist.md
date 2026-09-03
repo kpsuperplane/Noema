@@ -63,6 +63,8 @@ The latest setup repair corrected iOS MCP labels, placeholders, disabled actions
 
 The latest Agents repair aligned iOS type roles, disabled selectors, disclosure icons, and ACP action placement.
 
+The latest mobile-chat repair matched the three assistant bubble heights and their exact vertical rhythm.
+
 The pass also added seventeen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
 
 | Repaired surface | Blurred mean error |
@@ -98,7 +100,7 @@ The pass also added seventeen reusable components and two component sets. It add
 | Web-mobile cancel-task sheet | 6.02 to 3.69 |
 | Web-mobile Provider detail | 6.00 to 1.87 |
 | Web-mobile Settings Execution | 5.94 to 3.05 |
-| Web-mobile Chat conversation | 5.77 to 4.47 |
+| Web-mobile Chat conversation | 5.77 to 4.03 |
 | Web-mobile Settings Web tools | 5.68 to 2.98 |
 | Web-mobile Task detail documents | 5.51 to 2.82 |
 | Web-mobile Task detail transcript | 5.06 to 4.37 |
