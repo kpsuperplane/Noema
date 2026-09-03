@@ -542,13 +542,14 @@ private struct ToolTechnicalRecordButton: View {
 
   var body: some View {
     if !rows.isEmpty {
-      Button("Technical record", systemImage: "chevron.left.forwardslash.chevron.right") {
+      Button("Technical record", systemImage: "info.circle") {
         presented = true
       }
       .labelStyle(.iconOnly)
       .buttonStyle(.plain)
       .font(NoemaFont.compact)
       .foregroundStyle(NoemaColor.contentTertiary)
+      .padding(.leading, NoemaSpacing.xs)
       .accessibilityLabel("View technical record for \(toolMarkerName(in: messages))")
       .noemaSheet(isPresented: $presented) {
         ToolTechnicalRecordView(
