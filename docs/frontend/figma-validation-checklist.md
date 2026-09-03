@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Structure-weighted native-surface repair audit · 2 Sep 2026`
 
-Noema Git revision: `019976706f94dd2843f2a3b8838711ae0718bbdc`
+Noema Git revision: `b6a6c70da41a5fc5ed9eafdda6213f334147baa0`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.44. The median is 2.38. The highest remaining value is 4.10. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.43. The median is 2.38. The highest remaining value is 4.07. |
 | Component library | Pass | 334 local components in 51 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Component section overlaps | Pass | 0 overlaps across the 10 product-library sections. |
@@ -32,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected seventy-seven individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected seventy-eight individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -56,7 +56,7 @@ The shared mobile-web repair applied current navigation color and device corners
 
 The current settings repair corrected web Agents typography and three iOS Web cards. It also corrected the iOS Execution selector and disabled model field.
 
-The latest iOS repair corrected the adapter credential roles, password keyboard shift icon, chat microphone states, and client-detail typography.
+The latest iOS repair corrected adapter credential roles, instruction grouping, field labels, and the drag indicator. It also corrected chat microphone states and client-detail typography.
 
 The latest task repair replaced the obsolete beige task type with the current neutral control token across seven mobile-web states.
 
@@ -159,7 +159,7 @@ The pass also added thirty-eight reusable components and five component sets. It
 | iOS Chat conversation | 8.36 to 3.78 |
 | iOS Settings agents | 8.36 to 2.92 |
 | iOS Settings providers | 8.00 to 2.71 |
-| iOS Adapter credential sheet | 7.89 to 4.10 |
+| iOS Adapter credential sheet | 7.89 to 3.34 |
 | iOS Chat inline intervention | 7.84 to 3.85 |
 | iOS MCP setup sheet | 7.83 to 3.45 |
 | Web-mobile onboarding welcome | 7.77 to 2.15 |
