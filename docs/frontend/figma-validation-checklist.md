@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `f7968b053f76872bf188de3975906bbd01e669d5`
+Noema Git revision: `7314735b13665ad930bc70a4b357d522ea80f44b`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.97. The median is 2.93. The highest remaining value is 4.97. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.93. The median is 2.91. The highest remaining value is 4.97. |
 | Component library | Pass | 312 local components in 48 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 207 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
@@ -69,6 +69,8 @@ The latest iOS surface repair matched the chat-intervention mask and sheet curva
 
 The latest provider-setup repair reused the current mobile detail hierarchy. It also matched modal labels, fields, borders, and actions.
 
+The latest Task-sheet repair applied the shared web scrim token. It also corrected the mobile header, close action, edit action, and transcript bubble.
+
 The pass also added seventeen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
 
 | Repaired surface | Blurred mean error |
@@ -107,7 +109,7 @@ The pass also added seventeen reusable components and two component sets. It add
 | Web-mobile Chat conversation | 5.77 to 4.03 |
 | Web-mobile Settings Web tools | 5.68 to 2.98 |
 | Web-mobile Task detail documents | 5.51 to 2.82 |
-| Web-mobile Task detail transcript | 5.06 to 4.37 |
+| Web-mobile Task detail transcript | 5.06 to 1.98 |
 | Web-mobile Settings Providers | 5.04 to 3.63 |
 | Web-mobile Memory article | 5.00 to 2.55 |
 | Web-desktop onboarding recovery | 1.41 to 0.29 |
@@ -137,7 +139,7 @@ The pass also added seventeen reusable components and two component sets. It add
 | Shared web-mobile task type across 7 comparisons | 7 improved |
 | iOS Tool Activity row | 5.36 to 4.90 |
 | iOS Client detail | Current 2.68 |
-| Web-mobile Task detail overview | Current 4.46 |
+| Web-mobile Task detail overview | 4.46 to 2.44 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
