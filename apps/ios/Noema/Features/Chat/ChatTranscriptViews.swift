@@ -377,6 +377,7 @@ struct TypingDotsView: View {
 
 struct ToolMarkerView: View {
   let client: ApolloClient?
+  let profile: NoemaProfile?
   let messages: [ChatMessage]
   @State private var expanded = false
   @State private var runtimeDebug: RuntimeDebugTarget?
@@ -399,7 +400,11 @@ struct ToolMarkerView: View {
                 .foregroundStyle(NoemaColor.contentTertiary)
                 .frame(width: 16, height: 16)
             } else {
-              ToolTypeIcon(kind: toolMarkerKind(in: collapsedMessages))
+              ToolTypeIcon(
+                kind: toolMarkerKind(in: collapsedMessages),
+                faviconHost: toolMarkerFaviconHost(in: collapsedMessages),
+                profile: profile
+              )
             }
             Text(markerCount > 1 && expanded ? String(markerCount) + " tool calls" : toolMarkerName(in: collapsedMessages))
               .font(NoemaFont.monoCompact)
@@ -428,7 +433,7 @@ struct ToolMarkerView: View {
         if calls.count > 1 {
           VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
             ForEach(Array(calls.enumerated()), id: \.offset) { _, call in
-              ToolMarkerCallView(messages: call)
+              ToolMarkerCallView(profile: profile, messages: call)
             }
           }
           .padding(.top, NoemaSpacing.xxs)
@@ -477,6 +482,7 @@ struct ToolMarkerView: View {
 }
 
 private struct ToolMarkerCallView: View {
+  let profile: NoemaProfile?
   let messages: [ChatMessage]
   @State private var expanded = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -492,7 +498,11 @@ private struct ToolMarkerCallView: View {
         } label: {
           HStack(spacing: NoemaSpacing.compact) {
             ToolStatusIcon(status: toolMarkerStatus(in: messages))
-            ToolTypeIcon(kind: toolMarkerKind(in: messages))
+            ToolTypeIcon(
+              kind: toolMarkerKind(in: messages),
+              faviconHost: toolMarkerFaviconHost(in: messages),
+              profile: profile
+            )
             Text(toolMarkerName(in: messages))
               .font(NoemaFont.monoCompact)
               .foregroundStyle(NoemaColor.contentSecondary)
@@ -609,12 +619,19 @@ struct ToolStatusIcon: View {
 
 struct ToolTypeIcon: View {
   let kind: String?
+  let faviconHost: String?
+  let profile: NoemaProfile?
 
   var body: some View {
     Group {
       if kind == "web.search" {
         Image(systemName: "magnifyingglass")
-      } else if kind == "web.fetch" {
+      } else if kind == "web.browse", let faviconHost {
+        ZStack {
+          Image(systemName: "globe")
+          NoemaFaviconImage(hostname: faviconHost, profile: profile, size: .compact)
+        }
+      } else if kind == "web.fetch" || kind == "web.browse" {
         Image(systemName: "globe")
       }
     }
@@ -657,8 +674,16 @@ func toolMarkerKind(in messages: [ChatMessage]) -> String? {
       ?? stringValue(metadata["tool_name"])
       ?? stringValue(metadata["name"])
     if name == "web.search" || name == "web.fetch" { return name }
+    if name?.hasPrefix("web.browse.") == true { return "web.browse" }
   }
   return nil
+}
+
+private func toolMarkerFaviconHost(in messages: [ChatMessage]) -> String? {
+  guard toolMarkerKind(in: messages) == "web.browse" else { return nil }
+  if let host = toolMarkerField("host", in: messages) { return host }
+  guard let url = toolMarkerURL(in: messages), let host = URLComponents(string: url)?.host else { return nil }
+  return host.lowercased().hasPrefix("www.") ? String(host.dropFirst(4)) : host
 }
 
 func toolMarkerName(in messages: [ChatMessage]) -> String {

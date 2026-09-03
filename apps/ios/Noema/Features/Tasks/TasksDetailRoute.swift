@@ -327,6 +327,7 @@ private struct TasksDetailContent: View {
     ScrollViewReader { reader in
       ScrollView {
         TasksTranscriptSection(
+          profile: model.profile,
           messages: detail.messages,
           runs: detail.runs,
           runItems: model.runItems,

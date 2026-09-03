@@ -235,6 +235,7 @@ struct TasksDocumentView: View {
 }
 
 struct TasksTranscriptSection: View {
+  let profile: NoemaProfile?
   let messages: [TasksMessageSnapshot]
   let runs: [TasksRunSnapshot]
   let runItems: [TasksRunItemSnapshot]
@@ -399,7 +400,7 @@ struct TasksTranscriptSection: View {
   }
 
   private func toolActivityRow(_ item: TasksRunItemSnapshot, result: TasksRunItemSnapshot?) -> some View {
-    ToolMarkerView(client: nil, messages: taskToolMessages(item, result: result))
+    ToolMarkerView(client: nil, profile: profile, messages: taskToolMessages(item, result: result))
   }
 
   @ViewBuilder

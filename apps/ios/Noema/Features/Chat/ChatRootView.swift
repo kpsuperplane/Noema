@@ -562,7 +562,7 @@ struct ChatReadyView: View {
         avatarAnimated: avatarAnimated,
         compactContentInset: 0
       ) {
-        ToolMarkerView(client: model.client, messages: messages)
+        ToolMarkerView(client: model.client, profile: model.profile, messages: messages)
       }
     case let .activity(message):
       ChatLaneRow(

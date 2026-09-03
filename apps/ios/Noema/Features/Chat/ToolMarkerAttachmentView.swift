@@ -60,9 +60,6 @@ struct ToolMarkerAttachmentView: View {
 }
 
 func toolMarkerScreenshot(in messages: [ChatMessage]) -> ToolMarkerScreenshot? {
-  let callMetadata = messages.first {
-    activityValues($0)?.activityKind.normalizedActivityKind == "TOOL_CALL"
-  }.map(metadataObject(for:))
   let resultMetadata = messages.reversed().first {
     activityValues($0)?.activityKind.normalizedActivityKind == "TOOL_RESULT"
   }.map(metadataObject(for:))
@@ -79,11 +76,21 @@ func toolMarkerScreenshot(in messages: [ChatMessage]) -> ToolMarkerScreenshot? {
         let data = Data(base64Encoded: encoded),
         let image = UIImage(data: data)
   else { return nil }
+  return ToolMarkerScreenshot(image: image, url: toolMarkerURL(in: messages))
+}
+
+func toolMarkerURL(in messages: [ChatMessage]) -> String? {
+  let callMetadata = messages.first {
+    activityValues($0)?.activityKind.normalizedActivityKind == "TOOL_CALL"
+  }.map(metadataObject(for:))
+  let resultMetadata = messages.reversed().first {
+    activityValues($0)?.activityKind.normalizedActivityKind == "TOOL_RESULT"
+  }.map(metadataObject(for:))
+  let resultPayload = resultMetadata.flatMap(toolActionPayload) as? [String: Any]
   let callPayload = callMetadata.flatMap(toolActionPayload) as? [String: Any]
-  let url = nestedString(resultPayload ?? [:], path: ["snapshot", "url"])
+  return nestedString(resultPayload ?? [:], path: ["snapshot", "url"])
     ?? stringValue(resultPayload?["url"])
     ?? stringValue(callPayload?["url"])
-  return ToolMarkerScreenshot(image: image, url: url)
 }
 
 struct ToolTechnicalRecordView: View {
