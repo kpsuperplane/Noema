@@ -1,12 +1,44 @@
 import SwiftUI
+import UIKit
+
 struct ToolDetailRow: Equatable {
   let label: String
   let value: String
 }
+
+struct ToolMarkerScreenshot {
+  let image: UIImage
+  let url: String?
+}
+
 struct ToolMarkerAttachmentView: View {
   let rows: [ToolDetailRow]
+  let screenshot: ToolMarkerScreenshot?
+
   var body: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      if let screenshot {
+        VStack(alignment: .leading, spacing: 0) {
+          Image(uiImage: screenshot.image)
+            .resizable()
+            .scaledToFit()
+          if let url = screenshot.url {
+            Text(url)
+              .font(NoemaFont.monoTiny)
+              .foregroundStyle(NoemaColor.contentSecondary)
+              .lineLimit(1)
+              .padding(.horizontal, NoemaSpacing.sm)
+              .padding(.vertical, NoemaSpacing.xs)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .background(NoemaColor.surfaceSecondary)
+          }
+        }
+        .clipShape(NoemaSuperellipse(cornerRadius: NoemaRadius.element))
+        .overlay {
+          NoemaSuperellipse(cornerRadius: NoemaRadius.element)
+            .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+        }
+      }
       ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
         VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
           Text(row.label)
@@ -25,6 +57,33 @@ struct ToolMarkerAttachmentView: View {
     .frame(maxWidth: 520, alignment: .leading)
     .transition(.opacity.combined(with: .move(edge: .top)))
   }
+}
+
+func toolMarkerScreenshot(in messages: [ChatMessage]) -> ToolMarkerScreenshot? {
+  let callMetadata = messages.first {
+    activityValues($0)?.activityKind.normalizedActivityKind == "TOOL_CALL"
+  }.map(metadataObject(for:))
+  let resultMetadata = messages.reversed().first {
+    activityValues($0)?.activityKind.normalizedActivityKind == "TOOL_RESULT"
+  }.map(metadataObject(for:))
+  let resultPayload = resultMetadata.flatMap(toolActionPayload) as? [String: Any]
+  guard let screenshot = resultPayload?["screenshot"] as? [String: Any],
+        stringValue(screenshot["media_type"]) == "image/png",
+        let encoded = stringValue(screenshot["data"]),
+        !encoded.isEmpty,
+        encoded.count <= 1_200_000,
+        let width = screenshot["width"] as? Int,
+        let height = screenshot["height"] as? Int,
+        (1...32_768).contains(width),
+        (1...32_768).contains(height),
+        let data = Data(base64Encoded: encoded),
+        let image = UIImage(data: data)
+  else { return nil }
+  let callPayload = callMetadata.flatMap(toolActionPayload) as? [String: Any]
+  let url = nestedString(resultPayload ?? [:], path: ["snapshot", "url"])
+    ?? stringValue(resultPayload?["url"])
+    ?? stringValue(callPayload?["url"])
+  return ToolMarkerScreenshot(image: image, url: url)
 }
 
 struct ToolTechnicalRecordView: View {

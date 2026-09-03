@@ -434,7 +434,8 @@ struct ToolMarkerView: View {
           .padding(.top, NoemaSpacing.xxs)
         } else {
           ToolMarkerAttachmentView(
-            rows: toolHumanDetailRows(in: messages)
+            rows: toolHumanDetailRows(in: messages),
+            screenshot: toolMarkerScreenshot(in: messages)
           )
         }
       }
@@ -454,7 +455,7 @@ struct ToolMarkerView: View {
     toolMarkerStatus(in: collapsedMessages)
   }
 
-  private var expandable: Bool { calls.contains(where: toolMarkerExpandable) }
+  private var expandable: Bool { markerCount > 1 || calls.contains(where: toolMarkerExpandable) }
 
   private var markerCount: Int { calls.count }
 
@@ -515,12 +516,13 @@ private struct ToolMarkerCallView: View {
         ToolTechnicalRecordButton(messages: messages)
       }
       if expanded {
-        ToolMarkerAttachmentView(rows: humanRows)
+        ToolMarkerAttachmentView(rows: humanRows, screenshot: screenshot)
       }
     }
   }
 
   private var humanRows: [ToolDetailRow] { toolHumanDetailRows(in: messages) }
+  private var screenshot: ToolMarkerScreenshot? { toolMarkerScreenshot(in: messages) }
   private var expandable: Bool { toolMarkerExpandable(messages) }
 }
 
@@ -554,7 +556,7 @@ private struct ToolTechnicalRecordButton: View {
 private func toolMarkerExpandable(_ messages: [ChatMessage]) -> Bool {
   let kind = toolMarkerKind(in: messages)
   if kind == "web.search" || kind == "web.fetch" { return false }
-  return !toolHumanDetailRows(in: messages).isEmpty
+  return !toolHumanDetailRows(in: messages).isEmpty || toolMarkerScreenshot(in: messages) != nil
 }
 
 enum ToolMarkerStatus: Equatable {
