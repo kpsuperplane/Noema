@@ -628,10 +628,12 @@ struct ToolTypeIcon: View {
       if kind == "web.search" {
         Image(systemName: "magnifyingglass")
       } else if kind == "web.browse", let faviconHost {
-        ZStack {
-          Image(systemName: "globe")
-          NoemaFaviconImage(hostname: faviconHost, profile: profile, size: .compact)
-        }
+        NoemaFaviconImage(
+          hostname: faviconHost,
+          profile: profile,
+          size: .compact,
+          showsGlobeFallback: true
+        )
       } else if kind == "web.fetch" || kind == "web.browse" {
         Image(systemName: "globe")
       }

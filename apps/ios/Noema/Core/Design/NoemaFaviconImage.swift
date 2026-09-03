@@ -108,6 +108,7 @@ struct NoemaFaviconImage: View {
   let hostname: String
   let profile: NoemaProfile?
   var size: NoemaFaviconSize = .standard
+  var showsGlobeFallback = false
   @State private var data: Data?
   @State private var unavailable = false
 
@@ -117,13 +118,15 @@ struct NoemaFaviconImage: View {
         Image(uiImage: image)
           .resizable()
           .scaledToFit()
+      } else if unavailable && showsGlobeFallback {
+        Image(systemName: "globe")
       } else {
         Color.clear
       }
     }
     .frame(
-      width: unavailable ? 0 : size.dimension,
-      height: unavailable ? 0 : size.dimension
+      width: unavailable && !showsGlobeFallback ? 0 : size.dimension,
+      height: unavailable && !showsGlobeFallback ? 0 : size.dimension
     )
     .clipShape(Circle())
     .accessibilityHidden(true)
