@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `d3d69c0e5556a12e7bf7d88b1f46ab0562275c1c`
+Noema Git revision: `f7968b053f76872bf188de3975906bbd01e669d5`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.99. The median is 2.98. The highest remaining value is 4.97. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.98. The median is 2.93. The highest remaining value is 4.97. |
 | Component library | Pass | 312 local components in 48 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 207 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
@@ -65,20 +65,22 @@ The latest Agents repair aligned iOS type roles, disabled selectors, disclosure 
 
 The latest mobile-chat repair matched the three assistant bubble heights and their exact vertical rhythm.
 
+The latest iOS surface repair matched the chat-intervention mask and sheet curvature. It also rebuilt Providers with native text roles and selector geometry.
+
 The pass also added seventeen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
 | iOS Chat conversation | 8.36 to 4.38 |
 | iOS Settings agents | 8.36 to 4.41 |
-| iOS Settings providers | 8.00 to 4.55 |
+| iOS Settings providers | 8.00 to 2.71 |
 | iOS Adapter credential sheet | 7.89 to 4.38 |
 | iOS Chat inline intervention | 7.84 to 4.97 |
 | iOS MCP setup sheet | 7.83 to 3.74 |
 | Web-mobile onboarding welcome | 7.77 to 2.18 |
 | Web-mobile advanced GGUF import | 7.88 to 4.60 |
 | Web-mobile routed chat | 8.09 to 4.20 |
-| iOS Chat intervention sheet | 7.73 to 4.37 |
+| iOS Chat intervention sheet | 7.73 to 4.07 |
 | iOS Task detail workspace | 6.54 to 2.96 |
 | iOS Task detail transcript | 6.04 to 2.46 |
 | iOS Task recurrence workspace | 7.69 to 4.10 |
