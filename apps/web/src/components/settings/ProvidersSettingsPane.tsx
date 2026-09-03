@@ -15,15 +15,9 @@ import {
   AlertTriangle,
   ArrowLeft,
   ChevronRight,
-  Fish,
-  Flame,
-  Globe2,
   KeyRound,
   Plug,
   Plus,
-  Route,
-  Search,
-  SquareTerminal,
   Trash2
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -59,6 +53,7 @@ import { SettingsEditDialog } from "./SettingsEditDialog";
 import { DeleteConfirmationDialog } from "./DeleteConnectionDialog";
 import { AuthAttempt } from "../onboarding/AuthAttempt";
 import type { ProviderAuthAttemptView } from "../onboarding/types";
+import { FaviconImage } from "@/components/FaviconImage";
 import { ListCardButton, ListCardLink } from "@/components/ListCardLink";
 import { SettingsManagementLayout } from "./SettingsManagementLayout";
 import {
@@ -543,7 +538,11 @@ function AddProviderAccountDialog({
                   >
                     <HStack as="span" gap={2} vAlign="start">
                       <HStack as="span" hAlign="center" vAlign="center" {...stylex.props(styles.providerIcon)}>
-                        {providerIcon(entry.providerKind)}
+                        <FaviconImage
+                          hostname={providerHostname(entry.providerKind)}
+                          size="large"
+                          fallback={<Plug aria-hidden="true" size={18} />}
+                        />
                       </HStack>
                       <VStack as="span" gap={0.5} {...stylex.props(styles.providerChoiceCopy)}>
                         <strong {...stylex.props(styles.providerChoiceName)}>{entry.displayName}</strong>
@@ -636,15 +635,16 @@ function providerCapabilityDescription(entry: ProviderAccountCatalogEntry) {
   return "Provider access for Noema.";
 }
 
-function providerIcon(providerKind: string) {
-  const iconProps = { "aria-hidden": true, size: 18 } as const;
-  if (providerKind === "codex") return <SquareTerminal {...iconProps} />;
-  if (providerKind === "openrouter") return <Route {...iconProps} />;
-  if (providerKind === "exa") return <Search {...iconProps} />;
-  if (providerKind === "kernel") return <Globe2 {...iconProps} />;
-  if (providerKind === "tinyfish") return <Fish {...iconProps} />;
-  if (providerKind === "firecrawl") return <Flame {...iconProps} />;
-  return <Plug {...iconProps} />;
+function providerHostname(providerKind: string) {
+  const hostnames: Record<string, string> = {
+    codex: "chatgpt.com",
+    openrouter: "openrouter.ai",
+    exa: "exa.ai",
+    kernel: "kernel.sh",
+    tinyfish: "docs.tinyfish.ai",
+    firecrawl: "firecrawl.dev"
+  };
+  return hostnames[providerKind] ?? providerKind;
 }
 
 function DeleteProviderAccountDialog({
@@ -757,10 +757,7 @@ const styles = stylex.create({
   providerIcon: {
     width: "var(--spacing-8)",
     height: "var(--spacing-8)",
-    flexShrink: 0,
-    borderRadius: "var(--radius-element)",
-    backgroundColor: "var(--surface-sunken)",
-    color: "var(--primary)"
+    flexShrink: 0
   },
   providerChoiceCopy: { flex: 1, minWidth: 0 },
   providerChoiceName: { color: "var(--foreground)", fontSize: 14, lineHeight: 1.3 },
