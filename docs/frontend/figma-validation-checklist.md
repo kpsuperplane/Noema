@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `496bcdc4a473c1ef5e85d8a4cdfdff8ef2bcfaca`
+Noema Git revision: `ca2583f3ecf7b1fde6234ab4ef2baca20fbc2dc6`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.92. The median is 2.91. The highest remaining value is 4.97. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.80. The median is 2.86. The highest remaining value is 4.67. |
 | Component library | Pass | 312 local components in 48 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 207 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
@@ -77,38 +77,42 @@ The latest iOS chat repair matched the current device curvature. It also applied
 
 The latest iOS client repair matched the current device curvature in both client-detail states.
 
+The current device repair matched all 53 iOS product frames to the 48-point runtime curvature. The 45 changed comparisons improved, and none regressed.
+
+The same pass corrected the native provider-choice title face and eyebrow position.
+
 The pass also added seventeen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
-| iOS Chat conversation | 8.36 to 4.38 |
-| iOS Settings agents | 8.36 to 4.41 |
+| iOS Chat conversation | 8.36 to 3.78 |
+| iOS Settings agents | 8.36 to 4.09 |
 | iOS Settings providers | 8.00 to 2.71 |
-| iOS Adapter credential sheet | 7.89 to 4.38 |
+| iOS Adapter credential sheet | 7.89 to 4.10 |
 | iOS Chat inline intervention | 7.84 to 4.67 |
-| iOS MCP setup sheet | 7.83 to 3.74 |
+| iOS MCP setup sheet | 7.83 to 3.45 |
 | Web-mobile onboarding welcome | 7.77 to 2.18 |
 | Web-mobile advanced GGUF import | 7.88 to 4.60 |
 | Web-mobile routed chat | 8.09 to 4.20 |
 | iOS Chat intervention sheet | 7.73 to 4.07 |
-| iOS Task detail workspace | 6.54 to 2.96 |
-| iOS Task detail transcript | 6.04 to 2.46 |
-| iOS Task recurrence workspace | 7.69 to 4.10 |
+| iOS Task detail workspace | 6.54 to 2.66 |
+| iOS Task detail transcript | 6.04 to 2.16 |
+| iOS Task recurrence workspace | 7.69 to 3.82 |
 | Web-desktop project editing | 2.29 to 1.92 |
 | Web-mobile project editing | 7.15 to 4.23 |
-| iOS MCP connection sheet | 7.13 to 2.76 |
-| iOS Memory root | 6.91 to 4.22 |
+| iOS MCP connection sheet | 7.13 to 2.13 |
+| iOS Memory root | 6.91 to 3.64 |
 | Web-mobile Clients | Current 2.88 |
 | Web-mobile Pair client sheet | 7.09 to 3.78 |
 | Web-mobile Notifications | Current 2.66 |
 | Web-mobile Configure APNs sheet | 6.85 to 3.88 |
-| iOS Settings Web | 6.85 to 3.71 |
+| iOS Settings Web | 6.85 to 3.39 |
 | Web-mobile provider setup sheet | 6.64 to 3.09 |
 | Web-mobile Settings Agents | 6.55 to 4.22 |
-| iOS API connection sheet | 6.49 to 4.35 |
-| iOS Settings Provider detail | 6.30 to 3.54 |
-| iOS MCP reauthentication sheet | 6.26 to 3.42 |
-| iOS Settings Execution | 6.16 to 4.21 |
+| iOS API connection sheet | 6.49 to 3.75 |
+| iOS Settings Provider detail | 6.30 to 3.12 |
+| iOS MCP reauthentication sheet | 6.26 to 2.96 |
+| iOS Settings Execution | 6.16 to 3.90 |
 | Web-mobile cancel-task sheet | 6.02 to 3.69 |
 | Web-mobile Provider detail | 6.00 to 1.87 |
 | Web-mobile Settings Execution | 5.94 to 3.05 |
@@ -120,26 +124,27 @@ The pass also added seventeen reusable components and two component sets. It add
 | Web-mobile Memory article | 5.00 to 2.55 |
 | Web-desktop onboarding recovery | 1.41 to 0.29 |
 | Web-mobile onboarding recovery | 4.87 to 1.47 |
-| iOS Chat empty | 4.73 to 3.05 |
-| iOS onboarding provider choice | 5.30 to 4.97 |
-| iOS onboarding provider authentication | 5.25 to 3.91 |
-| iOS onboarding local model download | 5.10 to 3.90 |
-| iOS onboarding model confirmation | 5.08 to 4.03 |
+| iOS Chat empty | 4.73 to 2.75 |
+| iOS onboarding provider choice | 5.30 to 4.64 |
+| iOS onboarding provider authentication | 5.25 to 3.73 |
+| iOS onboarding local model download | 5.10 to 3.72 |
+| iOS onboarding model confirmation | 5.08 to 3.85 |
 | iOS Revoke Client sheet | 5.20 to 4.64 |
 | Web-mobile recurrence detail | 5.18 to 3.66 |
 | Web-desktop Memory article | 5.68 to 1.83 |
 | Web-desktop Memory index through the shared status component | 2.56 to 2.32 |
-| iOS Memory article | 5.68 to 3.56 |
+| iOS Memory article | 5.68 to 3.35 |
 | Shared web scrim token across 19 overlay states | Mean 4.98 to 3.15 |
 | Shared iOS status component across 53 comparisons | 48 improved; mean change -0.14 |
 | Shared iOS detail shell across 5 comparisons | 5 improved; mean change -0.21 |
 | Shared provider-choice cards across 2 comparisons | 2 improved; no regression |
 | Shared iOS Lucide navigation icons across 53 comparisons | 34 improved; mean change -0.015; no regression |
 | Shared Beam avatar and web onboarding app icon across 41 comparisons | 38 improved; mean change -0.024; no regression |
-| iOS Runtime debug sheet | 5.36 to 3.88 |
-| iOS Discard task sheet | 5.61 to 4.04 |
+| iOS Runtime debug sheet | 5.36 to 3.73 |
+| iOS Discard task sheet | 5.61 to 3.89 |
 | iOS Cancel Task sheet | 4.33 to 4.00 |
 | Shared iOS keyboard and device corners across 11 comparisons | 10 improved; 1 inactive state preserved by an instance override |
+| Shared iOS device curvature across 45 comparisons | 45 improved; mean change -0.34; no regression |
 | Shared mobile-web navigation and device corners across 36 comparisons | 34 improved; 2 unchanged |
 | Web-mobile MCP setup sheet | 4.64 to 3.56 |
 | Shared iOS keyboard microphone across 11 comparisons | 11 improved |
