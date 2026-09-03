@@ -8,9 +8,9 @@ The file passes only when every required item is complete. Record each exception
 
 Validation date: 2 September 2026
 
-Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
+Named checkpoint: `Structure-weighted chat-shell repair audit · 2 Sep 2026`
 
-Noema Git revision: `fab3cda76f54e5d2f7f4d5225eb0a51517249993`
+Noema Git revision: `ee6625539e3d7921191e311b9bc52629a03db95c`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,10 +19,10 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.76. The median is 2.85. The highest remaining value is 4.67. |
-| Component library | Pass | 316 local components in 49 component sets. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.73. The median is 2.80. The highest remaining value is 4.67. |
+| Component library | Pass | 318 local components in 49 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
-| Variables and styles | Pass | 207 variables, 181 text styles, 6 paint styles, and 9 effect styles. |
+| Variables and styles | Pass | 208 variables, 181 text styles, 6 paint styles, and 10 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
 | Interactive target sizes | Pass | 0 prototype targets below 24 px on web or 44 pt on iOS. |
 | Text contrast | Open | 61 automated candidates require manual classification. Disabled controls and placeholders account for most candidates. |
@@ -31,7 +31,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected fifty-one individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected fifty-three individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -87,7 +87,11 @@ The current mobile-web repair matched all 36 product frames to the 24-point runt
 
 The current desktop repair matched all 36 product frames to the 16-point runtime curvature. It also replaced the obsolete onboarding cards with the live three-row chooser.
 
-The pass also added twenty-one reusable components and three component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
+The structure-weighted audit rebuilt both desktop Chat states with the current inset shell, message sizing, focused composer, and task suggestion.
+
+The two Chat comparisons reached 87% structural edge overlap. The routed state rose from 39%.
+
+The pass also added twenty-three reusable components and three component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, composer-focus, and shell-elevation tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
@@ -162,6 +166,8 @@ The pass also added twenty-one reusable components and three component sets. It 
 | iOS Client detail | Current 2.51 |
 | Web-mobile Task detail overview | 4.46 to 2.42 |
 | Web-mobile Project detail overview | 4.21 to 3.29 |
+| Web-desktop Chat conversation | 2.69 to 1.21 |
+| Web-desktop Connect API routed chat | 3.77 to 1.24 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
