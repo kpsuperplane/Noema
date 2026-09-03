@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Structure-weighted native-surface repair audit · 2 Sep 2026`
 
-Noema Git revision: `b6a6c70da41a5fc5ed9eafdda6213f334147baa0`
+Noema Git revision: `98f3be15e47b2644eb073c3429095e4af450c356`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.43. The median is 2.38. The highest remaining value is 4.07. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.43. The median is 2.38. The highest remaining value is 4.00. |
 | Component library | Pass | 334 local components in 51 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Component section overlaps | Pass | 0 overlaps across the 10 product-library sections. |
@@ -32,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected seventy-eight individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected seventy-nine individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -66,7 +66,7 @@ The latest Agents repair aligned iOS type roles, disabled selectors, disclosure 
 
 The latest mobile-chat repair matched the three assistant bubble heights and their exact vertical rhythm.
 
-The latest iOS surface repair matched the chat-intervention mask and sheet curvature. It also rebuilt Providers with native text roles and selector geometry.
+The latest iOS surface repair matched the chat-intervention mask, sheet curvature, message insets, and native type roles. It also rebuilt Providers with native text roles and selector geometry.
 
 The latest provider-setup repair reused the current mobile detail hierarchy. It also matched modal labels, fields, borders, and actions.
 
@@ -165,7 +165,7 @@ The pass also added thirty-eight reusable components and five component sets. It
 | Web-mobile onboarding welcome | 7.77 to 2.15 |
 | Web-mobile advanced GGUF import | 7.88 to 3.11 |
 | Web-mobile routed chat | 8.09 to 3.94 |
-| iOS Chat intervention sheet | 7.73 to 4.07 |
+| iOS Chat intervention sheet | 7.73 to 3.98 |
 | iOS Task detail workspace | 6.54 to 2.66 |
 | iOS Task detail transcript | 6.04 to 2.16 |
 | iOS Task recurrence workspace | 7.69 to 1.25 |
