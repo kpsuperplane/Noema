@@ -583,18 +583,21 @@ enum ToolMarkerStatus: Equatable {
 struct ToolStatusIcon: View {
   let status: ToolMarkerStatus
 
+  @ViewBuilder
   var body: some View {
-    Group {
-      if status == .running {
-        ProgressView().controlSize(.mini).tint(color)
-      } else {
-        Image(systemName: symbol)
-          .font(NoemaFont.compactEmphasized)
-          .foregroundStyle(color)
+    if status != .complete {
+      Group {
+        if status == .running {
+          ProgressView().controlSize(.mini).tint(color)
+        } else {
+          Image(systemName: symbol)
+            .font(NoemaFont.compactEmphasized)
+            .foregroundStyle(color)
+        }
       }
+      .frame(width: 16, height: 16)
+      .accessibilityHidden(true)
     }
-    .frame(width: 16, height: 16)
-    .accessibilityHidden(true)
   }
 
   private var symbol: String {
