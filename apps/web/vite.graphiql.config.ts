@@ -7,6 +7,7 @@ const assetOutDir = process.env.NOEMA_DEV_ASSET_DIR ?? "../../crates/noema-serve
 export default defineConfig({
   plugins: [react()],
   base: "/assets/",
+  publicDir: false,
   build: {
     outDir: assetOutDir,
     emptyOutDir: false,
