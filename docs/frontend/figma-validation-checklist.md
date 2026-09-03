@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `cbfee1d2b8e4c0dbed457808439b47517cb5f474`
+Noema Git revision: `fab3cda76f54e5d2f7f4d5225eb0a51517249993`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,10 +19,10 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.78. The median is 2.85. The highest remaining value is 4.67. |
-| Component library | Pass | 313 local components in 48 component sets. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.76. The median is 2.85. The highest remaining value is 4.67. |
+| Component library | Pass | 316 local components in 49 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
-| Variables and styles | Pass | 207 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
+| Variables and styles | Pass | 207 variables, 181 text styles, 6 paint styles, and 9 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
 | Interactive target sizes | Pass | 0 prototype targets below 24 px on web or 44 pt on iOS. |
 | Text contrast | Open | 61 automated candidates require manual classification. Disabled controls and placeholders account for most candidates. |
@@ -85,7 +85,9 @@ The latest state repair added the captured project-detail tooltip as a reusable 
 
 The current mobile-web repair matched all 36 product frames to the 24-point runtime curvature. Every comparison improved, and none regressed.
 
-The pass also added eighteen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
+The current desktop repair matched all 36 product frames to the 16-point runtime curvature. It also replaced the obsolete onboarding cards with the live three-row chooser.
+
+The pass also added twenty-one reusable components and three component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
@@ -127,6 +129,7 @@ The pass also added eighteen reusable components and two component sets. It adde
 | Web-mobile Settings Providers | 5.04 to 3.60 |
 | Web-mobile Memory article | 5.00 to 2.52 |
 | Web-desktop onboarding recovery | 1.41 to 0.29 |
+| Web-desktop onboarding welcome | 1.90 to 0.33 |
 | Web-mobile onboarding recovery | 4.87 to 1.44 |
 | iOS Chat empty | 4.73 to 2.75 |
 | iOS onboarding provider choice | 5.30 to 4.64 |
@@ -151,6 +154,7 @@ The pass also added eighteen reusable components and two component sets. It adde
 | Shared iOS device curvature across 45 comparisons | 45 improved; mean change -0.34; no regression |
 | Shared mobile-web navigation and device corners across 36 comparisons | 34 improved; 2 unchanged |
 | Shared mobile-web device curvature across 36 comparisons | 36 improved; mean change -0.023; no regression |
+| Shared web-desktop device curvature across 36 comparisons | 36 improved; mean change -0.059; no regression |
 | Web-mobile MCP setup sheet | 4.64 to 3.56 |
 | Shared iOS keyboard microphone across 11 comparisons | 11 improved |
 | Shared web-mobile task type across 7 comparisons | 7 improved |
