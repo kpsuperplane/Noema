@@ -248,7 +248,11 @@ export const shellSidebarStyles = stylex.create({
     minWidth: 0,
     paddingBlock: "var(--spacing-3)",
     paddingInline: "calc(var(--spacing-2) + var(--spacing-0-5))",
-    color: "var(--foreground)"
+    color: "var(--foreground)",
+    "@media (max-width: 760px)": {
+      height: "fit-content",
+      maxHeight: "100%"
+    }
   },
   sideNavBody: {
     minHeight: 0,
@@ -263,7 +267,7 @@ export const shellSidebarStyles = stylex.create({
   },
   footer: {
     minHeight: 0,
-    maxHeight: "50%",
+    maxHeight: "50dvh",
     overflowY: "auto",
     paddingTop: "var(--spacing-2)",
     borderTopWidth: 1,
