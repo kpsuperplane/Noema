@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Structure-weighted native-surface repair audit · 2 Sep 2026`
 
-Noema Git revision: `4fa083160f5aa82f05b6d5b97dd7f94d8f773da5`
+Noema Git revision: `6c6987d75401cf39706d3563bd154bfe519995b7`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -32,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected sixty-eight individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected sixty-nine individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -136,6 +136,8 @@ The latest mobile Agents repair replaced five text chevrons with one reusable we
 
 The latest routed-chat repair aligned the active navigation state and message column. It also applied the live 16-by-24 composer input role.
 
+The latest mobile conversation repair matched the message-column inset and the three assistant bubble heights.
+
 The pass also added thirty-six reusable components and five component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, composer-focus, shell-elevation, web-navigation, and detail-shell-underlay tokens.
 
 | Repaired surface | Blurred mean error |
@@ -172,7 +174,7 @@ The pass also added thirty-six reusable components and five component sets. It a
 | Web-mobile cancel-task sheet | 6.02 to 3.67 |
 | Web-mobile Provider detail | 6.00 to 1.85 |
 | Web-mobile Settings Execution | 5.94 to 3.05 |
-| Web-mobile Chat conversation | 5.77 to 4.01 |
+| Web-mobile Chat conversation | 5.77 to 3.84 |
 | Web-mobile Settings Web tools | 5.68 to 2.95 |
 | Web-mobile Task detail documents | 5.51 to 2.80 |
 | Web-mobile Task detail transcript | 5.06 to 1.96 |
