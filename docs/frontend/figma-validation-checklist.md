@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Structure-weighted native-surface repair audit · 2 Sep 2026`
 
-Noema Git revision: `95ae0fc26931a6799046059f8357cbaa2846241d`
+Noema Git revision: `db88e2600c8b0a656ca3a2aec48498d5c884665a`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,11 +19,11 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.47. The median is 2.38. The highest remaining value is 4.64. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.45. The median is 2.38. The highest remaining value is 4.49. |
 | Component library | Pass | 333 local components in 51 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Component section overlaps | Pass | 0 overlaps across the 10 product-library sections. |
-| Variables and styles | Pass | 211 variables, 192 text styles, 6 paint styles, and 10 effect styles. |
+| Variables and styles | Pass | 211 variables, 194 text styles, 6 paint styles, and 10 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
 | Interactive target sizes | Pass | 0 prototype targets below 24 px on web or 44 pt on iOS. |
 | Text contrast | Open | 61 automated candidates require manual classification. Disabled controls and placeholders account for most candidates. |
@@ -32,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected seventy-four individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected seventy-five individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -148,6 +148,8 @@ The current Revoke Client repair removes duplicate dimming above the detail surf
 
 The current inline-intervention repair matches the measured live bubble highlight. It also aligns the keyboard backing with the device corners.
 
+The current Provider Choice repair restores the live monospaced facts and string grouping. It also matches the multiline onboarding rhythm.
+
 The pass also added thirty-eight reusable components and five component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, native-drag-indicator, composer-focus, shell-elevation, web-navigation, and detail-shell-underlay tokens.
 
 | Repaired surface | Blurred mean error |
@@ -196,7 +198,7 @@ The pass also added thirty-eight reusable components and five component sets. It
 | Web-desktop onboarding welcome | 1.90 to 0.33 |
 | Web-mobile onboarding recovery | 4.87 to 1.44 |
 | iOS Chat empty | 4.73 to 2.75 |
-| iOS onboarding provider choice | 5.30 to 4.64 |
+| iOS onboarding provider choice | 5.30 to 2.42 |
 | iOS onboarding provider authentication | 5.25 to 3.73 |
 | iOS onboarding local model download | 5.10 to 3.72 |
 | iOS onboarding model confirmation | 5.08 to 3.85 |
