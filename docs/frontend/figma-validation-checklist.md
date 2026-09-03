@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `4e8b39e7a41df059b792ae3a8891a1e45f9389c2`
+Noema Git revision: `cbfee1d2b8e4c0dbed457808439b47517cb5f474`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.79. The median is 2.86. The highest remaining value is 4.67. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.78. The median is 2.85. The highest remaining value is 4.67. |
 | Component library | Pass | 313 local components in 48 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 207 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
@@ -83,6 +83,8 @@ The same pass corrected the native provider-choice title face and eyebrow positi
 
 The latest state repair added the captured project-detail tooltip as a reusable component. It also corrected the iOS Agents system time.
 
+The current mobile-web repair matched all 36 product frames to the 24-point runtime curvature. Every comparison improved, and none regressed.
+
 The pass also added eighteen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
 
 | Repaired surface | Blurred mean error |
@@ -93,46 +95,46 @@ The pass also added eighteen reusable components and two component sets. It adde
 | iOS Adapter credential sheet | 7.89 to 4.10 |
 | iOS Chat inline intervention | 7.84 to 4.67 |
 | iOS MCP setup sheet | 7.83 to 3.45 |
-| Web-mobile onboarding welcome | 7.77 to 2.18 |
-| Web-mobile advanced GGUF import | 7.88 to 4.60 |
-| Web-mobile routed chat | 8.09 to 4.20 |
+| Web-mobile onboarding welcome | 7.77 to 2.15 |
+| Web-mobile advanced GGUF import | 7.88 to 4.59 |
+| Web-mobile routed chat | 8.09 to 4.17 |
 | iOS Chat intervention sheet | 7.73 to 4.07 |
 | iOS Task detail workspace | 6.54 to 2.66 |
 | iOS Task detail transcript | 6.04 to 2.16 |
 | iOS Task recurrence workspace | 7.69 to 3.82 |
 | Web-desktop project editing | 2.29 to 1.92 |
-| Web-mobile project editing | 7.15 to 4.23 |
+| Web-mobile project editing | 7.15 to 4.15 |
 | iOS MCP connection sheet | 7.13 to 2.13 |
 | iOS Memory root | 6.91 to 3.64 |
-| Web-mobile Clients | Current 2.88 |
-| Web-mobile Pair client sheet | 7.09 to 3.78 |
-| Web-mobile Notifications | Current 2.66 |
-| Web-mobile Configure APNs sheet | 6.85 to 3.88 |
+| Web-mobile Clients | Current 2.85 |
+| Web-mobile Pair client sheet | 7.09 to 3.76 |
+| Web-mobile Notifications | Current 2.63 |
+| Web-mobile Configure APNs sheet | 6.85 to 3.87 |
 | iOS Settings Web | 6.85 to 3.39 |
-| Web-mobile provider setup sheet | 6.64 to 3.09 |
-| Web-mobile Settings Agents | 6.55 to 4.22 |
+| Web-mobile provider setup sheet | 6.64 to 3.08 |
+| Web-mobile Settings Agents | 6.55 to 4.20 |
 | iOS API connection sheet | 6.49 to 3.75 |
 | iOS Settings Provider detail | 6.30 to 3.12 |
 | iOS MCP reauthentication sheet | 6.26 to 2.96 |
 | iOS Settings Execution | 6.16 to 3.90 |
-| Web-mobile cancel-task sheet | 6.02 to 3.69 |
-| Web-mobile Provider detail | 6.00 to 1.87 |
+| Web-mobile cancel-task sheet | 6.02 to 3.67 |
+| Web-mobile Provider detail | 6.00 to 1.85 |
 | Web-mobile Settings Execution | 5.94 to 3.05 |
-| Web-mobile Chat conversation | 5.77 to 4.03 |
-| Web-mobile Settings Web tools | 5.68 to 2.98 |
-| Web-mobile Task detail documents | 5.51 to 2.82 |
-| Web-mobile Task detail transcript | 5.06 to 1.98 |
-| Web-mobile Settings Providers | 5.04 to 3.63 |
-| Web-mobile Memory article | 5.00 to 2.55 |
+| Web-mobile Chat conversation | 5.77 to 4.01 |
+| Web-mobile Settings Web tools | 5.68 to 2.95 |
+| Web-mobile Task detail documents | 5.51 to 2.80 |
+| Web-mobile Task detail transcript | 5.06 to 1.96 |
+| Web-mobile Settings Providers | 5.04 to 3.60 |
+| Web-mobile Memory article | 5.00 to 2.52 |
 | Web-desktop onboarding recovery | 1.41 to 0.29 |
-| Web-mobile onboarding recovery | 4.87 to 1.47 |
+| Web-mobile onboarding recovery | 4.87 to 1.44 |
 | iOS Chat empty | 4.73 to 2.75 |
 | iOS onboarding provider choice | 5.30 to 4.64 |
 | iOS onboarding provider authentication | 5.25 to 3.73 |
 | iOS onboarding local model download | 5.10 to 3.72 |
 | iOS onboarding model confirmation | 5.08 to 3.85 |
 | iOS Revoke Client sheet | 5.20 to 4.64 |
-| Web-mobile recurrence detail | 5.18 to 3.66 |
+| Web-mobile recurrence detail | 5.18 to 3.63 |
 | Web-desktop Memory article | 5.68 to 1.83 |
 | Web-desktop Memory index through the shared status component | 2.56 to 2.32 |
 | iOS Memory article | 5.68 to 3.35 |
@@ -148,13 +150,14 @@ The pass also added eighteen reusable components and two component sets. It adde
 | Shared iOS keyboard and device corners across 11 comparisons | 10 improved; 1 inactive state preserved by an instance override |
 | Shared iOS device curvature across 45 comparisons | 45 improved; mean change -0.34; no regression |
 | Shared mobile-web navigation and device corners across 36 comparisons | 34 improved; 2 unchanged |
+| Shared mobile-web device curvature across 36 comparisons | 36 improved; mean change -0.023; no regression |
 | Web-mobile MCP setup sheet | 4.64 to 3.56 |
 | Shared iOS keyboard microphone across 11 comparisons | 11 improved |
 | Shared web-mobile task type across 7 comparisons | 7 improved |
 | iOS Tool Activity row | 5.36 to 4.49 |
 | iOS Client detail | Current 2.51 |
-| Web-mobile Task detail overview | 4.46 to 2.44 |
-| Web-mobile Project detail overview | 4.21 to 3.30 |
+| Web-mobile Task detail overview | 4.46 to 2.42 |
+| Web-mobile Project detail overview | 4.21 to 3.29 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
