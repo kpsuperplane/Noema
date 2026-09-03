@@ -8,9 +8,9 @@ The file passes only when every required item is complete. Record each exception
 
 Validation date: 2 September 2026
 
-Named checkpoint: `Web-mobile task-settings repair audit · 2 Sep 2026`
+Named checkpoint: `Web-mobile Agents toggle repair audit · 2 Sep 2026`
 
-Noema Git revision: `0073d5391e99ec0be6b36ba9641b6cf3ed4b8175`
+Noema Git revision: `31dbdc299b4d3b6d59e2d1d0c6ff07e9a07a7af9`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -32,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected ninety individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected ninety-one individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -170,6 +170,8 @@ The API-connection repair restores the live Cable symbol, card height, action rh
 
 The Task Settings repair matches the live field-label role and focused-field geometry.
 
+The mobile Agents repair aligns the Medium switch with its variable-width label.
+
 The pass also added thirty-eight reusable components and five component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, native-drag-indicator, native-action-opacity, composer-focus, shell-elevation, web-navigation, and detail-shell-underlay tokens.
 
 | Repaired surface | Blurred mean error |
@@ -200,7 +202,7 @@ The pass also added thirty-eight reusable components and five component sets. It
 | Web-mobile Configure APNs sheet | 6.85 to 3.27 |
 | iOS Settings Web | 6.85 to 3.39 |
 | Web-mobile provider setup sheet | 6.64 to 3.08 |
-| Web-mobile Settings Agents | 6.55 to 3.68 |
+| Web-mobile Settings Agents | 6.55 to 3.56 |
 | iOS API connection sheet | 6.49 to 2.90 |
 | iOS Settings Provider detail | 6.30 to 3.12 |
 | iOS MCP reauthentication sheet | 6.26 to 2.96 |
