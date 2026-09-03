@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `7314735b13665ad930bc70a4b357d522ea80f44b`
+Noema Git revision: `9804b7946e01fe76f2193cb64a1855cfd0fbb797`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -70,6 +70,8 @@ The latest iOS surface repair matched the chat-intervention mask and sheet curva
 The latest provider-setup repair reused the current mobile detail hierarchy. It also matched modal labels, fields, borders, and actions.
 
 The latest Task-sheet repair applied the shared web scrim token. It also corrected the mobile header, close action, edit action, and transcript bubble.
+
+The latest iOS task repair corrected the Cancel Task sheet curvature, native type roles, copy width, and action alignment.
 
 The pass also added seventeen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
 
@@ -132,6 +134,7 @@ The pass also added seventeen reusable components and two component sets. It add
 | Shared Beam avatar and web onboarding app icon across 41 comparisons | 38 improved; mean change -0.024; no regression |
 | iOS Runtime debug sheet | 5.36 to 3.88 |
 | iOS Discard task sheet | 5.61 to 4.04 |
+| iOS Cancel Task sheet | 4.33 to 4.00 |
 | Shared iOS keyboard and device corners across 11 comparisons | 10 improved; 1 inactive state preserved by an instance override |
 | Shared mobile-web navigation and device corners across 36 comparisons | 34 improved; 2 unchanged |
 | Web-mobile MCP setup sheet | 4.64 to 3.56 |
