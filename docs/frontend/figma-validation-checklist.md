@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Structure-weighted native-surface repair audit · 2 Sep 2026`
 
-Noema Git revision: `d48aef241ab8ada240d1cb02736d7eda9f3f039f`
+Noema Git revision: `4fa083160f5aa82f05b6d5b97dd7f94d8f773da5`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -23,7 +23,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Component library | Pass | 331 local components in 51 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Component section overlaps | Pass | 0 overlaps across the 10 product-library sections. |
-| Variables and styles | Pass | 210 variables, 191 text styles, 6 paint styles, and 10 effect styles. |
+| Variables and styles | Pass | 210 variables, 192 text styles, 6 paint styles, and 10 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
 | Interactive target sizes | Pass | 0 prototype targets below 24 px on web or 44 pt on iOS. |
 | Text contrast | Open | 61 automated candidates require manual classification. Disabled controls and placeholders account for most candidates. |
@@ -32,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected sixty-seven individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected sixty-eight individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -134,6 +134,8 @@ The latest schedule-sheet repair aligned the Cancel and Save actions with the li
 
 The latest mobile Agents repair replaced five text chevrons with one reusable web control. It also matched the selector, neutral badge, and repeated switch-row rhythm.
 
+The latest routed-chat repair aligned the active navigation state and message column. It also applied the live 16-by-24 composer input role.
+
 The pass also added thirty-six reusable components and five component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, composer-focus, shell-elevation, web-navigation, and detail-shell-underlay tokens.
 
 | Repaired surface | Blurred mean error |
@@ -146,7 +148,7 @@ The pass also added thirty-six reusable components and five component sets. It a
 | iOS MCP setup sheet | 7.83 to 3.45 |
 | Web-mobile onboarding welcome | 7.77 to 2.15 |
 | Web-mobile advanced GGUF import | 7.88 to 3.11 |
-| Web-mobile routed chat | 8.09 to 4.17 |
+| Web-mobile routed chat | 8.09 to 3.94 |
 | iOS Chat intervention sheet | 7.73 to 4.07 |
 | iOS Task detail workspace | 6.54 to 2.66 |
 | iOS Task detail transcript | 6.04 to 2.16 |
