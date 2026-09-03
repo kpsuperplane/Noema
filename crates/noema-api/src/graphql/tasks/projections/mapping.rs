@@ -254,6 +254,7 @@ pub(crate) fn run_item_connection(value: WorkRunItemConnection) -> GraphqlTaskRu
         edges: value
             .edges
             .into_iter()
+            .filter(|edge| !task_run_item_is_hidden(&edge.node))
             .map(|mut edge| {
                 add_tool_marker(&mut edge.node);
                 let cursor = edge.cursor;
@@ -263,6 +264,17 @@ pub(crate) fn run_item_connection(value: WorkRunItemConnection) -> GraphqlTaskRu
             .collect(),
         page_info: value.page_info.into(),
     }
+}
+
+fn task_run_item_is_hidden(item: &noema_tasks::AgentRunItemRecord) -> bool {
+    matches!(
+        item.kind,
+        noema_tasks::AgentRunItemKind::ToolCall | noema_tasks::AgentRunItemKind::ToolResult
+    ) && item
+        .content_text
+        .as_deref()
+        .or_else(|| item.payload.get("name").and_then(serde_json::Value::as_str))
+        .is_some_and(noema_runtime::tool_action_is_hidden)
 }
 
 fn add_tool_marker(item: &mut noema_tasks::AgentRunItemRecord) {

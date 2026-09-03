@@ -123,7 +123,11 @@ fn conversation_replay_rejects_malformed_activity_payload() {
 
 #[test]
 fn conversation_replay_omits_hidden_tool_activity() {
-    for name in ["enable.calendar.move_event", "task.delegate"] {
+    for name in [
+        "enable.calendar.move_event",
+        "task.delegate",
+        "web.browse.close",
+    ] {
         for (kind, activity_kind) in [
             (ConversationItemKind::ToolCall, "tool_call"),
             (ConversationItemKind::ToolResult, "tool_result"),

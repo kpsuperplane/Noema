@@ -6,7 +6,7 @@ use url::Url;
 /// Return whether a tool action must stay out of user-facing transcripts.
 #[must_use]
 pub fn tool_action_is_hidden(name: &str) -> bool {
-    name == "task.delegate"
+    matches!(name, "task.delegate" | "web.browse.close")
 }
 
 /// Build transient marker data from a saved action envelope.
@@ -72,6 +72,11 @@ fn tool_marker(
     }
     if matches!(name, "web.search" | "web.fetch") {
         marker["kind"] = json!(name);
+    } else if name.starts_with("web.browse.") {
+        marker["kind"] = json!("web.browse");
+        if let Some(host) = browser_page(arguments, result) {
+            marker["host"] = json!(host);
+        }
     }
     if is_folded(name) {
         marker["visibility"] = json!("fold");
@@ -89,7 +94,7 @@ fn marker_subject(
             .or_else(|| text(result, &[&["query"]]))
             .map(|value| ("Search", value));
     }
-    if name == "web.fetch" || name.starts_with("web.browse") {
+    if name == "web.fetch" {
         return web_target(arguments, result).map(|value| ("Page", value));
     }
     if name.starts_with("task.files.") || name.starts_with("file.") {
@@ -531,11 +536,11 @@ fn browser_marker(
 }
 
 fn browser_page(arguments: Option<&Value>, result: Option<&Value>) -> Option<String> {
-    text(result, &[&["title"]]).or_else(|| {
-        text(result, &[&["url"]])
-            .or_else(|| text(arguments, &[&["url"]]))
-            .and_then(|value| web_host(&value))
-    })
+    browser_url(arguments, result).and_then(|value| web_host(&value))
+}
+
+fn browser_url(arguments: Option<&Value>, result: Option<&Value>) -> Option<String> {
+    text(result, &[&["snapshot", "url"], &["url"]]).or_else(|| text(arguments, &[&["url"]]))
 }
 
 struct Copy {
@@ -816,6 +821,25 @@ mod tests {
         )
         .expect("browser-open call marker");
         assert_eq!(open["summary"], "Could not open example.com");
+
+        let opened = tool_marker(
+            "web.browse.open",
+            "completed",
+            true,
+            None,
+            Some(&json!({
+                "snapshot": {
+                    "title": "Lifecycle verification records",
+                    "url": "https://example.com/lifecycle"
+                }
+            })),
+        )
+        .expect("browser-open result marker");
+        assert_eq!(opened["summary"], "Opened example.com");
+        assert_eq!(opened["kind"], "web.browse");
+        assert_eq!(opened["host"], "example.com");
+        assert!(opened.get("subject").is_none());
+
         assert!(
             tool_marker(
                 "web.browse.open",
@@ -826,5 +850,6 @@ mod tests {
             )
             .is_none()
         );
+        assert!(tool_marker("web.browse.close", "completed", true, None, None).is_none());
     }
 }

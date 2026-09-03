@@ -1,13 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  formatToolDetail,
-  toolDetailRows,
-  toolMarkerExpandable,
-  toolMarkerLabel,
-  toolMarkerName,
-  toolMarkerTarget
-} from "./markerModel";
+import { formatToolDetail, toolDetailRows, toolMarkerExpandable, toolMarkerLabel, toolMarkerName, toolMarkerTarget } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 
 describe("formatToolDetail", () => {
@@ -108,7 +101,9 @@ describe("toolMarkerName", () => {
           summary: "Web search: rust language",
           metadata: {
             action: { name: "web.search" },
-            display: { marker: backendMarker("Web Search", "Web Search", "Using Web Search", "web.search") }
+            display: {
+              marker: backendMarker("Web Search", "Web Search", "Using Web Search", "web.search")
+            }
           }
         }
       }
@@ -132,7 +127,9 @@ describe("toolMarkerName", () => {
           summary: "Fetched web page: https://example.com/page",
           metadata: {
             action: { name: "web.fetch" },
-            display: { marker: backendMarker("Fetched Web Page", "Fetched Web Page", "Using Fetched Web Page", "web.fetch") }
+            display: {
+              marker: backendMarker("Fetched Web Page", "Fetched Web Page", "Using Fetched Web Page", "web.fetch")
+            }
           }
         }
       }
@@ -141,7 +138,9 @@ describe("toolMarkerName", () => {
     assert.equal(toolMarkerName(marker), "Fetched Web Page");
     marker.call!.item.metadata = {
       action: { name: "web.browse.interact" },
-      display: { marker: backendMarker("Browser interaction", "Browser interaction", "Using Browser interaction") }
+      display: {
+        marker: backendMarker("Browser interaction", "Browser interaction", "Using Browser interaction")
+      }
     };
     assert.equal(toolMarkerName(marker), "Browser interaction");
   });
@@ -219,12 +218,7 @@ describe("toolMarkerLabel", () => {
             display: {
               name: "Search web",
               target: "Web search: T:0 AI Finance Team startup location t0.ai",
-              marker: backendMarker(
-                "T:0 AI Finance Team startup location t0.ai",
-                "Web Search",
-                "Using Web Search",
-                "web.search"
-              )
+              marker: backendMarker("T:0 AI Finance Team startup location t0.ai", "Web Search", "Using Web Search", "web.search")
             }
           }
         }
@@ -310,7 +304,14 @@ describe("toolMarkerLabel", () => {
                 provider_contract: "best_effort_public",
                 query: "rust language",
                 summary: "Found 1 web result",
-                results: [{ rank: 1, title: "Rust", url: "https://www.rust-lang.org/", snippet: "Rust language." }]
+                results: [
+                  {
+                    rank: 1,
+                    title: "Rust",
+                    url: "https://www.rust-lang.org/",
+                    snippet: "Rust language."
+                  }
+                ]
               }
             },
             display: {
@@ -331,7 +332,7 @@ describe("toolMarkerLabel", () => {
     assert.deepEqual(toolDetailRows(marker), []);
   });
 
-  test("completed web search marker with provider fallback is expandable", () => {
+  test("completed web search keeps provider fallback in its technical record", () => {
     const marker: ToolMarkerGroup = {
       id: "tool_call:web-fallback",
       call: {
@@ -377,7 +378,14 @@ describe("toolMarkerLabel", () => {
                 fallback_reason: "bound provider capability web.search is account_dependent",
                 query: "rust language",
                 summary: "Found 1 web result",
-                results: [{ rank: 1, title: "Rust", url: "https://www.rust-lang.org/", snippet: "Rust language." }]
+                results: [
+                  {
+                    rank: 1,
+                    title: "Rust",
+                    url: "https://www.rust-lang.org/",
+                    snippet: "Rust language."
+                  }
+                ]
               }
             },
             display: {
@@ -393,7 +401,7 @@ describe("toolMarkerLabel", () => {
       }
     };
 
-    assert.equal(toolMarkerExpandable(marker), true);
+    assert.equal(toolMarkerExpandable(marker), false);
     assert.deepEqual(toolDetailRows(marker), [
       { label: "Fallback from", value: "provider_account:openai:default" },
       {
@@ -492,7 +500,7 @@ function backendMarker(summary: string, identity: string, detailTitle: string, k
 }
 
 describe("toolDetailRows", () => {
-  test("keeps failed web search markers expandable with error detail", () => {
+  test("keeps failed web search details in the technical record", () => {
     const marker: ToolMarkerGroup = {
       id: "tool_call:web",
       call: {
@@ -544,14 +552,14 @@ describe("toolDetailRows", () => {
       }
     };
 
-    assert.equal(toolMarkerExpandable(marker), true);
+    assert.equal(toolMarkerExpandable(marker), false);
     assert.deepEqual(toolDetailRows(marker), [
       { label: "Query", value: "rust language" },
       { label: "Error", value: "search provider request failed" }
     ]);
   });
 
-  test("keeps failed web fetch markers expandable with safe error detail", () => {
+  test("keeps failed web fetch details in the technical record", () => {
     const marker: ToolMarkerGroup = {
       id: "tool_call:web-fetch",
       call: {
@@ -603,7 +611,7 @@ describe("toolDetailRows", () => {
       }
     };
 
-    assert.equal(toolMarkerExpandable(marker), true);
+    assert.equal(toolMarkerExpandable(marker), false);
     assert.equal(toolMarkerTarget(marker), "Failed: web fetch request failed");
     assert.deepEqual(toolDetailRows(marker), [
       { label: "URL", value: "https://example.com/page" },
