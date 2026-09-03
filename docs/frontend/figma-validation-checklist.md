@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Structure-weighted native-surface repair audit · 2 Sep 2026`
 
-Noema Git revision: `b51d4e9fe2fc326c491a8cb49c8d238e866b2824`
+Noema Git revision: `eceac175565530b3ff823d7896341b658c96dc17`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,11 +19,11 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.62. The median is 2.61. The highest remaining value is 4.67. |
-| Component library | Pass | 323 local components in 50 component sets. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.58. The median is 2.43. The highest remaining value is 4.67. |
+| Component library | Pass | 324 local components in 50 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Component section overlaps | Pass | 0 overlaps across the 10 product-library sections. |
-| Variables and styles | Pass | 209 variables, 185 text styles, 6 paint styles, and 10 effect styles. |
+| Variables and styles | Pass | 210 variables, 186 text styles, 6 paint styles, and 10 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
 | Interactive target sizes | Pass | 0 prototype targets below 24 px on web or 44 pt on iOS. |
 | Text contrast | Open | 61 automated candidates require manual classification. Disabled controls and placeholders account for most candidates. |
@@ -32,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected fifty-nine individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected sixty individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -114,7 +114,11 @@ The latest iOS Notifications repair replaced the obsolete push-error state with 
 
 The Notifications selector now uses the current Lucide bell geometry. Both cards use one native component set.
 
-The pass also added twenty-eight reusable components and four component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, composer-focus, shell-elevation, and web-navigation tokens.
+The latest iOS Provider-detail repair reused the shared native detail shell. It aligned the title, cards, monospaced values, and disclosure control.
+
+A dedicated detail-shell underlay token improved all five iOS detail comparisons.
+
+The pass also added twenty-nine reusable components and four component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, composer-focus, shell-elevation, web-navigation, and detail-shell-underlay tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
@@ -197,6 +201,8 @@ The pass also added twenty-eight reusable components and four component sets. It
 | Web-desktop Settings Local Models | 1.51 to 1.02 |
 | Shared web navigation across 72 comparisons | 61 improved; 8 unchanged; 3 changed by no more than 0.016 |
 | iOS Settings Notifications | 3.28 to 1.52 |
+| iOS Settings Provider detail | 3.12 to 1.62 |
+| Shared iOS detail-shell underlay across 5 comparisons | 5 improved; mean 3.11 to 1.85 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
