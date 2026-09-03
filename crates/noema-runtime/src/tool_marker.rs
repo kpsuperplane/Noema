@@ -33,7 +33,7 @@ fn tool_marker(
     arguments: Option<&Value>,
     result: Option<&Value>,
 ) -> Option<Value> {
-    if !is_builtin(name) {
+    if name == "task.delegate" || !is_builtin(name) {
         return None;
     }
     let status = MarkerStatus::new(status, is_result);
@@ -52,6 +52,18 @@ fn tool_marker(
         "detailTitle": detail_title(&identity, status),
         "status": status.as_str(),
     });
+    if let Some((label, value)) = marker_subject(name, arguments, result) {
+        marker["subjectLabel"] = json!(label);
+        marker["subject"] = json!(value);
+    }
+    if name.starts_with("task.")
+        && matches!(status, MarkerStatus::Completed)
+        && result
+            .and_then(|value| value.get("run_id"))
+            .is_some_and(|value| !value.is_null())
+    {
+        marker["detail"] = json!("A Task run started in the background.");
+    }
     if matches!(name, "web.search" | "web.fetch") {
         marker["kind"] = json!(name);
     }
@@ -59,6 +71,53 @@ fn tool_marker(
         marker["visibility"] = json!("fold");
     }
     Some(marker)
+}
+
+fn marker_subject(
+    name: &str,
+    arguments: Option<&Value>,
+    result: Option<&Value>,
+) -> Option<(&'static str, String)> {
+    if name == "web.search" {
+        return text(arguments, &[&["query"]])
+            .or_else(|| text(result, &[&["query"]]))
+            .map(|value| ("Search", value));
+    }
+    if name == "web.fetch" || name.starts_with("web.browse") {
+        return web_target(arguments, result).map(|value| ("Page", value));
+    }
+    if name.starts_with("task.files.") || name.starts_with("file.") {
+        return subject(Subject::Path, arguments, result).map(|value| ("File", value));
+    }
+    if name.starts_with("task.") {
+        return subject(Subject::Task, arguments, result).map(|value| ("Task", value));
+    }
+    if name.starts_with("project.") {
+        return subject(Subject::Project, arguments, result).map(|value| ("Project", value));
+    }
+    if name.starts_with("artifact.") {
+        return subject(Subject::Artifact, arguments, result).map(|value| ("File", value));
+    }
+    if name.starts_with("adapter.") || name == "mcp.connect_service" {
+        let kind = if name.starts_with("adapter.") {
+            Subject::Adapter
+        } else {
+            Subject::Service
+        };
+        return subject(kind, arguments, result).map(|value| ("Service", value));
+    }
+    if name == "search_memory" {
+        return text(arguments, &[&["query"]]).map(|value| ("Search", value));
+    }
+    if name == "read_memory_page" {
+        return subject(Subject::Path, arguments, result).map(|value| ("Memory", value));
+    }
+    if name == "update_own_name" {
+        return text(result, &[&["display_name"]])
+            .or_else(|| text(arguments, &[&["name"]]))
+            .map(|value| ("Name", value));
+    }
+    None
 }
 
 #[derive(Clone, Copy)]
@@ -125,7 +184,6 @@ const RULES: &[Rule] = &[
     ("task.files.write", "Write Task file", "Writing", "Wrote", "Could not write", Subject::Path),
     ("task.files.delete", "Delete Task file", "Deleting", "Deleted", "Could not delete", Subject::Path),
     ("task.capture", "Create Task", "Creating Task", "Created Task", "Could not create Task", Subject::Task),
-    ("task.delegate", "Delegate Task", "Delegating Task", "Delegated Task", "Could not delegate Task", Subject::Task),
     ("task.update", "Update Task", "Updating Task", "Updated Task", "Could not update Task", Subject::Task),
     ("task.queue", "Queue Task", "Queueing Task", "Queued Task", "Could not queue Task", Subject::Task),
     ("task.schedule", "Schedule Task", "Scheduling Task", "Scheduled Task", "Could not schedule Task", Subject::Task),
@@ -693,7 +751,7 @@ mod tests {
     }
 
     #[test]
-    fn marker_names_task_outcomes_and_folds_lifecycle_noise() {
+    fn marker_names_task_outcomes_folds_lifecycle_noise_and_hides_delegation() {
         let list = tool_marker(
             "task.files.list",
             "running",
@@ -716,6 +774,8 @@ mod tests {
         let lifecycle = tool_marker("task.finish_execution", "completed", true, None, None)
             .expect("lifecycle marker");
         assert_eq!(lifecycle["visibility"], "fold");
+        assert!(tool_marker("task.delegate", "running", false, None, None).is_none());
+        assert!(tool_marker("task.delegate", "completed", true, None, None).is_none());
     }
 
     #[test]

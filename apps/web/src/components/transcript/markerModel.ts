@@ -96,10 +96,6 @@ function toolMarkerIdentity(marker: ToolMarkerGroup): string | null {
   );
 }
 
-export function toolMarkerIsBuiltIn(marker: ToolMarkerGroup): boolean {
-  return markerDisplay(marker) !== null;
-}
-
 export function formatToolDetail(fallback: string, metadata: unknown): string {
   const preview = safeToolMetadataPreview(metadata);
   if (!preview.length) {
@@ -132,6 +128,127 @@ export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
   }
 
   return dedupeToolDetailRows(rows);
+}
+
+export function toolHumanDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
+  const rows: ToolDetailRowData[] = [];
+  const call = marker.call?.item;
+  const result = marker.result?.item;
+  const callDisplay = displayFromMetadata(call?.metadata);
+  const resultDisplay = displayFromMetadata(result?.metadata);
+  const input = actionInput(call?.metadata, result?.metadata);
+  const output = toolActionPayload(result?.metadata);
+  const target = humanToolTarget(marker, input, callDisplay, resultDisplay);
+
+  if (target) {
+    rows.push(target);
+  }
+
+  const displayResult = usefulDisplayValue(resultDisplay, "result");
+  if (toolMarkerStatus(marker) === "error") {
+    rows.push({
+      label: "What happened",
+      value: humanToolError(output) ?? displayResult ?? toolMarkerSummary(marker)
+    });
+  } else if (displayResult && displayResult !== target?.value) {
+    rows.push({ label: "Result", value: displayResult });
+  } else {
+    const detail = markerDisplayString(marker, "detail");
+    const resultFact = detail ? { label: "Status", value: detail } : humanToolResult(output);
+    if (resultFact && resultFact.value !== target?.value) {
+      rows.push(resultFact);
+    }
+  }
+
+  const scope = usefulDisplayValue(resultDisplay, "scope") ?? usefulDisplayValue(callDisplay, "scope");
+  if (scope && scope !== target?.value) {
+    rows.push({ label: "Scope", value: scope });
+  }
+
+  const purpose = usefulDisplayValue(callDisplay, "purpose");
+  if (rows.length === 0 && purpose) {
+    rows.push({ label: "Purpose", value: purpose });
+  }
+
+  if (rows.length === 0) {
+    rows.push({ label: "Outcome", value: toolMarkerSummary(marker) });
+  }
+
+  return dedupeToolDetailRows(rows);
+}
+
+function actionInput(callMetadata: unknown, resultMetadata: unknown): unknown {
+  const callAction = actionFromMetadata(callMetadata);
+  const resultAction = actionFromMetadata(resultMetadata);
+  if (callAction && "arguments" in callAction) {
+    return callAction.arguments;
+  }
+  if (resultAction && "arguments" in resultAction) {
+    return resultAction.arguments;
+  }
+  return toolActionPayload(callMetadata);
+}
+
+function humanToolTarget(
+  marker: ToolMarkerGroup,
+  input: unknown,
+  callDisplay: Record<string, unknown> | null,
+  resultDisplay: Record<string, unknown> | null
+): ToolDetailRowData | null {
+  const markerSubject = markerDisplayString(marker, "subject");
+  if (markerSubject) {
+    return {
+      label: markerDisplayString(marker, "subjectLabel") ?? "Item",
+      value: markerSubject
+    };
+  }
+
+  const payload = isRecord(input) ? input : null;
+  const title = nestedString(payload, ["task", "title"]) ?? nestedString(payload, ["project", "name"])
+    ?? stringValue(payload?.title);
+  if (title) {
+    return { label: "Item", value: title };
+  }
+
+  for (const [key, label] of [["query", "Search"], ["path", "File"], ["name", "Name"]] as const) {
+    const value = stringValue(payload?.[key]);
+    if (value) {
+      return { label, value };
+    }
+  }
+
+  const target = usefulDisplayValue(resultDisplay, "target") ?? usefulDisplayValue(callDisplay, "target");
+  const url = target ?? stringValue(payload?.url);
+  return url ? { label: "Item", value: url } : null;
+}
+
+function humanToolResult(output: unknown): ToolDetailRowData | null {
+  if (!isRecord(output)) return null;
+  for (const [key, noun] of [
+    ["tasks", "Task"], ["projects", "project"], ["entries", "item"], ["results", "result"],
+    ["messages", "message"], ["events", "event"], ["pages", "page"]
+  ] as const) {
+    const values = output[key];
+    if (Array.isArray(values)) {
+      return { label: "Result", value: `${values.length} ${noun}${values.length === 1 ? "" : "s"}` };
+    }
+  }
+  return null;
+}
+
+function humanToolError(output: unknown): string | null {
+  if (!isRecord(output)) return null;
+  return stringValue(output.error) ?? stringValue(output.message) ?? nestedString(output, ["details", "message"]);
+}
+
+function usefulDisplayValue(display: Record<string, unknown> | null, key: string): string | null {
+  const value = stringValue(display?.[key]);
+  return value && !isLowInformationToolDetail(value) ? value : null;
+}
+
+function nestedString(value: Record<string, unknown> | null, path: readonly string[]): string | null {
+  const result = path.reduce<unknown>((current, key) => isRecord(current) ? current[key] : undefined, value);
+  return stringValue(result);
 }
 
 function completeToolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] | null {

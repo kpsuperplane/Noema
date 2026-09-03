@@ -2,7 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { VStack } from "@astryxdesign/core/VStack";
 import { WrenchIcon } from "lucide-react";
-import { toolDetailRows, toolMarkerIsBuiltIn, toolMarkerLabel, toolMarkerScreenshot } from "./markerModel";
+import { toolDetailRows, toolHumanDetailRows, toolMarkerLabel, toolMarkerScreenshot } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { TranscriptAttachmentCard } from "./TranscriptAttachmentCard";
 import { ToolDetailRow } from "./ToolDetailRow";
@@ -30,6 +30,7 @@ const styles = stylex.create({
 
 export function ToolDetailAttachment({ id, marker }: { id: string; marker: ToolMarkerGroup }) {
   const rows = toolDetailRows(marker);
+  const humanRows = toolHumanDetailRows(marker);
   const screenshot = toolMarkerScreenshot(marker);
   if (rows.length === 0 && !screenshot) {
     return null;
@@ -38,7 +39,7 @@ export function ToolDetailAttachment({ id, marker }: { id: string; marker: ToolM
   const details = (
     <VStack as="dl" gap={1} className={stylex.props(styles.details).className}>
       {rows.map((row, index) => (
-        <ToolDetailRow key={`${row.label}:${index}`} label={row.label} value={row.value} />
+        <ToolDetailRow key={`${row.label}:${index}`} label={row.label} value={row.value} technical />
       ))}
     </VStack>
   );
@@ -51,6 +52,11 @@ export function ToolDetailAttachment({ id, marker }: { id: string; marker: ToolM
       tone={failed ? "error" : "info"}
     >
       <VStack gap={2} className={stylex.props(styles.content).className}>
+        <VStack as="dl" gap={2}>
+          {humanRows.map((row, index) => (
+            <ToolDetailRow key={`${row.label}:${index}`} label={row.label} value={row.value} />
+          ))}
+        </VStack>
         {screenshot ? (
           <img
             {...stylex.props(styles.screenshot)}
@@ -61,11 +67,9 @@ export function ToolDetailAttachment({ id, marker }: { id: string; marker: ToolM
           />
         ) : null}
         {rows.length > 0 ? (
-          toolMarkerIsBuiltIn(marker) ? (
-            <Collapsible trigger="Technical details" defaultIsOpen={false}>
-              {details}
-            </Collapsible>
-          ) : details
+          <Collapsible trigger="Technical record" defaultIsOpen={false}>
+            {details}
+          </Collapsible>
         ) : null}
       </VStack>
     </TranscriptAttachmentCard>
