@@ -8,9 +8,9 @@ The file passes only when every required item is complete. Record each exception
 
 Validation date: 2 September 2026
 
-Named checkpoint: `APNs semantic-icon repair audit · 2 Sep 2026`
+Named checkpoint: `Provider-authentication disclosure repair audit · 2 Sep 2026`
 
-Noema Git revision: `6120fb31dca434ecdc281a7a61d81ed2be3c5bcd`
+Noema Git revision: `3d0e2194fa23850f94a56a366e2bf8c2424c29b2`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -32,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected eighty-six individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected eighty-seven individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -162,6 +162,8 @@ The Model Confirmation repair restores the plural sparkles symbol, native select
 
 The APNs repair replaces three text substitutes with shared Lucide components. It also matches the modal field rhythm and action widths.
 
+The Provider Authentication repair matches the current onboarding heading rhythm. It also uses the shared native API-key disclosure.
+
 The pass also added thirty-eight reusable components and five component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, native-drag-indicator, native-action-opacity, composer-focus, shell-elevation, web-navigation, and detail-shell-underlay tokens.
 
 | Repaired surface | Blurred mean error |
@@ -211,7 +213,7 @@ The pass also added thirty-eight reusable components and five component sets. It
 | Web-mobile onboarding recovery | 4.87 to 1.44 |
 | iOS Chat empty | 4.73 to 2.75 |
 | iOS onboarding provider choice | 5.30 to 2.42 |
-| iOS onboarding provider authentication | 5.25 to 3.73 |
+| iOS onboarding provider authentication | 5.25 to 3.41 |
 | iOS onboarding local model download | 5.10 to 3.72 |
 | iOS onboarding model confirmation | 5.08 to 3.41 |
 | iOS Revoke Client sheet | 5.20 to 2.66 |
