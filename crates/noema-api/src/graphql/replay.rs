@@ -44,7 +44,10 @@ pub(crate) fn web_conversation_item_is_visible(item: &TurnTranscriptItem) -> boo
             && metadata
                 .pointer("/action/name")
                 .and_then(Value::as_str)
-                .is_some_and(|name| name.starts_with(noema_capabilities::TOOL_ENABLEMENT_PREFIX))
+                .is_some_and(|name| {
+                    name.starts_with(noema_capabilities::TOOL_ENABLEMENT_PREFIX)
+                        || noema_runtime::tool_action_is_hidden(name)
+                })
     )
 }
 

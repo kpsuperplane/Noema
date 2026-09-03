@@ -3,6 +3,12 @@
 use serde_json::{Value, json};
 use url::Url;
 
+/// Return whether a tool action must stay out of user-facing transcripts.
+#[must_use]
+pub fn tool_action_is_hidden(name: &str) -> bool {
+    name == "task.delegate"
+}
+
 /// Build transient marker data from a saved action envelope.
 #[must_use]
 pub fn tool_marker_for_action(action_kind: &str, status: &str, action: &Value) -> Option<Value> {
@@ -33,7 +39,7 @@ fn tool_marker(
     arguments: Option<&Value>,
     result: Option<&Value>,
 ) -> Option<Value> {
-    if name == "task.delegate" || !is_builtin(name) {
+    if tool_action_is_hidden(name) || !is_builtin(name) {
         return None;
     }
     let status = MarkerStatus::new(status, is_result);
