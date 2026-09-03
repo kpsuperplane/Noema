@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Structure-weighted native-surface repair audit · 2 Sep 2026`
 
-Noema Git revision: `cf5f0cbb093cc900d1d843d2bf442dcd1b41c3c1`
+Noema Git revision: `67c5b0a14a4636e2301a4e9b466c1a04ccde0a90`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -32,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected sixty-five individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected sixty-six individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -130,6 +130,8 @@ The latest project-editor repair restored the pine task shell and native inset d
 
 The latest iOS Execution repair replaced obsolete SF text roles with the live Bricolage, Hanken, and JetBrains Mono roles. It also converted both settings cards into reusable native components.
 
+The latest schedule-sheet repair aligned the Cancel and Save actions with the live right-aligned action group.
+
 The pass also added thirty-five reusable components and five component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, composer-focus, shell-elevation, web-navigation, and detail-shell-underlay tokens.
 
 | Repaired surface | Blurred mean error |
@@ -149,6 +151,7 @@ The pass also added thirty-five reusable components and five component sets. It 
 | iOS Task recurrence workspace | 7.69 to 1.25 |
 | Web-desktop project editing | 2.29 to 1.92 |
 | Web-mobile project editing | 7.15 to 2.48 |
+| Web-mobile Task schedule sheet | 4.19 to 4.00 |
 | iOS MCP connection sheet | 7.13 to 2.13 |
 | iOS Memory root | 6.91 to 1.32 |
 | Web-mobile Clients | Current 2.85 |
