@@ -19,8 +19,8 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.05. The median is 3.04. The highest remaining value is 5.07. |
-| Component library | Pass | 311 local components in 48 component sets. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 3.01. The median is 2.98. The highest remaining value is 5.07. |
+| Component library | Pass | 312 local components in 48 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 207 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
@@ -49,20 +49,26 @@ The recovery repair restored current text, field help, focus treatment, and disa
 
 The later iOS repair corrected the shared keyboard shift symbol, device corners, the Chat empty state, and the Agents selector.
 
-The pass also added sixteen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
+The current chat repair corrected the shared web composer across four chat states. It also corrected the mobile MCP setup dialog and empty state.
+
+The shared mobile-web repair applied current navigation color and device corners. It improved 34 comparisons and preserved 2 comparisons.
+
+The current settings repair corrected web Agents typography and three iOS Web cards. It also corrected the iOS Execution selector and disabled model field.
+
+The pass also added seventeen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
-| iOS Chat conversation | 8.36 to 4.51 |
+| iOS Chat conversation | 8.36 to 4.47 |
 | iOS Settings agents | 8.36 to 4.42 |
 | iOS Settings providers | 8.00 to 4.55 |
 | iOS Adapter credential sheet | 7.89 to 4.62 |
 | iOS Chat inline intervention | 7.84 to 5.07 |
 | iOS MCP setup sheet | 7.83 to 4.52 |
 | Web-mobile onboarding welcome | 7.77 to 2.18 |
-| Web-mobile advanced GGUF import | 7.88 to 4.62 |
-| Web-mobile routed chat | 8.09 to 4.63 |
-| iOS Chat intervention sheet | 7.73 to 4.41 |
+| Web-mobile advanced GGUF import | 7.88 to 4.61 |
+| Web-mobile routed chat | 8.09 to 4.20 |
+| iOS Chat intervention sheet | 7.73 to 4.37 |
 | iOS Task detail workspace | 6.54 to 2.96 |
 | iOS Task detail transcript | 6.04 to 2.46 |
 | iOS Task recurrence workspace | 7.69 to 4.10 |
@@ -70,26 +76,26 @@ The pass also added sixteen reusable components and two component sets. It added
 | Web-mobile project editing | 7.15 to 4.23 |
 | iOS MCP connection sheet | 7.13 to 2.76 |
 | iOS Memory root | 6.91 to 4.22 |
-| Web-mobile Clients | Current 2.96 |
-| Web-mobile Pair client sheet | 7.09 to 3.82 |
-| Web-mobile Notifications | Current 2.75 |
-| Web-mobile Configure APNs sheet | 6.85 to 3.93 |
-| iOS Settings Web | 6.85 to 4.52 |
-| Web-mobile provider setup sheet | 6.64 to 4.35 |
-| Web-mobile Settings Agents | 6.55 to 4.57 |
+| Web-mobile Clients | Current 2.88 |
+| Web-mobile Pair client sheet | 7.09 to 3.78 |
+| Web-mobile Notifications | Current 2.66 |
+| Web-mobile Configure APNs sheet | 6.85 to 3.88 |
+| iOS Settings Web | 6.85 to 3.71 |
+| Web-mobile provider setup sheet | 6.64 to 4.30 |
+| Web-mobile Settings Agents | 6.55 to 4.22 |
 | iOS API connection sheet | 6.49 to 4.35 |
 | iOS Settings Provider detail | 6.30 to 3.54 |
 | iOS MCP reauthentication sheet | 6.26 to 3.42 |
-| iOS Settings Execution | 6.16 to 4.58 |
-| Web-mobile cancel-task sheet | 6.02 to 3.70 |
-| Web-mobile Provider detail | 6.00 to 1.94 |
-| Web-mobile Settings Execution | 5.94 to 3.14 |
-| Web-mobile Chat conversation | 5.77 to 4.66 |
-| Web-mobile Settings Web tools | 5.68 to 3.06 |
-| Web-mobile Task detail documents | 5.51 to 2.86 |
-| Web-mobile Task detail transcript | 5.06 to 4.38 |
-| Web-mobile Settings Providers | 5.04 to 3.65 |
-| Web-mobile Memory article | 5.00 to 2.57 |
+| iOS Settings Execution | 6.16 to 4.21 |
+| Web-mobile cancel-task sheet | 6.02 to 3.69 |
+| Web-mobile Provider detail | 6.00 to 1.87 |
+| Web-mobile Settings Execution | 5.94 to 3.05 |
+| Web-mobile Chat conversation | 5.77 to 4.47 |
+| Web-mobile Settings Web tools | 5.68 to 2.98 |
+| Web-mobile Task detail documents | 5.51 to 2.84 |
+| Web-mobile Task detail transcript | 5.06 to 4.37 |
+| Web-mobile Settings Providers | 5.04 to 3.63 |
+| Web-mobile Memory article | 5.00 to 2.55 |
 | Web-desktop onboarding recovery | 1.41 to 0.29 |
 | Web-mobile onboarding recovery | 4.87 to 1.47 |
 | iOS Chat empty | 4.73 to 3.17 |
@@ -108,9 +114,11 @@ The pass also added sixteen reusable components and two component sets. It added
 | Shared provider-choice cards across 2 comparisons | 2 improved; no regression |
 | Shared iOS Lucide navigation icons across 53 comparisons | 34 improved; mean change -0.015; no regression |
 | Shared Beam avatar and web onboarding app icon across 41 comparisons | 38 improved; mean change -0.024; no regression |
-| iOS Runtime debug sheet | 5.36 to 3.94 |
+| iOS Runtime debug sheet | 5.36 to 3.90 |
 | iOS Discard task sheet | 5.61 to 4.04 |
-| Shared iOS keyboard and device corners across 3 chat comparisons | 3 improved; mean change -0.24 |
+| Shared iOS keyboard and device corners across 11 comparisons | 10 improved; 1 inactive state preserved by an instance override |
+| Shared mobile-web navigation and device corners across 36 comparisons | 34 improved; 2 unchanged |
+| Web-mobile MCP setup sheet | 4.64 to 3.56 |
 | iOS Tool Activity row | 5.36 to 4.91 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
