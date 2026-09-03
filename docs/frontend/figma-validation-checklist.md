@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Structure-weighted native-surface repair audit · 2 Sep 2026`
 
-Noema Git revision: `ff8d6ec0893de8c741024bf8446987068f69e10f`
+Noema Git revision: `b9c62b021fd91514cd1db13500a4722bc3a81a5f`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -32,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected seventy-one individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected seventy-two individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -142,6 +142,8 @@ The latest Task settings repair added an embedded mobile detail variant. It pres
 
 The current iOS Agents repair matched live type roles, card separators, label-driven toggle spacing, and status labels. It also added one reusable disabled model selector.
 
+The current recurrence repair matched the native drawer handle and grouped-card spacing. Shared task controls now use the closed disclosure and clock symbols.
+
 The pass also added thirty-eight reusable components and five component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, composer-focus, shell-elevation, web-navigation, and detail-shell-underlay tokens.
 
 | Repaired surface | Blurred mean error |
@@ -159,6 +161,7 @@ The pass also added thirty-eight reusable components and five component sets. It
 | iOS Task detail workspace | 6.54 to 2.66 |
 | iOS Task detail transcript | 6.04 to 2.16 |
 | iOS Task recurrence workspace | 7.69 to 1.25 |
+| iOS Edit recurrence sheet | 3.97 to 3.62 |
 | Web-desktop project editing | 2.29 to 1.92 |
 | Web-mobile project editing | 7.15 to 2.48 |
 | Web-mobile Task schedule sheet | 4.19 to 4.00 |
