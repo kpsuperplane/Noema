@@ -8,9 +8,9 @@ The file passes only when every required item is complete. Record each exception
 
 Validation date: 2 September 2026
 
-Named checkpoint: `Discard-task native-control repair audit · 2 Sep 2026`
+Named checkpoint: `Model-confirmation symbol repair audit · 2 Sep 2026`
 
-Noema Git revision: `603140c84b237525c43690a701b00cb400a65cf6`
+Noema Git revision: `65c2960dc3b7f6bf423bdf9fce45b458030b0562`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -20,7 +20,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
 | Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.42. The median is 2.38. The highest remaining value is 3.99. |
-| Component library | Pass | 334 local components in 51 component sets. |
+| Component library | Pass | 336 local components in 51 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Component section overlaps | Pass | 0 overlaps across the 10 product-library sections. |
 | Variables and styles | Pass | 212 variables, 196 text styles, 6 paint styles, and 10 effect styles. |
@@ -32,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected eighty-four individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected eighty-five individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -158,6 +158,8 @@ The focused web composer now owns its ring, runtime background, and paper caret.
 
 The Discard Task repair aligns its native toolbar rhythm. It also replaces the obsolete stacked Project indicator with the shared iOS chevron.
 
+The Model Confirmation repair restores the plural sparkles symbol, native selector chevrons, and captured heading rhythm.
+
 The pass also added thirty-eight reusable components and five component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, native-drag-indicator, native-action-opacity, composer-focus, shell-elevation, web-navigation, and detail-shell-underlay tokens.
 
 | Repaired surface | Blurred mean error |
@@ -209,7 +211,7 @@ The pass also added thirty-eight reusable components and five component sets. It
 | iOS onboarding provider choice | 5.30 to 2.42 |
 | iOS onboarding provider authentication | 5.25 to 3.73 |
 | iOS onboarding local model download | 5.10 to 3.72 |
-| iOS onboarding model confirmation | 5.08 to 3.85 |
+| iOS onboarding model confirmation | 5.08 to 3.41 |
 | iOS Revoke Client sheet | 5.20 to 2.66 |
 | Web-mobile recurrence detail | 5.18 to 3.63 |
 | Web-desktop Memory article | 5.68 to 1.83 |
