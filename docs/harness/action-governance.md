@@ -30,7 +30,8 @@ agent proposes saved exact arguments
 7. Waiting for a human does not retain a worker lease or model request.
 8. Capability results remain untrusted context after an authorized call.
 9. Noema does not retry an external effect with an uncertain outcome.
-10. Clients render server-owned state and valid actions.
+10. A human decline blocks an equivalent browser effect in that Task generation.
+11. Clients render server-owned state and valid actions.
 
 ## Authorization context
 
@@ -194,6 +195,12 @@ Production supports two decisions for a pending action request:
 A pending approval becomes `approved` or `declined`. Execution admission
 consumes an approved decision. Live revalidation can supersede a pending or
 approved request before execution.
+
+For browser actions, a decline also blocks an equivalent effect in the same
+Task generation. Snapshot numbers, page titles, and element references do not
+make an effect different. The operation, page URL, target, destination, method,
+and visible submitted values must show a material change before another action
+request can enter review.
 
 The decision checks the action revision and owner. A stale decision fails.
 Noema does not infer a decision from free-form text.

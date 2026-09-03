@@ -83,7 +83,7 @@ impl RuntimeActor {
                             ProgressAuditDecision::Continue => "Still making progress",
                             ProgressAuditDecision::Finalize => "Ready to wrap up",
                             ProgressAuditDecision::AskHuman => "Needs your input",
-                            ProgressAuditDecision::Checkpoint => "Paused with checkpoint",
+                            ProgressAuditDecision::Pause => "Paused",
                         };
                         self.persist_progress_audit_completed(
                             &audit_turn,
@@ -113,7 +113,7 @@ impl RuntimeActor {
                                 continuation_tool_results.clear();
                                 break;
                             }
-                            ProgressAuditDecision::AskHuman | ProgressAuditDecision::Checkpoint => {
+                            ProgressAuditDecision::AskHuman | ProgressAuditDecision::Pause => {
                                 self.persist_progress_pause_message(
                                     turn,
                                     next_output_index,

@@ -25,7 +25,7 @@ pub use daemon::{
     TurnTranscriptItem, WorkRuntimeEvent, mark_turn_timing_event, project_task_result,
 };
 pub use file_tools::{parse_artifact_preview, run_file_parse_worker_if_requested};
-pub use tool_marker::tool_marker_for_action;
+pub use tool_marker::{tool_action_is_hidden, tool_marker_for_action};
 pub use web_backend::{
     WebBackendFuture, WebBackendRequest, WebBackendResolver, WebBackendResolverError,
     WebBackendResolverHandle,

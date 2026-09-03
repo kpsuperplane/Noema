@@ -15,7 +15,7 @@ pub(super) enum ProgressAuditDecision {
     Continue,
     Finalize,
     AskHuman,
-    Checkpoint,
+    Pause,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -128,7 +128,7 @@ Do not encode the tool call or its arguments in ordinary assistant text.
 Use "continue" only when recent tool results added new useful information or completed needed side effects.
 Use "finalize" when enough information has been gathered to answer without more tools.
 Use "ask_human" when the next useful step needs user input.
-Use "checkpoint" when the work should pause for a fresh turn boundary."#
+Use "pause" when work should stop at a safe model-request boundary."#
         .to_string()
 }
 
@@ -151,7 +151,7 @@ fn parse_progress_audit_payload(
         "continue" => ProgressAuditDecision::Continue,
         "finalize" => ProgressAuditDecision::Finalize,
         "ask_human" => ProgressAuditDecision::AskHuman,
-        "checkpoint" => ProgressAuditDecision::Checkpoint,
+        "pause" => ProgressAuditDecision::Pause,
         other => {
             return Err(ProgressAuditError::ExecutionFailed(format!(
                 "invalid progress audit decision: {other}"

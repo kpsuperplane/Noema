@@ -21,21 +21,12 @@ export function useMobileMenuRevealHeight(
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         const nav = sidebar.querySelector<HTMLElement>("[data-slot='shell-sidebar-nav']");
-        const items = sidebar.querySelector<HTMLElement>("[data-slot='shell-sidebar-items']");
-        const lastItem = items?.lastElementChild;
-        if (!nav || !items || !(lastItem instanceof HTMLElement)) {
+        if (!nav) {
           root.style.removeProperty(mobileMenuRevealHeightProperty);
           return;
         }
 
-        const navStyle = window.getComputedStyle(nav);
-        const itemsStyle = window.getComputedStyle(items);
-        const height = Math.ceil(
-          lastItem.getBoundingClientRect().bottom - nav.getBoundingClientRect().top
-            + items.scrollTop
-            + pixels(navStyle.paddingBottom)
-            + pixels(itemsStyle.paddingBottom)
-        );
+        const height = Math.ceil(nav.getBoundingClientRect().height);
         root.style.setProperty(mobileMenuRevealHeightProperty, `${Math.max(0, height)}px`);
       });
     };
@@ -44,12 +35,8 @@ export function useMobileMenuRevealHeight(
     const observeMenu = () => {
       resizeObserver.disconnect();
       resizeObserver.observe(sidebar);
-      const items = sidebar.querySelector<HTMLElement>("[data-slot='shell-sidebar-items']");
-      if (!items) return;
-      resizeObserver.observe(items);
-      for (const item of items.children) {
-        if (item instanceof HTMLElement) resizeObserver.observe(item);
-      }
+      const nav = sidebar.querySelector<HTMLElement>("[data-slot='shell-sidebar-nav']");
+      if (nav) resizeObserver.observe(nav);
     };
     const mutationObserver = new MutationObserver(() => {
       observeMenu();
@@ -73,9 +60,4 @@ export function useMobileMenuRevealHeight(
   }, [enabled, shellRootRef]);
 
   return sidebarRef;
-}
-
-function pixels(value: string) {
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? parsed : 0;
 }

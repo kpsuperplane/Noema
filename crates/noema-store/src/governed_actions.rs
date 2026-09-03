@@ -804,6 +804,50 @@ impl NoemaStore {
             .await
     }
 
+    /// List action requests that an Executor must not repeat in the current Task generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the read fails or stored action data is invalid.
+    pub async fn list_nonrepeatable_action_requests(
+        &self,
+        task_id: &str,
+        task_generation: u64,
+        capability_name: &str,
+    ) -> Result<Vec<GovernedActionRecord>, StoreError> {
+        let task_id = task_id.to_string();
+        let capability_name = capability_name.to_string();
+        self.with_connection(|connection| {
+            let ids = connection
+                .prepare(
+                    r#"
+                    SELECT action_id, revision
+                    FROM governed_actions
+                    WHERE task_id = ?1
+                      AND capability_name = ?2
+                      AND state IN ('declined', 'outcome_uncertain')
+                      AND json_extract(authorization_context_json, '$.task_generation') = ?3
+                    ORDER BY created_at DESC, action_id DESC
+                    LIMIT 100
+                    "#,
+                )?
+                .query_map(params![task_id, capability_name, task_generation], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            ids.into_iter()
+                .map(|(action_id, revision)| {
+                    let revision =
+                        u64::try_from(revision).map_err(|_| action_conflict("invalid revision"))?;
+                    action_from_tx(connection, &action_id, revision)?.ok_or_else(|| {
+                        action_conflict("nonrepeatable action request disappeared during read")
+                    })
+                })
+                .collect()
+        })
+        .await
+    }
+
     /// Return terminal reviewed actions whose originating conversation or run
     /// has not yet received its durable continuation.
     ///

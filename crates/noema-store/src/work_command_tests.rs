@@ -1955,6 +1955,166 @@ async fn inline_governed_action_cannot_resume_a_later_task_gate() {
 }
 
 #[tokio::test]
+async fn executor_continuation_receives_actions_after_latest_task_save() {
+    let (store, service) = fixture().await;
+    service
+        .execute(direct_delegated("idem:unsaved-actions", "unsaved-actions"))
+        .await
+        .expect("delegate Task");
+    let first = service
+        .claim_next_work_run("worker:unsaved-actions:one", 60, &[])
+        .await
+        .expect("claim first Executor")
+        .expect("first Executor");
+    let first_fence = WorkRunFence {
+        run_id: first.run.run_id.clone(),
+        lease_token: first.lease_token,
+        task_generation: first.run.task_generation,
+    };
+    service
+        .start_work_run(&first_fence, ACTOR, None, "correlation:unsaved-actions:one")
+        .await
+        .expect("start first Executor");
+
+    for item in [
+        NewAgentRunItem {
+            item_id: Some("run_item:unsaved:old-result".to_string()),
+            run_id: first_fence.run_id.clone(),
+            round_index: 0,
+            kind: AgentRunItemKind::ToolResult,
+            status: AgentRunItemStatus::Completed,
+            correlation_id: Some("call:old".to_string()),
+            parent_item_id: Some("run_item:unsaved:old-call".to_string()),
+            content_text: Some("web.browse.interact".to_string()),
+            payload: serde_json::json!({"success": true, "payload": {"state": "old"}}),
+        },
+        NewAgentRunItem {
+            item_id: Some("run_item:unsaved:old-call".to_string()),
+            run_id: first_fence.run_id.clone(),
+            round_index: 0,
+            kind: AgentRunItemKind::ToolCall,
+            status: AgentRunItemStatus::Completed,
+            correlation_id: Some("call:old".to_string()),
+            parent_item_id: None,
+            content_text: Some("web.browse.interact".to_string()),
+            payload: serde_json::json!({"arguments": {"ref": "old"}}),
+        },
+        NewAgentRunItem {
+            item_id: Some("run_item:unsaved:save-result".to_string()),
+            run_id: first_fence.run_id.clone(),
+            round_index: 1,
+            kind: AgentRunItemKind::ToolResult,
+            status: AgentRunItemStatus::Completed,
+            correlation_id: Some("call:save".to_string()),
+            parent_item_id: Some("run_item:unsaved:save-call".to_string()),
+            content_text: Some("task.files.write".to_string()),
+            payload: serde_json::json!({
+                "success": true,
+                "payload": {"path": crate::TASK_DOCUMENT}
+            }),
+        },
+        NewAgentRunItem {
+            item_id: Some("run_item:unsaved:save-call".to_string()),
+            run_id: first_fence.run_id.clone(),
+            round_index: 1,
+            kind: AgentRunItemKind::ToolCall,
+            status: AgentRunItemStatus::Completed,
+            correlation_id: Some("call:save".to_string()),
+            parent_item_id: None,
+            content_text: Some("task.files.write".to_string()),
+            payload: serde_json::json!({
+                "arguments": {"path": crate::TASK_DOCUMENT, "content": "Saved progress."}
+            }),
+        },
+        NewAgentRunItem {
+            item_id: Some("run_item:unsaved:new-result".to_string()),
+            run_id: first_fence.run_id.clone(),
+            round_index: 2,
+            kind: AgentRunItemKind::ToolResult,
+            status: AgentRunItemStatus::Failed,
+            correlation_id: Some("call:new".to_string()),
+            parent_item_id: Some("run_item:unsaved:new-call".to_string()),
+            content_text: Some("web.browse.interact".to_string()),
+            payload: serde_json::json!({
+                "success": false,
+                "payload": {"code": "outcome_uncertain"}
+            }),
+        },
+        NewAgentRunItem {
+            item_id: Some("run_item:unsaved:new-call".to_string()),
+            run_id: first_fence.run_id.clone(),
+            round_index: 2,
+            kind: AgentRunItemKind::ToolCall,
+            status: AgentRunItemStatus::Failed,
+            correlation_id: Some("call:new".to_string()),
+            parent_item_id: None,
+            content_text: Some("web.browse.interact".to_string()),
+            payload: serde_json::json!({"arguments": {"ref": "e3", "action": "click"}}),
+        },
+    ] {
+        store
+            .append_agent_run_item(item, &first_fence)
+            .await
+            .expect("append run action");
+    }
+
+    service
+        .record_work_run_terminal(
+            WorkRunTerminal::ContinueExecution(ContinueExecution { fence: first_fence }),
+            ACTOR,
+            None,
+            "correlation:unsaved-actions:continue",
+        )
+        .await
+        .expect("continue execution");
+    let second = service
+        .claim_next_work_run("worker:unsaved-actions:two", 60, &[])
+        .await
+        .expect("claim second Executor")
+        .expect("second Executor");
+    let second_fence = WorkRunFence {
+        run_id: second.run.run_id,
+        lease_token: second.lease_token,
+        task_generation: second.run.task_generation,
+    };
+    service
+        .start_work_run(
+            &second_fence,
+            ACTOR,
+            None,
+            "correlation:unsaved-actions:two",
+        )
+        .await
+        .expect("start second Executor");
+    let admitted = service
+        .admit_work_run_execution_context(
+            &second_fence,
+            ACTOR,
+            None,
+            "correlation:unsaved-actions:admit",
+        )
+        .await
+        .expect("admit second Executor");
+
+    assert_eq!(admitted.context.lineage.len(), 2);
+    assert!(
+        admitted
+            .context
+            .lineage
+            .iter()
+            .all(|item| item.correlation_id.as_deref() == Some("call:new"))
+    );
+    assert_eq!(
+        admitted.context.lineage[0].payload["payload"]["code"],
+        "outcome_uncertain"
+    );
+    assert_eq!(
+        admitted.context.lineage[1].payload["arguments"]["ref"],
+        "e3"
+    );
+}
+
+#[tokio::test]
 async fn task_capability_authentication_propagates_to_source_and_opens_recovery_gate() {
     let (store, service) = fixture().await;
     crate::test_support::insert_mcp_server(&store, "mcp:auth-uncertain")
@@ -2330,7 +2490,10 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
             },
             arguments: serde_json::json!({"record_id": "42"}),
             input_schema: serde_json::json!({"type": "object"}),
-            authorization_context: serde_json::json!({"origin": "task"}),
+            authorization_context: serde_json::json!({
+                "origin": "task",
+                "task_generation": fence.task_generation,
+            }),
             safe_summary: "write an external record".to_string(),
         })
         .await
@@ -2384,6 +2547,17 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
         .await
         .expect("decline action");
     assert_eq!(declined.state, GovernedActionState::Declined);
+    assert!(
+        store
+            .list_nonrepeatable_action_requests(
+                captured.task_id.as_str(),
+                fence.task_generation + 1,
+                "mcp.example.write",
+            )
+            .await
+            .expect("list another Task generation")
+            .is_empty()
+    );
     let child = service
         .resume_after_governed_action(&action.action_id, action.revision, ACTOR)
         .await

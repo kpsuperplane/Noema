@@ -21,6 +21,7 @@ use crate::daemon::agent_onboarding::AgentPromptIdentity;
 pub(super) enum ReviewedActionPreparation {
     NotRequired,
     AwaitingApproval(GovernedActionRecord),
+    NonrepeatableEquivalent(GovernedActionRecord),
     Authorized {
         action: Option<GovernedActionRecord>,
         authorization: ReviewedCapabilityAuthorization,
@@ -67,11 +68,38 @@ impl RuntimeActor {
             .flatten();
         let mut authorization_context =
             action_authorization_context(&self.store, turn, binding).await?;
-        if let Some(context) = browser_review_context {
+        if let Some(context) = browser_review_context.as_ref() {
             authorization_context
                 .as_object_mut()
                 .expect("authorization context is an object")
-                .insert("browser_review_context".to_string(), context);
+                .insert("browser_review_context".to_string(), context.clone());
+        }
+        if let (Some(task_id), Some(task_generation)) = (
+            turn.task_id.as_deref(),
+            authorization_context
+                .get("task_generation")
+                .and_then(serde_json::Value::as_u64),
+        ) {
+            let current_browser_effect =
+                browser_action_effect(&call.payload, browser_review_context.as_ref());
+            let nonrepeatable = self
+                .store
+                .list_nonrepeatable_action_requests(task_id, task_generation, &call.name)
+                .await?;
+            if let Some(action) = nonrepeatable.into_iter().find(|action| {
+                action.arguments == call.payload
+                    || current_browser_effect
+                        .as_ref()
+                        .is_some_and(|current_effect| {
+                            browser_action_effect(
+                                &action.arguments,
+                                action.authorization_context.get("browser_review_context"),
+                            )
+                            .is_some_and(|effect| &effect == current_effect)
+                        })
+            }) {
+                return Ok(ReviewedActionPreparation::NonrepeatableEquivalent(action));
+            }
         }
         let action = self
             .store
@@ -174,10 +202,51 @@ impl RuntimeActor {
                 "ref": request.reference,
                 "role": element.map(|element| element.role.as_str()),
                 "name": element.map(|element| element.name.as_str()),
+                "href": element.and_then(|element| element.href.as_deref()),
                 "submission": element.and_then(|element| element.submission.as_ref()),
             },
         }))
     }
+}
+
+fn browser_action_effect(
+    arguments: &serde_json::Value,
+    review_context: Option<&serde_json::Value>,
+) -> Option<serde_json::Value> {
+    let noema_capabilities::web::browse::BrowseCommand::Interact(request) =
+        noema_capabilities::web::browse::parse_command(
+            noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
+            arguments,
+        )
+        .ok()?
+    else {
+        return None;
+    };
+    let operation = match request.action {
+        noema_capabilities::web::browse::BrowseInteractionAction::Click => {
+            serde_json::json!({"action": request.action})
+        }
+        noema_capabilities::web::browse::BrowseInteractionAction::UploadFile => serde_json::json!({
+            "action": request.action,
+            "artifact_id": request.artifact_id,
+            "artifact_version_id": request.artifact_version_id,
+        }),
+        _ => serde_json::json!({
+            "action": request.action,
+            "value": request.value,
+        }),
+    };
+    let review_context = review_context?;
+    Some(serde_json::json!({
+        "operation": operation,
+        "page_url": review_context.pointer("/page/url"),
+        "target": {
+            "role": review_context.pointer("/target/role"),
+            "name": review_context.pointer("/target/name"),
+            "href": review_context.pointer("/target/href"),
+            "submission": review_context.pointer("/target/submission"),
+        },
+    }))
 }
 
 async fn action_authorization_context(
@@ -451,6 +520,26 @@ pub(super) fn action_store_failure_result(call: &LocalToolCall) -> LocalToolResu
         }),
         true,
     )
+}
+
+pub(super) fn nonrepeatable_equivalent_action_result(
+    call: &LocalToolCall,
+    action: &GovernedActionRecord,
+) -> LocalToolResult {
+    let payload = if action.state == GovernedActionState::Declined {
+        serde_json::json!({
+            "code": "human_declined_equivalent_action",
+            "message": "A human declined an equivalent action in this Task generation. Do not retry it.",
+            "declined_action_id": action.action_id,
+        })
+    } else {
+        serde_json::json!({
+            "code": "equivalent_action_outcome_uncertain",
+            "message": "An equivalent action already has an uncertain outcome. Do not retry it. Check its status with read-only tools.",
+            "action_id": action.action_id,
+        })
+    };
+    LocalToolResult::from_call(call, LocalToolKind::Gateway, false, payload, true)
 }
 
 pub(super) fn capability_failure_code(error: &CapabilityError) -> &'static str {

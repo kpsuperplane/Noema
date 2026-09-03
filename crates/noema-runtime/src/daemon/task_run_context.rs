@@ -7,12 +7,16 @@
 use serde::Deserialize;
 
 use noema_store::WorkRunExecutionContext;
-use noema_tasks::{RunKind, TaskAuthorizationContext, TaskAuthorizationMessageRole};
+use noema_tasks::{
+    AgentRunItemKind, AgentRunItemRecord, RunKind, TaskAuthorizationContext,
+    TaskAuthorizationMessageRole,
+};
 
 use crate::agent_execution::ExecutionRole;
 const CONTEXT_TEXT_LIMIT: usize = 64 * 1024;
+const ACTION_CONTEXT_ITEM_LIMIT: usize = 2 * 1024;
 const EXECUTOR_BACKGROUND_POLICY: &str = "This is autonomous background execution. Continue while a safe, authorized, in-scope action can materially improve the required output. Do not conserve tool calls while useful work remains.";
-const EXECUTOR_DELIVERY_POLICY: &str = "Noema uses the current RESULT.md as the submitted Task result. Add another delivery destination only when the Task request requires it. If TASK.md lacks enough progress state, list Task files and read relevant support files before repeating work. Never guess values that TASK.md omits. Read the referenced support file before acting on those values. Before task.continue_execution, save completed progress and the exact next action in TASK.md. A new run automatically receives TASK.md, not support-file contents. Reference every needed support file and its next unread item in TASK.md.";
+const EXECUTOR_DELIVERY_POLICY: &str = "Noema uses the current RESULT.md as the submitted Task result. Add another delivery destination only when the Task request requires it. If TASK.md lacks enough progress state, list Task files and read relevant support files before repeating work. Never guess values that TASK.md omits. Read the referenced support file before acting on those values. A new run receives persisted tool actions after the latest TASK.md save. It does not receive support-file contents automatically. Reference each needed support file in TASK.md. When an external action has an uncertain outcome, do not retry it. Use read-only tools to check its status. Ask the human only when status remains unknown.";
 const EXECUTOR_BROWSER_RESUMPTION_POLICY: &str = "If TASK.md records an active browser session, call web.browse.snapshot before web.browse.open. Continue from that snapshot. Open a URL only when no active session exists or the snapshot reports session_not_found.";
 const TASK_RESEARCH_POLICY: &str = "When the Task requires research, first identify the evidence needed and the source types likely to contain it. Build queries from concrete entities, terms, dates, locations, and constraints. Do not rely on abstract quality words such as best, positive, important, or recent to enforce factual constraints. Theme words can help discover specialist sources, but they cannot verify that an item qualifies. For a themed collection, inspect high-yield specialist indexes before scanning broad general-purpose feeds. Open a likely source-owned index directly when its public URL is known; do not search for a page that can be retrieved directly. Treat search results as leads. A site-restricted query or search result URL is still search; it does not count as inspecting that site or listing. Use the hosted provider's page-open action or another page-reading tool to retrieve listings and final sources. Do not record a page as inspected unless returned page content supports that claim. Open sources and verify claims from source content. When freshness, completeness, or a collection matters, open and inspect the best available source-owned index, category page, catalog, repository, sitemap, feed, or similar listing before broad search. Use hosted search to locate source pages. Do not open search-engine result pages in the interactive browser; reserve the browser for source pages that require rendering or interaction. When a browser snapshot returns a link href, open that href through hosted page-open or web fetch. Do not use browser interaction only to navigate between ordinary source pages. After a search returns a plausible source, read that source before issuing more speculative queries. Refine the next action with terms learned from useful results. After two low-yield searches, change the retrieval route, source type, domain, or query structure. Do not repeat near-synonym queries. Do not reread the same page, file, or listing unless new information makes another read necessary. For multi-source research, keep a concise candidate and evidence ledger with the exact pages read in TASK.md or a support file so later runs continue from verified facts and rejected leads.";
 const PLANNER_RESEARCH_POLICY: &str = "For open-ended research, define the evidence, freshness, scope, and acceptance criteria. Keep TASK.md concise. Do not prescribe query strings, fixed domain lists, or a step-by-step retrieval route. The Executor selects live sources and queries from returned evidence. Retain an exact source or route only when the request names it or durable Task evidence already verifies it. Do not copy the shared Executor research policy into TASK.md.";
@@ -203,7 +207,7 @@ pub(crate) fn build_task_role_prompt(context: &WorkRunExecutionContext) -> TaskR
         RunKind::Executor => (
             ExecutionRole::TaskExecutor,
             format_executor_prompt(context),
-            "You are Noema's Task Executor. The prompt includes current role files and the support-file manifest. Do not list or reread them before work. Save continuation state in TASK.md. Finish through task.finish_execution, task.continue_execution, or task.report_blocked.",
+            "You are Noema's Task Executor. The prompt includes current role files and the support-file manifest. Do not list or reread them before work. Keep TASK.md useful as durable working memory. Finish through task.finish_execution, task.continue_execution, or task.report_blocked.",
         ),
         RunKind::Reviewer => (
             ExecutionRole::TaskReviewer,
@@ -221,26 +225,49 @@ pub(crate) fn build_task_role_prompt(context: &WorkRunExecutionContext) -> TaskR
     }
 }
 
-/// Append durable messages and saved run evidence loaded by the Store context.
+/// Append durable messages and unsaved actions loaded by the Store context.
 fn append_continuation_context(prompt: &mut String, context: &WorkRunExecutionContext) {
     if !context.messages.is_empty() {
         prompt.push_str("\n\nResolved human continuation at this safe run boundary:\n");
         prompt.push_str(&format_messages(context));
     }
     if !context.lineage.is_empty() {
-        prompt.push_str("\n\nBounded prior run evidence:\n");
+        prompt.push_str(
+            "\n\nPersisted Executor actions after the latest TASK.md save:\n\
+             These actions can include incomplete work. If a tool call has no recorded result, \
+             treat its outcome as uncertain and check before retrying.\n",
+        );
         for item in &context.lineage {
-            let content = item.content_text.as_deref().unwrap_or("");
-            if !content.trim().is_empty() {
-                prompt.push_str(&format!(
-                    "\n[{} · round {}]\n{}\n",
-                    item.kind,
-                    item.round_index,
-                    bounded(content)
-                ));
+            if let Some(action) = format_unsaved_action(item) {
+                prompt.push_str(&action);
+                prompt.push('\n');
             }
         }
     }
+}
+
+fn format_unsaved_action(item: &AgentRunItemRecord) -> Option<String> {
+    let tool_name = item.content_text.as_deref()?.trim();
+    if tool_name.is_empty() {
+        return None;
+    }
+    let details = match item.kind {
+        AgentRunItemKind::ToolCall => item.payload.get("arguments").unwrap_or(&item.payload),
+        AgentRunItemKind::ToolResult => item.payload.get("payload").unwrap_or(&item.payload),
+        _ => return None,
+    };
+    let mut details = serde_json::to_string(details).unwrap_or_else(|_| "{}".to_string());
+    if details.chars().count() > ACTION_CONTEXT_ITEM_LIMIT {
+        details = details
+            .chars()
+            .take(ACTION_CONTEXT_ITEM_LIMIT)
+            .collect::<String>();
+        details.push_str("[truncated]");
+    }
+    Some(format!(
+        "- {} {} [{}]: {}",
+        item.kind, tool_name, item.status, details
+    ))
 }
 
 fn format_workspace(context: &WorkRunExecutionContext) -> String {
@@ -397,9 +424,11 @@ mod tests {
         REVIEWER_REQUIREMENT_POLICY, REVIEWER_RESEARCH_LIMITATION_POLICY, ReviewerResponse,
         TASK_DOCUMENT_EDIT_POLICY, TASK_PERSISTENCE_POLICY, TASK_RESEARCH_POLICY,
         TASK_RESULT_CITATION_POLICY, format_authenticated_source_request, format_runtime_handling,
+        format_unsaved_action,
     };
     use noema_tasks::{
-        TaskAuthorizationContext, TaskAuthorizationMessage, TaskAuthorizationMessageRole,
+        AgentRunItemKind, AgentRunItemRecord, AgentRunItemStatus, TaskAuthorizationContext,
+        TaskAuthorizationMessage, TaskAuthorizationMessageRole,
     };
     use serde_json::json;
 
@@ -416,8 +445,9 @@ mod tests {
         assert!(EXECUTOR_DELIVERY_POLICY.contains("current RESULT.md"));
         assert!(EXECUTOR_DELIVERY_POLICY.contains("Task request requires"));
         assert!(EXECUTOR_DELIVERY_POLICY.contains("Never guess values that TASK.md omits"));
-        assert!(EXECUTOR_DELIVERY_POLICY.contains("exact next action in TASK.md"));
-        assert!(EXECUTOR_DELIVERY_POLICY.contains("not support-file contents"));
+        assert!(EXECUTOR_DELIVERY_POLICY.contains("after the latest TASK.md save"));
+        assert!(EXECUTOR_DELIVERY_POLICY.contains("support-file contents automatically"));
+        assert!(EXECUTOR_DELIVERY_POLICY.contains("Use read-only tools to check its status"));
         assert!(EXECUTOR_BROWSER_RESUMPTION_POLICY.contains("web.browse.snapshot before"));
         assert!(EXECUTOR_BROWSER_RESUMPTION_POLICY.contains("session_not_found"));
         assert!(PLANNER_DELIVERY_POLICY.contains("authenticated source request requires"));
@@ -435,6 +465,28 @@ mod tests {
         assert!(TASK_PERSISTENCE_POLICY.contains("not to wait"));
         assert!(TASK_PERSISTENCE_POLICY.contains("Physical actions"));
         assert!(TASK_PERSISTENCE_POLICY.contains("not a system limitation"));
+    }
+
+    #[test]
+    fn unsaved_action_context_keeps_exact_tool_arguments() {
+        let action = format_unsaved_action(&AgentRunItemRecord {
+            item_id: "run_item:test".to_string(),
+            run_id: "run:test".to_string(),
+            sequence_index: 4,
+            round_index: 2,
+            kind: AgentRunItemKind::ToolCall,
+            status: AgentRunItemStatus::Running,
+            correlation_id: Some("call:test".to_string()),
+            parent_item_id: None,
+            content_text: Some("web.browse.interact".to_string()),
+            payload: json!({"arguments": {"action": "click", "ref": "e3"}}),
+            created_at: "2026-08-31T00:00:00Z".to_string(),
+            updated_at: "2026-08-31T00:00:00Z".to_string(),
+        })
+        .expect("formatted tool call");
+
+        assert!(action.contains("tool_call web.browse.interact [running]"));
+        assert!(action.contains(r#"{"action":"click","ref":"e3"}"#));
     }
 
     #[test]

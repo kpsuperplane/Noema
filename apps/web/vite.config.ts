@@ -1,5 +1,6 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { chmod, readdir } from "node:fs/promises";
 import react from "@vitejs/plugin-react";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite";
@@ -22,6 +23,23 @@ const stylexPlugin = [
 
 const pwaReleaseId = process.env.NOEMA_PWA_RELEASE ?? randomUUID();
 const assetOutDir = process.env.NOEMA_DEV_ASSET_DIR ?? "../../crates/noema-server/target/web-assets";
+
+const serviceReadableAssets = {
+  name: "service-readable-assets",
+  apply: "build" as const,
+  closeBundle: {
+    order: "post" as const,
+    async handler() {
+      if (!process.env.NOEMA_DEV_ASSET_DIR) return;
+      const entries = await readdir(assetOutDir, { withFileTypes: true });
+      await Promise.all(
+        entries
+          .filter((entry) => entry.isFile())
+          .map((entry) => chmod(path.join(assetOutDir, entry.name), 0o644))
+      );
+    }
+  }
+};
 
 export default defineConfig({
   plugins: [
@@ -83,7 +101,8 @@ export default defineConfig({
         globPatterns: ["**/*.{html,js,css,svg,png,ttf,webmanifest}"],
         globIgnores: ["graphiql.html", "graphiql-*"]
       }
-    })
+    }),
+    serviceReadableAssets,
   ],
   base: "/assets/",
   publicDir: "public",

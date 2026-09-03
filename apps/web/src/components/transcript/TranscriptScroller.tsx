@@ -26,6 +26,36 @@ type ScrollToEndOptions = {
   behavior?: ScrollBehavior;
 };
 
+export type TranscriptScrollSnapshot = {
+  density: "full" | "embedded";
+  followBottom: boolean;
+  key: string;
+  measurements: VirtualItem[];
+  scrollOffset: number;
+  windowWidth: number;
+};
+
+export type TranscriptScrollRestoration = React.MutableRefObject<TranscriptScrollSnapshot | null>;
+
+export function readTranscriptScrollSnapshot(
+  restoration: TranscriptScrollRestoration | undefined,
+  key: string | undefined,
+  density: "full" | "embedded"
+) {
+  const snapshot = restoration?.current;
+  if (
+    !snapshot ||
+    !key ||
+    snapshot.key !== key ||
+    snapshot.density !== density ||
+    typeof window === "undefined" ||
+    snapshot.windowWidth !== window.innerWidth
+  ) {
+    return null;
+  }
+  return snapshot;
+}
+
 type TranscriptScrollerContextValue = {
   bottomOffsetRef: React.MutableRefObject<number>;
   contentRef: React.RefObject<HTMLDivElement | null>;
@@ -47,9 +77,12 @@ type TranscriptScrollerProps = {
   loadBeforeError: string | null;
   busy?: boolean;
   completionAnnouncementKey?: number;
+  followBottomRef?: React.MutableRefObject<boolean>;
   renderEntry: (entry: RenderTranscriptEntry, index: number) => React.ReactNode;
   onLoadBefore: () => void;
   onScrollActivityChange?: (active: boolean) => void;
+  scrollRestoration?: TranscriptScrollRestoration;
+  scrollRestorationKey?: string;
   "aria-label"?: string;
   onViewportScroll?: React.UIEventHandler<HTMLDivElement>;
 };
@@ -259,9 +292,12 @@ export function TranscriptScroller({
   loadBeforeError,
   busy = false,
   completionAnnouncementKey = 0,
+  followBottomRef,
   renderEntry,
   onLoadBefore,
   onScrollActivityChange,
+  scrollRestoration,
+  scrollRestorationKey,
   onViewportScroll,
   "aria-label": ariaLabel
 }: TranscriptScrollerProps) {
@@ -271,7 +307,6 @@ export function TranscriptScroller({
   const [userScrolledTowardStart, setUserScrolledTowardStart] = React.useState(false);
   const [availableHeight, setAvailableHeight] = React.useState(0);
   const [scrollMargin, setScrollMargin] = React.useState(0);
-  const [measuringInitialPage, setMeasuringInitialPage] = React.useState(true);
   const [settlingPrepend, setSettlingPrepend] = React.useState(false);
   const previousToolGroupKeysRef = React.useRef<ReadonlyMap<string, React.Key>>(new Map());
   const virtualItemKeysRef = React.useRef<readonly React.Key[]>([]);
@@ -288,24 +323,33 @@ export function TranscriptScroller({
   const userScrollAnimationRef = React.useRef<(() => void) | null>(null);
   const virtualItemKeys = reconcileVirtualItemKeys(entries, previousToolGroupKeysRef.current);
   virtualItemKeysRef.current = virtualItemKeys.keys;
+  const [restoredSnapshot] = React.useState(() =>
+    readTranscriptScrollSnapshot(scrollRestoration, scrollRestorationKey, density)
+  );
+  const [initialMeasurements] = React.useState(() => {
+    if (!restoredSnapshot) {
+      return [];
+    }
+    const currentKeys = new Set(virtualItemKeys.keys);
+    return restoredSnapshot.measurements.filter((item) => currentKeys.has(item.key));
+  });
   const oldestEntryKey = entries[0] ? renderedEntryMessageId(entries[0]) : null;
   const measuringPrependedPage =
     settlingPrepend &&
     requestedOldestKeyRef.current !== null &&
     requestedOldestKeyRef.current !== oldestEntryKey;
-  const measuringLoadedPage = measuringInitialPage || measuringPrependedPage;
   const getItemKey = React.useCallback(
     (index: number) => virtualItemKeysRef.current[index],
     []
   );
   const extractVirtualRange = React.useCallback((range: Range) => {
     const indexes = defaultRangeExtractor(range);
-    if (!measuringLoadedPage) {
+    if (!measuringPrependedPage) {
       return indexes;
     }
     const lastIndex = indexes.at(-1) ?? range.endIndex;
     return Array.from({ length: lastIndex + 1 }, (_, index) => index);
-  }, [measuringLoadedPage]);
+  }, [measuringPrependedPage]);
   const syncVirtualLayout = React.useCallback(
     (instance: Virtualizer<HTMLDivElement, HTMLDivElement>) => {
       const totalSize = instance.getTotalSize();
@@ -334,6 +378,8 @@ export function TranscriptScroller({
     count: entries.length,
     directDomUpdates: true,
     getScrollElement: () => viewportRef.current,
+    initialMeasurementsCache: initialMeasurements,
+    initialOffset: restoredSnapshot?.scrollOffset ?? 0,
     estimateSize: () => 96,
     anchorTo: "end",
     followOnAppend: false,
@@ -369,6 +415,19 @@ export function TranscriptScroller({
   React.useLayoutEffect(() => {
     previousToolGroupKeysRef.current = virtualItemKeys.toolGroupKeys;
   }, [virtualItemKeys.toolGroupKeys]);
+  React.useLayoutEffect(() => () => {
+    if (!scrollRestoration || !scrollRestorationKey) {
+      return;
+    }
+    scrollRestoration.current = {
+      density,
+      followBottom: followBottomRef?.current ?? true,
+      key: scrollRestorationKey,
+      measurements: rowVirtualizer.takeSnapshot(),
+      scrollOffset: rowVirtualizer.scrollOffset ?? viewportRef.current?.scrollTop ?? 0,
+      windowWidth: window.innerWidth
+    };
+  }, [density, followBottomRef, rowVirtualizer, scrollRestoration, scrollRestorationKey, viewportRef]);
   const setScrollActivity = React.useCallback((active: boolean) => {
     if (scrollActiveRef.current === active) {
       return;
@@ -496,16 +555,6 @@ export function TranscriptScroller({
       totalSize: roundScrollMetric(totalSize)
     });
   }, [firstVirtualIndex, lastVirtualIndex, totalSize, virtualItems.length]);
-
-  React.useEffect(() => {
-    if (!measuringInitialPage || entries.length === 0) {
-      return;
-    }
-    const frame = window.requestAnimationFrame(() => {
-      setMeasuringInitialPage(false);
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [entries.length, measuringInitialPage]);
 
   React.useEffect(() => {
     if (!settlingPrepend) {

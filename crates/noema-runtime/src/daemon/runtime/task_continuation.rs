@@ -14,7 +14,7 @@ use super::model_tools::ModelTools;
 
 const BACKGROUND_TERMINAL_POLICY: &str =
     "Use the role's terminal tool only when its terminal contract is satisfied.";
-pub(super) const TASK_CHECKPOINT_PROMPT: &str = "Pause new work at this checkpoint. Save all completed progress and the exact next action in TASK.md. If the next action depends on omitted values, name the support file and first value to read. Save required support files first. Then call task.continue_execution. Do not call external tools.";
+pub(super) const TASK_CONTINUATION_PROMPT: &str = "Pause new work at this run boundary. Call task.continue_execution. Do not call external tools.";
 
 pub(super) fn is_valid_terminal_tool(role: ExecutionRole, name: &str) -> bool {
     match role {

@@ -15,6 +15,9 @@ import { Composer } from "./Composer";
 import { Transcript } from "./Transcript";
 import { TranscriptLoadingSkeleton } from "./transcript/TranscriptLoadingSkeleton";
 import { TranscriptSystemNotice } from "./transcript/TranscriptSystemNotice";
+import type {
+  TranscriptScrollRestoration
+} from "./transcript/TranscriptScroller";
 import { PendingHumanInterventions } from "./actions/PendingGovernedActions";
 import { WebPushChatPrompt } from "./actions/WebPushChatPrompt";
 import {
@@ -49,6 +52,7 @@ export function composerPlaceholder({
 export type ChatSurfaceProps = {
   conversationId: string | null;
   transcript: TranscriptEntry[];
+  transcriptScrollRestoration?: TranscriptScrollRestoration;
   loadingOlderTranscript: boolean;
   hasMoreTranscriptBefore: boolean;
   olderTranscriptPageError: string | null;
@@ -74,6 +78,7 @@ export type ChatSurfaceProps = {
 export function ChatSurface({
   conversationId,
   transcript,
+  transcriptScrollRestoration,
   loadingOlderTranscript,
   hasMoreTranscriptBefore,
   olderTranscriptPageError,
@@ -213,6 +218,8 @@ export function ChatSurface({
             ) : (
               <Transcript
                 entries={transcript}
+                scrollRestoration={transcriptScrollRestoration}
+                scrollRestorationKey={conversationId ?? undefined}
                 loadingOlderTranscript={loadingOlderTranscript}
                 hasMoreTranscriptBefore={hasMoreTranscriptBefore}
                 olderTranscriptPageError={olderTranscriptPageError}

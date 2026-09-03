@@ -122,25 +122,32 @@ fn conversation_replay_rejects_malformed_activity_payload() {
 }
 
 #[test]
-fn conversation_replay_omits_internal_tool_enablement_activity() {
-    for (kind, activity_kind) in [
-        (ConversationItemKind::ToolCall, "tool_call"),
-        (ConversationItemKind::ToolResult, "tool_result"),
+fn conversation_replay_omits_hidden_tool_activity() {
+    for name in [
+        "enable.calendar.move_event",
+        "task.delegate",
+        "web.browse.close",
     ] {
-        let item = web_conversation_item_from_record(replay_record(
-            kind,
-            None,
-            json!({
-                "id": format!("{activity_kind}:enablement"),
-                "activity_kind": activity_kind,
-                "title": "Internal tool enablement",
-                "metadata": {
-                    "action": {"name": "enable.calendar.move_event"}
-                },
-            }),
-        ))
-        .expect("convert enablement activity");
+        for (kind, activity_kind) in [
+            (ConversationItemKind::ToolCall, "tool_call"),
+            (ConversationItemKind::ToolResult, "tool_result"),
+        ] {
+            let item = web_conversation_item_from_record(replay_record(
+                kind,
+                None,
+                json!({
+                    "id": format!("{activity_kind}:{name}"),
+                    "activity_kind": activity_kind,
+                    "title": "Hidden tool activity",
+                    "metadata": {"action": {"name": name}},
+                }),
+            ))
+            .expect("convert hidden activity");
 
-        assert!(item.is_none(), "{activity_kind} must stay out of chat");
+            assert!(
+                item.is_none(),
+                "{name} {activity_kind} must stay out of chat"
+            );
+        }
     }
 }

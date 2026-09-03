@@ -1,23 +1,22 @@
 import * as stylex from "@stylexjs/stylex";
+import { Badge } from "@astryxdesign/core/Badge";
+import { HStack } from "@astryxdesign/core/HStack";
 import { CheckIcon, ChevronDownIcon, CircleSlash2Icon, ClockIcon, Globe2Icon, Loader2Icon, SearchIcon, WrenchIcon, XIcon } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
+import { FaviconImage } from "@/components/FaviconImage";
 import { RollingText } from "@/components/RollingText";
 import { SpringDisclosure } from "@/motion/SpringDisclosure";
-import {
-  toolMarkerExpandable,
-  toolMarkerKind,
-  toolMarkerSummary,
-  toolMarkerStatus
-} from "./markerModel";
+import { toolMarkerExpandable, toolMarkerFaviconHost, toolMarkerKind, toolMarkerSummary, toolMarkerStatus } from "./markerModel";
 import type { ToolMarkerCallStatus, ToolMarkerKind } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { ToolDetailAttachment } from "./ToolDetailAttachment";
+import { ToolTechnicalRecord } from "./ToolTechnicalRecord";
 
 type ToolMarkerData =
-  {
-    kind: "tool";
-    marker: ToolMarkerGroup;
-  }
+  | {
+      kind: "tool";
+      marker: ToolMarkerGroup;
+    }
   | {
       kind: "tool_group";
       markers: ToolMarkerGroup[];
@@ -29,6 +28,7 @@ type ToolMarkerCall = {
   key: string;
   name: string;
   toolKind?: ToolMarkerKind;
+  faviconHost?: string;
   status: ToolMarkerCallStatus;
   expandable: boolean;
   errorMessage?: string;
@@ -177,10 +177,6 @@ const styles = stylex.create({
     fontFamily: "var(--noema-font-body)",
     fontWeight: 500
   },
-  groupSummary: {
-    flexShrink: 0,
-    color: "var(--noema-text-muted)"
-  },
   groupList: {
     display: "grid",
     minWidth: 0,
@@ -220,27 +216,15 @@ export function ToolMarker({
   animateText?: boolean;
 }) {
   const calls = toolMarkerCalls(data);
-  const [lastCollapsedCallKey, setLastCollapsedCallKey] = useState<string | null>(
-    () => data.kind === "tool_group" ? calls[calls.length - 1]?.key ?? null : null
-  );
-  const activeCall = latestActiveCall(calls);
-  const retainedCall = calls.find((call) => call.key === lastCollapsedCallKey);
-  const collapsedCall = activeCall ?? retainedCall ?? calls[calls.length - 1];
-
-  if (data.kind === "tool_group" && !open && collapsedCall && collapsedCall.key !== lastCollapsedCallKey) {
-    setLastCollapsedCallKey(collapsedCall.key);
-  }
 
   if (calls.length === 0) {
     return null;
   }
 
   if (data.kind === "tool_group") {
+    const collapsedCall = calls[calls.length - 1];
     const singleCall = calls.length === 1;
     const expandable = interactive && (!singleCall || collapsedCall.expandable);
-    const collapsedGroupCall = singleCall
-      ? collapsedCall
-      : { ...collapsedCall, status: aggregateToolMarkerStatus(calls) };
     const groupContentId = `${data.markers[0]?.id ?? "tool-group"}-calls`;
     const rowContent = (
       <>
@@ -254,11 +238,11 @@ export function ToolMarker({
         ) : (
           <ToolMarkerRowContent
             animateText
-            call={collapsedGroupCall}
+            call={collapsedCall}
+            count={singleCall ? undefined : calls.length - 1}
             open={singleCall && open}
             presentation={presentation}
             showChevron={false}
-            summary={singleCall ? undefined : collapsedGroupSummary(calls, collapsedCall)}
           />
         )}
         {expandable ? (
@@ -271,35 +255,38 @@ export function ToolMarker({
     return (
       <div {...stylex.props(styles.root)}>
         <div {...stylex.props(styles.frame, styles.groupFrame)} data-slot="tool-marker-group">
-          <button
-            type="button"
-            {...stylex.props(styles.row, expandable && styles.rowButton)}
-            aria-controls={expandable && !singleCall ? groupContentId : undefined}
-            aria-expanded={expandable ? open : undefined}
-            data-slot="tool-marker-group-row"
-            disabled={!expandable}
-            onClick={expandable ? onToggle : undefined}
-            title={collapsedCall.status === "error" ? collapsedCall.errorMessage : undefined}
-          >
-            {rowContent}
-          </button>
+          <HStack gap={0.5} vAlign="center">
+            <button
+              type="button"
+              {...stylex.props(styles.row, expandable && styles.rowButton)}
+              aria-controls={expandable && !singleCall ? groupContentId : undefined}
+              aria-expanded={expandable ? open : undefined}
+              data-slot="tool-marker-group-row"
+              disabled={!expandable}
+              onClick={expandable ? onToggle : undefined}
+              title={collapsedCall.status === "error" ? collapsedCall.errorMessage : undefined}
+            >
+              {rowContent}
+            </button>
+            {singleCall && data.markers[0] ? <ToolTechnicalRecord marker={data.markers[0]} /> : null}
+          </HStack>
           <SpringDisclosure open={!singleCall && open} id={groupContentId}>
-                <div {...stylex.props(styles.groupContent, styles.groupContentInner)}>
-                  <div {...stylex.props(styles.groupList)}>
-                    {data.markers.map((marker) => (
-                      <ToolMarker
-                        key={marker.id}
-                        data={{ kind: "tool", marker }}
-                        expandedMarkers={expandedMarkers}
-                        onToggleMarker={onToggleMarker}
-                        onToggle={() => onToggleMarker?.(marker.id)}
-                        open={expandedMarkers?.has(marker.id) ?? false}
-                        presentation={presentation}
-                        renderDetail={renderDetail}
-                      />
-                    ))}
-                  </div>
-                </div>
+            <div {...stylex.props(styles.groupContent, styles.groupContentInner)}>
+              <div {...stylex.props(styles.groupList)}>
+                {data.markers.map((marker) => (
+                  <ToolMarker
+                    key={marker.id}
+                    data={{ kind: "tool", marker }}
+                    expandedMarkers={expandedMarkers}
+                    onToggleMarker={onToggleMarker}
+                    onToggle={() => onToggleMarker?.(marker.id)}
+                    open={expandedMarkers?.has(marker.id) ?? false}
+                    presentation={presentation}
+                    renderDetail={renderDetail}
+                  />
+                ))}
+              </div>
+            </div>
           </SpringDisclosure>
         </div>
       </div>
@@ -316,22 +303,20 @@ export function ToolMarker({
   return (
     <div {...stylex.props(styles.root)}>
       <div {...stylex.props(styles.frame)} data-slot="tool-marker">
-        <button
-          type="button"
-          {...stylex.props(styles.row, call.expandable && styles.rowButton)}
-          aria-expanded={call.expandable ? open : undefined}
-          data-slot="tool-marker-row"
-          disabled={!call.expandable}
-          onClick={call.expandable ? onToggle : undefined}
-          title={call.status === "error" ? call.errorMessage : undefined}
-        >
-          <ToolMarkerRowContent
-            animateText={animateText}
-            call={call}
-            open={call.expandable && open}
-            presentation={presentation}
-          />
-        </button>
+        <HStack gap={0.5} vAlign="center">
+          <button
+            type="button"
+            {...stylex.props(styles.row, call.expandable && styles.rowButton)}
+            aria-expanded={call.expandable ? open : undefined}
+            data-slot="tool-marker-row"
+            disabled={!call.expandable}
+            onClick={call.expandable ? onToggle : undefined}
+            title={call.status === "error" ? call.errorMessage : undefined}
+          >
+            <ToolMarkerRowContent animateText={animateText} call={call} open={call.expandable && open} presentation={presentation} />
+          </button>
+          <ToolTechnicalRecord marker={data.marker} />
+        </HStack>
         <SpringDisclosure open={Boolean(renderDetail && call.expandable && open && call.resultDetail)}>
           <div {...stylex.props(styles.detail)}>{call.resultDetail}</div>
         </SpringDisclosure>
@@ -342,34 +327,31 @@ export function ToolMarker({
 
 function ToolMarkerRowContent({
   call,
+  count,
   animateText = false,
   open,
   presentation,
-  showChevron = true,
-  summary
+  showChevron = true
 }: {
   call: ToolMarkerCall;
+  count?: number;
   animateText?: boolean;
   open: boolean;
   presentation: ToolMarkerPresentation;
   showChevron?: boolean;
-  summary?: string;
 }) {
   return (
     <>
       <ToolStatusIcon status={call.status} />
-      <ToolTypeIcon kind={call.toolKind} />
+      <ToolTypeIcon faviconHost={call.faviconHost} kind={call.toolKind} />
       {animateText ? (
         <RollingText value={call.name} {...stylex.props(styles.name)} data-slot="tool-marker-name" />
       ) : (
-        <span
-          {...stylex.props(styles.text, styles.name, presentation === "content" && styles.contentName)}
-          data-slot="tool-marker-name"
-        >
+        <span {...stylex.props(styles.text, styles.name, presentation === "content" && styles.contentName)} data-slot="tool-marker-name">
           {call.name}
         </span>
       )}
-      {summary ? <span {...stylex.props(styles.groupSummary)}>{summary}</span> : null}
+      {count ? <Badge variant="neutral" label={`+${count}`} /> : null}
       {call.expandable && showChevron ? (
         <span {...stylex.props(styles.chevron, open && styles.chevronOpen)} aria-hidden="true">
           <ChevronDownIcon size={14} strokeWidth={2} />
@@ -379,15 +361,19 @@ function ToolMarkerRowContent({
   );
 }
 
-function ToolTypeIcon({ kind }: { kind?: ToolMarkerKind }) {
+function ToolTypeIcon({ faviconHost, kind }: { faviconHost?: string; kind?: ToolMarkerKind }) {
   if (!kind) {
     return null;
   }
-  const label = kind === "web.search" ? "Web search" : "Web page";
+  const label = kind === "web.search" ? "Web search" : faviconHost ? `Website ${faviconHost}` : "Web page";
   const Icon = kind === "web.search" ? SearchIcon : Globe2Icon;
   return (
     <span {...stylex.props(styles.toolIcon)} role="img" aria-label={label}>
-      <Icon aria-hidden="true" size={14} strokeWidth={1.8} />
+      {kind === "web.browse" && faviconHost ? (
+        <FaviconImage hostname={faviconHost} size="compact" fallback={<Globe2Icon aria-hidden="true" size={14} strokeWidth={1.8} />} />
+      ) : (
+        <Icon aria-hidden="true" size={14} strokeWidth={1.8} />
+      )}
     </span>
   );
 }
@@ -430,29 +416,17 @@ function ToolStatusIcon({ status }: { status: ToolMarkerCallStatus }) {
 }
 
 function toolMarkerCalls(data: ToolMarkerData): ToolMarkerCall[] {
-  return data.kind === "tool_group"
-    ? data.markers.map(activityToolMarkerCall)
-    : [activityToolMarkerCall(data.marker)];
-}
-
-function latestActiveCall(calls: ToolMarkerCall[]): ToolMarkerCall | undefined {
-  for (let index = calls.length - 1; index >= 0; index -= 1) {
-    const call = calls[index];
-    if (call && (call.status === "pending" || call.status === "running")) {
-      return call;
-    }
-  }
-  return undefined;
+  return data.kind === "tool_group" ? data.markers.map(activityToolMarkerCall) : [activityToolMarkerCall(data.marker)];
 }
 
 function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {
   const expandable = toolMarkerExpandable(marker);
-  const errorMessage =
-    marker.result?.item.status === "FAILED" ? marker.result.item.summary ?? marker.result.item.title : undefined;
+  const errorMessage = marker.result?.item.status === "FAILED" ? (marker.result.item.summary ?? marker.result.item.title) : undefined;
   const call: ToolMarkerCall = {
     key: marker.id,
     name: toolMarkerSummary(marker),
     toolKind: toolMarkerKind(marker),
+    faviconHost: toolMarkerFaviconHost(marker),
     status: toolMarkerStatus(marker),
     expandable
   };
@@ -468,38 +442,21 @@ function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {
   return call;
 }
 
-function aggregateToolMarkerStatus(calls: readonly ToolMarkerCall[]): ToolMarkerCallStatus {
-  const priority: Readonly<Record<ToolMarkerCallStatus, number>> = {
-    complete: 0,
-    skipped: 1,
-    pending: 2,
-    running: 3,
-    cancelled: 4,
-    interrupted: 5,
-    error: 6
-  };
-  return calls.reduce<ToolMarkerCallStatus>(
-    (status, call) => (priority[call.status] > priority[status] ? call.status : status),
-    "complete"
-  );
-}
-
-function collapsedGroupSummary(calls: readonly ToolMarkerCall[], collapsed: ToolMarkerCall): string {
-  const status = aggregateToolMarkerStatus(calls);
-  if (status === "error" && collapsed.status !== "error") {
-    return `${calls.length} calls · includes failure`;
-  }
-  return `${calls.length} calls`;
-}
-
 function toolStatusLabel(status: ToolMarkerCallStatus): string {
   switch (status) {
-    case "pending": return "Pending";
-    case "running": return "Running";
-    case "complete": return "Completed";
-    case "error": return "Failed";
-    case "cancelled": return "Cancelled";
-    case "interrupted": return "Interrupted";
-    case "skipped": return "Skipped";
+    case "pending":
+      return "Pending";
+    case "running":
+      return "Running";
+    case "complete":
+      return "Completed";
+    case "error":
+      return "Failed";
+    case "cancelled":
+      return "Cancelled";
+    case "interrupted":
+      return "Interrupted";
+    case "skipped":
+      return "Skipped";
   }
 }

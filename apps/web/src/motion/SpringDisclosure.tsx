@@ -1,7 +1,15 @@
 import type { ReactNode } from "react";
 import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
+import * as stylex from "@stylexjs/stylex";
 import { springs } from "./springs";
+
+const styles = stylex.create({
+  content: {
+    minHeight: 0,
+    overflow: "hidden"
+  }
+});
 
 export function SpringDisclosure({
   children,
@@ -43,13 +51,13 @@ function SpringDisclosureContent({
       data-slot={slot}
       aria-hidden={isPresent ? undefined : "true"}
       inert={!isPresent}
-      initial={reduceMotion ? false : { height: 0, opacity: 0, y: -4 }}
-      animate={{ height: "auto", opacity: 1, y: 0 }}
-      exit={{ height: 0, opacity: 0, y: -4 }}
+      initial={reduceMotion ? false : { gridTemplateRows: "0fr", opacity: 0, y: -4 }}
+      animate={{ gridTemplateRows: "1fr", opacity: 1, y: 0 }}
+      exit={{ gridTemplateRows: "0fr", opacity: 0, y: -4 }}
       transition={reduceMotion ? { duration: 0 } : springs.standard}
-      style={{ overflow: "hidden" }}
+      style={{ display: "grid" }}
     >
-      {children}
+      <div {...stylex.props(styles.content)}>{children}</div>
     </m.div>
   );
 }

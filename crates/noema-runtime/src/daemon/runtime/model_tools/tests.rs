@@ -993,7 +993,6 @@ async fn task_executor_reviews_external_mutations_but_not_reads() {
         executor_mutation.execution_decision(),
         CapabilityExecutionDecision::LlmReview
     );
-    assert!(executor_mutation.requires_task_checkpoint());
     assert_eq!(
         executor
             .bindings

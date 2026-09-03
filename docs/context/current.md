@@ -55,14 +55,15 @@ slice or a net-negative reduction.
   `REVIEW.md` contains current Reviewer feedback when feedback exists.
 - Planner, Executor, and Reviewer handoffs use current Task files.
   Noema does not store content snapshots for those handoffs.
-- A Task continuation requires `TASK.md` to be the last completed tool action.
-  Progress-audit checkpoints keep file tools available until that write succeeds.
+- An Executor continuation receives bounded tool actions after the latest successful `TASK.md` save.
+  A tool call without a result has an uncertain outcome.
 - An Executor can submit an honest limitation report for an impossible outcome.
   Human-resolvable blocks and per-run ceilings do not qualify as system limitations.
 - Every Task role run receives a fresh current clock.
   Captured request time remains separate data for interpreting the original request.
 - A final task transaction finishes active run items and open debug spans.
-  Unknown external outcomes are not retried automatically.
+  An uncertain external action returns to an Executor for status checks.
+  An equivalent action request cannot run again.
 - Reviewer approval owns the Task completion update decision.
   A no-new-information result suppresses that update when the Task forbids repeated content.
 - Provider request settings do not authorize returned tool input. Every returned
@@ -175,6 +176,7 @@ slice or a net-negative reduction.
   Password, hidden, and file controls stay outside review context.
 - A main-document 5xx response after browser interaction becomes `outcome_uncertain`.
   A returned uncertain snapshot remains available for reconciliation.
+- An uncertain Task action keeps normal read tools available before Noema requests human help.
 - A continued Executor snapshots a recorded active browser session before reopening a URL.
 - The Task Reviewer checks every explicit requirement against current evidence.
 - Reviewed browser actions can upload one exact Task artifact.
@@ -182,8 +184,8 @@ slice or a net-negative reduction.
   The artifact store verifies the file digest internally.
 - Obscura cannot select local files.
   The current browser route uses Kernel for upload actions and returns `retry_later` when that switch fails.
-- Each capability binding owns its Task checkpoint policy.
-  Browser provider switches do not require a Task checkpoint.
+- Reviewed actions do not require a Task document save.
+  Review and approval remain the action safety boundaries.
 - One coordinator owns the active backend and public snapshot revisions.
   Every navigation reruns network and SSRF checks.
 - Browser worker commands have a 30-second deadline. A timed-out worker is discarded.
@@ -214,7 +216,7 @@ slice or a net-negative reduction.
 ## Open loops
 
 - All 28 Milestone 3 paths reached reviewer-approved completion.
-  The provider-neutral target is now 60/100 Verified.
+  Later acceptance raised the provider-neutral score to 80/100 Verified.
 - The dedicated calculator is now bounded Luau.
   Upload source manifests and the hidden HTML validator are removed.
 - The current calculation and artifact paths passed focused live regression.
@@ -223,16 +225,33 @@ slice or a net-negative reduction.
 - The travel packet corrected one malformed source link before test receipt `M3-0007`.
 - The human waived affected-user review for the controlled accessibility fixture.
   This waiver does not prove usability for an affected user.
-- An action decline does not carry a human reason into the resumed Task.
-  Add an optional decline note only after another current path needs direct correction without Task reopen.
+- The Milestone 5 withdrawal retest passed as `task:18d0cf496635f93b1bd`.
+  The human declined `action:18d0cf588c5a34b03bc` for the final send.
+- Browser review compares parsed interaction meaning across snapshots and optional input shapes.
+  The unchanged retry returned `human_declined_equivalent_action` before a second action request.
+- The fixture kept consent withdrawn with no receipt, zero deliveries, and zero attempts.
+  The Task Reviewer approved the result.
+- Current reviewer policy can execute an authorized medium-risk write.
+  Do not add mandatory review, decline notes, or a general consent registry now.
 - The Milestone 3 evidence record is `docs/validation/personal-assistant-milestone-3-acceptance.md`.
 - The first Milestone 4 browser acceptance slice used controlled bank and flight fixtures.
   The bank path passed with one receipt and one commit.
-- The flight path avoided replay after HTTP 502, but its first run skipped status reconciliation.
-  The Reviewer approved that omission. A human correction recovered `CONFIRMED` with one commit.
-- The four shared browser and review gaps now have focused unit acceptance.
-  Live bank, flight, and cancellation retests remain open.
+- Task `task:18d0fabfeac8347e2c05` passed automatic flight reconciliation.
+  It observed `PROCESSING`, used read-only checks, and reached `CONFIRMED` with one commit.
+- All six Milestone 4 acceptance families pass their shared gates.
+  Tasks 41, 43, 45, 77, and 95 now have complete current main paths.
 - The Milestone 4 evidence record is `docs/validation/personal-assistant-milestone-4-browser-acceptance.md`.
+- Milestone 5 excludes shared Noema workspaces and secondary Noema human accounts.
+  Multi-person cases use local-owner Tasks, external participant records, and reviewed external actions.
+- All 14 Milestone 5 tasks now pass current controlled main paths.
+  Follow-up records closed the four partial paths and ten missing lifecycle checks.
+- The Milestone 5 evidence record is `docs/validation/personal-assistant-milestone-5-audit.md`.
+- The six uncertain Build cases reached reviewer-approved terminal success.
+  Task 96 passed. Tasks 46, 47, 48, 51, and 94 now have Extend gaps.
+- The 100-task roadmap now records 80 Verified, 16 Extend, and 4 Build tasks.
+  The remaining 20 tasks need complete operational main paths.
+- The consolidated follow-up evidence is `docs/validation/personal-assistant-remaining-acceptance-2026-08-31.md`.
+- The uncertain Build evidence is `docs/validation/personal-assistant-uncertain-build-acceptance-2026-08-31.md`.
 - Apollo iOS 2.3 code generation and native builds require macOS.
   Linux can validate the authored GraphQL operations against the shared schema.
 - Live Gmail and Calendar OAuth acceptance still needs interactive Google

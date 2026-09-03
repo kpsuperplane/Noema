@@ -1,8 +1,11 @@
 //! Read-consistent, bounded execution context for a supervised Work run.
 
+use std::collections::HashSet;
+
 use noema_tasks::{
-    AgentRunItemRecord, AgentRunRecord, ProjectRunContext, RunStatus, TaskGateRecord,
-    TaskMessageKind, TaskMessageRecord, TaskRecord, WorkspaceRunContext,
+    AgentRunItemKind, AgentRunItemRecord, AgentRunItemStatus, AgentRunRecord, ProjectRunContext,
+    RunKind, RunStatus, TaskGateRecord, TaskMessageKind, TaskMessageRecord, TaskRecord,
+    WorkspaceRunContext,
 };
 use noema_workspaces::{ProjectRecord, WorkspaceRecord};
 use rusqlite::{OptionalExtension, Row, Transaction, params};
@@ -15,8 +18,9 @@ use crate::{
         validate_current_links,
     },
     work_run_context_records::{
-        TaskRequestEnvironment, WORK_RUN_CONTEXT_MAX_GATES, WORK_RUN_CONTEXT_MAX_MESSAGES,
-        WorkRunExecutionContext,
+        TaskRequestEnvironment, WORK_RUN_CONTEXT_MAX_GATES,
+        WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WORK_RUN_CONTEXT_MAX_LINEAGE_RUNS,
+        WORK_RUN_CONTEXT_MAX_MESSAGES, WorkRunExecutionContext,
     },
     work_runs::rows::load_run_tx,
 };
@@ -103,7 +107,7 @@ pub(super) fn load_work_run_execution_context_tx(
     let relevant_gates = load_relevant_gates(transaction, &task, &run, active_gate.as_ref())?;
     let messages = load_relevant_messages(transaction, &task, &run, &relevant_gates)?;
 
-    let lineage = Vec::new();
+    let lineage = load_unsaved_executor_items(transaction, &run)?;
     Ok(Some(WorkRunExecutionContext {
         run,
         task,
@@ -298,6 +302,119 @@ fn load_relevant_messages(
         }
     }
     Ok(messages)
+}
+
+fn load_unsaved_executor_items(
+    transaction: &Transaction<'_>,
+    run: &AgentRunRecord,
+) -> Result<Vec<AgentRunItemRecord>, StoreError> {
+    if run.run_kind != RunKind::Executor {
+        return Ok(Vec::new());
+    }
+    let mut executor_runs = Vec::with_capacity(WORK_RUN_CONTEXT_MAX_LINEAGE_RUNS);
+    let mut seen = HashSet::new();
+    let mut current = Some(run.clone());
+    while let Some(current_run) = current {
+        if !seen.insert(current_run.run_id.clone()) {
+            return Err(StoreError::InvariantViolation {
+                message: format!("run {} has cyclic parent links", run.run_id),
+            });
+        }
+        if current_run.task_id != run.task_id {
+            return Err(StoreError::InvariantViolation {
+                message: format!("run {} parent crosses its task fence", current_run.run_id),
+            });
+        }
+        if current_run.task_generation != run.task_generation {
+            break;
+        }
+        if current_run.run_kind == RunKind::Executor {
+            executor_runs.push(current_run.clone());
+            if executor_runs.len() == WORK_RUN_CONTEXT_MAX_LINEAGE_RUNS {
+                break;
+            }
+        }
+        current = current_run
+            .parent_run_id
+            .as_deref()
+            .map(|parent_id| load_run_tx(transaction, parent_id))
+            .transpose()?
+            .flatten();
+        if current.is_none() && current_run.parent_run_id.is_some() {
+            return Err(StoreError::InvariantViolation {
+                message: format!("run {} references a missing parent", current_run.run_id),
+            });
+        }
+    }
+
+    let mut items = Vec::new();
+    for executor_run in executor_runs.into_iter().rev() {
+        let mut statement = transaction.prepare(
+            "SELECT item_id, run_id, sequence_index, round_index, kind, status, correlation_id, parent_item_id, content_text, payload_json, created_at, updated_at FROM agent_run_items WHERE run_id = ?1 AND kind IN ('tool_call', 'tool_result') ORDER BY sequence_index DESC, item_id DESC LIMIT ?2",
+        )?;
+        let rows = statement.query_map(
+            params![
+                executor_run.run_id.as_str(),
+                WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN as i64
+            ],
+            decode_run_item,
+        )?;
+        let mut run_items = rows.collect::<Result<Vec<_>, _>>()?;
+        run_items.reverse();
+        items.extend(run_items);
+    }
+
+    let after_save = items
+        .iter()
+        .rposition(is_successful_task_document_save)
+        .map_or(0, |result_index| {
+            let correlation_id = items[result_index].correlation_id.as_deref();
+            items
+                .iter()
+                .enumerate()
+                .skip(result_index + 1)
+                .filter(|(_, item)| {
+                    correlation_id.is_some()
+                        && item.correlation_id.as_deref() == correlation_id
+                        && item.content_text.as_deref() == Some("task.files.write")
+                })
+                .map(|(index, _)| index)
+                .next_back()
+                .unwrap_or(result_index)
+                + 1
+        });
+    let mut items = items
+        .into_iter()
+        .skip(after_save)
+        .filter(|item| !is_executor_control_item(item))
+        .collect::<Vec<_>>();
+    if items.len() > WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN {
+        items.drain(..items.len() - WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN);
+    }
+    Ok(items)
+}
+
+fn is_executor_control_item(item: &AgentRunItemRecord) -> bool {
+    matches!(
+        item.content_text.as_deref(),
+        Some("task.continue_execution" | "task.finish_execution" | "task.report_blocked")
+    )
+}
+
+fn is_successful_task_document_save(item: &AgentRunItemRecord) -> bool {
+    item.kind == AgentRunItemKind::ToolResult
+        && item.status == AgentRunItemStatus::Completed
+        && item.content_text.as_deref() == Some("task.files.write")
+        && item
+            .payload
+            .get("success")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+        && item
+            .payload
+            .pointer("/payload/path")
+            .and_then(serde_json::Value::as_str)
+            == Some(crate::TASK_DOCUMENT)
 }
 
 pub(super) fn decode_run_item(row: &Row<'_>) -> rusqlite::Result<AgentRunItemRecord> {

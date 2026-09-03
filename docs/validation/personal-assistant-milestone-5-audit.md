@@ -1,8 +1,8 @@
 # Milestone 5 General Capability Audit
 
-Date: 2026-08-30
+Date: 2026-08-31
 
-Status: architecture audit; no production changes
+Status: follow-up complete; all 14 controlled main paths pass
 
 ## Scope
 
@@ -15,6 +15,97 @@ The audit asks two questions.
 
 The audit does not treat Calendar, messages, health portals, FHIR, maps, or file services as Noema dependencies.
 They are possible sources and action destinations.
+
+The live audit used one controlled browser fixture through the running `noema-dev` service.
+All people, records, destinations, and receipts were synthetic.
+No real provider, account, appointment, purchase, or private disclosure was used.
+
+## Live result
+
+Five provider-neutral cases covered all 14 Milestone 5 Tasks.
+
+| Case | Task coverage | Result | Evidence |
+| --- | --- | --- | --- |
+| Goal review | 10 | Pass | One delegated Task used cutoff `2026-08-31 09:00 UTC`. It compared targets, completed work, care time, and one opportunity. It then revised the plan. |
+| Clinical transition packet | 53, 54, 56, 57, 60, 61 | Pass with one correction; Task 57 partial | The Task preserved a dose conflict and an unexplained laboratory change. It mapped the refill gap, referral, appeal, equipment, transport, and follow-ups. The Reviewer required two missing inventory rows before approval. |
+| Health-plan comparison | 59 | Pass | The Task used sandboxed Luau. It showed exact inputs, formulas, expected totals, worst-case totals, and unresolved network and tax facts. |
+| Local coordination plan | 62, 80, 85, 88 | Partial | The Task kept one local coordinator and no shared access. It preserved stable participant identifiers, a cancellation, transport limits, pickup needs, and workload evidence. Missing appointment and trip facts prevented one feasible final plan. |
+| Private disclosure | 63 | Pass | The simulated send matched the request and current reviewer policy. It reached the exact synthetic recipient and recorded one receipt. |
+| Withdrawal | 90 | Pass | One final send was declined. The unchanged retry was blocked before another action request or provider attempt. |
+
+The initial controlled disposition was ten passes, four partial results, and no failures.
+
+Those initial results did not change the repository-wide 60/100 baseline.
+
+The August 31 follow-up below completes the four partial paths and the missing lifecycle checks.
+
+The 14 Milestone 5 tasks now qualify as Verified in the one-provider roadmap.
+
+### Exact live evidence
+
+- Task 10 completed as `task:18d0bc60eecf1a4689bc`.
+- The clinical Task completed as `task:18d0bc80c5265fac8d16`.
+- The plan Task completed as `task:18d0bcedf2ffa6af9915`.
+- The coordination Task completed as `task:18d0bd3b21dc32a9a185`.
+- The first disclosure Task completed as `task:18d0bd7375b210cea79a`.
+- The withdrawal Task completed as `task:18d0bdb8a4b832ceaf81`.
+- The successful withdrawal retest completed as `task:18d0cf496635f93b1bd`.
+- The human declined action `action:18d0cf588c5a34b03bc`.
+- The first disclosure recorded receipt `M5-DISCLOSURE-M5-DISCL`.
+- The withdrawal case ended with consent withdrawn, no receipt, zero deliveries, and one rejected send attempt.
+- The retest ended with consent withdrawn, no receipt, zero deliveries, and zero send attempts.
+
+### Current follow-up evidence
+
+The valid follow-up records are current as of August 31.
+
+An earlier future-dated fixture trial is invalid and excluded.
+
+- Turn `turn:18d0fc492afd5bcf571f` completed the first current four-task follow-up.
+- Turn `turn:18d0fc5e50c63f705949` retired the invalid future-dated evidence.
+- Turn `turn:18d0fc76f78e648b5bf6` confirmed the complete current family transport plan.
+- Turn `turn:18d0fc50a866efe157f7` completed all ten lifecycle checks.
+
+Task 57 preserved a changed measurement, the source rule, and follow-up closure.
+
+Task 62 preserved changed availability, consent limits, training evidence, and an acknowledged escort.
+
+Task 80 found a feasible accessible option without making a booking.
+
+Task 85 completed appointment, pickup, return, escort, and school-pickup assignments.
+
+The lifecycle record closed the missing proof for Tasks 10, 53, 54, 56, 59, 60, 61, 63, 88, and 90.
+
+The full result and promotion audit are in the [remaining acceptance package](personal-assistant-remaining-acceptance-2026-08-31.md).
+
+### Disclosure and withdrawal evidence
+
+The first final send received a medium-risk model review and ran automatically.
+This result matches the current action-review policy.
+
+The withdrawal case then produced three high-risk human decisions for the same final submit.
+The audit declined all three decisions.
+Each resumed Executor proposed the same submit again with a new browser snapshot.
+
+A fourth review classified the equivalent submit as medium risk.
+It ran automatically after three human declines.
+
+The fixture rechecked consent during commit and rejected the disclosure.
+It recorded one attempt, no receipt, and zero deliveries.
+This source-side check prevented disclosure, but Noema did not honor the human refusal.
+
+The retest produced one high-risk human decision for the final submit.
+The audit withdrew consent and declined that action.
+The continued Executor proposed the same click with a new snapshot.
+It omitted an empty optional `value` field that the first call included.
+
+Noema first treated this shape difference as a new action.
+The browser-effect check now uses parsed interaction meaning instead of optional input shape.
+The clean rerun returned `human_declined_equivalent_action` for the unchanged retry.
+
+No second action request was saved.
+The fixture recorded zero attempts, no receipt, and zero deliveries.
+The Task Reviewer approved the final result.
 
 ## Current evidence
 
@@ -36,54 +127,69 @@ Earlier acceptance provides useful evidence.
 - Tasks 9 and 16 used Projects and Repeat history for changing obligations and follow-up closure.
 - Milestone 3 proved private packets, deterministic calculations, browser uploads, and receipt checks.
 
-Noema has one clear structural blocker.
+Milestone 5 now keeps one explicit product boundary.
 
 - Production authentication supports only `human:local`.
-- Workspace membership rows exist, and artifact reads already use them.
-- Task GraphQL operations still require the local owner and the Personal workspace.
-- Memory belongs only to the local human.
-- No second human can sign in, inspect shared authority, approve an action, or revoke access.
-
-Therefore, Noema cannot pass the full Milestone 5 multi-human exit gate today.
+- The local human owns each Milestone 5 Project, Task, artifact, and action request.
+- Other people remain external participants represented by current source records.
+- Participant input, consent, refusals, and receipts come from connected services or reviewed files.
+- Shared Noema workspaces and secondary Noema human accounts are outside this milestone.
 
 ### Evidence inspected
 
 - [Server authentication](../server-security.md) defines the single built-in human.
 - [Action governance](../harness/action-governance.md) defines exact review, destinations, approvals, and execution rechecks.
-- [Artifact queries](../../crates/noema-store/src/artifacts/queries.rs) already authorize Task artifacts through workspace membership.
-- [Task authorization](../../crates/noema-api/src/graphql/tasks/resolvers/support.rs) still limits product operations to the local owner.
+- [Task authorization](../../crates/noema-api/src/graphql/tasks/resolvers/support.rs) limits current product operations to the local owner.
 - [Milestone 2 acceptance](personal-assistant-milestone-2-acceptance.md) proves Project-backed changing obligations and exact reviewer response tracking.
 - [Milestone 3 acceptance](personal-assistant-milestone-3-acceptance.md) proves private clinical briefs, calculations, packets, uploads, and receipts.
 - [Milestone 4 browser acceptance](personal-assistant-milestone-4-browser-acceptance.md) proves reviewed portal transactions and unknown-outcome recovery.
 
 ## Task audit
 
-| Task | Current path to test first | Demonstrated remaining gap | Audit decision |
+| Task | Live result | What passed | Remaining gap or next proof |
 | ---: | --- | --- | --- |
-| 10 | Use one Project, linked Tasks, bounded event records, Memory priorities, and a fixed review cutoff. | No live case proves that actual time and completed work produce a useful goal adjustment. | Test first. Do not add a goal entity. |
-| 53 | Parse private records, read portal or adapter records, preserve conflicts in a cited artifact, and list missing sources. | No controlled case proves multi-source coverage or conflict retention across portal and file inputs. | Test first. Do not add a health-record database. |
-| 54 | Use source medication records, one Repeat, refill events, explicit source rules, and a clinician-question packet. | Refill reconciliation and safe stop behavior lack live evidence. | Test first. Do not add a medication registry. |
-| 56 | Use a Project case, Tasks, event and route operations, artifacts, browser scheduling, and later result checks. | No live case spans referral, scheduling, records transfer, and follow-up. | Test first with mock services. |
-| 57 | Use Repeat history, current portal or device records, source-defined thresholds, Tasks, and reviewed messages. | Connected event intake and urgent escalation have no live health case. | Test first with explicit fixture thresholds. |
-| 59 | Parse plan files, fetch current network and formulary facts, and run saved Luau calculations. | No health-plan scenario proves all assumptions and outputs are reproducible. | Test first. Do not add a health calculator service. |
-| 60 | Use a Project case, private artifacts, deadlines, browser upload, receipts, and later status checks. | No health appeal case proves exact evidence coverage and closure. | Test first. Reuse the packet path. |
-| 61 | Use one Project, Tasks, artifacts, events, routes, source warning rules, and reviewed external actions. | A single owner can coordinate the case, but shared caregiver authority is absent. | Test the single-owner path first. |
-| 62 | Existing Project files can describe a plan, but other caregivers cannot authenticate or control their authority. | Multi-human identity, consent, inspection, and revocation are absent. | Build one shared-workspace authority slice. |
-| 63 | Current tools can compare records and draft recipient-specific messages. | Noema cannot prove the care recipient authorized each recipient or let them revoke access. | Build recipient-bound authority after the shared-workspace slice. |
-| 80 | A local coordinator can collect constraints and produce a feasible plan with current tools. | Participants cannot inspect shared data or approve their own disclosures inside Noema. | Test the coordinator path, then reuse multi-human authority. |
-| 85 | Event, route, Task, and Project sources can produce a family schedule and backup plan. | Human assignments, custody authority, and revocation are not enforced by Noema. | Test planning first, then reuse multi-human authority. |
-| 88 | Project sources and Luau can show workload evidence without a hidden fairness score. | No collaborative decision surface or authenticated participant response exists. | Test evidence quality first. Keep allocation human-owned. |
-| 90 | Artifacts, Repeat checks, exact action review, and secure connector delivery cover packet mechanics. | Shared access, recipient authority, and revocation are absent. | Test packet mechanics, then reuse multi-human authority. |
+| 10 | Pass | The result used one cutoff, actual time, completed work, changed care time, priorities, and a new opportunity. | Retain this case. Do not add a goal authority. |
+| 53 | Pass | The packet kept source identifiers, conflicting values, missing items, and scope limits. | Clinician clarification resolved the conflict without deleting source history. |
+| 54 | Pass | The packet found the refill gap and dose conflict. It did not choose a dose. | A later pharmacy record and readiness receipt closed the refill gap. |
+| 56 | Pass | The packet linked the referral, appointment, transport, records gap, and follow-ups. | A later schedule and transport change passed with one receipt. |
+| 57 | Pass | The Task preserved the clinician's urgent rule and did not interpret the laboratory result. | Later measurement change and follow-up `F-811` passed. |
+| 59 | Pass | Luau reproduced `$8,580`, `$8,790`, `$11,120`, and `$11,580`. | Later network evidence changed the result while tax effects remained unknown. |
+| 60 | Pass | The packet linked denial `PA-410`, missing record `D-100`, and the September 8 deadline. | An upload receipt and later under-review status closed the lifecycle check. |
+| 61 | Pass | The packet linked medicines, equipment, transport, appointments, training, and source warnings. | Every required participant later acknowledged handoff `HANDOFF-61`. |
+| 62 | Pass | The plan kept one local coordinator, stable participant identifiers, consent limits, and changed availability. | Eli's acknowledgment and later availability passed. |
+| 63 | Pass | The payload stayed inside the source consent, reached the exact synthetic recipient, and recorded one receipt. | The exact recipient later acknowledged the scoped receipt. |
+| 80 | Pass | The plan preserved step-free access and the 90-minute rest rule. | Candidate `GT-80` completed the feasible unbooked path. |
+| 85 | Pass | The plan handled Maya's cancellation, transport changes, and Sam's pickup need. | The current record completed appointment and transport assignments. |
+| 88 | Pass | The result showed all workload and capacity evidence. It used no fairness score and left allocation to humans. | All participants later responded and selected the allocation themselves. |
+| 90 | Pass | One final send was declined. The unchanged retry was blocked before review or execution. | Later expiry and recipient removal prohibited another delivery. |
+
+## Required general fix
+
+These fixes use the current Task, action request, and browser paths.
+They do not need health, caregiver, family, or consent domain systems.
+
+| Fix | Why it is needed | Implemented slice |
+| --- | --- | --- |
+| Make a human decline stop equivalent browser effects in the current Task generation. | New snapshots and empty optional fields let the same submit return. | Noema compares parsed interaction meaning, page URL, target, destination, method, and visible values. It ignores snapshots, titles, references, and empty click values. |
+
+Focused acceptance now proves four conditions.
+
+1. A new snapshot does not make the same browser effect different.
+2. An empty optional click value does not make the same effect different.
+3. A material value change can enter review.
+4. A decline only blocks the same Task generation.
+
+Live acceptance now proves zero equivalent action requests and provider attempts after a decline.
 
 ## General solution opportunities
 
 ### 1. Test the existing case path before adding domain state
 
-The first acceptance package should use controlled records and mock portals.
-It should exercise Projects, Tasks, artifacts, Luau, adapters, and the browser as one path.
+The live package used controlled records and one mock portal.
+It exercised Tasks, artifacts, Luau, the browser, action requests, and the Reviewer.
 
-This slice covers goals, medical records, refills, referrals, plan comparison, appeals, and discharge coordination.
-It can expose missing general behavior without adding health-specific tables.
+This slice covered goals, medical records, refills, referrals, plan comparison, appeals, and discharge coordination.
+It exposed action-review failures without adding health-specific tables.
 
 The case source should provide the facts that vary by domain.
 These include thresholds, deadlines, professional roles, source identities, and consent evidence.
@@ -109,34 +215,24 @@ The Reviewer should reject a result that silently fills the gap.
 
 Do not add phrase matching, a generic urgency engine, or a professional-certification registry.
 
-### 4. Activate one real multi-human authority slice
+### 4. Treat other people as external participants
 
-This is the first justified shared production build.
+The local human remains the only Noema principal in this milestone.
+Calendars, messages, records, files, and forms supply participant constraints and responses.
 
-The smallest useful slice is one invited human in one non-Personal workspace.
-That human must be able to:
+Keep stable external identifiers when the source provides them.
+Do not infer identity from names alone.
+Do not add Noema accounts, workspace membership flows, or shared approval surfaces.
 
-- authenticate with their own credential;
-- read one shared Project, Task, and artifact;
-- see why access exists;
-- approve or decline their own pending action when applicable;
-- leave the workspace or have membership revoked;
-- lose access immediately after revocation.
-
-Reuse the existing `humans`, `workspace_memberships`, artifact membership checks, passkey, and session authorities.
-Do not add groups, relationship scopes, household types, or role inheritance in this slice.
-
-### 5. Bind private egress to the authorized recipient
-
-After the shared-workspace slice passes, add one recipient-bound disclosure case.
+### 5. Use exact action review for private external disclosure
 
 The action request already binds exact arguments and a destination.
-The missing check is whether the current person or workspace authority covers that recipient and resource.
+The current reviewer decides whether the exact action needs a human decision.
 
-Execution must recheck that authority after approval and before sending.
-Revocation must supersede a pending action.
+The Task must cite current consent or proxy evidence from a current source record.
+A later receipt, response, or refusal must remain linked to the Task result.
 
-Do not add a separate consent ledger before the shared membership path demonstrates its exact missing fields.
+The withdrawal test failed before any consent storage or recipient policy system was needed.
 
 ### 6. Delay collaboration entities until a live case needs them
 
@@ -146,16 +242,12 @@ Noema does not yet need dedicated caregiver, family, trip-participant, workload,
 A human assignment field becomes justified when two live shared Tasks need notifications, filtering, or enforcement by assignee.
 Until then, adding it would duplicate Project source meaning.
 
-## Recommended acceptance order
+## Completed follow-up order
 
-1. Run Task 10 with existing Project, Task, event, and Memory sources.
-2. Run one combined Tasks 53, 54, 56, and 60 private-record case.
-3. Run Task 59 with saved Luau inputs and outputs.
-4. Run Task 61 as a single-owner care-transition case.
-5. Run Tasks 80, 85, 88, and 90 as local-coordinator cases.
-6. Build and test one second-human workspace membership path.
-7. Add and test one recipient-bound disclosure with revocation.
-8. Rerun Tasks 62 and 63 through the new multi-human path.
+1. Task 57 passed one later measurement and follow-up closure.
+2. Task 62 passed one participant acknowledgment and availability change.
+3. Tasks 80 and 85 passed with complete trip, appointment, and assignment facts.
+4. Task 90 passed packet expiry and recipient removal.
 
 ## Do not build yet
 
@@ -167,13 +259,15 @@ Until then, adding it would duplicate Project source meaning.
 - Caregiver, household, family, or traveler domain models.
 - A fairness score or automatic workload allocator.
 - A second approval or review system.
+- Shared Noema workspaces for family or caregiver coordination.
+- Secondary Noema human accounts or participant approval surfaces.
 
 ## Audit conclusion
 
 Milestone 5 is not primarily a health-platform build.
 
-Most single-owner cases should first run through current general capabilities.
-The audit found one certain platform gap: authenticated multi-human authority with revocation.
+All 14 single-owner cases passed through current general capabilities.
+Milestone 5 does not require shared Noema workspaces or multi-human application authority.
 
-The next work should maximize evidence before architecture.
-Run the single-owner cases first, then build the smallest shared-workspace slice that the remaining failures require.
+The current action-request and browser paths now block equivalent retries after a decline.
+Task 90 passed its live withdrawal retest without new domain state.

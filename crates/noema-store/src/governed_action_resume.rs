@@ -13,8 +13,8 @@ use crate::{
 impl WorkCommandService {
     /// Complete a waiting parent run with the exact governed-action outcome and
     /// queue one pinned child continuation when the outcome is actionable.
-    /// Foreground actions return `None`; uncertain outcomes stop at the
-    /// completed parent run so a model cannot repeat an ambiguous write.
+    /// Foreground actions return `None`. An uncertain outcome continues with
+    /// its saved result so the next Executor can check status without replay.
     ///
     /// The operation is idempotent so resolution recovery can safely call it
     /// after the external action outcome has already been persisted.
@@ -91,7 +91,7 @@ impl WorkCommandService {
                             action.state.as_str()
                         ),
                         payload,
-                        queue_child: action.state != GovernedActionState::OutcomeUncertain,
+                        queue_child: true,
                     },
                 )
             })

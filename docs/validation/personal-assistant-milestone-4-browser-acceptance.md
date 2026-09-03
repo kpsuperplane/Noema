@@ -186,13 +186,28 @@ Focused unit acceptance passed for Obscura, Kernel, action review, outcome
 handling, and Task role prompts. This result does not replace the required live
 bank, flight, and cancellation retest.
 
+On 2026-08-31, uncertain Task actions began returning to an Executor for status checks.
+The existing action request blocks an equivalent repeat.
+Noema uses normal read tools for reconciliation and requests human help only when status remains unknown.
+Task `task:18d0fabfeac8347e2c05` passed the live flight retest.
+
+The Executor submitted once, observed `PROCESSING`, and continued with read-only status checks.
+
+It reached `CONFIRMED` without human correction.
+
+The fixture reported one reservation and one commit request.
+
+The six broader Milestone 4 families also passed on August 31.
+
+The complete results are in the [remaining acceptance package](personal-assistant-remaining-acceptance-2026-08-31.md).
+
 ## Exit decision
 
 The browser is a viable general transaction executor.
 The bank case reached a reviewed receipt without domain-specific product code.
 
-Do not build dedicated bank or flight systems first.
-Fix the four shared browser and review gaps above.
+The shared browser, action-review, uncertain-result, continuation, and reconciliation gates pass.
 
-Then rerun both fixtures and one cancellation fixture.
-Milestone 4 can expand only after those shared paths pass.
+Do not build dedicated bank or flight systems first.
+
+Twenty-one task-specific operational paths remain unverified.

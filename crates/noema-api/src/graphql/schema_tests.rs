@@ -175,10 +175,10 @@ mod tests {
                             "default_reasoning_effort": "medium"
                         },
                         {
-                            "id": "gpt-5.6-luna",
-                            "label": "GPT-5.6 Luna",
+                            "id": "gpt-5.6-terra",
+                            "label": "GPT-5.6 Terra",
                             "reasoning_efforts": ["low", "medium", "high"],
-                            "default_reasoning_effort": "high"
+                            "default_reasoning_effort": "medium"
                         }
                     ]
                 }),

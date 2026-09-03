@@ -32,6 +32,7 @@ import {
   type StartProviderAuthAttemptMutation
 } from "@/generated/graphql";
 import { ChatSurface } from "@/components/ChatSurface";
+import type { TranscriptScrollSnapshot } from "@/components/transcript/TranscriptScroller";
 import { avatarActivityForAgentStatus } from "@/components/IdentityAvatar";
 import { AppShell } from "@/components/shell/AppShell";
 import { SetupFrame } from "@/components/shell/SetupFrame";
@@ -179,7 +180,11 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     ConfirmOnboardingModelSelectionsDocument
   );
   const [transcriptWindow, setTranscriptWindow] = React.useState(emptyTranscriptWindow);
-  const transcript = transcriptWindowEntries(transcriptWindow);
+  const transcript = React.useMemo(
+    () => transcriptWindowEntries(transcriptWindow),
+    [transcriptWindow]
+  );
+  const transcriptScrollRestoration = React.useRef<TranscriptScrollSnapshot | null>(null);
   const [loadingLatestTranscript, setLoadingLatestTranscript] = React.useState(false);
   const [loadingOlderTranscript, setLoadingOlderTranscript] = React.useState(false);
   const [olderTranscriptPageError, setOlderTranscriptPageError] = React.useState<string | null>(null);
@@ -941,6 +946,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     <ChatSurface
       conversationId={conversationId}
       transcript={transcript}
+      transcriptScrollRestoration={transcriptScrollRestoration}
       loadingOlderTranscript={loadingOlderTranscript}
       hasMoreTranscriptBefore={transcriptWindow.hasMoreBefore}
       olderTranscriptPageError={olderTranscriptPageError}

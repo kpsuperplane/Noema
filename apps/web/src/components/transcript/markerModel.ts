@@ -1,15 +1,13 @@
 import type { ToolMarkerGroup } from "./renderModel";
 export type ToolDetailRowData = { label: string; value: string };
-export type ToolScreenshotData = { src: string; width: number; height: number };
-export type ToolMarkerKind = "web.search" | "web.fetch";
-export type ToolMarkerCallStatus =
-  | "pending"
-  | "running"
-  | "complete"
-  | "error"
-  | "cancelled"
-  | "interrupted"
-  | "skipped";
+export type ToolScreenshotData = {
+  src: string;
+  width: number;
+  height: number;
+  url: string | null;
+};
+export type ToolMarkerKind = "web.search" | "web.fetch" | "web.browse";
+export type ToolMarkerCallStatus = "pending" | "running" | "complete" | "error" | "cancelled" | "interrupted" | "skipped";
 
 const MAX_SCREENSHOT_DATA_CHARS = 1_200_000;
 
@@ -78,11 +76,33 @@ export function toolMarkerSummary(marker: ToolMarkerGroup): string {
 
 export function toolMarkerKind(marker: ToolMarkerGroup): ToolMarkerKind | undefined {
   const displayKind = markerDisplayString(marker, "kind");
-  if (displayKind === "web.search" || displayKind === "web.fetch") {
+  if (displayKind === "web.search" || displayKind === "web.fetch" || displayKind === "web.browse") {
     return displayKind;
   }
   const toolName = actionToolNameFromMetadata(marker.result?.item.metadata) ?? actionToolNameFromMetadata(marker.call?.item.metadata);
-  return toolName === "web.search" || toolName === "web.fetch" ? toolName : undefined;
+  if (toolName === "web.search" || toolName === "web.fetch") {
+    return toolName;
+  }
+  return toolName?.startsWith("web.browse.") ? "web.browse" : undefined;
+}
+
+export function toolMarkerFaviconHost(marker: ToolMarkerGroup): string | undefined {
+  if (toolMarkerKind(marker) !== "web.browse") {
+    return undefined;
+  }
+  const markerHost = markerDisplayString(marker, "host");
+  if (markerHost) {
+    return markerHost;
+  }
+  const url = browserMarkerUrl(marker);
+  if (!url) {
+    return undefined;
+  }
+  try {
+    return new URL(url).hostname.replace(/^www\./i, "");
+  } catch {
+    return undefined;
+  }
 }
 
 function toolMarkerIdentity(marker: ToolMarkerGroup): string | null {
@@ -94,10 +114,6 @@ function toolMarkerIdentity(marker: ToolMarkerGroup): string | null {
     marker.result?.item.title ??
     null
   );
-}
-
-export function toolMarkerIsBuiltIn(marker: ToolMarkerGroup): boolean {
-  return markerDisplay(marker) !== null;
 }
 
 export function formatToolDetail(fallback: string, metadata: unknown): string {
@@ -126,12 +142,143 @@ export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
   const resultPreview = toolPayloadPreview(toolActionPayload(result?.metadata));
   const resultDisplay = toolDisplayString(result?.metadata, "result");
   if (resultPreview) {
-    rows.push({ label: result?.status === "FAILED" ? "Error" : "Output", value: resultPreview });
+    rows.push({
+      label: result?.status === "FAILED" ? "Error" : "Output",
+      value: resultPreview
+    });
   } else if (resultDisplay && !isLowInformationToolDetail(resultDisplay)) {
     rows.push({ label: "Result", value: resultDisplay });
   }
 
   return dedupeToolDetailRows(rows);
+}
+
+export function toolHumanDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
+  const rows: ToolDetailRowData[] = [];
+  const call = marker.call?.item;
+  const result = marker.result?.item;
+  const callDisplay = displayFromMetadata(call?.metadata);
+  const resultDisplay = displayFromMetadata(result?.metadata);
+  const input = actionInput(call?.metadata, result?.metadata);
+  const output = toolActionPayload(result?.metadata);
+  const target = humanToolTarget(marker, input, callDisplay, resultDisplay);
+
+  if (target && toolMarkerKind(marker) !== "web.browse") {
+    rows.push(target);
+  }
+
+  const displayResult = usefulDisplayValue(resultDisplay, "result");
+  if (toolMarkerStatus(marker) === "error") {
+    rows.push({
+      label: "What happened",
+      value: humanToolError(output) ?? displayResult ?? toolMarkerSummary(marker)
+    });
+  } else if (displayResult && displayResult !== target?.value) {
+    rows.push({ label: "Result", value: displayResult });
+  } else {
+    const detail = markerDisplayString(marker, "detail");
+    const resultFact = detail ? { label: "Status", value: detail } : humanToolResult(output);
+    if (resultFact && resultFact.value !== target?.value) {
+      rows.push(resultFact);
+    }
+  }
+
+  const scope = usefulDisplayValue(resultDisplay, "scope") ?? usefulDisplayValue(callDisplay, "scope");
+  if (scope && scope !== target?.value) {
+    rows.push({ label: "Scope", value: scope });
+  }
+
+  const purpose = usefulDisplayValue(callDisplay, "purpose");
+  if (rows.length === 0 && purpose) {
+    rows.push({ label: "Purpose", value: purpose });
+  }
+
+  return dedupeToolDetailRows(rows);
+}
+
+function actionInput(callMetadata: unknown, resultMetadata: unknown): unknown {
+  const callAction = actionFromMetadata(callMetadata);
+  const resultAction = actionFromMetadata(resultMetadata);
+  if (callAction && "arguments" in callAction) {
+    return callAction.arguments;
+  }
+  if (resultAction && "arguments" in resultAction) {
+    return resultAction.arguments;
+  }
+  return toolActionPayload(callMetadata);
+}
+
+function humanToolTarget(
+  marker: ToolMarkerGroup,
+  input: unknown,
+  callDisplay: Record<string, unknown> | null,
+  resultDisplay: Record<string, unknown> | null
+): ToolDetailRowData | null {
+  const markerSubject = markerDisplayString(marker, "subject");
+  if (markerSubject) {
+    return {
+      label: markerDisplayString(marker, "subjectLabel") ?? "Item",
+      value: markerSubject
+    };
+  }
+
+  const payload = isRecord(input) ? input : null;
+  const title = nestedString(payload, ["task", "title"]) ?? nestedString(payload, ["project", "name"]) ?? stringValue(payload?.title);
+  if (title) {
+    return { label: "Item", value: title };
+  }
+
+  for (const [key, label] of [
+    ["query", "Search"],
+    ["path", "File"],
+    ["name", "Name"]
+  ] as const) {
+    const value = stringValue(payload?.[key]);
+    if (value) {
+      return { label, value };
+    }
+  }
+
+  const target = usefulDisplayValue(resultDisplay, "target") ?? usefulDisplayValue(callDisplay, "target");
+  const url = target ?? stringValue(payload?.url);
+  return url ? { label: "Item", value: url } : null;
+}
+
+function humanToolResult(output: unknown): ToolDetailRowData | null {
+  if (!isRecord(output)) return null;
+  for (const [key, noun] of [
+    ["tasks", "Task"],
+    ["projects", "project"],
+    ["entries", "item"],
+    ["results", "result"],
+    ["messages", "message"],
+    ["events", "event"],
+    ["pages", "page"]
+  ] as const) {
+    const values = output[key];
+    if (Array.isArray(values)) {
+      return {
+        label: "Result",
+        value: `${values.length} ${noun}${values.length === 1 ? "" : "s"}`
+      };
+    }
+  }
+  return null;
+}
+
+function humanToolError(output: unknown): string | null {
+  if (!isRecord(output)) return null;
+  return stringValue(output.error) ?? stringValue(output.message) ?? nestedString(output, ["details", "message"]);
+}
+
+function usefulDisplayValue(display: Record<string, unknown> | null, key: string): string | null {
+  const value = stringValue(display?.[key]);
+  return value && !isLowInformationToolDetail(value) ? value : null;
+}
+
+function nestedString(value: Record<string, unknown> | null, path: readonly string[]): string | null {
+  const result = path.reduce<unknown>((current, key) => (isRecord(current) ? current[key] : undefined), value);
+  return stringValue(result);
 }
 
 function completeToolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] | null {
@@ -142,19 +289,14 @@ function completeToolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] | 
   }
 
   const rows: ToolDetailRowData[] = [];
-  const correlation = stringValue(callAction?.correlation_id) ??
-    stringValue(resultAction?.correlation_id) ??
-    stringValue(callAction?.id) ??
-    stringValue(resultAction?.call_id);
+  const correlation =
+    stringValue(callAction?.correlation_id) ?? stringValue(resultAction?.correlation_id) ?? stringValue(callAction?.id) ?? stringValue(resultAction?.call_id);
   if (correlation) {
     rows.push({ label: "Correlation", value: correlation });
   }
 
-  const input = callAction && "arguments" in callAction
-    ? callAction.arguments
-    : resultAction && "arguments" in resultAction
-      ? resultAction.arguments
-      : callAction?.payload;
+  const input =
+    callAction && "arguments" in callAction ? callAction.arguments : resultAction && "arguments" in resultAction ? resultAction.arguments : callAction?.payload;
   if (input !== undefined && !isOmittedPayload(input)) {
     rows.push({ label: "Input", value: completeToolValue(input) });
   }
@@ -164,7 +306,10 @@ function completeToolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] | 
     rows.push({ label: "Success", value: String(success) });
   }
   if (resultAction && "payload" in resultAction && resultAction.payload !== undefined && !isOmittedPayload(resultAction.payload)) {
-    rows.push({ label: success === false ? "Error" : "Output", value: completeToolValue(resultAction.payload) });
+    rows.push({
+      label: success === false ? "Error" : "Output",
+      value: completeToolValue(resultAction.payload)
+    });
   }
   return rows;
 }
@@ -198,7 +343,11 @@ function withoutRenderedScreenshotData(value: unknown): unknown {
 }
 
 export function toolMarkerExpandable(marker: ToolMarkerGroup): boolean {
-  return toolDetailRows(marker).length > 0 || screenshotPayload(marker) !== null;
+  const kind = toolMarkerKind(marker);
+  if (kind === "web.search" || kind === "web.fetch") {
+    return false;
+  }
+  return toolHumanDetailRows(marker).length > 0 || screenshotPayload(marker) !== null;
 }
 
 export function toolMarkerScreenshot(marker: ToolMarkerGroup): ToolScreenshotData | null {
@@ -207,22 +356,33 @@ export function toolMarkerScreenshot(marker: ToolMarkerGroup): ToolScreenshotDat
     ? {
         src: `data:image/png;base64,${screenshot.data}`,
         width: screenshot.width,
-        height: screenshot.height
+        height: screenshot.height,
+        url: browserMarkerUrl(marker)
       }
     : null;
 }
 
-function screenshotPayload(
-  marker: ToolMarkerGroup
-): { data: string; width: number; height: number } | null {
+function browserMarkerUrl(marker: ToolMarkerGroup): string | null {
+  const result = toolActionPayload(marker.result?.item.metadata);
+  const call = toolActionPayload(marker.call?.item.metadata);
+  const resultRecord = isRecord(result) ? result : null;
+  const callRecord = isRecord(call) ? call : null;
+  return nestedString(resultRecord, ["snapshot", "url"]) ?? stringValue(resultRecord?.url) ?? stringValue(callRecord?.url);
+}
+
+function screenshotPayload(marker: ToolMarkerGroup): { data: string; width: number; height: number } | null {
   const payload = toolActionPayload(marker.result?.item.metadata);
   if (!isRecord(payload) || !isRecord(payload.screenshot)) return null;
   const { media_type: mediaType, data, width, height } = payload.screenshot;
   if (
-    mediaType !== "image/png" || typeof data !== "string" || data.length === 0 ||
+    mediaType !== "image/png" ||
+    typeof data !== "string" ||
+    data.length === 0 ||
     data.length > MAX_SCREENSHOT_DATA_CHARS ||
-    !validScreenshotDimension(width) || !validScreenshotDimension(height)
-  ) return null;
+    !validScreenshotDimension(width) ||
+    !validScreenshotDimension(height)
+  )
+    return null;
   return { data, width, height };
 }
 
@@ -342,8 +502,7 @@ function firstPartyToolMarkerTarget(marker: ToolMarkerGroup): string | undefined
       return undefined;
     }
     return (
-      toolDisplayValue(marker.call?.item.metadata, "target", "Fetched web page") ??
-      toolDisplayValue(marker.result?.item.metadata, "target", "Fetched web page")
+      toolDisplayValue(marker.call?.item.metadata, "target", "Fetched web page") ?? toolDisplayValue(marker.result?.item.metadata, "target", "Fetched web page")
     );
   }
   if (toolName === "update_own_name") {
@@ -433,7 +592,10 @@ function directPayloadRow(payload: Record<string, unknown>): ToolDetailRowData |
   for (const key of ["query", "name", "url", "path", "error"]) {
     const value = stringValue(payload[key]);
     if (value) {
-      return { label: humanPayloadLabel(key), value: truncateToolDetail(value) };
+      return {
+        label: humanPayloadLabel(key),
+        value: truncateToolDetail(value)
+      };
     }
   }
   return null;
@@ -544,12 +706,7 @@ function isOmittedPayload(value: unknown): boolean {
 }
 
 function isLowInformationToolDetail(value: string): boolean {
-  return (
-    value === "Use an enabled connected tool" ||
-    value === "Uses a connected tool" ||
-    value === "Completed" ||
-    value === "Done"
-  );
+  return value === "Use an enabled connected tool" || value === "Uses a connected tool" || value === "Completed" || value === "Done";
 }
 
 function dedupeToolDetailRows(rows: ToolDetailRowData[]): ToolDetailRowData[] {
@@ -621,11 +778,7 @@ function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-function activityMarkerStatus(
-  activityStatus: string,
-  metadata: unknown,
-  isResult: boolean
-): ToolMarkerCallStatus {
+function activityMarkerStatus(activityStatus: string, metadata: unknown, isResult: boolean): ToolMarkerCallStatus {
   const status = (markerString(metadata, "status") ?? activityStatus).toLowerCase();
   switch (status) {
     case "pending":

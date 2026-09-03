@@ -4,15 +4,23 @@ import { Avatar } from "@astryxdesign/core/Avatar";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
+import { Grid } from "@astryxdesign/core/Grid";
 import { HStack } from "@astryxdesign/core/HStack";
 import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { MoreMenu } from "@astryxdesign/core/MoreMenu";
-import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
-import { AlertTriangle, ChevronRight, KeyRound, Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ChevronRight,
+  KeyRound,
+  Plug,
+  Plus,
+  Trash2
+} from "lucide-react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   CancelProviderAuthAttemptDocument,
@@ -45,7 +53,8 @@ import { SettingsEditDialog } from "./SettingsEditDialog";
 import { DeleteConfirmationDialog } from "./DeleteConnectionDialog";
 import { AuthAttempt } from "../onboarding/AuthAttempt";
 import type { ProviderAuthAttemptView } from "../onboarding/types";
-import { ListCardLink } from "@/components/ListCardLink";
+import { FaviconImage } from "@/components/FaviconImage";
+import { ListCardButton, ListCardLink } from "@/components/ListCardLink";
 import { SettingsManagementLayout } from "./SettingsManagementLayout";
 import {
   SettingsList,
@@ -446,21 +455,16 @@ function AddProviderAccountDialog({
   ) => Promise<unknown>;
   onCancelProviderAuth: () => Promise<unknown>;
 }) {
-  const [selectedProviderKind, setSelectedProviderKind] = useState(catalog[0]?.providerKind ?? "");
+  const [selectedProviderKind, setSelectedProviderKind] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [secret, setSecret] = useState("");
-  const selectedCatalogEntry = useMemo(
-    () => catalog.find((entry) => entry.providerKind === selectedProviderKind) ?? catalog[0] ?? null,
-    [catalog, selectedProviderKind]
-  );
+  const [apiKeyOpen, setApiKeyOpen] = useState(false);
+  const activeProviderKind = selectedProviderKind ?? authAttempt?.providerKind ?? null;
+  const selectedCatalogEntry = catalog.find((entry) => entry.providerKind === activeProviderKind) ?? null;
   const acceptsApiKey = selectedCatalogEntry?.supportedAuthMethods.includes("SECRET_INPUT") ?? false;
   const canSubmit = acceptsApiKey && secret.trim().length > 0;
   const browserAuth = selectedCatalogEntry?.preferredAuthMethod === "OAUTH_PKCE" ||
     selectedCatalogEntry?.preferredAuthMethod === "OAUTH_DEVICE_CODE";
-  const providerOptions = useMemo<SelectorOptionType[]>(
-    () => catalog.map((entry) => ({ value: entry.providerKind, label: entry.displayName })),
-    [catalog]
-  );
 
   const submit = async () => {
     if (!selectedCatalogEntry || !canSubmit) return;
@@ -471,84 +475,176 @@ function AddProviderAccountDialog({
         secret,
         authMethod: "SECRET_INPUT"
       });
+      setSelectedProviderKind(null);
       setDisplayName("");
       setSecret("");
+      setApiKeyOpen(false);
     } catch {
       // The mutation error is rendered in this dialog by the owning pane.
     }
   };
 
+  const chooseProvider = (providerKind: string) => {
+    setSelectedProviderKind(providerKind);
+    setDisplayName("");
+    setSecret("");
+    setApiKeyOpen(false);
+  };
+
+  const returnToProviders = () => {
+    setSelectedProviderKind(null);
+    setDisplayName("");
+    setSecret("");
+    setApiKeyOpen(false);
+  };
+
+  const setDialogOpen = (next: boolean) => {
+    if (!next) returnToProviders();
+    onOpenChange(next);
+  };
+
   return (
-    <Dialog isOpen={open} onOpenChange={onOpenChange} purpose="form" width={620} aria-label="Add provider account">
+    <Dialog isOpen={open} onOpenChange={setDialogOpen} purpose="form" width={620} aria-label="Add provider account">
       <Layout
         height="auto"
-        header={<DialogHeader title="Add provider account" onOpenChange={onOpenChange} />}
+        header={
+          <DialogHeader
+            title={selectedCatalogEntry ? `Add ${selectedCatalogEntry.displayName}` : "Add provider"}
+            subtitle={selectedCatalogEntry ? undefined : "Choose a provider for models or web tools."}
+            startContent={selectedCatalogEntry && !authAttempt ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                label="Back to providers"
+                isIconOnly
+                icon={<ArrowLeft aria-hidden="true" />}
+                isDisabled={mutationSaving}
+                onClick={returnToProviders}
+              />
+            ) : undefined}
+            onOpenChange={setDialogOpen}
+          />
+        }
         content={
           <LayoutContent>
-            <VStack
-              as="form"
-              gap={3}
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submit();
-              }}
-            >
-              <VStack gap={2}>
-                <label {...stylex.props(styles.selectorField)}>
-                  <span {...stylex.props(styles.fieldLabel)}>Provider</span>
-                  <Selector
-                    isLabelHidden
-                    label="Provider"
-                    options={providerOptions}
-                    placeholder="Select provider"
-                    value={selectedProviderKind}
-                    width="100%"
-                    isDisabled={mutationSaving || catalog.length === 0}
-                    onChange={setSelectedProviderKind}
-                  />
-                </label>
-                <TextInput
-                  label="Account name"
-                  value={displayName}
-                  isDisabled={mutationSaving}
-                  placeholder={selectedCatalogEntry?.displayName ?? "Provider"}
-                  onChange={setDisplayName}
-                />
-                <TextInput
-                  label="API key"
-                  type="password"
-                  value={secret}
-                  isDisabled={mutationSaving || !acceptsApiKey}
-                  placeholder={acceptsApiKey ? undefined : "Use this provider's connect flow"}
-                  onChange={setSecret}
-                />
-              </VStack>
-              <HStack gap={2} wrap="wrap" vAlign="center" hAlign="end">
-                {browserAuth && selectedCatalogEntry && !authAttempt ? (
+            {!selectedCatalogEntry ? (
+              <Grid columns={{ minWidth: 220, max: 2, repeat: "fit" }} gap={2}>
+                {catalog.map((entry) => (
+                  <ListCardButton
+                    key={entry.providerKind}
+                    xstyle={styles.providerChoice}
+                    onClick={() => chooseProvider(entry.providerKind)}
+                  >
+                    <HStack as="span" gap={2} vAlign="start">
+                      <HStack as="span" hAlign="center" vAlign="center" {...stylex.props(styles.providerIcon)}>
+                        <FaviconImage
+                          hostname={providerHostname(entry.providerKind)}
+                          size="large"
+                          fallback={<Plug aria-hidden="true" size={18} />}
+                        />
+                      </HStack>
+                      <VStack as="span" gap={0.5} {...stylex.props(styles.providerChoiceCopy)}>
+                        <strong {...stylex.props(styles.providerChoiceName)}>{entry.displayName}</strong>
+                        <span {...stylex.props(styles.providerChoiceDescription)}>
+                          {providerCapabilityDescription(entry)}
+                        </span>
+                      </VStack>
+                      <ChevronRight aria-hidden="true" {...stylex.props(styles.providerChoiceChevron)} />
+                    </HStack>
+                  </ListCardButton>
+                ))}
+              </Grid>
+            ) : authAttempt ? (
+              <AuthAttempt attempt={authAttempt} onCancel={() => void onCancelProviderAuth()} />
+            ) : (
+              <VStack gap={3}>
+                {browserAuth ? (
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant="primary"
                     label={`Connect ${selectedCatalogEntry.displayName}`}
                     isDisabled={mutationSaving}
                     onClick={() => void onConnectProvider(selectedCatalogEntry.providerKind, selectedCatalogEntry.preferredAuthMethod)}
                   />
                 ) : null}
-                <Button
-                  type="submit"
-                  label={browserAuth ? "Use API key" : "Add account"}
-                  icon={<Plus {...stylex.props(styles.icon)} aria-hidden="true" />}
-                  isDisabled={mutationSaving || !canSubmit}
-                  isLoading={mutationSaving}
-                />
-              </HStack>
-              {mutationError ? <p role="alert" {...stylex.props(styles.saveError)}>{mutationError}</p> : null}
-              {authAttempt ? <AuthAttempt attempt={authAttempt} onCancel={() => void onCancelProviderAuth()} /> : null}
-            </VStack>
+                {browserAuth && acceptsApiKey ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    label={apiKeyOpen ? "Hide API key setup" : "Use an API key instead"}
+                    aria-expanded={apiKeyOpen}
+                    aria-controls="provider-api-key-setup"
+                    onClick={() => setApiKeyOpen((current) => !current)}
+                  />
+                ) : null}
+                {acceptsApiKey && (!browserAuth || apiKeyOpen) ? (
+                  <VStack
+                    as="form"
+                    id="provider-api-key-setup"
+                    gap={3}
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void submit();
+                    }}
+                  >
+                    <TextInput
+                      hasAutoFocus={!browserAuth}
+                      label="API key"
+                      type="password"
+                      value={secret}
+                      isDisabled={mutationSaving}
+                      onChange={setSecret}
+                    />
+                    <TextInput
+                      label="Account name (optional)"
+                      value={displayName}
+                      isDisabled={mutationSaving}
+                      placeholder={selectedCatalogEntry.displayName}
+                      onChange={setDisplayName}
+                    />
+                    <HStack gap={2} wrap="wrap" vAlign="center" hAlign="end">
+                      <Button
+                        type="submit"
+                        variant={browserAuth ? "secondary" : "primary"}
+                        label={browserAuth ? "Add with API key" : "Add account"}
+                        icon={<Plus {...stylex.props(styles.icon)} aria-hidden="true" />}
+                        isDisabled={mutationSaving || !canSubmit}
+                        isLoading={mutationSaving}
+                      />
+                    </HStack>
+                  </VStack>
+                ) : null}
+                {mutationError ? <p role="alert" {...stylex.props(styles.saveError)}>{mutationError}</p> : null}
+              </VStack>
+            )}
           </LayoutContent>
         }
       />
     </Dialog>
   );
+}
+
+function providerCapabilityDescription(entry: ProviderAccountCatalogEntry) {
+  const capabilities = new Set(entry.capabilities.map((capability) => capability.capabilityId));
+  if (capabilities.has("model.generate")) return "Models for chat and tasks.";
+  if (capabilities.has("web.browse")) return "Interactive browsing for web tools.";
+  if (capabilities.has("web.search") && capabilities.has("web.fetch")) {
+    return "Search and page reading for web tools.";
+  }
+  return "Provider access for Noema.";
+}
+
+function providerHostname(providerKind: string) {
+  const hostnames: Record<string, string> = {
+    codex: "chatgpt.com",
+    openrouter: "openrouter.ai",
+    exa: "exa.ai",
+    kernel: "kernel.sh",
+    tinyfish: "docs.tinyfish.ai",
+    firecrawl: "firecrawl.dev"
+  };
+  return hostnames[providerKind] ?? providerKind;
 }
 
 function DeleteProviderAccountDialog({
@@ -657,8 +753,22 @@ const styles = stylex.create({
     fontSize: 13,
     lineHeight: 1.5
   },
-  selectorField: { display: "grid", gap: "var(--spacing-1-5)" },
-  fieldLabel: { color: "var(--foreground)", fontSize: 13, fontWeight: 500 },
+  providerChoice: { width: "100%", height: "100%", padding: "var(--spacing-3)" },
+  providerIcon: {
+    width: "var(--spacing-8)",
+    height: "var(--spacing-8)",
+    flexShrink: 0
+  },
+  providerChoiceCopy: { flex: 1, minWidth: 0 },
+  providerChoiceName: { color: "var(--foreground)", fontSize: 14, lineHeight: 1.3 },
+  providerChoiceDescription: { color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.4 },
+  providerChoiceChevron: {
+    width: "var(--spacing-4)",
+    height: "var(--spacing-4)",
+    flexShrink: 0,
+    marginTop: "var(--spacing-0-5)",
+    color: "var(--muted-foreground)"
+  },
   warningText: {
     margin: "var(--spacing-0)",
     color: "var(--foreground)",

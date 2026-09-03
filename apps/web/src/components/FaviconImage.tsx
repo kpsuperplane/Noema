@@ -5,7 +5,7 @@ type FaviconImageProps = {
   hostname: string;
   fallback?: ReactNode;
   grouped?: boolean;
-  size?: "compact" | "default";
+  size?: "compact" | "default" | "large";
 };
 
 const styles = stylex.create({
@@ -24,6 +24,10 @@ const styles = stylex.create({
   default: {
     width: "var(--spacing-4)",
     height: "var(--spacing-4)",
+  },
+  large: {
+    width: "var(--spacing-6)",
+    height: "var(--spacing-6)",
   },
   grouped: {
     zIndex: 0,
@@ -60,7 +64,7 @@ export function FaviconImage({
       aria-hidden="true"
       {...stylex.props(
         styles.root,
-        size === "compact" ? styles.compact : styles.default,
+        size === "compact" ? styles.compact : size === "large" ? styles.large : styles.default,
         grouped && styles.grouped,
         !loaded && styles.hidden
       )}
