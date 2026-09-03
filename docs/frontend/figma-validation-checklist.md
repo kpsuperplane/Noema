@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Structure-weighted native-surface repair audit · 2 Sep 2026`
 
-Noema Git revision: `ab2e79dce4a96e86627e72ead1378ccfb397d954`
+Noema Git revision: `8b7473c881b8ba410538d1b650f3a85c6e423301`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,9 +19,10 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.70. The median is 2.71. The highest remaining value is 4.67. |
-| Component library | Pass | 319 local components in 49 component sets. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.69. The median is 2.71. The highest remaining value is 4.67. |
+| Component library | Pass | 320 local components in 49 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
+| Component section overlaps | Pass | 0 overlaps across the 10 product-library sections. |
 | Variables and styles | Pass | 208 variables, 185 text styles, 6 paint styles, and 10 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
 | Interactive target sizes | Pass | 0 prototype targets below 24 px on web or 44 pt on iOS. |
@@ -31,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected fifty-five individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected fifty-six individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -99,7 +100,11 @@ The latest iOS Memory repair matched the live content spacing, system time, stat
 
 The iOS Memory root reached 85% structural edge overlap. It began at 43%.
 
-The pass also added twenty-four reusable components and three component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, composer-focus, and shell-elevation tokens.
+The latest iOS onboarding repair restored the pine system ground, live time, inset surface, and token-bound indeterminate spinner.
+
+The same pass separated all 10 product-library sections. No component section now overlaps another.
+
+The pass also added twenty-five reusable components and three component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, composer-focus, and shell-elevation tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
@@ -177,6 +182,7 @@ The pass also added twenty-four reusable components and three component sets. It
 | Web-desktop Chat conversation | 2.69 to 1.21 |
 | Web-desktop Connect API routed chat | 3.77 to 1.24 |
 | iOS Settings Local Models | 3.34 to 1.36 |
+| iOS onboarding loading | 1.94 to 0.74 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
