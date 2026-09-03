@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `ca2583f3ecf7b1fde6234ab4ef2baca20fbc2dc6`
+Noema Git revision: `4e8b39e7a41df059b792ae3a8891a1e45f9389c2`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -19,8 +19,8 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.80. The median is 2.86. The highest remaining value is 4.67. |
-| Component library | Pass | 312 local components in 48 component sets. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.79. The median is 2.86. The highest remaining value is 4.67. |
+| Component library | Pass | 313 local components in 48 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 207 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
@@ -81,12 +81,14 @@ The current device repair matched all 53 iOS product frames to the 48-point runt
 
 The same pass corrected the native provider-choice title face and eyebrow position.
 
-The pass also added seventeen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
+The latest state repair added the captured project-detail tooltip as a reusable component. It also corrected the iOS Agents system time.
+
+The pass also added eighteen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
 | iOS Chat conversation | 8.36 to 3.78 |
-| iOS Settings agents | 8.36 to 4.09 |
+| iOS Settings agents | 8.36 to 4.08 |
 | iOS Settings providers | 8.00 to 2.71 |
 | iOS Adapter credential sheet | 7.89 to 4.10 |
 | iOS Chat inline intervention | 7.84 to 4.67 |
@@ -152,6 +154,7 @@ The pass also added seventeen reusable components and two component sets. It add
 | iOS Tool Activity row | 5.36 to 4.49 |
 | iOS Client detail | Current 2.51 |
 | Web-mobile Task detail overview | 4.46 to 2.44 |
+| Web-mobile Project detail overview | 4.21 to 3.30 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
 
