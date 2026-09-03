@@ -19,7 +19,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Native product frames | Pass | 36 web desktop, 36 web mobile, 53 iOS iPhone, and 4 iOS system frames. |
 | Product frames without instances | Pass | 0 of 129 frames. |
 | Screen-sized product raster fills | Pass | 0. Fourteen smaller raster nodes are product assets. |
-| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.98. The median is 2.93. The highest remaining value is 4.97. |
+| Runtime comparisons | Open | 128 direct overlays and 1 documented simulator exception exist. Exact-size metrics cover 125 product pairs. The blurred mean error is 2.97. The median is 2.93. The highest remaining value is 4.97. |
 | Component library | Pass | 312 local components in 48 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Variables and styles | Pass | 207 variables, 180 text styles, 6 paint styles, and 9 effect styles. |
@@ -67,6 +67,8 @@ The latest mobile-chat repair matched the three assistant bubble heights and the
 
 The latest iOS surface repair matched the chat-intervention mask and sheet curvature. It also rebuilt Providers with native text roles and selector geometry.
 
+The latest provider-setup repair reused the current mobile detail hierarchy. It also matched modal labels, fields, borders, and actions.
+
 The pass also added seventeen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
 
 | Repaired surface | Blurred mean error |
@@ -93,7 +95,7 @@ The pass also added seventeen reusable components and two component sets. It add
 | Web-mobile Notifications | Current 2.66 |
 | Web-mobile Configure APNs sheet | 6.85 to 3.88 |
 | iOS Settings Web | 6.85 to 3.71 |
-| Web-mobile provider setup sheet | 6.64 to 4.30 |
+| Web-mobile provider setup sheet | 6.64 to 3.09 |
 | Web-mobile Settings Agents | 6.55 to 4.22 |
 | iOS API connection sheet | 6.49 to 4.35 |
 | iOS Settings Provider detail | 6.30 to 3.54 |
