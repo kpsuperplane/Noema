@@ -47,7 +47,13 @@ import { ToolDetailAttachment } from "./ToolDetailAttachment";
 import { ToolMarker } from "./ToolMarker";
 import { TranscriptBottomFollower } from "./TranscriptBottomFollower";
 import { TranscriptRow } from "./TranscriptRow";
-import { TranscriptScroller, TranscriptScrollerItem, TranscriptScrollerProvider } from "./TranscriptScroller";
+import {
+  TranscriptScroller,
+  TranscriptScrollerItem,
+  TranscriptScrollerProvider,
+  readTranscriptScrollSnapshot,
+  type TranscriptScrollRestoration
+} from "./TranscriptScroller";
 import type { ConversationAgentStatus } from "@/shared/types";
 import { parseProviderUsageDebug } from "./debugUsage";
 import {
@@ -59,6 +65,8 @@ export type TranscriptDensity = "full" | "embedded";
 
 export function Transcript({
   entries,
+  scrollRestoration,
+  scrollRestorationKey,
   loadingOlderTranscript,
   hasMoreTranscriptBefore,
   olderTranscriptPageError,
@@ -78,6 +86,8 @@ export function Transcript({
   ariaLabel = "Conversation transcript"
 }: {
   entries: TranscriptEntry[];
+  scrollRestoration?: TranscriptScrollRestoration;
+  scrollRestorationKey?: string;
   loadingOlderTranscript: boolean;
   hasMoreTranscriptBefore: boolean;
   olderTranscriptPageError: string | null;
@@ -136,7 +146,10 @@ export function Transcript({
   );
   const [textAnimatingMessageIds, setTextAnimatingMessageIds] = React.useState<ReadonlySet<string>>(() => new Set());
   const [debugTarget, setDebugTarget] = React.useState<RuntimeDebugTarget | null>(null);
-  const followBottomRef = React.useRef(true);
+  const restoredScrollRef = React.useRef(
+    readTranscriptScrollSnapshot(scrollRestoration, scrollRestorationKey, density)
+  );
+  const followBottomRef = React.useRef(restoredScrollRef.current?.followBottom ?? true);
   const scrollKey = transcriptScrollKey(renderedEntries);
   const arrivalMessageIds = transcriptArrivalMessageIds(renderedEntries, seenArrivalMessageIds);
   const arrivalMessageIdsJson = JSON.stringify(arrivalMessageIds);
@@ -206,6 +219,7 @@ export function Transcript({
         aria-label={ariaLabel}
         density={density}
         entries={renderedEntries}
+        followBottomRef={followBottomRef}
         hasMoreBefore={hasMoreTranscriptBefore}
         historyPrependDeferred={historyPrependDeferred}
         loadingBefore={loadingOlderTranscript}
@@ -215,6 +229,8 @@ export function Transcript({
         onLoadBefore={handleLoadOlderTranscript}
         onScrollActivityChange={handleScrollActivityChange}
         onViewportScroll={handleViewportScroll}
+        scrollRestoration={scrollRestoration}
+        scrollRestorationKey={scrollRestorationKey}
         renderEntry={(entry, index) => {
           const lane = transcriptLane(entry);
           const previousEntry = renderedEntries[index - 1];
@@ -297,6 +313,7 @@ export function Transcript({
         arrivalScrollKey={arrivalScrollKey}
         arrivalMessageIdsJson={arrivalMessageIdsJson}
         followBottomRef={followBottomRef}
+        restoreInitialScroll={restoredScrollRef.current !== null}
         onArrivalSettled={markArrivalsSettled}
         sentMessageScrollRequest={sentMessageScrollRequest}
         scrollKey={scrollKey}

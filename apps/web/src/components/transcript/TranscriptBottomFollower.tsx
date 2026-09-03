@@ -21,6 +21,7 @@ export function TranscriptBottomFollower({
   arrivalScrollKey,
   arrivalMessageIdsJson,
   followBottomRef,
+  restoreInitialScroll = false,
   onArrivalSettled,
   sentMessageScrollRequest,
   scrollKey
@@ -28,6 +29,7 @@ export function TranscriptBottomFollower({
   arrivalScrollKey: string;
   arrivalMessageIdsJson: string;
   followBottomRef: React.MutableRefObject<boolean>;
+  restoreInitialScroll?: boolean;
   onArrivalSettled: (messageIds: readonly string[]) => void;
   sentMessageScrollRequest: number;
   scrollKey: string;
@@ -91,6 +93,11 @@ export function TranscriptBottomFollower({
     }
 
     initialBottomLockCompletedRef.current = true;
+    if (restoreInitialScroll && !followBottomRef.current) {
+      previousMetricsRef.current = readScrollMetrics(viewport);
+      previousBottomOffsetRef.current = bottomOffsetRef.current;
+      return;
+    }
     initialBottomLockActiveRef.current = true;
     scheduleInitialBottomLockRelease();
     followBottomRef.current = true;
@@ -110,7 +117,7 @@ export function TranscriptBottomFollower({
       previousBottomOffsetRef.current = bottomOffsetRef.current;
     });
 
-  }, [bottomOffsetRef, followBottomRef, scheduleInitialBottomLockRelease, scrollKey, scrollToEnd, viewportRef]);
+  }, [bottomOffsetRef, followBottomRef, restoreInitialScroll, scheduleInitialBottomLockRelease, scrollKey, scrollToEnd, viewportRef]);
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
