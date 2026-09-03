@@ -271,6 +271,7 @@ private func humanize(_ value: String) -> String {
 
 struct ProvidersSettings: View {
   let settings: SettingsModel
+  let profile: NoemaProfile?
   @State private var addPresented = false
   @State private var selectedAccount: SettingsProviderAccount?
 
@@ -312,7 +313,7 @@ struct ProvidersSettings: View {
       }
     }
     .noemaSheet(isPresented: $addPresented) {
-      ProviderAccountEditor(settings: settings, catalog: providerCatalog)
+      ProviderAccountEditor(settings: settings, catalog: providerCatalog, profile: profile)
     }
     .noemaSheet(item: $selectedAccount) { selected in
       if let account = accounts.first(where: { $0.providerAccountId == selected.providerAccountID }) {
@@ -329,7 +330,7 @@ struct ProvidersSettings: View {
 
   private var providerCatalog: [SettingsProviderCatalog] {
     (settings.snapshot?.providerAccountCatalog ?? []).map {
-      SettingsProviderCatalog(providerKind: $0.providerKind, displayName: $0.displayName, preferredAuthMethod: $0.preferredAuthMethod.rawValue, supportedAuthMethods: $0.supportedAuthMethods.map(\.rawValue))
+      SettingsProviderCatalog(providerKind: $0.providerKind, displayName: $0.displayName, preferredAuthMethod: $0.preferredAuthMethod.rawValue, supportedAuthMethods: $0.supportedAuthMethods.map(\.rawValue), capabilities: $0.capabilities.map(\.capabilityId))
     }
   }
 

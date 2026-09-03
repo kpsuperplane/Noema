@@ -384,42 +384,45 @@ struct ToolMarkerView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: expanded ? NoemaSpacing.sm : 0) {
-      Button {
-        guard expandable else { return }
-        withAnimation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion)) {
-          expanded.toggle()
-        }
-      } label: {
-        HStack(spacing: NoemaSpacing.compact) {
-          ToolStatusIcon(status: markerStatus)
-          if markerCount > 1 && expanded {
-            Image(systemName: "wrench.and.screwdriver")
-              .font(NoemaFont.compact)
-              .foregroundStyle(NoemaColor.contentTertiary)
-              .frame(width: 16, height: 16)
-          } else {
-            ToolTypeIcon(kind: toolMarkerKind(in: collapsedMessages))
+      HStack(spacing: NoemaSpacing.xxs) {
+        Button {
+          guard expandable else { return }
+          withAnimation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion)) {
+            expanded.toggle()
           }
-          Text(markerCount > 1 && expanded ? String(markerCount) + " tool calls" : toolMarkerName(in: collapsedMessages))
-            .font(NoemaFont.monoCompact)
-            .foregroundStyle(NoemaColor.contentSecondary)
-            .lineLimit(1)
-            .multilineTextAlignment(.leading)
-          if expandable {
-            Image(systemName: "chevron.down")
-              .font(.system(size: 10, weight: .semibold))
-              .foregroundStyle(NoemaColor.contentTertiary)
-              .frame(width: 14, height: 14)
-              .rotationEffect(.degrees(expanded ? 180 : 0))
+        } label: {
+          HStack(spacing: NoemaSpacing.compact) {
+            ToolStatusIcon(status: markerStatus)
+            if markerCount > 1 && expanded {
+              Image(systemName: "wrench.and.screwdriver")
+                .font(NoemaFont.compact)
+                .foregroundStyle(NoemaColor.contentTertiary)
+                .frame(width: 16, height: 16)
+            } else {
+              ToolTypeIcon(kind: toolMarkerKind(in: collapsedMessages))
+            }
+            Text(markerCount > 1 && expanded ? String(markerCount) + " tool calls" : toolMarkerName(in: collapsedMessages))
+              .font(NoemaFont.monoCompact)
+              .foregroundStyle(NoemaColor.contentSecondary)
+              .lineLimit(1)
+              .multilineTextAlignment(.leading)
+            if expandable {
+              Image(systemName: "chevron.down")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(NoemaColor.contentTertiary)
+                .frame(width: 14, height: 14)
+                .rotationEffect(.degrees(expanded ? 180 : 0))
+            }
           }
+          .padding(.vertical, NoemaSpacing.xxs)
+          .contentShape(Rectangle())
         }
-        .padding(.vertical, NoemaSpacing.xxs)
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+        .disabled(!expandable)
+        .accessibilityLabel("\(toolMarkerStatusLabel(markerStatus)), \(toolMarkerName(in: collapsedMessages))")
+        .accessibilityValue(expandable ? (expanded ? "Expanded" : "Collapsed") : "")
+        if calls.count == 1 { ToolTechnicalRecordButton(messages: messages) }
       }
-      .buttonStyle(.plain)
-      .disabled(!expandable)
-      .accessibilityLabel("\(toolMarkerStatusLabel(markerStatus)), \(toolMarkerName(in: collapsedMessages))")
-      .accessibilityValue(expandable ? (expanded ? "Expanded" : "Collapsed") : "")
 
       if expanded {
         if calls.count > 1 {
@@ -431,9 +434,7 @@ struct ToolMarkerView: View {
           .padding(.top, NoemaSpacing.xxs)
         } else {
           ToolMarkerAttachmentView(
-            title: toolMarkerDetailTitle(in: messages),
-            failed: markerStatus == .error,
-            rows: toolDetailRows(in: messages)
+            rows: toolHumanDetailRows(in: messages)
           )
         }
       }
@@ -453,7 +454,7 @@ struct ToolMarkerView: View {
     toolMarkerStatus(in: collapsedMessages)
   }
 
-  private var expandable: Bool { calls.contains { !toolDetailRows(in: $0).isEmpty } }
+  private var expandable: Bool { calls.contains(where: toolMarkerExpandable) }
 
   private var markerCount: Int { calls.count }
 
@@ -481,46 +482,79 @@ private struct ToolMarkerCallView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: expanded ? NoemaSpacing.sm : 0) {
-      Button {
-        guard !rows.isEmpty else { return }
-        withAnimation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion)) {
-          expanded.toggle()
-        }
-      } label: {
-        HStack(spacing: NoemaSpacing.compact) {
-          ToolStatusIcon(status: toolMarkerStatus(in: messages))
-          ToolTypeIcon(kind: toolMarkerKind(in: messages))
-          Text(toolMarkerName(in: messages))
-            .font(NoemaFont.monoCompact)
-            .foregroundStyle(NoemaColor.contentSecondary)
-            .lineLimit(1)
-            .multilineTextAlignment(.leading)
-          if !rows.isEmpty {
-            Image(systemName: "chevron.down")
-              .font(.system(size: 10, weight: .semibold))
-              .foregroundStyle(NoemaColor.contentTertiary)
-              .frame(width: 14, height: 14)
-              .rotationEffect(.degrees(expanded ? 180 : 0))
+      HStack(spacing: NoemaSpacing.xxs) {
+        Button {
+          guard expandable else { return }
+          withAnimation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion)) {
+            expanded.toggle()
           }
+        } label: {
+          HStack(spacing: NoemaSpacing.compact) {
+            ToolStatusIcon(status: toolMarkerStatus(in: messages))
+            ToolTypeIcon(kind: toolMarkerKind(in: messages))
+            Text(toolMarkerName(in: messages))
+              .font(NoemaFont.monoCompact)
+              .foregroundStyle(NoemaColor.contentSecondary)
+              .lineLimit(1)
+              .multilineTextAlignment(.leading)
+            if expandable {
+              Image(systemName: "chevron.down")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(NoemaColor.contentTertiary)
+                .frame(width: 14, height: 14)
+                .rotationEffect(.degrees(expanded ? 180 : 0))
+            }
+          }
+          .padding(.vertical, NoemaSpacing.xxs)
+          .contentShape(Rectangle())
         }
-        .padding(.vertical, NoemaSpacing.xxs)
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+        .disabled(!expandable)
+        .accessibilityLabel("\(toolMarkerStatusLabel(toolMarkerStatus(in: messages))), \(toolMarkerName(in: messages))")
+        .accessibilityValue(expandable ? (expanded ? "Expanded" : "Collapsed") : "")
+        ToolTechnicalRecordButton(messages: messages)
       }
-      .buttonStyle(.plain)
-      .disabled(rows.isEmpty)
-      .accessibilityLabel("\(toolMarkerStatusLabel(toolMarkerStatus(in: messages))), \(toolMarkerName(in: messages))")
-      .accessibilityValue(rows.isEmpty ? "" : (expanded ? "Expanded" : "Collapsed"))
       if expanded {
-        ToolMarkerAttachmentView(
-          title: toolMarkerDetailTitle(in: messages),
-          failed: toolMarkerStatus(in: messages) == .error,
-          rows: rows
+        ToolMarkerAttachmentView(rows: humanRows)
+      }
+    }
+  }
+
+  private var humanRows: [ToolDetailRow] { toolHumanDetailRows(in: messages) }
+  private var expandable: Bool { toolMarkerExpandable(messages) }
+}
+
+private struct ToolTechnicalRecordButton: View {
+  let messages: [ChatMessage]
+  @State private var presented = false
+
+  var body: some View {
+    if !rows.isEmpty {
+      Button("Technical record", systemImage: "chevron.left.forwardslash.chevron.right") {
+        presented = true
+      }
+      .labelStyle(.iconOnly)
+      .buttonStyle(.plain)
+      .font(NoemaFont.compact)
+      .foregroundStyle(NoemaColor.contentTertiary)
+      .accessibilityLabel("View technical record for \(toolMarkerName(in: messages))")
+      .noemaSheet(isPresented: $presented) {
+        ToolTechnicalRecordView(
+          title: toolMarkerName(in: messages),
+          rows: rows,
+          onClose: { presented = false }
         )
       }
     }
   }
 
   private var rows: [ToolDetailRow] { toolDetailRows(in: messages) }
+}
+
+private func toolMarkerExpandable(_ messages: [ChatMessage]) -> Bool {
+  let kind = toolMarkerKind(in: messages)
+  if kind == "web.search" || kind == "web.fetch" { return false }
+  return !toolHumanDetailRows(in: messages).isEmpty
 }
 
 enum ToolMarkerStatus: Equatable {
@@ -589,7 +623,7 @@ struct ToolTypeIcon: View {
   }
 }
 
-private func toolMarkerStatus(in messages: [ChatMessage]) -> ToolMarkerStatus {
+func toolMarkerStatus(in messages: [ChatMessage]) -> ToolMarkerStatus {
   guard let latest = messages.last, let values = activityValues(latest) else { return .pending }
   let status = (toolMarkerField("status", in: messages) ?? values.status).uppercased()
   if status == "FAILED" { return .error }
@@ -613,7 +647,7 @@ private func toolMarkerStatusLabel(_ status: ToolMarkerStatus) -> String {
   }
 }
 
-private func toolMarkerKind(in messages: [ChatMessage]) -> String? {
+func toolMarkerKind(in messages: [ChatMessage]) -> String? {
   if let kind = toolMarkerField("kind", in: messages) { return kind }
   for message in messages.reversed() {
     let metadata = metadataObject(for: message)
@@ -643,23 +677,7 @@ func toolMarkerName(in messages: [ChatMessage]) -> String {
   return messages.first.flatMap { activityValues($0)?.title } ?? "Tool activity"
 }
 
-private func toolMarkerDetailTitle(in messages: [ChatMessage]) -> String {
-  if let title = toolMarkerField("detailTitle", in: messages) { return title }
-  let prefix = toolMarkerStatus(in: messages) == .running ? "Using" : "Used"
-  for message in messages.reversed() {
-    let metadata = metadataObject(for: message)
-    if let raw = nestedString(metadata, path: ["display", "name"])
-      ?? nestedString(metadata, path: ["action", "name"])
-      ?? stringValue(metadata["name"])
-      ?? stringValue(metadata["tool_name"]) {
-      let name = humanizeToolName(raw)
-      return "\(prefix) \(name)"
-    }
-  }
-  return "\(prefix) \(toolMarkerName(in: messages))"
-}
-
-private func toolMarkerField(_ key: String, in messages: [ChatMessage]) -> String? {
+func toolMarkerField(_ key: String, in messages: [ChatMessage]) -> String? {
   for message in messages.reversed() {
     if let value = nestedString(metadataObject(for: message), path: ["display", "marker", key]) {
       return value

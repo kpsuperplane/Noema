@@ -110,7 +110,7 @@ private struct SettingsDetail: View {
       case .privacy: PrivacySettings(settings: settings)
       case .usage, .execution: ExecutionSettings(settings: settings)
       case .localModels: LocalModelsSettings(settings: settings)
-      case .providers: ProvidersSettings(settings: settings)
+      case .providers: ProvidersSettings(settings: settings, profile: appModel.profile)
       case .notifications:
         ClientNotificationsSettings(notifications: notifications)
         ClientLiveActivitiesSettings(liveActivities: liveActivities)

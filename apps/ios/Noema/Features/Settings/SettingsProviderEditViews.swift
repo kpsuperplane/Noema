@@ -38,23 +38,26 @@ struct SettingsProviderCatalog: Identifiable {
   let displayName: String
   let preferredAuthMethod: String
   let supportedAuthMethods: [String]
+  let capabilities: [String]
 }
 
 struct ProviderAccountEditor: View {
   let settings: SettingsModel
   let catalog: [SettingsProviderCatalog]
+  let profile: NoemaProfile?
   @Environment(\.dismiss) private var dismiss
-  @State private var providerKind: String
+  @State private var providerKind: String?
   @State private var displayName = ""
   @State private var secret = ""
+  @State private var secretSetupPresented = false
   @State private var isSaving = false
   @State private var discardPresented = false
   @FocusState private var focusedField: Bool
 
-  init(settings: SettingsModel, catalog: [SettingsProviderCatalog]) {
+  init(settings: SettingsModel, catalog: [SettingsProviderCatalog], profile: NoemaProfile?) {
     self.settings = settings
     self.catalog = catalog
-    _providerKind = State(initialValue: catalog.first?.providerKind ?? "")
+    self.profile = profile
   }
 
   private var selected: SettingsProviderCatalog? { catalog.first(where: { $0.providerKind == providerKind }) }
@@ -67,49 +70,15 @@ struct ProviderAccountEditor: View {
 
   var body: some View {
     SettingsBottomSheet(
-      title: "Add provider account",
-      detent: .height(440),
+      title: selected.map { "Add \($0.displayName)" } ?? "Add provider",
+      subtitle: selected == nil ? "Choose a provider for models or web tools." : nil,
+      detent: .large,
       onClose: requestDismissal
     ) {
-      VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-        SettingsSheetField("Provider") {
-          Picker("Provider", selection: $providerKind) {
-            ForEach(catalog) { option in Text(option.displayName).tag(option.providerKind) }
-          }
-          .pickerStyle(.menu)
-          .tint(NoemaColor.content)
-          .settingsSheetControl()
-        }
-        SettingsSheetField("Account name") {
-          TextField(selected?.displayName ?? "Provider", text: $displayName)
-            .textInputAutocapitalization(.words)
-            .settingsSheetControl(focused: focusedField)
-            .focused($focusedField)
-        }
-        SettingsSheetField("API key") {
-          SecureField(supportsSecret ? "API key" : "Use this provider's connect flow", text: $secret)
-            .disabled(!supportsSecret)
-            .settingsSheetControl()
-        }
-        HStack(spacing: NoemaSpacing.sm) {
-          if supportsBrowserAuth, let selected {
-            Button("Connect \(selected.displayName)") { startAuth(selected) }
-              .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
-              .disabled(isSaving || !settings.canMutate)
-          }
-          Spacer(minLength: 0)
-          SettingsSheetActions(
-            primaryTitle: supportsBrowserAuth ? "Use API key" : "Add account",
-            isSaving: isSaving,
-            primaryDisabled: isSaving || !supportsSecret || secret.isEmpty || !settings.canMutate,
-            onCancel: requestDismissal,
-            onPrimary: create
-          )
-        }
-        if let auth = settings.auth { ProviderAuthStatus(auth: auth, settings: settings) }
-        if let error = settings.errorMessage, !isSaving {
-          Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
-        }
+      if selected == nil {
+        providerChoices
+      } else {
+        providerSetup
       }
     }
     .interactiveDismissDisabled(isSaving || isDirty)
@@ -123,7 +92,115 @@ struct ProviderAccountEditor: View {
         dismiss()
       }
     }
+    .onChange(of: secretSetupPresented) { _, presented in
+      if presented { focusedField = true }
+    }
+  }
+
+  private var providerChoices: some View {
+    LazyVStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      ForEach(catalog) { option in
+        Button {
+          choose(option)
+        } label: {
+          HStack(spacing: NoemaSpacing.sm) {
+            ZStack {
+              Image(systemName: "externaldrive.connected.to.line.below")
+                .font(NoemaFont.bodyEmphasized)
+                .foregroundStyle(NoemaColor.contentSecondary)
+              NoemaFaviconImage(hostname: providerHostname(option.providerKind), profile: profile)
+            }
+            .frame(width: 32, height: 32)
+            VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+              Text(option.displayName)
+                .font(NoemaFont.bodyEmphasized)
+                .foregroundStyle(NoemaColor.content)
+              Text(providerCapabilityDescription(option))
+                .font(NoemaFont.caption)
+                .foregroundStyle(NoemaColor.contentSecondary)
+                .multilineTextAlignment(.leading)
+            }
+            Spacer(minLength: NoemaSpacing.sm)
+            Image(systemName: "chevron.right")
+              .font(NoemaFont.compactEmphasized)
+              .foregroundStyle(NoemaColor.contentTertiary)
+          }
+          .padding(NoemaSpacing.md)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .background(NoemaColor.surfaceSecondary, in: NoemaSuperellipse(cornerRadius: NoemaRadius.element))
+        }
+        .buttonStyle(.plain)
+        .disabled(isSaving || !settings.canMutate)
+      }
+    }
+  }
+
+  @ViewBuilder private var providerSetup: some View {
+    if let auth = settings.auth {
+      ProviderAuthStatus(auth: auth, settings: settings)
+    } else if let selected {
+      VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+        Button("Back to providers", systemImage: "arrow.left") { returnToProviders() }
+          .buttonStyle(NoemaActionButtonStyle(variant: .ghost))
+          .disabled(isSaving)
+        if supportsBrowserAuth {
+          Button("Connect \(selected.displayName)") { startAuth(selected) }
+            .buttonStyle(NoemaActionButtonStyle(variant: .primary))
+            .disabled(isSaving || !settings.canMutate)
+        }
+        if supportsBrowserAuth && supportsSecret {
+          Button(secretSetupPresented ? "Hide API key setup" : "Use an API key instead") {
+            secretSetupPresented.toggle()
+          }
+          .buttonStyle(NoemaActionButtonStyle(variant: .ghost))
+          .disabled(isSaving)
+        }
+        if supportsSecret && (!supportsBrowserAuth || secretSetupPresented) {
+          secretSetup(selected)
+        }
+        if let error = settings.errorMessage, !isSaving {
+          Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
+        }
+      }
+    }
+  }
+
+  private func secretSetup(_ selected: SettingsProviderCatalog) -> some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+      SettingsSheetField("API key") {
+        SecureField("API key", text: $secret)
+          .settingsSheetControl(focused: focusedField)
+          .focused($focusedField)
+      }
+      SettingsSheetField("Account name (optional)") {
+        TextField(selected.displayName, text: $displayName)
+          .textInputAutocapitalization(.words)
+          .settingsSheetControl()
+      }
+      SettingsSheetActions(
+        primaryTitle: supportsBrowserAuth ? "Add with API key" : "Add account",
+        isSaving: isSaving,
+        primaryDisabled: isSaving || secret.isEmpty || !settings.canMutate,
+        onCancel: requestDismissal,
+        onPrimary: create
+      )
+    }
     .task { focusedField = true }
+  }
+
+  private func choose(_ option: SettingsProviderCatalog) {
+    providerKind = option.providerKind
+    displayName = ""
+    secret = ""
+    secretSetupPresented = false
+  }
+
+  private func returnToProviders() {
+    providerKind = nil
+    displayName = ""
+    secret = ""
+    secretSetupPresented = false
+    settings.errorMessage = nil
   }
 
   private func requestDismissal() {
@@ -146,6 +223,28 @@ struct ProviderAccountEditor: View {
     Task {
       _ = await settings.startProviderAuth(providerKind: selected.providerKind, providerAccountID: nil, method: selected.preferredAuthMethod)
       isSaving = false
+    }
+  }
+
+  private func providerCapabilityDescription(_ option: SettingsProviderCatalog) -> String {
+    let capabilities = Set(option.capabilities)
+    if capabilities.contains("model.generate") { return "Models for chat and tasks." }
+    if capabilities.contains("web.browse") { return "Interactive browsing for web tools." }
+    if capabilities.contains("web.search") && capabilities.contains("web.fetch") {
+      return "Search and page reading for web tools."
+    }
+    return "Provider access for Noema."
+  }
+
+  private func providerHostname(_ providerKind: String) -> String {
+    switch providerKind {
+    case "codex": "chatgpt.com"
+    case "openrouter": "openrouter.ai"
+    case "exa": "exa.ai"
+    case "kernel": "kernel.sh"
+    case "tinyfish": "docs.tinyfish.ai"
+    case "firecrawl": "firecrawl.dev"
+    default: providerKind
     }
   }
 }
