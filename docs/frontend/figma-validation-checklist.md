@@ -8,9 +8,9 @@ The file passes only when every required item is complete. Record each exception
 
 Validation date: 2 September 2026
 
-Named checkpoint: `iOS API-connection repair audit · 2 Sep 2026`
+Named checkpoint: `Web-mobile task-settings repair audit · 2 Sep 2026`
 
-Noema Git revision: `a5db1f91dae4fe2101ded655b25d9ab5475db3e5`
+Noema Git revision: `0073d5391e99ec0be6b36ba9641b6cf3ed4b8175`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -32,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected eighty-nine individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected ninety individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -168,6 +168,8 @@ The onboarding model-facts repair replaces combined proportional copy with four 
 
 The API-connection repair restores the live Cable symbol, card height, action rhythm, and token-bound warning treatment.
 
+The Task Settings repair matches the live field-label role and focused-field geometry.
+
 The pass also added thirty-eight reusable components and five component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, native-drag-indicator, native-action-opacity, composer-focus, shell-elevation, web-navigation, and detail-shell-underlay tokens.
 
 | Repaired surface | Blurred mean error |
@@ -189,7 +191,7 @@ The pass also added thirty-eight reusable components and five component sets. It
 | Web-desktop project editing | 2.29 to 1.92 |
 | Web-mobile project editing | 7.15 to 2.48 |
 | Web-mobile Task schedule sheet | 4.19 to 3.99 |
-| Web-mobile Task settings sheet | 3.93 to 3.73 |
+| Web-mobile Task settings sheet | 3.93 to 3.58 |
 | iOS MCP connection sheet | 7.13 to 2.13 |
 | iOS Memory root | 6.91 to 1.32 |
 | Web-mobile Clients | Current 2.85 |
