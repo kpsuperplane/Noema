@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Measured runtime-diff repair audit · 2 Sep 2026`
 
-Noema Git revision: `2dc1756613a757dfdb389922dea63523dacc67b2`
+Noema Git revision: `496bcdc4a473c1ef5e85d8a4cdfdff8ef2bcfaca`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -75,6 +75,8 @@ The latest iOS task repair corrected the Cancel Task sheet curvature, native typ
 
 The latest iOS chat repair matched the current device curvature. It also applied the native pine status token to the shared composer action.
 
+The latest iOS client repair matched the current device curvature in both client-detail states.
+
 The pass also added seventeen reusable components and two component sets. It added dedicated scrim, avatar, iOS border, and disabled-surface tokens.
 
 | Repaired surface | Blurred mean error |
@@ -123,7 +125,7 @@ The pass also added seventeen reusable components and two component sets. It add
 | iOS onboarding provider authentication | 5.25 to 3.91 |
 | iOS onboarding local model download | 5.10 to 3.90 |
 | iOS onboarding model confirmation | 5.08 to 4.03 |
-| iOS Revoke Client sheet | 5.20 to 4.78 |
+| iOS Revoke Client sheet | 5.20 to 4.64 |
 | Web-mobile recurrence detail | 5.18 to 3.66 |
 | Web-desktop Memory article | 5.68 to 1.83 |
 | Web-desktop Memory index through the shared status component | 2.56 to 2.32 |
@@ -143,7 +145,7 @@ The pass also added seventeen reusable components and two component sets. It add
 | Shared iOS keyboard microphone across 11 comparisons | 11 improved |
 | Shared web-mobile task type across 7 comparisons | 7 improved |
 | iOS Tool Activity row | 5.36 to 4.49 |
-| iOS Client detail | Current 2.68 |
+| iOS Client detail | Current 2.51 |
 | Web-mobile Task detail overview | 4.46 to 2.44 |
 
 The repaired frames use editable layers, token bindings, and reusable components. Runtime fidelity remains open for unresolved visible differences.
