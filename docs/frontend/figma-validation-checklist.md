@@ -10,7 +10,7 @@ Validation date: 2 September 2026
 
 Named checkpoint: `Structure-weighted native-surface repair audit · 2 Sep 2026`
 
-Noema Git revision: `98f3be15e47b2644eb073c3429095e4af450c356`
+Noema Git revision: `c17ba1834d1e6e36f8a54afa16c9bcf03641b7da`
 
 Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
@@ -23,7 +23,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 | Component library | Pass | 334 local components in 51 component sets. |
 | Component descriptions | Pass | 0 missing component or component-set descriptions. |
 | Component section overlaps | Pass | 0 overlaps across the 10 product-library sections. |
-| Variables and styles | Pass | 211 variables, 195 text styles, 6 paint styles, and 10 effect styles. |
+| Variables and styles | Pass | 212 variables, 196 text styles, 6 paint styles, and 10 effect styles. |
 | Supported token bindings | Pass | 0 undocumented bypasses for supported fills, strokes, type roles, spacing, opacity, or radii. |
 | Interactive target sizes | Pass | 0 prototype targets below 24 px on web or 44 pt on iOS. |
 | Text contrast | Open | 61 automated candidates require manual classification. Disabled controls and placeholders account for most candidates. |
@@ -32,7 +32,7 @@ Figma file: [Noema](https://www.figma.com/design/qjclqND2rnNYLdWV41hcdl/Noema)
 
 The structural audit passes. Human review and exception approval remain open.
 
-The measured repair pass corrected seventy-nine individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
+The measured repair pass corrected eighty individually rebuilt product states. The web scrim token improved 19 comparisons. The shared iOS status component improved 48 comparisons and regressed none.
 
 The shared navigation repair replaced three obsolete iOS glyphs with the repository Lucide assets. It improved 34 of 53 iOS comparisons and regressed none.
 
@@ -72,7 +72,7 @@ The latest provider-setup repair reused the current mobile detail hierarchy. It 
 
 The latest Task-sheet repair applied the shared web scrim token. It also corrected the mobile header, close action, edit action, and transcript bubble.
 
-The latest iOS task repair corrected the Cancel Task sheet curvature, native type roles, copy width, and action alignment.
+The latest iOS task repair corrected the Cancel Task sheet curvature, native type roles, focused border, disabled opacity, and action alignment.
 
 The latest iOS chat repair matched the current device curvature. It also applied the native pine status token to the shared composer action.
 
@@ -152,7 +152,7 @@ The current Provider Choice repair restores the live monospaced facts and string
 
 The current Tool Activity repair matches the live Markdown rhythm. It also adds a reusable focused composer state with its native insertion caret.
 
-The pass also added thirty-eight reusable components and five component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, native-drag-indicator, composer-focus, shell-elevation, web-navigation, and detail-shell-underlay tokens.
+The pass also added thirty-eight reusable components and five component sets. It added dedicated scrim, avatar, iOS border, disabled-surface, native-drag-indicator, native-action-opacity, composer-focus, shell-elevation, web-navigation, and detail-shell-underlay tokens.
 
 | Repaired surface | Blurred mean error |
 | --- | --- |
@@ -217,7 +217,7 @@ The pass also added thirty-eight reusable components and five component sets. It
 | Shared Beam avatar and web onboarding app icon across 41 comparisons | 38 improved; mean change -0.024; no regression |
 | iOS Runtime debug sheet | 5.36 to 3.73 |
 | iOS Discard task sheet | 5.61 to 3.89 |
-| iOS Cancel Task sheet | 4.33 to 4.00 |
+| iOS Cancel Task sheet | 4.33 to 3.70 |
 | Shared iOS keyboard and device corners across 11 comparisons | 10 improved; 1 inactive state preserved by an instance override |
 | Shared iOS device curvature across 45 comparisons | 45 improved; mean change -0.34; no regression |
 | Shared mobile-web navigation and device corners across 36 comparisons | 34 improved; 2 unchanged |
