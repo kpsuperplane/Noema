@@ -994,6 +994,7 @@ async fn client_bearer_authorizes_http_and_ws_without_browser_origin_and_revocat
         WebFiles::new(Some(test_recovery()), test_paths()),
     )
     .expect("web state");
+    super::super::favicons::seed_icon(&state.favicons, "example.com", b"png");
     let server = tokio::spawn(async move {
         axum::serve(listener, build_router(state))
             .await
@@ -1033,6 +1034,19 @@ async fn client_bearer_authorizes_http_and_ws_without_browser_origin_and_revocat
             .and_then(|value| value.as_str()),
         Some("Noema store is unavailable")
     );
+
+    let favicon_response = client
+        .get(format!(
+            "http://localhost:{}/favicons/example.com",
+            address.port()
+        ))
+        .header(reqwest::header::AUTHORIZATION, &bearer)
+        .send()
+        .await
+        .expect("bearer favicon request");
+    assert_eq!(favicon_response.status(), reqwest::StatusCode::OK);
+    let favicon_body = favicon_response.bytes().await.expect("favicon body");
+    assert_eq!(favicon_body.as_ref(), b"png");
 
     let response = client
         .post(&url)
