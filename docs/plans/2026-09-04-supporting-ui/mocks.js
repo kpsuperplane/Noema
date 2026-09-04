@@ -124,7 +124,7 @@
     {
       id: 'provider-models', group: 'Model setup', label: 'Review models', title: 'Ready for your first chat', step: 'Set up Noema · 2 of 2',
       intro: 'Start with the recommended models. You can change them later in Settings.', body: '',
-      intent: 'Show a short summary first. Keep all nine model assignments available under disclosure.',
+      intent: 'Name each selected model once and show its jobs. Keep all nine assignments under customization; update the summary when choices change.',
       constraint: 'Selections remain drafts until explicit confirmation saves the complete setup. Local action reviews remain human approval.'
     },
     {
@@ -270,12 +270,24 @@
   let moveFocus = false;
   const groups = [...new Set(screens.map(screen => screen.group))];
   groups.forEach(group => flowSelect.add(new Option(group, group)));
+  const assignmentLabels = ['Chat', 'Simple tasks', 'Medium tasks', 'Difficult tasks', 'Task reviewer', 'Web summaries', 'Progress checks', 'Action reviews', 'Memory updates'];
+  function modelSummary(values) {
+    const jobGroups = [[[0], 'Chat'], [[1, 2, 4], 'Routine tasks'], [[3], 'Difficult tasks'], [[5, 6, 7, 8], 'Supporting work']];
+    return [...new Set(values)].map(model => {
+      const jobs = jobGroups.flatMap(([indices, label]) => indices.every(index => values[index] === model)
+        ? [label] : indices.filter(index => values[index] === model).map(index => assignmentLabels[index]));
+      return `<section class="model-summary-row"><strong>${model}</strong><p>${jobs.join(' · ')}</p></section>`;
+    }).join('');
+  }
   function modelBody() {
-    const labels = ['Chat', 'Simple tasks', 'Medium tasks', 'Difficult tasks', 'Task reviewer', 'Web summaries', 'Progress checks', 'Action reviews', 'Memory updates'];
-    const assignments = labels.map((label, index) => provider === 'Local' && label === 'Action reviews'
+    // Example choices from the source baseline, not a live provider catalog.
+    const choices = provider === 'Local' ? ['Gemma 4 E4B IT'] : ['GPT-5.6 Luna', 'GPT-5.6 Sol', 'GPT-5.6 Terra'];
+    const values = assignmentLabels.map((_, index) => provider === 'Local' ? index === 7 ? 'Ask me for approval' : choices[0]
+      : index === 3 ? choices[1] : provider === 'Codex' && index === 0 ? choices[2] : choices[0]);
+    const assignments = assignmentLabels.map((label, index) => provider === 'Local' && index === 7
       ? `<section class="assignment"><strong>Action reviews</strong><p>Ask me for approval</p></section>`
-      : `<label class="assignment" for="model-${index}">${label}<select id="model-${index}"><option>Noema recommended</option><option>Example model selection</option></select></label>`).join('');
-    return status(`${provider} connected`, '', 'success') + facts([['Chat', 'Recommended'], ['Tasks', 'Recommended'], ['Supporting work', 'Recommended']]) + `<details><summary>Customize models</summary>${assignments}</details>` + actions(go('Use recommended models', 'provider-complete'), go('Choose another provider', 'provider-choice', 'secondary'));
+      : `<label class="assignment" for="model-${index}">${label}<select id="model-${index}">${choices.map(model => `<option${model === values[index] ? ' selected' : ''}>${model}</option>`).join('')}</select></label>`).join('');
+    return status(`${provider} connected`, '', 'success') + `<section id="model-summary" class="model-summary" aria-label="Selected models">${modelSummary(values)}</section><details><summary>Customize models</summary>${assignments}</details>` + actions(go('Confirm models and start Chat', 'provider-complete'), go('Choose another provider', 'provider-choice', 'secondary'));
   }
   function render() {
     const id = location.hash.slice(1);
@@ -331,7 +343,8 @@
   });
   screenRoot.addEventListener('change', event => {
     if (event.target.matches('.assignment select')) {
-      screenRoot.querySelector('[data-go="provider-complete"]').textContent = 'Confirm models and start Chat';
+      const values = assignmentLabels.map((_, index) => document.getElementById(`model-${index}`)?.value || 'Ask me for approval');
+      document.getElementById('model-summary').innerHTML = modelSummary(values);
     }
   });
   window.addEventListener('hashchange', render);

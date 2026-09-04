@@ -107,6 +107,9 @@ No credentials were submitted. No account, grant, or recovery code was changed.
 - Keep successful sign-in separate from successful tool discovery. A partial result is not fully connected.
 - Use exact attempt events and the existing foreground query. Do not add polling.
 - Keep API-key, local, browser OAuth, device-code, credential, and no-auth paths where currently supported.
+- Group model review by resolved model name and show its jobs. Update the summary from the current draft.
+- Resolve automatic recommendations through provider profiles; keep automatic selection mode unless the person changes it.
+- Never use repeated “Recommended” labels as the model summary.
 - Keep all model assignments and explicit confirmation. Local action reviews remain human approval where required.
 - Use host-selected model fit, transfer size, progress, and diagnostics. Do not promise unsupported resume or timing.
 - Keep authenticated PWA offline behavior and existing local error boundaries.
@@ -154,7 +157,8 @@ This plan requires no database migration or persistent schema change.
 The three font files, their licenses, and `assets/noema.png` copy the existing Noema assets without modification.
 The local-model example comes from `crates/noema-providers/resources/local-models/catalog.toml` at the source baseline.
 It shows Gemma 4 E4B IT, its 5.3 GB Q4_K_M build, Apache-2.0 license, and Metal runtime.
-This is catalog example data, not a claim about the live server’s selected model.
+The model review examples also use `crates/noema-providers/src/recommendations.rs` from the same baseline.
+These are source examples, not claims about the live server’s selected models or current provider availability.
 The gallery uses native HTML controls to remain independent of a build. It is not a new production component library.
 Use production components and current tokens when applying the plan. Do not copy snapshot CSS into the application.
 Only light appearance is specified. A new dark theme is outside this plan.

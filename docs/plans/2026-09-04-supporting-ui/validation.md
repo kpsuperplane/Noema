@@ -18,8 +18,11 @@ Scope: the saved design gallery. These results do not certify the production flo
 - Browser Back restored the previous screen.
 - Native connection denial displayed the no-new-access result.
 - Model customization exposed all nine assignments.
-- Changing an assignment changed the confirmation label to match the custom selection.
+- Changing an assignment updated the grouped model summary. The confirmation action remained explicit.
 - The Local example kept action reviews as human approval.
+- Model review showed resolved example model names and their jobs, without repeated “Recommended” values.
+- OpenRouter, Codex, and Local model summaries passed nine focused layout checks across the three preview widths.
+- Each provider retained all nine assignments under customization. Changed model choices regrouped the summary immediately.
 - Provider rows showed distinct hover and pressed feedback. Keyboard focus showed a solid outline.
 - Enter on the Local row opened local setup. Each row remains one action.
 - The service reconnect and waiting examples rendered inside the Chat intervention context.
@@ -40,7 +43,9 @@ Scope: the saved design gallery. These results do not certify the production flo
 - [Native consent, desktop](screenshots/proposed-consent-desktop.png)
 - [Codex device sign-in, phone](screenshots/proposed-codex-phone.png)
 - [Local download, desktop](screenshots/proposed-download-desktop.png)
-- [Model review, phone](screenshots/proposed-models-phone.png)
+- [OpenRouter model review, phone](screenshots/proposed-models-phone.png)
+- [Codex model review, phone](screenshots/proposed-models-codex-phone.png)
+- [Local model review, phone](screenshots/proposed-models-local-phone.png)
 - [Partial connection result, phone](screenshots/proposed-partial-phone.png)
 - [Rejected recovery code, phone](screenshots/proposed-recovery-phone.png)
 
