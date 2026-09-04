@@ -171,7 +171,7 @@ PRAGMA user_version = 1;`); err != nil {
 	for _, table := range []string{
 		"human_passkeys", "browser_sessions", "clients", "native_oauth_codes",
 		"native_oauth_families", "native_oauth_refresh_tokens", "native_oauth_access_tokens",
-		"provider_accounts",
+		"provider_accounts", "conversations", "local_human_state",
 	} {
 		var exists bool
 		if err := upgraded.db.QueryRow(

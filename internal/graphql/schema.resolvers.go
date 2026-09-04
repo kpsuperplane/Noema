@@ -759,12 +759,12 @@ func (r *queryRootResolver) MemoryPage(ctx context.Context, pageID string) (*mod
 
 // PrimaryConversation is the resolver for the primaryConversation field.
 func (r *queryRootResolver) PrimaryConversation(ctx context.Context) (*model.PrimaryConversation, error) {
-	panic(fmt.Errorf("not implemented: PrimaryConversation - primaryConversation"))
+	return r.primaryConversation(ctx)
 }
 
 // ConversationTranscriptPage is the resolver for the conversationTranscriptPage field.
 func (r *queryRootResolver) ConversationTranscriptPage(ctx context.Context, input model.ConversationTranscriptPageInput) (*model.ConversationTranscriptPage, error) {
-	panic(fmt.Errorf("not implemented: ConversationTranscriptPage - conversationTranscriptPage"))
+	return r.conversationTranscriptPage(ctx, input)
 }
 
 // Artifacts is the resolver for the artifacts field.
@@ -804,7 +804,7 @@ func (r *subscriptionRootResolver) LocalModelEvents(ctx context.Context, after *
 
 // ConversationEvents is the resolver for the conversationEvents field.
 func (r *subscriptionRootResolver) ConversationEvents(ctx context.Context, conversationID string) (<-chan model.ConversationEvent, error) {
-	panic(fmt.Errorf("not implemented: ConversationEvents - conversationEvents"))
+	return r.conversationEvents(ctx, conversationID)
 }
 
 // MemoryEvents is the resolver for the memoryEvents field.

@@ -14,7 +14,7 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 4
+const schemaVersion = 5
 
 // Store is one open Noema database.
 type Store struct {
@@ -93,7 +93,7 @@ func (s *Store) initialize(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, schemaSQL); err != nil {
 			return fmt.Errorf("create schema: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 4"); err != nil {
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 5"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	case 1:
@@ -106,7 +106,10 @@ func (s *Store) initialize(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, schemaV4SQL); err != nil {
 			return fmt.Errorf("apply schema version 4: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 4"); err != nil {
+		if _, err := tx.ExecContext(ctx, schemaV5SQL); err != nil {
+			return fmt.Errorf("apply schema version 5: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 5"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	case 2:
@@ -116,14 +119,27 @@ func (s *Store) initialize(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, schemaV4SQL); err != nil {
 			return fmt.Errorf("apply schema version 4: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 4"); err != nil {
+		if _, err := tx.ExecContext(ctx, schemaV5SQL); err != nil {
+			return fmt.Errorf("apply schema version 5: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 5"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	case 3:
 		if _, err := tx.ExecContext(ctx, schemaV4SQL); err != nil {
 			return fmt.Errorf("apply schema version 4: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 4"); err != nil {
+		if _, err := tx.ExecContext(ctx, schemaV5SQL); err != nil {
+			return fmt.Errorf("apply schema version 5: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 5"); err != nil {
+			return fmt.Errorf("record schema version: %w", err)
+		}
+	case 4:
+		if _, err := tx.ExecContext(ctx, schemaV5SQL); err != nil {
+			return fmt.Errorf("apply schema version 5: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 5"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	case schemaVersion:
@@ -158,7 +174,7 @@ CREATE TABLE task_events (
     UNIQUE (task_id, task_revision)
 ) STRICT;
 
-` + schemaV2SQL + schemaV3SQL + schemaV4SQL
+` + schemaV2SQL + schemaV3SQL + schemaV4SQL + schemaV5SQL
 
 const schemaV2SQL = `
 CREATE TABLE human_passkeys (
@@ -281,4 +297,26 @@ CREATE TABLE provider_accounts (
 
 CREATE INDEX provider_accounts_active_order
 ON provider_accounts(is_active, provider_kind, display_name, account_key);
+`
+
+const schemaV5SQL = `
+CREATE TABLE conversations (
+    conversation_id TEXT PRIMARY KEY
+        CHECK (length(conversation_id) = 45
+            AND substr(conversation_id, 1, 13) = 'conversation:'
+            AND substr(conversation_id, 14) NOT GLOB '*[^0-9a-f]*'),
+    owner_human_id TEXT NOT NULL CHECK (owner_human_id = 'human:local'),
+    provider TEXT NOT NULL CHECK (length(provider) BETWEEN 1 AND 64),
+    cwd TEXT,
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE local_human_state (
+    state_id INTEGER PRIMARY KEY CHECK (state_id = 1),
+    primary_conversation_id TEXT UNIQUE
+        REFERENCES conversations(conversation_id) ON DELETE SET NULL
+) STRICT;
+
+INSERT INTO local_human_state (state_id, primary_conversation_id) VALUES (1, NULL);
 `
