@@ -60,6 +60,9 @@ func run(ctx context.Context, address string, output *os.File) error {
 	}); err != nil {
 		return fmt.Errorf("recover Task documents: %w", err)
 	}
+	if err := recoverProjectDocuments(ctx, root, taskStore); err != nil {
+		return err
+	}
 	authConfig, recovery, err := auth.LoadConfig(paths, address)
 	if err != nil {
 		return err
@@ -147,6 +150,32 @@ func run(ctx context.Context, address string, output *os.File) error {
 		}
 		return fmt.Errorf("serve HTTP: %w", err)
 	}
+}
+
+func recoverProjectDocuments(ctx context.Context, root *os.Root, database *store.Store) error {
+	stages, err := home.ProjectDocumentStages(root)
+	if err != nil {
+		return fmt.Errorf("list staged Project documents: %w", err)
+	}
+	for _, stage := range stages {
+		result, found, err := database.ProjectReceiptResult(ctx, stage.ProjectID, stage.RequestDigest)
+		if err != nil {
+			return fmt.Errorf("inspect staged Project %s: %w", stage.ProjectID, err)
+		}
+		if !found {
+			if err := home.DiscardProjectDocumentStage(root, stage.ProjectID, stage.RequestDigest); err != nil {
+				return fmt.Errorf("discard uncommitted Project %s: %w", stage.ProjectID, err)
+			}
+			continue
+		}
+		if result.Project.ID != stage.ProjectID || result.DocumentDigest != stage.Document.Digest {
+			return fmt.Errorf("staged Project %s does not match its command receipt", stage.ProjectID)
+		}
+		if _, _, err := home.CommitProjectDocumentStage(root, stage, result.Project.Folder); err != nil {
+			return fmt.Errorf("recover Project %s: %w", stage.ProjectID, err)
+		}
+	}
+	return nil
 }
 
 func requireLoopback(address net.Addr) error {

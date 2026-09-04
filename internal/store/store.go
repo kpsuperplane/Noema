@@ -9,16 +9,19 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/kpsuperplane/noema/internal/home"
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 8
+const schemaVersion = 9
 
 // Store is one open Noema database.
 type Store struct {
-	db *sql.DB
+	db              *sql.DB
+	workMu          sync.Mutex
+	workSubscribers map[chan struct{}]struct{}
 }
 
 // Open opens a Go-created Noema database.
@@ -57,7 +60,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(4)
 
-	store := &Store{db: db}
+	store := &Store{db: db, workSubscribers: make(map[chan struct{}]struct{})}
 	if err := store.initialize(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -95,15 +98,20 @@ func (s *Store) initialize(ctx context.Context) error {
 	} else if version < 1 || version > schemaVersion {
 		return fmt.Errorf("unsupported Go schema version %d", version)
 	} else {
-		migrations := []string{"", "", schemaV2SQL, schemaV3SQL, schemaV4SQL, schemaV5SQL, schemaV6SQL, schemaV7SQL, schemaV8SQL}
+		migrations := []string{"", "", schemaV2SQL, schemaV3SQL, schemaV4SQL, schemaV5SQL, schemaV6SQL, schemaV7SQL, schemaV8SQL, schemaV9SQL}
 		for next := version + 1; next <= schemaVersion; next++ {
 			if _, err := tx.ExecContext(ctx, migrations[next]); err != nil {
 				return fmt.Errorf("apply schema version %d: %w", next, err)
 			}
+			if next == 9 {
+				if err := backfillTaskWorkEvents(ctx, tx); err != nil {
+					return fmt.Errorf("backfill Task work events: %w", err)
+				}
+			}
 		}
 	}
 	if version != schemaVersion {
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 8"); err != nil {
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 9"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	}
@@ -135,7 +143,7 @@ CREATE TABLE task_events (
     UNIQUE (task_id, task_revision)
 ) STRICT;
 
-` + schemaV2SQL + schemaV3SQL + schemaV4SQL + schemaV5SQL + schemaV6SQL + schemaV7SQL + schemaV8SQL
+` + schemaV2SQL + schemaV3SQL + schemaV4SQL + schemaV5SQL + schemaV6SQL + schemaV7SQL + schemaV8SQL + schemaV9SQL
 
 const schemaV2SQL = `
 CREATE TABLE human_passkeys (
@@ -457,3 +465,90 @@ WHERE status IN ('input_received', 'running', 'waiting_for_tool');
 CREATE INDEX conversation_items_conversation_sequence
 ON conversation_items(conversation_id, sequence_index);
 `
+
+const schemaV9SQL = `
+CREATE TABLE projects (
+    project_id TEXT PRIMARY KEY
+        CHECK (length(project_id) = 40 AND substr(project_id, 1, 8) = 'project:'),
+    workspace_id TEXT NOT NULL CHECK (workspace_id = 'workspace:personal'),
+    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+    description TEXT NOT NULL DEFAULT '',
+    folder TEXT CHECK (folder IS NULL OR length(trim(folder)) > 0),
+    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+    archived_at_ms INTEGER,
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX projects_workspace_active
+ON projects(workspace_id, archived_at_ms, updated_at_ms DESC, project_id DESC);
+
+CREATE TABLE work_events (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+	event_key TEXT NOT NULL UNIQUE
+		CHECK (length(event_key) = 38 AND substr(event_key, 1, 6) = 'event:'),
+    workspace_id TEXT NOT NULL CHECK (workspace_id = 'workspace:personal'),
+    project_id TEXT REFERENCES projects(project_id) ON DELETE RESTRICT,
+    task_id TEXT REFERENCES tasks(task_id) ON DELETE RESTRICT,
+	run_id TEXT,
+    subject_revision INTEGER NOT NULL CHECK (subject_revision > 0),
+    kind TEXT NOT NULL CHECK (length(trim(kind)) > 0),
+	actor_id TEXT NOT NULL CHECK (length(trim(actor_id)) > 0),
+	causation_id TEXT,
+	correlation_id TEXT NOT NULL CHECK (length(trim(correlation_id)) > 0),
+    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+	occurred_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX work_events_workspace_cursor ON work_events(workspace_id, event_id);
+CREATE INDEX work_events_project_cursor ON work_events(project_id, event_id) WHERE project_id IS NOT NULL;
+CREATE INDEX work_events_task_cursor ON work_events(task_id, event_id) WHERE task_id IS NOT NULL;
+CREATE INDEX work_events_run_cursor ON work_events(run_id, event_id) WHERE run_id IS NOT NULL;
+
+CREATE TABLE command_receipts (
+    actor_id TEXT NOT NULL CHECK (length(trim(actor_id)) > 0),
+    command_name TEXT NOT NULL CHECK (length(trim(command_name)) > 0),
+    client_mutation_id TEXT NOT NULL CHECK (length(trim(client_mutation_id)) > 0),
+    request_digest TEXT NOT NULL CHECK (length(request_digest) = 64 AND request_digest = lower(request_digest)),
+    result_project_id TEXT REFERENCES projects(project_id) ON DELETE RESTRICT,
+    result_task_id TEXT REFERENCES tasks(task_id) ON DELETE RESTRICT,
+    result_event_id INTEGER NOT NULL REFERENCES work_events(event_id) ON DELETE RESTRICT,
+    response_json TEXT NOT NULL CHECK (json_valid(response_json)),
+	created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (actor_id, command_name, client_mutation_id)
+) STRICT;
+`
+
+func backfillTaskWorkEvents(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, "PRAGMA table_info(task_events)")
+	if err != nil {
+		return err
+	}
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var cid, notnull, primary int
+		var name, kind string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &kind, &notnull, &defaultValue, &primary); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		columns[name] = true
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, required := range []string{"event_id", "task_id", "task_revision", "kind", "occurred_at_ms"} {
+		if !columns[required] {
+			return nil
+		}
+	}
+	_, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO work_events
+(event_id, event_key, workspace_id, task_id, subject_revision, kind, actor_id, correlation_id, payload_json, occurred_at_ms)
+SELECT event_id, printf('event:%032x', event_id), 'workspace:personal', task_id, task_revision,
+       replace(kind, '_', '.'),
+       CASE WHEN kind = 'task_captured' THEN 'actor:human:local' ELSE 'actor:system:runtime' END,
+       'correlation:migrated:' || task_id, json_object('v', 1, 'revision', task_revision), occurred_at_ms
+FROM task_events ORDER BY event_id`)
+	return err
+}

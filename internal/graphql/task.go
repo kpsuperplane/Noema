@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 const personalWorkspaceID = "workspace:personal"
@@ -44,26 +44,25 @@ func (r *Resolver) captureTask(
 	if err != nil {
 		return nil, err
 	}
-	task, err := r.Store.CreateTask(ctx, taskID, input.Title, time.Now())
+	task, err := r.Store.CreateTask(ctx, taskID, input.Title,
+		"correlation:graphql:"+input.ClientMutationID, time.Now())
 	if err != nil {
 		return nil, errors.Join(err, r.reconcileFailedTaskCreate(taskID))
 	}
 	if err := home.CommitTaskDocument(r.home, taskID); err != nil {
 		return nil, err
 	}
-	events, err := r.Store.TaskEvents(ctx, task.ID, 0)
+	workEvent, err := r.Store.LatestTaskWorkEvent(ctx, task.ID)
 	if err != nil {
 		return nil, err
 	}
-	if len(events) != 1 {
-		return nil, fmt.Errorf("expected one capture event, got %d", len(events))
+	cursor, err := store.EncodeWorkEventCursor(workEvent.ID)
+	if err != nil {
+		return nil, err
 	}
-
-	event := taskEventModel(events[0], task, input.WorkspaceID, document.Content)
-	r.publishTaskEvent(task.ID, event)
 	return &model.TaskCommandPayload{
 		Task:             taskDetailModel(task, document),
-		EventCursor:      event.Cursor,
+		EventCursor:      cursor,
 		ClientMutationID: input.ClientMutationID,
 	}, nil
 }
@@ -205,39 +204,12 @@ func isTerminal(state store.TaskState) bool {
 	return state == store.TaskCompleted || state == store.TaskCancelled
 }
 
-func taskEventModel(
-	event store.TaskEvent,
-	task store.Task,
-	workspaceID string,
-	document string,
-) *model.TasksEvent {
-	taskID := event.TaskID
-	cursor := strconv.FormatInt(event.ID, 10)
-	return &model.TasksEvent{
-		Cursor:        cursor,
-		EventID:       cursor,
-		Kind:          strings.ReplaceAll(event.Kind, "_", "."),
-		OccurredAt:    event.OccurredAt.Format(time.RFC3339Nano),
-		WorkspaceID:   workspaceID,
-		TaskID:        &taskID,
-		Actor:         "local-human",
-		CorrelationID: task.ID,
-		Payload: map[string]any{
-			"revision": event.Revision,
-		},
-		Task: taskSummaryModel(task, workspaceID, document),
+func parseEventCursor(after *string) (int64, bool, error) {
+	if after == nil {
+		return 0, false, nil
 	}
-}
-
-func parseEventCursor(after *string) (int64, error) {
-	if after == nil || *after == "" {
-		return 0, nil
-	}
-	cursor, err := strconv.ParseInt(*after, 10, 64)
-	if err != nil || cursor < 0 {
-		return 0, errors.New("invalid Task event cursor")
-	}
-	return cursor, nil
+	cursor, err := store.DecodeWorkEventCursor(*after)
+	return cursor, true, err
 }
 
 func (r *Resolver) taskEvents(
@@ -248,59 +220,149 @@ func (r *Resolver) taskEvents(
 	if r.Store == nil {
 		return nil, errors.New("GraphQL Task store is unavailable")
 	}
-	cursor, err := parseEventCursor(after)
+	cursor, supplied, err := parseEventCursor(after)
 	if err != nil {
-		return nil, err
+		return nil, invalidEventCursorError()
 	}
-
-	r.subscriptionsMu.Lock()
 	task, taskErr := r.Store.Task(ctx, taskID)
 	var document home.TaskDocument
 	if taskErr == nil {
 		document, taskErr = home.ReadTaskDocument(r.home, taskID)
 	}
-	var events []store.TaskEvent
-	if taskErr == nil {
-		events, taskErr = r.Store.TaskEvents(ctx, taskID, cursor)
-	}
 	if taskErr != nil {
-		r.subscriptionsMu.Unlock()
 		return nil, taskErr
 	}
-
-	channel := make(chan *model.TasksEvent, len(events)+16)
-	if r.subscriptions == nil {
-		r.subscriptions = make(map[string]map[chan *model.TasksEvent]struct{})
-	}
-	if r.subscriptions[taskID] == nil {
-		r.subscriptions[taskID] = make(map[chan *model.TasksEvent]struct{})
-	}
-	r.subscriptions[taskID][channel] = struct{}{}
-	for _, event := range events {
-		channel <- taskEventModel(event, task, personalWorkspaceID, document.Content)
-	}
-	r.subscriptionsMu.Unlock()
-
-	go func() {
-		<-ctx.Done()
-		r.subscriptionsMu.Lock()
-		delete(r.subscriptions[taskID], channel)
-		if len(r.subscriptions[taskID]) == 0 {
-			delete(r.subscriptions, taskID)
+	if !supplied {
+		cursor, err = r.Store.LatestTaskWorkEventSequence(ctx, taskID)
+		if err != nil {
+			return nil, err
 		}
-		r.subscriptionsMu.Unlock()
-		close(channel)
+	}
+	wake := r.Store.SubscribeWork(ctx)
+	channel := make(chan *model.TasksEvent, 16)
+	summary := taskSummaryModel(task, personalWorkspaceID, document.Content)
+	go func() {
+		defer close(channel)
+		for {
+			events, queryErr := r.Store.WorkEventsForTask(ctx, taskID, cursor, 100)
+			if queryErr != nil {
+				return
+			}
+			for _, event := range events {
+				select {
+				case channel <- workEventModel(event, summary):
+					cursor = event.ID
+				case <-ctx.Done():
+					return
+				}
+			}
+			if len(events) > 0 {
+				continue
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case _, open := <-wake:
+				if !open {
+					return
+				}
+			}
+		}
 	}()
 	return channel, nil
 }
 
-func (r *Resolver) publishTaskEvent(taskID string, event *model.TasksEvent) {
-	r.subscriptionsMu.Lock()
-	defer r.subscriptionsMu.Unlock()
-	for channel := range r.subscriptions[taskID] {
-		select {
-		case channel <- event:
-		default:
+func workEventModel(event store.WorkEvent, task *model.TaskSummary) *model.TasksEvent {
+	cursor, _ := store.EncodeWorkEventCursor(event.ID)
+	result := &model.TasksEvent{
+		Cursor:        cursor,
+		EventID:       event.EventID,
+		Kind:          event.Kind,
+		OccurredAt:    event.OccurredAt.Format(time.RFC3339Nano),
+		WorkspaceID:   event.WorkspaceID,
+		Actor:         event.ActorID,
+		CausationID:   event.CausationID,
+		CorrelationID: event.CorrelationID,
+		Payload:       event.Payload,
+		Task:          task,
+	}
+	if event.ProjectID != "" {
+		value := event.ProjectID
+		result.ProjectID = &value
+	}
+	if event.TaskID != "" {
+		value := event.TaskID
+		result.TaskID = &value
+	}
+	if event.RunID != "" {
+		value := event.RunID
+		result.RunID = &value
+	}
+	return result
+}
+
+func (r *Resolver) tasksEvents(
+	ctx context.Context,
+	workspaceID string,
+	after *string,
+) (<-chan *model.TasksEvent, error) {
+	cursor, supplied, err := parseEventCursor(after)
+	if err != nil {
+		return nil, invalidEventCursorError()
+	}
+	if workspaceID != personalWorkspaceID {
+		return nil, errors.New("invalid Tasks event query")
+	}
+	if !supplied {
+		cursor, err = r.Store.LatestWorkEventSequence(ctx, workspaceID)
+		if err != nil {
+			return nil, err
 		}
 	}
+	wake := r.Store.SubscribeWork(ctx)
+	channel := make(chan *model.TasksEvent, 16)
+	go func() {
+		defer close(channel)
+		for {
+			events, queryErr := r.Store.WorkEvents(ctx, workspaceID, cursor, 100)
+			if queryErr != nil {
+				return
+			}
+			for _, event := range events {
+				var summary *model.TaskSummary
+				if event.TaskID != "" {
+					task, taskErr := r.Store.Task(ctx, event.TaskID)
+					if taskErr == nil {
+						if document, documentErr := home.ReadTaskDocument(r.home, event.TaskID); documentErr == nil {
+							summary = taskSummaryModel(task, workspaceID, document.Content)
+						}
+					}
+				}
+				select {
+				case channel <- workEventModel(event, summary):
+					cursor = event.ID
+				case <-ctx.Done():
+					return
+				}
+			}
+			if len(events) > 0 {
+				continue
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case _, open := <-wake:
+				if !open {
+					return
+				}
+			}
+		}
+	}()
+	return channel, nil
+}
+
+func invalidEventCursorError() error {
+	err := gqlerror.Errorf("the Tasks event cursor is invalid")
+	err.Extensions = map[string]any{"code": "invalid_cursor"}
+	return err
 }

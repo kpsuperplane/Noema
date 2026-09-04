@@ -142,7 +142,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	if _, err := home.CreatePendingTaskDocument(chat.home, taskID, document); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.CreateTask(ctx, taskID, "Large Task", time.Now()); err != nil {
+	if _, err := database.CreateTask(ctx, taskID, "Large Task", "correlation:test:"+taskID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := home.CommitTaskDocument(chat.home, taskID); err != nil {
@@ -501,7 +501,7 @@ func TestChatFinalizesDeterministicTaskInspectStops(t *testing.T) {
 				if _, err := home.CreatePendingTaskDocument(chat.home, taskID, "Stable"); err != nil {
 					t.Fatal(err)
 				}
-				if _, err := database.CreateTask(ctx, taskID, "Stable", time.Now()); err != nil {
+				if _, err := database.CreateTask(ctx, taskID, "Stable", "correlation:test:"+taskID, time.Now()); err != nil {
 					t.Fatal(err)
 				}
 				if err := home.CommitTaskDocument(chat.home, taskID); err != nil {
@@ -651,7 +651,7 @@ func TestChatFinalizesRejectedTaskInspectReplay(t *testing.T) {
 	if _, err := home.CreatePendingTaskDocument(chat.home, taskID, strings.Repeat("x", 64<<10)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := chat.database.CreateTask(ctx, taskID, "Large Task", time.Now()); err != nil {
+	if _, err := chat.database.CreateTask(ctx, taskID, "Large Task", "correlation:test:"+taskID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := home.CommitTaskDocument(chat.home, taskID); err != nil {

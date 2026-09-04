@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -137,6 +138,21 @@ func TestAuthorityAndSetupBarrierRejectBeforeGraphQLParsing(t *testing.T) {
 	devHandler := devServer.Handler(application)
 	if response := serve(devHandler, authRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{}`))); response.Code != http.StatusNoContent {
 		t.Fatalf("development GraphQL = %d", response.Code)
+	}
+	var bodySize int
+	bodyHandler := devServer.Handler(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+			return
+		}
+		bodySize = len(body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	largeDocumentRequest := strings.Repeat("x", 400*1024)
+	if response := serve(bodyHandler, authRequest(http.MethodPost, "/graphql",
+		bytes.NewBufferString(largeDocumentRequest))); response.Code != http.StatusNoContent || bodySize != len(largeDocumentRequest) {
+		t.Fatalf("large GraphQL body = %d with %d bytes", response.Code, bodySize)
 	}
 	if response := serve(devHandler, recoveryRequest("unavailable", nil)); response.Code != http.StatusNotFound {
 		t.Fatalf("development recovery = %d", response.Code)

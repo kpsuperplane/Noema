@@ -518,6 +518,23 @@ The `task.inspect` runtime unit passed on 2026-09-04. It includes:
 This unit does not add Task writes, action requests, scheduling, parallel calls,
 or adaptive progress audits. Those capabilities remain later unit 4 slices.
 
+### Project authority unit
+
+The Project authority unit passed on 2026-09-04. It includes:
+
+- current Project list, document, create, update, archive, and reopen operations;
+- normalized repeat-safe commands with durable receipts and revision checks;
+- central document staging below the Go home for creates, saves, and folder moves;
+- receipt-validated recovery before startup and after uncertain database outcomes;
+- rooted publication with exact content checks and durable directory sync;
+- one global Work event sequence with opaque cursors and separate event identities;
+- bounded ledger replay with store-owned wakeups and subscriber backpressure;
+- Project and Task links, runtime actors, correlations, causation, and run identities;
+- Linux, macOS, and Windows pure-Go build coverage.
+
+This unit does not add Task placement, scheduling, recurrence, execution, or notifications.
+Those capabilities remain later migration units.
+
 ## 11. Validation Strategy
 
 Do not copy all 1,135 Rust tests mechanically.

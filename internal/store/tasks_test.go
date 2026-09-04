@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -14,7 +15,7 @@ func TestTaskStateAndEventsCommitTogether(t *testing.T) {
 	store := openTestStore(t)
 	ctx := context.Background()
 	createdAt := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
-	if _, err := store.CreateTask(ctx, "task:../outside", "Invalid identifier", createdAt); err == nil {
+	if _, err := store.CreateTask(ctx, "task:../outside", "Invalid identifier", "correlation:test", createdAt); err == nil {
 		t.Fatal("invalid Task ID must fail")
 	}
 
@@ -22,7 +23,7 @@ func TestTaskStateAndEventsCommitTogether(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create task ID: %v", err)
 	}
-	task, err := store.CreateTask(ctx, taskID, "Migrate the server", createdAt)
+	task, err := store.CreateTask(ctx, taskID, "Migrate the server", "correlation:test:"+taskID, createdAt)
 	if err != nil {
 		t.Fatalf("create task: %v", err)
 	}
@@ -65,6 +66,13 @@ func TestTaskStateAndEventsCommitTogether(t *testing.T) {
 			t.Fatalf("event %d revision = %d, want %d", index, event.Revision, wantRevision)
 		}
 	}
+	workEvents, err := store.WorkEventsForTask(ctx, task.ID, 0, 100)
+	if err != nil || len(workEvents) != 3 {
+		t.Fatalf("shared Task events = %d, %v", len(workEvents), err)
+	}
+	if workEvents[1].RunID != "run:one" || workEvents[2].Kind != "task.completed" {
+		t.Fatalf("shared Task events = %#v", workEvents)
+	}
 }
 
 func TestStaleRunCannotFinishTask(t *testing.T) {
@@ -75,7 +83,7 @@ func TestStaleRunCannotFinishTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create task ID: %v", err)
 	}
-	task, err := store.CreateTask(ctx, taskID, "Keep current run authority", now)
+	task, err := store.CreateTask(ctx, taskID, "Keep current run authority", "correlation:test:"+taskID, now)
 	if err != nil {
 		t.Fatalf("create task: %v", err)
 	}
@@ -119,7 +127,7 @@ func TestStoreReopensFreshGoSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create task ID: %v", err)
 	}
-	task, err := store.CreateTask(context.Background(), taskID, "Persist a task", time.Now())
+	task, err := store.CreateTask(context.Background(), taskID, "Persist a task", "correlation:test:"+taskID, time.Now())
 	if err != nil {
 		t.Fatalf("create task: %v", err)
 	}
@@ -200,6 +208,36 @@ PRAGMA user_version = 1;`); err != nil {
 	defer fromV2.Close()
 	if err := fromV2.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
 		t.Fatalf("version 2 upgrade = %d, %v", version, err)
+	}
+
+	v8Path := filepath.Join(t.TempDir(), "v8.sqlite3")
+	v8, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(v8Path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v8Schema := strings.TrimSuffix(schemaSQL, schemaV9SQL)
+	if _, err := v8.Exec(v8Schema + `
+INSERT INTO tasks VALUES ('task:0123456789abcdef0123456789abcdef','Old','captured',NULL,1,1,1);
+INSERT INTO task_events(task_id,task_revision,kind,occurred_at_ms)
+VALUES ('task:0123456789abcdef0123456789abcdef',1,'task_captured',1);
+INSERT INTO task_events(task_id,task_revision,kind,occurred_at_ms)
+VALUES ('task:0123456789abcdef0123456789abcdef',2,'task_started',2);
+PRAGMA user_version = 8;`); err != nil {
+		t.Fatal(err)
+	}
+	if err := v8.Close(); err != nil {
+		t.Fatal(err)
+	}
+	fromV8, err := Open(context.Background(), v8Path)
+	if err != nil {
+		t.Fatalf("upgrade version 8 schema: %v", err)
+	}
+	defer fromV8.Close()
+	backfilled, err := fromV8.WorkEventsForTask(context.Background(),
+		"task:0123456789abcdef0123456789abcdef", 0, 100)
+	if err != nil || len(backfilled) != 2 || backfilled[0].Kind != "task.captured" ||
+		backfilled[1].ActorID != "actor:system:runtime" || backfilled[1].Payload["v"] != float64(1) {
+		t.Fatalf("backfilled work events = %#v, %v", backfilled, err)
 	}
 }
 

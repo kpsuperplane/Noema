@@ -17,6 +17,7 @@ import (
 const (
 	recoveryBodyLimit  = 1024
 	authBodyLimit      = 256 * 1024
+	graphqlBodyLimit   = 512 * 1024
 	httpRequestLimit   = 256
 	websocketConnLimit = 64
 )
@@ -454,7 +455,7 @@ func (s *Server) serveGraphQL(
 	native *nativePrincipal,
 ) {
 	if r.Method == http.MethodPost {
-		r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+		r.Body = http.MaxBytesReader(w, r.Body, graphqlBodyLimit)
 	}
 	if native != nil {
 		if !isWebSocket(r) {

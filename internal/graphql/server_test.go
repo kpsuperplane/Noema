@@ -51,7 +51,8 @@ mutation Capture($input: CaptureTaskInput!) {
 	capture := mutation.Data["captureTask"].(map[string]any)
 	task := capture["task"].(map[string]any)
 	taskID := task["taskId"].(string)
-	if capture["clientMutationId"] != "capture-1" || capture["eventCursor"] != "1" {
+	wantEventCursor, _ := store.EncodeWorkEventCursor(1)
+	if capture["clientMutationId"] != "capture-1" || capture["eventCursor"] != wantEventCursor {
 		t.Fatalf("unexpected mutation payload: %#v", capture)
 	}
 	if task["title"] != "Audit dependencies" || task["revision"] != float64(1) {
@@ -155,7 +156,8 @@ func TestCaptureDoesNotExposeTaskWhenDocumentFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("capture after document failure: %v", err)
 	}
-	if payload.EventCursor != "1" {
+	wantCursor, _ := store.EncodeWorkEventCursor(1)
+	if payload.EventCursor != wantCursor {
 		t.Fatalf("event cursor = %q, want first stored event", payload.EventCursor)
 	}
 
@@ -187,7 +189,7 @@ func TestCaptureDoesNotExposeTaskWhenDocumentFails(t *testing.T) {
 		context.Background(),
 		recoveryID,
 		"Recover document",
-		time.Now(),
+		"correlation:test:"+recoveryID, time.Now(),
 	); err != nil {
 		t.Fatalf("create recoverable Task row: %v", err)
 	}
@@ -204,6 +206,14 @@ func TestCaptureDoesNotExposeTaskWhenDocumentFails(t *testing.T) {
 
 func TestTaskEventsUseGraphQLTransportWS(t *testing.T) {
 	resolver := openTestResolver(t)
+	seedID, err := store.NewTaskID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.Store.CreateTask(context.Background(), seedID, "Seed cursor", "correlation:test:"+seedID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := store.EncodeWorkEventCursor(1)
 	taskID, err := store.NewTaskID()
 	if err != nil {
 		t.Fatal(err)
@@ -212,7 +222,7 @@ func TestTaskEventsUseGraphQLTransportWS(t *testing.T) {
 	if _, err := home.CreatePendingTaskDocument(resolver.home, taskID, document); err != nil {
 		t.Fatal(err)
 	}
-	task, err := resolver.Store.CreateTask(context.Background(), taskID, "Stream events", time.Now())
+	task, err := resolver.Store.CreateTask(context.Background(), taskID, "Stream events", "correlation:test:"+taskID, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,12 +258,12 @@ func TestTaskEventsUseGraphQLTransportWS(t *testing.T) {
 		"id":   "task-events",
 		"type": "subscribe",
 		"payload": map[string]any{
-			"query": `subscription TaskEvents($taskId: String!) {
-  taskEvents(taskId: $taskId, after: "0") {
+			"query": `subscription TaskEvents($taskId: String!, $after: String!) {
+  taskEvents(taskId: $taskId, after: $after) {
     cursor kind taskId task { title taskDocumentPreview }
   }
 }`,
-			"variables": map[string]any{"taskId": task.ID},
+			"variables": map[string]any{"taskId": task.ID, "after": after},
 		},
 	})
 	message := readWS(t, ctx, connection)

@@ -68,7 +68,7 @@ func NewTaskID() (string, error) {
 }
 
 // CreateTask stores one captured Task and its first event.
-func (s *Store) CreateTask(ctx context.Context, id string, title string, now time.Time) (Task, error) {
+func (s *Store) CreateTask(ctx context.Context, id string, title string, correlationID string, now time.Time) (Task, error) {
 	if !validTaskID(id) {
 		return Task{}, errors.New("invalid task id")
 	}
@@ -78,6 +78,9 @@ func (s *Store) CreateTask(ctx context.Context, id string, title string, now tim
 	}
 	if len(title) > 500 {
 		return Task{}, errors.New("task title is too long")
+	}
+	if strings.TrimSpace(correlationID) == "" {
+		return Task{}, errors.New("task correlation id cannot be empty")
 	}
 
 	now = now.UTC()
@@ -105,9 +108,15 @@ INSERT INTO tasks (
 	if err := insertTaskEvent(ctx, tx, task, "task_captured"); err != nil {
 		return Task{}, err
 	}
+	if _, err := insertWorkEvent(ctx, tx, "workspace:personal", "", task.ID, "", task.Revision,
+		"task.captured", "actor:human:local", nil, correlationID,
+		map[string]any{"v": 1, "revision": task.Revision}, task.UpdatedAt); err != nil {
+		return Task{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return Task{}, fmt.Errorf("commit task creation: %w", err)
 	}
+	s.NotifyWork()
 	return task, nil
 }
 
@@ -248,10 +257,25 @@ WHERE task_id = ?`, taskID))
 	if err := insertTaskEvent(ctx, tx, task, eventKind); err != nil {
 		return Task{}, err
 	}
+	if _, err := insertWorkEvent(ctx, tx, "workspace:personal", "", task.ID, firstNonemptyStore(expectedRunID, nextRunID), task.Revision,
+		strings.ReplaceAll(eventKind, "_", "."), "actor:system:runtime", nil, "correlation:task:"+task.ID,
+		map[string]any{"v": 1, "revision": task.Revision}, task.UpdatedAt); err != nil {
+		return Task{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return Task{}, fmt.Errorf("commit task change: %w", err)
 	}
+	s.NotifyWork()
 	return task, nil
+}
+
+func firstNonemptyStore(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 type rowScanner interface {

@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/kpsuperplane/noema/internal/auth"
-	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -28,9 +27,7 @@ type Resolver struct {
 	OpenRouter       *provider.OpenRouterService
 	Chat             *runtime.Chat
 	providerAuth     map[string]providerAuthService
-
-	subscriptionsMu sync.Mutex
-	subscriptions   map[string]map[chan *model.TasksEvent]struct{}
+	projectMu        sync.Mutex
 }
 
 // NewResolver creates a GraphQL resolver for one open store.
@@ -51,7 +48,6 @@ func NewResolver(
 		OpenRouter:       openRouter,
 		Chat:             chat,
 		providerAuth:     make(map[string]providerAuthService),
-		subscriptions:    make(map[string]map[chan *model.TasksEvent]struct{}),
 	}
 	if openRouter != nil {
 		resolver.providerAuth["openrouter"] = openRouter

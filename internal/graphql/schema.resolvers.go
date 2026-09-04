@@ -174,27 +174,27 @@ func (r *mutationRootResolver) RetryLocalModelRuntime(ctx context.Context) (mode
 
 // CreateProject is the resolver for the createProject field.
 func (r *mutationRootResolver) CreateProject(ctx context.Context, input model.CreateProjectInput) (*model.ProjectCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: CreateProject - createProject"))
+	return r.createProject(ctx, input)
 }
 
 // UpdateProject is the resolver for the updateProject field.
 func (r *mutationRootResolver) UpdateProject(ctx context.Context, input model.UpdateProjectInput) (*model.ProjectCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: UpdateProject - updateProject"))
+	return r.updateProject(ctx, input)
 }
 
 // UpdateProjectDocument is the resolver for the updateProjectDocument field.
 func (r *mutationRootResolver) UpdateProjectDocument(ctx context.Context, input model.UpdateProjectDocumentInput) (*model.ProjectDocumentCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: UpdateProjectDocument - updateProjectDocument"))
+	return r.updateProjectDocument(ctx, input)
 }
 
 // ArchiveProject is the resolver for the archiveProject field.
 func (r *mutationRootResolver) ArchiveProject(ctx context.Context, input model.ArchiveProjectInput) (*model.ProjectCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: ArchiveProject - archiveProject"))
+	return r.setProjectArchived(ctx, input.ProjectID, input.ExpectedRevision, input.ClientMutationID, true)
 }
 
 // ReopenProject is the resolver for the reopenProject field.
 func (r *mutationRootResolver) ReopenProject(ctx context.Context, input model.ReopenProjectInput) (*model.ProjectCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: ReopenProject - reopenProject"))
+	return r.setProjectArchived(ctx, input.ProjectID, input.ExpectedRevision, input.ClientMutationID, false)
 }
 
 // CaptureTask is the resolver for the captureTask field.
@@ -637,12 +637,12 @@ func (r *queryRootResolver) TaskRecurrences(ctx context.Context, workspaceID str
 
 // Projects is the resolver for the projects field.
 func (r *queryRootResolver) Projects(ctx context.Context, workspaceID string, includeArchived *bool, first *int, after *string) (*model.ProjectConnection, error) {
-	panic(fmt.Errorf("not implemented: Projects - projects"))
+	return r.projects(ctx, workspaceID, includeArchived, first, after)
 }
 
 // ProjectDocument is the resolver for the projectDocument field.
 func (r *queryRootResolver) ProjectDocument(ctx context.Context, projectID string) (*model.ProjectDocument, error) {
-	panic(fmt.Errorf("not implemented: ProjectDocument - projectDocument"))
+	return r.projectDocument(ctx, projectID)
 }
 
 // TasksOverview is the resolver for the tasksOverview field.
@@ -817,7 +817,7 @@ func (r *subscriptionRootResolver) MemoryEvents(ctx context.Context) (<-chan *mo
 
 // TasksEvents is the resolver for the tasksEvents field.
 func (r *subscriptionRootResolver) TasksEvents(ctx context.Context, workspaceID string, after *string) (<-chan *model.TasksEvent, error) {
-	return tasksEvents(ctx), nil
+	return r.tasksEvents(ctx, workspaceID, after)
 }
 
 // TaskEvents is the resolver for the taskEvents field.
