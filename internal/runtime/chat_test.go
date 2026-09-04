@@ -206,14 +206,19 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	}
 	initial, firstContinuation, secondContinuation := <-requests, <-requests, <-requests
 	tools, ok := initial["tools"].([]any)
-	if !ok || len(tools) != 3 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
+	if !ok || len(tools) != 4 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
 		t.Fatalf("initial tool controls = %#v", initial)
 	}
-	function := tools[0].(map[string]any)["function"].(map[string]any)
-	if function["name"] != "inspect" {
-		t.Fatalf("advertised tool = %#v", function)
+	toolNames := make(map[string]bool)
+	for _, tool := range tools {
+		function := tool.(map[string]any)["function"].(map[string]any)
+		toolNames[function["name"].(string)] = true
 	}
-	if len(firstContinuation["tools"].([]any)) != 3 || len(secondContinuation["tools"].([]any)) != 3 {
+	if !toolNames["parse"] || !toolNames["inspect"] ||
+		!toolNames["read_memory_page"] || !toolNames["search_memory"] {
+		t.Fatalf("advertised tools = %#v", toolNames)
+	}
+	if len(firstContinuation["tools"].([]any)) != 4 || len(secondContinuation["tools"].([]any)) != 4 {
 		t.Fatal("normal continuations did not retain the Chat tools")
 	}
 	messages := firstContinuation["messages"].([]any)
@@ -301,7 +306,9 @@ func TestMemoryToolsEnforceInputRulesAndSelectPages(t *testing.T) {
 		{"search extra field", noemamemory.SearchToolName, `{"query":"Alice","extra":true}`},
 		{"search limit", noemamemory.SearchToolName, `{"query":"Alice","limit":17}`},
 	} {
-		payload, success := chat.executeChatTool(context.Background(), test.tool, json.RawMessage(test.arguments))
+		payload, success := chat.executeChatTool(
+			context.Background(), store.Conversation{}, test.tool, json.RawMessage(test.arguments),
+		)
 		if success || !bytes.Contains(payload, []byte(`"code":"invalid_input"`)) {
 			t.Fatalf("%s = %s, %t", test.name, payload, success)
 		}
@@ -359,8 +366,8 @@ func TestChatMemoryContextAndToolResultsReplayWithoutConcealment(t *testing.T) {
 		t.Fatal(err)
 	}
 	collectCompletedTurns(t, events, 1)
-	if len(requests) != 3 || len(requests[0].Tools) != 3 ||
-		requests[0].Tools[1].Name != "read_memory_page" || requests[0].Tools[2].Name != "search_memory" {
+	if len(requests) != 3 || len(requests[0].Tools) != 4 ||
+		requests[0].Tools[2].Name != "read_memory_page" || requests[0].Tools[3].Name != "search_memory" {
 		t.Fatalf("provider Memory tools = %#v", requests[0].Tools)
 	}
 	initialContext := requests[0].Messages[0].Content
@@ -858,6 +865,10 @@ func TestChatCloseCancelsActiveProviderAndRejectsNewTurns(t *testing.T) {
 }
 
 func chatFixture(t *testing.T) (*Chat, *store.Store, store.Conversation) {
+	return chatFixtureAt(t, "/workspace")
+}
+
+func chatFixtureAt(t *testing.T, cwd string) (*Chat, *store.Store, store.Conversation) {
 	t.Helper()
 	ctx := context.Background()
 	root := t.TempDir()
@@ -893,7 +904,7 @@ func chatFixture(t *testing.T) (*Chat, *store.Store, store.Conversation) {
 	if created, err := database.ConfirmHostedModelAssignments(ctx, account.ID, assignments); err != nil || !created {
 		t.Fatalf("confirm assignments = %t, %v", created, err)
 	}
-	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", "/workspace", time.Now())
+	conversation, err := database.EnsurePrimaryConversation(ctx, "openrouter", cwd, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

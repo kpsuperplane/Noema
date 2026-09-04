@@ -26,6 +26,9 @@ import (
 )
 
 func main() {
+	if handled, status := noemaruntime.RunFileParseWorkerIfRequested(); handled {
+		os.Exit(status)
+	}
 	listen := flag.String("listen", "127.0.0.1:3737", "loopback address for the migration server")
 	migrationSpike := flag.Bool("migration-spike", false, "allow the incomplete migration server to start")
 	flag.Parse()

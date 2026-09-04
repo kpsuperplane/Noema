@@ -368,7 +368,7 @@ func (c *Chat) persistChatToolRound(
 	if callItem.ID == "" {
 		return nil, false, errors.New("stored tool call is unavailable")
 	}
-	toolPayload, success := c.executeChatTool(c.ctx, call.Name, call.Payload)
+	toolPayload, success := c.executeChatTool(c.ctx, request.conversation, call.Name, call.Payload)
 	resultItem, err := c.database.FinishConversationToolCall(c.ctx, turn, store.ConversationToolResultInput{
 		CallItemID: callItem.ID, Provider: assignment.ProviderKind,
 		ProviderRound: providerRound, OutputIndex: call.Index,

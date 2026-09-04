@@ -7,6 +7,7 @@ import (
 
 	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/provider"
+	"github.com/kpsuperplane/noema/internal/store"
 )
 
 var (
@@ -26,6 +27,7 @@ var (
 
 func chatTools() []provider.GenerationTool {
 	return []provider.GenerationTool{
+		fileParseTool(),
 		taskInspectTool(),
 		{
 			Name:        noemamemory.ReadPageToolName,
@@ -41,11 +43,19 @@ func chatTools() []provider.GenerationTool {
 }
 
 func supportsChatTool(name string) bool {
-	return name == taskInspectName || name == noemamemory.ReadPageToolName || name == noemamemory.SearchToolName
+	return name == fileParseName || name == taskInspectName ||
+		name == noemamemory.ReadPageToolName || name == noemamemory.SearchToolName
 }
 
-func (c *Chat) executeChatTool(ctx context.Context, name string, arguments json.RawMessage) (json.RawMessage, bool) {
+func (c *Chat) executeChatTool(
+	ctx context.Context,
+	conversation store.Conversation,
+	name string,
+	arguments json.RawMessage,
+) (json.RawMessage, bool) {
 	switch name {
+	case fileParseName:
+		return c.parseFileTool(ctx, conversation, arguments)
 	case taskInspectName:
 		return c.inspectTask(ctx, arguments)
 	case noemamemory.ReadPageToolName:
