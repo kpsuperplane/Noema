@@ -11,7 +11,8 @@ Scope: the saved design gallery. These results do not certify the production flo
 - All 38 states rendered at desktop, 390-pixel, and 320-pixel preview widths.
 - The 114 layout checks found no content outside the preview width and no text overflow.
 - Compact spacing used 20-pixel desktop insets, 16-pixel phone insets, 12-pixel body gaps, and 16-pixel section boundaries.
-- The avatar junction retained 12 pixels of clearance. Astryx button sizes and Task card spacing stayed unchanged.
+- The avatar center aligned exactly with the card’s top edge. Card and title positions stayed unchanged.
+- Astryx button sizes and Task card spacing stayed unchanged.
 - Provider cards stay within the content width and use the Task list’s six-pixel gap.
 - The expanded model form also fit a physical 320-pixel browser viewport.
 - All action targets and documented screen links resolved.

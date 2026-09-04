@@ -59,6 +59,7 @@ Use the existing setup frame, connection surfaces, and Astryx controls during im
 - Center standalone supporting notes, including the text below action buttons. Keep field labels and detailed form content left aligned.
 - Use `text-wrap: pretty` for centered text. Allow wrapping on narrow screens or with larger text; do not truncate it.
 - Show the full 80-pixel avatar with an 8-pixel white outline that joins the card. Do not hide it behind the card.
+- Center the avatar on the card’s top edge: half above and half inside. Move its paint down 16 pixels; keep the title fixed.
 - Give the exposed avatar outline the card’s same thin `border-subtle` border. Hide the lower arc inside the card.
 - Give the combined avatar/card outline one shadow. Neither element casts a separate shadow onto the other.
 - Reuse `IdentityAvatar` with the local agent seed, existing palette, and idle animation. Do not redraw the character.
@@ -72,7 +73,7 @@ Use the existing setup frame, connection surfaces, and Astryx controls during im
 - Assign one spacing owner per boundary: 6 pixels inside the header, 12 between body groups, and 16 before primary actions.
 - Keep label/control gaps at 6 pixels. Do not add child margins to a parent stack gap.
 - Use 16 pixels between the header and body. Use 12-pixel status and detail padding, and 8-pixel fact gaps.
-- Reserve 44 pixels above card content: 32 for the avatar overlap and 12 for clearance.
+- Keep the existing 44-pixel card top inset. The avatar moves independently, without changing the card or heading position.
 - Use 20-pixel desktop side and bottom insets. Use 16-pixel phone side and bottom insets.
 - Use `ListCardButton` from `components/ListCardLink.tsx` for provider choices. It shares the Task card frame.
 - Match Task card borders, white fill, small shadow, 8/12-pixel padding, 6-pixel list gaps, and 13/12-pixel text metrics.
