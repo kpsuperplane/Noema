@@ -95,8 +95,8 @@ schema writing, old migrations, and removed legacy paths.
 
 ### First foundation result
 
-The foundation slice is complete. MCP process isolation remains before the
-evidence gate can produce a final go decision.
+The foundation base is complete. Task document handling remains before the
+evidence gate can produce its final result.
 
 The slice contains:
 
@@ -104,7 +104,9 @@ The slice contains:
 - transaction-based Task state and durable Task events;
 - the complete generated GraphQL schema and its WebSocket transport;
 - Task capture, Task read, and replayable Task events;
+- validation for every checked-in web and iOS GraphQL operation;
 - bounded provider SSE parsing, cancellation, and continuation details;
+- bounded MCP stdio calls with environment and process-tree isolation;
 - bounded diagnostics with explicit safe value types;
 - a loopback-only binary guarded by `-migration-spike`.
 
@@ -112,7 +114,7 @@ An adversarial review found path, permission, stream, and output-bound risks.
 The corrected slice escapes SQLite paths and applies private operating-system access controls.
 It also bounds provider results and diagnostics files.
 
-Authored production code is 1,858 lines. Tests are 810 lines across 18 test
+Authored production code is 2,187 lines. Tests are 1,225 lines across 20 test
 functions. Generated GraphQL code is 80,449 lines.
 
 The first measurements used Go 1.26.0 on Linux amd64. The host had four AMD
@@ -131,6 +133,19 @@ EPYC Rome virtual processors and 7.6 GiB of memory.
 
 All measured builds used `CGO_ENABLED=0`. The scoped tests, race tests, and
 `go vet` passed.
+
+The dependency audit found 20 production modules and no Rust or CGo build
+need. It found no reachable vulnerability with Go 1.26.6.
+
+Go 1.26.0 had 19 reachable standard-library findings. CI and release builds
+must use Go 1.26.6 or newer.
+
+The module graph has no GPL-family license. Release packages must include
+third-party notices for MPL-2.0 and the MCP SDK license transition.
+
+Windows support starts at Windows 10 version 1803 or Windows Server 2019.
+Before cutover, native Windows tests must stress concurrent WAL writes and run
+`PRAGMA integrity_check` after a cold reopen.
 
 Measure these operations on one named reference machine:
 
@@ -224,7 +239,7 @@ package graph.
 | `internal/home` | Paths, protected files, and rooted access |
 | `internal/store` | SQLite, transactions, Go schema changes, and durable commands |
 | `internal/domain` | Tasks, conversations, workspaces, projects, and artifacts |
-| `internal/providers` | Model accounts, routing, streams, and local models |
+| `internal/provider` | Model accounts, routing, streams, and local models |
 | `internal/capabilities` | Policy, adapters, MCP, files, and browser commands |
 | `internal/documents` | Bounded document and image parsing |
 | `internal/script` | Bounded adapter and calculation execution |
@@ -342,8 +357,9 @@ gofmt check
 go vet ./...
 go test ./cmd/... ./internal/...
 go test -race ./cmd/... ./internal/...
-staticcheck ./...
-govulncheck ./...
+staticcheck ./cmd/... ./internal/...
+govulncheck ./cmd/... ./internal/...
+govulncheck github.com/99designs/gqlgen
 GraphQL operation validation
 fresh Go schema check
 ```

@@ -51,7 +51,7 @@ func (p Paths) Database() string {
 // Open creates the home and returns rooted filesystem access.
 func (p Paths) Open() (*os.Root, error) {
 	if p.root == "" {
-		return nil, errors.New("Noema home is not resolved")
+		return nil, errors.New("home is not resolved")
 	}
 	if err := os.MkdirAll(p.root, 0o700); err != nil {
 		return nil, fmt.Errorf("create Noema home: %w", err)

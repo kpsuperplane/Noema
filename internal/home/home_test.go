@@ -33,10 +33,8 @@ func TestResolveUsesExplicitHome(t *testing.T) {
 	if paths.Root() != abs {
 		t.Fatalf("root = %q, want %q", paths.Root(), abs)
 	}
-}
 
-func TestResolveRejectsEmptySources(t *testing.T) {
-	_, err := resolve(
+	_, err = resolve(
 		func(string) (string, bool) { return "", true },
 		func() (string, error) { return "", errors.New("must not run") },
 	)
