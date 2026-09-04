@@ -16,6 +16,7 @@ import (
 	noemagraphql "github.com/kpsuperplane/noema/internal/graphql"
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/store"
+	"github.com/kpsuperplane/noema/internal/web"
 )
 
 func main() {
@@ -80,6 +81,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlHandler)
 	mux.Handle("/graphql/ws", graphqlHandler)
+	mux.Handle("/", web.NewAssetHandler())
 	server := &http.Server{
 		Handler:           browserAuth.Handler(mux),
 		ReadHeaderTimeout: 10 * time.Second,
