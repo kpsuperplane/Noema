@@ -66,9 +66,11 @@ Use the existing setup frame, connection surfaces, and Astryx controls during im
 - Match `shadow-shell-frame` for the combined silhouette: pine at 16% opacity, with zero offset and the same blur width.
 - The preview converts the 24-pixel box-shadow blur to a 12-pixel drop-shadow deviation. This preserves the compound outline.
 - Keep `radius-element` for controls.
-- Assign one spacing owner per boundary: 8 pixels inside the header, 16 between body groups, and 24 before primary actions.
+- Assign one spacing owner per boundary: 6 pixels inside the header, 12 between body groups, and 16 before primary actions.
 - Keep label/control gaps at 6 pixels. Do not add child margins to a parent stack gap.
-- Reserve 48 pixels above card content for the avatar junction. Use 32-pixel desktop insets and 24-pixel phone bottom padding.
+- Use 16 pixels between the header and body. Use 12-pixel status and detail padding, and 8-pixel fact gaps.
+- Reserve 44 pixels above card content: 32 for the avatar overlap and 12 for clearance.
+- Use 20-pixel desktop side and bottom insets. Use 16-pixel phone side and bottom insets.
 - Use `ListCardButton` from `components/ListCardLink.tsx` for provider choices. It shares the Task card frame.
 - Match Task card borders, white fill, small shadow, 8/12-pixel padding, 6-pixel list gaps, and 13/12-pixel text metrics.
 - Reuse its hover border/background and external focus outline. Do not add the earlier inset ring or moving chevron.

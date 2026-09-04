@@ -31,17 +31,18 @@ h2 { font: var(--text-heading-4-weight) var(--text-heading-4-size)/var(--text-he
 /* Compound surface: the avatar mount and card share one exterior shadow.
    Match AppShell.contentDeck: its 24px box blur becomes a 12px Gaussian deviation. */
 .setup-surface { display: grid; justify-items: center; width: min(456px, 100%); filter: drop-shadow(0 0 calc(var(--spacing-6) / 2) color-mix(in srgb, var(--noema-pine-500) 16%, transparent)); }
-.sheet { position: relative; width: 100%; padding: var(--spacing-12) var(--spacing-8) var(--spacing-8); background: var(--background); border: 1px solid var(--border-subtle); border-radius: var(--radius-page); corner-shape: var(--corner-shape-page); }
+.sheet { position: relative; width: 100%; padding: calc(var(--spacing-8) + var(--spacing-3)) var(--spacing-5) var(--spacing-5); background: var(--background); border: 1px solid var(--border-subtle); border-radius: var(--radius-page); corner-shape: var(--corner-shape-page); }
 /* The 80px avatar sits in an 8px white mount. Its full face stays above the card paint. */
 .peek-avatar { position: relative; z-index: 1; width: 96px; height: 96px; padding: var(--spacing-2); margin-bottom: calc(-1 * var(--spacing-8)); background: var(--background); border-radius: var(--radius-full); pointer-events: none; }
 /* Border follows only the exposed arc; the lower edge merges into the card. */
 .peek-avatar::before { content: ""; position: absolute; inset: 0; border: 1px solid var(--border-subtle); border-radius: inherit; clip-path: inset(0 0 var(--spacing-8) 0); }
 .peek-avatar > svg, .peek-avatar > img { display: block; width: 100%; height: 100%; }
-/* One owner per boundary: heading 8, task regions 24, related body groups 16. */
-.screen-heading { display: grid; gap: var(--spacing-2); text-align: center; text-wrap: pretty; }
-.screen-body { display: flex; flex-direction: column; gap: var(--spacing-4); margin-top: var(--spacing-6); }
+/* One owner per boundary: heading 6, task regions 16, related body groups 12.
+   Card top inset includes the 32px avatar overlap plus 12px of clearance. */
+.screen-heading { display: grid; gap: var(--spacing-1-5); text-align: center; text-wrap: pretty; }
+.screen-body { display: flex; flex-direction: column; gap: var(--spacing-3); margin-top: var(--spacing-4); }
 .screen-body > * { margin: 0; }
-.screen-body > .actions:has(.primary), .screen-body > .decision-actions { margin-top: var(--spacing-2); }
+.screen-body > .actions:has(.primary), .screen-body > .decision-actions { margin-top: var(--spacing-1); }
 .screen-body > .actions:first-child { margin-top: 0; }
 #screen { animation: arrive var(--motion-spring-standard) both; }
 .intro { color: var(--muted-foreground); text-wrap: pretty; }
@@ -51,7 +52,7 @@ h2 { font: var(--text-heading-4-weight) var(--text-heading-4-size)/var(--text-he
 .actions > .astryx-button, .decision-actions > .astryx-button { width: 100%; min-width: 0; }
 .decision-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-2); }
 .note { color: var(--muted-foreground); text-align: center; text-wrap: pretty; }
-.status { display: flex; align-items: center; gap: var(--spacing-3); padding: var(--spacing-4); background: var(--surface-sunken); border-radius: var(--radius-element); }
+.status { display: flex; align-items: center; gap: var(--spacing-2); padding: var(--spacing-3); background: var(--surface-sunken); border-radius: var(--radius-element); }
 .status.success { background: var(--noema-pine-50); color: var(--noema-pine-700); }
 .status.error { background: var(--noema-red-100); color: var(--noema-red-700); }
 .status p + p { margin-top: var(--spacing-1); }
@@ -59,7 +60,7 @@ h2 { font: var(--text-heading-4-weight) var(--text-heading-4-size)/var(--text-he
 .status.success .status-icon { background: var(--noema-pine-600); color: var(--primary-foreground); border-radius: var(--radius-full); }
 .status-icon svg { width: var(--spacing-4); height: var(--spacing-4); }
 .status.success path { stroke-dasharray: 24; animation: complete var(--motion-spring-standard) both; }
-.details { padding: var(--spacing-4); background: var(--surface-sunken); border-radius: var(--radius-element); }
+.details { padding: var(--spacing-3); background: var(--surface-sunken); border-radius: var(--radius-element); }
 .details p { margin-top: var(--spacing-2); color: var(--muted-foreground); }
 .field { display: grid; gap: var(--spacing-1-5); }
 .field label { font-weight: var(--text-label-weight); }
@@ -82,10 +83,10 @@ details code { font-family: var(--font-family-code); overflow-wrap: anywhere; }
 .option-copy { display: grid; gap: var(--spacing-1); min-width: 0; }
 .option-copy strong { color: var(--noema-text-primary); font-size: 13px; font-weight: 650; line-height: 1.35; }
 .option-copy small { color: var(--noema-text-secondary); font-size: 12px; line-height: 1.35; }
-.facts { display: grid; gap: var(--spacing-3); }
+.facts { display: grid; gap: var(--spacing-2); }
 .fact { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--spacing-2); }
 .fact span:last-child { color: var(--muted-foreground); }
-.model-summary { display: grid; gap: var(--spacing-4); }
+.model-summary { display: grid; gap: var(--spacing-3); }
 .model-summary-row { display: grid; gap: var(--spacing-1); }
 .model-summary-row p { color: var(--muted-foreground); text-wrap: pretty; }
 .assignment { display: grid; gap: var(--spacing-1-5); margin-top: var(--spacing-3); }
@@ -96,7 +97,7 @@ progress::-webkit-progress-bar { background: var(--surface-sunken); }
 progress::-webkit-progress-value { background: var(--primary); border-radius: var(--radius-full); }
 progress::-moz-progress-bar { background: var(--primary); }
 .progress .fact { font-variant-numeric: tabular-nums; }
-.device-code { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-3); padding: var(--spacing-3) var(--spacing-4); border-radius: var(--radius-element); background: var(--surface-sunken); }
+.device-code { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-3); padding: var(--spacing-2) var(--spacing-3); border-radius: var(--radius-element); background: var(--surface-sunken); }
 .device-code code { font-size: var(--font-size-lg); font-family: var(--font-family-code); letter-spacing: normal; }
 .spinner { width: 18px; height: 18px; border: 2px solid var(--border-default); border-top-color: var(--primary); border-radius: var(--radius-full); animation: turn 1s linear infinite; flex: none; }
 .review-context { max-width: 760px; margin: 0 auto; padding: var(--spacing-6); border-top: 1px solid var(--border-subtle); color: var(--muted-foreground); }
@@ -110,7 +111,7 @@ progress::-moz-progress-bar { background: var(--primary); }
 }
 @container (max-width: 500px) {
   .stage { padding: var(--spacing-6) var(--spacing-3) var(--spacing-8); min-height: 560px; }
-  .sheet { padding: var(--spacing-12) var(--spacing-4) var(--spacing-6); }
+  .sheet { padding-inline: var(--spacing-4); padding-bottom: var(--spacing-4); }
   .field input { font-size: max(16px, 1em); }
 }
 @media (max-width: 540px) {
