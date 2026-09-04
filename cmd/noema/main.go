@@ -16,6 +16,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/auth"
 	noemagraphql "github.com/kpsuperplane/noema/internal/graphql"
 	"github.com/kpsuperplane/noema/internal/home"
+	noemamemory "github.com/kpsuperplane/noema/internal/memory"
 	"github.com/kpsuperplane/noema/internal/provider"
 	noemaruntime "github.com/kpsuperplane/noema/internal/runtime"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -56,6 +57,11 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	defer taskStore.Close()
+	nativeMemory, err := noemamemory.New(root)
+	if err != nil {
+		return err
+	}
+	defer nativeMemory.Close()
 	if err := home.RecoverTaskDocuments(root, func(taskID string) (bool, error) {
 		return taskStore.TaskExists(ctx, taskID)
 	}); err != nil {
@@ -122,7 +128,8 @@ func run(ctx context.Context, address string, output *os.File) error {
 	}
 
 	graphqlHandler := noemagraphql.NewHandler(noemagraphql.NewResolver(
-		taskStore, root, browserAuth, providerAccounts, openRouter, chatRuntime, codex, artifacts,
+		taskStore, root, browserAuth, providerAccounts, openRouter, chatRuntime, codex,
+		artifacts, nativeMemory,
 	))
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlHandler)

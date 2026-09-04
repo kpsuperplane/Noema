@@ -586,7 +586,7 @@ func openTestResolver(t *testing.T) *Resolver {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewResolver(taskStore, root, nil, nil, nil, nil, nil, artifacts)
+	return NewResolver(taskStore, root, nil, nil, nil, nil, nil, artifacts, nil)
 }
 
 func openProviderTestResolver(t *testing.T) *Resolver {
@@ -622,7 +622,7 @@ func openProviderTestResolver(t *testing.T) *Resolver {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewResolver(taskStore, root, nil, accounts, openRouter, nil, nil, artifacts)
+	return NewResolver(taskStore, root, nil, accounts, openRouter, nil, nil, artifacts, nil)
 }
 
 func postGraphQL(

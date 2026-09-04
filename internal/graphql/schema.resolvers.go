@@ -747,17 +747,17 @@ func (r *queryRootResolver) McpOauthSetupAttempt(ctx context.Context, attemptID 
 
 // MemorySettings is the resolver for the memorySettings field.
 func (r *queryRootResolver) MemorySettings(ctx context.Context) (*model.GraphqlNativeMemorySettings, error) {
-	panic(fmt.Errorf("not implemented: MemorySettings - memorySettings"))
+	return r.memorySettings(ctx)
 }
 
 // MemoryTree is the resolver for the memoryTree field.
 func (r *queryRootResolver) MemoryTree(ctx context.Context) (*model.GraphqlNativeMemoryTree, error) {
-	panic(fmt.Errorf("not implemented: MemoryTree - memoryTree"))
+	return r.memoryTree(ctx)
 }
 
 // MemoryPage is the resolver for the memoryPage field.
 func (r *queryRootResolver) MemoryPage(ctx context.Context, pageID string) (*model.GraphqlNativeMemoryPage, error) {
-	panic(fmt.Errorf("not implemented: MemoryPage - memoryPage"))
+	return r.memoryPage(ctx, pageID)
 }
 
 // PrimaryConversation is the resolver for the primaryConversation field.
@@ -812,7 +812,7 @@ func (r *subscriptionRootResolver) ConversationEvents(ctx context.Context, conve
 
 // MemoryEvents is the resolver for the memoryEvents field.
 func (r *subscriptionRootResolver) MemoryEvents(ctx context.Context) (<-chan *model.GraphqlNativeMemoryTree, error) {
-	panic(fmt.Errorf("not implemented: MemoryEvents - memoryEvents"))
+	return r.memoryEvents(ctx)
 }
 
 // TasksEvents is the resolver for the tasksEvents field.
