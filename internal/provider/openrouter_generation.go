@@ -22,9 +22,6 @@ const (
 
 var errOpenRouterGenerationTooLarge = errors.New("OpenRouter generation response is too large")
 
-// ErrOpenRouterGenerationRequestTooLarge means local replay exceeded the provider request bound.
-var ErrOpenRouterGenerationRequestTooLarge = errors.New("OpenRouter generation request is too large")
-
 // OpenRouterGenerator sends Chat Completions requests.
 type OpenRouterGenerator struct {
 	accounts *AccountService
@@ -239,7 +236,7 @@ func prepareOpenRouterGeneration(
 		return nil, openRouterToolNameMap{}, errors.New("OpenRouter generation request is invalid")
 	}
 	if len(body) > openRouterGenerationRequestLimit {
-		return nil, openRouterToolNameMap{}, ErrOpenRouterGenerationRequestTooLarge
+		return nil, openRouterToolNameMap{}, ErrGenerationRequestTooLarge
 	}
 	return body, toolNames, nil
 }

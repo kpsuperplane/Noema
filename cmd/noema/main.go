@@ -88,11 +88,17 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	defer codex.Close()
-	generator, err := provider.NewOpenRouterGenerator(providerAccounts)
+	openRouterGenerator, err := provider.NewOpenRouterGenerator(providerAccounts)
 	if err != nil {
 		return err
 	}
-	chatRuntime, err := noemaruntime.NewChat(taskStore, generator, root)
+	codexGenerator, err := provider.NewCodexGenerator(providerAccounts)
+	if err != nil {
+		return err
+	}
+	chatRuntime, err := noemaruntime.NewChat(
+		taskStore, openRouterGenerator, codexGenerator, root,
+	)
 	if err != nil {
 		return err
 	}

@@ -273,6 +273,133 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	}
 }
 
+func TestChatRoutesCodexAssignmentThroughToolContinuation(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	homeRoot, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = homeRoot.Close() })
+	database, err := store.Open(ctx, filepath.Join(root, "noema.sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	const accountID = "provider_account:codex:default"
+	now := time.Now()
+	if _, err := database.CreateProviderAccount(ctx, provider.Account{
+		ID: accountID, ProviderKind: "codex", AccountKey: "default", DisplayName: "Codex",
+		AuthMethod: provider.AuthOAuthDeviceCode, IsActive: true, IsDefault: true,
+		Status: provider.StatusAuthenticated, Metadata: provider.AccountMetadata{},
+		CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assignments := make([]store.ModelAssignment, 0, len(store.HostedModelRoles()))
+	for _, role := range store.HostedModelRoles() {
+		assignments = append(assignments, store.ModelAssignment{
+			Role: role, ProviderKind: "codex", ProviderAccountID: accountID,
+			SelectionMode: store.ModelSelectionNoemaRecommended,
+			FastMode:      role == store.HostedModelNoema,
+		})
+	}
+	if created, err := database.ConfirmHostedModelAssignments(ctx, accountID, assignments); err != nil || !created {
+		t.Fatalf("confirm Codex assignments = %t, %v", created, err)
+	}
+	conversation, err := database.EnsurePrimaryConversation(ctx, "codex", "/workspace", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	openRouterCalls := 0
+	openRouter := generatorFunc(func(context.Context, provider.GenerateRequest, func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		openRouterCalls++
+		return provider.GenerationResult{}, errors.New("unexpected OpenRouter request")
+	})
+	var requests []provider.GenerateRequest
+	codex := generatorFunc(func(_ context.Context, request provider.GenerateRequest, _ func(provider.StreamEvent)) (provider.GenerationResult, error) {
+		requests = append(requests, request)
+		if len(requests) == 1 {
+			return provider.GenerationResult{
+				Model: "gpt-5.6-terra", Text: "I will inspect it.", Usage: provider.Usage{TotalTokens: 3},
+				Reasoning: []provider.GenerationReasoning{{ProviderDetails: []json.RawMessage{
+					json.RawMessage(`{"type":"reasoning","id":"rs_1","encrypted_content":"opaque"}`),
+				}}},
+				ToolCalls: []provider.GenerationToolCall{{
+					ProviderItemID: "fc_1", ProviderCallID: "call_1",
+					ProviderName: taskInspectName, Name: taskInspectName,
+					Payload: json.RawMessage(`{"task_id":"task:missing"}`),
+				}},
+			}, nil
+		}
+		return provider.GenerationResult{
+			Model: "gpt-5.6-terra", Text: "Codex complete.", Usage: provider.Usage{TotalTokens: 4},
+		}, nil
+	})
+	chat, err := NewChat(database, openRouter, codex, homeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = chat.Close() })
+	events, err := chat.Subscribe(ctx, conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-events
+	if _, err := chat.SendTurn(ctx, SendTurnInput{ConversationID: conversation.ID, Input: "Inspect it"}); err != nil {
+		t.Fatal(err)
+	}
+	collectCompletedTurns(t, events, 1)
+	if openRouterCalls != 0 || len(requests) != 2 {
+		t.Fatalf("provider calls = OpenRouter %d, Codex %d", openRouterCalls, len(requests))
+	}
+	for index, request := range requests {
+		if request.AccountID != accountID || request.Model != "gpt-5.6-terra" ||
+			request.ReasoningEffort != "medium" || !request.FastMode {
+			t.Fatalf("Codex request %d = %#v", index, request)
+		}
+	}
+	replayedCall, replayedResult := false, false
+	for _, message := range requests[1].Messages {
+		for _, call := range message.ToolCalls {
+			replayedCall = replayedCall || call.ProviderItemID == "fc_1"
+		}
+		replayedResult = replayedResult ||
+			message.ToolResult != nil && message.ToolResult.ProviderCallID == "call_1"
+	}
+	if !replayedCall || !replayedResult {
+		t.Fatalf("Codex continuation replay = call %t, result %t", replayedCall, replayedResult)
+	}
+	page, err := database.ConversationItemPage(ctx, conversation.ID, "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalText := ""
+	for _, item := range page.Items {
+		if item.Kind == store.ConversationUserText {
+			continue
+		}
+		if item.Metadata["provider"] != "codex" {
+			t.Fatalf("item %s provider metadata = %#v", item.ID, item.Metadata)
+		}
+		if item.Kind == store.ConversationToolCall || item.Kind == store.ConversationToolResult {
+			activity := item.Payload["metadata"].(map[string]any)
+			if activity["provider"] != "codex" {
+				t.Fatalf("item %s activity provider = %#v", item.ID, activity)
+			}
+		}
+		if item.Kind == store.ConversationAssistantText && item.Metadata["phase"] == "final_answer" {
+			finalText = item.ContentText
+			if item.Metadata["provider_usage"].(map[string]any)["provider"] != "codex" {
+				t.Fatalf("final provider usage = %#v", item.Metadata["provider_usage"])
+			}
+		}
+	}
+	if finalText != "Codex complete." {
+		t.Fatalf("durable final text = %q", finalText)
+	}
+}
+
 func TestChatPersistsProviderFailureAndRejectsInvalidTimezone(t *testing.T) {
 	chat, database, conversation := chatFixture(t)
 	events, err := chat.Subscribe(context.Background(), conversation.ID)
@@ -607,7 +734,7 @@ func TestChatCloseCancelsActiveProviderAndRejectsNewTurns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restarted, err := NewChat(database, chat.generator, chat.home)
+	restarted, err := NewChat(database, chat.openRouter, chat.codex, chat.home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -665,7 +792,11 @@ func chatFixture(t *testing.T) (*Chat, *store.Store, store.Conversation) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	chat, err := NewChat(database, generator, homeRoot)
+	codexGenerator, err := provider.NewCodexGenerator(accounts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat, err := NewChat(database, generator, codexGenerator, homeRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -740,6 +871,18 @@ func strconvQuote(value string) string {
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
+
+type generatorFunc func(
+	context.Context, provider.GenerateRequest, func(provider.StreamEvent),
+) (provider.GenerationResult, error)
+
+func (function generatorFunc) Generate(
+	ctx context.Context,
+	request provider.GenerateRequest,
+	onEvent func(provider.StreamEvent),
+) (provider.GenerationResult, error) {
+	return function(ctx, request, onEvent)
+}
 
 func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return function(request)

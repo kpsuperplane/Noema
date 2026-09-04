@@ -25,6 +25,7 @@ type ConversationToolCallInput struct {
 
 // ConversationToolRound is one provider response that requests an immediate tool.
 type ConversationToolRound struct {
+	Provider           string
 	Commentary         string
 	ProviderCommentary string
 	Reasoning          []json.RawMessage
@@ -34,6 +35,7 @@ type ConversationToolRound struct {
 // ConversationToolResultInput is one terminal result for a stored provider call.
 type ConversationToolResultInput struct {
 	CallItemID     string
+	Provider       string
 	ProviderRound  int
 	OutputIndex    int
 	ProviderCallID string
@@ -84,7 +86,8 @@ func (s *Store) StartConversationToolRound(
 	round ConversationToolRound,
 	now time.Time,
 ) ([]ConversationItem, error) {
-	if round.Call.ProviderRound < 0 || round.Call.OutputIndex < 0 ||
+	if strings.TrimSpace(round.Provider) == "" || strings.TrimSpace(round.Provider) != round.Provider ||
+		round.Call.ProviderRound < 0 || round.Call.OutputIndex < 0 ||
 		strings.TrimSpace(round.Call.ProviderCallID) == "" ||
 		strings.TrimSpace(round.Call.ProviderName) == "" ||
 		strings.TrimSpace(round.Call.Name) == "" {
@@ -139,7 +142,7 @@ WHERE turn_id = ? AND kind = 'user_text' ORDER BY sequence_index LIMIT 1`, turn.
 		return map[string]any{
 			"turn_index": turn.TurnIndex, "output_index": output,
 			"provider_round": round.Call.ProviderRound, "source": kind,
-			"provider": "openrouter",
+			"provider": round.Provider,
 		}
 	}
 	if len(round.Reasoning) != 0 {
@@ -191,7 +194,7 @@ WHERE turn_id = ? AND kind = 'user_text' ORDER BY sequence_index LIMIT 1`, turn.
 			"title": "Tool call: " + round.Call.Name, "summary": round.Call.Name,
 			"metadata": map[string]any{
 				"turn_index": turn.TurnIndex, "output_index": round.Call.OutputIndex,
-				"provider": "openrouter", "display": map[string]any{},
+				"provider": round.Provider, "display": map[string]any{},
 				"action": map[string]any{
 					"id": activityID, "provider_item_id": round.Call.ProviderItemID,
 					"provider_call_id": round.Call.ProviderCallID,
@@ -224,7 +227,8 @@ func (s *Store) FinishConversationToolCall(
 	result ConversationToolResultInput,
 	now time.Time,
 ) (ConversationItem, error) {
-	if result.CallItemID == "" || result.ProviderRound < 0 || result.OutputIndex < 0 ||
+	if result.CallItemID == "" || strings.TrimSpace(result.Provider) == "" ||
+		strings.TrimSpace(result.Provider) != result.Provider || result.ProviderRound < 0 || result.OutputIndex < 0 ||
 		strings.TrimSpace(result.ProviderCallID) == "" || strings.TrimSpace(result.ProviderName) == "" ||
 		strings.TrimSpace(result.Name) == "" {
 		return ConversationItem{}, errors.New("conversation tool result is invalid")
@@ -252,7 +256,7 @@ func (s *Store) FinishConversationToolCall(
 		"title": "Tool result: " + result.Name, "summary": result.Name,
 		"metadata": map[string]any{
 			"turn_index": turn.TurnIndex, "output_index": result.OutputIndex,
-			"provider": "openrouter", "display": map[string]any{},
+			"provider": result.Provider, "display": map[string]any{},
 			"action": map[string]any{
 				"call_id": callActivityID, "provider_call_id": result.ProviderCallID,
 				"provider_name": result.ProviderName, "name": result.Name,
@@ -263,7 +267,7 @@ func (s *Store) FinishConversationToolCall(
 	metadata := map[string]any{
 		"turn_index": turn.TurnIndex, "output_index": result.OutputIndex,
 		"provider_round": result.ProviderRound, "source": "provider_action_result",
-		"provider": "openrouter",
+		"provider": result.Provider,
 	}
 	encodedPayload, _ := json.Marshal(payload)
 	encodedMetadata, _ := json.Marshal(metadata)
@@ -310,7 +314,8 @@ WHERE item_id = ? AND conversation_id = ? AND turn_id = ?`,
 	}
 	callMetadata, _ := callPayload["metadata"].(map[string]any)
 	callAction, _ := callMetadata["action"].(map[string]any)
-	if callAction["provider_call_id"] != result.ProviderCallID ||
+	if callMetadata["provider"] != result.Provider ||
+		callAction["provider_call_id"] != result.ProviderCallID ||
 		callAction["provider_name"] != result.ProviderName || callAction["name"] != result.Name {
 		return ConversationItem{}, errors.New("conversation tool result does not match its call")
 	}

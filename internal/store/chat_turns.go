@@ -281,6 +281,7 @@ func (s *Store) CompleteConversationTurnOutput(
 		"phase": "final_answer", "provider_item_id": nil,
 	}
 	if usage != nil {
+		metadata["provider"] = usage.Provider
 		ratio := float64(0)
 		if usage.InputTokens > 0 {
 			ratio = float64(usage.CachedInputTokens) / float64(usage.InputTokens)
@@ -420,15 +421,19 @@ func (s *Store) finishConversationTurn(
 	now time.Time,
 ) (ConversationItem, error) {
 	now = now.UTC()
+	providerKind, _ := metadata["provider"].(string)
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return ConversationItem{}, fmt.Errorf("begin conversation turn completion: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	var status string
+	var status, conversationProvider string
 	if err := tx.QueryRowContext(ctx, `
-SELECT status FROM conversation_turns WHERE turn_id = ? AND conversation_id = ?`,
-		turn.ID, turn.ConversationID).Scan(&status); err != nil {
+SELECT conversation_turns.status, conversations.provider
+FROM conversation_turns
+JOIN conversations ON conversations.conversation_id = conversation_turns.conversation_id
+WHERE conversation_turns.turn_id = ? AND conversation_turns.conversation_id = ?`,
+		turn.ID, turn.ConversationID).Scan(&status, &conversationProvider); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ConversationItem{}, errors.New("conversation turn not found")
 		}
@@ -437,6 +442,10 @@ SELECT status FROM conversation_turns WHERE turn_id = ? AND conversation_id = ?`
 	if status != "input_received" && status != "running" {
 		return ConversationItem{}, errors.New("conversation turn is already final")
 	}
+	if providerKind == "" {
+		providerKind = conversationProvider
+	}
+	metadata["provider"] = providerKind
 	var parentID string
 	if err := tx.QueryRowContext(ctx, `
 SELECT item_id FROM conversation_items
@@ -461,7 +470,7 @@ WHERE turn_id = ? AND status IN ('pending', 'running')`, millis(now), turn.ID); 
 			Metadata: map[string]any{
 				"turn_index": turn.TurnIndex, "output_index": 0,
 				"provider_round": providerRound, "source": "provider_reasoning",
-				"provider": "openrouter",
+				"provider": providerKind,
 			},
 			CreatedAt: now,
 		})

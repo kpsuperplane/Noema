@@ -91,17 +91,18 @@ type subscriber struct {
 
 // Chat serializes text turns and publishes their live events.
 type Chat struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	database  *store.Store
-	generator *provider.OpenRouterGenerator
-	home      *os.Root
-	turns     chan queuedTurn
-	done      chan struct{}
-	closeOnce sync.Once
-	closeErr  error
-	stateMu   sync.RWMutex
-	closed    bool
+	ctx        context.Context
+	cancel     context.CancelFunc
+	database   *store.Store
+	openRouter provider.Generator
+	codex      provider.Generator
+	home       *os.Root
+	turns      chan queuedTurn
+	done       chan struct{}
+	closeOnce  sync.Once
+	closeErr   error
+	stateMu    sync.RWMutex
+	closed     bool
 
 	subMu       sync.Mutex
 	subscribers map[uint64]subscriber
@@ -109,8 +110,13 @@ type Chat struct {
 }
 
 // NewChat starts one text-only Chat runtime.
-func NewChat(database *store.Store, generator *provider.OpenRouterGenerator, homeRoot *os.Root) (*Chat, error) {
-	if database == nil || generator == nil || homeRoot == nil {
+func NewChat(
+	database *store.Store,
+	openRouter provider.Generator,
+	codex provider.Generator,
+	homeRoot *os.Root,
+) (*Chat, error) {
+	if database == nil || openRouter == nil || codex == nil || homeRoot == nil {
 		return nil, errors.New("Chat runtime dependencies are unavailable")
 	}
 	recoveryContext, stopRecovery := context.WithTimeout(context.Background(), shutdownSaveTimeout)
@@ -121,7 +127,8 @@ func NewChat(database *store.Store, generator *provider.OpenRouterGenerator, hom
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	chat := &Chat{
-		ctx: ctx, cancel: cancel, database: database, generator: generator, home: homeRoot,
+		ctx: ctx, cancel: cancel, database: database,
+		openRouter: openRouter, codex: codex, home: homeRoot,
 		turns: make(chan queuedTurn, turnQueueLimit), done: make(chan struct{}),
 		subscribers: make(map[uint64]subscriber),
 	}
@@ -274,6 +281,11 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, err)
 		return
 	}
+	generator, err := c.generatorFor(assignment.ProviderKind)
+	if err != nil {
+		c.failTurn(request.input, turn, err)
+		return
+	}
 	messages, err := c.database.ConversationProviderItems(c.ctx, turn.ConversationID)
 	if err != nil {
 		c.failTurn(request.input, turn, err)
@@ -288,7 +300,7 @@ func (c *Chat) execute(request queuedTurn) {
 		Role: "developer", Content: runtimeEnvironment(request.conversation, request.location, time.Now()),
 	}}, providerMessages...)
 	streamID := "assistant_stream:" + turn.ID + ":initial:response:0"
-	result, err := c.generator.Generate(c.ctx, provider.GenerateRequest{
+	result, err := generator.Generate(c.ctx, provider.GenerateRequest{
 		AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
 		Messages: providerMessages, ReasoningEffort: string(assignment.ReasoningEffort),
 		ConversationID: turn.ConversationID, MaxOutputTokens: maxOutputTokens(),
@@ -316,7 +328,18 @@ func (c *Chat) execute(request queuedTurn) {
 		c.failTurn(request.input, turn, errors.New("provider returned an unsupported tool sequence"))
 		return
 	}
-	c.executeTaskInspectRound(request, turn, assignment, result)
+	c.executeTaskInspectRound(request, turn, assignment, generator, result)
+}
+
+func (c *Chat) generatorFor(providerKind string) (provider.Generator, error) {
+	switch providerKind {
+	case "openrouter":
+		return c.openRouter, nil
+	case "codex":
+		return c.codex, nil
+	default:
+		return nil, errors.New("primary Chat provider is unsupported")
+	}
 }
 
 func (c *Chat) primaryAssignment(ctx context.Context) (store.ModelAssignment, error) {
@@ -328,11 +351,8 @@ func (c *Chat) primaryAssignment(ctx context.Context) (store.ModelAssignment, er
 		if assignment.Role != store.HostedModelNoema {
 			continue
 		}
-		if assignment.ProviderKind != "openrouter" {
-			return store.ModelAssignment{}, errors.New("primary Chat provider is unsupported")
-		}
 		if assignment.SelectionMode == store.ModelSelectionNoemaRecommended {
-			for _, recommendation := range provider.ModelRecommendations("openrouter") {
+			for _, recommendation := range provider.ModelRecommendations(assignment.ProviderKind) {
 				if recommendation.UseCase == provider.ModelUsePrimary {
 					assignment.ModelProfile = recommendation.ModelProfile
 					assignment.ReasoningEffort = store.ModelReasoningEffort(recommendation.ReasoningEffort)

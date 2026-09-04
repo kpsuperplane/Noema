@@ -200,7 +200,13 @@ func TestConversationTurnStreamsPersistsAndReplays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolver.Chat, err = noemaruntime.NewChat(resolver.Store, generator, resolver.home)
+	codexGenerator, err := provider.NewCodexGenerator(resolver.ProviderAccounts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.Chat, err = noemaruntime.NewChat(
+		resolver.Store, generator, codexGenerator, resolver.home,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +277,11 @@ func openChatTestResolver(t *testing.T) *Resolver {
 	if err != nil {
 		t.Fatal(err)
 	}
-	chat, err := noemaruntime.NewChat(resolver.Store, generator, resolver.home)
+	codexGenerator, err := provider.NewCodexGenerator(resolver.ProviderAccounts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat, err := noemaruntime.NewChat(resolver.Store, generator, codexGenerator, resolver.home)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -282,6 +282,7 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 		t.Fatal(err)
 	}
 	items, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{
+		Provider:   "openrouter",
 		Commentary: "I will inspect it.",
 		Reasoning:  []json.RawMessage{json.RawMessage(`{"type":"reasoning.encrypted","data":"opaque"}`)},
 		Call: ConversationToolCallInput{
@@ -305,7 +306,7 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 		t.Fatalf("commentary stream metadata = %#v", items[1].Metadata)
 	}
 	resultInput := ConversationToolResultInput{
-		CallItemID: items[2].ID, ProviderRound: 0, OutputIndex: 2,
+		CallItemID: items[2].ID, Provider: "openrouter", ProviderRound: 0, OutputIndex: 2,
 		ProviderCallID: "provider-call-1", ProviderName: "inspect", Name: "task.inspect",
 		Success: true, Payload: json.RawMessage(`{"task_id":"task:one","title":"One"}`),
 	}
@@ -330,6 +331,7 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 		t.Fatal("conflicting tool result repeat succeeded")
 	}
 	later, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{
+		Provider:   "openrouter",
 		Commentary: "I will inspect another Task.",
 		Call: ConversationToolCallInput{
 			ProviderRound: 1, OutputIndex: 0, ProviderCallID: "provider-call-later",
@@ -345,6 +347,7 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 		t.Fatalf("later commentary metadata = %#v", later[0].Metadata)
 	}
 	if _, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{
+		Provider: "openrouter",
 		Call: ConversationToolCallInput{
 			ProviderRound: 2, OutputIndex: 0, ProviderCallID: "provider-call-overlap",
 			ProviderName: "inspect", Name: "task.inspect", Arguments: json.RawMessage(`{}`),
@@ -353,7 +356,7 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 		t.Fatal("overlapping later tool call succeeded")
 	}
 	if _, err := database.FinishConversationToolCall(ctx, turn, ConversationToolResultInput{
-		CallItemID: later[len(later)-1].ID, ProviderRound: 1, OutputIndex: 0,
+		CallItemID: later[len(later)-1].ID, Provider: "openrouter", ProviderRound: 1, OutputIndex: 0,
 		ProviderCallID: "provider-call-later", ProviderName: "inspect", Name: "task.inspect",
 		Success: false, Payload: json.RawMessage(`{"code":"not_found"}`),
 	}, now.Add(7*time.Second)); err != nil {
@@ -373,6 +376,7 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 		t.Fatal(err)
 	}
 	running, err := database.StartConversationToolRound(ctx, second, ConversationToolRound{
+		Provider: "openrouter",
 		Call: ConversationToolCallInput{
 			ProviderRound: 0, OutputIndex: 0, ProviderCallID: "provider-call-2",
 			ProviderName: "inspect", Name: "task.inspect", Arguments: json.RawMessage(`{"task_id":"task:two"}`),
@@ -382,13 +386,14 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := database.FinishConversationToolCall(ctx, second, ConversationToolResultInput{
-		CallItemID: running[len(running)-1].ID, ProviderRound: 0, OutputIndex: 0,
+		CallItemID: running[len(running)-1].ID, Provider: "openrouter", ProviderRound: 0, OutputIndex: 0,
 		ProviderCallID: "provider-call-2", ProviderName: "inspect", Name: "task.inspect",
 		Success: true, Payload: json.RawMessage(`{"task_id":"task:two"}`),
 	}, now.Add(11*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	running, err = database.StartConversationToolRound(ctx, second, ConversationToolRound{
+		Provider: "openrouter",
 		Call: ConversationToolCallInput{
 			ProviderRound: 1, OutputIndex: 0, ProviderCallID: "provider-call-3",
 			ProviderName: "inspect", Name: "task.inspect", Arguments: json.RawMessage(`{"task_id":"task:three"}`),

@@ -172,7 +172,7 @@ func TestCodexGeneratorRejectsUnsafeInputsBeforeCredentialAccess(t *testing.T) {
 		{"invalid role", GenerateRequest{AccountID: codexGenerationAccountID, Model: "model", Messages: []GenerationMessage{{Role: "operation", Content: "hello"}}}, nil},
 		{"invalid effort", GenerateRequest{AccountID: codexGenerationAccountID, Model: "model", Messages: []GenerationMessage{{Role: "user", Content: "hello"}}, ReasoningEffort: "maximum"}, nil},
 		{"hosted search", GenerateRequest{AccountID: codexGenerationAccountID, Model: "model", Messages: []GenerationMessage{{Role: "user", Content: "hello"}}, HostedWebSearch: true}, nil},
-		{"oversized request", GenerateRequest{AccountID: codexGenerationAccountID, Model: "model", Messages: []GenerationMessage{{Role: "user", Content: strings.Repeat("x", codexGenerationRequestLimit)}}}, ErrCodexGenerationRequestTooLarge},
+		{"oversized request", GenerateRequest{AccountID: codexGenerationAccountID, Model: "model", Messages: []GenerationMessage{{Role: "user", Content: strings.Repeat("x", codexGenerationRequestLimit)}}}, ErrGenerationRequestTooLarge},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {

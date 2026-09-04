@@ -24,9 +24,6 @@ const (
 
 var errCodexGenerationTooLarge = errors.New("Codex generation response is too large")
 
-// ErrCodexGenerationRequestTooLarge means local replay exceeded the provider request bound.
-var ErrCodexGenerationRequestTooLarge = errors.New("Codex generation request is too large")
-
 // CodexGenerator sends direct Codex Responses requests.
 type CodexGenerator struct {
 	accounts     *AccountService
@@ -387,7 +384,7 @@ func prepareCodexGeneration(
 		return nil, openRouterToolNameMap{}, errors.New("Codex generation request is invalid")
 	}
 	if len(body) > codexGenerationRequestLimit {
-		return nil, openRouterToolNameMap{}, ErrCodexGenerationRequestTooLarge
+		return nil, openRouterToolNameMap{}, ErrGenerationRequestTooLarge
 	}
 	return body, toolNames, nil
 }

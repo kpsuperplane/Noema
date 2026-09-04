@@ -274,6 +274,7 @@ func (c *Chat) executeTaskInspectRound(
 	request queuedTurn,
 	turn store.ConversationTurn,
 	assignment store.ModelAssignment,
+	generator provider.Generator,
 	initial provider.GenerationResult,
 ) {
 	result := initial
@@ -296,7 +297,7 @@ func (c *Chat) executeTaskInspectRound(
 		}
 		call := result.ToolCalls[0]
 		toolPayload, success, err := c.persistTaskInspectRound(
-			request, turn, result, call, providerRound,
+			request, turn, assignment, result, call, providerRound,
 		)
 		if err != nil {
 			c.failTurn(request.input, turn, err)
@@ -309,7 +310,7 @@ func (c *Chat) executeTaskInspectRound(
 		nextRound := providerRound + 1
 		var forcedFinalization bool
 		result, forcedFinalization, err = c.generateTaskInspectContinuation(
-			request, turn, assignment, nextRound, stopReason,
+			request, turn, assignment, generator, nextRound, stopReason,
 		)
 		if err != nil {
 			c.failTurn(request.input, turn, err)
@@ -333,11 +334,13 @@ func (c *Chat) executeTaskInspectRound(
 func (c *Chat) persistTaskInspectRound(
 	request queuedTurn,
 	turn store.ConversationTurn,
+	assignment store.ModelAssignment,
 	generation provider.GenerationResult,
 	call provider.GenerationToolCall,
 	providerRound int,
 ) (json.RawMessage, bool, error) {
 	items, err := c.database.StartConversationToolRound(c.ctx, turn, store.ConversationToolRound{
+		Provider:   assignment.ProviderKind,
 		Commentary: generation.Text, Reasoning: generationReasoning(generation),
 		Call: store.ConversationToolCallInput{
 			ProviderRound: providerRound, OutputIndex: call.Index, ProviderItemID: call.ProviderItemID,
@@ -366,7 +369,8 @@ func (c *Chat) persistTaskInspectRound(
 	}
 	toolPayload, success := c.inspectTask(c.ctx, call.Payload)
 	resultItem, err := c.database.FinishConversationToolCall(c.ctx, turn, store.ConversationToolResultInput{
-		CallItemID: callItem.ID, ProviderRound: providerRound, OutputIndex: call.Index,
+		CallItemID: callItem.ID, Provider: assignment.ProviderKind,
+		ProviderRound: providerRound, OutputIndex: call.Index,
 		ProviderCallID: call.ProviderCallID, ProviderName: call.ProviderName,
 		Name: call.Name, Success: success, Payload: toolPayload,
 	}, time.Now())
@@ -384,6 +388,7 @@ func (c *Chat) generateTaskInspectContinuation(
 	request queuedTurn,
 	turn store.ConversationTurn,
 	assignment store.ModelAssignment,
+	generator provider.Generator,
 	providerRound int,
 	stopReason string,
 ) (provider.GenerationResult, bool, error) {
@@ -409,7 +414,7 @@ func (c *Chat) generateTaskInspectContinuation(
 	}}, messages...)
 	streamID := store.ConversationAssistantStreamID(turn.ID, providerRound)
 	generate := func() (provider.GenerationResult, error) {
-		return c.generator.Generate(c.ctx, provider.GenerateRequest{
+		return generator.Generate(c.ctx, provider.GenerateRequest{
 			AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
 			Messages: messages, ReasoningEffort: string(assignment.ReasoningEffort),
 			ConversationID: turn.ConversationID, MaxOutputTokens: taskInspectOutputTokens(stopReason != ""),
@@ -428,7 +433,7 @@ func (c *Chat) generateTaskInspectContinuation(
 	if err == nil {
 		return result, stopReason != "", err
 	}
-	requestTooLarge := errors.Is(err, provider.ErrOpenRouterGenerationRequestTooLarge)
+	requestTooLarge := errors.Is(err, provider.ErrGenerationRequestTooLarge)
 	requestRejected := errors.Is(err, provider.ErrProviderRequestRejected)
 	if !requestTooLarge && !requestRejected {
 		return result, stopReason != "", err
@@ -586,7 +591,7 @@ func (c *Chat) finishGeneratedTurn(
 	item, err := c.database.CompleteConversationTurnOutput(
 		c.ctx, turn, result.Text, result.Text,
 		&store.ProviderUsage{
-			Provider: "openrouter", Model: model, InputTokens: usage.InputTokens,
+			Provider: assignment.ProviderKind, Model: model, InputTokens: usage.InputTokens,
 			OutputTokens: usage.OutputTokens, TotalTokens: usage.TotalTokens,
 			CachedInputTokens: usage.CachedInputTokens,
 		}, generationReasoning(result), providerRound, time.Now(),

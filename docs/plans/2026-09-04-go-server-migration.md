@@ -480,7 +480,21 @@ The Codex Responses HTTP transport includes:
 - access-token refresh near expiry and one refresh retry after authentication rejection;
 - bounded requests, responses, errors, cancellation, and credential lifetime.
 
-WebSocket sessions and runtime provider selection remain later work.
+WebSocket sessions remain later work.
+
+### Primary Chat provider-routing unit
+
+The primary Chat provider-routing unit passed on 2026-09-04. It includes:
+
+- one provider-neutral generation interface and request-size error;
+- selection of OpenRouter or Codex from the stored primary assignment;
+- one fixed provider route through immediate-tool continuations and finalization;
+- provider-specific recommended models and Fast mode;
+- exact provider provenance in usage, reasoning, calls, and results;
+- production composition of both hosted generators;
+- rejection of OpenAI until its Go transport and credentials exist.
+
+This unit changes no schema or client operation.
 
 ### First immediate tool runtime unit
 

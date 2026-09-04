@@ -1,6 +1,18 @@
 package provider
 
-import "encoding/json"
+import (
+	"context"
+	"encoding/json"
+	"errors"
+)
+
+// ErrGenerationRequestTooLarge means local replay exceeded a provider request bound.
+var ErrGenerationRequestTooLarge = errors.New("provider generation request is too large")
+
+// Generator performs one provider-neutral model generation.
+type Generator interface {
+	Generate(context.Context, GenerateRequest, func(StreamEvent)) (GenerationResult, error)
+}
 
 // GenerationMessage is one provider-neutral history message.
 type GenerationMessage struct {
