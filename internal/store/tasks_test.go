@@ -1,0 +1,142 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestTaskStateAndEventsCommitTogether(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+	createdAt := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+
+	task, err := store.CreateTask(ctx, "Migrate the server", createdAt)
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	if task.State != TaskCaptured || task.Revision != 1 {
+		t.Fatalf("created task = %#v", task)
+	}
+
+	started, err := store.StartTask(ctx, task.ID, "run:one", createdAt.Add(time.Second))
+	if err != nil {
+		t.Fatalf("start task: %v", err)
+	}
+	if started.State != TaskRunning || started.CurrentRunID != "run:one" || started.Revision != 2 {
+		t.Fatalf("started task = %#v", started)
+	}
+
+	completed, err := store.FinishTask(
+		ctx,
+		task.ID,
+		"run:one",
+		TaskCompleted,
+		createdAt.Add(2*time.Second),
+	)
+	if err != nil {
+		t.Fatalf("finish task: %v", err)
+	}
+	if completed.State != TaskCompleted || completed.CurrentRunID != "" || completed.Revision != 3 {
+		t.Fatalf("completed task = %#v", completed)
+	}
+
+	events, err := store.TaskEvents(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatalf("read events: %v", err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("event count = %d, want 3", len(events))
+	}
+	for index, event := range events {
+		wantRevision := int64(index + 1)
+		if event.Revision != wantRevision {
+			t.Fatalf("event %d revision = %d, want %d", index, event.Revision, wantRevision)
+		}
+	}
+}
+
+func TestStaleRunCannotFinishTask(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	task, err := store.CreateTask(ctx, "Keep current run authority", now)
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	if _, err := store.StartTask(ctx, task.ID, "run:current", now.Add(time.Second)); err != nil {
+		t.Fatalf("start task: %v", err)
+	}
+
+	_, err = store.FinishTask(ctx, task.ID, "run:stale", TaskCompleted, now.Add(2*time.Second))
+	if !errors.Is(err, ErrStaleRun) {
+		t.Fatalf("stale finish error = %v, want %v", err, ErrStaleRun)
+	}
+
+	current, err := store.Task(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("read current task: %v", err)
+	}
+	if current.State != TaskRunning || current.CurrentRunID != "run:current" || current.Revision != 2 {
+		t.Fatalf("current task changed: %#v", current)
+	}
+
+	events, err := store.TaskEvents(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatalf("read events: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("event count = %d, want 2", len(events))
+	}
+}
+
+func TestStoreReopensFreshGoSchema(t *testing.T) {
+	parent := t.TempDir()
+	path := filepath.Join(parent, "home?variant#one", "noema.sqlite3")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(context.Background(), path)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	task, err := store.CreateTask(context.Background(), "Persist a task", time.Now())
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("database does not use the selected path: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(parent, "home")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("SQLite URI escaped the selected path: %v", err)
+	}
+
+	store, err = Open(context.Background(), path)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if _, err := store.Task(context.Background(), task.ID); err != nil {
+		t.Fatalf("read reopened task: %v", err)
+	}
+}
+
+func openTestStore(t *testing.T) *Store {
+	t.Helper()
+	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "noema.sqlite3"))
+	if err != nil {
+		t.Fatalf("open test store: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close test store: %v", err)
+		}
+	})
+	return store
+}

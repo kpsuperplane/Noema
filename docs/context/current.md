@@ -12,6 +12,12 @@ The current product has one server with web and desktop shells. It also has a
 native SwiftUI iPhone and iPad client. New work should be a small vertical
 slice or a net-negative reduction.
 
+The approved server direction is a complete Go replacement. The new server
+keeps all production capabilities and uses no Rust or CGo.
+
+The Go server uses a fresh home. It does not open or convert a Rust home.
+The Rust server remains the production authority until the final cutover.
+
 ## Current constraints
 
 ### Security and storage

@@ -1,33 +1,29 @@
 # Hypothetical Go Server Migration
 
-- **Status:** Hypothetical decision and execution plan
-- **Mode:** Plan only
+- **Status:** Approved and in progress
+- **Mode:** Implement
 - **Date:** 2026-09-04
 - **Scope:** Replace the Rust server with a Go server
 - **Clients:** Keep the current web, desktop, iPhone, and iPad clients
-- **Recommended target:** Go core with bounded native workers
+- **Target:** Pure-Go server with no Rust and no CGo
 
-This plan does not approve implementation. It defines the evidence, limits,
-and exit gates for a possible migration.
+This plan records the approved migration, evidence, limits, and exit gates.
 
 ## 1. Decision Summary
 
-Noema can move its server core to Go without changing the product clients.
-The migration must preserve the current GraphQL, SQLite, filesystem, security,
-and provider behavior.
+Replace all Noema-owned Rust server code with Go. The server must not compile,
+link, launch, or retain a Rust component.
 
-The recommended target keeps these specialist processes:
+The Go server must preserve every current production capability. Small client
+changes are permitted when behavior remains stable.
 
-- Obscura for interactive browsing;
-- the bounded document parser until Go replacements pass format tests;
-- Luau until an exact bounded Go host passes compatibility tests;
-- the Swift Apple Foundation Models bridge;
-- the existing `llama-server` executables.
+The server must use no CGo. Third-party services and executables remain valid
+integration boundaries when a current capability requires them.
 
-These processes do not own Noema stored state.
+The desktop client must stop embedding the Rust host. It will launch the Go
+server as a sidecar and preserve its current Tauri command contract.
 
-Start implementation only if a representative Go slice passes the decision
-gate in section 5.
+Continue implementation only if a representative Go slice passes section 5.
 
 ## 2. Observable Outcome
 
@@ -52,11 +48,12 @@ The replacement must:
 - Do not replace SQLite.
 - Do not open or convert a Rust-created Noema home.
 - Do not preserve the Rust database or file layout.
+- Do not remove a current production capability.
+- Do not retain Rust workers, libraries, or build targets in the server.
+- Do not add CGo.
 - Do not add a service mesh or distributed database.
 - Do not translate every Rust package into one Go package.
 - Do not preserve obsolete internal Rust APIs.
-- Do not replace Obscura during the core migration.
-- Do not replace Luau syntax during the core migration.
 - Do not expand product capability during the migration.
 - Do not add an ORM, dependency injection framework, or generic repository layer.
 
@@ -76,6 +73,65 @@ The 2026-09-04 baseline contains:
 - disabled incremental compilation for development and tests;
 - an embedded Obscura dependency with V8 and BoringSSL.
 
+### Required production capabilities
+
+| Group | Required behavior |
+| --- | --- |
+| Server shell | GraphQL HTTP and WebSocket, passkeys, recovery, OAuth, sessions, callbacks, artifacts, and assets |
+| Chat | Streaming, transcripts, continuation, context, tools, choices, A2UI, and memory use |
+| Tasks | Capture, scheduling, recurrences, delegation, approvals, retries, cancellation, files, and artifacts |
+| Governance | Action review, human decisions, exact-call checks, authorization recovery, URL checks, and safe diagnostics |
+| Memory | Markdown storage, reads, search, atomic changes, consolidation, citations, and live events |
+| Files | Uploads, downloads, versions, previews, parsing, OCR, and rooted access |
+| Providers | OpenAI, Codex, OpenRouter, Apple Foundation Models, and local GGUF models |
+| Web | Search, fetch, downloads, browser sessions, snapshots, interactions, history, and switching |
+| Adapters | Reviewed definitions, OpenAPI, credentials, OAuth, HTTP, transforms, pagination, and controls |
+| MCP | Stdio, HTTP, OAuth, discovery, setup, policy, recovery, and dynamic calls |
+| ACP | Agent processes, health, authentication, run bridging, and Task completion |
+| Notifications | Web Push, APNs, native notifications, Live Activities, presence, and durable delivery |
+
+Exclude only test support, evaluations, development watchers, GraphiQL, debug
+schema writing, old migrations, and removed legacy paths.
+
+### First foundation result
+
+The foundation slice is complete. MCP process isolation remains before the
+evidence gate can produce a final go decision.
+
+The slice contains:
+
+- a fresh protected home and pure-Go SQLite schema version 1;
+- transaction-based Task state and durable Task events;
+- the complete generated GraphQL schema and its WebSocket transport;
+- Task capture, Task read, and replayable Task events;
+- bounded provider SSE parsing, cancellation, and continuation details;
+- bounded diagnostics with explicit safe value types;
+- a loopback-only binary guarded by `-migration-spike`.
+
+An adversarial review found path, permission, stream, and output-bound risks.
+The corrected slice escapes SQLite paths and applies private operating-system access controls.
+It also bounds provider results and diagnostics files.
+
+Authored production code is 1,858 lines. Tests are 810 lines across 18 test
+functions. Generated GraphQL code is 80,449 lines.
+
+The first measurements used Go 1.26.0 on Linux amd64. The host had four AMD
+EPYC Rome virtual processors and 7.6 GiB of memory.
+
+| Check | Result |
+| --- | ---: |
+| Warm Linux build | 0.84 seconds |
+| Focused provider test | 0.18 seconds |
+| Warm unit suite | 0.76 seconds |
+| Clean Linux amd64 build | 30.69 seconds |
+| Clean Windows amd64 build | 30.58 seconds |
+| Clean macOS arm64 build | 31.37 seconds |
+| Linux and Windows binary | 31 MiB |
+| macOS binary | 29 MiB |
+
+All measured builds used `CGO_ENABLED=0`. The scoped tests, race tests, and
+`go vet` passed.
+
 Measure these operations on one named reference machine:
 
 1. Clean server build.
@@ -92,7 +148,7 @@ peak memory, and produced artifact size.
 
 ## 5. Evidence Gate
 
-Build one disposable Go slice before approving the migration.
+Build one bounded Go slice before porting the remaining server.
 
 The slice must use a new temporary Go home. It must never open the active home.
 
@@ -115,16 +171,19 @@ The slice passes only when all these gates pass:
 
 | Gate | Required result |
 | --- | --- |
-| Build loop | At least five times faster, or below ten seconds |
-| Clean build | At least three times faster than the Rust baseline |
+| Warm build | Complete in five seconds or less |
+| Focused test | Complete in five seconds or less |
+| Warm unit suite | Complete in 30 seconds or less |
+| Clean build | Complete in 60 seconds or less for each platform |
 | Database | Correct results for selected transaction and failure cases |
-| GraphQL | Current generated web and iOS operations remain valid |
+| GraphQL | Current operations validate, or one bounded client patch updates them |
 | Concurrency | Go race detection reports no issue in the slice |
+| Platforms | Pure-Go builds pass for Linux, macOS, and Windows |
 | Security | No weaker file, process, secret, or authorization boundary |
 | Complexity | No new framework exists only to imitate Rust structure |
 
-Stop the migration if this slice fails the build or security gate. Improve
-the Rust build instead.
+Do not expand the port while this slice fails a build or security gate. Correct
+the slice or select a different Go dependency.
 
 ### Spike budget
 
@@ -142,23 +201,18 @@ Stop and reassess if either Go line budget grows by 50 percent.
 Web, desktop, and native clients
               |
               v
-         Go Noema server
+       Pure-Go Noema server
      GraphQL, auth, Tasks, runtime,
      providers, capabilities, storage
-       |       |       |       |
-       v       v       v       v
-   Obscura   parser   Luau   Apple bridge
-       |
-       v
-  external web pages
+              |
+              v
+ Third-party services and executables
 
-Go Noema server ---> SQLite and object-owned files
+Pure-Go server ---> SQLite and object-owned files
 ```
 
-Workers receive bounded requests and return bounded results.
-
-Workers must not receive database credentials, unrelated environment values,
-or access to the complete Noema home.
+External processes receive bounded requests and return bounded results. They
+must not receive database access or the complete Noema home.
 
 ## 7. Go Package Ownership
 
@@ -172,6 +226,8 @@ package graph.
 | `internal/domain` | Tasks, conversations, workspaces, projects, and artifacts |
 | `internal/providers` | Model accounts, routing, streams, and local models |
 | `internal/capabilities` | Policy, adapters, MCP, files, and browser commands |
+| `internal/documents` | Bounded document and image parsing |
+| `internal/script` | Bounded adapter and calculation execution |
 | `internal/runtime` | Agent turns, Task runs, handoffs, and recovery |
 | `internal/api` | GraphQL, sessions, passkeys, OAuth, Push, and assets |
 | `cmd/noema` | Configuration, composition, startup, and shutdown |
@@ -183,17 +239,21 @@ Do not create interfaces for one implementation or tests alone.
 
 Use the Go standard library first.
 
-The initial dependency candidates are:
+The initial dependency choices are:
 
-- gqlgen for the GraphQL server;
-- the official MCP Go SDK;
+- `ncruces/go-sqlite3` for pure-Go SQLite;
+- gqlgen for GraphQL and `graphql-transport-ws`;
+- the official MCP Go SDK for HTTP and subprocess transports;
 - `golang.org/x/oauth2` for OAuth client behavior;
 - go-webauthn for passkeys;
-- a maintained Web Push implementation;
-- a SQLite driver selected by the evidence gate.
+- webpush-go for Web Push;
+- apns2 for APNs;
+- chromedp with external Chrome for interactive browsing;
+- Starlark-Go for bounded scripts;
+- a WebAssembly PDFium runtime and focused Go document readers.
 
-Compare a pure-Go SQLite driver with a CGo driver. Select one through
-transaction, concurrency, backup, and performance evidence.
+Select a pure-Go SQLite driver through transaction, concurrency, backup, and
+performance evidence.
 
 Use Go `os.Root` for rooted file operations. Add platform-specific code only
 for behavior that `os.Root` cannot enforce.
@@ -203,6 +263,17 @@ Keep provider HTTP code concrete. Do not add a generic REST client.
 Pin direct modules. Commit `go.sum`. Record license and advisory checks in the
 release workflow.
 
+Reject any module that requires CGo or a Rust build.
+
+The shipped server and its dependencies use `CGO_ENABLED=0`. The Linux race
+test can use the Go toolchain's CGo-based test instrumentation.
+
+External Chrome, `llama-server`, LibreOffice, and the Apple provider bridge can
+remain integrations. The Go server owns their limits, lifecycle, and protocol.
+
+Browser fingerprints and document formatting can differ. Preserve the supported
+actions, bounded outputs, security checks, and main content.
+
 ## 9. Preserved Contracts
 
 | Boundary | Required compatibility |
@@ -210,15 +281,15 @@ release workflow.
 | Stored state | Use a new Go-owned layout. Keep atomic replacement, checksums, file modes, and rooted access. |
 | GraphQL | Keep `graphql/schema.graphql`, scalar encodings, null behavior, enums, cursors, subscriptions, and error categories. |
 | Providers | Keep request conversion, transcript order, tool calls, cancellation, continuation, finalization, and safe errors. |
-| Tools | Keep MCP transport, OAuth, process isolation, limits, and adapter manifest version 9 with exact Luau behavior. |
+| Tools | Keep MCP transport, OAuth, process isolation, limits, adapters, browsing, files, documents, and bounded scripts. |
 | Security | Keep authorization, egress, action review, approval consumption, URL policy, audit, and current-run checks. |
 | Information | Keep secrets, private information, and ordinary information as the three information classes. |
 
 The first Go release supports only homes created by Go. It does not read,
 upgrade, or convert Rust-created homes.
 
-The first Go release must not require a client update. Preserve product
-behavior through public contracts, not old storage compatibility.
+Avoid client changes when the current contract is practical. Keep any required
+client patch small and preserve product behavior.
 
 Secret Go types must reject JSON and text serialization. Their debug output
 must use fixed text.
@@ -234,11 +305,12 @@ Each unit must pass its gate before the next unit starts.
 | 2. Domain and read API | Add stored reads, current GraphQL queries, and static assets. | Current client operations return equivalent normalized results. |
 | 3. Authentication and commands | Add sessions, passkeys, recovery, native OAuth, commands, approvals, notifications, and audit events. | Security, concurrency, restart, and stale-request cases pass. |
 | 4. Provider and agent runtime | Add provider conversion, streaming, context, tools, Task roles, finalization, and recovery. | Provider fixtures produce equivalent conversations and Task outcomes. |
-| 5. Capabilities and integrations | Add adapters, MCP, files, search, fetch, browser coordination, and local-model supervision. | Current capability security and provider contract cases pass. |
+| 5. Capabilities and integrations | Add adapters, MCP, files, documents, scripts, search, fetch, browsing, and local models. | Current capability security and provider contract cases pass. |
 | 6. API and notifications | Add remaining mutations, subscriptions, Web Push, APNs, Live Activities, and native support. | Client operations and notification lifecycle cases pass. |
-| 7. Candidate acceptance | Run race, contract, restart, and controlled failure tests. | No current verified path loses its main outcome. |
-| 8. Cutover | Follow section 13 and complete live acceptance. | Clients, workers, notifications, Tasks, and recovery pass. |
-| 9. Removal | Remove the replaced server after the rollback window. Keep approved workers. | Current documents name the Go server as the authority. |
+| 7. Desktop sidecar | Launch Go from desktop and proxy existing commands, subscriptions, and OAuth returns. | Current desktop behavior passes without an embedded host. |
+| 8. Candidate acceptance | Run race, contract, restart, and controlled failure tests. | No current verified path loses its main outcome. |
+| 9. Cutover | Follow section 13 and complete live acceptance. | Clients, integrations, notifications, Tasks, and recovery pass. |
+| 10. Removal | Remove all replaced Rust server code after the rollback window. | Current documents name the Go server as the authority. |
 
 Run live acceptance only after explicit approval. Record every waived provider
 or platform case.
@@ -252,7 +324,7 @@ Port tests that protect a distinct risk:
 - authorization, information handling, and path safety;
 - transaction atomicity and data loss;
 - repeat-safe commands and one-use approvals;
-- current-run checks and stale worker claims;
+- current-run checks and stale execution claims;
 - provider wire formats and stream termination;
 - external input bounds and duplicate JSON keys;
 - restart recovery and uncertain external actions;
@@ -268,8 +340,8 @@ Run these checks for each candidate unit:
 ```text
 gofmt check
 go vet ./...
-go test ./...
-go test -race ./...
+go test ./cmd/... ./internal/...
+go test -race ./cmd/... ./internal/...
 staticcheck ./...
 govulncheck ./...
 GraphQL operation validation
@@ -321,25 +393,27 @@ the other implementation.
 
 Stop and request a product decision if any condition occurs:
 
-- client compatibility requires GraphQL changes;
+- client compatibility requires a material or user-visible GraphQL change;
 - the Go path weakens a security or information-handling boundary;
-- exact Luau compatibility requires changing saved adapter behavior;
-- browser parity requires reimplementing Obscura inside the migration;
+- a required capability has no viable pure-Go implementation;
 - a current verified product path must be retired;
 - the build loop misses the evidence gate;
 - the migration exceeds its forecast by 50 percent;
 - rollback cannot start the retained Rust server with its archived home.
 
-## 15. Decisions Required Before Execution
+## 15. Approved Decisions
 
-The human must approve these choices:
+| Decision | Approved direction |
+| --- | --- |
+| Server language | Go only. Retain no Rust server component. |
+| Native linkage | Use no CGo. |
+| Capabilities | Preserve every current production capability. |
+| Clients | Preserve behavior. Small compatibility changes are allowed. |
+| Platforms | Support Linux, macOS, and Windows. |
+| Stored state | Create a fresh Go-owned `NOEMA_HOME`. |
+| Cutover | Use one final replacement after acceptance passes. |
+| Coordination | Assume no concurrent feature work during migration. |
+| Schedule | Continue until the migration is complete. |
 
-1. Go core with retained workers, or a strict pure-Go server.
-2. The reference machine and build targets.
-3. The SQLite driver selected by the spike.
-4. The server feature-freeze window.
-5. The implementation branch and merge sequence.
-6. The live acceptance scope before cutover.
-7. The final removal date for the Rust server.
-
-Until these decisions exist, this document remains a hypothetical plan.
+The implementation owns build thresholds, dependency choices, migration order,
+and the final removal date.
