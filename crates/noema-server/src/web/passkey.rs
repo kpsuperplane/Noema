@@ -70,7 +70,6 @@ pub(super) struct FinishAuthentication {
 #[serde(rename_all = "snake_case")]
 enum BrowserAuthState {
     Authenticated,
-    SetupRequired,
     SetupReady,
     LoginRequired,
 }
@@ -237,10 +236,8 @@ pub(super) async fn status(State(state): State<WebState>, browser: Session) -> R
     };
     let auth_state = if credential_exists {
         BrowserAuthState::LoginRequired
-    } else if state.sessions.is_setup_authorized(&browser).await {
-        BrowserAuthState::SetupReady
     } else {
-        BrowserAuthState::SetupRequired
+        BrowserAuthState::SetupReady
     };
     Json(BrowserAuthStatus {
         state: auth_state,
@@ -253,9 +250,6 @@ pub(super) async fn start_registration(
     State(state): State<WebState>,
     browser: Session,
 ) -> Response {
-    if !registration_start_authorized(&state, &browser).await {
-        return auth_error(StatusCode::FORBIDDEN, "setup_not_authorized");
-    }
     let stored = match state.store.local_human_passkeys().await {
         Ok(stored) => stored,
         Err(_) => {
@@ -265,6 +259,9 @@ pub(super) async fn start_registration(
             );
         }
     };
+    if !stored.is_empty() && !registration_start_authorized(&state, &browser).await {
+        return auth_error(StatusCode::FORBIDDEN, "setup_not_authorized");
+    }
     let passkeys = match deserialize_passkeys(&stored) {
         Ok(passkeys) => passkeys,
         Err(response) => return *response,
@@ -306,9 +303,20 @@ pub(super) async fn finish_registration(
     browser: Session,
     Json(input): Json<FinishRegistration>,
 ) -> Response {
-    if !registration_authorized(&state, &browser).await {
-        return auth_error(StatusCode::FORBIDDEN, "setup_not_authorized");
-    }
+    let initial_claim = if registration_authorized(&state, &browser).await {
+        false
+    } else {
+        match state.store.local_human_has_passkey().await {
+            Ok(false) => true,
+            Ok(true) => return auth_error(StatusCode::FORBIDDEN, "setup_not_authorized"),
+            Err(_) => {
+                return auth_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "authentication_unavailable",
+                );
+            }
+        }
+    };
     let binding = match session::browser_binding(&browser).await {
         Some(binding) => binding,
         None => return auth_error(StatusCode::INTERNAL_SERVER_ERROR, "session_unavailable"),
@@ -339,12 +347,22 @@ pub(super) async fn finish_registration(
         }
     };
     let credential_id = URL_SAFE_NO_PAD.encode(passkey.cred_id().as_ref());
-    match state
-        .store
-        .insert_local_human_passkey(&credential_id, &credential_json)
-        .await
-    {
+    let inserted = if initial_claim {
+        state
+            .store
+            .insert_initial_local_human_passkey(&credential_id, &credential_json)
+            .await
+    } else {
+        state
+            .store
+            .insert_local_human_passkey(&credential_id, &credential_json)
+            .await
+    };
+    match inserted {
         Ok(true) => {}
+        Ok(false) if initial_claim => {
+            return auth_error(StatusCode::CONFLICT, "initial_passkey_claimed");
+        }
         Ok(false) => return auth_error(StatusCode::CONFLICT, "passkey_already_registered"),
         Err(_) => {
             return auth_error(

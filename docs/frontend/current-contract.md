@@ -35,6 +35,10 @@ add disabled navigation merely to reserve future information architecture.
 Onboarding is a bounded readiness flow. It replaces the product shell until
 the human confirms one complete model setup. It then opens Chat.
 
+Before product onboarding, the first visitor creates the initial passkey
+without a recovery code. When a passkey already exists, the login surface keeps
+recovery-code entry behind the `Recover access` action.
+
 The first provider view presents Local, OpenRouter, and Codex as peer choices.
 The human selects one provider to start and can add others later. OpenRouter
 offers OAuth first and keeps API-key entry behind disclosure. Local setup shows

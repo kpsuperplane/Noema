@@ -96,12 +96,12 @@ When it is false, every application request requires one of these credentials:
 
 This network rule does not apply to the local development GraphQL socket.
 
-Noema has two passkey initialization states:
+Noema has two passkey states:
 
-- `setup_required`: no passkey exists
+- `initial_claim`: no passkey exists
 - `ready`: one or more passkeys exist
 
-During `setup_required`, the server permits only:
+During `initial_claim`, the server permits only:
 
 - Static application assets
 - PWA manifest and worker assets
@@ -113,11 +113,17 @@ During `setup_required`, the server permits only:
 The server rejects all other inbound operations. This rule includes GraphQL,
 WebSockets, artifacts, native access, pairing, OAuth callbacks, and GraphiQL.
 
-Passkey registration still requires a setup-only session. In normal mode, the
-human gets that session by entering the recovery code.
+The first visitor can register the initial passkey without prior authority.
+The first completed valid registration claims `human:local`. The store accepts
+that registration only while no passkey exists, so concurrent attempts have one
+winner.
 
-Recovery is the only normal-mode setup authority. Noema must remove the printed
-bootstrap URL and its process-local capability.
+After the initial claim, passkey registration requires a current authenticated
+session with recent passkey verification or a setup-only recovery session.
+
+Recovery is the normal-mode authority for adding a passkey without a usable
+current passkey. Noema must not use a printed bootstrap URL or a process-local
+capability.
 The server must apply this barrier before browser or native authentication.
 Existing native credentials cannot bypass a zero-passkey state.
 Unreadable or malformed passkey state must fail closed.
@@ -224,7 +230,8 @@ WebAuthn credential state.
 Authentication must update only the credential that completed the ceremony.
 Registration must exclude credentials already stored for the human.
 Normal passkey addition and removal require recent passkey authentication.
-Development bypass and recovery enrollment are explicit exceptions.
+Initial claim, development bypass, and recovery enrollment are explicit
+exceptions.
 
 Recent authentication means passkey success in the same browser session during
 the previous five minutes.
@@ -238,7 +245,8 @@ planned credential migration.
 ## 7. One-Time Recovery Code
 
 The recovery code is a secret bearer credential. Possession grants authority to
-enroll a new passkey.
+enroll a new passkey after the initial claim. Initial claim does not require the
+recovery code.
 
 The design trusts access to `config.yaml` as host-level Noema authority. The
 recovery code must never enter logs, events, errors, model context, URLs, or API
@@ -557,7 +565,8 @@ errors can preserve ordinary diagnostics, but they must never expose secrets.
 
 Before public routing, verify:
 
-- `web.dev_no_auth` is false and at least one passkey exists.
+- `web.dev_no_auth` is false.
+- If no passkey exists, confirm that the first public visitor can claim the instance.
 - The public origin uses HTTPS and matches the RP ID.
 - GraphiQL and stdio MCP remain disabled unless explicitly enabled.
 - The listener is loopback-only.

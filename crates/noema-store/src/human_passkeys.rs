@@ -130,6 +130,34 @@ impl NoemaStore {
         .await
     }
 
+    /// Persist the first passkey only when the local human has no passkey.
+    ///
+    /// Returns `false` when another passkey already exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store write fails.
+    pub async fn insert_initial_local_human_passkey(
+        &self,
+        credential_id: &str,
+        credential_json: &str,
+    ) -> Result<bool, StoreError> {
+        self.with_connection(|conn| {
+            Ok(conn.execute(
+                r#"
+                INSERT INTO human_passkeys (credential_id, human_id, credential_json)
+                SELECT ?1, ?2, ?3
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM human_passkeys WHERE human_id = ?2
+                )
+                ON CONFLICT(credential_id) DO NOTHING
+                "#,
+                params![credential_id, LOCAL_HUMAN_ID, credential_json],
+            )? == 1)
+        })
+        .await
+    }
+
     /// Replace one credential only when its serialized snapshot still matches.
     ///
     /// # Errors
@@ -219,9 +247,18 @@ mod tests {
 
         assert!(
             store
-                .insert_local_human_passkey("credential-one", r#"{"credential":"first"}"#)
+                .insert_initial_local_human_passkey("credential-one", r#"{"credential":"first"}"#,)
                 .await
-                .expect("first insert")
+                .expect("initial insert")
+        );
+        assert!(
+            !store
+                .insert_initial_local_human_passkey(
+                    "credential-other",
+                    r#"{"credential":"other"}"#,
+                )
+                .await
+                .expect("competing initial insert")
         );
         assert!(
             store

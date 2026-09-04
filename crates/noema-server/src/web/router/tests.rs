@@ -321,12 +321,15 @@ async fn authority_session_and_removed_bootstrap_boundary() {
 #[tokio::test]
 async fn recovery_authorizes_one_setup_session_without_authenticating_it() {
     let router = test_setup_router().await;
-    let (forbidden, _, _) = request(
+    let (initial_status, _, initial_body) = request(
         router.clone(),
         auth_post("/auth/passkey/register/start", None, Body::empty()),
     )
     .await;
-    assert_eq!(forbidden, StatusCode::FORBIDDEN);
+    assert_eq!(initial_status, StatusCode::OK);
+    let initial: serde_json::Value =
+        serde_json::from_slice(&initial_body).expect("initial start JSON");
+    assert!(initial["ceremonyId"].is_string());
 
     let (recovery_status, headers, _) = request(
         router.clone(),
@@ -424,6 +427,15 @@ async fn browser_authentication_precedes_graphql_parsing() {
         .await
         .expect("insert passkey");
     let router = build_router(web_state_with_store(store, WebAuthMode::Required));
+    assert_eq!(
+        request(
+            router.clone(),
+            auth_post("/auth/passkey/register/start", None, Body::empty()),
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
     let malformed_request = Request::builder()
         .method(Method::POST)
         .uri("/graphql")

@@ -155,6 +155,10 @@ slice or a net-negative reduction.
   stored bearer credential fields are absent.
 - Browser sessions survive server restarts. A protected cookie key and stored
   session digests preserve authority without placing cookie values in SQLite.
+- The first visitor to a fresh instance can create the initial passkey without
+  a recovery code. One atomic insert selects the winner during concurrent claims.
+- After the initial claim, adding a passkey requires recent passkey verification
+  or a recovery-code setup session.
 - Native refresh rotation binds recovery to a client-saved request identifier.
   The exact response remains recoverable while its direct successor is active.
   Noema desktop 0.1.x retains a 60-second retry until its request-bound release.

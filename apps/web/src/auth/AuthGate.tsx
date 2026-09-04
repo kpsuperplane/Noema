@@ -19,12 +19,14 @@ import {
 type AuthState =
   | "loading"
   | "authenticated"
-  | "setup_required"
   | "setup_ready"
   | "login_required"
+  | "recovery_required"
   | "unavailable";
 
-type AuthStatus = { state: Exclude<AuthState, "loading" | "unavailable"> };
+type AuthStatus = {
+  state: "authenticated" | "setup_ready" | "login_required";
+};
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const desktop = isTauriRuntime();
@@ -69,7 +71,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     };
   }, [desktop, initializeAuthentication]);
 
-  async function perform(action: () => Promise<void>) {
+  async function perform(action: () => Promise<void>, failureMessage: string) {
     setWorking(true);
     setError(null);
     pwaRuntime.setCriticalOperation("passkey", true);
@@ -85,7 +87,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       setError(
         caught instanceof DOMException && caught.name === "NotAllowedError"
           ? "The passkey prompt was cancelled or timed out."
-          : "Noema could not verify that passkey. Try again."
+          : failureMessage
       );
     } finally {
       pwaRuntime.setCriticalOperation("passkey", false);
@@ -143,6 +145,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const supported = passkeysSupported();
   const setupReady = visibleState === "setup_ready";
   const loginRequired = visibleState === "login_required";
+  const recoveryRequired = visibleState === "recovery_required";
 
   return (
     <SetupFrame>
@@ -158,6 +161,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               ? "Create your Noema passkey"
               : loginRequired
                 ? "Unlock Noema"
+                : recoveryRequired
+                  ? "Recover access"
                 : "Secure Noema"}
           </h1>
           <p {...stylex.props(styles.description)}>
@@ -165,8 +170,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               ? "Use your device or password manager to create the passkey for this Noema server."
               : loginRequired
                 ? "Use the passkey registered to this server to continue."
-                : visibleState === "setup_required"
-                  ? "Enter the recovery code from the startup config. Each attempt replaces the code."
+                : recoveryRequired
+                  ? "Enter the recovery code from config.yaml to create another passkey. Each attempt replaces the code."
                   : visibleState === "unavailable"
                     ? "Noema could not read the server authentication state."
                     : "Checking server access…"}
@@ -180,7 +185,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           ) : null}
           {error ? <p {...stylex.props(styles.error)}>{error}</p> : null}
 
-          {visibleState === "setup_required" && supported ? (
+          {recoveryRequired && supported ? (
             <VStack
               as="form"
               gap={3}
@@ -207,6 +212,18 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               >
                 Continue
               </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                label="Use passkey"
+                isDisabled={working}
+                onClick={() => {
+                  setError(null);
+                  setState("login_required");
+                }}
+              >
+                Use passkey
+              </Button>
             </VStack>
           ) : null}
 
@@ -216,21 +233,45 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               label="Create passkey"
               isDisabled={working}
               isLoading={working}
-              onClick={() => void perform(enrollPasskey)}
+              onClick={() =>
+                void perform(
+                  enrollPasskey,
+                  "Noema could not create that passkey. Try again."
+                )
+              }
             >
               Create passkey
             </Button>
           ) : null}
           {loginRequired && supported ? (
-            <Button
-              type="button"
-              label="Continue with passkey"
-              isDisabled={working}
-              isLoading={working}
-              onClick={() => void perform(authenticateWithPasskey)}
-            >
-              Continue with passkey
-            </Button>
+            <VStack gap={2}>
+              <Button
+                type="button"
+                label="Continue with passkey"
+                isDisabled={working}
+                isLoading={working}
+                onClick={() =>
+                  void perform(
+                    authenticateWithPasskey,
+                    "Noema could not verify that passkey. Try again."
+                  )
+                }
+              >
+                Continue with passkey
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                label="Recover access"
+                isDisabled={working}
+                onClick={() => {
+                  setError(null);
+                  setState("recovery_required");
+                }}
+              >
+                Recover access
+              </Button>
+            </VStack>
           ) : null}
           {visibleState === "unavailable" ? (
             <Button
