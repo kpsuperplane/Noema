@@ -14,7 +14,7 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 3
+const schemaVersion = 4
 
 // Store is one open Noema database.
 type Store struct {
@@ -93,7 +93,7 @@ func (s *Store) initialize(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, schemaSQL); err != nil {
 			return fmt.Errorf("create schema: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 3"); err != nil {
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 4"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	case 1:
@@ -103,14 +103,27 @@ func (s *Store) initialize(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, schemaV3SQL); err != nil {
 			return fmt.Errorf("apply schema version 3: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 3"); err != nil {
+		if _, err := tx.ExecContext(ctx, schemaV4SQL); err != nil {
+			return fmt.Errorf("apply schema version 4: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 4"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	case 2:
 		if _, err := tx.ExecContext(ctx, schemaV3SQL); err != nil {
 			return fmt.Errorf("apply schema version 3: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 3"); err != nil {
+		if _, err := tx.ExecContext(ctx, schemaV4SQL); err != nil {
+			return fmt.Errorf("apply schema version 4: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 4"); err != nil {
+			return fmt.Errorf("record schema version: %w", err)
+		}
+	case 3:
+		if _, err := tx.ExecContext(ctx, schemaV4SQL); err != nil {
+			return fmt.Errorf("apply schema version 4: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 4"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	case schemaVersion:
@@ -145,7 +158,7 @@ CREATE TABLE task_events (
     UNIQUE (task_id, task_revision)
 ) STRICT;
 
-` + schemaV2SQL + schemaV3SQL
+` + schemaV2SQL + schemaV3SQL + schemaV4SQL
 
 const schemaV2SQL = `
 CREATE TABLE human_passkeys (
@@ -239,4 +252,33 @@ CREATE TABLE native_oauth_browser_requests (
     query TEXT NOT NULL CHECK (length(query) BETWEEN 1 AND 8192),
     csrf TEXT CHECK (csrf IS NULL OR length(csrf) = 43)
 ) STRICT;
+`
+
+const schemaV4SQL = `
+CREATE TABLE provider_accounts (
+    provider_account_id TEXT PRIMARY KEY CHECK (length(provider_account_id) BETWEEN 1 AND 256),
+    provider_kind TEXT NOT NULL CHECK (length(provider_kind) BETWEEN 1 AND 64),
+    account_key TEXT NOT NULL CHECK (length(account_key) BETWEEN 1 AND 128),
+    display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 128),
+    auth_method TEXT NOT NULL CHECK (auth_method IN (
+        'oauth_device_code', 'oauth_pkce', 'secret_input', 'external_manual', 'none'
+    )),
+    is_active INTEGER NOT NULL CHECK (is_active IN (0, 1)),
+    is_default INTEGER NOT NULL CHECK (is_default IN (0, 1)),
+    status TEXT NOT NULL CHECK (status IN (
+        'unknown', 'checking', 'authenticated', 'unauthenticated', 'unavailable'
+    )),
+    last_checked_at_ms INTEGER,
+    last_authenticated_at_ms INTEGER,
+    last_error_code TEXT CHECK (last_error_code IS NULL OR length(last_error_code) <= 128),
+    last_error_message TEXT CHECK (last_error_message IS NULL OR length(last_error_message) <= 1000),
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+        CHECK (json_valid(metadata_json) AND json_type(metadata_json) = 'object'),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    UNIQUE (provider_kind, account_key)
+) STRICT;
+
+CREATE INDEX provider_accounts_active_order
+ON provider_accounts(is_active, provider_kind, display_name, account_key);
 `

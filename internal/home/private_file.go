@@ -87,3 +87,24 @@ func AtomicWritePrivate(path string, data []byte) error {
 	committed = true
 	return syncAbsoluteDirectory(directory)
 }
+
+// RemovePrivateFile durably removes one absolute regular file when it exists.
+func RemovePrivateFile(path string) error {
+	if !filepath.IsAbs(path) {
+		return errors.New("private file path must be absolute")
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect private file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("private path is not a regular file")
+	}
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("remove private file: %w", err)
+	}
+	return syncAbsoluteDirectory(filepath.Dir(path))
+}
