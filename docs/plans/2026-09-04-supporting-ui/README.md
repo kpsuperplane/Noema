@@ -64,9 +64,10 @@ Use the existing setup frame, connection surfaces, and Astryx controls during im
 - Assign one spacing owner per boundary: 8 pixels inside the header, 16 between body groups, and 24 before primary actions.
 - Keep label/control gaps at 6 pixels. Do not add child margins to a parent stack gap.
 - Reserve 48 pixels above card content for the avatar junction. Use 32-pixel desktop insets and 24-pixel phone bottom padding.
-- Use Astryx `List` and `ListItem` for provider choices, with wrapping descriptions and a trailing chevron.
-- Settings already uses these components. Tasks uses `ListCardLink`; retain its familiar whole-row feedback.
-- Match the preview’s inset hover, pressed fill, and visible keyboard focus through existing theme tokens.
+- Use `ListCardButton` from `components/ListCardLink.tsx` for provider choices. It shares the Task card frame.
+- Match Task card borders, white fill, small shadow, 8/12-pixel padding, 6-pixel list gaps, and 13/12-pixel text metrics.
+- Reuse its hover border/background and external focus outline. Do not add the earlier inset ring or moving chevron.
+- Keep descriptions wrapped and each card a single action.
 - Keep model name, download size, and computation location visible. Disclose license, format, runtime, and exact file.
 - Give one action primary emphasis. Keep alternatives quiet and access consequences visible.
 - Use touch controls around 48 pixels high without making all product controls larger.
@@ -129,7 +130,7 @@ Estimates below are maximum net additions, not targets. Reassess against current
 | --- | --- | --- | --- |
 | 1. Access and recovery | `auth/AuthGate.tsx`, `components/shell/SetupFrame.tsx`, current theme, `components/shell/AppBootBoundary.tsx` | +160 production lines; no new UI tests | Recovery must work during native sign-in and PWA reauthentication; preserve session rules and focus |
 | 2. Connection pages | `components/onboarding/AuthAttempt.tsx`, server callback and consent renderers | +220 production lines; up to one server unit regression test | Every result must state the true access outcome and return safely |
-| 3. Setup | `components/onboarding/Onboarding.tsx`, `components/onboarding/ModelSetup.tsx`, Astryx `List`/`ListItem`, existing model preference selectors | +120 production lines; no new UI tests | Defaults remain drafts; all assignments remain editable; local and cloud paths remain complete |
+| 3. Setup | `components/onboarding/Onboarding.tsx`, `components/onboarding/ModelSetup.tsx`, `components/ListCardLink.tsx` (`ListCardButton`), existing model preference selectors | +120 production lines; no new UI tests | Defaults remain drafts; all assignments remain editable; local and cloud paths remain complete |
 
 Paths above are relative to `apps/web/src` unless identified as server files.
 At this baseline, server renderers live in `crates/noema-server/src/web/router.rs` and `native_oauth.rs`.

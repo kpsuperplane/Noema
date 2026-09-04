@@ -90,7 +90,7 @@
       id: 'provider-choice', group: 'Model setup', label: 'Choose provider', title: 'Choose how Noema thinks', step: 'Set up Noema · 1 of 2',
       intro: 'Connect one model provider to get started.',
       body: `<section class="options" aria-label="Model providers">${option('Local', 'Download a model to your Noema server.', 'local-ready', 'Local')}${option('OpenRouter', 'Connect your OpenRouter account.', 'provider-openrouter', 'OpenRouter')}${option('Codex', 'Continue with your Codex sign-in.', 'provider-codex', 'Codex')}</section>` + note('You can add more providers later in Settings.'),
-      intent: 'Reuse Astryx List and ListItem, as Settings does. Use the existing Noema hover and focus tokens. Descriptions must wrap on phones.',
+      intent: 'Use ListCardButton from components/ListCardLink.tsx. Match the Task card frame and text metrics, with wrapping descriptions and one action per card.',
       constraint: 'Account and payment requirements must come from verified provider information. Do not invent a universal recommendation.'
     },
     {

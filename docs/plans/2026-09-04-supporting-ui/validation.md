@@ -10,7 +10,7 @@ Scope: the saved design gallery. These results do not certify the production flo
 - Network requests were blocked during review. The gallery requested no remote resources.
 - All 33 states rendered at desktop, 390-pixel, and 320-pixel preview widths.
 - The 99 layout checks found no content outside the preview width and no text overflow.
-- Row hit areas extend into their reserved gutters and remain inside the viewport.
+- Provider cards stay within the content width and use the Task list’s six-pixel gap.
 - The expanded model form also fit a physical 320-pixel browser viewport.
 - All action targets and documented screen links resolved.
 - Keyboard activation opened recovery and focused the code input.
@@ -23,7 +23,8 @@ Scope: the saved design gallery. These results do not certify the production flo
 - Model review showed resolved example model names and their jobs, without repeated “Recommended” values.
 - OpenRouter, Codex, and Local model summaries passed nine focused layout checks across the three preview widths.
 - Each provider retained all nine assignments under customization. Changed model choices regrouped the summary immediately.
-- Provider rows showed distinct hover and pressed feedback. Keyboard focus showed a solid outline.
+- Provider cards matched ListCardButton borders, padding, radius, shadow, hover fill, and external keyboard focus outline.
+- Provider labels and descriptions matched the Task list’s existing text metrics; descriptions wrapped on phones.
 - Enter on the Local row opened local setup. Each row remains one action.
 - Human intervention examples, layout code, and their screenshot were removed from the gallery.
 - Service callback results remained separate pages. Success copy did not imply that connection policy was complete.
@@ -46,7 +47,8 @@ Scope: the saved design gallery. These results do not certify the production flo
 
 - [Shared avatar/card surface, desktop](screenshots/proposed-login-desktop.png)
 
-- [Provider row hover, desktop](screenshots/proposed-providers-hover-desktop.png)
+- [Provider card hover, desktop](screenshots/proposed-providers-hover-desktop.png)
+- [Provider cards, phone](screenshots/proposed-providers-phone.png)
 - [Expanded model details, phone](screenshots/proposed-local-details-phone.png)
 - [Setup complete, desktop](screenshots/proposed-complete-desktop.png)
 - [Native consent, desktop](screenshots/proposed-consent-desktop.png)

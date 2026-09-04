@@ -78,16 +78,15 @@ summary { min-height: 44px; padding-block: var(--spacing-3); cursor: default; co
 details p { color: var(--muted-foreground); margin-top: var(--spacing-2); }
 details .fact { margin-top: 0; }
 details code { font-family: var(--font-family-code); overflow-wrap: anywhere; }
-.options { display: grid; gap: var(--spacing-1); margin: calc(-1 * var(--spacing-3)); }
-/* Row insets extend into the gutter; negative margins keep text on the body rhythm. */
-/* Offline ListItem reference: label/description/endContent; one whole-row action. */
-.option { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-3); background: transparent; border: 0; border-radius: var(--radius-element); text-align: left; padding: var(--spacing-3); min-height: 48px; transition: background var(--motion-spring-micro), box-shadow var(--motion-spring-micro); }
-.option:hover, .option:focus-visible { background: var(--surface-hover); box-shadow: var(--shadow-inset-hover); }
-.option:active { background: var(--noema-pine-50); box-shadow: var(--shadow-inset-selected); }
-.option-arrow { width: var(--spacing-4); height: var(--spacing-4); flex: none; color: var(--muted-foreground); transition: color var(--motion-spring-micro), transform var(--motion-spring-micro); }
-.option:hover .option-arrow, .option:focus-visible .option-arrow { color: var(--noema-pine-600); transform: translateX(var(--spacing-1)); }
-.option-copy { display: grid; gap: var(--spacing-1); }
-.option-copy small { color: var(--muted-foreground); font: inherit; }
+/* ListCardButton/ListCardLink frame and TasksViews text metrics, copied for offline review. */
+.options { display: grid; gap: var(--spacing-1-5); }
+.option { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-3); min-width: 0; background: var(--noema-surface-card); border: 1px solid var(--noema-border-subtle); border-radius: var(--radius-element); color: var(--noema-text-secondary); text-align: start; padding: var(--spacing-2) var(--spacing-3); min-height: 48px; box-shadow: 0 1px 2px color-mix(in srgb, black 4%, transparent); }
+.option:hover { border-color: var(--noema-border-default); background: var(--noema-surface-hover); }
+.option:focus-visible { outline: 2px solid var(--noema-pine-500); outline-offset: 1px; }
+.option-arrow { width: var(--spacing-4); height: var(--spacing-4); flex: none; color: var(--muted-foreground); }
+.option-copy { display: grid; gap: var(--spacing-1); min-width: 0; }
+.option-copy strong { color: var(--noema-text-primary); font-size: 13px; font-weight: 650; line-height: 1.35; }
+.option-copy small { color: var(--noema-text-secondary); font-size: 12px; line-height: 1.35; }
 .facts { display: grid; gap: var(--spacing-3); }
 .fact { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--spacing-2); }
 .fact span:last-child { color: var(--muted-foreground); }
@@ -123,5 +122,5 @@ progress::-moz-progress-bar { background: var(--primary); }
 }
 @media (prefers-reduced-motion: reduce) {
   .spinner, #screen, .status.success path { animation: none; }
-  .primary, .option, .option-arrow { transition: none; }
+  .primary { transition: none; }
 }
