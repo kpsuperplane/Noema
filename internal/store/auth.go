@@ -233,6 +233,10 @@ func (s *Store) RegisterPasskey(
 	if err := requireRegistrationAuthority(ctx, tx, authority, oldDigest, now); err != nil {
 		return err
 	}
+	pending, err := nativeBrowserRequestForRotation(ctx, tx, oldDigest)
+	if err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, `
 INSERT INTO human_passkeys (credential_id, credential_json, created_at_ms, updated_at_ms)
 VALUES (?, ?, ?, ?)
@@ -251,6 +255,9 @@ ON CONFLICT(credential_id) DO NOTHING`, credential.CredentialID, credential.Cred
 		return fmt.Errorf("rotate browser session: %w", err)
 	}
 	if err := insertAuthenticatedSession(ctx, tx, newDigest, credential.CredentialID, now); err != nil {
+		return err
+	}
+	if err := restoreNativeBrowserRequest(ctx, tx, newDigest, pending); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -281,6 +288,10 @@ func (s *Store) AuthenticatePasskey(
 	if err := requireBoundSession(ctx, tx, oldDigest, now, ""); err != nil {
 		return err
 	}
+	pending, err := nativeBrowserRequestForRotation(ctx, tx, oldDigest)
+	if err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, `
 UPDATE human_passkeys SET credential_json = ?, updated_at_ms = ?
 WHERE credential_id = ? AND credential_json = ?`, replacementJSON, millis(now), credentialID, expectedJSON)
@@ -298,6 +309,9 @@ WHERE credential_id = ? AND credential_json = ?`, replacementJSON, millis(now), 
 		return fmt.Errorf("rotate browser session: %w", err)
 	}
 	if err := insertAuthenticatedSession(ctx, tx, newDigest, credentialID, now); err != nil {
+		return err
+	}
+	if err := restoreNativeBrowserRequest(ctx, tx, newDigest, pending); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -553,4 +567,47 @@ func validCredential(credential HumanPasskey) bool {
 	return err == nil && len(decoded) > 0 && len(decoded) <= 1024 &&
 		base64.RawURLEncoding.EncodeToString(decoded) == credential.CredentialID &&
 		json.Valid([]byte(credential.CredentialJSON))
+}
+
+type nativeBrowserRequest struct {
+	query string
+	csrf  sql.NullString
+	found bool
+}
+
+func nativeBrowserRequestForRotation(
+	ctx context.Context,
+	tx *sql.Tx,
+	digest [32]byte,
+) (nativeBrowserRequest, error) {
+	var value nativeBrowserRequest
+	err := tx.QueryRowContext(ctx, `
+SELECT query, csrf FROM native_oauth_browser_requests WHERE session_hash = ?`, digest[:]).Scan(
+		&value.query, &value.csrf,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return value, nil
+	}
+	if err != nil {
+		return value, fmt.Errorf("load native OAuth browser request for rotation: %w", err)
+	}
+	value.found = true
+	return value, nil
+}
+
+func restoreNativeBrowserRequest(
+	ctx context.Context,
+	tx *sql.Tx,
+	digest [32]byte,
+	value nativeBrowserRequest,
+) error {
+	if !value.found {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO native_oauth_browser_requests (session_hash, query, csrf)
+VALUES (?, ?, ?)`, digest[:], value.query, value.csrf); err != nil {
+		return fmt.Errorf("restore native OAuth browser request after rotation: %w", err)
+	}
+	return nil
 }

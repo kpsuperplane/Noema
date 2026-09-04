@@ -64,12 +64,12 @@ func (r *mutationRootResolver) RemoveWebPushSubscription(ctx context.Context, su
 
 // RevokeClient is the resolver for the revokeClient field.
 func (r *mutationRootResolver) RevokeClient(ctx context.Context, clientID string) (*model.Client, error) {
-	panic(fmt.Errorf("not implemented: RevokeClient - revokeClient"))
+	return r.revokeClient(ctx, clientID)
 }
 
 // RevokeAllClients is the resolver for the revokeAllClients field.
 func (r *mutationRootResolver) RevokeAllClients(ctx context.Context) (int, error) {
-	panic(fmt.Errorf("not implemented: RevokeAllClients - revokeAllClients"))
+	return r.revokeAllClients(ctx)
 }
 
 // ConfirmOnboardingModelSelections is the resolver for the confirmOnboardingModelSelections field.
@@ -529,7 +529,7 @@ func (r *queryRootResolver) WebPushStatus(ctx context.Context, endpoint *string)
 
 // Clients is the resolver for the clients field.
 func (r *queryRootResolver) Clients(ctx context.Context) ([]*model.Client, error) {
-	panic(fmt.Errorf("not implemented: Clients - clients"))
+	return r.clients(ctx)
 }
 
 // CapabilityIntegrations is the resolver for the capabilityIntegrations field.

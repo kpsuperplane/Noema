@@ -351,9 +351,6 @@ The complete browser authentication unit passed on 2026-09-04. It includes:
 - GraphQL HTTP and WebSocket admission;
 - WebSocket closure after session revocation.
 
-Native OAuth follows in the next unit. Do not weaken or remove its current
-routes, token lifetimes, rotation, replay, or client revocation contracts.
-
 Use go-webauthn and the standard library. Do not add a session framework.
 Append schema version 2 for passkeys and browser session digests.
 
@@ -369,9 +366,34 @@ Browser sessions use protected keyed digests. Recovery codes rotate through
 protected atomic configuration writes. The server limits HTTP work to 256
 requests and WebSockets to 64 connections.
 
-The Go production closure now contains 23 external modules. Native bearer
-authentication is not yet active. Until it lands, every GraphQL mutation and
-WebSocket requires the exact browser Origin.
+### Native OAuth unit
+
+The complete native OAuth unit passed on 2026-09-04. It preserves:
+
+- authorization, token, and revocation routes;
+- browser resume, recent-passkey consent, CSRF, and client redirects;
+- public native clients and exact S256 PKCE;
+- digest-only authorization, access, and refresh credentials;
+- atomic code exchange and refresh rotation;
+- durable request-bound and desktop retry recovery;
+- replay, family, client, and global revocation;
+- GraphQL client listing and revocation;
+- bearer HTTP and WebSocket admission;
+- WebSocket closure after expiry or revocation.
+
+Schema version 3 adds native clients, authorization codes, refresh families,
+access credentials, refresh credentials, and browser consent state.
+
+The unit added 1,954 production lines and 660 test lines. It added eight focused
+tests. Production exceeded its estimate by 54 lines and stayed below the
+2,400-line stop threshold.
+
+The maintained `github.com/go-oauth2/oauth2/v4` module owns OAuth request,
+grant, response, redirect, and S256 validation rules. Noema owns durable token
+state, atomic rotation, retry recovery, replay, and revocation.
+
+The Go production closure now contains 24 external modules. Native bearer
+authentication is active for GraphQL HTTP and WebSocket requests.
 
 ## 11. Validation Strategy
 

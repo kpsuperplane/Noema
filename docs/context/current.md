@@ -20,8 +20,8 @@ The Rust server remains the production authority until the final cutover.
 
 The Go evidence gate passed. The current slice includes protected storage,
 Task documents, GraphQL contracts, provider streams, MCP calls, and diagnostics.
-Complete browser authentication now uses Go schema version 2. Native OAuth is
-the next migration unit.
+Browser authentication and native OAuth now use Go schema version 3.
+Commands and notifications remain migration units.
 
 ## Current constraints
 

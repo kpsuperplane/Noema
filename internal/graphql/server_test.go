@@ -321,7 +321,7 @@ func openTestResolver(t *testing.T) *Resolver {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = taskStore.Close() })
-	return NewResolver(taskStore, root)
+	return NewResolver(taskStore, root, nil)
 }
 
 func postGraphQL(

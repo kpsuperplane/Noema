@@ -168,7 +168,10 @@ PRAGMA user_version = 1;`); err != nil {
 	if err := upgraded.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
 		t.Fatalf("upgraded schema version = %d, %v", version, err)
 	}
-	for _, table := range []string{"human_passkeys", "browser_sessions"} {
+	for _, table := range []string{
+		"human_passkeys", "browser_sessions", "clients", "native_oauth_codes",
+		"native_oauth_families", "native_oauth_refresh_tokens", "native_oauth_access_tokens",
+	} {
 		var exists bool
 		if err := upgraded.db.QueryRow(
 			"SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?)",
@@ -176,6 +179,26 @@ PRAGMA user_version = 1;`); err != nil {
 		).Scan(&exists); err != nil || !exists {
 			t.Fatalf("upgraded table %s = %v, %v", table, exists, err)
 		}
+	}
+
+	v2Path := filepath.Join(t.TempDir(), "v2.sqlite3")
+	v2, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(v2Path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v2.Exec(schemaV2SQL + "\nPRAGMA user_version = 2;"); err != nil {
+		t.Fatal(err)
+	}
+	if err := v2.Close(); err != nil {
+		t.Fatal(err)
+	}
+	fromV2, err := Open(context.Background(), v2Path)
+	if err != nil {
+		t.Fatalf("upgrade version 2 schema: %v", err)
+	}
+	defer fromV2.Close()
+	if err := fromV2.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
+		t.Fatalf("version 2 upgrade = %d, %v", version, err)
 	}
 }
 

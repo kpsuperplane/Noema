@@ -27,6 +27,7 @@ type Server struct {
 	recovery  *Recovery
 	sessions  *sessionSecurity
 	passkeys  *passkeySecurity
+	native    *nativeOAuth
 	httpSlots chan struct{}
 	wsSlots   chan struct{}
 }
@@ -49,6 +50,7 @@ func New(paths home.Paths, taskStore *store.Store, config Config, recovery *Reco
 		recovery:  recovery,
 		sessions:  sessions,
 		passkeys:  passkeys,
+		native:    newNativeOAuth(paths, taskStore),
 		httpSlots: make(chan struct{}, httpRequestLimit),
 		wsSlots:   make(chan struct{}, websocketConnLimit),
 	}, nil
@@ -56,6 +58,7 @@ func New(paths home.Paths, taskStore *store.Store, config Config, recovery *Reco
 
 // RunCleanup removes expired sessions until the server context ends.
 func (s *Server) RunCleanup(ctx context.Context) {
+	go s.native.runCleanup(ctx)
 	s.sessions.runCleanup(ctx)
 }
 
@@ -74,10 +77,6 @@ func (s *Server) Handler(application http.Handler) http.Handler {
 			writeAuthError(w, http.StatusBadRequest, "invalid_authority")
 			return
 		}
-		if s.requiresOrigin(r) && r.Header.Get("Origin") != s.config.Origin {
-			writeAuthError(w, http.StatusForbidden, "invalid_origin")
-			return
-		}
 		if !s.config.DevNoAuth {
 			hasPasskey, err := s.sessions.store.HasPasskey(r.Context())
 			if err != nil {
@@ -89,8 +88,29 @@ func (s *Server) Handler(application http.Handler) http.Handler {
 				return
 			}
 		}
+		var native *nativePrincipal
+		if nativeBearerPath(r.URL.Path) && r.Header.Get("Authorization") != "" {
+			var err error
+			r, native, err = s.native.authenticate(r)
+			if errors.Is(err, store.ErrOAuthGrant) {
+				writeAuthError(w, http.StatusUnauthorized, "authentication_required")
+				return
+			}
+			if err != nil {
+				writeAuthError(w, http.StatusInternalServerError, "authentication_unavailable")
+				return
+			}
+		}
+		if s.requiresOrigin(r) && native == nil && !s.acceptsOrigin(r) {
+			writeAuthError(w, http.StatusForbidden, "invalid_origin")
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/auth/") {
 			s.serveAuth(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/oauth/") {
+			s.native.serve(w, r, s.sessions, s.config.DevNoAuth)
 			return
 		}
 		if r.URL.Path == "/graphql" || r.URL.Path == "/graphql/ws" {
@@ -102,7 +122,7 @@ func (s *Server) Handler(application http.Handler) http.Handler {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
 			}
-			s.serveGraphQL(w, r, application)
+			s.serveGraphQL(w, r, application, native)
 			return
 		}
 		application.ServeHTTP(w, r)
@@ -427,9 +447,29 @@ func (s *Server) logoutAll(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) serveGraphQL(w http.ResponseWriter, r *http.Request, application http.Handler) {
+func (s *Server) serveGraphQL(
+	w http.ResponseWriter,
+	r *http.Request,
+	application http.Handler,
+	native *nativePrincipal,
+) {
 	if r.Method == http.MethodPost {
 		r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+	}
+	if native != nil {
+		if !isWebSocket(r) {
+			application.ServeHTTP(w, r)
+			return
+		}
+		select {
+		case s.wsSlots <- struct{}{}:
+			defer func() { <-s.wsSlots }()
+		default:
+			writeAuthError(w, http.StatusServiceUnavailable, "server_busy")
+			return
+		}
+		s.serveNativeWebSocket(w, r, application, *native)
+		return
 	}
 	if s.config.DevNoAuth {
 		application.ServeHTTP(w, r)
@@ -469,6 +509,26 @@ func (s *Server) serveGraphQL(w http.ResponseWriter, r *http.Request, applicatio
 	application.ServeHTTP(w, r.WithContext(ctx))
 }
 
+func (s *Server) serveNativeWebSocket(
+	w http.ResponseWriter,
+	r *http.Request,
+	application http.Handler,
+	principal nativePrincipal,
+) {
+	ctx, cancel := context.WithDeadline(r.Context(), principal.expiresAt)
+	id := s.native.registerConnection(principal.clientID, cancel)
+	defer func() {
+		s.native.unregisterConnection(principal.clientID, id)
+		cancel()
+	}()
+	access, exists, err := s.sessions.store.ActiveNativeOAuthAccess(ctx, principal.accessHash, time.Now().Unix())
+	if err != nil || !exists || access.ClientID != principal.clientID {
+		writeAuthError(w, http.StatusUnauthorized, "authentication_required")
+		return
+	}
+	application.ServeHTTP(w, r.WithContext(ctx))
+}
+
 func (s *Server) requireAuthenticated(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -497,8 +557,17 @@ func (s *Server) requireAuthenticated(
 func (s *Server) requiresOrigin(r *http.Request) bool {
 	needsOrigin := r.Method == http.MethodPost &&
 		(strings.HasPrefix(r.URL.Path, "/graphql") || strings.HasPrefix(r.URL.Path, "/auth/")) ||
-		hasUpgrade(r)
+		(r.Method == http.MethodPost && r.URL.Path == "/oauth/authorize") || hasUpgrade(r)
 	return needsOrigin
+}
+
+func (s *Server) acceptsOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if r.Method == http.MethodPost && r.URL.Path == "/oauth/authorize" &&
+		(origin == "" || origin == "null") {
+		return true
+	}
+	return origin == s.config.Origin
 }
 
 func isWebSocket(r *http.Request) bool {
@@ -507,6 +576,11 @@ func isWebSocket(r *http.Request) bool {
 }
 
 func hasUpgrade(r *http.Request) bool { return r.Header.Get("Upgrade") != "" }
+
+func nativeBearerPath(path string) bool {
+	return path == "/graphql" || path == "/graphql/ws" ||
+		strings.HasPrefix(path, "/artifacts/versions/") || strings.HasPrefix(path, "/favicons/")
+}
 
 func setupPathAllowed(method string, path string) bool {
 	if method == http.MethodGet && (path == "/" || path == "/auth/status") {

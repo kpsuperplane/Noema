@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -118,6 +120,13 @@ func TestAuthorityAndSetupBarrierRejectBeforeGraphQLParsing(t *testing.T) {
 	graphql := authRequest(http.MethodPost, "/graphql", bytes.NewBufferString("not GraphQL"))
 	if response := serve(handler, graphql); response.Code != http.StatusForbidden || applicationCalls.Load() != 0 {
 		t.Fatalf("setup GraphQL = %d with %d application calls", response.Code, applicationCalls.Load())
+	}
+	nativeGraphQL := authRequest(http.MethodPost, "/graphql", bytes.NewBufferString("not GraphQL"))
+	nativeGraphQL.Header.Del("Origin")
+	nativeGraphQL.Header.Set("Authorization", "Bearer invalid")
+	if response := serve(handler, nativeGraphQL); response.Code != http.StatusForbidden ||
+		!strings.Contains(response.Body.String(), "setup_required") {
+		t.Fatalf("setup bearer barrier = %d %s", response.Code, response.Body.String())
 	}
 	status := serve(handler, authRequest(http.MethodGet, "/auth/status", nil))
 	if status.Code != http.StatusOK || !bytes.Contains(status.Body.Bytes(), []byte(`"setup_ready"`)) {
@@ -385,6 +394,251 @@ func TestPasskeyManagementAndGraphQLRevocationUseStoredSessions(t *testing.T) {
 	}
 }
 
+func TestNativeAuthorizationRequestValidationMatchesCurrentClients(t *testing.T) {
+	desktop := nativeAuthorizationQuery(testDesktopClient, testDesktopRedirect, "s")
+	ios := nativeAuthorizationQuery("noema-ios:abcdefghijklmnop", "noema://oauth/callback", "i")
+	for name, query := range map[string]string{"desktop": desktop, "iOS": ios} {
+		if _, err := parseAuthorizationRequest(query); err != nil {
+			t.Fatalf("%s request = %v", name, err)
+		}
+	}
+	for name, query := range map[string]string{
+		"duplicate": desktop + "&state=duplicate",
+		"scope":     desktop + "&scope=other",
+		"redirect":  nativeAuthorizationQuery(testDesktopClient, "http://example.com/oauth/callback", "r"),
+		"pkce":      strings.Replace(desktop, testVerifierChallenge, "short", 1),
+	} {
+		if _, err := parseAuthorizationRequest(query); err == nil {
+			t.Fatalf("%s request was accepted", name)
+		}
+	}
+}
+
+func TestNativeConsentResumesAfterPasskeyAndConsumesCSRFOnce(t *testing.T) {
+	server, taskStore, _ := newAuthTest(t, false)
+	_, _, credential := seedPasskey(t, server, 8)
+	oldToken, oldDigest, err := server.sessions.newToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := taskStore.CreateAnonymousSession(context.Background(), oldDigest, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	handler := server.Handler(http.NotFoundHandler())
+	query := nativeAuthorizationQuery(testDesktopClient, testDesktopRedirect, "c")
+	request := authRequest(http.MethodGet, "/oauth/authorize?"+query, nil)
+	request.AddCookie(&http.Cookie{Name: server.sessions.cookieName, Value: oldToken})
+	if response := serve(handler, request); response.Code != http.StatusSeeOther ||
+		response.Header().Get("Location") != "/?native_authorization=resume" {
+		t.Fatalf("authorization resume = %d %q", response.Code, response.Header().Get("Location"))
+	}
+	newToken, newDigest, err := server.sessions.newToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := taskStore.AuthenticatePasskey(
+		context.Background(), credential.CredentialID, credential.CredentialJSON,
+		credential.CredentialJSON, oldDigest, newDigest, time.Now(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	cookie := &http.Cookie{Name: server.sessions.cookieName, Value: newToken}
+	resume := authRequest(http.MethodGet, "/oauth/authorize", nil)
+	resume.AddCookie(cookie)
+	if response := serve(handler, resume); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Noema Desktop</span>?") {
+		t.Fatalf("resumed consent = %d %s", response.Code, response.Body.String())
+	}
+	_, csrf, found, err := taskStore.NativeOAuthBrowserRequest(context.Background(), newDigest)
+	if err != nil || !found || csrf == nil {
+		t.Fatalf("pending consent = %v, %v, %v", found, csrf, err)
+	}
+	wrong := oauthFormRequest("/oauth/authorize", url.Values{"csrf": {"wrong"}, "decision": {"approve"}})
+	wrong.AddCookie(cookie)
+	if response := serve(handler, wrong); response.Code != http.StatusBadRequest {
+		t.Fatalf("wrong CSRF = %d", response.Code)
+	}
+	reused := oauthFormRequest("/oauth/authorize", url.Values{"csrf": {*csrf}, "decision": {"approve"}})
+	reused.AddCookie(cookie)
+	if response := serve(handler, reused); response.Code != http.StatusBadRequest {
+		t.Fatalf("reused consent = %d", response.Code)
+	}
+
+	start := authRequest(http.MethodGet, "/oauth/authorize?"+query, nil)
+	start.AddCookie(cookie)
+	if response := serve(handler, start); response.Code != http.StatusOK {
+		t.Fatalf("second consent = %d", response.Code)
+	}
+	_, csrf, _, _ = taskStore.NativeOAuthBrowserRequest(context.Background(), newDigest)
+	deny := oauthFormRequest("/oauth/authorize", url.Values{"csrf": {*csrf}, "decision": {"deny"}})
+	deny.AddCookie(cookie)
+	deny.Header.Set("Origin", "null")
+	denied := serve(handler, deny)
+	if denied.Code != http.StatusFound || !strings.Contains(denied.Header().Get("Location"), "error=access_denied") {
+		t.Fatalf("denied redirect = %d %q", denied.Code, denied.Header().Get("Location"))
+	}
+	start = authRequest(http.MethodGet, "/oauth/authorize?"+query, nil)
+	start.AddCookie(cookie)
+	if response := serve(handler, start); response.Code != http.StatusOK {
+		t.Fatalf("third consent = %d", response.Code)
+	}
+	_, csrf, _, _ = taskStore.NativeOAuthBrowserRequest(context.Background(), newDigest)
+	blocked := oauthFormRequest("/oauth/authorize", url.Values{"csrf": {*csrf}, "decision": {"approve"}})
+	blocked.AddCookie(cookie)
+	blocked.Header.Set("Origin", "http://attacker.example")
+	if response := serve(handler, blocked); response.Code != http.StatusForbidden {
+		t.Fatalf("foreign consent Origin = %d", response.Code)
+	}
+	approve := oauthFormRequest("/oauth/authorize", url.Values{"csrf": {*csrf}, "decision": {"approve"}})
+	approve.AddCookie(cookie)
+	approve.Header.Del("Origin")
+	response := serve(handler, approve)
+	location, err := url.Parse(response.Header().Get("Location"))
+	if err != nil || response.Code != http.StatusFound || location.Query().Get("code") == "" || location.Query().Get("state") != strings.Repeat("c", 32) {
+		t.Fatalf("approved redirect = %d %q, %v", response.Code, response.Header().Get("Location"), err)
+	}
+}
+
+func TestNativeBearerAdmitsGraphQLAndClosesOnClientRevocation(t *testing.T) {
+	server, taskStore, _ := newAuthTest(t, false)
+	browserToken, _, _ := seedPasskey(t, server, 9)
+	tokens := exchangeNativeTokens(t, server, taskStore, "bearer")
+	started, returned := make(chan struct{}), make(chan struct{})
+	application := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if ClientID(r.Context()) != testDesktopClient {
+			t.Errorf("native client context = %q", ClientID(r.Context()))
+		}
+		if isWebSocket(r) {
+			close(started)
+			<-r.Context().Done()
+			close(returned)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := server.Handler(application)
+	graphql := authRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{}`))
+	graphql.Header.Del("Origin")
+	graphql.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	if response := serve(handler, graphql); response.Code != http.StatusNoContent {
+		t.Fatalf("native GraphQL = %d %s", response.Code, response.Body.String())
+	}
+	invalid := authRequest(http.MethodPost, "/graphql", bytes.NewBufferString(`{}`))
+	invalid.Header.Del("Origin")
+	invalid.Header.Set("Authorization", "Bearer invalid")
+	invalid.AddCookie(&http.Cookie{Name: server.sessions.cookieName, Value: browserToken})
+	if response := serve(handler, invalid); response.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid bearer fallback = %d", response.Code)
+	}
+	websocket := authRequest(http.MethodGet, "/graphql/ws", nil)
+	websocket.Header.Del("Origin")
+	websocket.Header.Set("Upgrade", "websocket")
+	websocket.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	go handler.ServeHTTP(httptest.NewRecorder(), websocket)
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("native WebSocket did not start")
+	}
+	client, err := server.RevokeClient(context.Background(), testDesktopClient)
+	if err != nil || client.RevokedAt == nil {
+		t.Fatalf("client revocation = %#v, %v", client, err)
+	}
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		t.Fatal("client revocation did not close the native WebSocket")
+	}
+}
+
+func TestNativeRefreshRetrySurvivesRestartAndMismatchRevokes(t *testing.T) {
+	server, taskStore, paths := newAuthTest(t, false)
+	_, _, _ = seedPasskey(t, server, 10)
+	tokens := exchangeNativeTokens(t, server, taskStore, "refresh")
+	handler := server.Handler(http.NotFoundHandler())
+	requestID := strings.Repeat("a", 32)
+	refreshValues := url.Values{
+		"grant_type": {"refresh_token"}, "refresh_token": {tokens.RefreshToken},
+		"refresh_request_id": {requestID},
+	}
+	start := make(chan struct{})
+	responses := make(chan *httptest.ResponseRecorder, 2)
+	var group sync.WaitGroup
+	for range 2 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			<-start
+			responses <- serve(handler, oauthFormRequest("/oauth/token", refreshValues))
+		}()
+	}
+	close(start)
+	group.Wait()
+	close(responses)
+	var firstTokens nativeTokenResponse
+	for response := range responses {
+		current := decodeNativeTokens(t, response)
+		if firstTokens.AccessToken == "" {
+			firstTokens = current
+		} else if firstTokens.AccessToken != current.AccessToken || firstTokens.RefreshToken != current.RefreshToken {
+			t.Fatal("concurrent request-bound retries returned different successors")
+		}
+	}
+	restarted, err := New(paths, taskStore, server.config, server.recovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry := serve(restarted.Handler(http.NotFoundHandler()), oauthFormRequest("/oauth/token", refreshValues))
+	retryTokens := decodeNativeTokens(t, retry)
+	if firstTokens.AccessToken != retryTokens.AccessToken || firstTokens.RefreshToken != retryTokens.RefreshToken {
+		t.Fatal("request-bound retry did not return the saved successor")
+	}
+	mismatch := url.Values{
+		"grant_type": {"refresh_token"}, "refresh_token": {tokens.RefreshToken},
+		"refresh_request_id": {strings.Repeat("b", 32)},
+	}
+	response := serve(restarted.Handler(http.NotFoundHandler()), oauthFormRequest("/oauth/token", mismatch))
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "invalid_grant") {
+		t.Fatalf("mismatched retry = %d %s", response.Code, response.Body.String())
+	}
+	if _, exists, err := taskStore.ActiveNativeOAuthAccess(
+		context.Background(), sha256.Sum256([]byte(firstTokens.AccessToken)), time.Now().Unix(),
+	); err != nil || exists {
+		t.Fatalf("replayed family access = %v, %v", exists, err)
+	}
+	entries, err := restarted.native.retries.read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := entries[nativeRetryKey(sha256.Sum256([]byte(tokens.RefreshToken)), requestID)]; exists {
+		t.Fatal("revoked family retained its request-bound retry")
+	}
+	expiredHash := sha256.Sum256([]byte("expired-retry"))
+	expiredAt := time.Now().Unix() - 61
+	expiredRequestID := strings.Repeat("c", 32)
+	if err := restarted.native.retries.save(expiredHash, expiredRequestID, nativeRetryEntry{
+		IssuedAt: expiredAt, RetainUntil: expiredAt, FamilyID: "expired-family",
+	}, expiredAt); err != nil {
+		t.Fatal(err)
+	}
+	entries, err = restarted.native.retries.read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := entries[nativeRetryKey(expiredHash, expiredRequestID)]; !exists {
+		t.Fatal("request-bound expiry fixture was not saved")
+	}
+	if err := restarted.native.retries.prune(time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	entries, err = restarted.native.retries.read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := entries[nativeRetryKey(expiredHash, expiredRequestID)]; exists {
+		t.Fatal("idle-expired request-bound retry was not pruned")
+	}
+}
+
 func newAuthTest(t *testing.T, devNoAuth bool) (*Server, *store.Store, home.Paths) {
 	t.Helper()
 	paths, err := home.FromRoot(t.TempDir())
@@ -508,4 +762,68 @@ func lastSessionCookie(t *testing.T, response *httptest.ResponseRecorder, name s
 
 func testAuthDigest(value string) [32]byte {
 	return sha256.Sum256([]byte(value))
+}
+
+const (
+	testDesktopClient     = "noema-desktop:abcdefghijklmnop"
+	testDesktopRedirect   = "http://127.0.0.1:49152/oauth/callback"
+	testVerifier          = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+	testVerifierChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+)
+
+func nativeAuthorizationQuery(clientID string, redirect string, stateCharacter string) string {
+	return url.Values{
+		"client_id":             {clientID},
+		"redirect_uri":          {redirect},
+		"response_type":         {"code"},
+		"state":                 {strings.Repeat(stateCharacter, 32)},
+		"code_challenge":        {testVerifierChallenge},
+		"code_challenge_method": {"S256"},
+	}.Encode()
+}
+
+func oauthFormRequest(path string, values url.Values) *http.Request {
+	request := authRequest(http.MethodPost, path, bytes.NewBufferString(values.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return request
+}
+
+func exchangeNativeTokens(
+	t *testing.T,
+	server *Server,
+	taskStore *store.Store,
+	suffix string,
+) nativeTokenResponse {
+	t.Helper()
+	code := "code-" + suffix
+	now := time.Now().Unix()
+	if err := taskStore.InsertNativeOAuthCode(
+		context.Background(), sha256.Sum256([]byte(code)), testDesktopClient,
+		"Noema Desktop", testDesktopRedirect, testVerifierChallenge, now, now+600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	request := oauthFormRequest("/oauth/token", url.Values{
+		"grant_type":    {"authorization_code"},
+		"client_id":     {testDesktopClient},
+		"redirect_uri":  {testDesktopRedirect},
+		"code":          {code},
+		"code_verifier": {testVerifier},
+	})
+	return decodeNativeTokens(t, serve(server.Handler(http.NotFoundHandler()), request))
+}
+
+func decodeNativeTokens(t *testing.T, response *httptest.ResponseRecorder) nativeTokenResponse {
+	t.Helper()
+	if response.Code != http.StatusOK {
+		t.Fatalf("native token response = %d %s", response.Code, response.Body.String())
+	}
+	var tokens nativeTokenResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &tokens); err != nil {
+		t.Fatal(err)
+	}
+	if tokens.AccessToken == "" || tokens.RefreshToken == "" || tokens.ExpiresIn < 0 {
+		t.Fatalf("native token payload = %#v", tokens)
+	}
+	return tokens
 }

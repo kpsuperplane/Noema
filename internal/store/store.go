@@ -14,7 +14,7 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 // Store is one open Noema database.
 type Store struct {
@@ -93,14 +93,24 @@ func (s *Store) initialize(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, schemaSQL); err != nil {
 			return fmt.Errorf("create schema: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 2"); err != nil {
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 3"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	case 1:
 		if _, err := tx.ExecContext(ctx, schemaV2SQL); err != nil {
 			return fmt.Errorf("apply schema version 2: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 2"); err != nil {
+		if _, err := tx.ExecContext(ctx, schemaV3SQL); err != nil {
+			return fmt.Errorf("apply schema version 3: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 3"); err != nil {
+			return fmt.Errorf("record schema version: %w", err)
+		}
+	case 2:
+		if _, err := tx.ExecContext(ctx, schemaV3SQL); err != nil {
+			return fmt.Errorf("apply schema version 3: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 3"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	case schemaVersion:
@@ -135,7 +145,7 @@ CREATE TABLE task_events (
     UNIQUE (task_id, task_revision)
 ) STRICT;
 
-` + schemaV2SQL
+` + schemaV2SQL + schemaV3SQL
 
 const schemaV2SQL = `
 CREATE TABLE human_passkeys (
@@ -163,4 +173,70 @@ CREATE TABLE browser_sessions (
 
 CREATE INDEX browser_sessions_expiry ON browser_sessions(expires_at_ms);
 CREATE INDEX browser_sessions_passkey ON browser_sessions(passkey_id);
+`
+
+const schemaV3SQL = `
+CREATE TABLE clients (
+    client_id TEXT PRIMARY KEY CHECK (length(client_id) BETWEEN 1 AND 128),
+    display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 128),
+    created_at INTEGER NOT NULL,
+    revoked_at INTEGER
+) STRICT;
+
+CREATE TABLE native_oauth_codes (
+    code_hash BLOB PRIMARY KEY CHECK (length(code_hash) = 32),
+    client_id TEXT NOT NULL REFERENCES clients(client_id) ON DELETE CASCADE,
+    redirect_uri TEXT NOT NULL CHECK (length(redirect_uri) BETWEEN 1 AND 2048),
+    pkce_challenge TEXT NOT NULL CHECK (length(pkce_challenge) = 43),
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    CHECK (expires_at > created_at)
+) STRICT;
+CREATE INDEX native_oauth_codes_expiry ON native_oauth_codes(expires_at);
+
+CREATE TABLE native_oauth_families (
+    family_id TEXT PRIMARY KEY CHECK (length(family_id) = 32 AND family_id = lower(family_id)),
+    client_id TEXT NOT NULL REFERENCES clients(client_id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER NOT NULL,
+    idle_expires_at INTEGER NOT NULL,
+    absolute_expires_at INTEGER NOT NULL,
+    revoked_at INTEGER,
+    revoke_reason TEXT CHECK (revoke_reason IN ('client', 'global', 'replay', 'expired')),
+    CHECK (idle_expires_at > created_at),
+    CHECK (absolute_expires_at >= idle_expires_at),
+    CHECK ((revoked_at IS NULL) = (revoke_reason IS NULL))
+) STRICT;
+CREATE INDEX native_oauth_families_client_active
+ON native_oauth_families(client_id, absolute_expires_at) WHERE revoked_at IS NULL;
+
+CREATE TABLE native_oauth_refresh_tokens (
+    token_hash BLOB PRIMARY KEY CHECK (length(token_hash) = 32),
+    family_id TEXT NOT NULL REFERENCES native_oauth_families(family_id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL CHECK (sequence >= 0),
+    status TEXT NOT NULL CHECK (status IN ('active', 'used')),
+    issued_at INTEGER NOT NULL,
+    used_at INTEGER,
+    UNIQUE (family_id, sequence),
+    CHECK ((status = 'active' AND used_at IS NULL) OR (status = 'used' AND used_at IS NOT NULL))
+) STRICT;
+CREATE UNIQUE INDEX native_oauth_refresh_tokens_one_active
+ON native_oauth_refresh_tokens(family_id) WHERE status = 'active';
+
+CREATE TABLE native_oauth_access_tokens (
+    token_hash BLOB PRIMARY KEY CHECK (length(token_hash) = 32),
+    family_id TEXT NOT NULL REFERENCES native_oauth_families(family_id) ON DELETE CASCADE,
+    issued_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    revoked_at INTEGER,
+    CHECK (expires_at > issued_at)
+) STRICT;
+CREATE INDEX native_oauth_access_tokens_family_active
+ON native_oauth_access_tokens(family_id, expires_at) WHERE revoked_at IS NULL;
+
+CREATE TABLE native_oauth_browser_requests (
+    session_hash BLOB PRIMARY KEY REFERENCES browser_sessions(session_hash) ON DELETE CASCADE,
+    query TEXT NOT NULL CHECK (length(query) BETWEEN 1 AND 8192),
+    csrf TEXT CHECK (csrf IS NULL OR length(csrf) = 43)
+) STRICT;
 `

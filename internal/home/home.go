@@ -58,6 +58,11 @@ func (p Paths) BrowserSessionKey() string {
 	return filepath.Join(p.root, "run", "browser-session.key")
 }
 
+// NativeOAuthRetries returns the protected native refresh recovery path.
+func (p Paths) NativeOAuthRetries() string {
+	return filepath.Join(p.root, "run", "native-oauth-retries.json")
+}
+
 // Open creates the home and returns rooted filesystem access.
 func (p Paths) Open() (*os.Root, error) {
 	if p.root == "" {

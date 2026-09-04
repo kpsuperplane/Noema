@@ -4,6 +4,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/kpsuperplane/noema/internal/auth"
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/store"
 )
@@ -11,6 +12,7 @@ import (
 // Resolver owns GraphQL access to the Go server store.
 type Resolver struct {
 	Store *store.Store
+	Auth  *auth.Server
 	home  *os.Root
 
 	subscriptionsMu sync.Mutex
@@ -18,9 +20,10 @@ type Resolver struct {
 }
 
 // NewResolver creates a GraphQL resolver for one open store.
-func NewResolver(taskStore *store.Store, homeRoot *os.Root) *Resolver {
+func NewResolver(taskStore *store.Store, homeRoot *os.Root, authentication *auth.Server) *Resolver {
 	return &Resolver{
 		Store:         taskStore,
+		Auth:          authentication,
 		home:          homeRoot,
 		subscriptions: make(map[string]map[chan *model.TasksEvent]struct{}),
 	}

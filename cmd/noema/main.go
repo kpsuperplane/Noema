@@ -76,7 +76,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 
-	graphqlHandler := noemagraphql.NewHandler(noemagraphql.NewResolver(taskStore, root))
+	graphqlHandler := noemagraphql.NewHandler(noemagraphql.NewResolver(taskStore, root, browserAuth))
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlHandler)
 	mux.Handle("/graphql/ws", graphqlHandler)

@@ -468,8 +468,9 @@ individual and global native-client revocation.
 Family revocation and expiry close related WebSockets and disable related push
 registrations. Every request checks current token and family state.
 
-Noema uses a maintained Rust OAuth server library. Desktop uses a maintained
-Rust OAuth client library. Noema must not implement OAuth from scratch.
+Noema uses a maintained OAuth server library. The Go server uses
+`github.com/go-oauth2/oauth2/v4`. Desktop uses a maintained Rust OAuth client
+library. Noema must not implement OAuth from scratch.
 Noema owns durable token state, rotation, replay, and revocation. iOS uses the
 platform authentication session and networking APIs.
 
