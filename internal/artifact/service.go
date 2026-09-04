@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +21,7 @@ import (
 )
 
 const (
-	MaxReadBytes    = 8 * 1024 * 1024
+	MaxReadBytes    = 32 * 1024 * 1024
 	stagingRootName = ".artifact-staging"
 	staleStageAge   = 24 * time.Hour
 	maxInspections  = 128
@@ -109,7 +108,7 @@ func (s *Service) CreateLocal(ctx context.Context, input LocalInput) (store.Arti
 		return store.ArtifactWithVersions{}, err
 	}
 	if len(input.Bytes) > MaxReadBytes {
-		return store.ArtifactWithVersions{}, errors.New("Artifact exceeds the 8 MiB limit")
+		return store.ArtifactWithVersions{}, errors.New("Artifact exceeds the 32 MiB limit")
 	}
 	authorized, err := s.store.ArtifactOwnerAuthorized(ctx, input.Owner)
 	if err != nil || !authorized {
@@ -154,7 +153,7 @@ func (s *Service) AppendLocal(
 		return store.ArtifactVersion{}, err
 	}
 	if len(bytes) > MaxReadBytes {
-		return store.ArtifactVersion{}, errors.New("Artifact exceeds the 8 MiB limit")
+		return store.ArtifactVersion{}, errors.New("Artifact exceeds the 32 MiB limit")
 	}
 	artifact, err := s.store.ArtifactWithVersionsByID(ctx, artifactID)
 	if err != nil {
@@ -512,18 +511,6 @@ func validOperationID(value string) bool {
 	}
 	decoded, err := hex.DecodeString(value[3:])
 	return err == nil && len(decoded) == 32 && strings.ToLower(value) == value
-}
-
-func syncDirectory(directory *os.Root) error {
-	if runtime.GOOS == "windows" {
-		return nil
-	}
-	file, err := directory.Open(".")
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	return file.Sync()
 }
 
 // ValidateExternalURL normalizes one durable HTTP(S) URL.
