@@ -14,7 +14,7 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 5
+const schemaVersion = 6
 
 // Store is one open Noema database.
 type Store struct {
@@ -93,7 +93,7 @@ func (s *Store) initialize(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, schemaSQL); err != nil {
 			return fmt.Errorf("create schema: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 5"); err != nil {
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 6"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	case 1:
@@ -109,7 +109,10 @@ func (s *Store) initialize(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, schemaV5SQL); err != nil {
 			return fmt.Errorf("apply schema version 5: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 5"); err != nil {
+		if _, err := tx.ExecContext(ctx, schemaV6SQL); err != nil {
+			return fmt.Errorf("apply schema version 6: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 6"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	case 2:
@@ -122,7 +125,10 @@ func (s *Store) initialize(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, schemaV5SQL); err != nil {
 			return fmt.Errorf("apply schema version 5: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 5"); err != nil {
+		if _, err := tx.ExecContext(ctx, schemaV6SQL); err != nil {
+			return fmt.Errorf("apply schema version 6: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 6"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	case 3:
@@ -132,14 +138,27 @@ func (s *Store) initialize(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, schemaV5SQL); err != nil {
 			return fmt.Errorf("apply schema version 5: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 5"); err != nil {
+		if _, err := tx.ExecContext(ctx, schemaV6SQL); err != nil {
+			return fmt.Errorf("apply schema version 6: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 6"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	case 4:
 		if _, err := tx.ExecContext(ctx, schemaV5SQL); err != nil {
 			return fmt.Errorf("apply schema version 5: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 5"); err != nil {
+		if _, err := tx.ExecContext(ctx, schemaV6SQL); err != nil {
+			return fmt.Errorf("apply schema version 6: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 6"); err != nil {
+			return fmt.Errorf("record schema version: %w", err)
+		}
+	case 5:
+		if _, err := tx.ExecContext(ctx, schemaV6SQL); err != nil {
+			return fmt.Errorf("apply schema version 6: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 6"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	case schemaVersion:
@@ -174,7 +193,7 @@ CREATE TABLE task_events (
     UNIQUE (task_id, task_revision)
 ) STRICT;
 
-` + schemaV2SQL + schemaV3SQL + schemaV4SQL + schemaV5SQL
+` + schemaV2SQL + schemaV3SQL + schemaV4SQL + schemaV5SQL + schemaV6SQL
 
 const schemaV2SQL = `
 CREATE TABLE human_passkeys (
@@ -319,4 +338,32 @@ CREATE TABLE local_human_state (
 ) STRICT;
 
 INSERT INTO local_human_state (state_id, primary_conversation_id) VALUES (1, NULL);
+`
+
+const schemaV6SQL = `
+CREATE TABLE hosted_model_assignments (
+    role TEXT PRIMARY KEY CHECK (role IN (
+        'noema', 'simple_tasks', 'medium_tasks', 'difficult_tasks', 'task_reviewer',
+        'web_fetch_summarizer', 'tool_progress_audit', 'action_reviewer',
+        'memory_consolidation'
+    )),
+    provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'openrouter')),
+    provider_account_id TEXT NOT NULL
+        REFERENCES provider_accounts(provider_account_id) ON DELETE RESTRICT,
+    selection_mode TEXT NOT NULL
+        CHECK (selection_mode IN ('noema_recommended', 'explicit_profile')),
+    model_profile TEXT,
+    reasoning_effort TEXT CHECK (
+        reasoning_effort IS NULL
+        OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')
+    ),
+    fast_mode INTEGER NOT NULL CHECK (fast_mode IN (0, 1)),
+    CHECK (
+        (selection_mode = 'noema_recommended'
+            AND model_profile IS NULL AND reasoning_effort IS NULL)
+        OR
+        (selection_mode = 'explicit_profile'
+            AND model_profile IS NOT NULL AND trim(model_profile) <> '')
+    )
+) STRICT;
 `

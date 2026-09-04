@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -42,6 +43,10 @@ func TestSecretAccountFilesAndRollback(t *testing.T) {
 		if err != nil || info.Mode().Perm() != 0o600 {
 			t.Fatalf("credential mode = %v, %v", info, err)
 		}
+	}
+	oversized, _ := provider.NewSecret(strings.Repeat("x", (1<<20)+1))
+	if _, err := service.SaveSecret(ctx, account.ID, oversized, time.Now()); err == nil {
+		t.Fatal("oversized provider secret was stored")
 	}
 
 	failing := &failingCredentialPersistence{Store: database}
@@ -122,7 +127,7 @@ func TestAccountMutationsSerializeAndProtectBuiltins(t *testing.T) {
 type failingCredentialPersistence struct{ *store.Store }
 
 func (f *failingCredentialPersistence) UpdateProviderCredential(
-	context.Context, string, uint64, provider.AuthMethod, bool, time.Time,
+	context.Context, string, uint64, provider.AuthMethod, bool, provider.AccountMetadata, time.Time,
 ) (provider.Account, error) {
 	return provider.Account{}, errors.New("injected metadata failure")
 }
@@ -135,7 +140,7 @@ type trackingCredentialPersistence struct {
 
 func (p *trackingCredentialPersistence) UpdateProviderCredential(
 	ctx context.Context, id string, revision uint64, method provider.AuthMethod,
-	configured bool, now time.Time,
+	configured bool, metadata provider.AccountMetadata, now time.Time,
 ) (provider.Account, error) {
 	active := p.active.Add(1)
 	defer p.active.Add(-1)
@@ -145,5 +150,5 @@ func (p *trackingCredentialPersistence) UpdateProviderCredential(
 		}
 	}
 	time.Sleep(10 * time.Millisecond)
-	return p.Store.UpdateProviderCredential(ctx, id, revision, method, configured, now)
+	return p.Store.UpdateProviderCredential(ctx, id, revision, method, configured, metadata, now)
 }

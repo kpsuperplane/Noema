@@ -64,6 +64,19 @@ func (m AccountMetadata) SecretConfigured() bool {
 	return configured
 }
 
+// ModelProfiles returns safe provider model metadata.
+func (m AccountMetadata) ModelProfiles() ([]ModelProfile, error) {
+	var profiles []ModelProfile
+	value := m["profiles"]
+	if len(value) == 0 {
+		return []ModelProfile{}, nil
+	}
+	if err := json.Unmarshal(value, &profiles); err != nil {
+		return nil, errors.New("provider model profiles are invalid")
+	}
+	return profiles, nil
+}
+
 func credentialMetadata(revision uint64, configured bool) AccountMetadata {
 	revisionJSON, _ := json.Marshal(revision)
 	configuredJSON, _ := json.Marshal(configured)

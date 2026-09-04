@@ -395,6 +395,28 @@ state, atomic rotation, retry recovery, replay, and revocation.
 The Go production closure now contains 24 external modules. Native bearer
 authentication is active for GraphQL HTTP and WebSocket requests.
 
+### Hosted onboarding unit
+
+The first hosted onboarding unit passed on 2026-09-04. It includes:
+
+- protected provider credentials with revision checks and rollback;
+- safe provider account metadata and derived capabilities;
+- OpenRouter API-key verification and compatible model discovery;
+- OpenRouter S256 PKCE with bounded, short-lived attempt state;
+- current GraphQL provider roots and authentication events;
+- atomic model assignments for all nine current workloads;
+- idempotent primary Chat creation after onboarding;
+- one fresh-home path through the current client boot shape.
+
+Schema version 4 owns provider accounts. Schema version 5 owns primary Chat
+identity. Schema version 6 owns the complete hosted model assignment set.
+
+OpenRouter secrets remain in protected files. SQLite contains only safe
+account metadata, compatible model profiles, and credential revisions.
+
+The Go server now reaches an empty ready Chat from a fresh home through
+OpenRouter. Chat turns and live transcript delivery remain in the runtime unit.
+
 ## 11. Validation Strategy
 
 Do not copy all 1,135 Rust tests mechanically.

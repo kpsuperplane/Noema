@@ -13,6 +13,11 @@ func (r *Resolver) primaryConversation(ctx context.Context) (*model.PrimaryConve
 	if err != nil || conversation == nil {
 		return nil, err
 	}
+	if providerKind, err := r.primaryModelProviderKind(ctx); err != nil {
+		return nil, err
+	} else if providerKind != "" {
+		conversation.Provider = providerKind
+	}
 	return primaryConversationModel(*conversation), nil
 }
 

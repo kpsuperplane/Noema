@@ -20,8 +20,9 @@ The Rust server remains the production authority until the final cutover.
 
 The Go evidence gate passed. The current slice includes protected storage,
 Task documents, GraphQL contracts, provider streams, MCP calls, and diagnostics.
-Browser authentication and native OAuth now use Go schema version 3.
-Commands and notifications remain migration units.
+Browser authentication, native OAuth, provider accounts, and primary Chat use Go schema version 6.
+OpenRouter supports verified API keys, PKCE onboarding, and durable model assignments.
+Chat execution, commands, and notifications remain migration units.
 
 ## Current constraints
 

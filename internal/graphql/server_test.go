@@ -20,6 +20,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/home"
+	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
@@ -291,6 +292,62 @@ func TestUnimplementedFieldReturnsClearError(t *testing.T) {
 	}
 }
 
+func TestOpenRouterGraphQLStartQueryAndSubscriptionKeepClientShape(t *testing.T) {
+	resolver := openProviderTestResolver(t)
+	server := httptest.NewServer(NewHandler(resolver))
+	t.Cleanup(server.Close)
+	root := postGraphQL(t, server.URL, `{
+  providerAccountCatalog { providerKind preferredAuthMethod supportedAuthMethods capabilities { capabilityId status } }
+  providerAccounts { providerAccountId providerKind authMethod status capabilities { capabilityId status } }
+}`, nil)
+	catalog := root.Data["providerAccountCatalog"].([]any)
+	accounts := root.Data["providerAccounts"].([]any)
+	if len(catalog) != 6 || len(accounts) != 8 {
+		t.Fatalf("provider root sizes = %d catalog, %d accounts", len(catalog), len(accounts))
+	}
+	openRouterCatalog := catalog[1].(map[string]any)
+	if openRouterCatalog["providerKind"] != "openrouter" ||
+		openRouterCatalog["preferredAuthMethod"] != "OAUTH_PKCE" {
+		t.Fatalf("OpenRouter catalog = %#v", openRouterCatalog)
+	}
+
+	started := postGraphQL(t, server.URL, `mutation Start($input: StartProviderAuthAttemptInput!) {
+  startProviderAuthAttempt(input: $input) {
+    attemptId providerKind providerAccountId method status verificationUrl instructions errorCode errorMessage
+  }
+}`, map[string]any{"input": map[string]any{
+		"providerKind": "openrouter", "providerAccountId": "client-value-is-ignored", "method": "OAUTH_PKCE",
+	}}).Data["startProviderAuthAttempt"].(map[string]any)
+	attemptID := started["attemptId"].(string)
+	if started["providerAccountId"] != "provider_account:openrouter:default" ||
+		started["status"] != "WAITING_FOR_USER" || started["method"] != "OAUTH_PKCE" {
+		t.Fatalf("start response = %#v", started)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, err := resolver.SubscriptionRoot().ProviderAuthAttemptEvents(ctx, attemptID)
+	if err != nil || (<-events).Status != model.ProviderAuthAttemptStatusWaitingForUser {
+		t.Fatalf("subscription initial state is unavailable: %v", err)
+	}
+	cancelled := postGraphQL(t, server.URL, `mutation Cancel($input: CancelProviderAuthAttemptInput!) {
+  cancelProviderAuthAttempt(input: $input) { attemptId providerAccountId status errorCode errorMessage }
+}`, map[string]any{"input": map[string]any{"attemptId": attemptID}}).
+		Data["cancelProviderAuthAttempt"].(map[string]any)
+	if cancelled["status"] != "CANCELLED" || cancelled["providerAccountId"] != "provider_account:openrouter:default" {
+		t.Fatalf("cancel response = %#v", cancelled)
+	}
+	if event, open := <-events; !open || event.Status != model.ProviderAuthAttemptStatusCancelled {
+		t.Fatalf("subscription terminal event = %#v, open %v", event, open)
+	}
+	queried := postGraphQL(t, server.URL, `query Attempt($id: String!) {
+  providerAuthAttempt(attemptId: $id) { attemptId status }
+}`, map[string]any{"id": attemptID}).Data["providerAuthAttempt"].(map[string]any)
+	if queried["status"] != "CANCELLED" {
+		t.Fatalf("attempt query = %#v", queried)
+	}
+}
+
 type graphQLResponse struct {
 	Data   map[string]any `json:"data"`
 	Errors []struct {
@@ -321,7 +378,39 @@ func openTestResolver(t *testing.T) *Resolver {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = taskStore.Close() })
-	return NewResolver(taskStore, root, nil)
+	return NewResolver(taskStore, root, nil, nil, nil)
+}
+
+func openProviderTestResolver(t *testing.T) *Resolver {
+	t.Helper()
+	paths, err := home.FromRoot(filepath.Join(t.TempDir(), "home"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := paths.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	taskStore, err := store.Open(context.Background(), paths.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = taskStore.Close() })
+	accounts, err := provider.NewAccountService(paths.Root(), taskStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.Initialize(context.Background(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	openRouter, err := provider.NewOpenRouterService(
+		accounts, "http://localhost:3737/provider/oauth/callback",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewResolver(taskStore, root, nil, accounts, openRouter)
 }
 
 func postGraphQL(

@@ -74,7 +74,7 @@ func (r *mutationRootResolver) RevokeAllClients(ctx context.Context) (int, error
 
 // ConfirmOnboardingModelSelections is the resolver for the confirmOnboardingModelSelections field.
 func (r *mutationRootResolver) ConfirmOnboardingModelSelections(ctx context.Context, input model.ConfirmOnboardingModelSelectionsInput) (*model.OnboardingStatus, error) {
-	panic(fmt.Errorf("not implemented: ConfirmOnboardingModelSelections - confirmOnboardingModelSelections"))
+	return r.confirmOnboardingModelSelections(ctx, input)
 }
 
 // AddMcpConnection is the resolver for the addMcpConnection field.
@@ -294,32 +294,35 @@ func (r *mutationRootResolver) UpdateTaskExecutionPolicy(ctx context.Context, in
 
 // StartProviderAuthAttempt is the resolver for the startProviderAuthAttempt field.
 func (r *mutationRootResolver) StartProviderAuthAttempt(ctx context.Context, input model.StartProviderAuthAttemptInput) (*model.ProviderAuthAttempt, error) {
-	panic(fmt.Errorf("not implemented: StartProviderAuthAttempt - startProviderAuthAttempt"))
+	return r.startProviderAuth(ctx, input)
 }
 
 // CancelProviderAuthAttempt is the resolver for the cancelProviderAuthAttempt field.
 func (r *mutationRootResolver) CancelProviderAuthAttempt(ctx context.Context, input model.CancelProviderAuthAttemptInput) (*model.ProviderAuthAttempt, error) {
-	panic(fmt.Errorf("not implemented: CancelProviderAuthAttempt - cancelProviderAuthAttempt"))
+	return r.cancelProviderAuth(input.AttemptID), nil
 }
 
 // CreateProviderAccount is the resolver for the createProviderAccount field.
 func (r *mutationRootResolver) CreateProviderAccount(ctx context.Context, input model.CreateProviderAccountInput) (*model.ProviderAccount, error) {
-	panic(fmt.Errorf("not implemented: CreateProviderAccount - createProviderAccount"))
+	return r.createProviderAccount(ctx, input)
 }
 
 // SaveProviderSecretInput is the resolver for the saveProviderSecretInput field.
 func (r *mutationRootResolver) SaveProviderSecretInput(ctx context.Context, input model.ProviderSecretInput) (*model.ProviderAccount, error) {
-	panic(fmt.Errorf("not implemented: SaveProviderSecretInput - saveProviderSecretInput"))
+	return r.saveProviderSecret(ctx, input)
 }
 
 // ClearProviderSecret is the resolver for the clearProviderSecret field.
 func (r *mutationRootResolver) ClearProviderSecret(ctx context.Context, input model.ClearProviderSecretInput) (*model.ProviderAccount, error) {
-	panic(fmt.Errorf("not implemented: ClearProviderSecret - clearProviderSecret"))
+	return r.clearProviderSecret(ctx, input.ProviderAccountID)
 }
 
 // DeleteProviderAccount is the resolver for the deleteProviderAccount field.
 func (r *mutationRootResolver) DeleteProviderAccount(ctx context.Context, input model.DeleteProviderAccountInput) (bool, error) {
-	panic(fmt.Errorf("not implemented: DeleteProviderAccount - deleteProviderAccount"))
+	if r.ProviderAccounts == nil {
+		return false, fmt.Errorf("provider account service is unavailable")
+	}
+	return r.ProviderAccounts.DeleteAccount(ctx, input.ProviderAccountID)
 }
 
 // SaveAgentModelPreference is the resolver for the saveAgentModelPreference field.
@@ -389,7 +392,7 @@ func (r *mutationRootResolver) SaveMemoryModelPreference(ctx context.Context, in
 
 // EnsurePrimaryConversation is the resolver for the ensurePrimaryConversation field.
 func (r *mutationRootResolver) EnsurePrimaryConversation(ctx context.Context, cwd *string) (*model.PrimaryConversation, error) {
-	panic(fmt.Errorf("not implemented: EnsurePrimaryConversation - ensurePrimaryConversation"))
+	return r.ensurePrimaryConversation(ctx, cwd)
 }
 
 // SendConversationTurn is the resolver for the sendConversationTurn field.
@@ -574,27 +577,27 @@ func (r *queryRootResolver) DefaultModelPreference(ctx context.Context) (*model.
 
 // OnboardingStatus is the resolver for the onboardingStatus field.
 func (r *queryRootResolver) OnboardingStatus(ctx context.Context) (*model.OnboardingStatus, error) {
-	panic(fmt.Errorf("not implemented: OnboardingStatus - onboardingStatus"))
+	return r.onboardingStatus(ctx)
 }
 
 // OnboardingModelSetup is the resolver for the onboardingModelSetup field.
 func (r *queryRootResolver) OnboardingModelSetup(ctx context.Context, providerAccountID string) (*model.OnboardingModelSetup, error) {
-	panic(fmt.Errorf("not implemented: OnboardingModelSetup - onboardingModelSetup"))
+	return r.onboardingModelSetup(ctx, providerAccountID)
 }
 
 // ProviderAuthAttempt is the resolver for the providerAuthAttempt field.
 func (r *queryRootResolver) ProviderAuthAttempt(ctx context.Context, attemptID string) (*model.ProviderAuthAttempt, error) {
-	panic(fmt.Errorf("not implemented: ProviderAuthAttempt - providerAuthAttempt"))
+	return r.providerAuthAttempt(attemptID), nil
 }
 
 // ProviderAccounts is the resolver for the providerAccounts field.
 func (r *queryRootResolver) ProviderAccounts(ctx context.Context) ([]*model.ProviderAccount, error) {
-	panic(fmt.Errorf("not implemented: ProviderAccounts - providerAccounts"))
+	return r.providerAccounts(ctx)
 }
 
 // ProviderAccountCatalog is the resolver for the providerAccountCatalog field.
 func (r *queryRootResolver) ProviderAccountCatalog(ctx context.Context) ([]*model.ProviderAccountCatalogEntry, error) {
-	panic(fmt.Errorf("not implemented: ProviderAccountCatalog - providerAccountCatalog"))
+	return providerAccountCatalog(), nil
 }
 
 // Agents is the resolver for the agents field.
@@ -794,7 +797,7 @@ func (r *subscriptionRootResolver) WebPushPresence(ctx context.Context, subscrip
 
 // ProviderAuthAttemptEvents is the resolver for the providerAuthAttemptEvents field.
 func (r *subscriptionRootResolver) ProviderAuthAttemptEvents(ctx context.Context, attemptID string) (<-chan *model.ProviderAuthAttempt, error) {
-	panic(fmt.Errorf("not implemented: ProviderAuthAttemptEvents - providerAuthAttemptEvents"))
+	return r.providerAuthEvents(ctx, attemptID)
 }
 
 // LocalModelEvents is the resolver for the localModelEvents field.

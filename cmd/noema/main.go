@@ -15,6 +15,7 @@ import (
 	"github.com/kpsuperplane/noema/internal/auth"
 	noemagraphql "github.com/kpsuperplane/noema/internal/graphql"
 	"github.com/kpsuperplane/noema/internal/home"
+	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/store"
 	"github.com/kpsuperplane/noema/internal/web"
 )
@@ -67,6 +68,20 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 	go browserAuth.RunCleanup(ctx)
+	providerAccounts, err := provider.NewAccountService(paths.Root(), taskStore)
+	if err != nil {
+		return err
+	}
+	if err := providerAccounts.Initialize(ctx, time.Now()); err != nil {
+		return fmt.Errorf("initialize provider accounts: %w", err)
+	}
+	openRouter, err := provider.NewOpenRouterService(
+		providerAccounts,
+		authConfig.Origin+"/provider/oauth/callback",
+	)
+	if err != nil {
+		return err
+	}
 
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
@@ -77,10 +92,13 @@ func run(ctx context.Context, address string, output *os.File) error {
 		return err
 	}
 
-	graphqlHandler := noemagraphql.NewHandler(noemagraphql.NewResolver(taskStore, root, browserAuth))
+	graphqlHandler := noemagraphql.NewHandler(noemagraphql.NewResolver(
+		taskStore, root, browserAuth, providerAccounts, openRouter,
+	))
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlHandler)
 	mux.Handle("/graphql/ws", graphqlHandler)
+	mux.Handle("/provider/oauth/callback/", openRouter.CallbackHandler())
 	mux.Handle("/", web.NewAssetHandler())
 	server := &http.Server{
 		Handler:           browserAuth.Handler(mux),

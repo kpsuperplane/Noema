@@ -24,7 +24,7 @@ type AccountPersistence interface {
 	ProviderAccount(context.Context, string) (Account, error)
 	ActiveProviderAccounts(context.Context) ([]Account, error)
 	CreateProviderAccount(context.Context, Account) (Account, error)
-	UpdateProviderCredential(context.Context, string, uint64, AuthMethod, bool, time.Time) (Account, error)
+	UpdateProviderCredential(context.Context, string, uint64, AuthMethod, bool, AccountMetadata, time.Time) (Account, error)
 	DeleteProviderAccount(context.Context, string) (bool, error)
 }
 
@@ -85,6 +85,11 @@ func (s *AccountService) Initialize(ctx context.Context, now time.Time) error {
 // Accounts returns active provider account metadata.
 func (s *AccountService) Accounts(ctx context.Context) ([]Account, error) {
 	return s.persistence.ActiveProviderAccounts(ctx)
+}
+
+// LoadAccount returns one provider account by exact identifier.
+func (s *AccountService) LoadAccount(ctx context.Context, id string) (Account, error) {
+	return s.persistence.ProviderAccount(ctx, id)
 }
 
 // CreateSecretAccount creates a user-managed account with one protected secret.
@@ -163,14 +168,80 @@ func (s *AccountService) SaveSecret(
 	if secret.value == "" {
 		return Account{}, errors.New("provider secret cannot be empty")
 	}
-	return s.mutateSecret(ctx, id, AuthSecretInput, true, now, func(path string) error {
+	return s.mutateSecret(ctx, id, 0, AuthSecretInput, true, nil, now, func(path string) error {
 		return writeSecret(path, secret)
 	})
 }
 
 // ClearSecret atomically removes one account credential and changes its safe metadata.
 func (s *AccountService) ClearSecret(ctx context.Context, id string, now time.Time) (Account, error) {
-	return s.mutateSecret(ctx, id, "", false, now, home.RemovePrivateFile)
+	return s.mutateSecret(ctx, id, 0, "", false, nil, now, home.RemovePrivateFile)
+}
+
+// PublishVerifiedSecret saves a remotely verified credential against its starting revision.
+func (s *AccountService) PublishVerifiedSecret(
+	ctx context.Context,
+	id string,
+	expectedRevision uint64,
+	method AuthMethod,
+	secret Secret,
+	profiles []ModelProfile,
+	now time.Time,
+) (Account, error) {
+	if id != "provider_account:openrouter:default" || secret.value == "" ||
+		(method != AuthOAuthPKCE && method != AuthSecretInput) || len(profiles) == 0 {
+		return Account{}, ErrAuthMethodMismatch
+	}
+	metadata, err := metadataWithProfiles(nil, profiles, now)
+	if err != nil {
+		return Account{}, err
+	}
+	gate := s.gate(id)
+	gate.Lock()
+	defer gate.Unlock()
+
+	account, err := s.persistence.ProviderAccount(ctx, id)
+	if errors.Is(err, ErrAccountNotFound) {
+		if expectedRevision != 0 {
+			return Account{}, ErrAccountConflict
+		}
+		return s.createVerifiedOpenRouter(ctx, method, secret, metadata, now)
+	}
+	if err != nil {
+		return Account{}, err
+	}
+	if account.ProviderKind != "openrouter" || account.AccountKey != "default" ||
+		account.Metadata.CredentialRevision() != expectedRevision {
+		return Account{}, ErrAccountConflict
+	}
+	metadata, err = metadataWithProfiles(account.Metadata, profiles, now)
+	if err != nil {
+		return Account{}, err
+	}
+	path, err := s.credentialPath(account)
+	if err != nil {
+		return Account{}, err
+	}
+	snapshot, err := snapshotPrivateFile(path)
+	if err != nil {
+		return Account{}, err
+	}
+	if err := writeSecret(path, secret); err != nil {
+		if restoreErr := restorePrivateFile(path, snapshot); restoreErr != nil {
+			return Account{}, ErrCompensationFailed
+		}
+		return Account{}, err
+	}
+	updated, err := s.persistence.UpdateProviderCredential(
+		ctx, id, expectedRevision, method, true, metadata, now.UTC(),
+	)
+	if err != nil {
+		if restoreErr := restorePrivateFile(path, snapshot); restoreErr != nil {
+			return Account{}, ErrCompensationFailed
+		}
+		return Account{}, err
+	}
+	return updated, nil
 }
 
 // LoadSecret returns one credential through a typed wrapper.
@@ -235,8 +306,10 @@ func (s *AccountService) DeleteAccount(ctx context.Context, id string) (bool, er
 func (s *AccountService) mutateSecret(
 	ctx context.Context,
 	id string,
+	expectedRevision uint64,
 	method AuthMethod,
 	configured bool,
+	metadata AccountMetadata,
 	now time.Time,
 	mutation func(string) error,
 ) (Account, error) {
@@ -254,6 +327,11 @@ func (s *AccountService) mutateSecret(
 	if method == "" {
 		method = account.AuthMethod
 	}
+	if expectedRevision == 0 {
+		expectedRevision = account.Metadata.CredentialRevision()
+	} else if account.Metadata.CredentialRevision() != expectedRevision {
+		return Account{}, ErrAccountConflict
+	}
 	path, err := s.credentialPath(account)
 	if err != nil {
 		return Account{}, err
@@ -269,7 +347,7 @@ func (s *AccountService) mutateSecret(
 		return Account{}, err
 	}
 	updated, err := s.persistence.UpdateProviderCredential(
-		ctx, id, account.Metadata.CredentialRevision(), method, configured, now.UTC(),
+		ctx, id, expectedRevision, method, configured, metadata, now.UTC(),
 	)
 	if err != nil {
 		if restoreErr := restorePrivateFile(path, snapshot); restoreErr != nil {
@@ -278,6 +356,55 @@ func (s *AccountService) mutateSecret(
 		return Account{}, err
 	}
 	return updated, nil
+}
+
+func (s *AccountService) createVerifiedOpenRouter(
+	ctx context.Context,
+	method AuthMethod,
+	secret Secret,
+	metadata AccountMetadata,
+	now time.Time,
+) (Account, error) {
+	now = now.UTC()
+	metadata = cloneMetadata(metadata)
+	metadata["credentialRevision"] = json.RawMessage("1")
+	metadata["secretConfigured"] = json.RawMessage("true")
+	account := Account{
+		ID: "provider_account:openrouter:default", ProviderKind: "openrouter", AccountKey: "default",
+		DisplayName: "OpenRouter", AuthMethod: method, IsActive: true, IsDefault: true,
+		Status: StatusAuthenticated, Metadata: metadata, CreatedAt: now, UpdatedAt: now,
+		LastCheckedAt: &now, LastAuthenticatedAt: &now,
+	}
+	path, err := s.credentialPath(account)
+	if err != nil {
+		return Account{}, err
+	}
+	snapshot, err := snapshotPrivateFile(path)
+	if err != nil {
+		return Account{}, err
+	}
+	if err := writeSecret(path, secret); err != nil {
+		if restoreErr := restorePrivateFile(path, snapshot); restoreErr != nil {
+			return Account{}, ErrCompensationFailed
+		}
+		return Account{}, err
+	}
+	created, err := s.persistence.CreateProviderAccount(ctx, account)
+	if err != nil {
+		if restoreErr := restorePrivateFile(path, snapshot); restoreErr != nil {
+			return Account{}, ErrCompensationFailed
+		}
+		return Account{}, err
+	}
+	return created, nil
+}
+
+func cloneMetadata(source AccountMetadata) AccountMetadata {
+	result := make(AccountMetadata, len(source)+2)
+	for key, value := range source {
+		result[key] = append(json.RawMessage(nil), value...)
+	}
+	return result
 }
 
 func (s *AccountService) gate(id string) *sync.Mutex {
@@ -304,6 +431,9 @@ func writeSecret(path string, secret Secret) error {
 	data, err := json.Marshal(credentialFile{APIKey: secret.value})
 	if err != nil {
 		return errors.New("encode provider secret")
+	}
+	if len(data) > credentialFileLimit {
+		return errors.New("provider secret exceeds the protected file limit")
 	}
 	if err := home.AtomicWritePrivate(path, data); err != nil {
 		return fmt.Errorf("write provider secret: %w", err)

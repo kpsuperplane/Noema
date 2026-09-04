@@ -127,6 +127,7 @@ func (s *Store) UpdateProviderCredential(
 	expectedRevision uint64,
 	method provider.AuthMethod,
 	configured bool,
+	metadata provider.AccountMetadata,
 	now time.Time,
 ) (provider.Account, error) {
 	status := provider.StatusUnauthenticated
@@ -134,9 +135,21 @@ func (s *Store) UpdateProviderCredential(
 		status = provider.StatusAuthenticated
 	}
 	now = now.UTC()
-	configuredJSON := "false"
-	if configured {
-		configuredJSON = "true"
+	if metadata == nil {
+		current, err := s.ProviderAccount(ctx, id)
+		if err != nil {
+			return provider.Account{}, err
+		}
+		metadata = current.Metadata
+	}
+	metadata = cloneProviderMetadata(metadata)
+	revisionJSON, _ := json.Marshal(expectedRevision + 1)
+	configuredJSON, _ := json.Marshal(configured)
+	metadata["credentialRevision"] = revisionJSON
+	metadata["secretConfigured"] = configuredJSON
+	encodedMetadata, err := json.Marshal(metadata)
+	if err != nil {
+		return provider.Account{}, fmt.Errorf("encode provider credential metadata: %w", err)
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
@@ -148,11 +161,10 @@ UPDATE provider_accounts
 SET auth_method = ?, status = ?, last_checked_at_ms = ?,
     last_authenticated_at_ms = CASE WHEN ? THEN ? ELSE last_authenticated_at_ms END,
     last_error_code = NULL, last_error_message = NULL,
-    metadata_json = json_set(metadata_json,
-        '$.credentialRevision', ?, '$.secretConfigured', json(?)), updated_at_ms = ?
+    metadata_json = ?, updated_at_ms = ?
 WHERE provider_account_id = ?
   AND COALESCE(CAST(json_extract(metadata_json, '$.credentialRevision') AS INTEGER), 0) = ?`,
-		method, status, millis(now), configured, millis(now), expectedRevision+1, configuredJSON,
+		method, status, millis(now), configured, millis(now), string(encodedMetadata),
 		millis(now), id, expectedRevision)
 	if err != nil {
 		return provider.Account{}, fmt.Errorf("update provider credential: %w", err)
@@ -179,6 +191,14 @@ WHERE provider_account_id = ?`, id))
 		return provider.Account{}, fmt.Errorf("commit provider credential update: %w", err)
 	}
 	return updated, nil
+}
+
+func cloneProviderMetadata(source provider.AccountMetadata) provider.AccountMetadata {
+	result := make(provider.AccountMetadata, len(source)+2)
+	for key, value := range source {
+		result[key] = append(json.RawMessage(nil), value...)
+	}
+	return result
 }
 
 // DeleteProviderAccount hard-deletes one user-managed provider account.

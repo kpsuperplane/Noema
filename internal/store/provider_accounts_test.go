@@ -25,7 +25,7 @@ func TestProviderMetadataPreservesProfilesAndChecksRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	updated, err := database.UpdateProviderCredential(
-		ctx, account.ID, 0, provider.AuthSecretInput, true, now.Add(time.Second),
+		ctx, account.ID, 0, provider.AuthSecretInput, true, nil, now.Add(time.Second),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +37,7 @@ func TestProviderMetadataPreservesProfilesAndChecksRevision(t *testing.T) {
 		t.Fatalf("profiles were not preserved: %s", updated.Metadata["profiles"])
 	}
 	if _, err := database.UpdateProviderCredential(
-		ctx, account.ID, 0, provider.AuthSecretInput, false, now,
+		ctx, account.ID, 0, provider.AuthSecretInput, false, nil, now,
 	); !errors.Is(err, provider.ErrAccountConflict) {
 		t.Fatalf("stale update error = %v", err)
 	}
