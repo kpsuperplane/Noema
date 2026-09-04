@@ -1,18 +1,19 @@
 /* Static examples only. No requests, credentials, storage, or authentication. */
 (() => {
   const button = (label, variant, attributes = '') => window.noemaButtonMarkup[variant]
-    .replace('__LABEL__', label).replace('<button ', `<button ${attributes} `);
+    .replaceAll('__LABEL__', label).replace('<button ', `<button ${attributes} `);
   const go = (label, target, variant = 'primary', provider = '') =>
     button(label, variant, `data-go="${target}"${provider ? ` data-provider="${provider}"` : ''}`);
   const finish = (label, variant = 'primary') => button(label, variant, 'data-finish');
   const actions = (primary, secondary = '') => `<section class="actions">${secondary}${primary}</section>`;
   const note = text => `<p class="note">${text}</p>`;
   const check = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4 10-10"/></svg>';
-  const status = (title, text = '', kind = '') => `<section class="status ${kind}"><span class="status-icon" aria-hidden="true">${kind === 'success' ? check : kind === 'error' ? '!' : '·'}</span><section><p><strong>${title}</strong></p>${text ? `<p>${text}</p>` : ''}</section></section>`;
+  const status = (title, text = '', kind = '') => `<section class="status ${kind}"${kind === 'error' ? ' role="alert"' : ''}><span class="status-icon" aria-hidden="true">${kind === 'success' ? check : kind === 'error' ? '!' : '·'}</span><section><p><strong>${title}</strong></p>${text ? `<p>${text}</p>` : ''}</section></section>`;
   const waiting = text => `<section class="status" role="status"><span class="spinner" aria-hidden="true"></span><p>${text}</p></section>`;
   const field = (id, label, placeholder, error = '') => `<section class="field"><label for="${id}">${label}</label><input id="${id}" type="text" placeholder="${placeholder}" readonly${error ? ` aria-invalid="true" aria-describedby="${id}-error"` : ''}>${error ? `<p class="field-error" id="${id}-error">${error}</p>` : ''}</section>`;
   const facts = rows => `<section class="facts">${rows.map(([label, value]) => `<p class="fact"><span>${label}</span><span>${value}</span></p>`).join('')}</section>`;
   const option = (label, text, target, provider) => `<button type="button" class="option" data-go="${target}" data-provider="${provider}"><span class="option-copy"><strong>${label}</strong><small>${text}</small></span><svg class="option-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></button>`;
+  const deviceCode = `<section class="device-code"><code id="device-example">DEMO-CODE</code>${button('Copy code', 'outline', 'data-copy')}</section>`;
   const recoveryHelp = `<details><summary>Where do I find this code?</summary><p>The current code is in the server’s <code>config.yaml</code> file, under <code>web.recovery_code</code>.</p><p>Ask the person who manages Noema for help.</p></details>`;
   const recoveryRule = note('Each attempt replaces the code, even if it fails.');
   const localFacts = facts([['Model', 'Gemma 4 E4B IT'], ['Download', '5.3 GB'], ['Runs on', 'Your Noema server']]);
@@ -83,56 +84,89 @@
     },
     {
       id: 'recovery-complete', group: 'Recovery', label: 'Access restored', title: 'Your access is restored',
-      intro: 'Your new passkey is ready.',
-      body: status('New passkey saved', '', 'success') + note('You can review your other passkeys and connected apps in Settings.') + actions(finish('Continue to Noema')),
+      intro: 'Use your new passkey next time.',
+      body: note('Existing passkeys and connected apps still have access. Review them in Settings.') + actions(finish('Continue to Noema')),
       intent: 'Give brief confirmation and preserve the user’s return destination.',
       constraint: 'Recovery adds access. It does not remove old passkeys or revoke native clients.'
     },
     {
       id: 'provider-choice', group: 'Model setup', label: 'Choose provider', title: 'Choose how Noema thinks', step: 'Set up Noema · 1 of 2',
       intro: 'Choose a provider to get started.',
-      body: `<section class="options" aria-label="Model providers">${option('Local', 'Download a model to your Noema server.', 'local-ready', 'Local')}${option('OpenRouter', 'Connect your OpenRouter account.', 'provider-openrouter', 'OpenRouter')}${option('Codex', 'Continue with your Codex sign-in.', 'provider-codex', 'Codex')}</section>` + note('You can add more providers later in Settings.'),
+      body: `<section class="options" aria-label="Model providers">${option('Local', 'Runs on your Noema server. No provider account needed.', 'local-ready', 'Local')}${option('OpenRouter', 'Models from many providers. Requires an OpenRouter account.', 'provider-openrouter', 'OpenRouter')}${option('Codex', 'OpenAI models. Requires ChatGPT access to Codex.', 'provider-codex', 'Codex')}</section>` + note('You can add more providers later in Settings.'),
       intent: 'Use ListCardButton from components/ListCardLink.tsx. Match the Task card frame and text metrics, with wrapping descriptions and one action per card.',
       constraint: 'Account and payment requirements must come from verified provider information. Do not invent a universal recommendation.'
     },
     {
       id: 'provider-openrouter', group: 'Model setup', label: 'Connect OpenRouter', title: 'Connect OpenRouter', step: 'Set up Noema · 1 of 2',
       intro: 'Sign in to choose your models.',
-      body: actions(go('Continue to OpenRouter', 'provider-waiting'), go('Choose another provider', 'provider-choice', 'secondary')) + note('OpenRouter opens in another tab. Return here after signing in.') + `<details><summary>Use an API key instead</summary>${field('provider-api-key', 'OpenRouter API key', 'Paste your API key')}${actions(go('Connect with API key', 'provider-models'))}</details>`,
+      body: actions(go('Continue to OpenRouter', 'provider-waiting', 'primary', 'OpenRouter'), go('Choose another provider', 'provider-choice', 'secondary')) + note('OpenRouter opens in another tab. Return here after signing in.') + `<details><summary>Use an API key instead</summary>${field('provider-api-key', 'OpenRouter API key', 'Paste your API key')}${actions(go('Connect with API key', 'provider-loading', 'primary', 'OpenRouter'))}</details>`,
       intent: 'Make browser sign-in primary. Keep API-key entry under disclosure.',
       constraint: 'The preview uses no external links and accepts no keys.'
     },
     {
       id: 'provider-codex', group: 'Model setup', label: 'Codex device sign-in', title: 'Sign in to Codex', step: 'Set up Noema · 1 of 2',
       intro: 'Enter this code on the sign-in page.',
-      body: `<section class="device-code"><code id="device-example">DEMO-CODE</code>${button('Copy code', 'outline', 'data-copy')}</section>` + actions(go('Open Codex sign-in', 'provider-waiting', 'primary', 'Codex'), go('Cancel connection', 'provider-choice', 'secondary')) + note('Noema continues automatically after you finish signing in.'),
+      body: deviceCode + actions(go('Open Codex sign-in', 'provider-codex-waiting', 'primary', 'Codex'), go('Cancel connection', 'provider-choice', 'secondary')) + note('Noema continues automatically after you finish signing in.'),
       intent: 'Keep the code beside its copy action. Name the external destination.',
       constraint: 'DEMO-CODE is an inert example. Production displays only the active device attempt’s code.'
     },
     {
-      id: 'provider-waiting', group: 'Model setup', label: 'Waiting for sign-in', title: 'Finish signing in', step: 'Set up Noema · 1 of 2',
+      id: 'provider-waiting', group: 'Model setup', label: 'Waiting for OpenRouter', title: 'Finish signing in', step: 'Set up Noema · 1 of 2',
       intro: 'Finish sign-in in the other tab.',
-      body: waiting('Noema continues after you sign in.') + actions(finish('Open sign-in page again', 'outline'), go('Cancel connection', 'provider-choice', 'secondary')),
+      body: waiting('Noema continues after you sign in.') + actions(button('Open sign-in page again', 'primary', 'data-reopen'), go('Cancel connection', 'provider-choice', 'secondary')),
       intent: 'Keep the waiting state calm and explain which tab owns the next action.',
       constraint: 'Use the exact attempt event and foreground recovery query. Do not introduce polling or infer success from elapsed time.'
     },
     {
-      id: 'provider-expired', group: 'Model setup', label: 'Sign-in expired', title: 'Start sign-in again',
-      intro: 'This sign-in attempt has expired.',
-      body: actions(go('Start sign-in again', 'provider-openrouter'), go('Choose another provider', 'provider-choice', 'secondary')),
-      intent: 'Provide a fresh attempt while keeping provider selection available.',
-      constraint: 'Production restarts the selected provider’s flow. This example uses OpenRouter.'
+      id: 'provider-codex-waiting', group: 'Model setup', label: 'Waiting for Codex', title: 'Finish signing in', step: 'Set up Noema · 1 of 2',
+      intro: 'Enter this code in the other tab.',
+      body: deviceCode + actions(button('Open Codex sign-in again', 'primary', 'data-reopen'), go('Cancel connection', 'provider-choice', 'secondary')) + waiting('Noema continues after you sign in.'),
+      intent: 'Keep the active code available throughout device sign-in, including when the person returns to copy it.',
+      constraint: 'Reopen the same attempt URL. Preserve the immediate continuation event; use the state picker for its outcomes in this preview.'
     },
     {
-      id: 'provider-models', group: 'Model setup', label: 'Review models', title: 'Ready for your first chat', step: 'Set up Noema · 2 of 2',
+      id: 'provider-expired', group: 'Model setup', label: 'Sign-in expired', title: 'Start sign-in again',
+      intro: 'This sign-in attempt has expired.',
+      body: '',
+      intent: 'Provide a fresh attempt while keeping provider selection available.',
+      constraint: 'Restart the selected provider’s flow with a fresh attempt.'
+    },
+    {
+      id: 'provider-loading', group: 'Model setup', label: 'Loading models', title: 'Preparing your models', step: 'Set up Noema · 2 of 2',
+      intro: 'Your provider is connected.',
+      body: waiting('Loading available models') + actions(go('Choose another provider', 'provider-choice', 'secondary')),
+      intent: 'Keep the connected account while loading its available models.',
+      constraint: 'Use the state picker to preview loaded models or a loading failure. Production advances only after loading succeeds.'
+    },
+    {
+      id: 'provider-load-failed', group: 'Model setup', label: 'Model loading failed', title: 'Models could not load', step: 'Set up Noema · 2 of 2',
+      intro: 'Your provider is still connected.',
+      body: actions(go('Try loading models again', 'provider-loading'), go('Choose another provider', 'provider-choice', 'secondary')),
+      intent: 'Retry model loading without repeating sign-in or discarding the account.',
+      constraint: 'Retain the current account and any existing draft. Surface the actual loading error when available.'
+    },
+    {
+      id: 'provider-models', group: 'Model setup', label: 'Review models', title: 'Review your models', step: 'Set up Noema · 2 of 2',
       intro: 'Change your models later in Settings.', body: '',
       intent: 'Name each selected model once and show its jobs. Keep all nine assignments under customization; update the summary when choices change.',
       constraint: 'Selections remain drafts until explicit confirmation saves the complete setup. Local action reviews remain human approval.'
     },
     {
+      id: 'provider-saving', group: 'Model setup', label: 'Saving models', title: 'Review your models', step: 'Set up Noema · 2 of 2',
+      intro: 'Change your models later in Settings.', body: '',
+      intent: 'Keep the draft visible and disable submission and edits during saving.',
+      constraint: 'The state picker simulates save success or failure. Production opens Chat only after confirmed success.'
+    },
+    {
+      id: 'provider-save-failed', group: 'Model setup', label: 'Model save failed', title: 'Review your models', step: 'Set up Noema · 2 of 2',
+      intro: 'Change your models later in Settings.', body: '',
+      intent: 'Keep the selected provider and draft. Place the save failure beside the retry action.',
+      constraint: 'Retry the same complete draft. Do not announce readiness or repeat provider sign-in after a save failure.'
+    },
+    {
       id: 'provider-complete', group: 'Model setup', label: 'Setup complete', title: 'Noema is ready',
-      intro: 'Settings saved. Opening Chat…',
-      body: status('Setup complete', '', 'success') + actions(finish('Open Chat')),
+      intro: 'Opening your first chat…',
+      body: actions(finish('Open Chat')),
       intent: 'Use a brief completion state without adding a required extra step.',
       constraint: 'Production continues to Chat automatically. The button is a return fallback, not a second confirmation.'
     },
@@ -186,15 +220,15 @@
       constraint: 'Keep full-access disclosure visible. Preserve recent passkey verification, CSRF, PKCE, and validated return destinations.'
     },
     {
-      id: 'oauth-connected', group: 'Native app connection', label: 'Connection complete', title: 'Noema Desktop is connected',
-      intro: 'Return to the app to continue.',
-      body: status('Connection complete', '', 'success') + actions(finish('Return to Noema Desktop')),
-      intent: 'Name the app and offer a clear handoff.',
-      constraint: 'Use a return action only when the platform supports it. Otherwise instruct the user to return to the app.'
+      id: 'oauth-connected', group: 'Native app connection', label: 'Return to Desktop', title: 'Continue in Noema Desktop',
+      intro: 'The app will finish connecting.',
+      body: note('If the app did not open, return to it now.'),
+      intent: 'Show a fallback message after the immediate native callback. Confirm successful connection inside the app after token exchange.',
+      constraint: 'Do not insert a browser confirmation before the callback. The browser result does not prove a successful token exchange.'
     },
     {
-      id: 'oauth-denied', group: 'Native app connection', label: 'Connection denied', title: 'No new access was granted',
-      intro: 'This request did not connect the app.',
+      id: 'oauth-denied', group: 'Native app connection', label: 'Connection denied', title: 'Connection declined',
+      intro: 'No new access was granted.',
       body: note('You can close this tab and return to the app.') + actions(finish('Return to Noema Desktop', 'outline')),
       intent: 'Confirm the user’s decision without presenting denial as a failure.',
       constraint: 'Denying this request does not imply that earlier app grants were revoked.'
@@ -256,6 +290,7 @@
   const reviewStatus = document.getElementById('review-status');
   let provider = 'OpenRouter';
   let moveFocus = false;
+  const modelDrafts = {};
   const groups = [...new Set(screens.map(screen => screen.group))];
   groups.forEach(group => flowSelect.add(new Option(group, group)));
   const assignmentLabels = ['Chat', 'Simple tasks', 'Medium tasks', 'Difficult tasks', 'Task reviewer', 'Web summaries', 'Progress checks', 'Action reviews', 'Memory updates'];
@@ -267,23 +302,33 @@
       return `<section class="model-summary-row"><strong>${model}</strong><p>${jobs.join(' · ')}</p></section>`;
     }).join('');
   }
-  function modelBody() {
+  function modelBody(id) {
+    const saving = id === 'provider-saving';
+    const failed = id === 'provider-save-failed';
     // Example choices from the source baseline, not a live provider catalog.
     const choices = provider === 'Local' ? ['Gemma 4 E4B IT'] : ['GPT-5.6 Luna', 'GPT-5.6 Sol', 'GPT-5.6 Terra'];
-    const values = assignmentLabels.map((_, index) => provider === 'Local' ? index === 7 ? 'Ask me for approval' : choices[0]
+    const values = modelDrafts[provider] ??= assignmentLabels.map((_, index) => provider === 'Local' ? index === 7 ? 'Ask me for approval' : choices[0]
       : index === 3 ? choices[1] : provider === 'Codex' && index === 0 ? choices[2] : choices[0]);
     const assignments = assignmentLabels.map((label, index) => provider === 'Local' && index === 7
       ? `<section class="assignment"><strong>Action reviews</strong><p>Ask me for approval</p></section>`
-      : `<label class="assignment" for="model-${index}">${label}<select id="model-${index}">${choices.map(model => `<option${model === values[index] ? ' selected' : ''}>${model}</option>`).join('')}</select></label>`).join('');
-    return status(`${provider} connected`, '', 'success') + `<section id="model-summary" class="model-summary" aria-label="Selected models">${modelSummary(values)}</section><details><summary>Customize models</summary>${assignments}</details>` + actions(go('Confirm and start Chat', 'provider-complete'), go('Choose another provider', 'provider-choice', 'secondary'));
+      : `<label class="assignment" for="model-${index}">${label}<select id="model-${index}"${saving ? ' disabled' : ''}>${choices.map(model => `<option${model === values[index] ? ' selected' : ''}>${model}</option>`).join('')}</select></label>`).join('');
+    const feedback = failed ? status('Settings could not be saved', 'Your choices are still here.', 'error') : '';
+    const controls = saving
+      ? actions(button('Saving…', 'saving', 'aria-busy="true"'), button('Choose another provider', 'disabled-secondary'))
+      : actions(go(failed ? 'Try saving again' : 'Confirm and start Chat', 'provider-saving'), go('Choose another provider', 'provider-choice', 'secondary'));
+    return status(`${provider} connected`, '', 'success') + `<section id="model-summary" class="model-summary" aria-label="Selected models">${modelSummary(values)}</section><details><summary>Customize models</summary>${assignments}</details>` + feedback + controls;
   }
   function render() {
     const id = location.hash.slice(1);
     const screen = screens.find(item => item.id === id) || screens[0];
+    if (['provider-codex', 'provider-codex-waiting'].includes(screen.id)) provider = 'Codex';
+    if (['provider-openrouter', 'provider-waiting'].includes(screen.id)) provider = 'OpenRouter';
     flowSelect.value = screen.group;
     stateSelect.replaceChildren(...screens.filter(item => item.group === screen.group).map(item => new Option(item.label, item.id)));
     stateSelect.value = screen.id;
-    const body = screen.id === 'provider-models' ? modelBody() : screen.body;
+    const body = ['provider-models', 'provider-saving', 'provider-save-failed'].includes(screen.id) ? modelBody(screen.id)
+      : screen.id === 'provider-expired' ? actions(go('Start sign-in again', provider === 'Codex' ? 'provider-codex' : 'provider-openrouter'), go('Choose another provider', 'provider-choice', 'secondary'))
+      : screen.body;
     screenRoot.innerHTML = `<header class="screen-heading">${screen.step ? `<p class="step">${screen.step}</p>` : ''}<h1 id="screen-title" tabindex="-1">${screen.title}</h1><p class="intro">${screen.intro}</p></header><section class="screen-body">${body}</section>`;
     document.getElementById('intent').textContent = screen.intent;
     document.getElementById('constraint').textContent = screen.constraint;
@@ -310,6 +355,7 @@
     if (!button) return;
     if (button.dataset.provider) provider = button.dataset.provider;
     if (button.dataset.go) navigate(button.dataset.go, true);
+    if (button.hasAttribute('data-reopen')) reviewStatus.textContent = 'Preview: reopen the same sign-in attempt without starting a new connection.';
     if (button.hasAttribute('data-finish')) reviewStatus.textContent = 'Preview complete. The application is unchanged.';
     if (button.hasAttribute('data-copy')) {
       try {
@@ -327,9 +373,10 @@
   screenRoot.addEventListener('change', event => {
     if (event.target.matches('.assignment select')) {
       const values = assignmentLabels.map((_, index) => document.getElementById(`model-${index}`)?.value || 'Ask me for approval');
+      modelDrafts[provider] = values;
       document.getElementById('model-summary').innerHTML = modelSummary(values);
     }
   });
-  window.addEventListener('hashchange', render);
+  window.addEventListener('hashchange', () => { moveFocus = true; render(); });
   render();
 })();

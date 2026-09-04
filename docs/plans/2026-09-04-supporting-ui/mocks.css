@@ -44,6 +44,8 @@ h2 { font: var(--text-heading-4-weight) var(--text-heading-4-size)/var(--text-he
 .screen-body > * { margin: 0; }
 .screen-body > .actions:has(.primary), .screen-body > .decision-actions { margin-top: var(--spacing-1); }
 .screen-body > .actions:first-child { margin-top: 0; }
+/* Route headings receive announcement focus; controls retain their focus indicators. */
+#screen-title:focus { outline: none; }
 #screen { animation: arrive var(--motion-spring-standard) both; }
 .intro { color: var(--muted-foreground); text-wrap: pretty; }
 .step { color: var(--muted-foreground); font-size: var(--text-supporting-size); line-height: var(--text-supporting-leading); }

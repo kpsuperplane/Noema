@@ -12,17 +12,19 @@ Use the Flow and State controls to inspect each example.
 Use Width to compare desktop, phone, and narrow layouts.
 The address fragment identifies a screen. Browser Back restores the previous screen.
 Buttons change example states. Credential fields are read-only. `DEMO-CODE` is inert sample data.
+Use the State control to simulate sign-in completion, model loading results, and save success or failure. Pending states do not finish on a timer.
+Model drafts remain in gallery memory across retries. Reloading the page resets these examples.
 Model names, transfer values, accounts, and service names are examples unless identified as live evidence.
 The gallery consolidates the earlier login, recovery, model review, and callback concepts.
-The [adversarial audit](adversarial-audit.md) records seven open UX, copy, and flow findings. Resolve its implementation findings before applying the plan.
+The [adversarial audit](adversarial-audit.md) records seven findings and their completed gallery corrections. Production acceptance remains part of implementation.
 
 | Flow | Entry | Included states |
 | --- | --- | --- |
 | Passkeys | [Sign in](index.html#access-login) | Sign in, initial claim, browser prompt, cancellation, unsupported browser |
 | Recovery | [Enter code](index.html#recovery-code) | Code entry, rejection, enrollment retry, expired setup session, restored access |
-| Model setup | [Choose provider](index.html#provider-choice) | Provider choice, OpenRouter, Codex device code, waiting, expiration, model review, completion |
+| Model setup | [Choose provider](index.html#provider-choice) | Provider choice, OpenRouter, Codex device code and waiting, expiry, model loading and failure, review, saving and failure, completion |
 | Local models | [Before download](index.html#local-ready) | Download choice, progress, verification, installed, failed, unavailable |
-| Native app connection | [Approve connection](index.html#oauth-consent) | Consent, connected, denied, expired, invalid request |
+| Native app connection | [Approve connection](index.html#oauth-consent) | Consent, native handoff, denied, expired, invalid request |
 | Service callback results | [Sign-in complete](index.html#service-connected) | Browser callback: sign-in complete, tools unavailable, failed |
 | Unavailable states | [Server unavailable](index.html#system-unavailable) | Server authentication unavailable, fatal app load failure |
 
@@ -75,7 +77,7 @@ Use the existing setup frame, connection surfaces, and Astryx controls during im
 - Use `ListCardButton` from `components/ListCardLink.tsx` for provider choices. It shares the Task card frame.
 - Match Task card borders, white fill, small shadow, 8/12-pixel padding, 6-pixel list gaps, and 13/12-pixel text metrics.
 - Reuse its hover border/background and external focus outline. Do not add the earlier inset ring or moving chevron.
-- Keep descriptions wrapped and each card a single action.
+- Keep descriptions wrapped and each card a single action. State each provider’s main distinction and account requirement.
 - Keep model name, download size, and computation location visible. Disclose license, format, runtime, and exact file.
 - Give one action primary emphasis. Keep alternatives quiet and access consequences visible.
 - Use the actual Astryx `Button` with `size="md"` and its standard 32-pixel height. Do not override button padding or visuals.
@@ -118,17 +120,23 @@ No credentials were submitted. No account, grant, or recovery code was changed.
 - A recovery setup session lasts five minutes. Its expiry requires a new recovery attempt.
 - Recovery does not remove old passkeys or revoke earlier native grants.
 - Native consent must disclose complete Noema access before approval.
+- Preserve the immediate native callback. The browser cannot confirm token exchange; confirm usable access inside the native app.
+- Recovery confirmation must state that existing passkeys and connected apps retain access.
 - Preserve recent passkey verification, CSRF, PKCE, origin checks, and validated callback destinations.
 - Use saved attempt state to distinguish denial, expiration, failed activation, and successful connection.
 - Service setup and human intervention flows are outside scope. Only browser callback results remain in this plan.
 - Callback return actions preserve their existing destinations; this plan does not redesign those destinations.
 - Keep successful sign-in separate from successful tool discovery. A partial result is not fully connected.
 - Use exact attempt events and the existing foreground query. Do not add polling.
+- Keep the Codex code and copy action visible throughout waiting. Reopen the same attempt; restart the selected provider after expiry.
 - Keep API-key, local, browser OAuth, device-code, credential, and no-auth paths where currently supported.
 - Group model review by resolved model name and show its jobs. Update the summary from the current draft.
 - Resolve automatic recommendations through provider profiles; keep automatic selection mode unless the person changes it.
 - Never use repeated “Recommended” labels as the model summary.
 - Keep all model assignments and explicit confirmation. Local action reviews remain human approval where required.
+- Retain the connected account and model draft after loading or save failure. Provide a direct retry for the failed operation.
+- Disable model edits and submission during saving. Use the production Astryx Button loading state; open Chat only after confirmed success.
+- Restore destination focus after browser history navigation, as well as explicit navigation actions.
 - Use host-selected model fit, transfer size, progress, and diagnostics. Do not promise unsupported resume or timing.
 - Keep authenticated PWA offline behavior and existing local error boundaries.
 - Recovery still needs server-file access. Give non-technical users an explicit operator-help path.
@@ -173,7 +181,8 @@ This plan requires no database migration or persistent schema change.
 `assets/noema-theme.css` copies the existing theme without its original font-face paths.
 `assets/astryx.css`, `astryx-reset.css`, and `astryx-neutral.css` copy the installed Astryx 0.1.9 styles.
 `render-buttons.jsx` renders the real Astryx `Button` to static templates in `button-templates.js`.
-The gallery uses those templates with Noema’s theme, including its clay primary accent. No parallel button CSS remains.
+The gallery uses those templates with Noema’s theme, including its clay primary accent and disabled state. No parallel button CSS remains.
+The static saving button shows disabled text. Production uses Astryx `isLoading`, whose spinner requires the component’s canvas runtime.
 The three font files, their licenses, and `assets/noema.png` copy the existing Noema assets without modification.
 The local-model example comes from `crates/noema-providers/resources/local-models/catalog.toml` at the source baseline.
 It shows Gemma 4 E4B IT, its 5.3 GB Q4_K_M build, Apache-2.0 license, and Metal runtime.
@@ -186,3 +195,12 @@ Other mock form controls use native HTML. The avatar uses the existing `@kpsuper
 These assets support offline review. Reuse production components instead of shipping this preview bundle.
 Use production components and current tokens when applying the plan. Do not copy snapshot CSS into the application.
 Only light appearance is specified. A new dark theme is outside this plan.
+
+## Provider copy sources
+
+Verified on 2026-09-04. Recheck account requirements before implementation.
+OpenRouter provides models from multiple providers through one account and a browser authorization flow.
+Sources: [OpenRouter quickstart](https://openrouter.ai/docs/quickstart) and [OpenRouter authorization](https://openrouter.ai/docs/guides/overview/auth/oauth).
+Noema’s Codex flow uses device sign-in with ChatGPT access to Codex. Account or workspace settings must permit device-code login.
+Source: [OpenAI authentication guidance](https://learn.chatgpt.com/docs/auth), checked against Noema’s existing Codex device-auth adapter.
+The choice copy makes no promise about prices, universal eligibility, or specific plan tiers.

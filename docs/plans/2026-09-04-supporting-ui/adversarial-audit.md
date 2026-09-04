@@ -1,16 +1,32 @@
 # Adversarial gallery audit
 
 Date: 2026-09-04. Reviewed revision: `6a5dcaa6`.
-Mode: adversarial review. No mock or production fixes were applied.
+Original mode: adversarial review. No fixes were applied during that review.
+Status: all seven findings were corrected in the saved gallery after the user requested fixes. Production changes remain outside this plan unit.
 Reviewer: dedicated adversarial agent. The parent checked key source claims and reproduced the history focus issue.
 
 ## Assessment
 
 The visual system is coherent. The main remaining issues concern flow accuracy, decision copy, and failure recovery.
 The current typography, compact spacing, avatar treatment, and action hierarchy need no general redesign.
-Resolve findings 1–5 before treating the gallery as a complete implementation reference.
+The corrections below resolve these findings in the implementation reference. Production behavior still requires the planned acceptance checks.
 
 Priority meanings: P1 blocks an ordinary path; P2 needs correction before implementation; P3 improves clarity or gallery fidelity.
+
+## Correction record
+
+| Finding | Gallery correction | Verification |
+| --- | --- | --- |
+| 1 | Codex has a waiting state with its active code and copy control. Reopening retains the same attempt. | Code remains available after opening, copying, and reopening. |
+| 2 | Native handoff asks the person to continue in the app. It has no success claim or required browser button. | Consent reaches the handoff message without another confirmation. |
+| 3 | Added model loading, loading failure, saving, and save failure states. Drafts survive retries. | Account and edited assignments survive loading and save retries; saving disables controls. |
+| 4 | Provider descriptions state a useful distinction and account requirement. | Official provider sources are recorded in the plan; cards fit all preview widths. |
+| 5 | Recovery explicitly states that earlier passkeys and connected apps retain access. | The consequence remains visible on the recovery completion screen. |
+| 6 | Removed repeated success blocks and gave denial separate outcome and consequence text. | Reviewed recovery, setup completion, native handoff, and denial. |
+| 7 | History navigation uses the existing destination focus rule. | Browser Back focuses the passkey action; Forward focuses the recovery input. |
+
+The corrected gallery contains 38 states. All 114 default-size layout checks passed across the three preview widths.
+The original findings and line references below describe revision `6a5dcaa6`.
 
 ## Findings
 

@@ -1,6 +1,6 @@
 # Mock validation
 
-Date: 2026-09-04. Updated after spacing, model-detail, list-feedback, and surface-placement review.
+Date: 2026-09-04. Updated after all seven adversarial audit corrections.
 Scope: the saved design gallery. These results do not certify the production flows.
 
 ## Completed checks
@@ -8,8 +8,8 @@ Scope: the saved design gallery. These results do not certify the production flo
 - `node --check mocks.js` passed.
 - Chromium opened the gallery directly from disk.
 - Network requests were blocked during review. The gallery requested no remote resources.
-- All 33 states rendered at desktop, 390-pixel, and 320-pixel preview widths.
-- The 99 layout checks found no content outside the preview width and no text overflow.
+- All 38 states rendered at desktop, 390-pixel, and 320-pixel preview widths.
+- The 114 layout checks found no content outside the preview width and no text overflow.
 - Compact spacing used 20-pixel desktop insets, 16-pixel phone insets, 12-pixel body gaps, and 16-pixel section boundaries.
 - The avatar junction retained 12 pixels of clearance. Astryx button sizes and Task card spacing stayed unchanged.
 - Provider cards stay within the content width and use the Task list’s six-pixel gap.
@@ -17,7 +17,13 @@ Scope: the saved design gallery. These results do not certify the production flo
 - All action targets and documented screen links resolved.
 - Keyboard activation opened recovery and focused the code input.
 - Returning to sign-in focused the passkey action.
-- Browser Back restored the previous screen.
+- Browser Back restored the previous screen and focused the passkey action. Forward focused the recovery input.
+- Codex retained its code and copy control after opening and reopening sign-in. Expiry restarted the selected provider.
+- Model loading retry retained the provider and draft. Failed-save retry retained edited model assignments.
+- Saving disabled model selectors and both actions. The gallery reached completion only through an explicit simulated success outcome.
+- Native handoff made no completed-connection claim and required no extra browser confirmation.
+- Recovery confirmation stated that earlier passkeys and connected apps retain access.
+- Recovery, setup completion, native handoff, and denial used distinct outcome, consequence, and next-action copy.
 - Native connection denial displayed the no-new-access result.
 - Model customization exposed all nine assignments.
 - Changing an assignment updated the grouped model summary. The confirmation action remained explicit.
@@ -38,7 +44,7 @@ Scope: the saved design gallery. These results do not certify the production flo
 - The exposed avatar arc used the same one-pixel `border-subtle` border as the card. Its lower arc stayed hidden.
 - Titles, introductions, and setup steps were centered beneath the avatar and used `text-wrap: pretty`.
 - Standalone supporting notes were centered and used `text-wrap: pretty`, including the Codex sign-in continuation note.
-- All 33 subheadings fit one line at desktop, 390-pixel, and 320-pixel preview widths with the default text size.
+- All 38 subheadings fit one line at desktop, 390-pixel, and 320-pixel preview widths with the default text size.
 - Consent warnings and recovery instructions remained explicit. Narrow layouts and larger text can still wrap naturally.
 - Action controls used markup rendered from Astryx Button, with its default padding, 32-pixel height, and Noema theme.
 - Paired desktop actions shared one row with equal widths, secondary left and primary right. Phone action groups remained stacked.
@@ -62,6 +68,14 @@ Scope: the saved design gallery. These results do not certify the production flo
 - [Setup complete, desktop](screenshots/proposed-complete-desktop.png)
 - [Native consent, desktop](screenshots/proposed-consent-desktop.png)
 - [Codex device sign-in, phone](screenshots/proposed-codex-phone.png)
+- [Codex waiting with code, phone](screenshots/proposed-codex-waiting-phone.png)
+- [Model loading, desktop](screenshots/proposed-models-loading-desktop.png)
+- [Model loading failure, phone](screenshots/proposed-models-load-failed-phone.png)
+- [Model saving, desktop](screenshots/proposed-models-saving-desktop.png)
+- [Model save failure, phone](screenshots/proposed-models-save-failed-phone.png)
+- [Native handoff, desktop](screenshots/proposed-native-handoff-desktop.png)
+- [Native denial, phone](screenshots/proposed-native-denied-phone.png)
+- [Recovery confirmation, phone](screenshots/proposed-recovery-complete-phone.png)
 - [Local download, desktop](screenshots/proposed-download-desktop.png)
 - [OpenRouter model review, phone](screenshots/proposed-models-phone.png)
 - [Codex model review, phone](screenshots/proposed-models-codex-phone.png)
