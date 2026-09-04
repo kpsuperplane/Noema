@@ -16,6 +16,8 @@ var (
 	ErrInvalidModelAssignments = errors.New("invalid hosted model assignments")
 	// ErrModelAccountNotReady means the selected account cannot serve hosted model requests.
 	ErrModelAccountNotReady = errors.New("hosted model account is not ready")
+	// ErrTaskModelPoolEntryNotFound means one global pool setting is absent.
+	ErrTaskModelPoolEntryNotFound = errors.New("Task model pool entry not found")
 )
 
 // HostedModelRole identifies one required hosted model assignment.
@@ -146,6 +148,31 @@ INSERT INTO hosted_model_assignments (
 	return true, nil
 }
 
+// SaveHostedModelAssignment replaces one existing hosted model role.
+func (s *Store) SaveHostedModelAssignment(
+	ctx context.Context,
+	assignment ModelAssignment,
+) (ModelAssignment, error) {
+	if err := validateSingleAssignment(assignment); err != nil {
+		return ModelAssignment{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return ModelAssignment{}, fmt.Errorf("begin hosted model assignment update: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := modelAssignmentAccount(ctx, tx, assignment); err != nil {
+		return ModelAssignment{}, err
+	}
+	if err := saveHostedModelAssignmentTx(ctx, tx, assignment); err != nil {
+		return ModelAssignment{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ModelAssignment{}, fmt.Errorf("commit hosted model assignment update: %w", err)
+	}
+	return assignment, nil
+}
+
 // HostedModelAssignments returns the complete hosted assignment set.
 func (s *Store) HostedModelAssignments(ctx context.Context) ([]ModelAssignment, error) {
 	rows, err := s.db.QueryContext(ctx, `
@@ -210,21 +237,80 @@ func validateAssignmentSet(providerAccountID string, assignments []ModelAssignme
 		if assignment.ProviderAccountID != providerAccountID {
 			return fmt.Errorf("%w: assignments must use one provider account", ErrInvalidModelAssignments)
 		}
-		switch assignment.SelectionMode {
-		case ModelSelectionNoemaRecommended:
-			if assignment.ModelProfile != "" || assignment.ReasoningEffort != "" {
-				return fmt.Errorf("%w: recommended selections cannot set a profile or effort", ErrInvalidModelAssignments)
-			}
-		case ModelSelectionExplicitProfile:
-			if assignment.ModelProfile == "" || strings.TrimSpace(assignment.ModelProfile) != assignment.ModelProfile {
-				return fmt.Errorf("%w: explicit selections require an exact profile", ErrInvalidModelAssignments)
-			}
-			if assignment.ReasoningEffort != "" && !validReasoningEffort(assignment.ReasoningEffort) {
-				return fmt.Errorf("%w: reasoning effort is unsupported", ErrInvalidModelAssignments)
-			}
-		default:
-			return fmt.Errorf("%w: selection mode is unsupported", ErrInvalidModelAssignments)
+		if err := validateSingleAssignment(assignment); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+func validateSingleAssignment(assignment ModelAssignment) error {
+	knownRole := false
+	for _, role := range hostedModelRoles {
+		knownRole = knownRole || assignment.Role == role
+	}
+	if !knownRole || assignment.ProviderAccountID == "" || !isHostedModelProvider(assignment.ProviderKind) {
+		return fmt.Errorf("%w: model role or provider is unsupported", ErrInvalidModelAssignments)
+	}
+	switch assignment.SelectionMode {
+	case ModelSelectionNoemaRecommended:
+		if assignment.ModelProfile != "" || assignment.ReasoningEffort != "" {
+			return fmt.Errorf("%w: recommended selections cannot set a profile or effort", ErrInvalidModelAssignments)
+		}
+	case ModelSelectionExplicitProfile:
+		if assignment.ModelProfile == "" || strings.TrimSpace(assignment.ModelProfile) != assignment.ModelProfile {
+			return fmt.Errorf("%w: explicit selections require an exact profile", ErrInvalidModelAssignments)
+		}
+		if assignment.ReasoningEffort != "" && !validReasoningEffort(assignment.ReasoningEffort) {
+			return fmt.Errorf("%w: reasoning effort is unsupported", ErrInvalidModelAssignments)
+		}
+	default:
+		return fmt.Errorf("%w: selection mode is unsupported", ErrInvalidModelAssignments)
+	}
+	return nil
+}
+
+func modelAssignmentAccount(
+	ctx context.Context,
+	tx *sql.Tx,
+	assignment ModelAssignment,
+) (provider.Account, error) {
+	account, err := scanProviderAccount(tx.QueryRowContext(ctx, providerAccountSelect+`
+WHERE provider_account_id = ?`, assignment.ProviderAccountID))
+	if err != nil {
+		if errors.Is(err, provider.ErrAccountNotFound) {
+			return provider.Account{}, fmt.Errorf("%w: account does not exist", ErrModelAccountNotReady)
+		}
+		return provider.Account{}, err
+	}
+	if account.ProviderKind != assignment.ProviderKind || !account.IsActive || !account.IsDefault ||
+		account.Status != provider.StatusAuthenticated {
+		return provider.Account{}, fmt.Errorf("%w: account is not ready or does not match", ErrModelAccountNotReady)
+	}
+	if err := validateAssignmentProfile(account.Metadata, assignment); err != nil {
+		return provider.Account{}, err
+	}
+	return account, nil
+}
+
+func saveHostedModelAssignmentTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	assignment ModelAssignment,
+) error {
+	result, err := tx.ExecContext(ctx, `
+UPDATE hosted_model_assignments SET
+    provider_kind = ?, provider_account_id = ?, selection_mode = ?,
+    model_profile = NULLIF(?, ''), reasoning_effort = NULLIF(?, ''), fast_mode = ?
+WHERE role = ?`, assignment.ProviderKind, assignment.ProviderAccountID,
+		assignment.SelectionMode, assignment.ModelProfile, assignment.ReasoningEffort,
+		assignment.FastMode, assignment.Role)
+	if err != nil {
+		return fmt.Errorf("save hosted model assignment %s: %w", assignment.Role, err)
+	}
+	changed, _ := result.RowsAffected()
+	if changed != 1 {
+		return fmt.Errorf("%w: stored role %s is missing", ErrInvalidModelAssignments, assignment.Role)
 	}
 	return nil
 }
@@ -243,8 +329,14 @@ func validateAssignmentProfile(metadata provider.AccountMetadata, assignment Mod
 		if profile.ID != assignment.ModelProfile {
 			continue
 		}
-		if assignment.ReasoningEffort == "" {
+		if len(profile.ReasoningEfforts) == 0 {
+			if assignment.ReasoningEffort != "" {
+				return fmt.Errorf("%w: profile does not support reasoning effort", ErrInvalidModelAssignments)
+			}
 			return nil
+		}
+		if assignment.ReasoningEffort == "" {
+			return fmt.Errorf("%w: profile requires reasoning effort", ErrInvalidModelAssignments)
 		}
 		for _, effort := range profile.ReasoningEfforts {
 			if effort == string(assignment.ReasoningEffort) {

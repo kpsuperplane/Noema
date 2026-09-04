@@ -4,11 +4,12 @@ package schedule
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	_ "time/tzdata"
 
-	"github.com/robfig/cron/v3"
+	"github.com/adhocore/gronx"
 )
 
 const previewCount = 5
@@ -26,10 +27,23 @@ const (
 	MissedRunOnce MissedRunPolicy = "run_once"
 )
 
+// OverlapPolicy controls a due occurrence while another remains active.
+type OverlapPolicy string
+
+const (
+	// OverlapSkip records the due instant without another Task.
+	OverlapSkip OverlapPolicy = "skip"
+	// OverlapQueueOne keeps one coalesced instant until the active Task ends.
+	OverlapQueueOne OverlapPolicy = "queue_one"
+	// OverlapAllow materializes every due occurrence.
+	OverlapAllow OverlapPolicy = "allow"
+)
+
 // Recurrence defines the continuing timing for a Task.
 type Recurrence struct {
 	StartsAt       time.Time
 	CronExpression string
+	OverlapPolicy  OverlapPolicy
 }
 
 // Schedule defines the optional future timing attached to a Task.
@@ -58,10 +72,18 @@ func ParseMissedRunPolicy(value string) (MissedRunPolicy, error) {
 	return policy, nil
 }
 
+// ParseOverlapPolicy validates a stored overlap policy.
+func ParseOverlapPolicy(value string) (OverlapPolicy, error) {
+	policy := OverlapPolicy(value)
+	if policy != OverlapSkip && policy != OverlapQueueOne && policy != OverlapAllow {
+		return "", invalid("overlap policy", "expected skip, queue_one, or allow")
+	}
+	return policy, nil
+}
+
 // Normalize validates a Task schedule and returns its stable stored form.
-// One-time schedules must be later than now. Recurring schedules can begin in
-// the past so that the missed-run policy can resolve elapsed occurrences.
-func Normalize(value Schedule, now time.Time) (Schedule, error) {
+// Elapsed schedules remain valid so that missed-run policy can resolve them.
+func Normalize(value Schedule, _ time.Time) (Schedule, error) {
 	zone := strings.TrimSpace(value.TimeZone)
 	if _, err := loadLocation(zone); err != nil {
 		return Schedule{}, err
@@ -75,9 +97,6 @@ func Normalize(value Schedule, now time.Time) (Schedule, error) {
 	value.TimeZone = zone
 	value.MissedRunPolicy = policy
 	if value.Recurrence == nil {
-		if !value.ScheduledFor.After(utcSecond(now)) {
-			return Schedule{}, invalid("scheduled instant", "must be in the future")
-		}
 		return value, nil
 	}
 
@@ -85,6 +104,11 @@ func Normalize(value Schedule, now time.Time) (Schedule, error) {
 	recurrence.StartsAt = utcSecond(recurrence.StartsAt)
 	recurrence.CronExpression, err = normalizeCron(recurrence.CronExpression)
 	if err != nil {
+		return Schedule{}, err
+	}
+	if recurrence.OverlapPolicy == "" {
+		recurrence.OverlapPolicy = OverlapSkip
+	} else if recurrence.OverlapPolicy, err = ParseOverlapPolicy(string(recurrence.OverlapPolicy)); err != nil {
 		return Schedule{}, err
 	}
 	first, err := NextAtOrAfter(recurrence.CronExpression, zone, recurrence.StartsAt)
@@ -108,7 +132,7 @@ func NextAtOrAfter(expression, zone string, start time.Time) (time.Time, error) 
 		return time.Time{}, err
 	}
 	start = utcSecond(start)
-	next := parsed.Next(start.Add(-time.Second))
+	next := parsed.NextAtOrAfter(start)
 	if next.IsZero() {
 		return time.Time{}, invalid("cron expression", "has no future match")
 	}
@@ -123,14 +147,15 @@ func Preview(expression, zone string, start time.Time) ([]time.Time, error) {
 	}
 	start = utcSecond(start)
 	values := make([]time.Time, 0, previewCount)
-	cursor := start.Add(-time.Second)
+	cursor := start
 	for range previewCount {
-		cursor = parsed.Next(cursor)
+		cursor = parsed.NextAtOrAfter(cursor)
 		if cursor.IsZero() {
 			return nil, invalid("cron expression", "has no future match")
 		}
 		cursor = utcSecond(cursor)
 		values = append(values, cursor)
+		cursor = cursor.Add(time.Second)
 	}
 	return values, nil
 }
@@ -144,22 +169,78 @@ func LocalSlot(instant time.Time, zone string) (string, error) {
 	return utcSecond(instant).In(location).Format("2006-01-02T15:04"), nil
 }
 
-func parseCron(expression, zone string) (cron.Schedule, error) {
+type parsedCron struct {
+	expression string
+	location   *time.Location
+}
+
+func (value parsedCron) NextAtOrAfter(start time.Time) time.Time {
+	start = utcSecond(start)
+	local := start.In(value.location)
+	wallCursor := time.Date(
+		local.Year(), local.Month(), local.Day(), local.Hour(), local.Minute(), 0, 0, time.UTC,
+	).Add(-time.Second)
+	for {
+		wallMatch, err := gronx.NextTickAfter(value.expression, wallCursor, false)
+		if err != nil || wallMatch.IsZero() {
+			return time.Time{}
+		}
+		for _, instant := range resolveWallTime(wallMatch, value.location) {
+			if !instant.Before(start) {
+				return instant
+			}
+		}
+		wallCursor = wallMatch
+	}
+}
+
+// resolveWallTime returns each real instant for one local wall-clock value.
+// A DST gap has no result. A repeated minute has two ordered results.
+func resolveWallTime(wall time.Time, location *time.Location) []time.Time {
+	normalized := time.Date(
+		wall.Year(), wall.Month(), wall.Day(), wall.Hour(), wall.Minute(), wall.Second(), 0, location,
+	)
+	offsets := make(map[int]struct{})
+	for hours := -72; hours <= 72; hours += 6 {
+		_, offset := normalized.Add(time.Duration(hours) * time.Hour).Zone()
+		offsets[offset] = struct{}{}
+	}
+
+	instants := make([]time.Time, 0, 2)
+	seen := make(map[int64]struct{})
+	for offset := range offsets {
+		instant := time.Unix(wall.Unix()-int64(offset), 0).UTC()
+		local := instant.In(location)
+		if local.Year() != wall.Year() || local.Month() != wall.Month() ||
+			local.Day() != wall.Day() || local.Hour() != wall.Hour() ||
+			local.Minute() != wall.Minute() || local.Second() != wall.Second() {
+			continue
+		}
+		if _, exists := seen[instant.Unix()]; !exists {
+			seen[instant.Unix()] = struct{}{}
+			instants = append(instants, instant)
+		}
+	}
+	sort.Slice(instants, func(left, right int) bool {
+		return instants[left].Before(instants[right])
+	})
+	return instants
+}
+
+func parseCron(expression, zone string) (parsedCron, error) {
 	expression, err := normalizeCron(expression)
 	if err != nil {
-		return nil, err
+		return parsedCron{}, err
 	}
 	location, err := loadLocation(strings.TrimSpace(zone))
 	if err != nil {
-		return nil, err
+		return parsedCron{}, err
 	}
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	parsed, err := parser.Parse(expression)
+	_, err = gronx.New().IsDue(expression, time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
-		return nil, invalid("cron expression", err.Error())
+		return parsedCron{}, invalid("cron expression", err.Error())
 	}
-	parsed.(*cron.SpecSchedule).Location = location
-	return parsed, nil
+	return parsedCron{expression: expression, location: location}, nil
 }
 
 func normalizeCron(value string) (string, error) {

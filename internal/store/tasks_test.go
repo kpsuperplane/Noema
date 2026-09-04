@@ -215,7 +215,7 @@ PRAGMA user_version = 1;`); err != nil {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v8Schema := strings.TrimSuffix(schemaSQL, schemaV9SQL)
+	v8Schema := strings.TrimSuffix(strings.TrimSuffix(schemaSQL, schemaV10SQL), schemaV9SQL)
 	if _, err := v8.Exec(v8Schema + `
 INSERT INTO tasks VALUES ('task:0123456789abcdef0123456789abcdef','Old','captured',NULL,1,1,1);
 INSERT INTO task_events(task_id,task_revision,kind,occurred_at_ms)

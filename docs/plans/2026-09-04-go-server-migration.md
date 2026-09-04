@@ -535,6 +535,35 @@ The Project authority unit passed on 2026-09-04. It includes:
 This unit does not add Task placement, scheduling, recurrence, execution, or notifications.
 Those capabilities remain later migration units.
 
+### Task schedule domain unit
+
+The Task schedule domain unit passed on 2026-09-04. It includes:
+
+- elapsed one-time schedule retention for missed-run recovery;
+- five-field cron expressions, including `L`, `W`, `#`, and weekday `7`;
+- embedded IANA time-zone data on every target platform;
+- inclusive next-occurrence and bounded preview calculations;
+- daylight-saving gaps and repeated local-minute identities;
+- validated missed-run and overlap policies.
+
+This unit does not persist schedules or start due Tasks. Task placement will
+connect this domain to stored Task and recurrence state.
+
+### Agent settings unit
+
+The Agent settings unit uses Go schema version 10. It includes:
+
+- three repaired built-in Agent identities with preserved names;
+- primary and Reviewer preferences backed by existing hosted assignments;
+- three Task Executor complexity settings backed by the same assignments;
+- ACP process configuration with revision checks and safe deletion;
+- ACP v1 initialization checks and agent-managed authentication;
+- bounded process output and process-tree cleanup on every target platform;
+- current Agent, ACP, and Task model-pool GraphQL operations.
+
+ACP Task execution remains a later unit. Task placement can use enabled ACP
+identities after run snapshots, approvals, recovery, and terminal tools exist.
+
 ## 11. Validation Strategy
 
 Do not copy all 1,135 Rust tests mechanically.

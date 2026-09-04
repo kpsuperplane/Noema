@@ -4,13 +4,13 @@ go 1.26.6
 
 require (
 	github.com/99designs/gqlgen v0.17.95
+	github.com/adhocore/gronx v1.20.3
 	github.com/coder/websocket v1.8.15
 	github.com/go-oauth2/oauth2/v4 v4.6.0
 	github.com/go-webauthn/webauthn v0.18.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/ncruces/go-sqlite3 v0.35.4
-	github.com/robfig/cron/v3 v3.0.1
 	github.com/vektah/gqlparser/v2 v2.5.37
 	golang.org/x/sys v0.47.0
 )

@@ -284,7 +284,7 @@ func (r *mutationRootResolver) ReopenTask(ctx context.Context, input model.Reope
 
 // UpdateTaskModelPoolEntry is the resolver for the updateTaskModelPoolEntry field.
 func (r *mutationRootResolver) UpdateTaskModelPoolEntry(ctx context.Context, poolEntryID string, input model.TaskModelPoolEntryInput) (*model.TaskModelPoolEntry, error) {
-	panic(fmt.Errorf("not implemented: UpdateTaskModelPoolEntry - updateTaskModelPoolEntry"))
+	return r.updateTaskModelPoolEntry(ctx, poolEntryID, input)
 }
 
 // UpdateTaskExecutionPolicy is the resolver for the updateTaskExecutionPolicy field.
@@ -327,32 +327,32 @@ func (r *mutationRootResolver) DeleteProviderAccount(ctx context.Context, input 
 
 // SaveAgentModelPreference is the resolver for the saveAgentModelPreference field.
 func (r *mutationRootResolver) SaveAgentModelPreference(ctx context.Context, input model.SaveAgentModelPreferenceInput) (*model.AgentModelPreference, error) {
-	panic(fmt.Errorf("not implemented: SaveAgentModelPreference - saveAgentModelPreference"))
+	return r.saveAgentModelPreference(ctx, input)
 }
 
 // CreateAcpAgent is the resolver for the createAcpAgent field.
 func (r *mutationRootResolver) CreateAcpAgent(ctx context.Context, input model.CreateAcpAgentInput) (*model.AcpAgent, error) {
-	panic(fmt.Errorf("not implemented: CreateAcpAgent - createAcpAgent"))
+	return r.createAcpAgent(ctx, input)
 }
 
 // UpdateAcpAgent is the resolver for the updateAcpAgent field.
 func (r *mutationRootResolver) UpdateAcpAgent(ctx context.Context, input model.UpdateAcpAgentInput) (*model.AcpAgent, error) {
-	panic(fmt.Errorf("not implemented: UpdateAcpAgent - updateAcpAgent"))
+	return r.updateAcpAgent(ctx, input)
 }
 
 // DeleteAcpAgent is the resolver for the deleteAcpAgent field.
 func (r *mutationRootResolver) DeleteAcpAgent(ctx context.Context, input model.DeleteAcpAgentInput) (bool, error) {
-	panic(fmt.Errorf("not implemented: DeleteAcpAgent - deleteAcpAgent"))
+	return r.deleteAcpAgent(ctx, input)
 }
 
 // TestAcpAgent is the resolver for the testAcpAgent field.
 func (r *mutationRootResolver) TestAcpAgent(ctx context.Context, input model.TestAcpAgentInput) (*model.AcpAgent, error) {
-	panic(fmt.Errorf("not implemented: TestAcpAgent - testAcpAgent"))
+	return r.testAcpAgent(ctx, input)
 }
 
 // AuthenticateAcpAgent is the resolver for the authenticateAcpAgent field.
 func (r *mutationRootResolver) AuthenticateAcpAgent(ctx context.Context, input model.AuthenticateAcpAgentInput) (*model.AcpAgent, error) {
-	panic(fmt.Errorf("not implemented: AuthenticateAcpAgent - authenticateAcpAgent"))
+	return r.authenticateAcpAgent(ctx, input)
 }
 
 // SaveWebFetchSummarizerPreference is the resolver for the saveWebFetchSummarizerPreference field.
@@ -602,12 +602,12 @@ func (r *queryRootResolver) ProviderAccountCatalog(ctx context.Context) ([]*mode
 
 // Agents is the resolver for the agents field.
 func (r *queryRootResolver) Agents(ctx context.Context) ([]*model.Agent, error) {
-	panic(fmt.Errorf("not implemented: Agents - agents"))
+	return r.agents(ctx)
 }
 
 // AcpAgents is the resolver for the acpAgents field.
 func (r *queryRootResolver) AcpAgents(ctx context.Context) ([]*model.AcpAgent, error) {
-	panic(fmt.Errorf("not implemented: AcpAgents - acpAgents"))
+	return r.acpAgents(ctx)
 }
 
 // Task is the resolver for the task field.
@@ -687,7 +687,7 @@ func (r *queryRootResolver) RuntimeDebugProfile(ctx context.Context, input model
 
 // TaskModelPools is the resolver for the taskModelPools field.
 func (r *queryRootResolver) TaskModelPools(ctx context.Context, complexity *model.TaskComplexity) ([]*model.TaskModelPoolEntry, error) {
-	panic(fmt.Errorf("not implemented: TaskModelPools - taskModelPools"))
+	return r.taskModelPools(ctx, complexity)
 }
 
 // TaskExecutionPolicy is the resolver for the taskExecutionPolicy field.

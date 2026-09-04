@@ -15,7 +15,7 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 9
+const schemaVersion = 10
 
 // Store is one open Noema database.
 type Store struct {
@@ -98,7 +98,7 @@ func (s *Store) initialize(ctx context.Context) error {
 	} else if version < 1 || version > schemaVersion {
 		return fmt.Errorf("unsupported Go schema version %d", version)
 	} else {
-		migrations := []string{"", "", schemaV2SQL, schemaV3SQL, schemaV4SQL, schemaV5SQL, schemaV6SQL, schemaV7SQL, schemaV8SQL, schemaV9SQL}
+		migrations := []string{"", "", schemaV2SQL, schemaV3SQL, schemaV4SQL, schemaV5SQL, schemaV6SQL, schemaV7SQL, schemaV8SQL, schemaV9SQL, schemaV10SQL}
 		for next := version + 1; next <= schemaVersion; next++ {
 			if _, err := tx.ExecContext(ctx, migrations[next]); err != nil {
 				return fmt.Errorf("apply schema version %d: %w", next, err)
@@ -110,8 +110,14 @@ func (s *Store) initialize(ctx context.Context) error {
 			}
 		}
 	}
+	if _, err := tx.ExecContext(ctx, ensureBuiltInAgentsSQL); err != nil {
+		return fmt.Errorf("repair built-in Agents: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, recoverAcpAuthenticationSQL); err != nil {
+		return fmt.Errorf("recover ACP authentication: %w", err)
+	}
 	if version != schemaVersion {
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 9"); err != nil {
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 10"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	}
@@ -143,7 +149,7 @@ CREATE TABLE task_events (
     UNIQUE (task_id, task_revision)
 ) STRICT;
 
-` + schemaV2SQL + schemaV3SQL + schemaV4SQL + schemaV5SQL + schemaV6SQL + schemaV7SQL + schemaV8SQL + schemaV9SQL
+` + schemaV2SQL + schemaV3SQL + schemaV4SQL + schemaV5SQL + schemaV6SQL + schemaV7SQL + schemaV8SQL + schemaV9SQL + schemaV10SQL
 
 const schemaV2SQL = `
 CREATE TABLE human_passkeys (
@@ -517,6 +523,108 @@ CREATE TABLE command_receipts (
 	created_at_ms INTEGER NOT NULL,
     PRIMARY KEY (actor_id, command_name, client_mutation_id)
 ) STRICT;
+`
+
+const schemaV10SQL = `
+CREATE TABLE agents (
+    agent_id TEXT PRIMARY KEY CHECK (substr(agent_id, 1, 6) = 'agent:'),
+    display_name TEXT CHECK (
+        display_name IS NULL OR length(trim(display_name)) BETWEEN 1 AND 128
+    ),
+    system_role TEXT UNIQUE CHECK (
+        system_role IS NULL OR system_role IN ('primary', 'task_executor', 'task_reviewer')
+    ),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE acp_agents (
+    agent_id TEXT PRIMARY KEY REFERENCES agents(agent_id) ON DELETE RESTRICT,
+    command TEXT NOT NULL CHECK (length(trim(command)) BETWEEN 1 AND 4096),
+    arguments_json TEXT NOT NULL DEFAULT '[]'
+        CHECK (json_valid(arguments_json) AND json_type(arguments_json) = 'array'),
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    auth_status TEXT NOT NULL DEFAULT 'unknown'
+        CHECK (auth_status IN ('unknown', 'none', 'required', 'authenticated', 'failed')),
+    health_status TEXT NOT NULL DEFAULT 'unknown'
+        CHECK (health_status IN ('unknown', 'healthy', 'unavailable')),
+    implementation_name TEXT CHECK (
+        implementation_name IS NULL OR length(implementation_name) <= 256
+    ),
+    implementation_version TEXT CHECK (
+        implementation_version IS NULL OR length(implementation_version) <= 256
+    ),
+    capabilities_json TEXT NOT NULL DEFAULT '{}'
+        CHECK (json_valid(capabilities_json) AND json_type(capabilities_json) = 'object'),
+    connection_revision INTEGER NOT NULL DEFAULT 1 CHECK (connection_revision > 0),
+    last_error TEXT CHECK (last_error IS NULL OR length(last_error) <= 512),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE acp_auth_attempts (
+    attempt_id TEXT PRIMARY KEY CHECK (substr(attempt_id, 1, 9) = 'acp_auth:'),
+    agent_id TEXT NOT NULL REFERENCES acp_agents(agent_id) ON DELETE CASCADE,
+    connection_revision INTEGER NOT NULL CHECK (connection_revision > 0),
+    method_id TEXT NOT NULL CHECK (length(trim(method_id)) BETWEEN 1 AND 256),
+    state TEXT NOT NULL CHECK (state IN ('pending', 'completed', 'failed')),
+    safe_message TEXT CHECK (safe_message IS NULL OR length(safe_message) <= 512),
+    created_at_ms INTEGER NOT NULL,
+    completed_at_ms INTEGER
+) STRICT;
+
+CREATE INDEX acp_auth_attempts_agent ON acp_auth_attempts(agent_id, created_at_ms DESC);
+CREATE UNIQUE INDEX acp_auth_attempts_one_pending
+ON acp_auth_attempts(agent_id) WHERE state = 'pending';
+
+CREATE TABLE task_model_pool_settings (
+    pool_entry_id TEXT PRIMARY KEY CHECK (pool_entry_id IN (
+        'task_pool:setting:simple',
+        'task_pool:setting:medium',
+        'task_pool:setting:difficult'
+    )),
+    complexity TEXT NOT NULL UNIQUE CHECK (complexity IN ('simple', 'medium', 'difficult')),
+    label TEXT CHECK (label IS NULL OR length(trim(label)) BETWEEN 1 AND 128),
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+INSERT INTO task_model_pool_settings (
+    pool_entry_id, complexity, enabled, sort_order, created_at_ms, updated_at_ms
+) VALUES
+    ('task_pool:setting:simple', 'simple', 1, 0, CAST(strftime('%s', 'now') AS INTEGER) * 1000, CAST(strftime('%s', 'now') AS INTEGER) * 1000),
+    ('task_pool:setting:medium', 'medium', 1, 0, CAST(strftime('%s', 'now') AS INTEGER) * 1000, CAST(strftime('%s', 'now') AS INTEGER) * 1000),
+    ('task_pool:setting:difficult', 'difficult', 1, 0, CAST(strftime('%s', 'now') AS INTEGER) * 1000, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+`
+
+const ensureBuiltInAgentsSQL = `
+INSERT INTO agents (agent_id, display_name, system_role, created_at_ms, updated_at_ms)
+VALUES
+    ('agent:primary', NULL, 'primary', CAST(strftime('%s', 'now') AS INTEGER) * 1000, CAST(strftime('%s', 'now') AS INTEGER) * 1000),
+    ('agent:task-executor', 'Task Executor', 'task_executor', CAST(strftime('%s', 'now') AS INTEGER) * 1000, CAST(strftime('%s', 'now') AS INTEGER) * 1000),
+    ('agent:task-reviewer', 'Task Reviewer', 'task_reviewer', CAST(strftime('%s', 'now') AS INTEGER) * 1000, CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+ON CONFLICT(agent_id) DO UPDATE SET
+    system_role = excluded.system_role,
+    updated_at_ms = excluded.updated_at_ms;
+`
+
+const recoverAcpAuthenticationSQL = `
+UPDATE acp_agents
+SET auth_status = 'failed',
+    last_error = 'Authentication stopped when the server restarted.',
+    updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+WHERE EXISTS (
+    SELECT 1 FROM acp_auth_attempts a
+    WHERE a.agent_id = acp_agents.agent_id AND a.state = 'pending'
+);
+
+UPDATE acp_auth_attempts
+SET state = 'failed',
+    safe_message = 'Authentication stopped when the server restarted.',
+    completed_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+WHERE state = 'pending';
 `
 
 func backfillTaskWorkEvents(ctx context.Context, tx *sql.Tx) error {

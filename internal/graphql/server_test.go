@@ -284,7 +284,7 @@ func TestTaskEventsUseGraphQLTransportWS(t *testing.T) {
 
 func TestUnimplementedFieldReturnsClearError(t *testing.T) {
 	server := newTestServer(t)
-	body, err := json.Marshal(map[string]any{"query": `{ agents { agentId } }`})
+	body, err := json.Marshal(map[string]any{"query": `{ taskExecutionPolicy { maxToolCalls } }`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestUnimplementedFieldReturnsClearError(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Errors) != 1 || !strings.Contains(result.Errors[0].Message, "not implemented: Agents") {
+	if len(result.Errors) != 1 || !strings.Contains(result.Errors[0].Message, "not implemented: TaskExecutionPolicy") {
 		t.Fatalf("unexpected GraphQL errors: %#v", result.Errors)
 	}
 }

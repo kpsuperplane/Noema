@@ -35,9 +35,14 @@ func TestInvalidInput(t *testing.T) {
 			t.Fatalf("ParseMissedRunPolicy(%q) error = %v, want ErrInvalid", policy, err)
 		}
 	}
+	for _, policy := range []string{"", "queue", "SKIP"} {
+		if _, err := ParseOverlapPolicy(policy); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("ParseOverlapPolicy(%q) error = %v, want ErrInvalid", policy, err)
+		}
+	}
 }
 
-func TestNormalizeOneTimeRequiresFutureInstant(t *testing.T) {
+func TestNormalizeOneTimePreservesElapsedInstant(t *testing.T) {
 	t.Parallel()
 	now := mustInstant(t, "2026-08-03T12:00:00Z")
 	valid := Schedule{
@@ -53,12 +58,10 @@ func TestNormalizeOneTimeRequiresFutureInstant(t *testing.T) {
 		t.Fatalf("Normalize() time zone = %q", normalized.TimeZone)
 	}
 
-	for _, scheduledFor := range []time.Time{now, now.Add(-time.Second)} {
-		invalid := valid
-		invalid.ScheduledFor = scheduledFor
-		if _, err := Normalize(invalid, now); !errors.Is(err, ErrInvalid) {
-			t.Fatalf("Normalize(%v) error = %v, want ErrInvalid", scheduledFor, err)
-		}
+	elapsed := valid
+	elapsed.ScheduledFor = now.Add(-time.Second)
+	if normalized, err := Normalize(elapsed, now); err != nil || !normalized.ScheduledFor.Equal(elapsed.ScheduledFor) {
+		t.Fatalf("Normalize(elapsed) = %#v, %v", normalized, err)
 	}
 }
 
@@ -77,6 +80,34 @@ func TestCronSequenceIsInclusiveAndUsesIANAZone(t *testing.T) {
 		"2026-08-07T12:00:00Z",
 	}
 	assertInstants(t, values, want)
+}
+
+func TestCronExtensionsMatchRustSyntax(t *testing.T) {
+	t.Parallel()
+	start := mustInstant(t, "2026-01-01T00:00:00Z")
+	tests := []struct {
+		name       string
+		expression string
+		want       string
+	}{
+		{name: "last day", expression: "0 8 L * *", want: "2026-01-31T08:00:00Z"},
+		{name: "nearest weekday", expression: "0 8 17W * *", want: "2026-01-16T08:00:00Z"},
+		{name: "specific weekday", expression: "0 8 * * 1#2", want: "2026-01-12T08:00:00Z"},
+		{name: "Sunday as seven", expression: "0 8 * * 7", want: "2026-01-04T08:00:00Z"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			next, err := NextAtOrAfter(test.expression, "UTC", start)
+			if err != nil {
+				t.Fatalf("NextAtOrAfter() error = %v", err)
+			}
+			want := mustInstant(t, test.want)
+			if !next.Equal(want) {
+				t.Fatalf("NextAtOrAfter() = %s, want %s", next, want)
+			}
+		})
+	}
 }
 
 func TestNormalizeRecurrenceRequiresFirstCronMatch(t *testing.T) {
@@ -98,6 +129,15 @@ func TestNormalizeRecurrenceRequiresFirstCronMatch(t *testing.T) {
 	if normalized.Recurrence.CronExpression != "0 8 * * *" {
 		t.Fatalf("Normalize() cron = %q", normalized.Recurrence.CronExpression)
 	}
+	if normalized.Recurrence.OverlapPolicy != OverlapSkip {
+		t.Fatalf("Normalize() overlap policy = %q", normalized.Recurrence.OverlapPolicy)
+	}
+
+	value.Recurrence.OverlapPolicy = "invalid"
+	if _, err := Normalize(value, time.Time{}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Normalize(invalid overlap) error = %v, want ErrInvalid", err)
+	}
+	value.Recurrence.OverlapPolicy = OverlapAllow
 
 	value.ScheduledFor = value.ScheduledFor.Add(time.Minute)
 	if _, err := Normalize(value, time.Time{}); !errors.Is(err, ErrInvalid) {

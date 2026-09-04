@@ -29,9 +29,10 @@ Primary Chat now selects OpenRouter or Codex from its stored assignment and keep
 One serialized Chat turn now streams through GraphQL and survives restart replay.
 Chat can run bounded repeated `task.inspect` calls with durable replay and rooted Task document access.
 Tool finalization keeps every bounded result and removes old provider reasoning from replay.
-Project reads, commands, receipts, documents, and shared event replay now use Go schema version 9.
-Project document stages stay under the Go home until rooted publication and directory sync succeed.
-Task execution, commands, and notifications remain migration units.
+Projects use Go schema version 9 with receipts, safe documents, and shared event replay.
+Task schedules now validate five-field cron, IANA zones, and DST behavior in pure Go.
+Agent settings use Go schema version 10 with model pools and configurable ACP processes.
+Task placement, execution, commands, and notifications remain migration units.
 
 ## Current constraints
 
