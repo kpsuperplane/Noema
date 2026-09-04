@@ -107,8 +107,21 @@ func (s *Store) StartConversationToolRound(
 		return nil, fmt.Errorf("begin conversation tool round: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := requireActiveTurnTx(ctx, tx, turn, "input_received"); err != nil {
+	expectedStatus := "running"
+	if round.Call.ProviderRound == 0 {
+		expectedStatus = "input_received"
+	}
+	if err := requireActiveTurnTx(ctx, tx, turn, expectedStatus); err != nil {
 		return nil, err
+	}
+	var activeItems int
+	if err := tx.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM conversation_items
+WHERE turn_id = ? AND status IN ('pending', 'running')`, turn.ID).Scan(&activeItems); err != nil {
+		return nil, fmt.Errorf("inspect active conversation items: %w", err)
+	}
+	if activeItems != 0 {
+		return nil, errors.New("conversation tool call is already running")
 	}
 	var parentID string
 	if err := tx.QueryRowContext(ctx, `
@@ -145,7 +158,10 @@ WHERE turn_id = ? AND kind = 'user_text' ORDER BY sequence_index LIMIT 1`, turn.
 	}
 	if strings.TrimSpace(round.Commentary) != "" {
 		commentaryMetadata := metadata("provider_commentary", 0)
-		commentaryMetadata["stream_id"] = assistantStreamID(turn.ID)
+		commentaryMetadata["phase"] = "commentary"
+		commentaryMetadata["stream_id"] = ConversationAssistantStreamID(
+			turn.ID, round.Call.ProviderRound,
+		)
 		commentaryMetadata["response_index"] = 0
 		item, err := insertConversationOutputTx(ctx, tx, ConversationItem{
 			ID:             stableConversationOutputID(turn.ID, "assistant_text", round.Call.ProviderRound, 0),

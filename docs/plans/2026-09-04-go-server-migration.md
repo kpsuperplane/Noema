@@ -472,11 +472,17 @@ The `task.inspect` runtime unit passed on 2026-09-04. It includes:
 - exact stored results and bounded model-facing replay;
 - durable provider call, result, commentary, and reasoning history;
 - restart recovery that does not repeat an uncertain call;
-- one tool-free continuation request with combined provider usage;
+- repeated durable continuations with distinct stream and round identities;
+- deterministic stops for repeated results, failure streaks, and the hard ceiling;
+- one tool-free finalization request after a deterministic stop;
+- bounded finalization replay that keeps every permitted call and result;
+- compact finalization after local size or provider context rejection;
+- commentary phases and stream identities that reconcile across repeated rounds;
+- combined provider usage across every request in the turn;
 - existing GraphQL `Activity` delivery for live and stored tool items.
 
-This unit does not add Task writes, action requests, scheduling, or repeated
-tool rounds. Those capabilities remain later unit 4 slices.
+This unit does not add Task writes, action requests, scheduling, parallel calls,
+or adaptive progress audits. Those capabilities remain later unit 4 slices.
 
 ## 11. Validation Strategy
 

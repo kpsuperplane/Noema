@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -153,7 +154,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-events
-	requests := make(chan map[string]any, 2)
+	requests := make(chan map[string]any, 3)
 	var requestMu sync.Mutex
 	requestCount := 0
 	replaceDefaultTransport(t, roundTripFunc(func(request *http.Request) (*http.Response, error) {
@@ -166,10 +167,10 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 		requestCount++
 		current := requestCount
 		requestMu.Unlock()
-		if current == 1 {
-			arguments := strconvQuote(`{"task_id":"` + taskID + `"}`)
-			body := "data: {\"id\":\"inspect-1\",\"model\":\"openai/gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"I will inspect it.\",\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"inspect\",\"arguments\":" + arguments + "}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3,\"total_tokens\":8}}\n\ndata: [DONE]\n\n"
-			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+		if current <= 2 {
+			return openRouterToolResponse(
+				taskID, "call_"+string(rune('0'+current)), "I will inspect it.",
+			), nil
 		}
 		return openRouterStreamResponse("The Task is ready."), nil
 	}))
@@ -190,6 +191,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	wantKinds := []store.ConversationItemKind{
 		store.ConversationUserText, store.ConversationAssistantText,
 		store.ConversationToolCall, store.ConversationToolResult, store.ConversationAssistantText,
+		store.ConversationToolCall, store.ConversationToolResult, store.ConversationAssistantText,
 	}
 	if len(visibleKinds) != len(wantKinds) {
 		t.Fatalf("visible item kinds = %v", visibleKinds)
@@ -199,7 +201,7 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 			t.Fatalf("visible item kinds = %v, want %v", visibleKinds, wantKinds)
 		}
 	}
-	initial, continuation := <-requests, <-requests
+	initial, firstContinuation, secondContinuation := <-requests, <-requests, <-requests
 	tools, ok := initial["tools"].([]any)
 	if !ok || len(tools) != 1 || initial["tool_choice"] != "auto" || initial["parallel_tool_calls"] != false {
 		t.Fatalf("initial tool controls = %#v", initial)
@@ -208,10 +210,10 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	if function["name"] != "inspect" {
 		t.Fatalf("advertised tool = %#v", function)
 	}
-	if _, exists := continuation["tools"]; exists {
-		t.Fatalf("continuation advertised tools: %#v", continuation["tools"])
+	if len(firstContinuation["tools"].([]any)) != 1 || len(secondContinuation["tools"].([]any)) != 1 {
+		t.Fatal("normal continuations did not retain the Task tool")
 	}
-	messages := continuation["messages"].([]any)
+	messages := firstContinuation["messages"].([]any)
 	var replayResult map[string]any
 	for _, raw := range messages {
 		message := raw.(map[string]any)
@@ -230,22 +232,45 @@ func TestChatExecutesDurableTaskInspectLoopWithBoundedReplay(t *testing.T) {
 	if bounded["truncated"] != true || len(replayResult["content"].(string)) >= modelToolResultLimit {
 		t.Fatalf("bounded replay length = %d", len(replayResult["content"].(string)))
 	}
+	replayedCalls := map[string]bool{}
+	for _, raw := range secondContinuation["messages"].([]any) {
+		message := raw.(map[string]any)
+		if message["role"] == "tool" {
+			replayedCalls[message["tool_call_id"].(string)] = true
+		}
+	}
+	if !replayedCalls["call_1"] || !replayedCalls["call_2"] {
+		t.Fatalf("second continuation call replay = %#v", replayedCalls)
+	}
 	page, err := database.ConversationItemPage(ctx, conversation.ID, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
+	toolResults := 0
+	var rounds []int
 	for _, item := range page.Items {
+		if item.Kind == store.ConversationToolCall {
+			rounds = append(rounds, providerRound(item))
+		}
 		if item.Kind != store.ConversationToolResult {
 			continue
 		}
+		toolResults++
 		action, _ := nestedAction(item.Payload)
 		payload, _ := action["payload"].(map[string]any)
 		if payload["task_document"] != document || payload["task_id"] != taskID {
 			t.Fatalf("stored inspect payload was not exact")
 		}
-		return
 	}
-	t.Fatal("stored tool result is missing")
+	if toolResults != 2 || len(rounds) != 2 || rounds[0] != 0 || rounds[1] != 1 {
+		t.Fatalf("stored tool rounds = %v with %d results", rounds, toolResults)
+	}
+	final := page.Items[len(page.Items)-1]
+	providerUsage := final.Metadata["provider_usage"].(map[string]any)
+	if final.Metadata["stream_id"] != store.ConversationAssistantStreamID(final.TurnID, 2) ||
+		providerUsage["total_tokens"] != float64(22) {
+		t.Fatalf("final round metadata = %#v", final.Metadata)
+	}
 }
 
 func TestChatPersistsProviderFailureAndRejectsInvalidTimezone(t *testing.T) {
@@ -326,6 +351,224 @@ func TestChatClosesTurnWhenProviderReturnsWhitespace(t *testing.T) {
 	if len(page.Items) != 4 || page.Items[1].Kind != store.ConversationErrorNotice ||
 		page.Items[3].ContentText != "Recovered" {
 		t.Fatalf("transcript after whitespace response = %#v", page.Items)
+	}
+}
+
+func TestChatFinalizesDeterministicTaskInspectStops(t *testing.T) {
+	cases := []struct {
+		name        string
+		toolCalls   int
+		createTask  bool
+		rejectFinal bool
+		reason      string
+	}{
+		{"repeated result", 5, true, true, "repeated tool arguments and results"},
+		{"failure streak", 6, false, false, "consecutive tool failures"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			chat, database, conversation := chatFixture(t)
+			ctx := context.Background()
+			taskID := "task:" + strings.Repeat("0", 31) + "1"
+			if test.createTask {
+				if _, err := home.CreatePendingTaskDocument(chat.home, taskID, "Stable"); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := database.CreateTask(ctx, taskID, "Stable", time.Now()); err != nil {
+					t.Fatal(err)
+				}
+				if err := home.CommitTaskDocument(chat.home, taskID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			events, err := chat.Subscribe(ctx, conversation.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			<-events
+			requestCount := 0
+			var finalRequest map[string]any
+			replaceDefaultTransport(t, roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				var body map[string]any
+				if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+					return nil, err
+				}
+				requestCount++
+				if requestCount <= test.toolCalls {
+					currentTaskID := taskID
+					if !test.createTask {
+						currentTaskID = "task:" + strings.Repeat("0", 31) + string(rune('0'+requestCount))
+					}
+					return openRouterToolResponse(
+						currentTaskID, "stop_call_"+string(rune('0'+requestCount)), "Checking.",
+					), nil
+				}
+				if test.rejectFinal && requestCount == test.toolCalls+1 {
+					return &http.Response{
+						StatusCode: http.StatusBadRequest, Header: make(http.Header),
+						Body: io.NopCloser(strings.NewReader("context exceeded")),
+					}, nil
+				}
+				finalRequest = body
+				return openRouterStreamResponse("Stopped safely."), nil
+			}))
+			if _, err := chat.SendTurn(ctx, SendTurnInput{
+				ConversationID: conversation.ID, Input: "Keep checking",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			collectCompletedTurns(t, events, 1)
+			wantRequests := test.toolCalls + 1
+			if test.rejectFinal {
+				wantRequests++
+			}
+			if requestCount != wantRequests || finalRequest == nil {
+				t.Fatalf("provider request count = %d", requestCount)
+			}
+			if _, exists := finalRequest["tools"]; exists {
+				t.Fatalf("finalization request advertised tools: %#v", finalRequest["tools"])
+			}
+			encoded, _ := json.Marshal(finalRequest["messages"])
+			if !strings.Contains(string(encoded), test.reason) {
+				t.Fatalf("finalization reason is missing from %s", encoded)
+			}
+			toolResults := 0
+			for _, raw := range finalRequest["messages"].([]any) {
+				message := raw.(map[string]any)
+				if message["role"] == "tool" {
+					toolResults++
+				}
+			}
+			if toolResults != test.toolCalls {
+				t.Fatalf("finalization replay has %d tool results, want %d", toolResults, test.toolCalls)
+			}
+			page, err := database.ConversationItemPage(ctx, conversation.ID, "", 40)
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls, results := 0, 0
+			for _, item := range page.Items {
+				if item.Kind == store.ConversationToolCall {
+					calls++
+				}
+				if item.Kind == store.ConversationToolResult {
+					results++
+				}
+			}
+			if calls != test.toolCalls || results != test.toolCalls ||
+				page.Items[len(page.Items)-1].ContentText != "Stopped safely." {
+				t.Fatalf("stored stop transcript has %d calls and %d results", calls, results)
+			}
+		})
+	}
+}
+
+func TestProviderUsageAggregationRejectsOverflow(t *testing.T) {
+	maximum := int(^uint(0) >> 1)
+	total := provider.Usage{TotalTokens: maximum}
+	if err := addProviderUsage(&total, provider.Usage{TotalTokens: 1}); err == nil ||
+		total.TotalTokens != maximum {
+		t.Fatalf("overflow result = %#v, %v", total, err)
+	}
+}
+
+func TestTaskInspectFinalizationCompactsReplay(t *testing.T) {
+	messages := []provider.OpenRouterChatMessage{
+		{Role: "user", Content: "old"},
+		{Role: "assistant", Content: "old response"},
+		{Role: "user", Content: "current"},
+	}
+	for index := range 10 {
+		callID := fmt.Sprintf("call_%d", index)
+		messages = append(messages,
+			provider.OpenRouterChatMessage{
+				Role: "assistant", Content: strings.Repeat("c", 9<<10),
+				ReasoningDetails: []json.RawMessage{json.RawMessage(`{"type":"reasoning","data":"opaque"}`)},
+				ToolCalls: []provider.OpenRouterReplayToolCall{{
+					ProviderCallID: callID, Name: "task.inspect", Arguments: json.RawMessage(`{"task_id":"task:1"}`),
+				}},
+			},
+			provider.OpenRouterChatMessage{
+				Role: "tool", ToolResult: &provider.OpenRouterReplayToolResult{
+					ProviderCallID: callID, Name: "task.inspect", Success: true,
+					Payload: json.RawMessage(fmt.Sprintf(`{"round":%d}`, index)),
+				},
+			},
+		)
+	}
+	compacted := compactTaskInspectFinalizationMessages(messages, modelToolPayloadLimit)
+	if len(compacted) != 21 || compacted[0].Role != "user" || compacted[0].Content != "current" {
+		t.Fatalf("compacted replay shape = %#v", compacted)
+	}
+	for index := 0; index < 10; index++ {
+		assistant := compacted[1+index*2]
+		result := compacted[2+index*2]
+		wantID := fmt.Sprintf("call_%d", index)
+		if len(assistant.ToolCalls) != 1 || assistant.ToolCalls[0].ProviderCallID != wantID ||
+			result.ToolResult == nil || result.ToolResult.ProviderCallID != wantID {
+			t.Fatalf("compacted pair %d = %#v, %#v", index, assistant, result)
+		}
+		if len(assistant.Content) != 2<<10 || len(assistant.ReasoningDetails) != 0 {
+			t.Fatalf("compacted assistant %d retained large private context", index)
+		}
+	}
+}
+
+func TestChatFinalizesRejectedTaskInspectReplay(t *testing.T) {
+	chat, _, conversation := chatFixture(t)
+	ctx := context.Background()
+	taskID, err := store.NewTaskID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := home.CreatePendingTaskDocument(chat.home, taskID, strings.Repeat("x", 64<<10)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := chat.database.CreateTask(ctx, taskID, "Large Task", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := home.CommitTaskDocument(chat.home, taskID); err != nil {
+		t.Fatal(err)
+	}
+	events, err := chat.Subscribe(ctx, conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-events
+	requestCount := 0
+	var finalRequest map[string]any
+	replaceDefaultTransport(t, roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requestCount++
+		switch requestCount {
+		case 1:
+			return openRouterToolResponse(taskID, "context_call", "Checking."), nil
+		case 2:
+			return &http.Response{
+				StatusCode: http.StatusBadRequest, Header: make(http.Header),
+				Body: io.NopCloser(strings.NewReader("context exceeded")),
+			}, nil
+		default:
+			if err := json.NewDecoder(request.Body).Decode(&finalRequest); err != nil {
+				return nil, err
+			}
+			return openRouterStreamResponse("I could not retain more Task context."), nil
+		}
+	}))
+	if _, err := chat.SendTurn(ctx, SendTurnInput{
+		ConversationID: conversation.ID, Input: "Inspect the large Task",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	collectCompletedTurns(t, events, 1)
+	if requestCount != 3 || finalRequest == nil || finalRequest["max_completion_tokens"] != float64(1024) {
+		t.Fatalf("finalization requests = %d, final = %#v", requestCount, finalRequest)
+	}
+	if _, exists := finalRequest["tools"]; exists {
+		t.Fatalf("rejected replay finalization advertised tools: %#v", finalRequest)
+	}
+	encoded, _ := json.Marshal(finalRequest["messages"])
+	if len(encoded) >= 4<<10 || !strings.Contains(string(encoded), "provider replay limit reached") {
+		t.Fatalf("rejected replay was not compact: %d bytes", len(encoded))
 	}
 }
 
@@ -476,6 +719,15 @@ func equalKinds(left []EventKind, right []EventKind) bool {
 
 func openRouterStreamResponse(text string) *http.Response {
 	body := "data: {\"id\":\"chat-runtime\",\"model\":\"openai/gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":" + strconvQuote(text) + "},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2,\"total_tokens\":6}}\n\ndata: [DONE]\n\n"
+	return &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func openRouterToolResponse(taskID string, callID string, commentary string) *http.Response {
+	arguments := strconvQuote(`{"task_id":"` + taskID + `"}`)
+	body := "data: {\"id\":\"inspect-tool\",\"model\":\"openai/gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":" + strconvQuote(commentary) + ",\"tool_calls\":[{\"index\":0,\"id\":" + strconvQuote(callID) + ",\"type\":\"function\",\"function\":{\"name\":\"inspect\",\"arguments\":" + arguments + "}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3,\"total_tokens\":8}}\n\ndata: [DONE]\n\n"
 	return &http.Response{
 		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
 		Body: io.NopCloser(strings.NewReader(body)),

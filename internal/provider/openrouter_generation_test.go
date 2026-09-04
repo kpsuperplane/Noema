@@ -279,18 +279,22 @@ func TestOpenRouterGeneratorRejectsUnsafeInputsBeforeSecretAccess(t *testing.T) 
 	cases := []struct {
 		name    string
 		request OpenRouterGenerateRequest
+		want    error
 	}{
-		{"wrong account", OpenRouterGenerateRequest{AccountID: "provider_account:openrouter:other", Model: "model", Messages: []OpenRouterChatMessage{{Role: "user", Content: "hello"}}}},
-		{"blank model", OpenRouterGenerateRequest{AccountID: openRouterGenerationAccountID, Messages: []OpenRouterChatMessage{{Role: "user", Content: "hello"}}}},
-		{"invalid role", OpenRouterGenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []OpenRouterChatMessage{{Role: "tool", Content: "hello"}}}},
-		{"invalid effort", OpenRouterGenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []OpenRouterChatMessage{{Role: "user", Content: "hello"}}, ReasoningEffort: "maximum"}},
-		{"oversized request", OpenRouterGenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []OpenRouterChatMessage{{Role: "user", Content: strings.Repeat("x", openRouterGenerationRequestLimit)}}}},
+		{"wrong account", OpenRouterGenerateRequest{AccountID: "provider_account:openrouter:other", Model: "model", Messages: []OpenRouterChatMessage{{Role: "user", Content: "hello"}}}, nil},
+		{"blank model", OpenRouterGenerateRequest{AccountID: openRouterGenerationAccountID, Messages: []OpenRouterChatMessage{{Role: "user", Content: "hello"}}}, nil},
+		{"invalid role", OpenRouterGenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []OpenRouterChatMessage{{Role: "tool", Content: "hello"}}}, nil},
+		{"invalid effort", OpenRouterGenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []OpenRouterChatMessage{{Role: "user", Content: "hello"}}, ReasoningEffort: "maximum"}, nil},
+		{"oversized request", OpenRouterGenerateRequest{AccountID: openRouterGenerationAccountID, Model: "model", Messages: []OpenRouterChatMessage{{Role: "user", Content: strings.Repeat("x", openRouterGenerationRequestLimit)}}}, ErrOpenRouterGenerationRequestTooLarge},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := generator.Generate(context.Background(), test.request, nil)
 			if err == nil {
 				t.Fatal("invalid request succeeded")
+			}
+			if test.want != nil && !errors.Is(err, test.want) {
+				t.Fatalf("generation error = %v, want %v", err, test.want)
 			}
 		})
 	}

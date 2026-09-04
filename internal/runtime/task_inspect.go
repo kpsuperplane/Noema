@@ -18,7 +18,10 @@ import (
 const (
 	taskInspectName       = "task.inspect"
 	modelToolResultLimit  = 64 << 10
-	modelToolPayloadLimit = modelToolResultLimit - (2 << 10)
+	modelToolPayloadLimit = 32 << 10
+	repeatedToolLimit     = 4
+	failedToolLimit       = 6
+	providerRoundLimit    = 80
 )
 
 var taskInspectSchema = json.RawMessage(`{
@@ -89,7 +92,11 @@ func toolFailure(code string, message string) json.RawMessage {
 }
 
 func modelToolPayload(payload json.RawMessage) json.RawMessage {
-	if len(payload) <= modelToolPayloadLimit {
+	return boundedModelToolPayload(payload, modelToolPayloadLimit)
+}
+
+func boundedModelToolPayload(payload json.RawMessage, limit int) json.RawMessage {
+	if len(payload) <= limit {
 		return append(json.RawMessage(nil), payload...)
 	}
 	preview := payload
@@ -105,10 +112,10 @@ func modelToolPayload(payload json.RawMessage) json.RawMessage {
 			"message":   "Tool result exceeded the model-facing limit.",
 			"preview":   string(preview),
 		})
-		if len(bounded) <= modelToolPayloadLimit || len(preview) == 0 {
+		if len(bounded) <= limit || len(preview) == 0 {
 			return bounded
 		}
-		next := len(preview) * modelToolPayloadLimit / len(bounded)
+		next := len(preview) * limit / len(bounded)
 		if next >= len(preview) {
 			next = len(preview) - 1
 		}
@@ -268,17 +275,76 @@ func (c *Chat) executeTaskInspectRound(
 	assignment store.ModelAssignment,
 	initial provider.OpenRouterGenerationResult,
 ) {
-	call := initial.ToolCalls[0]
+	result := initial
+	usage := provider.Usage{}
+	progress := taskInspectProgress{
+		argumentCounts: make(map[string]int), results: make(map[string]struct{}),
+	}
+	for providerRound := 0; ; providerRound++ {
+		if err := addProviderUsage(&usage, result.Usage); err != nil {
+			c.failTurn(request.input, turn, err)
+			return
+		}
+		if len(result.ToolCalls) == 0 {
+			c.finishGeneratedTurn(request.input, turn, assignment, result, providerRound, usage)
+			return
+		}
+		if len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != taskInspectName {
+			c.failTurn(request.input, turn, errors.New("provider returned an unsupported tool sequence"))
+			return
+		}
+		call := result.ToolCalls[0]
+		toolPayload, success, err := c.persistTaskInspectRound(
+			request, turn, result, call, providerRound,
+		)
+		if err != nil {
+			c.failTurn(request.input, turn, err)
+			return
+		}
+		stopReason := progress.observe(call, toolPayload, success)
+		if providerRound >= providerRoundLimit {
+			stopReason = "maximum provider tool continuations reached"
+		}
+		nextRound := providerRound + 1
+		var forcedFinalization bool
+		result, forcedFinalization, err = c.generateTaskInspectContinuation(
+			request, turn, assignment, nextRound, stopReason,
+		)
+		if err != nil {
+			c.failTurn(request.input, turn, err)
+			return
+		}
+		if stopReason != "" || forcedFinalization {
+			if err := addProviderUsage(&usage, result.Usage); err != nil {
+				c.failTurn(request.input, turn, err)
+				return
+			}
+			if len(result.ToolCalls) != 0 {
+				c.failTurn(request.input, turn, errors.New("provider returned a tool call during finalization"))
+				return
+			}
+			c.finishGeneratedTurn(request.input, turn, assignment, result, nextRound, usage)
+			return
+		}
+	}
+}
+
+func (c *Chat) persistTaskInspectRound(
+	request queuedTurn,
+	turn store.ConversationTurn,
+	generation provider.OpenRouterGenerationResult,
+	call provider.OpenRouterToolCall,
+	providerRound int,
+) (json.RawMessage, bool, error) {
 	items, err := c.database.StartConversationToolRound(c.ctx, turn, store.ConversationToolRound{
-		Commentary: initial.Text, Reasoning: generationReasoning(initial),
+		Commentary: generation.Text, Reasoning: generationReasoning(generation),
 		Call: store.ConversationToolCallInput{
-			ProviderRound: 0, OutputIndex: call.Index, ProviderCallID: call.ProviderCallID,
+			ProviderRound: providerRound, OutputIndex: call.Index, ProviderCallID: call.ProviderCallID,
 			ProviderName: call.ProviderName, Name: call.Name, Arguments: call.Payload,
 		},
 	}, time.Now())
 	if err != nil {
-		c.failTurn(request.input, turn, err)
-		return
+		return nil, false, err
 	}
 	var callItem store.ConversationItem
 	for index := range items {
@@ -294,54 +360,212 @@ func (c *Chat) executeTaskInspectRound(
 		})
 	}
 	if callItem.ID == "" {
-		c.failTurn(request.input, turn, errors.New("stored tool call is unavailable"))
-		return
+		return nil, false, errors.New("stored tool call is unavailable")
 	}
 	toolPayload, success := c.inspectTask(c.ctx, call.Payload)
 	resultItem, err := c.database.FinishConversationToolCall(c.ctx, turn, store.ConversationToolResultInput{
-		CallItemID: callItem.ID, ProviderRound: 0, OutputIndex: call.Index,
+		CallItemID: callItem.ID, ProviderRound: providerRound, OutputIndex: call.Index,
 		ProviderCallID: call.ProviderCallID, ProviderName: call.ProviderName,
 		Name: call.Name, Success: success, Payload: toolPayload,
 	}, time.Now())
 	if err != nil {
-		c.failTurn(request.input, turn, err)
-		return
+		return nil, false, err
 	}
 	c.publish(Event{
 		Kind: EventConversationItem, ConversationID: turn.ConversationID,
 		ClientMessageID: request.input.ClientMessageID, TurnID: turn.ID, Item: &resultItem,
 	})
+	return toolPayload, success, nil
+}
+
+func (c *Chat) generateTaskInspectContinuation(
+	request queuedTurn,
+	turn store.ConversationTurn,
+	assignment store.ModelAssignment,
+	providerRound int,
+	stopReason string,
+) (provider.OpenRouterGenerationResult, bool, error) {
 	stored, err := c.database.ConversationProviderItems(c.ctx, turn.ConversationID)
 	if err != nil {
-		c.failTurn(request.input, turn, err)
-		return
+		return provider.OpenRouterGenerationResult{}, false, err
 	}
 	messages, err := providerMessagesFromItems(stored)
 	if err != nil {
-		c.failTurn(request.input, turn, err)
-		return
+		return provider.OpenRouterGenerationResult{}, false, err
+	}
+	environment := runtimeEnvironment(request.conversation, request.location, time.Now())
+	tools := []provider.OpenRouterTool{taskInspectTool()}
+	transport := provider.OpenRouterToolTransportNative
+	if stopReason != "" {
+		environment += "\n\n" + taskInspectFinalizationInstruction(stopReason)
+		messages = compactTaskInspectFinalizationMessages(messages, modelToolPayloadLimit)
+		tools = nil
+		transport = provider.OpenRouterToolTransportNone
 	}
 	messages = append([]provider.OpenRouterChatMessage{{
-		Role: "developer", Content: runtimeEnvironment(request.conversation, request.location, time.Now()),
+		Role: "developer", Content: environment,
 	}}, messages...)
-	streamID := "assistant_stream:" + turn.ID + ":continuation:response:0"
-	continuation, err := c.generator.Generate(c.ctx, provider.OpenRouterGenerateRequest{
-		AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
-		Messages: messages, ReasoningEffort: string(assignment.ReasoningEffort),
-		ConversationID: turn.ConversationID, MaxOutputTokens: maxOutputTokens(),
-	}, func(event provider.StreamEvent) {
-		if event.Kind == provider.TextDelta {
-			c.publish(Event{
-				Kind: EventAssistantDelta, ConversationID: turn.ConversationID,
-				TurnID: turn.ID, StreamID: streamID, ResponseIndex: 0, Delta: event.Delta,
-			})
-		}
-	})
-	if err != nil {
-		c.failTurn(request.input, turn, err)
-		return
+	streamID := store.ConversationAssistantStreamID(turn.ID, providerRound)
+	generate := func() (provider.OpenRouterGenerationResult, error) {
+		return c.generator.Generate(c.ctx, provider.OpenRouterGenerateRequest{
+			AccountID: assignment.ProviderAccountID, Model: assignment.ModelProfile,
+			Messages: messages, ReasoningEffort: string(assignment.ReasoningEffort),
+			ConversationID: turn.ConversationID, MaxOutputTokens: taskInspectOutputTokens(stopReason != ""),
+			Tools: tools, ToolTransport: transport, ToolChoice: provider.OpenRouterToolChoiceAuto,
+		}, func(event provider.StreamEvent) {
+			if event.Kind == provider.TextDelta {
+				c.publish(Event{
+					Kind: EventAssistantDelta, ConversationID: turn.ConversationID,
+					TurnID: turn.ID, StreamID: streamID, ResponseIndex: 0, Delta: event.Delta,
+				})
+			}
+		})
 	}
-	c.finishGeneratedTurn(request.input, turn, assignment, continuation, 1, &initial.Usage)
+	result, err := generate()
+	if err == nil {
+		return result, stopReason != "", err
+	}
+	requestTooLarge := errors.Is(err, provider.ErrOpenRouterGenerationRequestTooLarge)
+	requestRejected := errors.Is(err, provider.ErrProviderRequestRejected)
+	if !requestTooLarge && !requestRejected {
+		return result, stopReason != "", err
+	}
+	payloadLimit := modelToolPayloadLimit
+	if requestRejected || stopReason != "" {
+		payloadLimit = 1 << 10
+	}
+	if stopReason == "" {
+		stopReason = "provider replay limit reached"
+		environment = runtimeEnvironment(request.conversation, request.location, time.Now()) +
+			"\n\n" + taskInspectFinalizationInstruction(stopReason)
+	}
+	messages = compactTaskInspectFinalizationMessages(messages[1:], payloadLimit)
+	messages = append([]provider.OpenRouterChatMessage{{Role: "developer", Content: environment}}, messages...)
+	tools = nil
+	transport = provider.OpenRouterToolTransportNone
+	result, err = generate()
+	return result, true, err
+}
+
+func compactTaskInspectFinalizationMessages(
+	messages []provider.OpenRouterChatMessage,
+	payloadLimit int,
+) []provider.OpenRouterChatMessage {
+	lastUser := -1
+	for index := range messages {
+		if messages[index].Role == "user" {
+			lastUser = index
+		}
+	}
+	if lastUser < 0 {
+		return nil
+	}
+	user := messages[lastUser]
+	pairs := make([][2]provider.OpenRouterChatMessage, 0, providerRoundLimit+1)
+	var assistant *provider.OpenRouterChatMessage
+	for index := lastUser + 1; index < len(messages); index++ {
+		message := messages[index]
+		switch {
+		case message.Role == "assistant" && len(message.ToolCalls) != 0:
+			message.ReasoningDetails = nil
+			message.Content = boundedUTF8(message.Content, 2<<10)
+			assistant = &message
+		case message.Role == "tool" && assistant != nil:
+			if message.ToolResult != nil {
+				toolResult := *message.ToolResult
+				toolResult.Payload = boundedModelToolPayload(toolResult.Payload, payloadLimit)
+				message.ToolResult = &toolResult
+			}
+			pairs = append(pairs, [2]provider.OpenRouterChatMessage{*assistant, message})
+			assistant = nil
+		}
+	}
+	result := make([]provider.OpenRouterChatMessage, 0, 1+2*len(pairs))
+	result = append(result, user)
+	for _, pair := range pairs {
+		result = append(result, pair[0], pair[1])
+	}
+	return result
+}
+
+func taskInspectOutputTokens(finalization bool) *uint32 {
+	if !finalization {
+		return maxOutputTokens()
+	}
+	value := uint32(1024)
+	return &value
+}
+
+func boundedUTF8(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	value = value[:limit]
+	for !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return value
+}
+
+type taskInspectProgress struct {
+	argumentCounts map[string]int
+	results        map[string]struct{}
+	repeated       int
+	failures       int
+}
+
+func (p *taskInspectProgress) observe(
+	call provider.OpenRouterToolCall,
+	payload json.RawMessage,
+	success bool,
+) string {
+	argumentKey := call.Name + "\x00" + string(call.Payload)
+	p.argumentCounts[argumentKey]++
+	resultKey := argumentKey + "\x00" + string(payload)
+	if success {
+		resultKey += "\x00success"
+		p.failures = 0
+	} else {
+		resultKey += "\x00failure"
+		p.failures++
+	}
+	_, seenResult := p.results[resultKey]
+	p.results[resultKey] = struct{}{}
+	if p.argumentCounts[argumentKey] > 1 && seenResult {
+		p.repeated++
+	}
+	if p.failures >= failedToolLimit {
+		return "consecutive tool failures"
+	}
+	if p.repeated >= repeatedToolLimit {
+		return "repeated tool arguments and results"
+	}
+	return ""
+}
+
+func taskInspectFinalizationInstruction(reason string) string {
+	return "The tool loop must stop because: " + reason +
+		". Give one concise final answer from the saved results. Do not call tools."
+}
+
+func addProviderUsage(total *provider.Usage, next provider.Usage) error {
+	counts := [][2]*int{
+		{&total.InputTokens, &next.InputTokens},
+		{&total.CachedInputTokens, &next.CachedInputTokens},
+		{&total.OutputTokens, &next.OutputTokens},
+		{&total.TotalTokens, &next.TotalTokens},
+		{&total.WebSearchRequests, &next.WebSearchRequests},
+	}
+	maximum := int(^uint(0) >> 1)
+	for _, count := range counts {
+		if *count[1] < 0 || *count[0] > maximum-*count[1] {
+			return errors.New("provider usage total is too large")
+		}
+	}
+	for _, count := range counts {
+		*count[0] += *count[1]
+	}
+	return nil
 }
 
 func (c *Chat) finishGeneratedTurn(
@@ -350,18 +574,11 @@ func (c *Chat) finishGeneratedTurn(
 	assignment store.ModelAssignment,
 	result provider.OpenRouterGenerationResult,
 	providerRound int,
-	prior *provider.Usage,
+	usage provider.Usage,
 ) {
 	model := result.Model
 	if model == "" {
 		model = assignment.ModelProfile
-	}
-	usage := result.Usage
-	if prior != nil {
-		usage.InputTokens += prior.InputTokens
-		usage.CachedInputTokens += prior.CachedInputTokens
-		usage.OutputTokens += prior.OutputTokens
-		usage.TotalTokens += prior.TotalTokens
 	}
 	item, err := c.database.CompleteConversationTurnOutput(
 		c.ctx, turn, result.Text, result.Text,

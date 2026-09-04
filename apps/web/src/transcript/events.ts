@@ -51,8 +51,8 @@ export function appendAssistantTextDeltaEntry(
     if (candidate.type !== "assistant") {
       return false;
     }
-    if (candidate.streamId === event.streamId) {
-      return true;
+    if (candidate.streamId !== undefined) {
+      return candidate.streamId === event.streamId;
     }
     return candidate.turnId === event.turnId;
   });

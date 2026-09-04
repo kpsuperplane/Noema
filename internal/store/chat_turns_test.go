@@ -134,7 +134,7 @@ func TestConversationTurnPersistsStreamReplacementAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	if assistant.Kind != ConversationAssistantText || assistant.ParentItemID != user.ID ||
-		assistant.Cursor != "conversation_item:2" || assistant.Metadata["stream_id"] != assistantStreamID(turn.ID) {
+		assistant.Cursor != "conversation_item:2" || assistant.Metadata["stream_id"] != ConversationAssistantStreamID(turn.ID, 0) {
 		t.Fatalf("assistant item = %#v", assistant)
 	}
 	messages, err := database.ConversationProviderMessages(ctx, conversation.ID)
@@ -298,8 +298,9 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 		items[2].ParentItemID != user.ID || items[2].Status != "running" {
 		t.Fatalf("tool round items = %#v", items)
 	}
-	if items[1].Metadata["stream_id"] != assistantStreamID(turn.ID) ||
-		items[1].Metadata["response_index"] != float64(0) {
+	if items[1].Metadata["stream_id"] != ConversationAssistantStreamID(turn.ID, 0) ||
+		items[1].Metadata["response_index"] != float64(0) ||
+		items[1].Metadata["phase"] != "commentary" {
 		t.Fatalf("commentary stream metadata = %#v", items[1].Metadata)
 	}
 	resultInput := ConversationToolResultInput{
@@ -327,15 +328,46 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 	if _, err := database.FinishConversationToolCall(ctx, turn, resultInput, now.Add(4*time.Second)); err == nil {
 		t.Fatal("conflicting tool result repeat succeeded")
 	}
+	later, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{
+		Commentary: "I will inspect another Task.",
+		Call: ConversationToolCallInput{
+			ProviderRound: 1, OutputIndex: 0, ProviderCallID: "provider-call-later",
+			ProviderName: "inspect", Name: "task.inspect",
+			Arguments: json.RawMessage(`{"task_id":"task:later"}`),
+		},
+	}, now.Add(5*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if later[0].Metadata["stream_id"] != ConversationAssistantStreamID(turn.ID, 1) ||
+		later[0].Metadata["phase"] != "commentary" {
+		t.Fatalf("later commentary metadata = %#v", later[0].Metadata)
+	}
+	if _, err := database.StartConversationToolRound(ctx, turn, ConversationToolRound{
+		Call: ConversationToolCallInput{
+			ProviderRound: 2, OutputIndex: 0, ProviderCallID: "provider-call-overlap",
+			ProviderName: "inspect", Name: "task.inspect", Arguments: json.RawMessage(`{}`),
+		},
+	}, now.Add(6*time.Second)); err == nil {
+		t.Fatal("overlapping later tool call succeeded")
+	}
+	if _, err := database.FinishConversationToolCall(ctx, turn, ConversationToolResultInput{
+		CallItemID: later[len(later)-1].ID, ProviderRound: 1, OutputIndex: 0,
+		ProviderCallID: "provider-call-later", ProviderName: "inspect", Name: "task.inspect",
+		Success: false, Payload: json.RawMessage(`{"code":"not_found"}`),
+	}, now.Add(7*time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	final, err := database.CompleteConversationTurnOutput(
 		ctx, turn, "Done", "Done", nil,
-		[]json.RawMessage{json.RawMessage(`{"type":"reasoning.summary","text":"Done"}`)}, 1,
-		now.Add(5*time.Second),
+		[]json.RawMessage{json.RawMessage(`{"type":"reasoning.summary","text":"Done"}`)}, 2,
+		now.Add(8*time.Second),
 	)
-	if err != nil || final.Metadata["provider_round"] != float64(1) {
+	if err != nil || final.Metadata["provider_round"] != float64(2) ||
+		final.Metadata["stream_id"] != ConversationAssistantStreamID(turn.ID, 2) {
 		t.Fatalf("final output = %#v, %v", final, err)
 	}
-	second, _, err := database.BeginConversationTurn(ctx, conversation.ID, "Interrupt it", nil, now.Add(6*time.Second))
+	second, _, err := database.BeginConversationTurn(ctx, conversation.ID, "Interrupt it", nil, now.Add(9*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,11 +376,27 @@ func TestConversationToolCallIsAtomicRepeatSafeAndRecoverable(t *testing.T) {
 			ProviderRound: 0, OutputIndex: 0, ProviderCallID: "provider-call-2",
 			ProviderName: "inspect", Name: "task.inspect", Arguments: json.RawMessage(`{"task_id":"task:two"}`),
 		},
-	}, now.Add(7*time.Second))
+	}, now.Add(10*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if recovered, err := database.RecoverConversationTurns(ctx, now.Add(8*time.Second)); err != nil || recovered != 1 {
+	if _, err := database.FinishConversationToolCall(ctx, second, ConversationToolResultInput{
+		CallItemID: running[len(running)-1].ID, ProviderRound: 0, OutputIndex: 0,
+		ProviderCallID: "provider-call-2", ProviderName: "inspect", Name: "task.inspect",
+		Success: true, Payload: json.RawMessage(`{"task_id":"task:two"}`),
+	}, now.Add(11*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	running, err = database.StartConversationToolRound(ctx, second, ConversationToolRound{
+		Call: ConversationToolCallInput{
+			ProviderRound: 1, OutputIndex: 0, ProviderCallID: "provider-call-3",
+			ProviderName: "inspect", Name: "task.inspect", Arguments: json.RawMessage(`{"task_id":"task:three"}`),
+		},
+	}, now.Add(12*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered, err := database.RecoverConversationTurns(ctx, now.Add(13*time.Second)); err != nil || recovered != 1 {
 		t.Fatalf("recovered tool turn = %d, %v", recovered, err)
 	}
 	var recoveredStatus string

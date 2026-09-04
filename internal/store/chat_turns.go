@@ -270,9 +270,10 @@ func (s *Store) CompleteConversationTurnOutput(
 			return ConversationItem{}, errors.New("conversation reasoning is invalid")
 		}
 	}
-	streamID := assistantStreamID(turn.ID)
+	streamID := ConversationAssistantStreamID(turn.ID, providerRound)
+	phase := "initial"
 	if providerRound > 0 {
-		streamID = "assistant_stream:" + turn.ID + ":continuation:response:0"
+		phase = "continuation"
 	}
 	metadata := map[string]any{
 		"turn_index": turn.TurnIndex, "response_index": 0, "output_index": 0,
@@ -285,7 +286,7 @@ func (s *Store) CompleteConversationTurnOutput(
 			ratio = float64(usage.CachedInputTokens) / float64(usage.InputTokens)
 		}
 		metadata["provider_usage"] = map[string]any{
-			"provider": usage.Provider, "model": usage.Model, "phase": "initial",
+			"provider": usage.Provider, "model": usage.Model, "phase": phase,
 			"response_index": 0, "output_index": 0, "input_tokens": usage.InputTokens,
 			"output_tokens": usage.OutputTokens, "total_tokens": usage.TotalTokens,
 			"cached_input_tokens": usage.CachedInputTokens, "cache_hit_ratio": ratio,
@@ -622,8 +623,15 @@ func scanConversationItem(row rowScanner) (ConversationItem, error) {
 	return item, nil
 }
 
-func assistantStreamID(turnID string) string {
-	return "assistant_stream:" + turnID + ":initial:response:0"
+// ConversationAssistantStreamID returns the stream identity for one provider round.
+func ConversationAssistantStreamID(turnID string, providerRound int) string {
+	phase := "initial"
+	if providerRound == 1 {
+		phase = "continuation"
+	} else if providerRound > 1 {
+		phase = fmt.Sprintf("continuation-%d", providerRound-1)
+	}
+	return "assistant_stream:" + turnID + ":" + phase + ":response:0"
 }
 
 func stableConversationItemID(turnID string, kind string) string {

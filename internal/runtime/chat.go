@@ -308,7 +308,7 @@ func (c *Chat) execute(request queuedTurn) {
 		return
 	}
 	if len(result.ToolCalls) == 0 {
-		c.finishGeneratedTurn(request.input, turn, assignment, result, 0, nil)
+		c.finishGeneratedTurn(request.input, turn, assignment, result, 0, result.Usage)
 		return
 	}
 	if len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != taskInspectName {
