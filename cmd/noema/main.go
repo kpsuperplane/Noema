@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/auth"
 	noemagraphql "github.com/kpsuperplane/noema/internal/graphql"
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/store"
@@ -56,6 +57,15 @@ func run(ctx context.Context, address string, output *os.File) error {
 	}); err != nil {
 		return fmt.Errorf("recover Task documents: %w", err)
 	}
+	authConfig, recovery, err := auth.LoadConfig(paths, address)
+	if err != nil {
+		return err
+	}
+	browserAuth, err := auth.New(paths, taskStore, authConfig, recovery)
+	if err != nil {
+		return err
+	}
+	go browserAuth.RunCleanup(ctx)
 
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
@@ -71,8 +81,9 @@ func run(ctx context.Context, address string, output *os.File) error {
 	mux.Handle("/graphql", graphqlHandler)
 	mux.Handle("/graphql/ws", graphqlHandler)
 	server := &http.Server{
-		Handler:           mux,
+		Handler:           browserAuth.Handler(mux),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
 	}
 
 	serveResult := make(chan error, 1)

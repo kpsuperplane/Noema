@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -139,6 +140,42 @@ func TestStoreReopensFreshGoSchema(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	if _, err := store.Task(context.Background(), task.ID); err != nil {
 		t.Fatalf("read reopened task: %v", err)
+	}
+	var version int
+	if err := store.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
+		t.Fatalf("fresh schema version = %d, %v", version, err)
+	}
+
+	upgradePath := filepath.Join(t.TempDir(), "v1.sqlite3")
+	legacy, err := sql.Open("sqlite3", "file:"+filepath.ToSlash(upgradePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`
+CREATE TABLE tasks (task_id TEXT PRIMARY KEY) STRICT;
+CREATE TABLE task_events (event_id INTEGER PRIMARY KEY) STRICT;
+PRAGMA user_version = 1;`); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	upgraded, err := Open(context.Background(), upgradePath)
+	if err != nil {
+		t.Fatalf("upgrade version 1 schema: %v", err)
+	}
+	defer upgraded.Close()
+	if err := upgraded.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
+		t.Fatalf("upgraded schema version = %d, %v", version, err)
+	}
+	for _, table := range []string{"human_passkeys", "browser_sessions"} {
+		var exists bool
+		if err := upgraded.db.QueryRow(
+			"SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?)",
+			table,
+		).Scan(&exists); err != nil || !exists {
+			t.Fatalf("upgraded table %s = %v, %v", table, exists, err)
+		}
 	}
 }
 

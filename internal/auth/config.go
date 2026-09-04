@@ -1,0 +1,270 @@
+// Package auth owns browser authentication and public HTTP admission.
+package auth
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+
+	"github.com/goccy/go-yaml"
+	"github.com/kpsuperplane/noema/internal/home"
+)
+
+const configLimit = 1024 * 1024
+
+// Config contains non-secret browser authentication configuration.
+type Config struct {
+	Authority string
+	Origin    string
+	RPID      string
+	Secure    bool
+	DevNoAuth bool
+}
+
+// Recovery owns serialized one-time recovery-code rotation.
+type Recovery struct {
+	path     string
+	mu       sync.Mutex
+	disabled bool
+}
+
+// LoadConfig loads public settings and ensures one protected recovery code.
+func LoadConfig(paths home.Paths, listenAddress string) (Config, *Recovery, error) {
+	document, err := readConfigDocument(paths.Config())
+	if err != nil {
+		return Config{}, nil, err
+	}
+	web, err := childMap(document, "web")
+	if err != nil {
+		return Config{}, nil, err
+	}
+	recoveryValue, recoveryExists := web["recovery_code"]
+	recoveryCode, recoveryIsString := recoveryValue.(string)
+	if !recoveryExists {
+		recoveryCode, err = randomBase64URL(32)
+		if err != nil {
+			return Config{}, nil, err
+		}
+		web["recovery_code"] = recoveryCode
+		if err := writeConfigDocument(paths.Config(), document); err != nil {
+			return Config{}, nil, fmt.Errorf("store recovery code: %w", err)
+		}
+	} else if !recoveryIsString || !validRecoveryCode(recoveryCode) {
+		return Config{}, nil, errors.New("web.recovery_code must be canonical base64url for 32 bytes")
+	}
+
+	_, port, err := net.SplitHostPort(listenAddress)
+	if err != nil {
+		return Config{}, nil, errors.New("listen address must contain a host and port")
+	}
+	if port == "0" {
+		return Config{}, nil, errors.New("listen port must be fixed before authentication starts")
+	}
+	publicOrigin, err := configString(web, "public_origin", "http://localhost:"+port, true)
+	if err != nil {
+		return Config{}, nil, err
+	}
+	rpID, err := configString(web, "rp_id", "localhost", false)
+	if err != nil {
+		return Config{}, nil, err
+	}
+	devNoAuth, err := configBool(web, "dev_no_auth", false)
+	if err != nil {
+		return Config{}, nil, err
+	}
+	if value, exists := os.LookupEnv("NOEMA_WEB__PUBLIC_ORIGIN"); exists {
+		publicOrigin = value
+	}
+	if value, exists := os.LookupEnv("NOEMA_WEB__RP_ID"); exists {
+		rpID = value
+	}
+	if value, exists := os.LookupEnv("NOEMA_WEB__DEV_NO_AUTH"); exists {
+		parsed, parseErr := strconv.ParseBool(value)
+		if parseErr != nil {
+			return Config{}, nil, errors.New("NOEMA_WEB__DEV_NO_AUTH must be true or false")
+		}
+		devNoAuth = parsed
+	}
+	config, err := canonicalConfig(publicOrigin, rpID, devNoAuth)
+	if err != nil {
+		return Config{}, nil, err
+	}
+	return config, &Recovery{path: paths.Config()}, nil
+}
+
+// Attempt rotates the code before it reports whether one candidate matched.
+func (r *Recovery) Attempt(candidate string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.disabled {
+		return false, errors.New("recovery is unavailable until restart")
+	}
+	document, err := readConfigDocument(r.path)
+	if err != nil {
+		r.disabled = true
+		return false, errors.New("recovery configuration is unavailable")
+	}
+	web, err := childMap(document, "web")
+	if err != nil {
+		r.disabled = true
+		return false, errors.New("recovery configuration is unavailable")
+	}
+	current, _ := web["recovery_code"].(string)
+	if !validRecoveryCode(current) {
+		r.disabled = true
+		return false, errors.New("recovery configuration is unavailable")
+	}
+	want := sha256.Sum256([]byte(current))
+	got := sha256.Sum256([]byte(candidate))
+	matched := subtle.ConstantTimeCompare(want[:], got[:]) == 1
+	replacement, err := randomBase64URL(32)
+	if err != nil {
+		r.disabled = true
+		return false, errors.New("recovery rotation is unavailable")
+	}
+	web["recovery_code"] = replacement
+	if err := writeConfigDocument(r.path, document); err != nil {
+		r.disabled = true
+		return false, errors.New("recovery rotation is unavailable")
+	}
+	verified, err := readConfigDocument(r.path)
+	if err != nil {
+		r.disabled = true
+		return false, errors.New("recovery rotation is unavailable")
+	}
+	verifiedWeb, err := childMap(verified, "web")
+	verifiedCode, codeErr := configString(verifiedWeb, "recovery_code", "", false)
+	if err != nil || codeErr != nil || verifiedCode != replacement {
+		r.disabled = true
+		return false, errors.New("recovery rotation is unavailable")
+	}
+	return matched, nil
+}
+
+func canonicalConfig(publicOrigin string, rpID string, devNoAuth bool) (Config, error) {
+	parsed, err := url.Parse(publicOrigin)
+	if err != nil || parsed.Hostname() == "" {
+		return Config{}, errors.New("web.public_origin must be a URL with a host")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	secure := parsed.Scheme == "https"
+	if !secure && (parsed.Scheme != "http" || host != "localhost") {
+		return Config{}, errors.New("web.public_origin must use HTTPS, except for localhost")
+	}
+	if parsed.User != nil || parsed.Path != "" && parsed.Path != "/" ||
+		parsed.RawQuery != "" || parsed.Fragment != "" {
+		return Config{}, errors.New("web.public_origin must contain only scheme, host, and optional port")
+	}
+	if host != "localhost" && net.ParseIP(host) != nil {
+		return Config{}, errors.New("web.public_origin must use a domain name for passkeys")
+	}
+	if strings.TrimSpace(rpID) != rpID || rpID == "" || strings.ContainsAny(rpID, "/:") ||
+		(rpID != "localhost" && net.ParseIP(rpID) != nil) {
+		return Config{}, errors.New("web.rp_id must be a domain name without a scheme or port")
+	}
+	rpID = strings.ToLower(rpID)
+	if host != rpID && !strings.HasSuffix(host, "."+rpID) {
+		return Config{}, errors.New("web.rp_id must equal or be a parent domain of the public origin host")
+	}
+	authority := host
+	if port := parsed.Port(); port != "" {
+		authority = net.JoinHostPort(host, port)
+	}
+	return Config{
+		Authority: authority,
+		Origin:    parsed.Scheme + "://" + authority,
+		RPID:      rpID,
+		Secure:    secure,
+		DevNoAuth: devNoAuth,
+	}, nil
+}
+
+func readConfigDocument(path string) (map[string]any, error) {
+	data, err := home.ReadPrivateFile(path, configLimit)
+	if errors.Is(err, os.ErrNotExist) {
+		return make(map[string]any), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read config.yaml: %w", err)
+	}
+	document := make(map[string]any)
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &document); err != nil {
+			return nil, errors.New("config.yaml is not valid YAML")
+		}
+		if document == nil {
+			return nil, errors.New("config.yaml must contain a mapping")
+		}
+	}
+	return document, nil
+}
+
+func writeConfigDocument(path string, document map[string]any) error {
+	data, err := yaml.Marshal(document)
+	if err != nil {
+		return errors.New("encode config.yaml")
+	}
+	if int64(len(data)) > configLimit {
+		return errors.New("config.yaml exceeds its size limit")
+	}
+	return home.AtomicWritePrivate(path, data)
+}
+
+func childMap(document map[string]any, key string) (map[string]any, error) {
+	if raw, exists := document[key]; exists {
+		value, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("config.yaml field %s must be a mapping", key)
+		}
+		return value, nil
+	}
+	value := make(map[string]any)
+	document[key] = value
+	return value, nil
+}
+
+func configString(values map[string]any, key string, fallback string, allowNull bool) (string, error) {
+	raw, exists := values[key]
+	if !exists || allowNull && raw == nil {
+		return fallback, nil
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("config.yaml field web.%s must be a string", key)
+	}
+	return value, nil
+}
+
+func configBool(values map[string]any, key string, fallback bool) (bool, error) {
+	raw, exists := values[key]
+	if !exists {
+		return fallback, nil
+	}
+	value, ok := raw.(bool)
+	if !ok {
+		return false, fmt.Errorf("config.yaml field web.%s must be true or false", key)
+	}
+	return value, nil
+}
+
+func validRecoveryCode(value string) bool {
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	return err == nil && len(decoded) == 32 && base64.RawURLEncoding.EncodeToString(decoded) == value
+}
+
+func randomBase64URL(size int) (string, error) {
+	value := make([]byte, size)
+	if _, err := rand.Read(value); err != nil {
+		return "", fmt.Errorf("generate random value: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(value), nil
+}

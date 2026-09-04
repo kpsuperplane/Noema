@@ -17,7 +17,10 @@ import (
 // NewHandler creates the HTTP and graphql-transport-ws GraphQL handler.
 func NewHandler(resolver *Resolver) http.Handler {
 	server := handler.New(NewExecutableSchema(Config{Resolvers: resolver}))
-	server.AddTransport(transport.Websocket{KeepAlivePingInterval: 10 * time.Second})
+	server.AddTransport(transport.Websocket{
+		KeepAlivePingInterval: 10 * time.Second,
+		InitTimeout:           10 * time.Second,
+	})
 	server.AddTransport(transport.Options{})
 	server.AddTransport(transport.GET{})
 	server.AddTransport(transport.POST{})

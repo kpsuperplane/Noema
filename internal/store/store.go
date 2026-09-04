@@ -14,7 +14,7 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 // Store is one open Noema database.
 type Store struct {
@@ -93,7 +93,14 @@ func (s *Store) initialize(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, schemaSQL); err != nil {
 			return fmt.Errorf("create schema: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 1"); err != nil {
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 2"); err != nil {
+			return fmt.Errorf("record schema version: %w", err)
+		}
+	case 1:
+		if _, err := tx.ExecContext(ctx, schemaV2SQL); err != nil {
+			return fmt.Errorf("apply schema version 2: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 2"); err != nil {
 			return fmt.Errorf("record schema version: %w", err)
 		}
 	case schemaVersion:
@@ -127,4 +134,33 @@ CREATE TABLE task_events (
     occurred_at_ms INTEGER NOT NULL,
     UNIQUE (task_id, task_revision)
 ) STRICT;
+
+` + schemaV2SQL
+
+const schemaV2SQL = `
+CREATE TABLE human_passkeys (
+    credential_id TEXT PRIMARY KEY,
+    credential_json TEXT NOT NULL
+        CHECK (json_valid(credential_json) AND json_type(credential_json) = 'object'),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE browser_sessions (
+    session_hash BLOB PRIMARY KEY CHECK (length(session_hash) = 32),
+    state TEXT NOT NULL CHECK (state IN ('anonymous', 'authenticated')),
+    passkey_id TEXT REFERENCES human_passkeys(credential_id) ON DELETE CASCADE,
+    recent_passkey_at_ms INTEGER,
+    created_at_ms INTEGER NOT NULL,
+    expires_at_ms INTEGER NOT NULL,
+    CHECK (expires_at_ms > created_at_ms),
+    CHECK (
+        (state = 'anonymous' AND passkey_id IS NULL AND recent_passkey_at_ms IS NULL)
+        OR (state = 'authenticated' AND passkey_id IS NOT NULL
+            AND recent_passkey_at_ms IS NOT NULL)
+    )
+) STRICT;
+
+CREATE INDEX browser_sessions_expiry ON browser_sessions(expires_at_ms);
+CREATE INDEX browser_sessions_passkey ON browser_sessions(passkey_id);
 `

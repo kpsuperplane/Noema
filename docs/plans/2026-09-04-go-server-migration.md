@@ -339,8 +339,7 @@ or platform case.
 
 ### First authentication unit
 
-After the evidence gate passes, implement complete browser authentication.
-This unit includes:
+The complete browser authentication unit passed on 2026-09-04. It includes:
 
 - exact Host and Origin checks;
 - the zero-passkey setup barrier;
@@ -358,9 +357,21 @@ routes, token lifetimes, rotation, replay, or client revocation contracts.
 Use go-webauthn and the standard library. Do not add a session framework.
 Append schema version 2 for passkeys and browser session digests.
 
-The browser authentication budget is 2,000 production lines and 1,000 test
-lines. Add nine tests for authority, ceremonies, races, persistence, recovery,
-passkey management, and GraphQL admission.
+The unit added 2,235 production lines and 770 test lines. It added nine focused
+tests. Production exceeded its estimate by 235 lines but stayed below the
+2,500-line stop threshold.
+
+The tests cover authority, ceremonies, races, persistence, recovery, passkey
+management, ingress limits, and GraphQL admission. The schema advanced to
+version 2 through a forward-only migration.
+
+Browser sessions use protected keyed digests. Recovery codes rotate through
+protected atomic configuration writes. The server limits HTTP work to 256
+requests and WebSockets to 64 connections.
+
+The Go production closure now contains 23 external modules. Native bearer
+authentication is not yet active. Until it lands, every GraphQL mutation and
+WebSocket requires the exact browser Origin.
 
 ## 11. Validation Strategy
 

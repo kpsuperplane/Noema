@@ -48,6 +48,16 @@ func (p Paths) Database() string {
 	return filepath.Join(p.root, "noema.sqlite3")
 }
 
+// Config returns the protected startup configuration path.
+func (p Paths) Config() string {
+	return filepath.Join(p.root, "config.yaml")
+}
+
+// BrowserSessionKey returns the protected browser cookie key path.
+func (p Paths) BrowserSessionKey() string {
+	return filepath.Join(p.root, "run", "browser-session.key")
+}
+
 // Open creates the home and returns rooted filesystem access.
 func (p Paths) Open() (*os.Root, error) {
 	if p.root == "" {
