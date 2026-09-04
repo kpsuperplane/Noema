@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/auth"
 	noemagraphql "github.com/kpsuperplane/noema/internal/graphql"
 	"github.com/kpsuperplane/noema/internal/home"
@@ -62,6 +63,10 @@ func run(ctx context.Context, address string, output *os.File) error {
 	}
 	if err := recoverProjectDocuments(ctx, root, taskStore); err != nil {
 		return err
+	}
+	artifacts, err := artifact.New(root, taskStore)
+	if err != nil {
+		return fmt.Errorf("open Artifact service: %w", err)
 	}
 	authConfig, recovery, err := auth.LoadConfig(paths, address)
 	if err != nil {
@@ -117,12 +122,13 @@ func run(ctx context.Context, address string, output *os.File) error {
 	}
 
 	graphqlHandler := noemagraphql.NewHandler(noemagraphql.NewResolver(
-		taskStore, root, browserAuth, providerAccounts, openRouter, chatRuntime, codex,
+		taskStore, root, browserAuth, providerAccounts, openRouter, chatRuntime, codex, artifacts,
 	))
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlHandler)
 	mux.Handle("/graphql/ws", graphqlHandler)
 	mux.Handle("/provider/oauth/callback/", openRouter.CallbackHandler())
+	mux.Handle("/artifacts/versions/", artifacts.Handler())
 	mux.Handle("/", web.NewAssetHandler())
 	server := &http.Server{
 		Handler:           browserAuth.Handler(mux),

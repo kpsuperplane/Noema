@@ -133,6 +133,16 @@ func TestAuthorityAndSetupBarrierRejectBeforeGraphQLParsing(t *testing.T) {
 	if status.Code != http.StatusOK || !bytes.Contains(status.Body.Bytes(), []byte(`"setup_ready"`)) {
 		t.Fatalf("setup status = %d %s", status.Code, status.Body.String())
 	}
+	token, _, _ := seedPasskey(t, server, 9)
+	artifactRequest := authRequest(http.MethodGet, "/artifacts/versions/abc/download", nil)
+	if response := serve(handler, artifactRequest); response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated Artifact status = %d", response.Code)
+	}
+	artifactRequest = authRequest(http.MethodGet, "/artifacts/versions/abc/download", nil)
+	artifactRequest.AddCookie(&http.Cookie{Name: server.sessions.cookieName, Value: token})
+	if response := serve(handler, artifactRequest); response.Code != http.StatusNoContent {
+		t.Fatalf("authenticated Artifact status = %d", response.Code)
+	}
 
 	devServer, _, _ := newAuthTest(t, true)
 	devHandler := devServer.Handler(application)

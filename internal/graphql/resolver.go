@@ -5,6 +5,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/auth"
 	"github.com/kpsuperplane/noema/internal/provider"
 	"github.com/kpsuperplane/noema/internal/runtime"
@@ -26,6 +27,7 @@ type Resolver struct {
 	ProviderAccounts *provider.AccountService
 	OpenRouter       *provider.OpenRouterService
 	Chat             *runtime.Chat
+	Artifacts        *artifact.Service
 	providerAuth     map[string]providerAuthService
 	projectMu        sync.Mutex
 }
@@ -39,6 +41,7 @@ func NewResolver(
 	openRouter *provider.OpenRouterService,
 	chat *runtime.Chat,
 	codex *provider.CodexService,
+	artifacts *artifact.Service,
 ) *Resolver {
 	resolver := &Resolver{
 		Store:            taskStore,
@@ -47,6 +50,7 @@ func NewResolver(
 		ProviderAccounts: providerAccounts,
 		OpenRouter:       openRouter,
 		Chat:             chat,
+		Artifacts:        artifacts,
 		providerAuth:     make(map[string]providerAuthService),
 	}
 	if openRouter != nil {

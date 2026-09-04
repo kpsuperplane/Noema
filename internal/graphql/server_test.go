@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/kpsuperplane/noema/internal/artifact"
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/home"
 	"github.com/kpsuperplane/noema/internal/provider"
@@ -92,6 +94,90 @@ query Task($taskId: String!) {
 	}
 	if got := taskDocumentPreview(strings.Repeat("é", 281)); got != strings.Repeat("é", 280) {
 		t.Fatalf("Unicode Task preview has %d characters, want 280", len([]rune(got)))
+	}
+}
+
+func TestArtifactGraphQLOperations(t *testing.T) {
+	ctx := context.Background()
+	resolver := openTestResolver(t)
+	conversation, err := resolver.Store.EnsurePrimaryConversation(ctx, "openrouter", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := resolver.Store.CreateTask(ctx, "task:0123456789abcdef0123456789abcdef", "Input", "correlation:test", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(NewHandler(resolver))
+	t.Cleanup(server.Close)
+	external := postGraphQL(t, server.URL, `mutation External($input: CreateConversationExternalArtifactInput!) {
+  createConversationExternalArtifact(input: $input) {
+    artifactId ownerObjectType ownerObjectId storageKind
+    currentVersion { artifactVersionId externalUrl downloadUrl }
+  }
+}`, map[string]any{"input": map[string]any{
+		"conversationId": conversation.ID, "title": "Source", "artifactKind": "reference",
+		"externalUrl": "https://example.com/a b", "mediaType": "text/html",
+	}})
+	if len(external.Errors) != 0 {
+		t.Fatalf("external Artifact errors = %#v", external.Errors)
+	}
+	externalArtifact := external.Data["createConversationExternalArtifact"].(map[string]any)
+	externalVersion := externalArtifact["currentVersion"].(map[string]any)
+	if externalArtifact["storageKind"] != "EXTERNAL_URL" || externalVersion["externalUrl"] != "https://example.com/a%20b" || externalVersion["downloadUrl"] != nil {
+		t.Fatalf("external Artifact = %#v", externalArtifact)
+	}
+	upload := postGraphQL(t, server.URL, `mutation Upload($input: CreateTaskLocalArtifactInput!) {
+  createTaskLocalArtifact(input: $input) {
+    artifactId title description artifactKind storageKind
+    currentVersion { artifactVersionId versionIndex downloadUrl mediaType byteSize }
+  }
+}`, map[string]any{"input": map[string]any{
+		"taskId": task.ID, "expectedRevision": 1, "expectedGeneration": 1,
+		"title": "Notes", "filename": "notes.md", "mediaType": "text/markdown",
+		"contentBase64": base64.StdEncoding.EncodeToString([]byte("# Notes\n")),
+	}})
+	if len(upload.Errors) != 0 {
+		t.Fatalf("local Artifact errors = %#v", upload.Errors)
+	}
+	local := upload.Data["createTaskLocalArtifact"].(map[string]any)
+	version := local["currentVersion"].(map[string]any)
+	if local["storageKind"] != "LOCAL_FILE" || version["byteSize"] != float64(8) || version["downloadUrl"] == nil {
+		t.Fatalf("local Artifact = %#v", local)
+	}
+	listed := postGraphQL(t, server.URL, `query Artifacts($type: String!, $id: String!) {
+  artifacts(ownerObjectType: $type, ownerObjectId: $id) { artifactId currentVersion { artifactVersionId } }
+}`, map[string]any{"type": "task", "id": task.ID})
+	if len(listed.Errors) != 0 || len(listed.Data["artifacts"].([]any)) != 1 {
+		t.Fatalf("listed Artifacts = %#v", listed)
+	}
+	detail := postGraphQL(t, server.URL, `query Detail($id: String!) {
+  artifactVersionDetail(artifactVersionId: $id) {
+    title previewKind markdown previewUrl downloadUrl versions { artifactVersionId versionIndex }
+  }
+}`, map[string]any{"id": version["artifactVersionId"]})
+	if len(detail.Errors) != 0 {
+		t.Fatalf("Artifact detail errors = %#v", detail.Errors)
+	}
+	detailValue := detail.Data["artifactVersionDetail"].(map[string]any)
+	if detailValue["previewKind"] != "MARKDOWN" || detailValue["markdown"] != "# Notes\n" || len(detailValue["versions"].([]any)) != 1 {
+		t.Fatalf("Artifact detail = %#v", detailValue)
+	}
+	_, err = resolver.createTaskLocalArtifact(ctx, model.CreateTaskLocalArtifactInput{
+		TaskID: task.ID, ExpectedRevision: 2, ExpectedGeneration: 1,
+		Title: "Notes", Filename: "notes.md", MediaType: "text/plain",
+		ContentBase64: base64.StdEncoding.EncodeToString([]byte("stale")),
+	})
+	if err == nil {
+		t.Fatal("stale Task upload was accepted")
+	}
+	for _, mediaType := range []string{
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		"application/vnd.ms-excel", "application/vnd.oasis.opendocument.spreadsheet",
+	} {
+		if kind := localPreviewKind(&mediaType); kind != model.ArtifactVersionPreviewKindUnsupported {
+			t.Fatalf("spreadsheet preview before document migration = %s", kind)
+		}
 	}
 }
 
@@ -496,7 +582,11 @@ func openTestResolver(t *testing.T) *Resolver {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = taskStore.Close() })
-	return NewResolver(taskStore, root, nil, nil, nil, nil, nil)
+	artifacts, err := artifact.New(root, taskStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewResolver(taskStore, root, nil, nil, nil, nil, nil, artifacts)
 }
 
 func openProviderTestResolver(t *testing.T) *Resolver {
@@ -528,7 +618,11 @@ func openProviderTestResolver(t *testing.T) *Resolver {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewResolver(taskStore, root, nil, accounts, openRouter, nil, nil)
+	artifacts, err := artifact.New(root, taskStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewResolver(taskStore, root, nil, accounts, openRouter, nil, nil, artifacts)
 }
 
 func postGraphQL(

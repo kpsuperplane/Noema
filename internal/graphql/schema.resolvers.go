@@ -412,12 +412,12 @@ func (r *mutationRootResolver) SendA2UIAction(ctx context.Context, input model.P
 
 // CreateConversationExternalArtifact is the resolver for the createConversationExternalArtifact field.
 func (r *mutationRootResolver) CreateConversationExternalArtifact(ctx context.Context, input model.CreateConversationExternalArtifactInput) (*model.Artifact, error) {
-	panic(fmt.Errorf("not implemented: CreateConversationExternalArtifact - createConversationExternalArtifact"))
+	return r.createConversationExternalArtifact(ctx, input)
 }
 
 // CreateTaskLocalArtifact is the resolver for the createTaskLocalArtifact field.
 func (r *mutationRootResolver) CreateTaskLocalArtifact(ctx context.Context, input model.CreateTaskLocalArtifactInput) (*model.Artifact, error) {
-	panic(fmt.Errorf("not implemented: CreateTaskLocalArtifact - createTaskLocalArtifact"))
+	return r.createTaskLocalArtifact(ctx, input)
 }
 
 // ApproveAdapterDefinition is the resolver for the approveAdapterDefinition field.
@@ -772,12 +772,12 @@ func (r *queryRootResolver) ConversationTranscriptPage(ctx context.Context, inpu
 
 // Artifacts is the resolver for the artifacts field.
 func (r *queryRootResolver) Artifacts(ctx context.Context, ownerObjectType string, ownerObjectID string, limit *int) ([]*model.Artifact, error) {
-	panic(fmt.Errorf("not implemented: Artifacts - artifacts"))
+	return r.artifacts(ctx, ownerObjectType, ownerObjectID, limit)
 }
 
 // ArtifactVersionDetail is the resolver for the artifactVersionDetail field.
 func (r *queryRootResolver) ArtifactVersionDetail(ctx context.Context, artifactVersionID string) (*model.ArtifactVersionDetail, error) {
-	panic(fmt.Errorf("not implemented: ArtifactVersionDetail - artifactVersionDetail"))
+	return r.artifactVersionDetail(ctx, artifactVersionID)
 }
 
 // AdapterOauthAttemptEvents is the resolver for the adapterOauthAttemptEvents field.

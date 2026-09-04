@@ -126,6 +126,15 @@ func (s *Server) Handler(application http.Handler) http.Handler {
 			s.serveGraphQL(w, r, application, native)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/artifacts/versions/") {
+			if native == nil && !s.config.DevNoAuth {
+				if _, authenticated := s.requireAuthenticated(w, r, false); !authenticated {
+					return
+				}
+			}
+			application.ServeHTTP(w, r)
+			return
+		}
 		application.ServeHTTP(w, r)
 	})
 }
