@@ -83,6 +83,11 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err != nil {
 		return err
 	}
+	codex, err := provider.NewCodexService(providerAccounts)
+	if err != nil {
+		return err
+	}
+	defer codex.Close()
 	generator, err := provider.NewOpenRouterGenerator(providerAccounts)
 	if err != nil {
 		return err
@@ -103,7 +108,7 @@ func run(ctx context.Context, address string, output *os.File) error {
 	}
 
 	graphqlHandler := noemagraphql.NewHandler(noemagraphql.NewResolver(
-		taskStore, root, browserAuth, providerAccounts, openRouter, chatRuntime,
+		taskStore, root, browserAuth, providerAccounts, openRouter, chatRuntime, codex,
 	))
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlHandler)

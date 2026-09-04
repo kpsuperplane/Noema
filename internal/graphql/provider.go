@@ -110,14 +110,15 @@ func (r *Resolver) startProviderAuth(
 	ctx context.Context,
 	input model.StartProviderAuthAttemptInput,
 ) (*model.ProviderAuthAttempt, error) {
-	if r.OpenRouter == nil {
-		return nil, errors.New("OpenRouter onboarding is unavailable")
+	service := r.providerAuth[input.ProviderKind]
+	if service == nil {
+		return nil, errors.New("provider authentication is unavailable")
 	}
 	accountID := "provider_account:" + input.ProviderKind + ":default"
 	if input.ProviderAccountID != nil {
 		accountID = *input.ProviderAccountID
 	}
-	attempt, err := r.OpenRouter.StartAuth(
+	attempt, err := service.StartAuth(
 		ctx, input.ProviderKind, accountID, providerAuthMethod(input.Method),
 	)
 	if err != nil {
@@ -127,35 +128,40 @@ func (r *Resolver) startProviderAuth(
 }
 
 func (r *Resolver) providerAuthAttempt(attemptID string) *model.ProviderAuthAttempt {
-	if r.OpenRouter == nil {
-		return nil
+	for _, kind := range []string{"openrouter", "codex"} {
+		service := r.providerAuth[kind]
+		if service == nil {
+			continue
+		}
+		if attempt, exists := service.Attempt(attemptID); exists {
+			return providerAuthAttemptModel(attempt)
+		}
 	}
-	attempt, exists := r.OpenRouter.Attempt(attemptID)
-	if !exists {
-		return nil
-	}
-	return providerAuthAttemptModel(attempt)
+	return nil
 }
 
 func (r *Resolver) cancelProviderAuth(attemptID string) *model.ProviderAuthAttempt {
-	if r.OpenRouter == nil {
-		return nil
+	for _, kind := range []string{"openrouter", "codex"} {
+		service := r.providerAuth[kind]
+		if service == nil {
+			continue
+		}
+		if attempt, exists := service.Cancel(attemptID); exists {
+			return providerAuthAttemptModel(attempt)
+		}
 	}
-	attempt, exists := r.OpenRouter.Cancel(attemptID)
-	if !exists {
-		return nil
-	}
-	return providerAuthAttemptModel(attempt)
+	return nil
 }
 
 func (r *Resolver) providerAuthEvents(
 	ctx context.Context,
 	attemptID string,
 ) (<-chan *model.ProviderAuthAttempt, error) {
-	if r.OpenRouter == nil {
-		return nil, errors.New("OpenRouter onboarding is unavailable")
+	service := r.providerAuthServiceForAttempt(attemptID)
+	if service == nil {
+		return nil, provider.ErrAuthAttemptNotCurrent
 	}
-	source, err := r.OpenRouter.Subscribe(ctx, attemptID)
+	source, err := service.Subscribe(ctx, attemptID)
 	if err != nil {
 		return nil, err
 	}
@@ -171,6 +177,19 @@ func (r *Resolver) providerAuthEvents(
 		}
 	}()
 	return events, nil
+}
+
+func (r *Resolver) providerAuthServiceForAttempt(attemptID string) providerAuthService {
+	for _, kind := range []string{"openrouter", "codex"} {
+		service := r.providerAuth[kind]
+		if service == nil {
+			continue
+		}
+		if _, exists := service.Attempt(attemptID); exists {
+			return service
+		}
+	}
+	return nil
 }
 
 func providerAccountModel(account provider.Account) *model.ProviderAccount {

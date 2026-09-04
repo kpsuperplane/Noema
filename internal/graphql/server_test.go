@@ -348,6 +348,114 @@ func TestOpenRouterGraphQLStartQueryAndSubscriptionKeepClientShape(t *testing.T)
 	}
 }
 
+func TestCodexGraphQLAuthUsesExistingClientShape(t *testing.T) {
+	resolver := openProviderTestResolver(t)
+	service := &fakeProviderAuthService{}
+	resolver.providerAuth["codex"] = service
+	openRouterAttempt, err := resolver.OpenRouter.StartAuth(
+		context.Background(), "openrouter", "provider_account:openrouter:default",
+		provider.AuthOAuthPKCE,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(NewHandler(resolver))
+	t.Cleanup(server.Close)
+
+	started := postGraphQL(t, server.URL, `mutation Start($input: StartProviderAuthAttemptInput!) {
+  startProviderAuthAttempt(input: $input) {
+    attemptId providerKind providerAccountId method status verificationUrl userCode instructions
+  }
+}`, map[string]any{"input": map[string]any{
+		"providerKind": "codex", "method": "OAUTH_DEVICE_CODE",
+	}}).Data["startProviderAuthAttempt"].(map[string]any)
+	if started["providerKind"] != "codex" || started["method"] != "OAUTH_DEVICE_CODE" ||
+		started["providerAccountId"] != "provider_account:codex:default" ||
+		started["userCode"] != "ABCD-EFGH" {
+		t.Fatalf("Codex start response = %#v", started)
+	}
+	attemptID := started["attemptId"].(string)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, err := resolver.SubscriptionRoot().ProviderAuthAttemptEvents(ctx, attemptID)
+	if err != nil || (<-events).ProviderKind != "codex" {
+		t.Fatalf("Codex subscription start: %v", err)
+	}
+	cancelled := postGraphQL(t, server.URL, `mutation Cancel($input: CancelProviderAuthAttemptInput!) {
+  cancelProviderAuthAttempt(input: $input) { attemptId providerKind status }
+}`, map[string]any{"input": map[string]any{"attemptId": attemptID}}).
+		Data["cancelProviderAuthAttempt"].(map[string]any)
+	if cancelled["providerKind"] != "codex" || cancelled["status"] != "CANCELLED" {
+		t.Fatalf("Codex cancellation = %#v", cancelled)
+	}
+	if terminal, open := <-events; !open || terminal.Status != model.ProviderAuthAttemptStatusCancelled {
+		t.Fatalf("Codex terminal event = %#v, open %v", terminal, open)
+	}
+	queried := postGraphQL(t, server.URL, `query Attempt($id: String!) {
+  providerAuthAttempt(attemptId: $id) { attemptId providerKind status }
+}`, map[string]any{"id": attemptID}).Data["providerAuthAttempt"].(map[string]any)
+	if queried["providerKind"] != "codex" || queried["status"] != "CANCELLED" {
+		t.Fatalf("Codex attempt query = %#v", queried)
+	}
+	openRouter := resolver.providerAuthAttempt(openRouterAttempt.ID)
+	if openRouter == nil || openRouter.ProviderKind != "openrouter" ||
+		openRouter.Status != model.ProviderAuthAttemptStatusWaitingForUser {
+		t.Fatalf("coexisting OpenRouter attempt = %#v", openRouter)
+	}
+}
+
+type fakeProviderAuthService struct {
+	attempt provider.AuthAttempt
+	events  chan provider.AuthAttempt
+}
+
+func (s *fakeProviderAuthService) StartAuth(
+	_ context.Context,
+	providerKind string,
+	accountID string,
+	method provider.AuthMethod,
+) (provider.AuthAttempt, error) {
+	if providerKind != "codex" || accountID != "provider_account:codex:default" ||
+		method != provider.AuthOAuthDeviceCode {
+		return provider.AuthAttempt{}, errors.New("unexpected fake provider authentication input")
+	}
+	s.attempt = provider.AuthAttempt{
+		ID: "codex-attempt", ProviderKind: providerKind, ProviderAccountID: accountID,
+		Method: method, Status: provider.AuthAttemptWaiting,
+		VerificationURL: "https://auth.openai.com/codex/device", UserCode: "ABCD-EFGH",
+		Instructions: "Complete the login in your browser.",
+	}
+	s.events = make(chan provider.AuthAttempt, 2)
+	s.events <- s.attempt
+	return s.attempt, nil
+}
+
+func (s *fakeProviderAuthService) Attempt(attemptID string) (provider.AuthAttempt, bool) {
+	return s.attempt, s.attempt.ID != "" && attemptID == s.attempt.ID
+}
+
+func (s *fakeProviderAuthService) Cancel(attemptID string) (provider.AuthAttempt, bool) {
+	if s.attempt.ID == "" || attemptID != s.attempt.ID {
+		return provider.AuthAttempt{}, false
+	}
+	if s.attempt.Status == provider.AuthAttemptWaiting {
+		s.attempt.Status = provider.AuthAttemptCancelled
+		s.events <- s.attempt
+		close(s.events)
+	}
+	return s.attempt, true
+}
+
+func (s *fakeProviderAuthService) Subscribe(
+	_ context.Context,
+	attemptID string,
+) (<-chan provider.AuthAttempt, error) {
+	if s.attempt.ID == "" || attemptID != s.attempt.ID {
+		return nil, provider.ErrAuthAttemptNotCurrent
+	}
+	return s.events, nil
+}
+
 type graphQLResponse struct {
 	Data   map[string]any `json:"data"`
 	Errors []struct {
@@ -378,7 +486,7 @@ func openTestResolver(t *testing.T) *Resolver {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = taskStore.Close() })
-	return NewResolver(taskStore, root, nil, nil, nil, nil)
+	return NewResolver(taskStore, root, nil, nil, nil, nil, nil)
 }
 
 func openProviderTestResolver(t *testing.T) *Resolver {
@@ -410,7 +518,7 @@ func openProviderTestResolver(t *testing.T) *Resolver {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewResolver(taskStore, root, nil, accounts, openRouter, nil)
+	return NewResolver(taskStore, root, nil, accounts, openRouter, nil, nil)
 }
 
 func postGraphQL(

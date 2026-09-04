@@ -166,6 +166,44 @@ func TestCodexDeviceAuthCancellationStopsBeforeFirstPoll(t *testing.T) {
 	}
 }
 
+func TestCodexDeviceAuthCloseCancelsDetachedPolling(t *testing.T) {
+	requests := make(chan string, 4)
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- r.URL.Path
+		_, _ = w.Write([]byte(`{"device_auth_id":"device-secret","user_code":"ABCD-EFGH","interval":0}`))
+	}))
+	t.Cleanup(remote.Close)
+	service, _, _ := codexTestService(t, remote.URL, 100*time.Millisecond, time.Second)
+	attempt, err := service.StartAuth(
+		context.Background(), "codex", "provider_account:codex:default", AuthOAuthDeviceCode,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path := <-requests; path != "/api/accounts/deviceauth/usercode" {
+		t.Fatalf("initial path = %q", path)
+	}
+	events, err := service.Subscribe(context.Background(), attempt.ID)
+	if err != nil || (<-events).Status != AuthAttemptWaiting {
+		t.Fatalf("subscribe before close: %v", err)
+	}
+	service.Close()
+	service.Close()
+	if terminal, open := <-events; !open || terminal.Status != AuthAttemptCancelled {
+		t.Fatalf("close event = %#v, open %v", terminal, open)
+	}
+	if _, err := service.StartAuth(
+		context.Background(), "codex", "provider_account:codex:default", AuthOAuthDeviceCode,
+	); !errors.Is(err, ErrProviderUnavailable) {
+		t.Fatalf("start after close error = %v", err)
+	}
+	select {
+	case path := <-requests:
+		t.Fatalf("closed service sent request to %q", path)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
 func TestCodexDeviceAuthRejectsStalePublication(t *testing.T) {
 	tokenRequest := make(chan struct{})
 	releaseToken := make(chan struct{})

@@ -82,6 +82,7 @@ type CodexService struct {
 	mu            sync.Mutex
 	attempts      map[string]*codexAttempt
 	latestAttempt string
+	closed        bool
 }
 
 // NewCodexService creates the production Codex device authorization service.
@@ -131,6 +132,12 @@ func (s *CodexService) StartAuth(
 	if accountID != "provider_account:codex:default" || method != AuthOAuthDeviceCode {
 		return AuthAttempt{}, ErrAuthMethodMismatch
 	}
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return AuthAttempt{}, ErrProviderUnavailable
+	}
 	account, err := s.accounts.LoadAccount(ctx, accountID)
 	if err != nil {
 		return AuthAttempt{}, err
@@ -160,6 +167,11 @@ func (s *CodexService) StartAuth(
 	}
 
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		cancel()
+		return AuthAttempt{}, ErrProviderUnavailable
+	}
 	if prior := s.attempts[s.latestAttempt]; prior != nil && !terminalAttempt(prior.view.Status) {
 		prior.cancel()
 		prior.view.Status = AuthAttemptCancelled
@@ -171,6 +183,23 @@ func (s *CodexService) StartAuth(
 
 	go s.runAttempt(pollContext, attempt, device)
 	return view, nil
+}
+
+// Close cancels all active Codex authorization work.
+func (s *CodexService) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	s.closed = true
+	for _, attempt := range s.attempts {
+		if terminalAttempt(attempt.view.Status) {
+			continue
+		}
+		attempt.view.Status = AuthAttemptCancelled
+		s.publishLocked(attempt)
+	}
 }
 
 // Attempt returns one safe Codex authorization view.

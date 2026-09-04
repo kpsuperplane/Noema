@@ -428,8 +428,9 @@ The Codex device authentication unit passed on 2026-09-04. It includes:
 - credential revision checks and rollback;
 - safe authentication events and errors.
 
-The provider layer is complete. GraphQL onboarding and Codex generation remain
-later provider runtime work.
+The current provider-auth GraphQL roots now route Codex and OpenRouter attempts.
+They preserve the existing web and iOS operation shapes. Graceful shutdown
+cancels detached Codex polling. Codex generation remains later provider work.
 
 ### First Chat runtime unit
 

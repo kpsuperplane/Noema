@@ -1,6 +1,7 @@
 package graphql
 
 import (
+	"context"
 	"os"
 	"sync"
 
@@ -11,6 +12,13 @@ import (
 	"github.com/kpsuperplane/noema/internal/store"
 )
 
+type providerAuthService interface {
+	StartAuth(context.Context, string, string, provider.AuthMethod) (provider.AuthAttempt, error)
+	Attempt(string) (provider.AuthAttempt, bool)
+	Cancel(string) (provider.AuthAttempt, bool)
+	Subscribe(context.Context, string) (<-chan provider.AuthAttempt, error)
+}
+
 // Resolver owns GraphQL access to the Go server store.
 type Resolver struct {
 	Store            *store.Store
@@ -19,6 +27,7 @@ type Resolver struct {
 	ProviderAccounts *provider.AccountService
 	OpenRouter       *provider.OpenRouterService
 	Chat             *runtime.Chat
+	providerAuth     map[string]providerAuthService
 
 	subscriptionsMu sync.Mutex
 	subscriptions   map[string]map[chan *model.TasksEvent]struct{}
@@ -32,14 +41,23 @@ func NewResolver(
 	providerAccounts *provider.AccountService,
 	openRouter *provider.OpenRouterService,
 	chat *runtime.Chat,
+	codex *provider.CodexService,
 ) *Resolver {
-	return &Resolver{
+	resolver := &Resolver{
 		Store:            taskStore,
 		Auth:             authentication,
 		home:             homeRoot,
 		ProviderAccounts: providerAccounts,
 		OpenRouter:       openRouter,
 		Chat:             chat,
+		providerAuth:     make(map[string]providerAuthService),
 		subscriptions:    make(map[string]map[chan *model.TasksEvent]struct{}),
 	}
+	if openRouter != nil {
+		resolver.providerAuth["openrouter"] = openRouter
+	}
+	if codex != nil {
+		resolver.providerAuth["codex"] = codex
+	}
+	return resolver
 }
