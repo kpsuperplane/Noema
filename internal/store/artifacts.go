@@ -446,10 +446,3 @@ func nullableInt64(value *int64) any {
 	}
 	return *value
 }
-
-func nullStringPointer(value sql.NullString) *string {
-	if !value.Valid {
-		return nil
-	}
-	return &value.String
-}

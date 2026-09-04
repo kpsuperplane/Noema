@@ -36,13 +36,24 @@ const (
 
 // Task is the stored state needed by the first migration slice.
 type Task struct {
-	ID           string
-	Title        string
-	State        TaskState
-	CurrentRunID string
-	Revision     int64
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                            string
+	ProjectID                     string
+	Title                         string
+	State                         TaskState
+	CurrentRunID                  string
+	Revision                      int64
+	ExecutorAgentID               string
+	ExecutorAcpConnectionRevision *int64
+	CwdOverride                   *string
+	ScheduledFor                  *time.Time
+	ScheduleTimeZone              string
+	MissedRunPolicy               string
+	ScheduleProcessedAt           *time.Time
+	RecurrenceID                  string
+	RecurrenceRevision            *int64
+	RecurrenceScheduledFor        *time.Time
+	CreatedAt                     time.Time
+	UpdatedAt                     time.Time
 }
 
 // TaskEvent records one committed Task revision.
@@ -85,12 +96,13 @@ func (s *Store) CreateTask(ctx context.Context, id string, title string, correla
 
 	now = now.UTC()
 	task := Task{
-		ID:        id,
-		Title:     title,
-		State:     TaskCaptured,
-		Revision:  1,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:              id,
+		Title:           title,
+		State:           TaskCaptured,
+		Revision:        1,
+		ExecutorAgentID: TaskExecutorAgentID,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
@@ -122,11 +134,7 @@ INSERT INTO tasks (
 
 // Task returns one stored Task.
 func (s *Store) Task(ctx context.Context, id string) (Task, error) {
-	return scanTask(s.db.QueryRowContext(ctx, `
-SELECT task_id, title, state, COALESCE(current_run_id, ''), revision,
-       created_at_ms, updated_at_ms
-FROM tasks
-WHERE task_id = ?`, id))
+	return scanTask(s.db.QueryRowContext(ctx, taskSelect+" WHERE task_id = ?", id))
 }
 
 // TaskExists reports whether one Task row is committed.
@@ -222,6 +230,19 @@ func (s *Store) changeTask(
 		return Task{}, fmt.Errorf("begin task change: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if expectedState == TaskCaptured && nextState == TaskRunning {
+		var scheduled bool
+		if err := tx.QueryRowContext(ctx, `SELECT scheduled_for_ms IS NOT NULL
+AND schedule_processed_at_ms IS NULL FROM tasks WHERE task_id = ?`, taskID).Scan(&scheduled); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return Task{}, ErrTaskNotFound
+			}
+			return Task{}, fmt.Errorf("inspect Task schedule: %w", err)
+		}
+		if scheduled {
+			return Task{}, ErrInvalidTransition
+		}
+	}
 
 	result, err := tx.ExecContext(ctx, `
 UPDATE tasks
@@ -246,11 +267,7 @@ WHERE task_id = ? AND state = ? AND COALESCE(current_run_id, '') = ?`,
 		return Task{}, ErrStaleRun
 	}
 
-	task, err := scanTask(tx.QueryRowContext(ctx, `
-SELECT task_id, title, state, COALESCE(current_run_id, ''), revision,
-       created_at_ms, updated_at_ms
-FROM tasks
-WHERE task_id = ?`, taskID))
+	task, err := scanTask(tx.QueryRowContext(ctx, taskSelect+" WHERE task_id = ?", taskID))
 	if err != nil {
 		return Task{}, err
 	}
@@ -286,12 +303,26 @@ func scanTask(row rowScanner) (Task, error) {
 	var task Task
 	var createdAt int64
 	var updatedAt int64
+	var scheduledFor, processedAt, recurrenceScheduledFor sql.NullInt64
+	var recurrenceRevision, executorRevision sql.NullInt64
+	var projectID, cwdOverride, recurrenceID sql.NullString
 	if err := row.Scan(
 		&task.ID,
+		&projectID,
 		&task.Title,
 		&task.State,
 		&task.CurrentRunID,
 		&task.Revision,
+		&task.ExecutorAgentID,
+		&executorRevision,
+		&cwdOverride,
+		&scheduledFor,
+		&task.ScheduleTimeZone,
+		&task.MissedRunPolicy,
+		&processedAt,
+		&recurrenceID,
+		&recurrenceRevision,
+		&recurrenceScheduledFor,
 		&createdAt,
 		&updatedAt,
 	); err != nil {
@@ -300,9 +331,47 @@ func scanTask(row rowScanner) (Task, error) {
 		}
 		return Task{}, fmt.Errorf("scan task: %w", err)
 	}
+	task.ProjectID = projectID.String
+	task.ExecutorAcpConnectionRevision = nullIntPointer(executorRevision)
+	task.CwdOverride = nullStringPointer(cwdOverride)
+	task.ScheduledFor = nullTimePointer(scheduledFor)
+	task.ScheduleProcessedAt = nullTimePointer(processedAt)
+	task.RecurrenceID = recurrenceID.String
+	task.RecurrenceRevision = nullIntPointer(recurrenceRevision)
+	task.RecurrenceScheduledFor = nullTimePointer(recurrenceScheduledFor)
 	task.CreatedAt = fromMillis(createdAt)
 	task.UpdatedAt = fromMillis(updatedAt)
 	return task, nil
+}
+
+const taskSelect = `
+SELECT task_id, project_id, title, state, COALESCE(current_run_id, ''), revision,
+       executor_agent_id, executor_acp_connection_revision, cwd_override,
+       scheduled_for_ms, COALESCE(schedule_time_zone, ''), COALESCE(missed_run_policy, ''),
+       schedule_processed_at_ms, recurrence_id, recurrence_revision,
+       recurrence_scheduled_for_ms, created_at_ms, updated_at_ms
+FROM tasks`
+
+func nullStringPointer(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+	return &value.String
+}
+
+func nullIntPointer(value sql.NullInt64) *int64 {
+	if !value.Valid {
+		return nil
+	}
+	return &value.Int64
+}
+
+func nullTimePointer(value sql.NullInt64) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	instant := fromMillis(value.Int64)
+	return &instant
 }
 
 func insertTaskEvent(ctx context.Context, tx *sql.Tx, task Task, kind string) error {

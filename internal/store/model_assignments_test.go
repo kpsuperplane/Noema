@@ -39,7 +39,7 @@ func TestHostedModelAssignmentsUpgradeFromVersionFive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := legacy.Exec(schemaV4SQL + schemaV5SQL + "\nPRAGMA user_version = 5;"); err != nil {
+	if _, err := legacy.Exec(schemaAtVersion(5) + "\nPRAGMA user_version = 5;"); err != nil {
 		t.Fatal(err)
 	}
 	if err := legacy.Close(); err != nil {

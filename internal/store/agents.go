@@ -21,6 +21,7 @@ var (
 	ErrAcpAgentNotFound            = errors.New("ACP Agent not found")
 	ErrAcpAgentRevisionConflict    = errors.New("ACP Agent revision conflict")
 	ErrAcpAgentAuthenticationBusy  = errors.New("ACP Agent authentication is active")
+	ErrAcpAgentInUse               = errors.New("ACP Agent is used by active Tasks")
 	ErrInvalidAcpAgent             = errors.New("invalid ACP Agent")
 	ErrAcpAuthenticationNotPending = errors.New("ACP authentication is not pending")
 )
@@ -243,6 +244,17 @@ SELECT EXISTS(SELECT 1 FROM acp_auth_attempts WHERE agent_id = ? AND state = 'pe
 	}
 	if pending {
 		return false, ErrAcpAgentAuthenticationBusy
+	}
+	var referenced bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+SELECT 1 FROM tasks WHERE executor_agent_id = ? AND state NOT IN ('completed', 'cancelled')
+UNION ALL
+SELECT 1 FROM task_recurrences WHERE executor_agent_id = ? AND lifecycle != 'ended')`,
+		id, id).Scan(&referenced); err != nil {
+		return false, fmt.Errorf("check ACP Agent Task references: %w", err)
+	}
+	if referenced {
+		return false, ErrAcpAgentInUse
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM acp_agents WHERE agent_id = ?", id); err != nil {
 		return false, fmt.Errorf("delete ACP Agent configuration: %w", err)

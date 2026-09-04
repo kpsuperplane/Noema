@@ -9,6 +9,7 @@ import (
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
 	"github.com/kpsuperplane/noema/internal/home"
+	"github.com/kpsuperplane/noema/internal/schedule"
 	"github.com/kpsuperplane/noema/internal/store"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
@@ -27,13 +28,17 @@ func (r *Resolver) captureTask(
 	if input.WorkspaceID != personalWorkspaceID {
 		return nil, errors.New("this migration slice supports only workspace:personal")
 	}
-	if input.ProjectID != nil || input.Schedule != nil ||
-		(input.ExecutorAgentID != nil && *input.ExecutorAgentID != "agent:task-executor") ||
-		input.CwdOverride != nil {
-		return nil, errors.New("this migration slice does not support Task placement or scheduling")
-	}
 	if input.ClientMutationID == "" {
 		return nil, errors.New("clientMutationId cannot be empty")
+	}
+	command, err := newTaskCommand("capture_task", input.ClientMutationID, input)
+	if err != nil {
+		return nil, err
+	}
+	if replay, found, err := r.Store.LookupTaskCommandReceipt(ctx, command); err != nil {
+		return nil, taskScheduleError(err)
+	} else if found {
+		return r.taskCommandPayload(ctx, replay, input.ClientMutationID)
 	}
 
 	taskID, err := store.NewTaskID()
@@ -44,24 +49,37 @@ func (r *Resolver) captureTask(
 	if err != nil {
 		return nil, err
 	}
-	task, err := r.Store.CreateTask(ctx, taskID, input.Title,
-		"correlation:graphql:"+input.ClientMutationID, time.Now())
+	parsedSchedule, err := newTaskSchedule(input.Schedule, time.Now())
+	if err != nil {
+		_ = home.DiscardPendingTaskDocument(r.home, taskID)
+		return nil, err
+	}
+	options := store.TaskCreateOptions{ExecutorAgentID: store.TaskExecutorAgentID,
+		CwdOverride: input.CwdOverride, Schedule: parsedSchedule}
+	if input.ProjectID != nil {
+		options.ProjectID = *input.ProjectID
+	}
+	if input.ExecutorAgentID != nil {
+		options.ExecutorAgentID = *input.ExecutorAgentID
+	}
+	result, err := r.Store.CreateTaskWithOptions(ctx, taskID, input.Title, command, options, time.Now())
 	if err != nil {
 		return nil, errors.Join(err, r.reconcileFailedTaskCreate(taskID))
 	}
 	if err := home.CommitTaskDocument(r.home, taskID); err != nil {
 		return nil, err
 	}
-	workEvent, err := r.Store.LatestTaskWorkEvent(ctx, task.ID)
-	if err != nil {
-		return nil, err
+	if result.RecurrenceID != "" {
+		if _, err := home.EnsureRecurrenceDocument(r.home, result.RecurrenceID, document.Content); err != nil {
+			return nil, err
+		}
 	}
-	cursor, err := store.EncodeWorkEventCursor(workEvent.ID)
+	cursor, err := store.EncodeWorkEventCursor(result.Event.ID)
 	if err != nil {
 		return nil, err
 	}
 	return &model.TaskCommandPayload{
-		Task:             taskDetailModel(task, document),
+		Task:             r.taskDetailModel(ctx, result.Task, document),
 		EventCursor:      cursor,
 		ClientMutationID: input.ClientMutationID,
 	}, nil
@@ -91,8 +109,9 @@ func taskDetailModel(task store.Task, document home.TaskDocument) *model.TaskDet
 		Stage:                    taskStageModel(task.State),
 		Revision:                 int(task.Revision),
 		Generation:               1,
-		ExecutorAgentID:          "agent:task-executor",
-		ExecutorBackend:          "go",
+		ExecutorAgentID:          task.ExecutorAgentID,
+		ExecutorBackend:          taskExecutorBackend(task),
+		CwdOverride:              task.CwdOverride,
 		EffectiveCwdSource:       "default",
 		CreatedAt:                task.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:                task.UpdatedAt.Format(time.RFC3339Nano),
@@ -100,8 +119,9 @@ func taskDetailModel(task store.Task, document home.TaskDocument) *model.TaskDet
 		Messages:                 []*model.TaskMessage{},
 		Runs:                     []*model.TaskRun{},
 		ContributorInstanceNames: []string{},
-		ValidActions:             validTaskActions(task.State),
+		ValidActions:             validTaskActions(task),
 	}
+	detail.Schedule = taskScheduleModel(task)
 	if isTerminal(task.State) {
 		completedAt := detail.UpdatedAt
 		detail.CompletedAt = &completedAt
@@ -118,11 +138,11 @@ func (r *Resolver) task(ctx context.Context, taskID string) (*model.TaskDetail, 
 	if err != nil {
 		return nil, err
 	}
-	return taskDetailModel(task, document), nil
+	return r.taskDetailModel(ctx, task, document), nil
 }
 
 func taskSummaryModel(task store.Task, workspaceID string, document string) *model.TaskSummary {
-	return &model.TaskSummary{
+	result := &model.TaskSummary{
 		TaskID: task.ID,
 		Workspace: &model.Workspace{
 			WorkspaceID: workspaceID,
@@ -135,13 +155,88 @@ func taskSummaryModel(task store.Task, workspaceID string, document string) *mod
 		Stage:               taskStageModel(task.State),
 		Revision:            int(task.Revision),
 		Generation:          1,
-		ExecutorAgentID:     "agent:task-executor",
-		ExecutorBackend:     "go",
+		ExecutorAgentID:     task.ExecutorAgentID,
+		ExecutorBackend:     taskExecutorBackend(task),
+		CwdOverride:         task.CwdOverride,
 		EffectiveCwdSource:  "default",
 		CreatedAt:           task.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:           task.UpdatedAt.Format(time.RFC3339Nano),
-		ValidActions:        validTaskActions(task.State),
+		ValidActions:        validTaskActions(task),
 	}
+	result.Schedule = taskScheduleModel(task)
+	return result
+}
+
+func (r *Resolver) taskSummaryModel(
+	ctx context.Context, task store.Task, workspaceID string, document string,
+) *model.TaskSummary {
+	result := taskSummaryModel(task, workspaceID, document)
+	if task.CwdOverride != nil {
+		result.EffectiveCwd = task.CwdOverride
+		result.EffectiveCwdSource = "task"
+	}
+	if task.ProjectID != "" {
+		if project, err := r.Store.Project(ctx, task.ProjectID); err == nil {
+			result.Project = projectModel(project)
+			if result.EffectiveCwd == nil && project.Folder != nil {
+				result.EffectiveCwd = project.Folder
+				result.EffectiveCwdSource = "project"
+			}
+		}
+	}
+	return result
+}
+
+func (r *Resolver) taskDetailModel(ctx context.Context, task store.Task, document home.TaskDocument) *model.TaskDetail {
+	result := taskDetailModel(task, document)
+	if task.CwdOverride != nil {
+		result.EffectiveCwd = task.CwdOverride
+		result.EffectiveCwdSource = "task"
+	}
+	if task.ProjectID != "" {
+		if project, err := r.Store.Project(ctx, task.ProjectID); err == nil {
+			result.Project = projectModel(project)
+			if result.EffectiveCwd == nil && project.Folder != nil {
+				result.EffectiveCwd = project.Folder
+				result.EffectiveCwdSource = "project"
+			}
+		}
+	}
+	return result
+}
+
+func taskExecutorBackend(task store.Task) string {
+	if task.ExecutorAcpConnectionRevision != nil {
+		return "acp"
+	}
+	return "go"
+}
+
+func taskScheduleModel(task store.Task) *model.TaskSchedule {
+	if task.ScheduledFor == nil {
+		return nil
+	}
+	result := &model.TaskSchedule{ScheduledFor: task.ScheduledFor.Format(time.RFC3339Nano),
+		TimeZone: task.ScheduleTimeZone, MissedRunPolicy: missedRunModel(task.MissedRunPolicy)}
+	if task.RecurrenceID != "" {
+		result.RecurrenceID = &task.RecurrenceID
+	}
+	if task.RecurrenceRevision != nil {
+		value := int(*task.RecurrenceRevision)
+		result.RecurrenceRevision = &value
+	}
+	if task.RecurrenceScheduledFor != nil {
+		value := task.RecurrenceScheduledFor.Format(time.RFC3339Nano)
+		result.RecurrenceScheduledFor = &value
+	}
+	return result
+}
+
+func missedRunModel(value string) model.MissedRunPolicy {
+	if value == string(schedule.MissedRunSkip) {
+		return model.MissedRunPolicySkip
+	}
+	return model.MissedRunPolicyRunOnce
 }
 
 func taskDocumentPreview(document string) string {
@@ -180,9 +275,13 @@ func taskStageModel(state store.TaskState) *model.WorkflowStage {
 	return stage
 }
 
-func validTaskActions(state store.TaskState) []model.ValidTaskAction {
-	switch state {
+func validTaskActions(task store.Task) []model.ValidTaskAction {
+	switch task.State {
 	case store.TaskCaptured:
+		if task.ScheduledFor != nil && task.ScheduleProcessedAt == nil {
+			return []model.ValidTaskAction{model.ValidTaskActionEdit, model.ValidTaskActionReschedule,
+				model.ValidTaskActionUnschedule, model.ValidTaskActionRunNow, model.ValidTaskActionCancel}
+		}
 		return []model.ValidTaskAction{
 			model.ValidTaskActionEdit,
 			model.ValidTaskActionQueue,
@@ -224,13 +323,11 @@ func (r *Resolver) taskEvents(
 	if err != nil {
 		return nil, invalidEventCursorError()
 	}
-	task, taskErr := r.Store.Task(ctx, taskID)
-	var document home.TaskDocument
-	if taskErr == nil {
-		document, taskErr = home.ReadTaskDocument(r.home, taskID)
+	if _, err := r.Store.Task(ctx, taskID); err != nil {
+		return nil, err
 	}
-	if taskErr != nil {
-		return nil, taskErr
+	if _, err := home.ReadTaskDocument(r.home, taskID); err != nil {
+		return nil, err
 	}
 	if !supplied {
 		cursor, err = r.Store.LatestTaskWorkEventSequence(ctx, taskID)
@@ -240,7 +337,6 @@ func (r *Resolver) taskEvents(
 	}
 	wake := r.Store.SubscribeWork(ctx)
 	channel := make(chan *model.TasksEvent, 16)
-	summary := taskSummaryModel(task, personalWorkspaceID, document.Content)
 	go func() {
 		defer close(channel)
 		for {
@@ -249,6 +345,15 @@ func (r *Resolver) taskEvents(
 				return
 			}
 			for _, event := range events {
+				current, currentErr := r.Store.Task(ctx, taskID)
+				if currentErr != nil {
+					return
+				}
+				currentDocument, currentErr := home.ReadTaskDocument(r.home, taskID)
+				if currentErr != nil {
+					return
+				}
+				summary := r.taskSummaryModel(ctx, current, personalWorkspaceID, currentDocument.Content)
 				select {
 				case channel <- workEventModel(event, summary):
 					cursor = event.ID
@@ -334,7 +439,7 @@ func (r *Resolver) tasksEvents(
 					task, taskErr := r.Store.Task(ctx, event.TaskID)
 					if taskErr == nil {
 						if document, documentErr := home.ReadTaskDocument(r.home, event.TaskID); documentErr == nil {
-							summary = taskSummaryModel(task, workspaceID, document.Content)
+							summary = r.taskSummaryModel(ctx, task, workspaceID, document.Content)
 						}
 					}
 				}

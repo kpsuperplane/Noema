@@ -16,7 +16,7 @@ func TestArtifactSchemaOwnerChecksAndImmutableVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := legacy.Exec(strings.TrimSuffix(schemaSQL, schemaV11SQL) + "\nPRAGMA user_version = 10;"); err != nil {
+	if _, err := legacy.Exec(schemaAtVersion(10) + "\nPRAGMA user_version = 10;"); err != nil {
 		t.Fatal(err)
 	}
 	_ = legacy.Close()

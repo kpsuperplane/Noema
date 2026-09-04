@@ -159,10 +159,7 @@ func TestStoreReopensFreshGoSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := legacy.Exec(`
-CREATE TABLE tasks (task_id TEXT PRIMARY KEY) STRICT;
-CREATE TABLE task_events (event_id INTEGER PRIMARY KEY) STRICT;
-PRAGMA user_version = 1;`); err != nil {
+	if _, err := legacy.Exec(schemaAtVersion(1) + "\nPRAGMA user_version = 1;"); err != nil {
 		t.Fatal(err)
 	}
 	if err := legacy.Close(); err != nil {
@@ -195,7 +192,7 @@ PRAGMA user_version = 1;`); err != nil {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := v2.Exec(schemaV2SQL + "\nPRAGMA user_version = 2;"); err != nil {
+	if _, err := v2.Exec(schemaAtVersion(2) + "\nPRAGMA user_version = 2;"); err != nil {
 		t.Fatal(err)
 	}
 	if err := v2.Close(); err != nil {
@@ -215,7 +212,7 @@ PRAGMA user_version = 1;`); err != nil {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v8Schema := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(schemaSQL, schemaV11SQL), schemaV10SQL), schemaV9SQL)
+	v8Schema := schemaAtVersion(8)
 	if _, err := v8.Exec(v8Schema + `
 INSERT INTO tasks VALUES ('task:0123456789abcdef0123456789abcdef','Old','captured',NULL,1,1,1);
 INSERT INTO task_events(task_id,task_revision,kind,occurred_at_ms)
@@ -253,4 +250,14 @@ func openTestStore(t *testing.T) *Store {
 		}
 	})
 	return store
+}
+
+func schemaAtVersion(version int) string {
+	parts := []string{
+		strings.TrimSuffix(schemaSQL, schemaV2SQL+schemaV3SQL+schemaV4SQL+schemaV5SQL+
+			schemaV6SQL+schemaV7SQL+schemaV8SQL+schemaV9SQL+schemaV10SQL+schemaV11SQL+schemaV12SQL),
+		schemaV2SQL, schemaV3SQL, schemaV4SQL, schemaV5SQL, schemaV6SQL,
+		schemaV7SQL, schemaV8SQL, schemaV9SQL, schemaV10SQL, schemaV11SQL, schemaV12SQL,
+	}
+	return strings.Join(parts[:version], "")
 }

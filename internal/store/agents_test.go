@@ -16,7 +16,7 @@ func TestAgentSchemaConvergesAndRepairsBuiltIns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := legacy.Exec(strings.TrimSuffix(strings.TrimSuffix(schemaSQL, schemaV11SQL), schemaV10SQL) +
+	if _, err := legacy.Exec(schemaAtVersion(9) +
 		"\nPRAGMA user_version = 9;"); err != nil {
 		t.Fatal(err)
 	}

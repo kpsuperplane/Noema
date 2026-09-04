@@ -70,10 +70,14 @@ func run(ctx context.Context, address string, output *os.File) error {
 	if err := recoverProjectDocuments(ctx, root, taskStore); err != nil {
 		return err
 	}
+	if err := recoverRecurrenceDocuments(ctx, root, taskStore); err != nil {
+		return err
+	}
 	artifacts, err := artifact.New(root, taskStore)
 	if err != nil {
 		return fmt.Errorf("open Artifact service: %w", err)
 	}
+	scheduleErrors := runTaskSchedules(ctx, root, taskStore)
 	authConfig, recovery, err := auth.LoadConfig(paths, address)
 	if err != nil {
 		return err
@@ -162,6 +166,85 @@ func run(ctx context.Context, address string, output *os.File) error {
 			return nil
 		}
 		return fmt.Errorf("serve HTTP: %w", err)
+	case err := <-scheduleErrors:
+		return fmt.Errorf("process Task schedules: %w", err)
+	}
+}
+
+func recoverRecurrenceDocuments(ctx context.Context, root *os.Root, database *store.Store) error {
+	values, err := database.RecurrenceTaskDocuments(ctx)
+	if err != nil {
+		return fmt.Errorf("list recurrence Task documents: %w", err)
+	}
+	for _, value := range values {
+		if _, err := home.ReadRecurrenceDocument(root, value.RecurrenceID); errors.Is(err, os.ErrNotExist) {
+			document, readErr := home.ReadTaskDocument(root, value.TaskID)
+			if readErr != nil {
+				return fmt.Errorf("read recurrence source Task %s: %w", value.TaskID, readErr)
+			}
+			if _, err := home.EnsureRecurrenceDocument(root, value.RecurrenceID, document.Content); err != nil {
+				return fmt.Errorf("recover recurrence %s: %w", value.RecurrenceID, err)
+			}
+		} else if err != nil {
+			return fmt.Errorf("read recurrence %s: %w", value.RecurrenceID, err)
+		}
+		if err := home.CopyRecurrenceDocumentToTask(root, value.RecurrenceID, value.TaskID); err != nil {
+			return fmt.Errorf("recover recurrence Task %s: %w", value.TaskID, err)
+		}
+	}
+	return nil
+}
+
+func runTaskSchedules(ctx context.Context, root *os.Root, database *store.Store) <-chan error {
+	result := make(chan error, 1)
+	go func() {
+		if err := taskScheduleLoop(ctx, root, database); err != nil {
+			result <- err
+		}
+	}()
+	return result
+}
+
+func taskScheduleLoop(ctx context.Context, root *os.Root, database *store.Store) error {
+	wake := database.SubscribeWork(ctx)
+	recovering := true
+	for {
+		_, err := database.ProcessDueTaskSchedules(ctx, time.Now(), recovering, func(value store.DueTask) error {
+			return home.CopyRecurrenceDocumentToTask(root, value.RecurrenceID, value.TaskID)
+		})
+		if err != nil {
+			return err
+		}
+		recovering = false
+		deadline, err := database.NextTaskScheduleDeadline(ctx)
+		if err != nil {
+			return err
+		}
+		if deadline == nil {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-wake:
+				continue
+			}
+		}
+		delay := time.Until(*deadline)
+		if delay <= 0 {
+			continue
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil
+		case <-wake:
+			if !timer.Stop() {
+				<-timer.C
+			}
+		case <-timer.C:
+		}
 	}
 }
 

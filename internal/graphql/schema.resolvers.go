@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"github.com/kpsuperplane/noema/internal/graphql/model"
+	"github.com/kpsuperplane/noema/internal/store"
 )
 
 // ConfigureApnsProvider is the resolver for the configureApnsProvider field.
@@ -214,52 +215,52 @@ func (r *mutationRootResolver) QueueTask(ctx context.Context, input model.QueueT
 
 // ScheduleTask is the resolver for the scheduleTask field.
 func (r *mutationRootResolver) ScheduleTask(ctx context.Context, input model.ScheduleTaskInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: ScheduleTask - scheduleTask"))
+	return r.setTaskSchedule(ctx, input, false)
 }
 
 // RescheduleTask is the resolver for the rescheduleTask field.
 func (r *mutationRootResolver) RescheduleTask(ctx context.Context, input model.ScheduleTaskInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: RescheduleTask - rescheduleTask"))
+	return r.setTaskSchedule(ctx, input, true)
 }
 
 // UnscheduleTask is the resolver for the unscheduleTask field.
 func (r *mutationRootResolver) UnscheduleTask(ctx context.Context, input model.UnscheduleTaskInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: UnscheduleTask - unscheduleTask"))
+	return r.unscheduleTask(ctx, input)
 }
 
 // RunScheduledTaskNow is the resolver for the runScheduledTaskNow field.
 func (r *mutationRootResolver) RunScheduledTaskNow(ctx context.Context, input model.RunScheduledTaskNowInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: RunScheduledTaskNow - runScheduledTaskNow"))
+	return r.runScheduledTaskNow(ctx, input)
 }
 
 // UpdateTaskRecurrence is the resolver for the updateTaskRecurrence field.
 func (r *mutationRootResolver) UpdateTaskRecurrence(ctx context.Context, input model.UpdateTaskRecurrenceInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: UpdateTaskRecurrence - updateTaskRecurrence"))
+	return r.updateTaskRecurrence(ctx, input)
 }
 
 // PauseTaskRecurrence is the resolver for the pauseTaskRecurrence field.
 func (r *mutationRootResolver) PauseTaskRecurrence(ctx context.Context, input model.TaskRecurrenceCommandInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: PauseTaskRecurrence - pauseTaskRecurrence"))
+	return r.taskRecurrenceLifecycle(ctx, input, store.RecurrencePaused)
 }
 
 // ResumeTaskRecurrence is the resolver for the resumeTaskRecurrence field.
 func (r *mutationRootResolver) ResumeTaskRecurrence(ctx context.Context, input model.TaskRecurrenceCommandInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: ResumeTaskRecurrence - resumeTaskRecurrence"))
+	return r.taskRecurrenceLifecycle(ctx, input, store.RecurrenceActive)
 }
 
 // SkipTaskRecurrenceNext is the resolver for the skipTaskRecurrenceNext field.
 func (r *mutationRootResolver) SkipTaskRecurrenceNext(ctx context.Context, input model.TaskRecurrenceCommandInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: SkipTaskRecurrenceNext - skipTaskRecurrenceNext"))
+	return r.skipTaskRecurrenceNext(ctx, input)
 }
 
 // EndTaskRecurrence is the resolver for the endTaskRecurrence field.
 func (r *mutationRootResolver) EndTaskRecurrence(ctx context.Context, input model.TaskRecurrenceCommandInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: EndTaskRecurrence - endTaskRecurrence"))
+	return r.taskRecurrenceLifecycle(ctx, input, store.RecurrenceEnded)
 }
 
 // RunTaskRecurrenceNow is the resolver for the runTaskRecurrenceNow field.
 func (r *mutationRootResolver) RunTaskRecurrenceNow(ctx context.Context, input model.TaskRecurrenceCommandInput) (*model.TaskCommandPayload, error) {
-	panic(fmt.Errorf("not implemented: RunTaskRecurrenceNow - runTaskRecurrenceNow"))
+	return r.runTaskRecurrenceNow(ctx, input)
 }
 
 // AnswerTask is the resolver for the answerTask field.
@@ -622,17 +623,17 @@ func (r *queryRootResolver) TaskWorkspaceFile(ctx context.Context, taskID string
 
 // TaskSchedulePreview is the resolver for the taskSchedulePreview field.
 func (r *queryRootResolver) TaskSchedulePreview(ctx context.Context, input model.TaskSchedulePreviewInput) (*model.TaskSchedulePreview, error) {
-	panic(fmt.Errorf("not implemented: TaskSchedulePreview - taskSchedulePreview"))
+	return r.taskSchedulePreview(input)
 }
 
 // TaskRecurrence is the resolver for the taskRecurrence field.
 func (r *queryRootResolver) TaskRecurrence(ctx context.Context, recurrenceID string, first *int) (*model.TaskRecurrence, error) {
-	panic(fmt.Errorf("not implemented: TaskRecurrence - taskRecurrence"))
+	return r.taskRecurrence(ctx, recurrenceID, first)
 }
 
 // TaskRecurrences is the resolver for the taskRecurrences field.
 func (r *queryRootResolver) TaskRecurrences(ctx context.Context, workspaceID string, projectID *string, first *int) ([]*model.TaskRecurrenceSummary, error) {
-	panic(fmt.Errorf("not implemented: TaskRecurrences - taskRecurrences"))
+	return r.taskRecurrences(ctx, workspaceID, projectID, first)
 }
 
 // Projects is the resolver for the projects field.

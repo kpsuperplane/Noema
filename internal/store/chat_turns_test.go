@@ -31,7 +31,7 @@ SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?)`, t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := legacy.Exec(schemaV4SQL + schemaV5SQL + schemaV6SQL + "\nPRAGMA user_version = 6;"); err != nil {
+	if _, err := legacy.Exec(schemaAtVersion(6) + "\nPRAGMA user_version = 6;"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := legacy.Exec(`
