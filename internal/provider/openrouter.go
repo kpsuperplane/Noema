@@ -27,7 +27,7 @@ const (
 )
 
 var (
-	// ErrProviderUnavailable means OpenRouter did not return a usable response.
+	// ErrProviderUnavailable means a provider did not return a usable response.
 	ErrProviderUnavailable = errors.New("provider unavailable")
 	// ErrAuthenticationRejected means OpenRouter rejected a credential or code.
 	ErrAuthenticationRejected = errors.New("provider authentication rejected")

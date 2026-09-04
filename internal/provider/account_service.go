@@ -244,6 +244,84 @@ func (s *AccountService) PublishVerifiedSecret(
 	return updated, nil
 }
 
+// PublishCodexTokens saves verified Codex tokens against their starting revision.
+func (s *AccountService) PublishCodexTokens(
+	ctx context.Context,
+	expectedRevision uint64,
+	tokens CodexTokens,
+	now time.Time,
+) (Account, error) {
+	if !tokens.valid() {
+		return Account{}, ErrAuthMethodMismatch
+	}
+	const id = "provider_account:codex:default"
+	gate := s.gate(id)
+	gate.Lock()
+	defer gate.Unlock()
+
+	account, err := s.persistence.ProviderAccount(ctx, id)
+	if err != nil {
+		return Account{}, err
+	}
+	if account.ProviderKind != "codex" || account.AccountKey != "default" || !account.IsActive ||
+		account.Metadata.CredentialRevision() != expectedRevision {
+		return Account{}, ErrAccountConflict
+	}
+	path, err := s.codexTokenPath(account)
+	if err != nil {
+		return Account{}, err
+	}
+	snapshot, err := snapshotPrivateFile(path)
+	if err != nil {
+		return Account{}, err
+	}
+	if err := writeCodexTokens(path, tokens); err != nil {
+		if restoreErr := restorePrivateFile(path, snapshot); restoreErr != nil {
+			return Account{}, ErrCompensationFailed
+		}
+		return Account{}, err
+	}
+	updated, err := s.persistence.UpdateProviderCredential(
+		ctx, id, expectedRevision, AuthOAuthDeviceCode, true, cloneMetadata(account.Metadata), now.UTC(),
+	)
+	if err != nil {
+		if restoreErr := restorePrivateFile(path, snapshot); restoreErr != nil {
+			return Account{}, ErrCompensationFailed
+		}
+		return Account{}, err
+	}
+	return updated, nil
+}
+
+// LoadCodexTokens returns the protected Codex token set.
+func (s *AccountService) LoadCodexTokens(ctx context.Context) (CodexTokens, error) {
+	const id = "provider_account:codex:default"
+	gate := s.gate(id)
+	gate.Lock()
+	defer gate.Unlock()
+	account, err := s.persistence.ProviderAccount(ctx, id)
+	if err != nil {
+		return CodexTokens{}, err
+	}
+	path, err := s.codexTokenPath(account)
+	if err != nil {
+		return CodexTokens{}, err
+	}
+	data, err := home.ReadPrivateFile(path, credentialFileLimit)
+	if err != nil {
+		return CodexTokens{}, errors.New("Codex tokens are unavailable")
+	}
+	var file codexTokenFile
+	if err := decodeProtectedJSON(data, &file); err != nil {
+		return CodexTokens{}, errors.New("Codex tokens are unavailable")
+	}
+	tokens := file.tokens()
+	if !tokens.valid() {
+		return CodexTokens{}, errors.New("Codex tokens are unavailable")
+	}
+	return tokens, nil
+}
+
 // LoadSecret returns one credential through a typed wrapper.
 func (s *AccountService) LoadSecret(ctx context.Context, id string) (Secret, error) {
 	gate := s.gate(id)
@@ -423,6 +501,16 @@ func (s *AccountService) credentialPath(account Account) (string, error) {
 	return filepath.Join(s.root, "providers", account.ProviderKind, account.AccountKey, "api_key.json"), nil
 }
 
+func (s *AccountService) codexTokenPath(account Account) (string, error) {
+	if err := validateAccount(account); err != nil {
+		return "", err
+	}
+	if account.ProviderKind != "codex" || account.AccountKey != "default" {
+		return "", ErrAuthMethodMismatch
+	}
+	return filepath.Join(s.root, "providers", "codex", "default", "codex_tokens.json"), nil
+}
+
 type credentialFile struct {
 	APIKey string `json:"api_key"`
 }
@@ -441,7 +529,27 @@ func writeSecret(path string, secret Secret) error {
 	return nil
 }
 
+func writeCodexTokens(path string, tokens CodexTokens) error {
+	data, err := json.Marshal(codexTokenFile{
+		AccessToken: tokens.accessToken, RefreshToken: tokens.refreshToken, LastRefresh: tokens.lastRefresh,
+	})
+	if err != nil {
+		return errors.New("encode Codex tokens")
+	}
+	if len(data) > credentialFileLimit {
+		return errors.New("Codex tokens exceed the protected file limit")
+	}
+	if err := home.AtomicWritePrivate(path, data); err != nil {
+		return fmt.Errorf("write Codex tokens: %w", err)
+	}
+	return nil
+}
+
 func decodeCredentialFile(data []byte, destination *credentialFile) error {
+	return decodeProtectedJSON(data, destination)
+}
+
+func decodeProtectedJSON(data []byte, destination any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
